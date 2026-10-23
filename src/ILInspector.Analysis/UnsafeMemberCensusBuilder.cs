@@ -43,7 +43,8 @@ internal static class UnsafeMemberCensusBuilder
         IReadOnlyList<UnsafeMemberBodyFacts> bodies,
         bool hasFullMethodEvidenceScope,
         ReferenceAssemblyState referenceAssembly,
-        UnsafeMemberRootSet roots)
+        UnsafeMemberRootSet roots,
+        bool attributionBounded = false)
     {
         ArgumentNullException.ThrowIfNull(bodies);
         ArgumentNullException.ThrowIfNull(roots);
@@ -52,6 +53,8 @@ internal static class UnsafeMemberCensusBuilder
             ImmutableArray.CreateBuilder<UnsafeMemberLimitation>();
         if (!hasFullMethodEvidenceScope)
             limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.ScopedReceipt));
+        if (attributionBounded)
+            limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.AttributionBounded));
         if (referenceAssembly == ReferenceAssemblyState.Reference)
             limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.ReferenceAssembly));
         else if (referenceAssembly == ReferenceAssemblyState.Undecidable)
@@ -239,4 +242,127 @@ internal static class UnsafeMemberCensusBuilder
 
     static UnsafeMemberLimitation ImageLimitation(UnsafeMemberLimitationReason reason)
         => new(reason, BodyToken: null, Body: null, DeclaredMember: null, Evidence: []);
+}
+
+/// <summary>
+/// The unsafe-member inventory's per-body rules, shared by every census path:
+/// which roles one physical body contributes and which source an
+/// explicit-contract call carries.
+/// </summary>
+internal static class UnsafeMemberUseRules
+{
+    // One physical body's unsafe-member inventory roles, in the order the
+    // inventory owns: the explicit contract, the unsafe-context operations,
+    // and then the explicit-contract calls that no span lowering explains.
+    internal static ImmutableArray<UnsafeMemberUseEvidence>
+        CollectEvidence(
+            CallerUnsafeMode mode,
+            ImmutableArray<UnsafetyOccurrence> unsafety,
+            ImmutableHashSet<int> constantDataSpanConstructors,
+            IEnumerable<(
+                    int ILOffset,
+                    MemberRef Callee,
+                    UnsafeContractSource Source)>
+                explicitCalls)
+    {
+        var evidence =
+            ImmutableArray.CreateBuilder<UnsafeMemberUseEvidence>();
+        if (mode == CallerUnsafeMode.Explicit)
+        {
+            evidence.Add(new(
+                UnsafeMemberUseKind.ExplicitContract,
+                ILOffset: null,
+                "The member has an explicit updated-model caller-unsafe contract."));
+        }
+
+        ImmutableArray<UnsafetyOccurrence> occurrences =
+            unsafety.IsDefault ? [] : unsafety;
+        foreach (UnsafetyOccurrence occurrence in occurrences)
+        {
+            if (!occurrence.RequiresUnsafeContext)
+                continue;
+
+            evidence.Add(new(
+                occurrence.Kind switch
+                {
+                    UnsafetyKind.Deref =>
+                        UnsafeMemberUseKind.PointerDereference,
+                    UnsafetyKind.CallIndirect =>
+                        UnsafeMemberUseKind.IndirectCall,
+                    UnsafetyKind.StackAlloc =>
+                        UnsafeMemberUseKind.StackAllocation,
+                    _ => throw new InvalidOperationException(
+                        $"Unsupported unsafe-member occurrence kind '{occurrence.Kind}'."),
+                },
+                occurrence.ILOffset,
+                occurrence.Detail
+                    ?? occurrence.Kind.ToString()));
+        }
+
+        HashSet<int>? loweredSpanConstructors = null;
+        foreach ((int ilOffset, MemberRef callee, UnsafeContractSource source)
+            in explicitCalls)
+        {
+            loweredSpanConstructors ??=
+            [
+                .. constantDataSpanConstructors,
+                .. occurrences
+                    .Where(static occurrence =>
+                        occurrence.SpanConstructorOffset is not null)
+                    .Select(static occurrence =>
+                        occurrence.SpanConstructorOffset!.Value),
+            ];
+            if (loweredSpanConstructors.Contains(ilOffset))
+                continue;
+            evidence.Add(new(
+                UnsafeMemberUseKind.ExplicitContractCall,
+                ilOffset,
+                callee.ToQualifiedDisplayString(),
+                source));
+        }
+
+        return evidence.ToImmutable();
+    }
+
+    // A primary-image marker is authoritative. An image compiled under the
+    // updated rules is also authoritative for its unmarked definitions;
+    // otherwise the platform projection supplies the contract
+    // (docs/design/platform-caller-unsafe-contracts.md#contract-source).
+    // Roslyn synthesizes <PrivateImplementationDetails> helpers, such as
+    // InlineArrayAsSpan, to lower safe collection expressions and inline
+    // arrays; their platform calls are lowering, not source calls.
+    static bool IsPrivateImplementationDetailsBody(MethodIdentity body)
+        => body.DeclaringType.Kind == TypeRefKind.Definition
+            && body.DeclaringType.Namespace.Length == 0
+            && body.DeclaringType.Name.StartsWith(
+                "<PrivateImplementationDetails>",
+                StringComparison.Ordinal);
+
+    internal static UnsafeContractSource? ExplicitCallContractSource(
+        CallKind kind,
+        MemberRef callee,
+        CallerUnsafeMode? targetCallerUnsafeMode,
+        MethodIdentity evidenceMethod,
+        bool primaryImageUsesUpdatedRules)
+    {
+        if (targetCallerUnsafeMode == CallerUnsafeMode.Explicit)
+            return UnsafeContractSource.SameImage.Instance;
+        if (IsPrivateImplementationDetailsBody(evidenceMethod))
+            return null;
+        if (kind is not (
+                CallKind.Call
+                or CallKind.CallVirtual
+                or CallKind.NewObject)
+            || (primaryImageUsesUpdatedRules
+                && targetCallerUnsafeMode is not null))
+        {
+            return null;
+        }
+
+        PlatformCallerUnsafeContracts platform =
+            PlatformCallerUnsafeContracts.Embedded;
+        return platform.Contains(callee)
+            ? platform.Source
+            : null;
+    }
 }

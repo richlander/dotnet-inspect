@@ -1818,7 +1818,7 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_MalformedAsyncSourceDoesNotAbortStateMachineMap()
+    public void AsyncSiblingProducer_MalformedAsyncSourceDoesNotAbortStateMachineMap()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -1829,48 +1829,45 @@ public partial class LibraryBodyIndexTests
                 path,
                 BuildMalformedAsyncSourceAssembly());
 
-            var index = BodyAnalysisTestExecution.Open(path);
-            var opportunity = Assert.Single(
-                index.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name == "AnalyzeAsync");
+            var result =
+                AsyncSiblingTestExecution.Execute(path);
+            var row = Assert.Single(
+                result.Rows,
+                row => row.Caller.Name == "AnalyzeAsync");
 
+            // The ForeignAssemblyAsync (row 4) claim is a certificate
+            // rejection (#10235), so its kickoff reports a diagnostic too.
+            Assert.Equal(4, result.Diagnostics.Length);
+            Assert.Equal(
+                4,
+                result.Diagnostics
+                    .Select(diagnostic => diagnostic.MethodToken)
+                    .Distinct()
+                    .Count());
             Assert.Contains(
-                index.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "BrokenAsync",
+                result.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                        == MetadataTokens.GetToken(
+                            MetadataTokens.MethodDefinitionHandle(4))
+                    && diagnostic.Message.Contains(
+                        "does not map to a unique valid",
+                        StringComparison.Ordinal));
+            Assert.Contains(
+                result.Diagnostics,
+                diagnostic => diagnostic.Message.Contains(
+                    "Invalid compressed integer",
                     StringComparison.Ordinal));
-            Assert.Contains(
-                index.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "MalformedValueAsync",
-                    StringComparison.Ordinal));
-            Assert.Contains(
-                index.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "DuplicateAsync",
-                    StringComparison.Ordinal));
-            Assert.DoesNotContain(
-                index.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "ForeignAssemblyAsync",
-                    StringComparison.Ordinal));
-            Assert.Contains(
-                index.CallGraph.DirectCalls,
-                call => call.Caller.Name
-                        == "MalformedValueAsync"
-                    && call.Callee.Name == "Read");
-            Assert.Contains(
-                "ReadAsync",
-                opportunity.Evidence,
-                StringComparison.Ordinal);
+            Assert.Equal(
+                2,
+                result.Diagnostics.Count(
+                    diagnostic => diagnostic.Message.Contains(
+                        "malformed or ambiguous",
+                        StringComparison.Ordinal)));
             Assert.Equal(
                 "MoveNext",
-                Assert.Single(
-                    index.CallGraph.Methods,
-                    method => method.MetadataToken
-                        == opportunity.EvidenceMethodToken).Name);
+                row.SynchronousCall.EvidenceMethod.Name);
+            Assert.Equal("Read", row.SynchronousCall.Callee.Name);
+            Assert.Equal("ReadAsync", row.Alternative.Name);
         }
 
         finally
@@ -1925,15 +1922,12 @@ public partial class LibraryBodyIndexTests
             FixtureCatalog.AnalysisSpoofSystemRuntime
                 .AssemblyPath(),
             ".ctor"));
-        var spoof = BodyAnalysisTestExecution.Open(
+        var spoof = AsyncSiblingTestExecution.Execute(
             FixtureCatalog.AnalysisSpoofSystemRuntime
                 .AssemblyPath());
         Assert.DoesNotContain(
-            spoof.Optimization.Opportunities,
-            opportunity => opportunity.Shape
-                    == "sync-call-in-async"
-                && opportunity.Method.Name
-                    == "Analyze");
+            spoof.Rows,
+            row => row.Caller.Name == "Analyze");
 
         static bool IsTrustedAttributeConstructor(
             string path,
@@ -1978,7 +1972,7 @@ public partial class LibraryBodyIndexTests
                                 .AsyncStateMachineAttribute)
                         .Constructor;
                 }
-                return LibraryBodyAsyncSourceResolver
+                return StateMachineSourceResolver
                     .IsTrustedAsyncStateMachineAttribute(
                         reader,
                         constructor,
@@ -2062,7 +2056,7 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed()
+    public void AsyncSiblingProducer_MethodImplSelfDispatchIsSuppressed()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -2074,15 +2068,13 @@ public partial class LibraryBodyIndexTests
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: true));
 
-            var index = BodyAnalysisTestExecution.Open(path);
+            var index = AsyncSiblingTestExecution.Execute(path);
 
             Assert.DoesNotContain(
-                index.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                index.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
-            Assert.Empty(index.Receipt.Diagnostics);
+            Assert.Empty(index.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2091,16 +2083,13 @@ public partial class LibraryBodyIndexTests
                     methodImplBodyAsMemberReference:
                         true));
             var memberReferenceBody =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                memberReferenceBody
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                memberReferenceBody.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Empty(
-                memberReferenceBody.Receipt.Diagnostics);
+                memberReferenceBody.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2108,16 +2097,13 @@ public partial class LibraryBodyIndexTests
                     includeMethodImpl: true,
                     inheritedMethodImpl: true));
             var inheritedMethodImpl =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                inheritedMethodImpl
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                inheritedMethodImpl.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Empty(
-                inheritedMethodImpl.Receipt.Diagnostics);
+                inheritedMethodImpl.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2127,16 +2113,13 @@ public partial class LibraryBodyIndexTests
                         true,
                     inheritedMethodImpl: true));
             var inheritedMemberReference =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                inheritedMemberReference
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                inheritedMemberReference.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Empty(
-                inheritedMemberReference.Receipt.Diagnostics);
+                inheritedMemberReference.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2146,16 +2129,13 @@ public partial class LibraryBodyIndexTests
                     inheritedMethodImplBodyName:
                         "CoreAsync"));
             var unrelatedOverride =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                unrelatedOverride
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                unrelatedOverride.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Empty(
-                unrelatedOverride.Receipt.Diagnostics);
+                unrelatedOverride.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2166,16 +2146,13 @@ public partial class LibraryBodyIndexTests
                         "CoreAsync",
                     unrelatedSourceMethodImpl: true));
             var unrelatedSourceMethodImpl =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                unrelatedSourceMethodImpl
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                unrelatedSourceMethodImpl.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Empty(
-                unrelatedSourceMethodImpl.Receipt.Diagnostics);
+                unrelatedSourceMethodImpl.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2186,16 +2163,13 @@ public partial class LibraryBodyIndexTests
                         "CoreAsync",
                     malformedSourceMethodImpl: true));
             var malformedSourceMethodImpl =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                malformedSourceMethodImpl
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                malformedSourceMethodImpl.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Empty(
-                malformedSourceMethodImpl.Receipt.Diagnostics);
+                malformedSourceMethodImpl.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2208,16 +2182,13 @@ public partial class LibraryBodyIndexTests
                         false,
                     unrelatedSourceMethodImpl: true));
             var invalidDeclarationOwner =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                invalidDeclarationOwner
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                invalidDeclarationOwner.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Empty(
-                invalidDeclarationOwner.Receipt.Diagnostics);
+                invalidDeclarationOwner.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2230,16 +2201,13 @@ public partial class LibraryBodyIndexTests
                     incompatibleSourceMethodImpl:
                         true));
             var incompatibleSourceMethodImpl =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                incompatibleSourceMethodImpl
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                incompatibleSourceMethodImpl.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Empty(
-                incompatibleSourceMethodImpl.Receipt.Diagnostics);
+                incompatibleSourceMethodImpl.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2248,26 +2216,21 @@ public partial class LibraryBodyIndexTests
                     inheritedMethodImpl: true,
                     sourceStartsNewSlot: true));
             var inheritedNewSlot =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                inheritedNewSlot
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                inheritedNewSlot.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
-            Assert.Empty(inheritedNewSlot.Receipt.Diagnostics);
+            Assert.Empty(inheritedNewSlot.Diagnostics);
 
             File.WriteAllBytes(
                 path,
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: false));
-            var control = BodyAnalysisTestExecution.Open(path);
+            var control = AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                control.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                control.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
 
             File.WriteAllBytes(
@@ -2277,14 +2240,12 @@ public partial class LibraryBodyIndexTests
                     stateMachineUsesTasksContract:
                         true));
             var tasksContract =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                tasksContract.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                tasksContract.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
-            Assert.Empty(tasksContract.Receipt.Diagnostics);
+            Assert.Empty(tasksContract.Diagnostics);
 
             File.WriteAllBytes(
                 path,
@@ -2293,13 +2254,10 @@ public partial class LibraryBodyIndexTests
                     finalInterfaceSibling: true,
                     sourceMethodName: "ReadAsync"));
             var finalInterfaceSibling =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                finalInterfaceSibling
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                finalInterfaceSibling.Rows,
+                opportunity => opportunity.Caller.Name
                         == "ReadAsync");
 
             File.WriteAllBytes(
@@ -2308,19 +2266,14 @@ public partial class LibraryBodyIndexTests
                     includeMethodImpl: false,
                     attributeConstructorHeader: 0x25));
             var malformedAttributeConstructor =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                malformedAttributeConstructor
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                malformedAttributeConstructor.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Contains(
-                malformedAttributeConstructor.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "AnalyzeAsync",
-                    StringComparison.Ordinal));
+                malformedAttributeConstructor.Diagnostics,
+                diagnostic => diagnostic.MethodToken != 0);
 
             File.WriteAllBytes(
                 path,
@@ -2329,39 +2282,25 @@ public partial class LibraryBodyIndexTests
                     sourceImplementation:
                         MethodImplAttributes.Native));
             var nativeClassicAsync =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                nativeClassicAsync
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                nativeClassicAsync.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
-            Assert.Contains(
-                nativeClassicAsync.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "AnalyzeAsync",
-                    StringComparison.Ordinal));
-
             File.WriteAllBytes(
                 path,
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: false,
                     validStateMachine: false));
             var invalidStateMachine =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                invalidStateMachine
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                invalidStateMachine.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Contains(
-                invalidStateMachine.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "AnalyzeAsync",
-                    StringComparison.Ordinal));
+                invalidStateMachine.Diagnostics,
+                diagnostic => diagnostic.MethodToken != 0);
 
             File.WriteAllBytes(
                 path,
@@ -2369,20 +2308,11 @@ public partial class LibraryBodyIndexTests
                     includeMethodImpl: false,
                     sourceHasBody: false));
             var bodilessSource =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                bodilessSource
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                bodilessSource.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
-            Assert.Contains(
-                bodilessSource.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "AnalyzeAsync",
-                    StringComparison.Ordinal));
-
             var scopedBodilessSource =
                 BodyAnalysisTestExecution.Open(
                     path,
@@ -2396,9 +2326,7 @@ public partial class LibraryBodyIndexTests
                         });
             Assert.DoesNotContain(
                 scopedBodilessSource.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "AnalyzeAsync",
-                    StringComparison.Ordinal));
+                diagnostic => diagnostic.MethodToken != 0);
 
             File.WriteAllBytes(
                 path,
@@ -2407,13 +2335,7 @@ public partial class LibraryBodyIndexTests
                     sourceHasBody: false,
                     runtimeAsyncSource: true));
             var bodilessRuntimeAsync =
-                BodyAnalysisTestExecution.Open(path);
-            Assert.Contains(
-                bodilessRuntimeAsync.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "AnalyzeAsync",
-                    StringComparison.Ordinal));
-
+                AsyncSiblingTestExecution.Execute(path);
             File.WriteAllBytes(
                 path,
                 BuildMethodImplAsyncSourceAssembly(
@@ -2422,39 +2344,25 @@ public partial class LibraryBodyIndexTests
                     sourceImplementation:
                         MethodImplAttributes.Native));
             var nativeRuntimeAsync =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                nativeRuntimeAsync
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                nativeRuntimeAsync.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
-            Assert.Contains(
-                nativeRuntimeAsync.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "AnalyzeAsync",
-                    StringComparison.Ordinal));
-
             File.WriteAllBytes(
                 path,
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: false,
                     moveNextHasBody: false));
             var bodilessMoveNext =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                bodilessMoveNext
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                bodilessMoveNext.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Contains(
-                bodilessMoveNext.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "AnalyzeAsync",
-                    StringComparison.Ordinal));
+                bodilessMoveNext.Diagnostics,
+                diagnostic => diagnostic.MethodToken != 0);
 
             File.WriteAllBytes(
                 path,
@@ -2463,19 +2371,14 @@ public partial class LibraryBodyIndexTests
                     moveNextImplementation:
                         MethodImplAttributes.InternalCall));
             var nonIlMoveNext =
-                BodyAnalysisTestExecution.Open(path);
+                AsyncSiblingTestExecution.Execute(path);
             Assert.DoesNotContain(
-                nonIlMoveNext
-                    .Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
+                nonIlMoveNext.Rows,
+                opportunity => opportunity.Caller.Name
                         == "AnalyzeAsync");
             Assert.Contains(
-                nonIlMoveNext.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "AnalyzeAsync",
-                    StringComparison.Ordinal));
+                nonIlMoveNext.Diagnostics,
+                diagnostic => diagnostic.MethodToken != 0);
 
             foreach (byte unsupportedHeader
                 in new byte[] { 0x25, 0x60, 0xA0 })
@@ -2487,14 +2390,12 @@ public partial class LibraryBodyIndexTests
                         siblingSignatureHeader:
                             unsupportedHeader));
                 var unsupported =
-                    BodyAnalysisTestExecution.Open(path);
+                    AsyncSiblingTestExecution.Execute(path);
                 Assert.DoesNotContain(
-                    unsupported.Optimization.Opportunities,
-                    opportunity => opportunity.Shape
-                            == "sync-call-in-async"
-                        && opportunity.Method.Name
+                    unsupported.Rows,
+                    opportunity => opportunity.Caller.Name
                             == "AnalyzeAsync");
-                Assert.Empty(unsupported.Receipt.Diagnostics);
+                Assert.Empty(unsupported.Diagnostics);
             }
         }
         finally
@@ -2557,7 +2458,7 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_AmbiguousStateMachineSourceIsDiagnostic()
+    public void AsyncSiblingProducer_AmbiguousStateMachineSourceIsDiagnostic()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -2569,20 +2470,14 @@ public partial class LibraryBodyIndexTests
                 BuildMalformedAsyncSourceAssembly(
                     ambiguousSource: true));
 
-            var index = BodyAnalysisTestExecution.Open(path);
+            var result = AsyncSiblingTestExecution.Execute(path);
 
             Assert.DoesNotContain(
-                index.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.Name
-                        == "AnalyzeAsync");
+                result.Rows,
+                row => row.Caller.Name == "AnalyzeAsync");
             Assert.Contains(
-                index.Receipt.Diagnostics,
-                diagnostic => diagnostic.Method.Contains(
-                    "MoveNext",
-                    StringComparison.Ordinal)
-                    && diagnostic.Message.Contains(
+                result.Diagnostics,
+                diagnostic => diagnostic.Message.Contains(
                         "Multiple async source methods",
                         StringComparison.Ordinal));
         }
@@ -2764,9 +2659,15 @@ public partial class LibraryBodyIndexTests
                     == moveNext.MetadataToken);
     }
 
+    /// <summary>
+    /// A runtime-async method that carries a second claim on the same state
+    /// machine makes the shared claim a certificate rejection (#10235). The
+    /// resolver takes identity only from the certificate, so the execution
+    /// body fails closed instead of resolving to the remaining claimant.
+    /// </summary>
     [Fact]
     public void
-        DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource()
+        DirectCalls_RuntimeAsyncDecoyFailsClosedOnSharedClaim()
     {
         byte[] image =
             BuildMalformedAsyncSourceAssembly(
@@ -2785,19 +2686,18 @@ public partial class LibraryBodyIndexTests
             method => method.Name == "MoveNext"
                 && method.ParameterTypes.IsEmpty);
 
-        Assert.Equal(
-            source,
-            full.CallGraph.ResolveDeclaredMethod(moveNext));
-        Assert.Contains(
+        Assert.Null(full.CallGraph.ResolveDeclaredMethod(moveNext));
+        Assert.DoesNotContain(
             full.CallGraph.DirectCalls,
             call => call.EvidenceMethod == moveNext
-                && call.Caller == source
-                && call.Callee.Name == "Read");
-        Assert.DoesNotContain(
+                && call.Caller == source);
+        Assert.Contains(
             full.Receipt.Diagnostics,
             diagnostic =>
-                diagnostic.MethodToken
-                    == source.MetadataToken);
+                diagnostic.MethodToken == moveNext.MetadataToken
+                && diagnostic.Message.Contains(
+                    "Multiple async source methods",
+                    StringComparison.Ordinal));
 
         LibraryBodyAnalysisExecution sourceScoped =
             BodyAnalysisTestExecution.OpenFromPrefetchedImage(
@@ -2808,29 +2708,10 @@ public partial class LibraryBodyIndexTests
                 {
                     source.MetadataToken,
                 });
-        Assert.Equal(
-            source,
-            sourceScoped.CallGraph.ResolveDeclaredMethod(moveNext));
-        Assert.Contains(
+        Assert.DoesNotContain(
             sourceScoped.CallGraph.DirectCalls,
             call => call.EvidenceMethod == moveNext
                 && call.Caller == source);
-
-        MethodIdentity unrelated = Assert.Single(
-            full.CallGraph.DeclaredMethods,
-            method => method.Name == "Read");
-        LibraryBodyAnalysisExecution unrelatedScoped =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
-                "RuntimeAsyncDecoy.dll",
-                [.. image],
-                LibraryBodyAnalysisFeatures.MethodEvidence,
-                bodyScope: new HashSet<int>
-                {
-                    unrelated.MetadataToken,
-                });
-        Assert.Equal(
-            source,
-            unrelatedScoped.CallGraph.ResolveDeclaredMethod(moveNext));
     }
 
     [Fact]
@@ -2885,13 +2766,6 @@ public partial class LibraryBodyIndexTests
                 opportunity => opportunity.Shape == "small-array"
                     && opportunity.Method.MetadataToken
                         == moveNext.MetadataToken);
-            Assert.DoesNotContain(
-                full.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method == kickoff
-                    && opportunity.EvidenceMethodToken
-                        == moveNext.MetadataToken);
             // The focused result publishes the same unscoped fallback, while
             // DirectCall.Caller for MoveNext's own calls stays physical.
             Assert.Equal(
@@ -2928,13 +2802,6 @@ public partial class LibraryBodyIndexTests
             Assert.Equal(
                 "medium",
                 callerFanout.Confidence);
-            Assert.DoesNotContain(
-                methodScoped.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method == kickoff
-                    && opportunity.EvidenceMethodToken
-                        == moveNext.MetadataToken);
             Assert.Contains(
                 methodScoped.Optimization.Opportunities,
                 opportunity => opportunity.Shape == "small-array"
@@ -2953,13 +2820,6 @@ public partial class LibraryBodyIndexTests
                 scoped.Optimization.Opportunities,
                 opportunity => opportunity.Shape == "small-array"
                     && opportunity.Method.MetadataToken
-                        == moveNext.MetadataToken);
-            Assert.DoesNotContain(
-                scoped.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method == kickoff
-                    && opportunity.EvidenceMethodToken
                         == moveNext.MetadataToken);
             Assert.Null(
                 scoped.CallGraph.ResolveDeclaredMethod(moveNext));
@@ -4010,70 +3870,32 @@ public partial class LibraryBodyIndexTests
                         == "capturing-delegate"
                     && opportunity.Method.MetadataToken
                         == moveNext.MetadataToken);
-            Assert.DoesNotContain(
-                index.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.MetadataToken
-                        == owner.MetadataToken);
         }
     }
 
     [Fact]
     public void
-        OptimizationOpportunities_TypeGeneratedAsyncOwnerSuppressesSiblingAcrossScopes()
+        AsyncSiblingProducer_TypeGeneratedAsyncOwnerSuppressesSibling()
     {
         string path =
             typeof(
                 ClassicAsyncSiblingFixture
                     .CompilerGeneratedAsyncOwnerContainer)
                 .Assembly.Location;
-        LibraryBodyAnalysisExecution identities = BodyAnalysisTestExecution.Open(
-            path,
-            LibraryBodyAnalysisFeatures.MethodEvidence);
-        MethodIdentity owner = Assert.Single(
-            identities.CallGraph.Methods,
-            method => method.Name
-                == nameof(
-                    ClassicAsyncSiblingFixture
-                        .CompilerGeneratedAsyncOwnerContainer
-                        .AnalyzeAsync)
-                && method.DeclaringType.Name.Contains(
+        var result = AsyncSiblingTestExecution.Execute(path);
+
+        Assert.DoesNotContain(
+            result.Rows,
+            row => row.Caller.Name
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .CompilerGeneratedAsyncOwnerContainer
+                            .AnalyzeAsync)
+                && row.Caller.DeclaringType.Name.Contains(
                     nameof(
                         ClassicAsyncSiblingFixture
                             .CompilerGeneratedAsyncOwnerContainer),
                     StringComparison.Ordinal));
-
-        foreach (LibraryBodyAnalysisExecution index in new[]
-        {
-            BodyAnalysisTestExecution.Open(
-                path,
-                LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities),
-            BodyAnalysisTestExecution.Open(
-                path,
-                LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities,
-                bodyScope: new HashSet<int>
-                {
-                    owner.MetadataToken,
-                }),
-            BodyAnalysisTestExecution.Open(
-                path,
-                LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities,
-                bodyTypeScope:
-                    type => type.Equals(
-                        owner.DeclaringType)),
-        })
-        {
-            Assert.DoesNotContain(
-                index.Optimization.Opportunities,
-                opportunity => opportunity.Shape
-                        == "sync-call-in-async"
-                    && opportunity.Method.MetadataToken
-                        == owner.MetadataToken);
-        }
     }
 
     [Fact]

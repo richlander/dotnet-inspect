@@ -35,18 +35,24 @@ namespace DotnetInspect.Cli.Commands;
 public partial class PackageCommand
 {
     public const string Name = "package";
-    public static Task<int> ExecuteAsync(InspectionOptions options)
+    public static Task<int> ExecuteAsync(
+        InspectionOptions options,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return ExecuteAsync(
-            options,
-            new CommandContext(options.Verbose));
+        var context = new CommandContext(options.Verbose);
+        return PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? ExecutePackageReferenceAsync(
+                options, context, cancellationToken: cancellationToken)
+            : ExecuteAsync(options, context);
     }
 
     internal static async Task<int> ExecuteAsync(
         InspectionOptions options,
         CommandContext context) =>
-        await ExecuteCoreAsync(
+        PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? await ExecutePackageReferenceAsync(options, context).ConfigureAwait(false)
+            : await ExecuteCoreAsync(
             options,
             context,
             preResolved: null,
@@ -61,7 +67,10 @@ public partial class PackageCommand
         InspectionOptions options,
         CommandContext context,
         WorkspaceContextLoadOptions workspaceLoadOptions) =>
-        await ExecuteCoreAsync(
+        PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? await ExecutePackageReferenceAsync(options, context, workspaceLoadOptions)
+                .ConfigureAwait(false)
+            : await ExecuteCoreAsync(
             options,
             context,
             preResolved: null,
@@ -97,10 +106,17 @@ public partial class PackageCommand
         var sectionNames = sectionCatalog.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
         if (options.WorkspacePacket is null
+            && options.ShareFormat is not null
+            && options.Discover is not null)
+        {
+            CommandError.Write("--share cannot preserve package discovery in the Browser.");
+            return 1;
+        }
+        if (packageLibraryMode
+            && options.WorkspacePacket is null
             && options.ShareFormat is not null)
         {
-            CommandError.Write(
-                "--share on package requires --workspace.");
+            CommandError.Write("--share on package library routes requires --workspace.");
             return 1;
         }
 #if DEBUG
@@ -275,6 +291,34 @@ public partial class PackageCommand
             if (SelectOutput.WriteUnresolved(selectResult)) return 1;
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
+            if (options.WorkspacePacket is null
+                && options.ShareFormat is not null
+                && !IsSingleDependencyHierarchySelection(options))
+            {
+                CommandError.Write(
+                    "--share on package currently supports one explicit "
+                        + "'Dependency Hierarchy' section, or requires --workspace.");
+                return 1;
+            }
+            if (options.WorkspacePacket is null
+                && options.ShareFormat is not null
+                && (options.Count
+                    || options.Raw
+                    || options.Value
+                    || options.Paths
+                    || options.Roots
+                    || options.Print
+                    || options.ShowContent
+                    || options.Urls
+                    || options.ListVersions
+                    || options.Fields is not null
+                    || options.Columns is not null))
+            {
+                CommandError.Write(
+                    "--share cannot preserve this Dependency Hierarchy "
+                        + "output selection in the Browser.");
+                return 1;
+            }
             if (packageArgs.Length > 1
                 && options.IncludeSections?.Contains(
                     PackageSections.DependencyHierarchy) == true)
@@ -530,7 +574,7 @@ public partial class PackageCommand
                 workspaceLoadOptions).ConfigureAwait(false);
         }
 
-        if (packageArgs.Length == 1)
+        if (preResolved is null && packageArgs.Length == 1)
         {
             PackageReferenceTarget houseTarget =
                 options.DeclaredPackageTarget
@@ -547,7 +591,7 @@ public partial class PackageCommand
                 return exitCode;
         }
 
-        if (options.ShowContent && packageArgs.Length == 1)
+        if (preResolved is null && options.ShowContent && packageArgs.Length == 1)
         {
             PackageReferenceTarget houseTarget =
                 options.DeclaredPackageTarget
@@ -1182,10 +1226,6 @@ public partial class PackageCommand
         if (packageFileInventoryExitCode is { } inventoryExitCode)
             return inventoryExitCode;
 
-        string? extractPath = null;
-        PackageExtractionResult? resolution = null;
-        InspectionResult? observedInspection = null;
-
         if (!TryCreatePackageInfoTargetContext(
                 options,
                 producerOptions,
@@ -1194,6 +1234,35 @@ public partial class PackageCommand
         {
             return 1;
         }
+
+        if (preResolved is null)
+        {
+            int? packageInfoInventoryExitCode =
+                await TryExecutePackageInfoInventoryAsync(
+                        target,
+                        options,
+                        producerOptions,
+                        context,
+                        pipeline,
+                        packageInfoTargetContext)
+                    .ConfigureAwait(false);
+            if (packageInfoInventoryExitCode is { } infoInventoryExitCode)
+                return infoInventoryExitCode;
+
+            int? admittedPackageExitCode =
+                await TryExecuteOnlinePackageAsync(
+                    target,
+                    options with { Verbosity = userVerbosity },
+                    context,
+                    packageInfoTargetContext)
+                    .ConfigureAwait(false);
+            if (admittedPackageExitCode is { } onlineExitCode)
+                return onlineExitCode;
+        }
+
+        string? extractPath = null;
+        PackageExtractionResult? resolution = null;
+        InspectionResult? observedInspection = null;
 
         try
         {
@@ -1218,13 +1287,21 @@ public partial class PackageCommand
                             client, packageName, pinnedVersion, logger.Log,
                             sourceOptions: options.SourceOptions,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext)
+                            compileTargetContext: packageInfoTargetContext,
+                            assetSelection:
+                                PackageInfoAssetSelection(
+                                    options,
+                                    packageInfoTargetContext))
                         : await PackageExtractor.ExtractSelectedPackageAsync(
                             client, packageName, version.Length > 0 ? version : null, logger.Log,
                             sourceOptions: options.SourceOptions,
                             includePrerelease: options.IncludePrerelease,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext);
+                            compileTargetContext: packageInfoTargetContext,
+                            assetSelection:
+                                PackageInfoAssetSelection(
+                                    options,
+                                    packageInfoTargetContext));
                 }
                 else
                 {
@@ -1587,7 +1664,8 @@ public partial class PackageCommand
                     extractPath,
                     packageName,
                     version,
-                    options);
+                    options,
+                    admittedPackageRoot?.Root.AssetSelection);
             }
 
             if (options.Tree && !effectiveDiscovery)
@@ -1596,7 +1674,9 @@ public partial class PackageCommand
                     WritePackageFilesTree(result, options);
                 else
                     WritePackageDependencyHierarchyTree(result, options);
-                return PackageIntegrityExitCode(result);
+                return WriteDirectHierarchyShare(
+                    PackageIntegrityExitCode(result), options, target,
+                    resolution);
             }
 
             if (wantsSignals && options.Count && !effectiveDiscovery)
@@ -1752,7 +1832,9 @@ public partial class PackageCommand
                 {
                     return 1;
                 }
-                return PackageIntegrityExitCode(result);
+                return WriteDirectHierarchyShare(
+                    PackageIntegrityExitCode(result), options, target,
+                    resolution);
             }
             if (options.Tabular)
             {
@@ -1912,7 +1994,9 @@ public partial class PackageCommand
                     });
             }
 
-            return PackageIntegrityExitCode(result);
+            return WriteDirectHierarchyShare(
+                PackageIntegrityExitCode(result), options, target,
+                resolution);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {

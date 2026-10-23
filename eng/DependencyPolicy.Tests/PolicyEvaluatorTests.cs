@@ -985,6 +985,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "CSharpText",
                 "DotnetInspector.Cache",
+                "DotnetInspector.Diff",
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
@@ -1060,6 +1061,7 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "CSharpText",
                 "DotnetInspector.Cache",
+                "DotnetInspector.Diff",
                 "DotnetInspector.DocumentationHouse.Contracts",
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.InspectionContracts",
@@ -1201,8 +1203,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Sections",
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceHouse",
-                "ILInspector.Analysis",
-                "ILInspector.CallGraph",
                 "ILInspector.Metadata",
                 "NuGetFetch",
             ],
@@ -1234,8 +1234,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceHouse",
                 "DotnetInspector.SourceSelection",
-                "ILInspector.Analysis",
-                "ILInspector.CallGraph",
                 "ILInspector.Metadata",
                 "InertText",
                 "Inspector.Artifacts",
@@ -1275,6 +1273,30 @@ public sealed class PolicyEvaluatorTests
             assemblyRule.Id,
             target[0],
             "ILInspector.Research",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.CallGraph",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.CallGraph",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.Analysis",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.Analysis",
             DependencyGraphKind.Assembly,
             projectPath[0]);
     }

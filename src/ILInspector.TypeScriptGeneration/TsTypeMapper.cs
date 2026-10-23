@@ -100,7 +100,8 @@ static class TsTypeMapper
         TypeScriptGenerationDiagnostics? diagnostics = null,
         string? location = null,
         IReadOnlySet<string>? blockedAliases = null,
-        IReadOnlyDictionary<string, string>? mappedTypeNames = null)
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null,
+        JsExportInt64Marshaling? int64Marshaling = null)
     {
         string trimmed = csharpType.Trim();
         if (IsBlockedType(trimmed, blockedAliases))
@@ -109,6 +110,15 @@ static class TsTypeMapper
                 location ?? trimmed,
                 trimmed);
             return "unknown";
+        }
+
+        if (int64Marshaling is { } marshaling)
+        {
+            return MapAuthenticatedInt64(
+                trimmed,
+                marshaling,
+                diagnostics,
+                location);
         }
 
         if (TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
@@ -244,9 +254,19 @@ static class TsTypeMapper
         IReadOnlySet<string>? blockedAliases = null,
         IReadOnlyDictionary<string, string>? mappedTypeNames = null,
         JsExportDelegateParameter? delegateParameter = null,
-        TsDelegateMappingContext? delegateMappingContext = null)
+        TsDelegateMappingContext? delegateMappingContext = null,
+        JsExportInt64Marshaling? int64Marshaling = null)
     {
         string trimmed = csharpType.Trim();
+        if (int64Marshaling is { } marshaling)
+        {
+            return MapAuthenticatedInt64(
+                trimmed,
+                marshaling,
+                diagnostics,
+                location);
+        }
+
         return delegateParameter is null
             ? Map(
                 trimmed,
@@ -270,6 +290,31 @@ static class TsTypeMapper
                             MetadataTypeDefinitionName,
                             TsLocalTypeKind>(),
                         ContainingAssembly: null));
+    }
+
+    static string MapAuthenticatedInt64(
+        string csharpType,
+        JsExportInt64Marshaling marshaling,
+        TypeScriptGenerationDiagnostics? diagnostics,
+        string? location)
+    {
+        if (csharpType is not ("long" or "System.Int64"))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? csharpType,
+                $"authenticated Int64 marshaling on '{csharpType}'");
+            return "unknown";
+        }
+
+        return marshaling switch
+        {
+            JsExportInt64Marshaling.Number => "number",
+            JsExportInt64Marshaling.BigInt => "bigint",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(marshaling),
+                marshaling,
+                "Unknown authenticated Int64 marshaling."),
+        };
     }
 
     public static string MapJsonWireType(

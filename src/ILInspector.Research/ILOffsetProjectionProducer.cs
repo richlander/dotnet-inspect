@@ -15,11 +15,12 @@ public static class ILOffsetProjectionProducer
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Source);
-        if (request.Analysis is not null
+        if ((request.Analysis is not null
+                || request.SafetyAnalysis is not null)
             && request.AnalysisFailure is not null)
         {
             throw new ArgumentException(
-                "IL-offset projection cannot receive both focused Analysis "
+                "IL-offset projection cannot receive both Analysis "
                     + "results and an Analysis failure.",
                 nameof(request));
         }
@@ -154,79 +155,124 @@ public static class ILOffsetProjectionProducer
         bool wantsCost = Includes(request, ILOffsetProjectionCapabilities.CostContext);
         if (wantsAllocation || wantsSafety || wantsCost)
         {
-            if (request.Analysis is not { } analysis)
-            {
-                var failureKind = wantsAllocation
-                    ? ILOffsetProjectionFailureKind.AllocationAnalysisUnavailable
-                    : wantsSafety
-                        ? ILOffsetProjectionFailureKind.SafetyAnalysisUnavailable
-                        : ILOffsetProjectionFailureKind.CostAnalysisUnavailable;
-                return ILOffsetProjectionOutcome.Failed(
-                    failureKind,
-                    request.AnalysisFailure
-                        ?? "IL-offset semantic analysis unavailable: "
-                            + "no focused Analysis input was supplied.");
-            }
             Guid sourceModuleVersionId = ReadModuleVersionId(context);
-            if (sourceModuleVersionId
-                != analysis.Receipt.ModuleIdentity.ModuleVersionId)
-            {
-                var failureKind = wantsAllocation
-                    ? ILOffsetProjectionFailureKind.AllocationAnalysisUnavailable
-                    : wantsSafety
-                        ? ILOffsetProjectionFailureKind.SafetyAnalysisUnavailable
-                        : ILOffsetProjectionFailureKind.CostAnalysisUnavailable;
-                return ILOffsetProjectionOutcome.Failed(
-                    failureKind,
-                    "IL-offset semantic analysis unavailable: "
-                        + "the source and Analysis input represent "
-                        + "different module generations.");
-            }
-            if (wantsAllocation
-                && !analysis.Allocations.WasRequested)
-            {
-                return ILOffsetProjectionOutcome.Failed(
-                    ILOffsetProjectionFailureKind
-                        .AllocationAnalysisUnavailable,
-                    "IL-offset allocation analysis was not requested "
-                        + "by the supplied execution.");
-            }
-            if (wantsSafety
-                && !analysis.Safety.WasRequested)
-            {
-                return ILOffsetProjectionOutcome.Failed(
-                    ILOffsetProjectionFailureKind
-                        .SafetyAnalysisUnavailable,
-                    "IL-offset safety analysis was not requested "
-                        + "by the supplied execution.");
-            }
-            if (wantsCost
-                && !analysis.CallGraph.WasRequested)
-            {
-                return ILOffsetProjectionOutcome.Failed(
-                    ILOffsetProjectionFailureKind
-                        .CostAnalysisUnavailable,
-                    "IL-offset cost analysis was not requested "
-                        + "by the supplied execution.");
-            }
             if (wantsAllocation)
             {
-                allocationContext = BuildAllocationContext(
-                    analysis,
-                    request.MethodToken,
-                    request.ILOffset);
+                if (request.AllocationAnalysis
+                    is { } focusedAllocation)
+                {
+                    if (sourceModuleVersionId
+                        != focusedAllocation.ModuleVersionId)
+                    {
+                        return GenerationMismatch(
+                            ILOffsetProjectionFailureKind
+                                .AllocationAnalysisUnavailable);
+                    }
+                }
+                else
+                {
+                    if (RequireLegacyAnalysis(
+                            request,
+                            sourceModuleVersionId,
+                            ILOffsetProjectionFailureKind
+                                .AllocationAnalysisUnavailable)
+                        is { } failure)
+                    {
+                        return failure;
+                    }
+                    if (!request.Analysis!.Allocations.WasRequested)
+                    {
+                        return ILOffsetProjectionOutcome.Failed(
+                            ILOffsetProjectionFailureKind
+                                .AllocationAnalysisUnavailable,
+                            "IL-offset allocation analysis was not requested "
+                                + "by the supplied execution.");
+                    }
+                }
             }
             if (wantsSafety)
             {
-                safetyContext = BuildSafetyContext(
-                    analysis,
-                    request.MethodToken,
-                    request.ILOffset);
+                if (request.SafetyAnalysis is { } focusedSafety)
+                {
+                    if (sourceModuleVersionId
+                        != focusedSafety.ModuleVersionId)
+                    {
+                        return GenerationMismatch(
+                            ILOffsetProjectionFailureKind
+                                .SafetyAnalysisUnavailable);
+                    }
+                }
+                else
+                {
+                    if (RequireLegacyAnalysis(
+                            request,
+                            sourceModuleVersionId,
+                            ILOffsetProjectionFailureKind
+                                .SafetyAnalysisUnavailable)
+                        is { } failure)
+                    {
+                        return failure;
+                    }
+                    if (!request.Analysis!.Safety.WasRequested)
+                    {
+                        return ILOffsetProjectionOutcome.Failed(
+                            ILOffsetProjectionFailureKind
+                                .SafetyAnalysisUnavailable,
+                            "IL-offset safety analysis was not requested "
+                                + "by the supplied execution.");
+                    }
+                }
+            }
+            if (wantsCost)
+            {
+                if (RequireLegacyAnalysis(
+                        request,
+                        sourceModuleVersionId,
+                        ILOffsetProjectionFailureKind
+                            .CostAnalysisUnavailable)
+                    is { } failure)
+                {
+                    return failure;
+                }
+                if (!request.Analysis!.CallGraph.WasRequested)
+                {
+                    return ILOffsetProjectionOutcome.Failed(
+                        ILOffsetProjectionFailureKind
+                            .CostAnalysisUnavailable,
+                        "IL-offset cost analysis was not requested "
+                            + "by the supplied execution.");
+                }
+            }
+            if (wantsAllocation)
+            {
+                allocationContext =
+                    request.AllocationAnalysis
+                        is { } focusedAllocation
+                    ? BuildAllocationContext(
+                        focusedAllocation,
+                        request.MethodToken,
+                        request.ILOffset)
+                    : BuildAllocationContext(
+                        request.Analysis!,
+                        request.MethodToken,
+                        request.ILOffset);
+            }
+            if (wantsSafety)
+            {
+                safetyContext = request.SafetyAnalysis is { } focusedSafety
+                    ? BuildSafetyContext(
+                        focusedSafety,
+                        request.MethodToken,
+                        request.ILOffset)
+                    : BuildSafetyContext(
+                        request.Analysis!,
+                        request.MethodToken,
+                        request.ILOffset);
             }
             if (wantsCost)
             {
                 costContext = BuildCostContext(
-                    analysis,
+                    request.Analysis!,
                     request.MethodToken,
                     request.ILOffset);
             }
@@ -343,6 +389,33 @@ public static class ILOffsetProjectionProducer
     static bool Includes(ILOffsetProjectionRequest request, ILOffsetProjectionCapabilities capability)
         => (request.Capabilities & capability) != 0;
 
+    static ILOffsetProjectionOutcome? RequireLegacyAnalysis(
+        ILOffsetProjectionRequest request,
+        Guid sourceModuleVersionId,
+        ILOffsetProjectionFailureKind failureKind)
+    {
+        if (request.Analysis is not { } analysis)
+        {
+            return ILOffsetProjectionOutcome.Failed(
+                failureKind,
+                request.AnalysisFailure
+                    ?? "IL-offset semantic analysis unavailable: "
+                        + "no focused Analysis input was supplied.");
+        }
+        return sourceModuleVersionId
+            != analysis.Receipt.ModuleIdentity.ModuleVersionId
+                ? GenerationMismatch(failureKind)
+                : null;
+    }
+
+    static ILOffsetProjectionOutcome GenerationMismatch(
+        ILOffsetProjectionFailureKind failureKind) =>
+        ILOffsetProjectionOutcome.Failed(
+            failureKind,
+            "IL-offset semantic analysis unavailable: "
+                + "the source and Analysis input represent "
+                + "different module generations.");
+
     static string FormatILRange(int start, int end) => $"IL_{start:X4}..IL_{end:X4}";
 
     static string FormatILOffset(int offset) => $"IL_{offset:X4}";
@@ -368,6 +441,17 @@ public static class ILOffsetProjectionProducer
             .Select(ToILOffsetAllocationContext)
             .ToList();
 
+    static List<ILOffsetAllocationContext> BuildAllocationContext(
+        ILOffsetAllocationAnalysisInput analysis,
+        int methodToken,
+        int ilOffset)
+        => Analysis.SemanticFactProjection.AllocationFacts(
+                analysis.Occurrences,
+                methodToken,
+                ilOffset)
+            .Select(ToILOffsetAllocationContext)
+            .ToList();
+
     static List<ILOffsetSafetyContext> BuildSafetyContext(
         ILOffsetAnalysisInput analysis,
         int methodToken,
@@ -379,6 +463,25 @@ public static class ILOffsetProjectionProducer
         analysis.UnsafeEvidenceByToken.TryGetValue(
             methodToken,
             out var evidence);
+        return Analysis.SemanticFactProjection.SafetyFacts(
+                evidence.IsDefault ? [] : evidence,
+                occurrences.IsDefault ? [] : occurrences,
+                ilOffset)
+            .Select(ToILOffsetSafetyContext)
+            .ToList();
+    }
+
+    static List<ILOffsetSafetyContext> BuildSafetyContext(
+        ILOffsetSafetyAnalysisInput analysis,
+        int methodToken,
+        int ilOffset)
+    {
+        analysis.Occurrences.TryGetValue(
+            methodToken,
+            out ImmutableArray<Analysis.UnsafetyOccurrence> occurrences);
+        analysis.Evidence.TryGetValue(
+            methodToken,
+            out ImmutableArray<Analysis.UnsafeEvidence> evidence);
         return Analysis.SemanticFactProjection.SafetyFacts(
                 evidence.IsDefault ? [] : evidence,
                 occurrences.IsDefault ? [] : occurrences,

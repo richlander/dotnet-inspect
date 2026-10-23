@@ -13,6 +13,13 @@ public class ApiDiffAnalyzerTests
         return surface;
     }
 
+    private static ApiSurface ApiAxisSurface(params ApiType[] types)
+    {
+        ApiSurface surface = Surface(types);
+        surface.ExtractionScope = ApiSurfaceExtractionScope.ApiAxis;
+        return surface;
+    }
+
     private static ApiType Type(
         string name,
         string kind = "class",
@@ -689,6 +696,242 @@ public class ApiDiffAnalyzerTests
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
     }
 
+    [Theory]
+    [InlineData(null, "protected", ChangeClassification.Breaking)]
+    [InlineData("protected internal", "protected", ChangeClassification.NonBreaking)]
+    [InlineData("protected", null, ChangeClassification.Additive)]
+    public void MemberAccessibilityChange_WithinTheApiAxis_IsClassifiedByDirection(
+        string? oldAccessibility,
+        string? newAccessibility,
+        ChangeClassification classification)
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        oldMember.Accessibility = oldAccessibility;
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = newAccessibility;
+
+        var diff = ApiDiffAnalyzer.Compare(
+            ApiAxisSurface(Type("Foo", members: [oldMember])),
+            ApiAxisSurface(Type("Foo", members: [newMember])));
+
+        var change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberAccessibilityChanged, change.Kind);
+        Assert.Equal(classification, change.Classification);
+    }
+
+    private static ApiSurface IncludeAllSurface(params ApiType[] types)
+    {
+        ApiSurface surface = Surface(types);
+        surface.ExtractionScope = ApiSurfaceExtractionScope.IncludeAll;
+        return surface;
+    }
+
+    [Theory]
+    [InlineData("public", "protected internal", ChangeClassification.Breaking)]
+    [InlineData("public", "protected", ChangeClassification.Breaking)]
+    [InlineData("public", "internal", ChangeClassification.Breaking)]
+    [InlineData("public", "private protected", ChangeClassification.Breaking)]
+    [InlineData("public", "private", ChangeClassification.Breaking)]
+    [InlineData("protected internal", "protected", ChangeClassification.NonBreaking)]
+    [InlineData("protected internal", "internal", ChangeClassification.Breaking)]
+    [InlineData("protected", "internal", ChangeClassification.Breaking)]
+    [InlineData("protected", "private protected", ChangeClassification.Breaking)]
+    [InlineData("protected", "private", ChangeClassification.Breaking)]
+    [InlineData("protected", "protected internal", ChangeClassification.NonBreaking)]
+    [InlineData("protected", "public", ChangeClassification.Additive)]
+    [InlineData("internal", "protected", ChangeClassification.Additive)]
+    [InlineData("internal", "public", ChangeClassification.Additive)]
+    [InlineData("private", "protected internal", ChangeClassification.Additive)]
+    [InlineData("private protected", "public", ChangeClassification.Additive)]
+    [InlineData("internal", "private", ChangeClassification.NonBreaking)]
+    [InlineData("private", "internal", ChangeClassification.NonBreaking)]
+    [InlineData("private protected", "internal", ChangeClassification.NonBreaking)]
+    [InlineData("internal", "private protected", ChangeClassification.NonBreaking)]
+    [InlineData("private", "private protected", ChangeClassification.NonBreaking)]
+    [InlineData("private protected", "private", ChangeClassification.NonBreaking)]
+    public void AccessibilityMove_UnderIncludeAll_IsClassifiedByExternalReach(
+        string oldAccessibility,
+        string newAccessibility,
+        ChangeClassification classification)
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        oldMember.Accessibility = oldAccessibility;
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = newAccessibility;
+        ApiType oldNested = Type("Foo.Nested");
+        oldNested.Accessibility = oldAccessibility;
+        ApiType newNested = Type("Foo.Nested");
+        newNested.Accessibility = newAccessibility;
+
+        var diff = ApiDiffAnalyzer.Compare(
+            IncludeAllSurface(Type("Foo", members: [oldMember]), oldNested),
+            IncludeAllSurface(Type("Foo", members: [newMember]), newNested));
+
+        ApiChange member = Assert.Single(
+            Assert.Single(diff.TypeDiffs, type => type.TypeFullName == "TestNamespace.Foo").Changes);
+        Assert.Equal(ChangeKind.MemberAccessibilityChanged, member.Kind);
+        Assert.Equal(classification, member.Classification);
+        Assert.Equal(oldAccessibility, member.OldValue);
+        Assert.Equal(newAccessibility, member.NewValue);
+        ApiChange type = Assert.Single(
+            Assert.Single(diff.TypeDiffs, type => type.TypeFullName == "TestNamespace.Foo.Nested").Changes);
+        Assert.Equal(ChangeKind.TypeAccessibilityChanged, type.Kind);
+        Assert.Equal(classification, type.Classification);
+    }
+
+    [Fact]
+    public void AccessibilityMove_UnderIncludeAll_CountsNonBreakingChanges()
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        oldMember.Accessibility = "internal";
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = "private";
+
+        var diff = ApiDiffAnalyzer.Compare(
+            IncludeAllSurface(Type("Foo", members: [oldMember])),
+            IncludeAllSurface(Type("Foo", members: [newMember])));
+
+        Assert.Equal(1, diff.TotalNonBreaking);
+        Assert.Equal(1, Assert.Single(diff.TypeDiffs).NonBreakingCount);
+        Assert.Equal(0, diff.TotalBreaking + diff.TotalAdditive + diff.TotalPotentiallyBreaking);
+    }
+
+    [Theory]
+    [InlineData("private", ChangeKind.MemberAdded)]
+    [InlineData("internal", ChangeKind.MemberAdded)]
+    [InlineData("private", ChangeKind.MemberRemoved)]
+    [InlineData("private protected", ChangeKind.MemberRemoved)]
+    public void MemberOutsideTheApiAxis_UnderIncludeAll_IsNonBreaking(
+        string accessibility,
+        ChangeKind kind)
+    {
+        ApiMember member = Method("Helper", "void Helper()");
+        member.Accessibility = accessibility;
+        ApiType withMember = Type("Foo", members: [member]);
+        ApiType without = Type("Foo");
+
+        var diff = kind == ChangeKind.MemberAdded
+            ? ApiDiffAnalyzer.Compare(IncludeAllSurface(without), IncludeAllSurface(withMember))
+            : ApiDiffAnalyzer.Compare(IncludeAllSurface(withMember), IncludeAllSurface(without));
+
+        ApiChange change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(kind, change.Kind);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+    }
+
+    [Fact]
+    public void PrivateMemberSignatureChange_UnderIncludeAll_IsNonBreaking()
+    {
+        ApiMember oldMember = Method("Helper", "int Helper()");
+        oldMember.Accessibility = "private";
+        ApiMember newMember = Method("Helper", "long Helper()");
+        newMember.Accessibility = "private";
+
+        var diff = ApiDiffAnalyzer.Compare(
+            IncludeAllSurface(Type("Foo", members: [oldMember])),
+            IncludeAllSurface(Type("Foo", members: [newMember])));
+
+        ApiChange change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+    }
+
+    [Fact]
+    public void InternalTypeRemoved_UnderIncludeAll_IsNonBreaking()
+    {
+        ApiType removed = Type("Hidden");
+        removed.Accessibility = "internal";
+
+        var diff = ApiDiffAnalyzer.Compare(
+            IncludeAllSurface(removed),
+            IncludeAllSurface());
+
+        ApiChange change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.TypeRemoved, change.Kind);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+    }
+
+    [Fact]
+    public void PublicMemberOfAnInternalType_UnderIncludeAll_IsNonBreaking()
+    {
+        ApiType oldType = Type("Hidden", members: [Method("Bar", "int Bar()")]);
+        oldType.Accessibility = "internal";
+        ApiType newType = Type("Hidden", members: [Method("Bar", "long Bar()")]);
+        newType.Accessibility = "internal";
+
+        var diff = ApiDiffAnalyzer.Compare(
+            IncludeAllSurface(oldType),
+            IncludeAllSurface(newType));
+
+        ApiChange change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+    }
+
+    [Fact]
+    public void PublicNestedTypeOfAnUnreachableType_UnderIncludeAll_IsNonBreaking()
+    {
+        ApiType oldType = Type("Hidden.Nested", members: [Method("Bar", "int Bar()")]);
+        oldType.EnclosingTypesExternallyReachable = false;
+        ApiType newType = Type("Hidden.Nested", members: [Method("Bar", "long Bar()")]);
+        newType.EnclosingTypesExternallyReachable = false;
+
+        var diff = ApiDiffAnalyzer.Compare(
+            IncludeAllSurface(oldType),
+            IncludeAllSurface(newType));
+
+        ApiChange change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+    }
+
+    [Fact]
+    public void PublicMemberChange_UnderIncludeAll_KeepsItsClassification()
+    {
+        var diff = ApiDiffAnalyzer.Compare(
+            IncludeAllSurface(Type("Foo", members: [Method("Bar", "int Bar()")])),
+            IncludeAllSurface(Type("Foo", members: [Method("Bar", "long Bar()")])));
+
+        ApiChange change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+    }
+
+    [Fact]
+    public void ChangeOutsideTheApiAxis_OnApiAxisSurfaces_KeepsItsClassification()
+    {
+        ApiMember oldMember = Method("Bar", "int Bar()");
+        oldMember.Accessibility = "internal";
+        ApiMember newMember = Method("Bar", "long Bar()");
+        newMember.Accessibility = "internal";
+
+        var diff = ApiDiffAnalyzer.Compare(
+            ApiAxisSurface(Type("Foo", members: [oldMember])),
+            ApiAxisSurface(Type("Foo", members: [newMember])));
+
+        Assert.Equal(
+            ChangeClassification.Breaking,
+            Assert.Single(Assert.Single(diff.TypeDiffs).Changes).Classification);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(ApiSurfaceExtractionScope.Public)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    [InlineData(ApiSurfaceExtractionScope.PublicWithNonPublicTypes)]
+    public void MemberAccessibilityChange_OutsideApiAxisSurfaces_IsNotCompared(
+        ApiSurfaceExtractionScope? scope)
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = "protected";
+        ApiSurface oldSurface = Surface(Type("Foo", members: [oldMember]));
+        ApiSurface newSurface = ApiAxisSurface(Type("Foo", members: [newMember]));
+        oldSurface.ExtractionScope = scope;
+
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+
+        Assert.Empty(diff.TypeDiffs);
+    }
+
     [Fact]
     public void AbstractMemberAdded_IsBreaking()
     {
@@ -825,4 +1068,149 @@ public class ApiDiffAnalyzerTests
         Assert.Contains(typeDiff.Changes, c => c.Kind == ChangeKind.MemberRemoved);
         Assert.Contains(typeDiff.Changes, c => c.Kind == ChangeKind.MemberAdded);
     }
+
+    #region API status (docs/design/api-status-analysis.md)
+
+    private static ApiMember StatusMethod(
+        bool isHidden = false,
+        bool isObsolete = false,
+        string? message = null,
+        bool isError = false)
+    {
+        ApiMember member = Method("Bar", "void Bar()");
+        member.IsHidden = isHidden;
+        member.IsObsolete = isObsolete;
+        member.ObsoleteMessage = message;
+        member.ObsoleteIsError = isError;
+        return member;
+    }
+
+    [Theory]
+    [InlineData(false, true, "visible", "hidden")]
+    [InlineData(true, false, "hidden", "visible")]
+    public void HiddenTransition_OnTheApiAxis_IsNonBreaking(
+        bool oldHidden,
+        bool newHidden,
+        string oldValue,
+        string newValue)
+    {
+        ApiType oldType = Type("Foo", members: [StatusMethod(isHidden: oldHidden)]);
+        oldType.IsHidden = oldHidden;
+        ApiType newType = Type("Foo", members: [StatusMethod(isHidden: newHidden)]);
+        newType.IsHidden = newHidden;
+
+        var diff = ApiDiffAnalyzer.Compare(ApiAxisSurface(oldType), ApiAxisSurface(newType));
+
+        IReadOnlyList<ApiChange> changes = Assert.Single(diff.TypeDiffs).Changes;
+        Assert.Equal(2, changes.Count);
+        Assert.All(changes, change =>
+        {
+            Assert.Equal(ApiChangeCategory.Status, change.Category);
+            Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+            Assert.Equal(oldValue, change.OldValue);
+            Assert.Equal(newValue, change.NewValue);
+        });
+        Assert.Contains(changes, change => change.Kind == ChangeKind.TypeHiddenChanged
+            && change.Subject?.Kind == ApiChangeSubjectKind.Type);
+        Assert.Contains(changes, change => change.Kind == ChangeKind.MemberHiddenChanged
+            && change.Subject?.NewMember?.Member.Name == "Bar");
+    }
+
+    [Theory]
+    [InlineData(false, null, false, true, "m", false, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]")]
+    [InlineData(false, null, false, true, "m", true, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\", true)]")]
+    [InlineData(false, null, false, true, null, false, ChangeClassification.Breaking, "not obsolete", "[Obsolete]")]
+    [InlineData(true, "m", false, true, "m", true, ChangeClassification.Breaking, "[Obsolete(\"m\")]", "[Obsolete(\"m\", true)]")]
+    [InlineData(true, "m", true, true, "m", false, ChangeClassification.NonBreaking, "[Obsolete(\"m\", true)]", "[Obsolete(\"m\")]")]
+    [InlineData(true, "m", false, false, null, false, ChangeClassification.NonBreaking, "[Obsolete(\"m\")]", "not obsolete")]
+    [InlineData(true, "m", true, false, null, false, ChangeClassification.NonBreaking, "[Obsolete(\"m\", true)]", "not obsolete")]
+    [InlineData(true, "before", false, true, "after", false, ChangeClassification.NonBreaking, "[Obsolete(\"before\")]", "[Obsolete(\"after\")]")]
+    [InlineData(true, "before", true, true, "after", true, ChangeClassification.NonBreaking, "[Obsolete(\"before\", true)]", "[Obsolete(\"after\", true)]")]
+    [InlineData(true, "a \"b\"", false, true, null, false, ChangeClassification.NonBreaking, "[Obsolete(\"a \\\"b\\\"\")]", "[Obsolete]")]
+    public void ObsoleteTransition_OnTheApiAxis_IsBreakingWhenItIsAddedOrBecomesAnError(
+        bool oldObsolete,
+        string? oldMessage,
+        bool oldError,
+        bool newObsolete,
+        string? newMessage,
+        bool newError,
+        ChangeClassification classification,
+        string oldValue,
+        string newValue)
+    {
+        ApiType oldType = Type("Foo", members: [StatusMethod(isObsolete: oldObsolete, message: oldMessage, isError: oldError)]);
+        oldType.IsObsolete = oldObsolete;
+        oldType.ObsoleteMessage = oldMessage;
+        oldType.ObsoleteIsError = oldError;
+        ApiType newType = Type("Foo", members: [StatusMethod(isObsolete: newObsolete, message: newMessage, isError: newError)]);
+        newType.IsObsolete = newObsolete;
+        newType.ObsoleteMessage = newMessage;
+        newType.ObsoleteIsError = newError;
+
+        var diff = ApiDiffAnalyzer.Compare(ApiAxisSurface(oldType), ApiAxisSurface(newType));
+
+        IReadOnlyList<ApiChange> changes = Assert.Single(diff.TypeDiffs).Changes;
+        Assert.Equal(
+            new[] { ChangeKind.TypeObsoleteChanged, ChangeKind.MemberObsoleteChanged },
+            changes.Select(change => change.Kind));
+        Assert.All(changes, change =>
+        {
+            Assert.Equal(ApiChangeCategory.Status, change.Category);
+            Assert.Equal(classification, change.Classification);
+            Assert.Equal(oldValue, change.OldValue);
+            Assert.Equal(newValue, change.NewValue);
+        });
+    }
+
+    [Fact]
+    public void UnchangedStatus_OnTheApiAxis_HasNoRow()
+    {
+        ApiMember oldMember = StatusMethod(isHidden: true, isObsolete: true, message: "m", isError: true);
+        ApiMember newMember = StatusMethod(isHidden: true, isObsolete: true, message: "m", isError: true);
+
+        var diff = ApiDiffAnalyzer.Compare(
+            ApiAxisSurface(Type("Foo", members: [oldMember])),
+            ApiAxisSurface(Type("Foo", members: [newMember])));
+
+        Assert.Empty(diff.TypeDiffs);
+    }
+
+    [Fact]
+    public void StatusTransition_OutsideTheApiAxis_UnderIncludeAll_IsNonBreaking()
+    {
+        ApiType oldType = Type("Foo", members: [StatusMethod()]);
+        oldType.Accessibility = "internal";
+        ApiType newType = Type("Foo", members: [StatusMethod(isHidden: true, isObsolete: true, message: "m", isError: true)]);
+        newType.Accessibility = "internal";
+        newType.IsObsolete = true;
+        newType.ObsoleteIsError = true;
+
+        var diff = ApiDiffAnalyzer.Compare(IncludeAllSurface(oldType), IncludeAllSurface(newType));
+
+        IReadOnlyList<ApiChange> changes = Assert.Single(diff.TypeDiffs).Changes;
+        Assert.Equal(
+            new[] { ChangeKind.TypeObsoleteChanged, ChangeKind.MemberHiddenChanged, ChangeKind.MemberObsoleteChanged },
+            changes.Select(change => change.Kind));
+        Assert.All(changes, change => Assert.Equal(ChangeClassification.NonBreaking, change.Classification));
+        Assert.Equal(3, diff.TotalNonBreaking);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(ApiSurfaceExtractionScope.Public)]
+    [InlineData(ApiSurfaceExtractionScope.PublicWithNonPublicTypes)]
+    public void StatusTransition_OutsideTransitionScopes_IsNotCompared(
+        ApiSurfaceExtractionScope? scope)
+    {
+        ApiSurface oldSurface = Surface(Type("Foo", members: [StatusMethod()]));
+        ApiSurface newSurface = Surface(Type("Foo", members: [StatusMethod(isHidden: true, isObsolete: true, isError: true)]));
+        oldSurface.ExtractionScope = scope;
+        newSurface.ExtractionScope = scope;
+
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+
+        Assert.Empty(diff.TypeDiffs);
+    }
+
+    #endregion
 }

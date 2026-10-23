@@ -718,11 +718,163 @@ public sealed class LibraryApiDiffPresentationTests
         Assert.Equal(ApiSurfaceScope.IncludeAll, available.Document.After.Scope);
     }
 
+    [Theory]
+    [InlineData("FindingDiffAnyFixture.Added", LibraryApiChangeState.Added)]
+    [InlineData("FindingDiffAnyFixture.Removed", LibraryApiChangeState.Removed)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesHidden", LibraryApiChangeState.Hidden)]
+    [InlineData("FindingDiffAnyFixture.TypeBecomesHidden", LibraryApiChangeState.Hidden)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesVisible", LibraryApiChangeState.Unhidden)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesObsolete", LibraryApiChangeState.Obsoleted)]
+    [InlineData("FindingDiffAnyFixture.ObsoleteMessageChanged", LibraryApiChangeState.Obsoleted)]
+    [InlineData("FindingDiffAnyFixture.PublicToProtected", LibraryApiChangeState.Changed)]
+    public async Task Create_DerivesEachRowStateFromKindAndStatus(
+        string type,
+        LibraryApiChangeState state)
+    {
+        LibraryApiCompatibilityChange change = Assert.Single(
+            Subject(await ApiAxisFindingDiffAny(), type).Comparison.CompatibilityChanges);
+
+        Assert.Equal(state, change.State);
+        Assert.True(change.IsOrdinary);
+    }
+
+    [Theory]
+    // A public Member made protected keeps its ordinary Before side.
+    [InlineData("FindingDiffAnyFixture.PublicToProtected", true, false)]
+    // A protected Member made public gains an ordinary After side.
+    [InlineData("FindingDiffAnyFixture.ProtectedInternalToPublic", false, true)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesHidden", true, false)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesVisible", false, true)]
+    [InlineData("FindingDiffAnyFixture.ProtectedMemberChanged", false, false)]
+    [InlineData("FindingDiffAnyFixture.HiddenMemberChanged", false, false)]
+    // A public Member of a hidden Type, and of a public nested Type of one, is not ordinary.
+    [InlineData("FindingDiffAnyFixture.HiddenTypeChanged", false, false)]
+    [InlineData("FindingDiffAnyFixture.HiddenOuter+Inner", false, false)]
+    // Obsolete does not remove a declaration from the ordinary population.
+    [InlineData("FindingDiffAnyFixture.ObsoleteMemberChanged", true, true)]
+    public async Task Create_CarriesEachSidesOrdinaryFact(
+        string type,
+        bool beforeOrdinary,
+        bool afterOrdinary)
+    {
+        LibraryApiCompatibilityChange change = Assert.Single(
+            Subject(await ApiAxisFindingDiffAny(), type).Comparison.CompatibilityChanges);
+
+        Assert.Equal(beforeOrdinary, change.BeforeStatus!.IsOrdinary);
+        Assert.Equal(afterOrdinary, change.AfterStatus!.IsOrdinary);
+        Assert.Equal(beforeOrdinary || afterOrdinary, change.IsOrdinary);
+    }
+
+    [Fact]
+    public async Task Create_CarriesTypeStatusOnEveryOccupiedSide()
+    {
+        LibraryApiDiffDocument document = await ApiAxisFindingDiffAny();
+
+        LibraryApiTypeDiff obsolete =
+            Subject(document, "FindingDiffAnyFixture.TypeBecomesObsolete").Comparison;
+        Assert.False(obsolete.Before!.Status.IsObsolete);
+        Assert.True(obsolete.After!.Status.IsObsolete);
+        Assert.True(obsolete.After.Status.IsOrdinary);
+
+        LibraryApiTypeDiff nested =
+            Subject(document, "FindingDiffAnyFixture.NestedPublicToProtected+Nested").Comparison;
+        Assert.True(nested.Before!.Status.IsOrdinary);
+        Assert.False(nested.After!.Status.IsOrdinary);
+        Assert.True(nested.IsOrdinary);
+
+        LibraryApiTypeDiff inner = Subject(document, "FindingDiffAnyFixture.HiddenOuter+Inner").Comparison;
+        Assert.False(inner.Before!.Status.IsHidden);
+        Assert.False(inner.Before.Status.IsOrdinary);
+        Assert.False(inner.IsOrdinary);
+        LibraryApiMemberDiff member = Assert.Single(inner.Members);
+        Assert.False(member.Relation.IsOrdinary);
+        Assert.Equal(inner.Before, member.Relation.Before!.DeclaringType);
+    }
+
+    [Fact]
+    public async Task OrdinaryPresentation_CountsRowsOutsideItOnlyForTheApiAxis()
+    {
+        LibraryApiDiffDocument apiAxis = await ApiAxisFindingDiffAny();
+        Assert.True(apiAxis.PresentsOrdinaryPopulation);
+        Assert.Equal(8, LibraryApiOrdinaryPresentation.OutsideRowCount(apiAxis));
+        Assert.False(
+            LibraryApiOrdinaryPresentation.HasOrdinaryRow(
+                Subject(apiAxis, "FindingDiffAnyFixture.ProtectedMemberChanged").Comparison));
+        Assert.True(
+            LibraryApiOrdinaryPresentation.HasOrdinaryRow(
+                Subject(apiAxis, "FindingDiffAnyFixture.PublicToProtected").Comparison));
+
+        foreach (ApiSurfaceScope scope in new[] { ApiSurfaceScope.Public, ApiSurfaceScope.IncludeAll })
+        {
+            LibraryApiDiffDocument document = Assert.IsType<LibraryApiDiffOutcome.Available>(
+                LibraryApiDiffPresentationAdapter.Create(
+                    await Compare(
+                        FixtureCatalog.MetadataFindingDiffAnyPair.OldAssemblyPath(),
+                        FixtureCatalog.MetadataFindingDiffAnyPair.NewAssemblyPath(),
+                        scope: scope))).Document;
+            Assert.False(document.PresentsOrdinaryPopulation);
+            Assert.Equal(0, LibraryApiOrdinaryPresentation.OutsideRowCount(document));
+        }
+    }
+
+    // A Type selection projects a nested Type without its enclosing Type. Its ordinary fact
+    // comes from metadata, so it matches the complete comparison: ordinary under a public
+    // Type, and not ordinary under a hidden one.
+    [Theory]
+    [InlineData(ApiSurfaceScope.ApiAxis, "FindingDiffAnyFixture.NestedPublicToProtected+Nested", true, false)]
+    [InlineData(ApiSurfaceScope.ApiAxis, "FindingDiffAnyFixture.NestedProtectedToPublic+Nested", false, true)]
+    [InlineData(ApiSurfaceScope.ApiAxis, "FindingDiffAnyFixture.HiddenOuter+Inner", false, false)]
+    [InlineData(ApiSurfaceScope.IncludeAll, "FindingDiffAnyFixture.NestedPublicToProtected+Nested", true, false)]
+    [InlineData(ApiSurfaceScope.IncludeAll, "FindingDiffAnyFixture.HiddenOuter+Inner", false, false)]
+    public async Task Create_TypeSelectionOfANestedType_KeepsItsOrdinaryFact(
+        ApiSurfaceScope scope,
+        string identifier,
+        bool beforeOrdinary,
+        bool afterOrdinary)
+    {
+        string leaf = identifier[(identifier.LastIndexOf('+') + 1)..];
+        LibraryApiDiffDocument selected = Assert.IsType<LibraryApiDiffOutcome.Available>(
+            LibraryApiDiffPresentationAdapter.Create(
+                await Compare(
+                    FixtureCatalog.MetadataFindingDiffAnyPair.OldAssemblyPath(),
+                    FixtureCatalog.MetadataFindingDiffAnyPair.NewAssemblyPath(),
+                    scope: scope,
+                    typeSelection: new ApiTypeSelection(
+                        name => TypeMatcher.MatchesTypeFilter(name, leaf))))).Document;
+
+        LibraryApiTypeDiff nested = Subject(selected, identifier).Comparison;
+        Assert.Equal(beforeOrdinary, nested.Before!.Status.IsOrdinary);
+        Assert.Equal(afterOrdinary, nested.After!.Status.IsOrdinary);
+        LibraryApiDiffDocument complete = Assert.IsType<LibraryApiDiffOutcome.Available>(
+            LibraryApiDiffPresentationAdapter.Create(
+                await Compare(
+                    FixtureCatalog.MetadataFindingDiffAnyPair.OldAssemblyPath(),
+                    FixtureCatalog.MetadataFindingDiffAnyPair.NewAssemblyPath(),
+                    scope: scope))).Document;
+        Assert.Equal(Subject(complete, identifier).Comparison, nested);
+    }
+
+    static async Task<LibraryApiDiffDocument> ApiAxisFindingDiffAny()
+        => Assert.IsType<LibraryApiDiffOutcome.Available>(
+            LibraryApiDiffPresentationAdapter.Create(
+                await Compare(
+                    FixtureCatalog.MetadataFindingDiffAnyPair.OldAssemblyPath(),
+                    FixtureCatalog.MetadataFindingDiffAnyPair.NewAssemblyPath(),
+                    scope: ApiSurfaceScope.ApiAxis))).Document;
+
+    static ComparisonSubject<LibraryApiTypeDiff> Subject(
+        LibraryApiDiffDocument document,
+        string identifier)
+        => Assert.Single(
+            document.Comparison.Subjects,
+            subject => subject.Identifier == identifier);
+
     static async Task<AssemblyContextApiComparisonResult> Compare(
         string beforePath,
         string afterPath,
         ApiSurfaceProjectionLimits? limits = null,
-        ApiSurfaceScope scope = ApiSurfaceScope.Public)
+        ApiSurfaceScope scope = ApiSurfaceScope.Public,
+        ApiTypeSelection? typeSelection = null)
     {
         var policy = new TestBindingPolicy();
         await using var workspace = new InspectionWorkspace();
@@ -736,7 +888,8 @@ public sealed class LibraryApiDiffPresentationTests
             afterGroup,
             Assert.Single(afterGroup.Participants),
             scope,
-            limits ?? GenerousLimits);
+            limits ?? GenerousLimits,
+            typeSelection);
     }
 
     static async Task<AssemblyContextApiComparisonResult> Compare(

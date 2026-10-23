@@ -966,7 +966,7 @@ static class AuthoredRebuildFidelity
         => ReturnToSender.GetIlDiff(comparison)?.Diff.Outcome switch
         {
             IlBodyDiffOutcome.Exact => (AuthoredRebuildOutcome.Exact, null),
-            IlBodyDiffOutcome.OpcodeDiff or IlBodyDiffOutcome.OperandDiff =>
+            IlBodyDiffOutcome.OpcodeDiff or IlBodyDiffOutcome.OperandDiff or IlBodyDiffOutcome.ExceptionRegionDiff =>
                 (AuthoredRebuildOutcome.IlDifferent, null),
             _ => (AuthoredRebuildOutcome.ContextFailed,
                 "The authored rebuild target could not be compared to shipped IL: "

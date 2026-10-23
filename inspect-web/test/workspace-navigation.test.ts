@@ -11,6 +11,7 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  hierarchyShareTargetFramework,
   parseWorkspaceLocation,
   parseWorkspaceRoute,
   recoverWorkspaceRouteFailure,
@@ -22,6 +23,7 @@ import {
   selectedBrowserCallGraphPackageTabIds,
   shouldInterceptLinkClick,
   workspaceUrlPreservationApplies,
+  workspaceHierarchyShareTabsMatchResolved,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
@@ -59,7 +61,7 @@ function locationSnapshot(value: string | URL): WorkspaceLocationSnapshot {
 
 function workspaceState(
   overrides: Partial<WorkspaceUrlState> = {},
-): WorkspaceUrlState {
+): WorkspaceUrlState & BrowserWorkspaceShareState {
   return {
     package: "Example.Second",
     subject: null,
@@ -87,6 +89,8 @@ function workspaceState(
     }],
     activeTabId: "t1",
     selectedContextId: "g0",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: "api",
       type: "Example.Widget",
@@ -165,6 +169,7 @@ function workspaceView(
     atLibraryRoot: false,
     packageLens: "overview",
     libraryLens: "overview",
+    analysisMode: "relationships",
     libraryScope: null,
     ...overrides,
   };
@@ -395,6 +400,61 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.selectedContextId, "g0");
 });
 
+test("Library Analysis mode survives URL projection and restoration", () => {
+  const baseline = workspaceState();
+  const state = workspaceState({
+    analysisMode: "performance",
+    view: {
+      ...baseline.view,
+      lens: "library:analysis",
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+    },
+  });
+  const url = buildWorkspaceStateUrl(
+    "https://inspect.example/?analysis=stale",
+    state,
+    () => encoded());
+
+  assert.equal(url.searchParams.get("analysis"), "performance");
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(url),
+    () => decoded(state));
+  assert.equal(parsed.libraryLens, "analysis");
+  assert.equal(parsed.analysisMode, "performance");
+
+  const defaultUrl = buildWorkspaceStateUrl(
+    url.href,
+    { ...state, analysisMode: "relationships" },
+    () => encoded());
+  assert.equal(defaultUrl.searchParams.has("analysis"), false);
+
+  const malformed = new URL(url);
+  malformed.searchParams.set("analysis", "unknown");
+  const defaulted = parseWorkspaceLocation(
+    locationSnapshot(malformed),
+    () => decoded(state));
+  assert.equal(defaulted.analysisMode, "relationships");
+
+  const metadataState = {
+    ...state,
+    view: { ...state.view, lens: "library:metadata" as const },
+  };
+  const metadataUrl = buildWorkspaceStateUrl(
+    url.href,
+    metadataState,
+    () => encoded());
+  assert.equal(metadataUrl.searchParams.has("analysis"), false);
+
+  metadataUrl.searchParams.set("analysis", "performance");
+  const ignored = parseWorkspaceLocation(
+    locationSnapshot(metadataUrl),
+    () => decoded(metadataState));
+  assert.equal(ignored.analysisMode, "relationships");
+});
+
 test("decompiled member source view survives workspace URL projection", () => {
   const baseline = workspaceState();
   const state = workspaceState({
@@ -464,31 +524,33 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
   assert.equal(parsed.workspaceNotice, "");
 });
 
-test("canonical package dependency views restore the package root lens", () => {
-  const initial = workspaceState();
-  const state = workspaceState({
-    view: {
-      ...initial.view,
-      lens: "dependencies",
-      type: null,
-      memberAnchor: null,
-      memberSignature: null,
-      section: null,
-      libraries: [],
-    },
+for (const lens of ["dependencies", "hierarchy"]) {
+  test(`canonical package ${lens} views restore the package root lens`, () => {
+    const initial = workspaceState();
+    const state = workspaceState({
+      view: {
+        ...initial.view,
+        lens,
+        type: null,
+        memberAnchor: null,
+        memberSignature: null,
+        section: null,
+        libraries: [],
+      },
+    });
+
+    const parsed = parseWorkspaceLocation(
+      locationSnapshot(
+        "https://inspect.example/?package=Example.Second&w=canonical"),
+      () => decoded(state));
+
+    assert.equal(parsed.atPackageRoot, true);
+    assert.equal(parsed.workspaceSubjectOpen, false);
+    assert.equal(parsed.packageLens, lens);
+    assert.equal(parsed.lens, null);
+    assert.equal(parsed.type, null);
   });
-
-  const parsed = parseWorkspaceLocation(
-    locationSnapshot(
-      "https://inspect.example/?package=Example.Second&w=canonical"),
-    () => decoded(state));
-
-  assert.equal(parsed.atPackageRoot, true);
-  assert.equal(parsed.workspaceSubjectOpen, false);
-  assert.equal(parsed.packageLens, "dependencies");
-  assert.equal(parsed.lens, null);
-  assert.equal(parsed.type, null);
-});
+}
 
 test("canonical forwarded-Type Overview is distinct from Package Overview", () => {
   const initial = workspaceState();
@@ -624,6 +686,8 @@ test("canonical context capture does not broaden a selected subset for Call Grap
     contexts: [{ id: "g0", tabIds: ["t0", "t1"] }],
     activeTabId: "t0",
     selectedContextId: "g0",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: "api",
       type: null,
@@ -795,6 +859,68 @@ test("canonical tabs must remain distinct and ordered after resolution", () => {
     workspaceShareTabsMatchResolved(
       requested,
       [resolved[1]!, resolved[0]!]),
+    false);
+});
+
+test("hierarchy share retains a requested target through compatible asset selection", () => {
+  const tab = {
+    ...workspaceState().tabs[0]!,
+    framework: "net11.0",
+  };
+  const resolved = { ...tab, framework: "net10.0" };
+  const basis = workspaceState({
+    tabs: [tab],
+    view: {
+      ...workspaceState().view,
+      lens: "hierarchy",
+      type: null,
+      section: null,
+      libraries: [],
+    },
+  });
+
+  test("configured Hierarchy target survives URL capture separately from package assets", () => {
+    const state = workspaceState({
+      traversalTargetFramework: "net8.0",
+      view: {
+        ...workspaceState().view,
+        lens: "hierarchy",
+      },
+    });
+    const captures: BrowserWorkspaceShareState[] = [];
+    buildWorkspaceStateUrl(
+      "https://inspect.example/",
+      state,
+      capture => {
+        captures.push(capture);
+        return encoded();
+      });
+
+    const capture = captures[0]!;
+    assert.equal(capture.traversalTargetFramework, "net8.0");
+    assert.deepEqual(capture.tabs, state.tabs);
+    assert.equal(
+      hierarchyShareTargetFramework(
+        capture, { id: "Another.Package", version: "1.0.0" }, "hierarchy"),
+      "net8.0");
+  });
+
+  assert.equal(workspaceShareTabsMatchResolved([tab], [resolved]), false);
+  assert.equal(workspaceHierarchyShareTabsMatchResolved([tab], [resolved]), true);
+  assert.equal(
+    hierarchyShareTargetFramework(
+      basis, { id: tab.source, version: tab.version! }, "hierarchy"),
+    "net11.0");
+  assert.equal(
+    hierarchyShareTargetFramework(
+      basis, { id: tab.source, version: tab.version! }, "overview"),
+    null);
+  assert.equal(
+    workspaceHierarchyShareTabsMatchResolved(
+      [tab], [{ ...resolved, version: "2.0.0" }]),
+    false);
+  assert.equal(
+    workspaceHierarchyShareTabsMatchResolved([tab, tab], [resolved, resolved]),
     false);
 });
 
@@ -1334,6 +1460,33 @@ test("history signatures distinguish captured library scope", () => {
       rootKind: "platform",
       platformLibrary: '["aspnetcore.app","System.Text.Json.dll"]',
     })));
+});
+
+test("history signatures distinguish Analysis modes", () => {
+  const relationships = workspaceView({
+    atLibraryRoot: true,
+    libraryLens: "analysis",
+    analysisMode: "relationships",
+  });
+  const performance = {
+    ...relationships,
+    analysisMode: "performance" as const,
+  };
+
+  assert.notEqual(
+    workspaceViewSignature(relationships),
+    workspaceViewSignature(performance));
+
+  const metadata = {
+    ...relationships,
+    libraryLens: "metadata" as const,
+  };
+  assert.equal(
+    workspaceViewSignature(metadata),
+    workspaceViewSignature({
+      ...metadata,
+      analysisMode: "performance",
+    }));
 });
 
 test("history signatures distinguish Workspace from Package", () => {

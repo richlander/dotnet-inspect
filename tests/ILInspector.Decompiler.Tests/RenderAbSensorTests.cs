@@ -52,6 +52,40 @@ public class RenderAbSensorTests
         Assert.Equal(expected, actual);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RenderAbSemanticLane_UnresolvedOutCallReportsCoverageDecline(bool independentDefect)
+    {
+        const string key = "fixture.dll!T::M()";
+        var function = SyntheticFunction();
+        var shellContext = ValidityCheck.MethodShellContext.Create(function, requiresUnsafeContext: false);
+        var baseline = new Dictionary<string, RenderAbSensor.BaselineMethod>(StringComparer.Ordinal)
+        {
+            [key] = new("int value = default; if (System.DateTime.Now.Ticks > 0 && Missing.TryRead(out value)) return value; return 0;", shellContext),
+        };
+        var current = new Dictionary<string, RenderAbSensor.RenderedMethod>(StringComparer.Ordinal)
+        {
+            [key] = new("T", "M", "()", typeof(RenderAbSensorTests).Assembly.Location,
+                "fixture.dll", "int value; if (System.DateTime.Now.Ticks > 0 && Missing.TryRead(out value)) return value; "
+                    + (independentDefect ? "int other; return other;" : "return 0;"), shellContext,
+                new RenderAbSensor.SemanticContext("T", "M", function,
+                    new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal),
+                    ProductParameterList: null)),
+        };
+
+        // Structural correspondence is deliberately absent in this focused shell
+        // fixture, so the existing independent structural gate still fails.
+        string output = CaptureConsole(() => RenderAbSensor.Compare(baseline, current, maxExamples: 5), expectedExitCode: 2);
+        Assert.Contains($"valid->invalid: {(independentDefect ? 1 : 0)}", output);
+        Assert.Contains($"unavailable: {(independentDefect ? 0 : 1)}", output);
+        Assert.Contains("VLD0002", output);
+        Assert.Contains("CS0165", output);
+        Assert.Contains("Missing", output);
+        if (independentDefect)
+            Assert.Contains("Use of unassigned local variable 'other'", output);
+    }
+
     [Fact]
     public void RenderAbSemanticLane_CatchesParseValidCompileInvalidRegression()
     {

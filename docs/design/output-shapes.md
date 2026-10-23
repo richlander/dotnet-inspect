@@ -13,6 +13,16 @@ semantic
 [inspection Document](host-observable-content-kinds.md#document)
 may render through that shape, but the two terms are not equivalent.
 
+The approved [section representation
+contract](section-shapes.md#section-representations) distinguishes offered
+Hierarchy, Table, and structured Document representations. It owns consumer
+selection and requires `--json` to serialize the Document, typically typed
+table rows plus summary and interpretation context. A Table row stream does
+not carry that summary as an extra table. The narrowing ladder below is not a
+requirement to lower every format through a Markdown-oriented Document.
+Existing per-command paths remain unchanged until their owners adopt the
+representation contract.
+
 Default-renderer policy is owned by
 [Native type and source defaults](rendering-model.md#native-type-and-source-defaults).
 In particular, `type`/`member` source payloads do not require or accept
@@ -106,6 +116,12 @@ Debug `diff --history` adopts `--evidence-envelope <path>` for
 acquisition with its [package transfer receipt](package-transfer-receipt.md).
 It preserves the ordinary primary output and publishes the complete enriched
 frame atomically.
+
+Debug pairwise `diff --package` adopts `--evidence-envelope <path>` for
+Library API Diff (`LibraryApiDiffOutcome`) and analysis sets
+(`DiffAnalysisDocument`), with the same `PackageAcquisitionEvidence`: the
+before endpoint's House acquisition, then the after endpoint's. Request
+shapes without a baseline envelope refuse the option.
 
 `--depth` remains traversal, while `--rows` and
 `-n`/`--head`/`--tail` remain semantic relationship selection. Content retains

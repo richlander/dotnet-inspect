@@ -72,6 +72,7 @@ public sealed class PackageArchiveRequestLog
 
 internal enum PackageArchiveRequestPurpose
 {
+    CompletePrefix,
     DirectoryTail,
     DirectoryHead,
     EntrySpan,

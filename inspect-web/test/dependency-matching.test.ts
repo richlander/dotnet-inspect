@@ -10,6 +10,7 @@ import {
   dependencyCoordinateCandidates,
   dependencyGraphRenderSignature,
   packageIdentityKey,
+  platformReferencesForDependencyGroup,
 } from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
@@ -29,7 +30,8 @@ assert.deepEqual(parsed.errors, []);
 const names = [
   "uniqueCompatiblePackage", "dependencyListSectionHtml", "renderPackageDependencyList",
   "renderPackageDependencyIcons",
-  "resolveDependenciesGroupIndex", "renderDependencyGraph", "openDependencyPackage",
+  "packageDependenciesData", "resolveDependenciesGroupIndex",
+  "renderDependencyGraph", "openDependencyPackage",
   "errorMessage", "isRecord", "escapeHtml",
 ];
 const functions = parsed.program.body.filter(node =>
@@ -52,9 +54,9 @@ const unique: BrowserDependencyCoordinateMatch = {
 };
 const noMatch: BrowserDependencyCoordinateMatch = { outcome: "NoMatch", candidateKey: null };
 const groups: BrowserPackageDependencyGroup[] = [
-  { index: 0, framework: "net10.0", isActive: true,
+  { index: 0, framework: "net10.0", isActive: true, isComplete: true,
     dependencies: [{ id: "Dependency", versionRange: "[2.0,3.0)" }] },
-  { index: 1, framework: "net9.0", isActive: false,
+  { index: 1, framework: "net9.0", isActive: false, isComplete: true,
     dependencies: [{ id: "External", versionRange: "[4.0]" }] },
 ];
 
@@ -83,6 +85,7 @@ test("package graph presentation roles remain independent from navigation kinds"
         index: 0,
         framework: "net10.0",
         isActive: true,
+        isComplete: true,
         dependencies: [
           { id: "Microsoft.Extensions.Logging", versionRange: "[10.0.0]" },
           { id: "Microsoft.Extensions.Options", versionRange: "[10.0.0]" },
@@ -185,7 +188,11 @@ function harness(
   const state = {
     packages: [{ ...root }, { ...dependency }],
     package: { ...root },
-    packageDependencies: { dependencyGroups: groups },
+    packageDependencies: {
+      status: "ready",
+      key: "current",
+      result: { dependencyGroups: groups },
+    },
     dependenciesGroupIndex: 0,
     workspaceDependencies: {},
     theme: "light", loading: false, error: "", retryAction: null,
@@ -231,6 +238,7 @@ function harness(
     },
     getComputedStyle: () => ({ getPropertyValue: () => "#fff" }),
     dependencyCoordinateCandidates, packageIdentityKey,
+    platformReferencesForDependencyGroup,
     packageDependenciesSignature: () =>
       `${state.package.id}@${state.package.version}/${state.package.activeFramework}`,
     createDependencyGraphPendingState, dependencyGraphRenderSignature,
@@ -361,15 +369,20 @@ test("unloaded dependencies resolve an exact version before requesting the icon"
 test("duplicate exact coordinates share one package icon request", async () => {
   const h = harness(async () => noMatch);
   h.state.packageDependencies = {
-    dependencyGroups: [{
-      index: 0,
-      framework: "net10.0",
-      isActive: true,
-      dependencies: [
-        { id: "Duplicate", versionRange: "[4.0.0]" },
-        { id: "Duplicate", versionRange: "[4.0.0]" },
-      ],
-    }],
+    status: "ready",
+    key: "current",
+    result: {
+      dependencyGroups: [{
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: [
+          { id: "Duplicate", versionRange: "[4.0.0]" },
+          { id: "Duplicate", versionRange: "[4.0.0]" },
+        ],
+      }],
+    },
   };
   await h.host.renderPackageDependencyList();
   assert.deepEqual(h.icons, [["Duplicate", "4.0.0"]]);
@@ -394,15 +407,20 @@ test("dependency icon requests use at most four concurrent operations", async ()
       return result;
     });
   h.state.packageDependencies = {
-    dependencyGroups: [{
-      index: 0,
-      framework: "net10.0",
-      isActive: true,
-      dependencies: Array.from({ length: 6 }, (_, index) => ({
-        id: `Dependency.${index}`,
-        versionRange: "[4.0.0]",
-      })),
-    }],
+    status: "ready",
+    key: "current",
+    result: {
+      dependencyGroups: [{
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: Array.from({ length: 6 }, (_, index) => ({
+          id: `Dependency.${index}`,
+          versionRange: "[4.0.0]",
+        })),
+      }],
+    },
   };
   const operation = h.host.renderPackageDependencyList();
   while (pending.length < 4) await Promise.resolve();
@@ -550,6 +568,23 @@ test("duplicate dependency graphs share pending matching and do not cancel their
   assert.equal(h.graph.dataset.graphPending, undefined);
 });
 
+test("default-only platform evidence renders a dependency graph", async () => {
+  const h = harness();
+  h.state.packageDependencies.result.dependencyGroups = [];
+  Object.assign(h.state.packageDependencies.result, {
+    platformReferences: [],
+    defaultPlatformReference: {
+      family: "runtime",
+      label: ".NET Runtime",
+    },
+  });
+
+  await h.host.renderDependencyGraph();
+
+  assert.equal(h.diagrams.length, 1);
+  assert.match(h.diagrams[0] ?? "", /\.NET Runtime/);
+});
+
 for (const change of ["framework", "workspace"] as const) {
   for (const completion of ["success", "failure"] as const) {
     test(`late graph matching ${completion} cannot replace the newer ${change} graph`, { timeout: 10_000 }, async () => {
@@ -642,7 +677,7 @@ test("package graph classification rejects incomplete or invalid role batches", 
   };
   await assert.rejects(
     buildDependencyGraphMermaid(model, () => null, () => ["inspected"]),
-    /returned 1 roles for 2 nodes/,
+    /returned 1 roles for 2 package nodes/,
   );
   await assert.rejects(
     buildDependencyGraphMermaid(

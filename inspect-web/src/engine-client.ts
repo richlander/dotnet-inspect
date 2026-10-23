@@ -1,6 +1,7 @@
 import type {
   BrowserSourceComparisonResult,
 } from "./source-diff-transport.ts";
+import type { PackageQueryFacetData } from "./package-query-source.ts";
 import type {
   PackageQueryDurableRowPresentationLayout,
 } from "./package-query-durable-row.ts";
@@ -29,13 +30,13 @@ type PackageOperations =
   | "activateWorkspacePackageOccurrence"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
+  | "containPackageDocumentLeaves"
   | "clearWorkspacePackageOccurrences"
   | "closePlatformForwarderView"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "getPackageDocument"
   | "listPackageActivityEcosystems"
-  | "listPackageQueryCatalog"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "matchPackageDependencyCoordinate"
@@ -51,6 +52,8 @@ type PackageOperations =
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "queryPackageDependencies"
+  | "queryReferencePackageSuppliers"
+  | "queryPackageHierarchy"
   | "queryPackageVulnerabilities"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
@@ -59,25 +62,28 @@ type PackageOperations =
   | "runEcosystemPackageQuery"
   | "runPackageQuery"
   | "searchCapabilities"
+  | "explainPackageQuery"
   | "searchTypes";
 
 type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperations =
   | "cancelLibraryApiDiff"
-  | "cancelLibraryFastDiff"
+  | "cancelLibraryFindingDiffAny"
   | "findTypes"
   | "queryLibraryApiDiff"
-  | "queryLibraryFastDiff"
+  | "queryLibraryFindingDiffAny"
   | "queryMemberDeclaration"
   | "queryMemberDocument"
   | "queryMemberGroupDocument"
   | "queryPerformanceTypeMemberPopulation"
+  | "queryTypeOverviewDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
   | "queryPlatformMemberGroupDocument"
   | "queryPlatformPerformanceTypeMemberPopulation"
+  | "queryPlatformTypeOverviewDocument"
   | "queryPlatformTypeMemberPopulation"
   | "queryGraphMemberSurface"
   | "queryPackageHeapEntries"
@@ -158,8 +164,10 @@ type CatalogOperations =
   | "inspectVocabulary"
   | "listEcosystems"
   | "listHomeDemos"
+  | "listTypeViewFacets"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
+  | "prepareHomeDemoWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
@@ -171,6 +179,7 @@ type CatalogOperations =
 export interface EngineClient {
   readonly host: AsyncFacade<HostFacade, "buildIdentity">;
   readonly package: AsyncFacade<PackageFacade, PackageOperations> & {
+    inspectPackageQueryFacets(): Promise<PackageQueryFacetData>;
     packageQueryDurableRowLayout():
       Promise<PackageQueryDurableRowPresentationLayout>;
     cancelPackageActivity(
@@ -198,6 +207,9 @@ export interface EngineClient {
       libraryIdentity: string,
       typeIdentity: string,
       memberName: string,
+      accessibility: string,
+      receiver: string,
+      includeHidden: boolean,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
     >>>;
@@ -208,6 +220,14 @@ export interface EngineClient {
       accessibility: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryTypeMemberPopulation"]
+    >>>;
+    readonly queryUploadedLibraryTypeOverviewDocument: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      spelling: string,
+      accessibility: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryTypeOverviewDocument"]
     >>>;
     readonly queryUploadedLibraryPerformanceTypeMemberPopulation: (
       libraryIdentity: string,

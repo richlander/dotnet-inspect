@@ -11,6 +11,30 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class WorkspacePlanTests
 {
     [Fact]
+    public void ExistingThreeArgumentConstructorRemainsInvokable()
+    {
+        var policy = new TraversalTargetFrameworkPolicy("net10.0");
+        ImmutableArray<WorkspaceRegistration> registrations =
+            [new WorkspaceRegistration.PackagePrefix(new("Microsoft.Extensions."))];
+        IReadOnlyList<WorkspaceContextInput> contexts = RealContexts();
+        var constructor = typeof(WorkspacePlan).GetConstructor(
+            [
+                typeof(TraversalTargetFrameworkPolicy),
+                typeof(ImmutableArray<WorkspaceRegistration>),
+                typeof(IReadOnlyList<WorkspaceContextInput>),
+            ]);
+        Assert.NotNull(constructor);
+
+        WorkspacePlan plan = Assert.IsType<WorkspacePlan>(
+            constructor.Invoke([policy, registrations, contexts]));
+
+        Assert.Same(policy, plan.TraversalTargetPolicy);
+        Assert.Equal(registrations, plan.Registrations);
+        Assert.Equal(contexts.Count, plan.Contexts.Length);
+        Assert.Null(plan.Project);
+    }
+
+    [Fact]
     public async Task EmptyPlanIsReusableWithoutSharingLiveIdentity()
     {
         Assert.Equal(

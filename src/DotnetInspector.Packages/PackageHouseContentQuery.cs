@@ -29,7 +29,8 @@ public abstract class PackageHouseContentNarrowing
             ArgumentNullException.ThrowIfNull(target);
             if (target is not
                 {
-                    Mode: PackageHouseTargetSelectionMode.Exact,
+                    Mode:
+                        PackageHouseTargetSelectionMode.Exact,
                     RequestedFramework: not null,
                 })
             {
@@ -65,6 +66,22 @@ public abstract class PackageHouseContentTerminal
         }
 
         public PackageLibrarySelector Selector { get; }
+        public PackageAssetDemand AssetDemand { get; }
+    }
+
+    /// <summary>
+    /// Every compile Library in one exact target and the declared assembly
+    /// roles needed from each one.
+    /// </summary>
+    public sealed class CompileLibraries : PackageHouseContentTerminal
+    {
+        public CompileLibraries(PackageAssetDemand assetDemand)
+        {
+            if (!Enum.IsDefined(assetDemand))
+                throw new ArgumentOutOfRangeException(nameof(assetDemand));
+            AssetDemand = assetDemand;
+        }
+
         public PackageAssetDemand AssetDemand { get; }
     }
 
@@ -197,8 +214,10 @@ public sealed class PackageHouseFileList
     internal PackageHouseFileList(
         PackageHouseContentNarrowingReceipt narrowing,
         IReadOnlyList<PackageContentEntry> entries,
-        IReadOnlyList<string>? directories = null)
+        IReadOnlyList<string>? directories = null,
+        IReadOnlyList<PackageContentEntry>? directoryEntries = null)
     {
+        DirectoryEntries = directoryEntries;
         Directories = directories;
         Narrowing = narrowing
             ?? throw new ArgumentNullException(nameof(narrowing));
@@ -216,6 +235,12 @@ public sealed class PackageHouseFileList
 
     /// <summary>Optional complete package-wide directory facts from the same admitted generation.</summary>
     public IReadOnlyList<string>? Directories { get; }
+
+    /// <summary>
+    /// Optional explicit archive directory entries, including their timestamps,
+    /// from the same admitted generation.
+    /// </summary>
+    public IReadOnlyList<PackageContentEntry>? DirectoryEntries { get; }
 
     /// <summary>
     /// Creates a later exact Files query from entries issued by this exact
@@ -309,6 +334,9 @@ public sealed class PackageHouseContentQuery
         RetainedFileList = retainedFileList;
         RetainedLibraryInventory = retainedLibraryInventory;
         CompileLibraryTerminal = values.OfType<PackageHouseContentTerminal.CompileLibrary>().SingleOrDefault();
+        CompileLibrariesTerminal = values
+            .OfType<PackageHouseContentTerminal.CompileLibraries>()
+            .SingleOrDefault();
         FilesTerminal = values
             .OfType<PackageHouseContentTerminal.Files>()
             .SingleOrDefault();
@@ -361,6 +389,13 @@ public sealed class PackageHouseContentQuery
                 "A content query cannot request both Library inventory terminals.",
                 nameof(terminals));
         }
+        if (CompileLibrariesTerminal is not null
+            && narrowing is not PackageHouseContentNarrowing.TfmWide)
+        {
+            throw new ArgumentException(
+                "Compile Libraries require TFM-wide narrowing.",
+                nameof(narrowing));
+        }
     }
 
     /// <summary>The package-entry space shared by every terminal.</summary>
@@ -378,6 +413,9 @@ public sealed class PackageHouseContentQuery
     internal PackageHouseFileList? RetainedFileList { get; }
 
     internal PackageHouseContentTerminal.CompileLibrary? CompileLibraryTerminal { get; }
+
+    internal PackageHouseContentTerminal.CompileLibraries?
+        CompileLibrariesTerminal { get; }
 
     internal PackageHouseContentTerminal.LibraryAndInventoryForTarget?
         LibraryAndInventoryTerminal { get; }
@@ -473,5 +511,19 @@ public sealed class PackageHouseContentQuery
             [
                 new PackageHouseContentTerminal
                     .LibraryInventoryForTarget(),
+            ]);
+
+    /// <summary>
+    /// Creates one TFM-wide query for every compatible compile Library and
+    /// the declared assembly roles needed from each one.
+    /// </summary>
+    public static PackageHouseContentQuery GetLibrariesForTarget(
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand) =>
+        new(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [
+                new PackageHouseContentTerminal
+                    .CompileLibraries(assetDemand),
             ]);
 }

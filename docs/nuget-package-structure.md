@@ -61,6 +61,44 @@ Compile and implementation groups are selected independently. A `ref/` group
 does not need to contain every implementation assembly, and an implementation
 assembly is not automatically exposed to package consumers at compile time.
 
+## Compile inventory boundary
+
+`ref/` and `lib/` are compile-group candidates, not cumulative Library roots.
+For one target framework, the selected real `ref/<tfm>/` group supplies the
+compile inventory. When no real reference group is selected, the selected
+`lib/<tfm>/` group supplies the compile fallback unless an applicable empty
+reference group suppresses it. A selected reference group is not supplemented
+with additional implementation assemblies from `lib/`.
+
+The ZIP central directory supplies complete entry evidence; it does not assign
+assembly roles. Directory-derived Library inventory applies compile selection
+before publishing rows and includes only the selected compile group. A managed
+DLL elsewhere in the archive remains a file entry unless NuGet conventions
+select it for that role. In particular, `runtimes/<rid>/foo.dll` has neither
+the standard managed-runtime role of
+`runtimes/<rid>/lib/<tfm>/foo.dll` nor the standard native-runtime role of
+`runtimes/<rid>/native/foo.dll`. It is not a compile fallback when `ref/` and
+`lib/` contribute no compile group.
+
+The bare RID-root exclusion is not currently covered by a focused
+exact-path gate. Current selector classification follows the documented
+compile roots, but this specific pathological case remains unverified.
+
+Implementation selection remains independent. Neutral `lib/<tfm>/` assets
+supply the runtime fallback, RID-specific
+`runtimes/<rid>/lib/<tfm>/` assets may replace matching neutral
+implementations, and `runtimes/<rid>/native/` supplies native runtime assets.
+A package may therefore have implementation or native runtime assets while its
+compile inventory is empty. Package Root remains the product surface in that
+case; consumers do not invent Library rows by scanning other DLL paths.
+
+Compile-path candidacy also does not prove that an entry is a managed
+assembly. Each selected DLL still passes managed-image admission. A valid
+native PE or malformed DLL placed incorrectly in the selected `ref/` or
+`lib/` group remains subject to Metadata's admission and failure semantics.
+This document does not redefine that outcome. Failed or absent admission never
+authorizes fallback to `runtimes/` or arbitrary DLL discovery.
+
 ## Explicitly empty compile groups
 
 The exact file name `_._` is NuGet's empty-group marker. Real reference assets

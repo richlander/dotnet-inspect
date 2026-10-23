@@ -1,0 +1,12 @@
+{
+  "f": 3,
+  "t": [["system.text.json", "10.0.0", "net11.0", null]],
+  "g": [[0]],
+  "r": [["e", "ecosystem.runtime", ["System"], [], [["t", "DotNetRuntime"], ["p", "System."]]]],
+  "a": 0,
+  "x": 0,
+  "v": [
+    {"t": null, "u": {"k": "workspace"}},
+    {"t": 0, "r": {"k": "package"}, "u": {"k": "package"}, "f": "package.libraries"}
+  ]
+}

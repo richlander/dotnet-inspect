@@ -18,12 +18,18 @@ interface TestPackage {
   id: string;
   isRuntimePack: boolean;
   source: { kind: "package" | "platform" };
+  selectedDefaultLibraryId?: string | null;
 }
 
 interface TestPresentationItem {
   navigationId: string;
   consumerPackageSubjectId?: string;
   detailFailure: string | null;
+  defaultLibrary?: {
+    assetId: string;
+    assetPath: string;
+    assemblyName: string;
+  } | null;
 }
 
 interface TestPresentation {
@@ -43,6 +49,7 @@ function deferred<T>(): Deferred<T> {
 
 function retainedWorkspaceInstallationHarness(options: {
   activeKind: "package" | "platform";
+  packageFacet?: string;
   initial: Deferred<{ surface: TestPackage }>;
   newer: () => Promise<{ surface: TestPackage }>;
 }) {
@@ -51,7 +58,14 @@ function retainedWorkspaceInstallationHarness(options: {
   const item = (navigationId: string): TestPresentationItem => ({
     navigationId,
     ...(options.activeKind === "package"
-      ? { consumerPackageSubjectId: `${navigationId}-subject` }
+      ? {
+        consumerPackageSubjectId: `${navigationId}-subject`,
+        defaultLibrary: {
+          assetId: `${navigationId}-default`,
+          assetPath: `lib/net10.0/${navigationId}.dll`,
+          assemblyName: `${navigationId}.dll`,
+        },
+      }
       : {}),
     detailFailure: null,
   });
@@ -63,7 +77,15 @@ function retainedWorkspaceInstallationHarness(options: {
     realizationId: "realization",
     retainedDefinitionId: "definition",
     canonicalLocation: "/workspace",
-    navigation: { synchronization: "Current" },
+    navigation: {
+      synchronization: "Current",
+      snapshot: {
+        lensOutcome: {
+          request: options.packageFacet ? { facet: options.packageFacet } : null,
+          effectiveLens: null,
+        },
+      },
+    },
   };
   const state = {
     packages: [] as TestPackage[],
@@ -78,6 +100,7 @@ function retainedWorkspaceInstallationHarness(options: {
     workspaceSubjectOpen: true,
     atPackageRoot: true,
     atLibraryRoot: false,
+    packageLens: "overview",
     loading: true,
     home: false,
     credits: false,
@@ -177,7 +200,13 @@ function retainedWorkspaceInstallationHarness(options: {
       initialAdmissions += 1;
       return options.initial.promise;
     },
-    createNuGetPackageModel: (surface: TestPackage) => surface,
+    createNuGetPackageModelWithDefaultLibrary: (
+      surface: TestPackage,
+      defaultLibrary: TestPresentationItem["defaultLibrary"],
+    ) => {
+      surface.selectedDefaultLibraryId = defaultLibrary?.assetId ?? null;
+      return surface;
+    },
     createRuntimePackageModel: (surface: TestPackage) => surface,
     errorMessage: (error: unknown) =>
       error instanceof Error ? error.message : String(error),
@@ -235,7 +264,9 @@ function retainedWorkspaceInstallationHarness(options: {
     "postRetainedWorkspace",
     "retainedLocationPresentationCurrent",
     "supersedeRetainedLocationIntentForRoutedNavigation",
+    "retainedPackageRootLens",
     "installRetainedWorkspacePosting",
+    "publishRetainedLocationAssociation",
     "completeRetainedActivationPresentation",
     "activateRetainedPackageAction",
     "activateRetainedPlatformAction",
@@ -315,6 +346,33 @@ function retainedWorkspaceInstallationHarness(options: {
   };
 }
 
+for (const [facet, expected] of [
+  ["package.dependency-hierarchy", "hierarchy"],
+  ["package.libraries", "overview"],
+] as const) {
+  test(`retained ${facet} publication replaces the previous Package inspector`, async () => {
+    const initial = deferred<{ surface: TestPackage }>();
+    const harness = retainedWorkspaceInstallationHarness({
+      activeKind: "package",
+      packageFacet: facet,
+      initial,
+      newer: () => Promise.reject(new Error("unused")),
+    });
+    harness.state.packageLens = facet === "package.libraries"
+      ? "hierarchy" : "dependencies";
+    harness.post();
+    const installation = harness.install();
+    initial.resolve({
+      surface: {
+        id: "initial-package", isRuntimePack: false,
+        source: { kind: "package" },
+      },
+    });
+    await installation;
+    assert.equal(harness.state.packageLens, expected);
+  });
+}
+
 test("exact canonical completion renders and focuses once", async () => {
   const initial = deferred<{ surface: TestPackage }>();
   const harness = retainedWorkspaceInstallationHarness({
@@ -336,6 +394,10 @@ test("exact canonical completion renders and focuses once", async () => {
 
   assert.equal(harness.presentationCurrent(), true);
   assert.equal(harness.state.workspaceSubjectOpen, false);
+  assert.equal(
+    harness.state.package?.selectedDefaultLibraryId,
+    `${harness.activeNavigationId}-default`,
+  );
   const rendersBeforeCompletion = harness.renders();
   harness.completePresentation();
   assert.equal(harness.renders(), rendersBeforeCompletion + 1);
@@ -390,6 +452,10 @@ test("stale initial Package detail cannot replace a newer row selection", async 
   await installation;
 
   assert.equal(harness.state.package, newer);
+  assert.equal(
+    harness.state.package.selectedDefaultLibraryId,
+    `${harness.newerNavigationId}-default`,
+  );
   assert.equal(harness.state.workspaceSubjectOpen, false);
   assert.equal(harness.state.packages.length, 1);
   assert.equal(harness.state.packages[0], newer);

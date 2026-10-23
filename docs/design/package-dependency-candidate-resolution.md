@@ -242,48 +242,38 @@ selected version.
 
 ## Operation and cancellation
 
-The query accepts the caller's `NuGetOperationContext` and cancellation token.
-When a context is supplied, it passes that exact context and matching caller
-token unchanged to the source capability. Otherwise it creates one default
-context for the complete query and passes that same instance through every
-source operation and local selection step. Caller cancellation propagates as
-cancellation carrying the caller token; it never becomes `Failed`,
+Every dependency-candidate query passes explicit
+`IPackageSourceAuthorization` and one caller-owned
+`PackageSourceOperationLease`. Pinned authorization, complete version
+discovery, local range selection, and result publication all use that same
+operation's caller cancellation and absolute deadline. The query neither
+creates nor accepts a second operation context. Caller cancellation propagates
+as cancellation carrying the caller token; it never becomes `Failed`,
 `Incomplete`, or an authority failure.
 
 An operation-ceiling timeout remains package-source incomplete evidence.
 Neither the query nor a host retries after the shared operation has expired.
 
-The returned result owns no stream, package archive, client, handler, or
-operation context. Later acquisition uses the candidate's authority evidence
-through a package-owned exact manifest or payload capability.
+The returned result owns no stream, package archive, client, handler,
+operation context, or operation lease. Later acquisition uses the candidate's
+authority evidence through a package-owned exact manifest or payload
+capability.
 
 ## Host adapters
-
-The core depends only on `IPackageDependencyCandidateSource`. The interface is
-limited to:
-
-- authorizing one exact pinned coordinate; and
-- performing dependency-range version discovery under the fixed complete
-  contract.
 
 `PackageAcquisitionCandidateIssuer` is the package-owned host-neutral
 composition boundary. Given explicit `PackageSourceAuthorization` and one
 owner-issued `PackageSourceOperationResult<PackageVersionResult>` per
 authorized authority, it validates source associations, applies the
 dependency listing/completeness policy, and issues the discovery aggregate
-and candidate correspondence.
-
-`AuthorizedPackageDependencyCandidateSource` binds the query interface to an
-`IPackageSourceAuthorization` and caller-owned `IPackageSourceClient` values.
-It is directly usable by Browser/Wasm with credential-free clients and by any
-other host whose source authorization is already explicit.
-`DesktopPackageDependencyCandidateSource` instead binds the same interface to
-`DesktopPackageSourceComposition`, source options, credential-provider-aware
-clients, and optional logging. Neither host implements range selection,
+and candidate correspondence. Hosts bind their authorization to an operation
+issued by the Package Source root; they do not implement range selection,
 authority adoption, discovery completeness, or candidate correspondence.
 
-The interface is not a universal source-realization protocol. It cannot
-acquire payloads, manifests, symbols, metadata, or arbitrary query results.
+`PackageDependencyTraversalCandidateAdapter` does not retain either
+authorization or operation ownership beyond the traversal call. It binds
+explicit `IPackageSourceAuthorization` to the operation transferred by
+traversal and invokes the sole query overload.
 
 ## Determinism and validation
 

@@ -1,9 +1,13 @@
+using System.Reflection;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
+using ILInspector.Metadata;
+using ILInspector.Research;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -211,6 +215,130 @@ public class SemanticFactsSectionTests
         Assert.Contains("Unsafe call", result.Output);
         Assert.Contains("Unsafe.As", result.Output);
         Assert.Contains("requires unsafe", result.Output);
+    }
+
+    [Fact]
+    public void
+        ILAnalysisPreparation_SafetyOnlyUsesExactMethodSource()
+    {
+        MethodInfo method =
+            typeof(SemanticFactsFixture).GetMethod(
+                nameof(SemanticFactsFixture.UnsafeAs))!;
+        using var source =
+            SourceLinkService.OpenPrefetched(TestAssemblyPath);
+        var options = new LibraryOptions
+        {
+            IncludeSections = [SectionNames.SafetyContext],
+            Select = [SectionNames.SafetyContext],
+        };
+
+        ILOffsetAnalysisPreparation preparation =
+            ILOffsetQuery.PrepareAnalysis(
+                source,
+                options,
+                [method.MetadataToken, method.MetadataToken]);
+
+        Assert.Null(preparation.Input);
+        Assert.Null(preparation.AllocationInput);
+        Assert.Null(preparation.Failure);
+        ILOffsetSafetyAnalysisInput safety =
+            Assert.IsType<ILOffsetSafetyAnalysisInput>(
+                preparation.SafetyInput);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.ExactMethods,
+            safety.SourceReceipt.Breadth.Kind);
+        Assert.Single(safety.SourceReceipt.Breadth.Methods);
+        Assert.Equal(
+            source.Context.GetPrefetchedImage().Length,
+            safety.SourceReceipt.TerminalWorkLimits
+                .MaximumEncodedIlBytes);
+        Assert.Equal(1, safety.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, safety.SourceReceipt.BodiesAcquired);
+        Assert.Equal(0, safety.SourceReceipt.ModuleLookups);
+    }
+
+    [Fact]
+    public void
+        ILAnalysisPreparation_AllocationOnlyUsesExactMethodSource()
+    {
+        MethodInfo method =
+            typeof(SemanticFactsFixture).GetMethod(
+                nameof(SemanticFactsFixture.AllSignals))!;
+        using var source =
+            SourceLinkService.OpenPrefetched(TestAssemblyPath);
+        var options = new LibraryOptions
+        {
+            IncludeSections = [SectionNames.AllocationContext],
+            Select = [SectionNames.AllocationContext],
+        };
+
+        ILOffsetAnalysisPreparation preparation =
+            ILOffsetQuery.PrepareAnalysis(
+                source,
+                options,
+                [method.MetadataToken, method.MetadataToken]);
+
+        Assert.Null(preparation.Input);
+        Assert.Null(preparation.SafetyInput);
+        Assert.Null(preparation.Failure);
+        ILOffsetAllocationAnalysisInput allocation =
+            Assert.IsType<ILOffsetAllocationAnalysisInput>(
+                preparation.AllocationInput);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.ExactMethods,
+            allocation.SourceReceipt.Breadth.Kind);
+        Assert.Single(allocation.SourceReceipt.Breadth.Methods);
+        Assert.Equal(
+            source.Context.GetPrefetchedImage().Length,
+            allocation.SourceReceipt.TerminalWorkLimits
+                .MaximumEncodedIlBytes);
+        Assert.Equal(1, allocation.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, allocation.SourceReceipt.BodiesAcquired);
+        Assert.Equal(0, allocation.SourceReceipt.ModuleLookups);
+        Assert.Single(allocation.WorkReceipt.Producers);
+    }
+
+    [Fact]
+    public void
+        ILAnalysisPreparation_CostAndMixedRequestsRetainLegacyAnalysis()
+    {
+        MethodInfo method =
+            typeof(SemanticFactsFixture).GetMethod(
+                nameof(SemanticFactsFixture.AllSignals))!;
+        using var source =
+            SourceLinkService.OpenPrefetched(TestAssemblyPath);
+        string[][] sectionSets =
+        [
+            [SectionNames.CostContext],
+            [
+                SectionNames.AllocationContext,
+                SectionNames.SafetyContext,
+            ],
+            [
+                SectionNames.AllocationContext,
+                SectionNames.CostContext,
+            ],
+        ];
+
+        foreach (string[] sections in sectionSets)
+        {
+            var options = new LibraryOptions
+            {
+                IncludeSections = [.. sections],
+                Select = [.. sections],
+            };
+
+            ILOffsetAnalysisPreparation preparation =
+                ILOffsetQuery.PrepareAnalysis(
+                    source,
+                    options,
+                    [method.MetadataToken]);
+
+            Assert.NotNull(preparation.Input);
+            Assert.Null(preparation.AllocationInput);
+            Assert.Null(preparation.SafetyInput);
+            Assert.Null(preparation.Failure);
+        }
     }
 
     [Fact]

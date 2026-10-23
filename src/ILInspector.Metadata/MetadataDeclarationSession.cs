@@ -12,6 +12,7 @@ public sealed class MetadataDeclarationSession : IDisposable
     Dictionary<
         MetadataMethodDeclarationRequest,
         MetadataMethodDeclarationResult>? _methodDeclarations;
+    bool _methodOwnerRangeOrderingValidated;
     Dictionary<
         MetadataTypeDefinitionAddress,
         MetadataTypeDeclarationResult>? _typeDeclarations;
@@ -155,6 +156,7 @@ public sealed class MetadataDeclarationSession : IDisposable
             return new MetadataTypeDocumentInspectionOutcome.Failed();
 
         return MetadataTypeDocumentInspection.Read(
+            _assemblySession!.GetPEReaderForDeclarationSession(),
             _assemblySession!.GetMetadataReaderForDeclarationSession(),
             request,
             bounds,
@@ -228,13 +230,16 @@ public sealed class MetadataDeclarationSession : IDisposable
             }
             else
             {
-                result =
+                var post =
                     new MetadataMethodDeclarationEvidenceOperation(
                         _assemblySession!
                             .GetMetadataReaderForDeclarationSession(),
                         operation,
-                        GetOrCreateTypeDefinitionIndex)
-                    .Post(type, method, token);
+                        GetOrCreateTypeDefinitionIndex,
+                        !_methodOwnerRangeOrderingValidated);
+                result = post.Post(type, method, token);
+                _methodOwnerRangeOrderingValidated |=
+                    post.OwnerRangeOrderingValidated;
             }
 
             _methodDeclarations.Add(request, result);

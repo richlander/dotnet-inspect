@@ -110,6 +110,40 @@ materialization and visible budget failure. `AwaitContinuationCleanup_CompileBac
 gates Exact raised product whole-member compilation. These gates do not establish
 reconstruction of the motivating writer's early-return guard.
 
+## Typed field reset in a single-await continuation
+
+The ordered single-void-await continuation may retain a typed field default
+initialization. The reset must address a non-state-machine field of the same
+type. Raw import and planning must retain its exact type, field address,
+instruction origin and position in the flat continuation. Its receiver and
+address retain independent value/effect correspondence; it is semantic work,
+not an awaiter-cache reset. The detached output preserves the explicit reset
+and its order relative to the await and following statements. The existing
+single Boolean guard may enclose the continuation without changing this claim.
+
+The motivating asset is Utf8JsonWriter.FlushAsync in dotnet/runtime at commit
+`ab19415702aa8139d5369e47c73edb47343c34ad`, path
+`src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs`.
+The installed RC1 System.Text.Json image resets `_memory` before conditional
+stream work. Independently compiled `ContinuationFixtures.AwaitFieldReset`
+and `GuardedAwaitFieldReset` retain the same typed field-reset operation in
+the existing single-await shell. They establish the reset correspondence;
+they do not establish the writer's before-await placement or branching shell.
+The runtime witness remains reproducible with the pinned installed runtime
+11.0.0-rc.1.26425.128; its complete conditional-await reconstruction remains
+separate. The existing shared classic pass exposes admitted bodies through
+both CLI and browser/Wasm in one shared-core step, with no host adapter,
+new dependency, renderer or performance claim. This prerequisite makes
+thirteen currently planned slices under #9625.
+
+`ClassicInversePreservesAwaitFieldReset` gates Full plain and guarded output.
+`ClassicInverseAwaitFieldResetCannotBeHealed` gates raw/planning type, address,
+order and origin boundaries. `ClassicInverseAwaitFieldResetPlanIsDetachedAndBudgeted`
+gates detached addresses and visible budget exhaustion.
+`AwaitFieldReset_CompileBackExact` gates two immutable product whole-member
+Exact results. Property writes and FlushAsync's conditional awaits remain
+outside this correspondence.
+
 ## Single Boolean guard before a void await
 
 The single-void-await recipe may reproduce a Boolean guard as a single-arm
@@ -394,7 +428,11 @@ prove the new physical, semantic, or structured-ancestor ledgers.
 async source population into implementation and SDK reference assemblies.
 `ClassicAsyncArtifactMatrixTests` additionally publishes that project twice
 with full trimming: once under ordinary reachability and once with the fixture
-assembly rooted so every classic role remains available.
+assembly rooted so every classic role remains available. The fixture also
+carries one reachable async iterator, `StreamAsync`, as trimmed-artifact
+evidence for the
+[state-machine relationship index](state-machine-relationship-index.md#contract-demonstration);
+it is outside the classic inverse.
 
 The resulting matrix separates artifact availability from reconstruction:
 
@@ -1359,7 +1397,7 @@ Release gates:
 | `ClassicInverseNestedInitializerRequiresExactEntries` | A nested entry's member, dispatch, or order changes. |
 | `ClassicInverseDeferredAwaitSpillRetainsItsOrderingWitness` | A deferred await spill is reordered without its imported evaluation-order evidence. |
 | `ClassicInverseExtendedExpressionPlansAreDetached` and `ClassicInverseExtendedExpressionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or budget exhaustion stops being visible failure. |
-| `ClassicInverseExtendedExpressionOutputsCompileBack` | Any of the sixteen covered repaired outputs and neighboring expressions, including a resolved nested collection initializer, stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInverseExtendedExpressionOutputsCompileBack` | Any of the sixteen covered repaired outputs and neighboring expressions, including a resolved nested collection initializer, stops compiling back Exact under the current comparison contract (v6, exception clauses compared). |
 | `ClassicInversePreservesSinkAndCompositionExpressions` | Sink coercions, typed literals, primitive receivers, or composed selections lose supported reconstructed source. |
 | `ClassicInverseSinkLiteralCannotBeHealedByPlanning` | Planning hides a changed literal value/type, an out-of-range coercion, or a checked/unsigned enum conversion. |
 | `ClassicInverseCoerceRetainsExactTarget` and `ClassicInverseCoerceRequiresAnActualSink` | A coercion changes its target or appears without an exact raw typed consumer. |
@@ -1367,7 +1405,7 @@ Release gates:
 | `ClassicInversePrimitiveReceiverCannotBorrowAnAwaiterSlot` | An unnamed primitive receiver acquires a protocol local's address. |
 | `ClassicInverseSinkAndCompositionPlansAreDetached` and `ClassicInverseSinkAndCompositionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or lose visible budget failure. |
 | `ClassicInverseSinkMatchingBudgetExhaustionCannotDecline` | Exhaustion inside a sink-directed value comparison is reported as a semantic mismatch rather than `Failed(BudgetExhausted)`. |
-| `ClassicInverseSinkAndCompositionOutputsCompileBack` | A covered sink/receiver/composition witness or neighbor stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInverseSinkAndCompositionOutputsCompileBack` | A covered sink/receiver/composition witness or neighbor stops compiling back Exact under the current comparison contract (v6, exception clauses compared). |
 | `ClassicInversePreservesRetainedExpressionConsumers` and `ClassicInverseRetainedInitializerSinksCannotBeHealed` | A retained initializer consumer loses supported source or licenses a changed value, type, field, or member. |
 | `ClassicInverseGenericOutputKeepsDeclaredContext` and `ClassicInverseGenericContainerBindsDistinctParameterKinds` | A generic method or enclosing generic type loses its exact request-local type-parameter binding in the body or output-effect receipts. |
 | `ClassicInverseGenericBindingRejectsIncompleteContext`, `ClassicInverseGenericBindingRequiresItsKickoffInstantiation`, `ClassicInverseGenericBindingKeepsExactMachineModule`, and `ClassicInverseGenericFieldContextCannotBeHealed` | A missing coordinate, wrong parameter kind/index, contradictory kickoff instantiation/module, or unrelated typed field licenses reconstruction. |
@@ -1378,7 +1416,7 @@ Release gates:
 | `ClassicInverseRetainedValuesRequireTheirOrigins` and `ClassicInverseRetainedOutputKeepsExactValueType` | A tuple or default value loses its raw origin or exact published type. |
 | `ClassicInverseComposedPredicateRawControlCannotBeHealed` and `ClassicInverseComposedPredicatePlanningKeepsExactControl` | A changed guard edge, predicate, arm, joined slot, or effect licenses short-circuit reconstruction. |
 | `ClassicInverseRetainedExpressionPlansAreDetached`, `ClassicInverseRetainedExpressionBudgetsRemainLoadBearing`, and `ClassicInverseRetainedExpressionBudgetCutsNeverDecline` | A retained form aliases mutable input or exhaustion becomes decline instead of visible failure. |
-| `ClassicInverseRetainedExpressionOutputsCompileBack` and `ClassicInverseGenericContainerOutputsCompileBack` | A covered retained-sink, generic-context, nullable, tuple, default, or short-circuit witness stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInverseRetainedExpressionOutputsCompileBack` and `ClassicInverseGenericContainerOutputsCompileBack` | A covered retained-sink, generic-context, nullable, tuple, default, or short-circuit witness stops compiling back Exact under the current comparison contract (v6, exception clauses compared). |
 | `ClassicInverseExpressionFamiliesCarryCompleteEvidence` | An admitted family lacks typed capture, raw value/construction, primitive effects, or consumed origins/ownership. |
 | `ClassicInverseChildCorrespondenceComposes` | A proved child fails in an admitted context, or a parent accepts one without exact occurrence association and closed combined ownership. |
 | `ClassicInverseTransfersPreserveEvaluationContext` | A composed transfer changes reaching definition, use multiplicity, sibling order, exception behavior or protected context. |

@@ -16,6 +16,52 @@ public sealed partial class ExactTypeInspectionOperationTests
         "Microsoft.Extensions.Logging.Abstractions";
 
     [Fact]
+    public async Task
+        SelectedContext_PackageLiveTargetCarriesOwnerIssuedAssetPath()
+    {
+        const string typeName = "Exact.PackageTarget";
+        const string assemblyPath = "lib/net11.0/PackageTarget.dll";
+        var store = new InMemoryPackageStore();
+        await CommitPackageAsync(
+            store,
+            HostingPackageId,
+            (assemblyPath,
+                BuildAssembly(
+                    "PackageTarget",
+                    typeName,
+                    typeof(IDisposable))));
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextInput input =
+            SelectedContextInput(HostingPackageId);
+        await using var coordinator =
+            new WorkspaceReplacementCoordinator();
+        (WorkspaceRealizationCandidate candidate,
+            WorkspaceDeclarationContext context) =
+            await PrepareSelectedContextCandidateAsync(
+                coordinator,
+                input,
+                LoadOptions(client, store));
+        await ActivateAsync(coordinator, candidate);
+        using WorkspaceRealizationOperationLease authority =
+            await AdmitAsync(coordinator);
+        SelectedContextExactTypeLiveTarget? liveTarget = null;
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
+                authority.Workspace,
+                context,
+                new SelectedContextExactTypeInspectionRequest(typeName),
+                target => liveTarget = target);
+
+        Assert.True(envelope.Content.Inspection.IsAvailable);
+        Assert.NotNull(liveTarget);
+        Assert.Null(liveTarget.AssemblyPath);
+        Assert.Equal(assemblyPath, liveTarget.PackageAssetPath);
+        Assert.Null(liveTarget.PackageExtractPath);
+        Assert.Null(liveTarget.OpenCompiledDocumentation);
+    }
+
+    [Fact]
     public async Task SelectedContext_ResolvesTypeFromNonFirstPackageMember()
     {
         const string typeName = "Microsoft.Extensions.Logging.ILogger";
@@ -79,6 +125,26 @@ public sealed partial class ExactTypeInspectionOperationTests
             package.LibraryIdentity.Name);
         Assert.Equal(0, source.Observation.ContextOrder);
         Assert.Equal(1, source.Observation.MemberOrder);
+        WorkspaceTypeHierarchySubjectRelationsFocus hierarchyFocus =
+            WorkspaceTypeHierarchySubjectRelationsFocus
+                .FromExactTypeDefinition(
+                    source.Occurrence,
+                    source.Type);
+        Assert.Same(
+            source.Occurrence,
+            hierarchyFocus.Occurrence);
+        Assert.Equal(
+            source.Type.Namespace,
+            hierarchyFocus.Type.Namespace);
+        Assert.Equal(
+            source.Type.Segments,
+            hierarchyFocus.Type.Segments);
+        ArgumentException invalidIdentity = Assert.Throws<ArgumentException>(
+            () => WorkspaceTypeHierarchySubjectRelationsFocus
+                .FromExactTypeDefinition(
+                    source.Occurrence,
+                    new("", [])));
+        Assert.Equal("type", invalidIdentity.ParamName);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
     }
 

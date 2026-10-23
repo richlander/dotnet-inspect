@@ -31,12 +31,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     TestContext.Current.CancellationToken),
             },
         };
-        PackageSourceAuthorization authority = PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
-        using IPackageSourceClient packageClient = PackageSourceClientFactory.CreateGallery(
-            authority.Authorities[0].Association, handler);
+        using IPackageSourceClient packageClient = CatalogSource(handler);
         using var networkClient = new HttpClient(handler, disposeHandler: false);
         using var navigation = new BrowserPlatformForwarderNavigation(
-            networkClient, packageClient, new FixedPackageSourceAuthorization(authority), TimeSpan.FromSeconds(30));
+            networkClient, packageClient, BrowserPackageWorkspace.SourceAuthorizationFor(packageClient), TimeSpan.FromSeconds(30));
         CancellationToken token = TestContext.Current.CancellationToken;
         var opened = RequireForwarderView(await navigation.OpenAsync(
             "net11.0", ForwarderPlatformVersion,
@@ -74,15 +72,12 @@ public sealed partial class BrowserEngineBoundaryTests
                     TestContext.Current.CancellationToken),
             },
         };
-        PackageSourceAuthorization authority =
-            PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
-        using IPackageSourceClient packageClient = PackageSourceClientFactory.CreateGallery(
-            authority.Authorities[0].Association, handler);
+        using IPackageSourceClient packageClient = CatalogSource(handler);
         using var networkClient = new HttpClient(handler, disposeHandler: false);
         using var navigation = new BrowserPlatformForwarderNavigation(
             networkClient,
             packageClient,
-            new FixedPackageSourceAuthorization(authority),
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient),
             TimeSpan.FromSeconds(30));
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;
 
@@ -207,13 +202,10 @@ public sealed partial class BrowserEngineBoundaryTests
     public async Task PlatformForwarders_OpenFailureReturnsTypedNonSuccess(bool cancel, string expectedStatus)
     {
         var handler = new PlatformCatalogHandler("11.0.999");
-        PackageSourceAuthorization authority =
-            PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
-        using IPackageSourceClient packageClient = PackageSourceClientFactory.CreateGallery(
-            authority.Authorities[0].Association, handler);
+        using IPackageSourceClient packageClient = CatalogSource(handler);
         using var networkClient = new HttpClient(handler, disposeHandler: false);
         using var navigation = new BrowserPlatformForwarderNavigation(
-            networkClient, packageClient, new FixedPackageSourceAuthorization(authority), TimeSpan.FromSeconds(10));
+            networkClient, packageClient, BrowserPackageWorkspace.SourceAuthorizationFor(packageClient), TimeSpan.FromSeconds(10));
         CancellationToken cancellationToken = cancel
             ? new CancellationToken(canceled: true)
             : TestContext.Current.CancellationToken;
@@ -225,7 +217,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.NotEmpty(blocked.Message);
         Assert.Null(blocked.Resolution);
         if (!cancel)
-            Assert.Contains("PlatformPackUnavailable", blocked.Message, StringComparison.Ordinal);
+            Assert.Contains("PackageUnavailable", blocked.Message, StringComparison.Ordinal);
 
         using JsonDocument wire = JsonDocument.Parse(
             Interop.Package.PackageExports.SerializeForwarderResult(blocked));

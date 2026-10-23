@@ -38,8 +38,11 @@ package space and retains the same owner-issued narrowing receipt.
 The narrowing forms are:
 
 - **Package-wide.** Every admitted package entry is in scope.
-- **TFM-wide.** Every admitted entry associated with one requested target
-  framework is in scope. A runtime target also carries its RID.
+- **TFM-wide.** Every admitted entry associated with one compatible explicit
+  target framework is in scope. It accepts only PackageHouse's `Exact` target
+  mode because its realization requires an `ExplicitTarget` receipt;
+  exact-target-only, frozen-target, and owner-default contexts are rejected at
+  construction. A runtime target also carries its RID.
 - **TFM and ordered root preference.** The query carries one target framework
   and an arbitrary non-empty ordered list of distinct package library root
   families: `ref`, `lib`, or `runtimes`. PackageHouse selects the first
@@ -77,6 +80,8 @@ The result terminals are:
 - **Files.** Return the complete validated content of one or more exact package
   entries within the base narrowed space.
 - **Libraries.** Return every compatible library in the base narrowed space.
+  The terminal carries the declared Surface or SurfaceAndImplementation role
+  demand and materializes only the exact owner-issued assembly entries.
 - **Library and inventory for target.**
   `GetLibraryAndInventoryForTarget` requires TFM-wide narrowing and returns one
   policy-selected Library plus the complete logical Library inventory for that
@@ -101,6 +106,9 @@ references through later retained Files queries.
 `GetLibraryInventoryForTarget` is supported by Portable PDB settlement for an
 already-realized Browser/Wasm package assembly; it binds the exact provenance
 path to an inventory row before requesting only that row's PDB reference.
+The Libraries terminal is supported first by Package-scoped exact Type
+inspection. It preserves aggregate lookup across the complete owner-issued
+Library population while excluding unrelated sibling files.
 
 Package-wide and TFM-wide Files and File List are implemented. Their results
 retain the exact acquired generation and, for TFM-wide narrowing, the existing
@@ -146,8 +154,8 @@ The snapshot is the singular basis for:
 - logical TFM Library inventory, implementation correspondence, and
   adjacent-PDB entry evidence;
 - the detached File List terminal;
-- entry offsets, compressed and expanded lengths, and compression facts used
-  by ranged-entry planning; and
+- entry offsets, compressed and expanded lengths, archive timestamps, and
+  compression facts used by ranged-entry planning; and
 - the entry identities used to query which content the entry cache already
   holds.
 
@@ -329,6 +337,14 @@ it. That inventory Root must be realized with Library-content demand before
 entering an assembly inspection. Complete acquisition below the size cut or
 when ranges are unavailable preserves the same inventory result.
 
+A compile inspection is the adjacent demand for a Package facts view that also
+contains a body-backed rollup. It preserves the same package-wide File List and
+compile-selection evidence, but additionally materializes the selected compile
+surface and implementation assets. It still does not authorize unrelated
+package entries or a complete archive; House chooses ranged acquisition,
+complete acquisition below the size cut, or fallback from that combined
+demand.
+
 The motivating asset is `Avalonia@12.1.3`, observed on 2026-10-07: a
 10,157,510-byte archive with 121 entries and separate reference and
 implementation folders. The website Summary currently obtains its Library rows
@@ -340,13 +356,24 @@ complete JSON equality against the base and cold/warm measurements.
 
 The website is the first production adopter, under website download-flow
 tracker [#9678](https://github.com/richlander/dotnet-inspect/issues/9678)
-and focused issue [#9754](https://github.com/richlander/dotnet-inspect/issues/9754). The CLI's inventory-only
-Package Info selection is the next adoption boundary; its complete-content
-sections retain their existing demand until that selection reaches acquisition.
+and focused issue [#9754](https://github.com/richlander/dotnet-inspect/issues/9754).
+The CLI Package Info selection consumes a compile-inspection settlement:
+package-wide File List evidence plus the selected compile assets required by
+its body-backed Ecosystem Dependencies rollup. It projects package structure
+and the existing `Built` field from owner-issued File List evidence, including
+archive timestamps for files and explicit directory entries, without mixing
+directories into the file-entry sequence or downloading unrelated package
+content. Full typed JSON retains the complete-package path because its
+serialized document includes body-backed binary signals beyond the selected
+visual section. Tool
+settings and dependency manifests that require body-backed tool
+classification, local archives, metadata enrichment, signature verification,
+and all complete-content sections retain the existing complete-package path.
 Release gates are `CompileInventoryDemandIsDeclaredBeforeAcquisition`,
 `CompileInventory_UsesHousePlanningAndPreservesMeasurementReceipts`,
 `PackageInventory_RangePreservesSelectionWithoutLibraryBodies`,
-`PackageInventory_RangePreservesEmptyAndNoMatch`, and the existing
+`PackageInventory_RangePreservesEmptyAndNoMatch`,
+`PackageInfo_RangedRead_UsesSelectedLibrariesWithoutUnrelatedBody`, and the existing
 `QueryPackageSummary_ToolPayloadPublishesExactManagedLibraries` and
 `PackageSummary_PreservesProductDefaultAlongsideCompleteLibraryInventory`. This slice consumes existing selection, measurement,
 Root, and QuerySpace child-row contracts rather than changing them.
@@ -374,12 +401,15 @@ substantial acquisition work on the subsequent Library operation. Earlier
 Roslyn measurements requested `net8.0` and returned PackageMismatch, so they
 are not evidence of a successful Library API sequence. Valid measurements
 use the browser-selected `netstandard2.0` target and explicitly retain its
-existing API projection-limit outcome. The production browser API and
-Library enablements exports must adopt the exact shared demand before this
-candidate is ready. The CLI exact-Library caller is the subsequent shared
-adoption boundary under #9754. Before/after evidence uses the existing
-`eng/measure-inspect-web-library-open.cs` sequence and complete result parity;
-synthetic multi-Library fixtures enforce that sibling bodies stay unread.
+existing API projection-limit outcome. The production browser API and Library
+enablements exports adopt the exact shared demand first. The CLI exact-Library
+caller adopts the same semantic demand under
+[#10056](https://github.com/richlander/dotnet-inspect/issues/10056):
+one already-selected exact compile Library enters PackageHouse before
+acquisition and opens through `PackageEndpointScope`. Before/after evidence
+uses the existing `eng/measure-inspect-web-library-open.cs` sequence and
+complete result parity; synthetic multi-Library fixtures enforce that sibling
+bodies stay unread.
 The gates are `ExactCompileLibraryDemand_RequiresDeclaredRolesAndPackageOnlyHandoff`,
 `ExactCompileLibrary_PreservesInventoryAndNarrowsParticipants`, and
 `ExactLibraryDemand_NarrowsTransferAndWorkspace`, plus existing tool-package
@@ -425,8 +455,11 @@ gates standalone Surface demand through the shared planner.
 `OverviewDemand_ImplementationFailurePreservesIndependentApi` gate successful
 sharing, cancellation, sibling exclusion, and independent acquisition failure.
 `library-overview-demand.test.ts` checks the website's companion declaration.
-QuerySpace producer capabilities supplies plan validation; existing Root,
-Workspace, cache, and range contracts retain their respective ownership.
+`ExactLibraryWorkspaceRouteTests` and
+`EndpointScope_ExactLibraryDemandNarrowsTransferAndParticipants` gate the CLI
+adoption, typed output parity, complete compile evidence, and sibling-body
+exclusion. QuerySpace producer capabilities supplies plan validation; existing
+Root, Workspace, cache, and range contracts retain their respective ownership.
 
 ### Adopted shared-demand measurements
 
@@ -880,6 +913,7 @@ All implementation gates run in Release.
 | Repeated exact dependency coordinate | Workspace enrichment requests its Nuspec once and reuses the immutable result across contexts. |
 | Package-wide file list | Every admitted path appears once; no expanded entry content is opened. |
 | TFM-wide file list | Every path in the owner-issued target scope appears once; unrelated target paths do not appear. |
+| TFM-wide target mode | `TfmWideQueryRetainsOneExactTarget` rejects exact-target-only, frozen-target, and owner-default contexts before execution. |
 | Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute candidates or inventory. |
 | Shared directory evidence | File List, exact-file admission, logical Library inventory, package-symbol evidence, and range spans derive from one validated snapshot plus owner-issued narrowing and correspondence. |
 | Exact files | Ranged execution expands only the exact referenced entries; complete fallback may transfer the archive but publishes only those entries. Every reference lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous reference fails visibly. |

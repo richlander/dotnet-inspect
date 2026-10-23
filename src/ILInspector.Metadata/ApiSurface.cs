@@ -138,6 +138,13 @@ public class ApiSurface
     public ApiAssemblyIdentity? AssemblyIdentity { get; set; }
 
     /// <summary>
+    /// The extraction scope that built this surface, or <see langword="null"/> for a surface
+    /// no single extraction built (merged, projected, summarized, or deserialized).
+    /// </summary>
+    [JsonIgnore]
+    public ApiSurfaceExtractionScope? ExtractionScope { get; set; }
+
+    /// <summary>
     /// Package or assembly name.
     /// </summary>
     public string? Name { get; set; }
@@ -295,6 +302,37 @@ public class ApiSurface
             foreach (ApiSurfaceInspectionFailure failure in failures)
                 AddConstraintResolutionFailure(subject, failure);
         }
+    }
+
+    /// <summary>
+    /// Keeps this merged surface's <see cref="ExtractionScope"/>, the scope its merge
+    /// requested, only while each contributor was extracted with that same scope; a
+    /// contributor of another scope leaves the merged surface with none.
+    /// </summary>
+    public void MergeExtractionScope(ApiSurfaceExtractionScope? contributorScope)
+    {
+        if (ExtractionScope != contributorScope)
+            ExtractionScope = null;
+    }
+
+    /// <summary>
+    /// Adds one assembly's surface to this merged surface: its Types, type
+    /// forwarders, inspection failures, and counts. The caller orders the
+    /// merged Types once every assembly is added.
+    /// </summary>
+    public void MergeAssemblySurface(ApiSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        MergeExtractionScope(surface.ExtractionScope);
+        Types.AddRange(surface.Types);
+        TypeForwarders.AddRange(surface.TypeForwarders);
+        IsTypeForwardingAssembly |= surface.IsTypeForwardingAssembly;
+        MergeInspectionFailuresFrom(surface);
+        PublicTypeCount += surface.PublicTypeCount;
+        PublicMethodCount += surface.PublicMethodCount;
+        PublicPropertyCount += surface.PublicPropertyCount;
+        PublicEventCount += surface.PublicEventCount;
+        PublicFieldCount += surface.PublicFieldCount;
     }
 
     public void SetInspectionSourceAssemblyPath(string path)
@@ -869,8 +907,45 @@ public class ApiType
     /// </summary>
     public string? Accessibility { get; set; }
 
+    /// <summary>
+    /// Whether another assembly can reach every Type enclosing this one: each is public, or a
+    /// nested public, protected, or protected internal Type. True for a top-level Type. Null
+    /// when not recorded; only an include-all extraction records it.
+    /// </summary>
+    [JsonIgnore]
+    public bool? EnclosingTypesExternallyReachable { get; set; }
+
+    /// <summary>
+    /// Whether every Type enclosing this one is ordinary: public or nested public, and not
+    /// hidden by the rule <see cref="IsHidden"/> records. True for a top-level Type. Read from
+    /// metadata, so it holds when a Type selection does not project the enclosing Type. Null
+    /// when not recorded; only API axis and include-all extractions record it.
+    /// </summary>
+    [JsonIgnore]
+    public bool? EnclosingTypesOrdinary { get; set; }
+
+    /// <summary>
+    /// Whether the Type carries <c>EditorBrowsable(EditorBrowsableState.Never)</c>: its hidden
+    /// API status (docs/design/api-status-analysis.md). Obsolete status is separate.
+    /// </summary>
     [JsonIgnore]
     public bool IsHidden { get; set; }
+
+    /// <summary>
+    /// Whether the Type carries <c>[Obsolete]</c>, other than the compiler's compatibility
+    /// marker: its obsolete API status (docs/design/api-status-analysis.md). Not serialized,
+    /// as <see cref="IsHidden"/> is not, so existing Type JSON is unchanged.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsObsolete { get; set; }
+
+    /// <summary>The <see cref="IsObsolete"/> message, or null when it has none.</summary>
+    [JsonIgnore]
+    public string? ObsoleteMessage { get; set; }
+
+    /// <summary>Whether <see cref="IsObsolete"/> makes references a compile-time error.</summary>
+    [JsonIgnore]
+    public bool ObsoleteIsError { get; set; }
 
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
     public List<string> Attributes { get; set; } = [];

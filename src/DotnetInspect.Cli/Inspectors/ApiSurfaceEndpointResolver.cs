@@ -18,16 +18,30 @@ internal sealed class ApiSurfaceEndpoint : IDisposable
     }
 
     /// <summary>
-    /// An endpoint opened as a package endpoint scope. Only Library API Diff
-    /// reads it, through the scope's participants; it has no merged surface
-    /// and no extracted file paths. The scope's owner disposes it.
+    /// An endpoint opened as a package endpoint scope for Library API Diff,
+    /// which reads the scope's one Library through its participant; it has
+    /// no merged surface and no extracted file paths. The scope's owner
+    /// disposes it.
     /// </summary>
     internal ApiSurfaceEndpoint(
         DotnetInspector.PackageQueries.PackageEndpointScope packageScope)
     {
         PackageScope = packageScope;
         _surface = new(static () => throw new InvalidOperationException(
-            "A package endpoint scope serves Library API Diff only; it has no merged API surface."));
+            "This package endpoint scope was opened for Library API Diff; it has no merged API surface."));
+    }
+
+    /// <summary>
+    /// An endpoint opened as a package endpoint scope, with the scope's
+    /// merged participant surface. It has no extracted file paths: the body
+    /// views read the scope's implementation participants.
+    /// </summary>
+    internal ApiSurfaceEndpoint(
+        DotnetInspector.PackageQueries.PackageEndpointScope packageScope,
+        ApiSurface surface)
+    {
+        PackageScope = packageScope;
+        _surface = new(() => surface);
     }
 
     internal ApiSurfaceEndpoint(
@@ -48,12 +62,25 @@ internal sealed class ApiSurfaceEndpoint : IDisposable
     public AssemblySet AssemblySet =>
         _assemblySet
         ?? throw new InvalidOperationException(
-            "A package endpoint scope has no extracted assembly set; only API views read it.");
+            "A package endpoint scope has no extracted assembly set; read its participants.");
 
     /// <summary>The number of Libraries in this endpoint's population.</summary>
     public int LibraryCount =>
         PackageScope?.SurfaceParticipants.Length
         ?? AssemblySet.Assemblies.Count;
+
+    /// <summary>
+    /// The target framework this endpoint's assemblies were selected for,
+    /// or <see langword="null"/> when they name none or more than one.
+    /// </summary>
+    public string? Framework =>
+        PackageScope?.TargetFramework
+        ?? (AssemblySet.Assemblies
+                .Select(static entry => entry.Tfm)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray() is [{ } tfm]
+            ? tfm
+            : null);
 
     public ApiSurface Surface => _surface.Value;
 

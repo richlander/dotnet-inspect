@@ -33,17 +33,25 @@ public partial class LibraryCommand
                     + "--version, --tfm, or --preview.");
             return 1;
         }
-        if (options.NamesakeLibrary
+        if ((options.NamesakeLibrary || options.FirstLibrary)
             && !string.IsNullOrWhiteSpace(options.AssemblyName))
         {
             CommandError.Write(
-                "--namesake-library cannot be combined with an exact "
-                    + "Library source.");
+                $"{(options.NamesakeLibrary ? "--namesake-library" : "--first-library")} "
+                    + "cannot be combined with an exact Library source.");
+            return 1;
+        }
+        if (options.NamesakeLibrary && options.FirstLibrary)
+        {
+            CommandError.Write(
+                "--namesake-library cannot be combined with --first-library.");
             return 1;
         }
         PackageLibraryTarget selection =
             options.NamesakeLibrary
                 ? new PackageLibraryTarget.Namesake()
+                : options.FirstLibrary
+                    ? new PackageLibraryTarget.First()
                 : string.IsNullOrWhiteSpace(options.AssemblyName)
                     ? new PackageLibraryTarget.Aggregate()
                     : new PackageLibraryTarget.Exact(
@@ -61,7 +69,8 @@ public partial class LibraryCommand
         {
             CommandError.Write(
                 "Complete Library Metrics JSON requires one exact Library. "
-                    + "Name the Library or use --namesake-library.");
+                    + "Name the Library, use --namesake-library, or use "
+                    + "--first-library.");
             return 1;
         }
         if (IsExactNameFamilySelection(options)
@@ -69,7 +78,7 @@ public partial class LibraryCommand
         {
             CommandError.Write(
                 "Name Families requires one exact Library. Name the Library "
-                    + "or use --namesake-library.");
+                    + "or use --namesake-library or --first-library.");
             return 1;
         }
 
@@ -110,6 +119,8 @@ public partial class LibraryCommand
                             new WorkspaceLibrarySelection.Aggregate(),
                         PackageLibraryTarget.Namesake =>
                             new WorkspaceLibrarySelection.Namesake(),
+                        PackageLibraryTarget.First =>
+                            new WorkspaceLibrarySelection.First(),
                         PackageLibraryTarget.Exact exact =>
                             new WorkspaceLibrarySelection.Exact(
                                 exact.Library),
@@ -119,13 +130,16 @@ public partial class LibraryCommand
                 selection is PackageLibraryTarget.Aggregate,
             NamesakeLibrary =
                 selection is PackageLibraryTarget.Namesake,
+            FirstLibrary =
+                selection is PackageLibraryTarget.First,
             TypeNamespace = options.TypeNamespace,
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
             LibraryCommandPlan = options.CommandPlan,
             PackageLibrary = selection switch
             {
-                PackageLibraryTarget.Namesake => "",
+                PackageLibraryTarget.Namesake
+                    or PackageLibraryTarget.First => "",
                 PackageLibraryTarget.Exact exact => exact.Library,
                 _ => null,
             },
@@ -208,6 +222,8 @@ public partial class LibraryCommand
         internal sealed record Aggregate : PackageLibraryTarget;
 
         internal sealed record Namesake : PackageLibraryTarget;
+
+        internal sealed record First : PackageLibraryTarget;
 
         internal sealed record Exact(string Library) : PackageLibraryTarget;
     }

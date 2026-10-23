@@ -108,6 +108,9 @@ public sealed class AssemblySetResolutionSession : IDisposable
         {
             Name = name,
             Tfm = tfm,
+            ExtractionScope = includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
         };
         bool readSurface = false;
         foreach (AcquisitionFailure failure
@@ -245,16 +248,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
         log?.Invoke(
             $"  + {Path.GetFileNameWithoutExtension(path)}: "
                 + $"{surface.PublicTypeCount} types");
-        merged.Types.AddRange(surface.Types);
-        merged.TypeForwarders.AddRange(surface.TypeForwarders);
-        merged.IsTypeForwardingAssembly |=
-            surface.IsTypeForwardingAssembly;
-        merged.MergeInspectionFailuresFrom(surface);
-        merged.PublicTypeCount += surface.PublicTypeCount;
-        merged.PublicMethodCount += surface.PublicMethodCount;
-        merged.PublicPropertyCount += surface.PublicPropertyCount;
-        merged.PublicEventCount += surface.PublicEventCount;
-        merged.PublicFieldCount += surface.PublicFieldCount;
+        merged.MergeAssemblySurface(surface);
     }
 
     static ResolvedAssemblyReference? TryCreateManagedAssembly(

@@ -117,9 +117,13 @@ Completion records independent incomplete reasons:
 - population formation produced diagnostics; or
 - one or more admitted candidates could not be evaluated authoritatively.
 
-Missing directories or packs, unreadable or non-managed images, unsupported
-metadata formats, malformed assembly identity, and failed reference-table
-reads remain visible failures. They never become nonmatches.
+Missing directories or packs, a directory with native images and no managed
+image, unreadable or malformed images, unsupported metadata formats, malformed
+assembly identity, and failed reference-table reads remain visible failures.
+They never become nonmatches. A native image beside managed ones is not a
+population member and is skipped, under the
+[directory-source rule](assembly-inspection-query.md) in Assembly inspection
+query.
 
 `AssemblyIdentityScanner.ReferencesComplete=false` has precise semantics:
 
@@ -137,7 +141,9 @@ a nonzero exit.
 same completion warning and exit status, under the section-row owner's
 [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
 It is exact only when the evaluation, or the selected closed row window, is
-complete for the request.
+complete for the request. Count is withheld only when population formation
+failed before any candidate was evaluated; any other failure yields an observed
+count.
 
 ## Discovery and acquisition boundary
 
@@ -197,7 +203,9 @@ Release gates cover:
 - route-derived query discovery and structural discovery without acquisition
   in `DotnetInspect.Cli.Tests`;
 - directory execution, row selection versus candidate bounds, Count, a
-  population exactly at and one larger than the default bound, and
+  population exactly at and one larger than the default bound (a partial view
+  with exit 1, a lone Head that stops early, and an explicit `--take` scope
+  with exit 0, `LibraryQuery_DefaultCandidateCeilingIsAPartialView`), and
   malformed-reference visibility in `DotnetInspect.Cli.Tests`; and
 - participant-backed execution, exact Browser asset-ID projection, and Worker
   transport in `DotnetInspector.Queries.Tests` and `DotnetInspect.Web.Tests`;

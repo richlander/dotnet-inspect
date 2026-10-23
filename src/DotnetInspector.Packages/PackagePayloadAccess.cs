@@ -60,7 +60,7 @@ public sealed class PackageRangedSelection
 
 /// <summary>
 /// What a ranged acquisition reads and when it reads by range at all: the
-/// entry selector, and the size cut at or under which the archive is
+/// entry selector, and the directory-derived size cut at or under which the archive is
 /// acquired complete and cached instead (docs/design/package-cache-policy.md).
 /// </summary>
 public sealed class PackageRangedRead
@@ -82,7 +82,7 @@ public sealed class PackageRangedRead
     public PackageEntrySelector SelectEntries { get; }
 
     /// <summary>
-    /// Archives whose advertised length is at or under this are acquired
+    /// Archives whose validated directory length is at or under this are acquired
     /// complete; larger ones are read by range. It is also the budget of an
     /// aligned block.
     /// </summary>

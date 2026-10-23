@@ -34,7 +34,8 @@ public enum BrowserCompileLibraryStatus
 public sealed record BrowserWorkspacePackage(
     string Package,
     string Version,
-    string Framework);
+    string Framework,
+    string? RuntimeIdentifier = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeFindResultStatus>))]
 public enum BrowserTypeFindResultStatus
@@ -322,8 +323,6 @@ public sealed record BrowserMemberGroupDocumentRow(
     int MetadataToken,
     int BaselineOrdinal,
     string DisplaySignature,
-    string CanonicalSignature,
-    string Fingerprint,
     string Accessibility,
     string Receiver);
 
@@ -416,6 +415,64 @@ public sealed record BrowserTypeMemberPopulationGroup(
     int CompleteCount,
     BrowserMemberSurface[] Members);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeOverviewOutcome>))]
+public enum BrowserTypeOverviewOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+public sealed record BrowserTypeOverviewInspection(
+    BrowserTypeOverviewOutcome Outcome,
+    string? Detail,
+    BrowserTypeOverview? Document,
+    InspectionShare Share,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserTypeOverview(
+    BrowserTypeOverviewAssemblyIdentity Assembly,
+    Guid ModuleVersionId,
+    string TypeIdentity,
+    int TypeDefinitionToken,
+    string Category,
+    bool IsByRefLike,
+    BrowserTypeOverviewGenericParameter[] GenericParameters,
+    BrowserTypeOverviewPopulation Population);
+
+public sealed record BrowserTypeOverviewAssemblyIdentity(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+public sealed record BrowserTypeOverviewGenericParameter(
+    string Name,
+    int MetadataIndex,
+    int DefinitionSegmentIndex,
+    string Attributes);
+
+public sealed record BrowserTypeOverviewPopulation(
+    string Spelling,
+    string Accessibility,
+    string Receiver,
+    string Ordering,
+    bool IncludeHidden,
+    BrowserTypeMemberComposition Composition,
+    BrowserTypeMemberSelectorCounts SelectorCounts,
+    BrowserTypeOverviewGroup[] Groups);
+
+public sealed record BrowserTypeOverviewGroup(
+    string Key,
+    string Name,
+    string DisplayName,
+    string Kind,
+    int BaselineOrdinal,
+    int CompleteCount,
+    string[] Receivers,
+    BrowserTypeMemberTraitCounts Traits);
+
 /// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the
 /// identity rules these fields carry; this facade owns its own copy of the transport.
@@ -459,9 +516,6 @@ public sealed record BrowserMemberSurface(
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
     string? DocumentationId,
-    string? Summary,
-    string? Returns,
-    BrowserExceptionSurface[] Exceptions,
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
@@ -482,12 +536,7 @@ public sealed record BrowserParameterSurface(
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue,
-    string? Description);
-
-public sealed record BrowserExceptionSurface(
-    string Type,
-    string Description);
+    string? DefaultValue);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageMetadata))]
@@ -575,6 +624,7 @@ public sealed record BrowserExceptionSurface(
     typeof(Wire.AuthoredDocumentationOutcome.Incomplete),
     TypeInfoPropertyName = "AuthoredDocumentationIncomplete")]
 [JsonSerializable(typeof(BrowserTypeMemberPopulationInspection))]
+[JsonSerializable(typeof(BrowserTypeOverviewInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<JsonElement>),
@@ -582,9 +632,9 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserLibraryApiDiffRequest))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffResult))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffCancellation))]
-[JsonSerializable(typeof(BrowserLibraryFastDiffRequest))]
-[JsonSerializable(typeof(BrowserLibraryFastDiffResult))]
-[JsonSerializable(typeof(BrowserLibraryFastDiffCancellation))]
+[JsonSerializable(typeof(BrowserLibraryFindingDiffAnyRequest))]
+[JsonSerializable(typeof(BrowserLibraryFindingDiffAnyResult))]
+[JsonSerializable(typeof(BrowserLibraryFindingDiffAnyCancellation))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

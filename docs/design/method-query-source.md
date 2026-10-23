@@ -48,11 +48,16 @@ settled lane keeps its result when a later lane aborts or encounters source
 failure, and source failure reaches only active lanes whose type scope required
 the failed enumeration. Sparse breadth and incompatible requests remain
 separate groups. Exact-method and exact-type requests may opt into bounded
-generated execution-body expansion. The source uses targeted nested metadata
+generated execution-body expansion, and an all-definition request may declare
+the [declared-source relation](#declared-source-relation), which settles at
+source completion in its own lane. The source uses targeted nested metadata
 for state-machine bodies and the existing lifted ownership authority for
 bounded body-dependent discovery; its receipt separates candidate definitions,
 probe bodies and bytes, relationship nodes, and
-authenticated origins from terminal work. Metadata-predicate breadth, body
+authenticated origins from terminal work. Declaring producers read the
+subject's public MethodDef roots and reference-assembly status at completion
+through [image exposure support](#image-exposure-support), receipted apart from
+breadth. Metadata-predicate breadth, body
 packets, and collapsed sparse request groups remain **unverified**.
 
 ## Demo and pathological case
@@ -156,6 +161,8 @@ population, `MethodDefinition`. The implementation is mainly in
 | `MethodRowGate.cs`, `MethodDefinitionPredicates.cs`, and `MethodDefinitionTerminalWorkBudget.cs` | Source gate, predicates, and terminal work bounds |
 | `MemorySafetyContractSupport.cs` | Memory-safety contract and accessor association support |
 | `SameModuleCallTargetSupport.cs` | `CallTargets` support |
+| `MethodCallMetadataSupport.cs` | `Calls`, `LocalSignature`, and field-operand support |
+| `MethodAnalysisSupport.cs` | Allocation and optimization's shared reader-backed judgments and support-work receipt |
 
 Where this source sits among Query Space, Producer Planning, and Assembly
 Analysis Operation is described in
@@ -247,8 +254,9 @@ methods merely because an implementation can discover them.
 The initial relations are:
 
 - **Generated execution bodies.** From an authenticated declared source,
-  include its async or iterator state-machine execution method and its
-  authenticated lifted local-function or lambda bodies. State-machine
+  include its async or iterator state-machine methods in the requested
+  [roles](#declared-source-relation), always including the execution method,
+  and its authenticated lifted local-function or lambda bodies. State-machine
   relationships may be available from targeted metadata. Lifted ownership may
   additionally require bounded instruction probes of the selected owner and
   recursively reached candidate bodies. Relationship owners define
@@ -287,6 +295,21 @@ An implementation that scans every MethodDef to expand an exact-method seed
 must receipt that whole-table work and does not satisfy the sparse-breadth
 proportionality gate.
 
+Generated-body discovery runs on `DeclaredSourceAttribution`, which composes
+`DeclaredSourceResolver`, `StateMachineSourceResolver`, and
+`LiftedSourceOwnerResolver`, with the metadata resolvers and classifiers they
+read, from the subject's metadata and PE readers alone. The three resolvers
+reference no Library Body Analysis plan, result, or runner; Library Body
+Analysis applies them to its plans through
+`LibraryBodyDeclaredSourcePublication`, which is deleted with it. The metadata
+resolvers and classifiers still carry `LibraryBody` names and move under
+[#9959](https://github.com/richlander/dotnet-inspect/issues/9959). The source constructs it only when a request declares
+expansion and builds no `LibraryBodyAnalysisBuilder` for it. When a producer
+also declares the module lookup, that lookup's builder is given the same
+attribution, so expansion and lookup share one set of resolver caches. Library
+Body Analysis composes its own attribution the same way, so authentication has
+one implementation.
+
 Referenced-body expansion is discovery-dependent. Serial reference execution
 uses waves:
 
@@ -299,6 +322,167 @@ uses waves:
 One physical method appears once, at its earliest wave. Cycles do not create
 new units. A bound reached before closure is typed incomplete source
 completion, never successful exhaustion.
+
+### Declared-source relation
+
+Status: exact breadth implements roles, nested-type reach, unauthenticated
+candidates, and retained-prefix bounds. All-definition breadth implements the
+reverse lowering described below, with its own operand scan of each acquired
+body.
+
+- `IncludeGeneratedExecutionBodies` takes the requested
+  `MethodDefinitionGeneratedBodyRoles`, defaulting to Execution, and
+  `includeUnauthenticatedCandidates`.
+- `MethodDefinitionGeneratedExpansionCoverage` publishes each outcome:
+  `Origins` in the requested roles, `AttributedOutsideRoles`, and
+  `UnauthenticatedCandidates`.
+- A nested type counts as compiler-generated when it carries
+  `CompilerGeneratedAttribute`.
+- A generated-named lifted body declared directly in breadth that no owner
+  reaches is also an unauthenticated candidate.
+- A visiting producer reads its unit's outcome through
+  `MethodDefinitionView.DeclaredSource`. The outcome is `Generated` with the
+  unit's origin, `Unauthenticated`, or `Direct` when the unit entered breadth
+  directly and the relation published no generated outcome for it. A body
+  that origins name with two different owners is `Unauthenticated`, because
+  neither owner is unique. Reading an outcome does no source work; the
+  relation's work and outcomes stay in the expansion receipt. A breadth that
+  declares no expansion carries no relation, and reading it throws
+  `ProducerContractException`.
+- Over all-definition breadth, `IncludeGeneratedExecutionBodies` declares the
+  relation and leaves breadth unchanged. It takes no unauthenticated
+  candidates, because every body is already visited. Its default bounds,
+  `MethodDefinitionGeneratedExpansionLimits.AllDefinitions`, are sized to the
+  metadata tables. A producer reads each unit's outcome at completion through
+  `MethodDefinitionCompletionView.DeclaredSourceOf`; reading it during a visit
+  throws `ProducerContractException`.
+- A request that declares the all-definition relation keeps its own lane,
+  because a shared traversal carries no relation. Its module lookup composes
+  its own attribution, so no unit visit charges the pending relation's work.
+
+A reached bound keeps the retained prefix, as
+[Completion, failure, bounds, and cancellation](#completion-failure-bounds-and-cancellation)
+describes.
+
+The declared-source relation maps declared members and the physical bodies
+that implement them, in both directions. Exact breadth asks the forward
+question: which bodies implement this member? All-definition breadth asks the
+reverse question: which declared member does this body belong to? The answers
+are one relation, and the attribution owners define what authenticates each
+edge. This section owns how the source applies it to breadth, what each
+direction costs, and what it publishes.
+
+An edge has a kind, which fixes the depth needed to authenticate it:
+
+| Edge | Authenticated by | Depth |
+| --- | --- | --- |
+| State machine | The source's state-machine attribute names a type that the targeted claim check makes unique to that source | Declaration only |
+| Lifted | An owner body, or a body that owner owns, references the lifted method through `ldftn`, `ldvirtftn`, `call`, or `callvirt` | Selected call and function-pointer operands |
+
+A request that needs only state-machine edges does not pay for lifted
+probes. A compiler-generated name may select the candidate group a reference
+is checked against, but a name alone never authenticates either edge.
+
+Every method declared on an authenticated state-machine type belongs to the
+declared source and carries one role, decided from metadata alone:
+
+| Role | Members | Example |
+| --- | --- | --- |
+| Execution | The resolved `MoveNext` | `<Foo>d__3.MoveNext` |
+| Scaffolding | Instance constructors, and every other body of a MethodImpl row on that type | `GetEnumerator`, `get_Current`, `Dispose`, `Reset`, `SetStateMachine` |
+| User helper | Every other method on that type | `<>m__Finally1`, which holds an iterator's `finally` code |
+
+Lifted local-function and lambda bodies have the Execution role. Roles do not
+change ownership. They let a consumer choose breadth: generated-body expansion
+names the roles it includes. Execution is always included. A consumer that
+measures written code can include user helpers and leave out scaffolding;
+whether member call counts do so is that consumer's own change. A consumer
+that claims completeness over everything
+compiled for a member, such as the unsafe member census, includes every
+role. A method of an authenticated type outside the requested roles is still
+attributed, so it is neither unexamined nor unauthenticated.
+
+For each generated-shaped MethodDef in breadth, the relation publishes one
+outcome:
+
+- an origin `(Method, DeclaredOwner, Kind, Role)`, where `DeclaredOwner` is
+  the ultimate declared member, so a lambda inside an iterator's lambda is
+  owned by the iterator method; or
+- a typed unauthenticated outcome naming that body.
+
+Over exact-type breadth, the relation also covers every method of a
+compiler-generated type reached from a selected type through a chain of
+compiler-generated nested types, such as an async lambda's state machine
+nested in a display class. The chain stops at the first nested type that is
+not compiler-generated, because that type's members own their own generated
+bodies, and a request that wants them selects that type. Each such method is
+an origin in a requested role, an attributed method outside those roles, or
+an unauthenticated candidate. Reaching those nested types is targeted
+NestedClass work, bounded by the relationship-node limit and receipted with
+the expansion. Closure display-class constructors and the static-lambda cache
+type `<>c` are typical unauthenticated candidates, since no edge kind names
+their owner. Expansion may also request its unauthenticated candidates. They
+then join breadth and are visited without an owner, as all-definition breadth
+visits every body, so a consumer can show that they lack evidence instead of
+treating them as unexamined.
+
+The two directions are lowered differently, and neither lowering widens the
+other's cost class:
+
+- **Exact breadth: sparse forward walk.** The relation settles before terminal
+  traversal from targeted metadata and bounded probes of the selected owners
+  and the bodies they reach, as the [expansion](#declared-expansion) does
+  today. The source builds no module-wide index for an exact request.
+- **All-definition breadth: reverse lowering fused into traversal.** Every
+  body is already in breadth, so the relation adds and removes no breadth.
+  State-machine edges come from one declaration-depth scan of state-machine
+  attributes. Lifted edges come from the call and function-pointer operands
+  recorded during the same forward traversal, and the owner closure settles
+  at source completion. The settled closure is the sparse forward walk from
+  every user type's methods, where a user type is neither compiler-generated
+  nor nested in one, reading the recorded operands instead of probing bodies.
+  A body a producer already acquired is not read again. A body no producer
+  acquired, as when the producers need no instructions, is read by the
+  relation itself. The receipt records both as relation work:
+  `TraversalReferenceBodies`, `TraversalReferenceBodiesAcquired`, and
+  `TraversalReferenceEncodedIlBytes`. Settling probes only bodies traversal
+  did not record, such as those after an early stop. The relation still scans
+  operands itself. Sharing a producer's instruction decode, so that a
+  producer that already decodes instructions adds no second operand pass, is
+  **unverified**.
+
+Over all-definition breadth the relation is therefore a source-completion
+fact. A producer reads it in `Complete`, not during a unit visit. A producer
+whose visits stop early at a settled terminal still reads the whole-module
+relation: settling probes the bodies traversal left unvisited, and a bound
+or failure at settle reaches that producer too, so it completes
+`SourceBounded` or fails with the source. Over exact breadth the relation is
+also available during the visit.
+
+Both lowerings publish the same origins for the same declared owners. That
+equivalence is a required gate, the first gate of
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864):
+`AllDefinitionRelationEqualsTheExactTypeUnion` compares the all-definition
+origins, attributed methods outside the requested roles, and unauthenticated
+candidates with the union of the exact-type expansions over every user type.
+It runs over the unsafe fixtures, the Analysis test assembly, the iterator
+fixture, and System.Text.Json. `AllDefinitionRelationReadsTraversalOperandsWithoutProbes`,
+`AllDefinitionRelationScansTheBodyAProducerAcquired`,
+`AllDefinitionRelationIsNotReadableDuringAVisit`,
+`AllDefinitionRelationBoundReachesAProducerThatStoppedEarly`,
+`AllDefinitionRelationDeclaresNoCandidatesAndModuleBounds`, and
+`Plan_KeepsAllDefinitionRelationRequestsInTheirOwnLanes` gate the receipts,
+the completion-only read, a bound reaching an early-stopped producer, the
+declaration, and the lane rule. A host that retains a session may keep the
+reverse relation as a typed prepared resource only when measured repeat
+requests amortize its preparation.
+
+A reached relation bound publishes typed source incompleteness with the
+retained prefix of breadth and origins, rather than failing the source with
+empty breadth. Each consumer decides what that prefix proves. For example,
+unsafe evidence presence keeps its answer semantics and visible failures,
+while the census keeps the prefix's findings and reports the census
+incomplete.
 
 ### Order and duplicate policy
 
@@ -318,9 +502,11 @@ Depth is expressed as source capabilities rather than one broad `Body` bit:
 | --- | --- | --- |
 | Declaration | MethodDef, declaring TypeDef, attributes, flags, name comparison, and bounded signature-shape access | Display identity or body content |
 | Identity | Detached inert method identity and anchor fields | Consumer ordering or presentation |
+| Semantic identity | The detached structural identity of the MethodDef, decoded metadata rather than text | Its caller-unsafe contract, display spelling, or cross-module identity |
 | Body | Managed body header, IL bytes, exception regions, and local-signature handle | Instruction meaning |
 | Instructions | One bounded instruction decode | Analysis of those instructions |
 | Control flow | The owner-issued CFG over the decoded instructions | Analysis-specific graph interpretation |
+| Local signature | Owner-issued local-variable types, declared count, and typed incomplete reason | Call operands or call targets |
 | Calls | Owner-issued classification and bounded resolution of call operands required by the request | Call-graph traversal or presentation |
 | Declared source | Authenticated attribution from a generated physical body to its declared owner | Replacing the physical method's identity |
 
@@ -525,6 +711,340 @@ Coverage also records the MethodDefs whose visits queried the lookup and the
 number of queries. The physical group receipt and each request receipt
 attribute construction and queries as memory-safety contract support does.
 
+### Local-signature support
+
+`LocalSignature` is the narrow per-method depth for a producer that needs the
+decoded local-variable signature but no call operand. It implies `Body` but not
+`Calls`, `CallTargets`, control flow, or `ModuleLookup`. The execution-scoped
+`MethodCallMetadataSupport` owns the decode and cache, so compatible lanes
+reuse the same packet while each producer receipts its own logical
+`LocalSignature` read. `ExactMethodAllocationProducer` is the first production
+adopter: it combines this depth with retained selective instructions,
+`SemanticIdentity`, memory-safety contracts, and `MethodAnalysis` support to
+construct one canonical method context without paying for call-target
+resolution.
+
+### Calls support
+
+`Calls` is per-method depth for producers that need IL-ordered call sites with
+resolved operand identity, tracked by
+[#9868](https://github.com/richlander/dotnet-inspect/issues/9868). It implies
+`Body` and `CallTargets` but not `ModuleLookup`, control flow, or wider breadth.
+A producer declares the retained-prefix, selective-operand
+`ResolvedCalls` analyzer capability and passes that owner-issued instruction
+sequence to `GetCalls`; the support does not open or decode another
+instruction stream. A producer that did not declare `Calls` cannot access call or field-operand
+facts. Local-signature access requires either `LocalSignature` or the wider
+`Calls` depth.
+
+Each `MethodCallSite` carries the IL offset, return address, operand token,
+call kind, full `MemberRef` callee identity, and typed `MethodCallTarget`.
+Call-site classification includes `call`, `callvirt`, `newobj`, `ldftn`,
+`ldvirtftn`, and `calli`. Direct call operands accept MethodDef, MemberRef, and
+MethodSpec handles. A `calli` accepts a StandaloneSig handle and publishes its
+function-pointer signature as the callee identity. An operand of another
+handle kind, unreadable metadata, or incomplete instruction decode throws and
+fails that producer's visited body; it never becomes an absent call.
+
+The same declared support exposes two facts only when the producer asks:
+
+- local variables as their decoded `TypeRef` values, declared count, and a
+  typed incomplete reason when guarded decoding cannot safely complete; and
+- a field operand's declaring type, name, field type, optional current-module
+  FieldDef token, and RVA flag, or a typed unresolved reason for a
+  non-field operand shape.
+
+One execution-scoped lookup owns signature decoding. The packet caches Calls,
+the local signature, and each distinct field token for one physical MethodDef.
+Lanes in one shared execution group reuse those packet facts. The physical
+receipt charges each decode once; each request receipt receives the shared
+decode work once and retains its own logical read counts. Work records call
+sites, method and field operands, local signatures, generic-parameter rows,
+and signature bytes. `CallTargets` separately receipts target-resolution work
+for every site, including replay to a lane that reads cached Calls.
+
+Shallow call-count producers do not declare `Calls`. They retain no
+instructions, decode no call operand or external signature, construct no
+member identity or target, and leave both Calls and CallTargets coverage empty.
+Library Body Analysis uses the same local-signature decoder during migration,
+but new producers do not use its lookup or aggregate result.
+
+The first adopter is the
+[unsafe-member census](unsafe-member-findings.md#execution) at Type and
+Library scope. It has no host consumer yet, so this capability makes no production performance
+claim.
+
+### Method analysis support
+
+`MethodAnalysis` is declared, execution-scoped support for the reader-backed
+judgments shared by allocation and optimization analysis, tracked by
+[#10307](https://github.com/richlander/dotnet-inspect/issues/10307). Given one
+admitted module and a producer that explicitly declares the support, Method
+Query Source constructs at most one `MethodAnalysisLookup` in that execution
+group. The lookup issues three independently receipted capabilities: a narrow
+per-method resolver over producer-supplied identity and instructions, exact
+declared-source evidence, and scoped generated-code evidence readers. These
+capabilities share reader-backed caches without flattening their acquisition
+work or semantic ownership into one query.
+
+The support does not imply `Body`, `Calls`, `SemanticIdentity`, control flow,
+or `ModuleLookup`. A producer declares each current-method prerequisite
+separately and passes the owner-issued identity and instructions to
+`BeginMethodAnalysis`. The support therefore neither acquires the current
+method's body nor widens terminal MethodDef breadth. Exact-method and
+exact-type requests retain their sparse source plans. Compatible
+all-definition lanes in one shared execution group use one lookup and its
+caches; source plans that Query Space keeps in separate groups do not acquire a
+cross-group cache.
+
+The lookup composes the existing Analysis authorities rather than defining a
+second judgment:
+
+- method and type token resolution in the caller's generic scope;
+- signature equivalence and same-image reference correspondence;
+- heap, non-heap, delegate-construction, and allocating-box classification;
+- generic-parameter, stable-receiver, and async-state-machine classification;
+  and
+- same-image reference-type and field-owner resolution.
+
+The issued resolver also exposes the existing per-method reaching-definitions
+adapter required by allocation escape analysis. `ReachingDefinitions` remains
+the semantic owner. The support does not precompute reaching definitions:
+the adapter runs only when the producer asks, over the instructions already
+issued for that method. Allocation discovery, escape classification,
+optimization-opportunity semantics, canonical context construction, and
+result enrichment likewise remain with their existing Analysis owners.
+
+Generated-code support exposes raw method-attribute and bounded
+declaring-type-chain facts through a scoped query. The consuming producer
+chooses which facts to read and in what order. In particular,
+`ExactMethodOptimizationProducer` owns the interpretation of
+`GeneratedCodeAttribute`, `CompilerGeneratedAttribute`, local-function and
+lambda names, Blazor render methods, and incomplete declaring-type evidence.
+This keeps optimization policy out of Method Source while preserving
+short-circuit acquisition: a decisive method fact does not force a TypeDef
+walk, and a local function or lambda does not force a compiler-generated
+attribute probe.
+
+Support costs may reach beyond the current MethodDef without widening its
+terminal breadth:
+
+- async-state-machine classification lazily scans the module's TypeDef rows
+  once per lookup; and
+- stable-receiver classification may read a same-image getter body, cached by
+  getter MethodDef;
+- exact declared-source identity reuses the execution's receipted
+  memory-safety contract index rather than constructing the legacy
+  unreceipted index, resolves state-machine ownership from the selected
+  execution type and its targeted source candidates rather than constructing
+  the whole-module state-machine certificate, and receipts generated-provenance
+  TypeDef, attribute, and enclosing-relationship reads; and
+- exact local-allocation exception classification follows the operand's
+  TypeDef or TypeSpec definition and its bounded base chain rather than
+  constructing a module-wide type-name index.
+
+Those reads are supporting probes, not terminal methods. They do not add
+MethodDefs to the producer's visited population or bodies to its terminal body
+coverage.
+
+`MethodAnalysisSupportCoverage` records whether the shared lookup was
+constructed and composes three concern-specific receipts. Each receipt records
+its logical query count, exact querying MethodDefs, and its own work currency:
+
+- `MethodAnalysisResolverCoverage` records method references and signature
+  work, generic-constraint and stable-receiver queries, available stable-getter
+  bodies and encoded IL bytes, async-state-machine TypeDef rows, and targeted
+  local-exception TypeDef, relationship, and TypeSpec work;
+- `ExactDeclaredSourceCoverage` records targeted candidates and probe bodies,
+  encoded probe IL, generated-provenance TypeDef, attribute, and relationship
+  reads, state-machine interface work, and memory-safety contract construction
+  and query work; and
+- `MethodGeneratedCodeEvidenceCoverage` records method and declaring-type
+  attribute rows, declaring TypeDef rows, and bounded declaring-type
+  relationships read by the consumer's scoped fact query.
+
+Construction is lazy. Declaring but not querying the support constructs
+nothing. Disposing a resolver or generated-code query scope records all work
+performed before disposal, including work completed before a recoverable
+algorithm failure unwinds the visit. Exact declared-source queries receipt on
+return or failure. The physical group receipt records each cache miss once.
+Each lane records its own query and only the incremental physical support work
+it caused.
+
+Unreadable metadata follows the existing resolver and producer-failure
+contracts. The source neither converts malformed evidence into a successful
+empty answer nor falls back to `LibraryBodyAnalysisBuilder`.
+
+During migration, `DeclaredSourceAttribution` composes this same
+`MethodAnalysisLookup`, and `LibraryBodyAnalysisBuilder` consumes its existing
+resolver and classifiers through that composition. This preserves the donor's
+current allocation and optimization behavior without copying the private
+resolver. [#10285](https://github.com/richlander/dotnet-inspect/issues/10285)
+adds dependent exact allocation and optimization producers over this support.
+The allocation owner constructs one canonical context and
+`MethodAllocationFacts`; optimization reads those same-unit facts and cannot
+rebuild body, control-flow, allocation-discovery, or escape work. The shared
+CLI and Browser/Wasm method-analysis consumer now sources exact allocations
+and intrinsic opportunities from that operation, applies the existing final
+publication enrichment with retained direct-call provenance, declared-owner
+suppression, and exception classification. Public direct calls and final
+`MethodSignals` come from the same exact producer bundle; the query executes
+no Library Body Analysis donor. A recoverable allocation-operand failure
+retains the classified prefix and publishes its exact stopping offset and
+operation; optimization consumes that same partial fact rather than rebuilding
+or replacing it with successful-empty evidence. Optimization uses a scoped
+generated-code evidence query rather than reading metadata from the visit.
+Method and enclosing-type generated-code attributes, bounded enclosing
+TypeDefs, and declaring-type relationships are separately reported when read.
+The producer owns suppression policy and can stop evidence acquisition as soon
+as a fact is decisive, before intrinsic opportunity collection.
+Allocation-only matched-member requests plan
+`ExactMethodAllocationProducer` instead, so they do not collect direct calls,
+safety, signals, string materialization, or optimization opportunities. The
+exact single-member CLI Diff allocation route also selects the two MethodDef
+tokens from the endpoint API surfaces and executes that producer once per
+endpoint. It bypasses the complete body-analysis session only when both sides
+publish one direct managed body; mixed analysis sets and unsupported target
+shapes retain the shared body-signal route. The performance case is
+`System.Text.Json@10.0.0`
+`System.Text.Json.Schema.JsonSchemaExporter.MapJsonSchemaCore(...)`, whose
+allocation-hotspot result reports 20 `newobj`, `newarr`, or `box`
+sites in a loop.
+
+The counted retirement sequence is:
+
+1. #10307 owns this declared support, legacy composition, and receipts.
+2. #10285 moves the shared CLI and Browser/Wasm exact allocation and
+   optimization operation onto Method Query Source.
+3. #8965 and #9959 drain the remaining donor consumers and delete the
+   superseded resolver and Library Body Analysis infrastructure.
+
+### Semantic identity
+
+`SemanticIdentity` is per-method depth for producers that need a MethodDef's
+structural identity, tracked by
+[#9830](https://github.com/richlander/dotnet-inspect/issues/9830). It is the
+identity a finding key or a correspondence is built from, not identity text.
+`IdentityText` keeps its budgeted `MethodRowIdentity` text and anchors, and
+neither layer reinterprets the other, so declaring `SemanticIdentity` does not
+arm the identity-text budget. `SemanticIdentity` acquires no body, does not
+imply `ModuleLookup`, and does not widen breadth. A producer that did not
+declare it cannot obtain it. It runs only on units the source has already
+admitted: admitting a raw exact-target token, including an invalid one, is the
+exact-member consumer's work under
+[#9832](https://github.com/richlander/dotnet-inspect/issues/9832).
+
+`MethodSemanticIdentity` carries every structural field of the current
+`MethodIdentity` except its caller-unsafe contract:
+
+- the module's assembly name and MVID;
+- the declaring `TypeRef`;
+- the method's name, token, and static and extension flags;
+- its parameter and return `TypeRef` values;
+- its generic arity and parameter names;
+- its signature header and vararg required-parameter count; and
+- whether its generic declaration is invalid and whether virtual dispatch can
+  reach an override.
+
+The token is valid only with the operation's subject. Like every publication of
+this source, the identity is paired with the exact subject identity and is not
+a cross-module key. `ToMethodIdentity` composes it with a caller-unsafe mode
+into the current `MethodIdentity`. That mode comes from
+[Memory-safety contract support](#memory-safety-contract-support), which the
+producer declares separately, so the dependency stays visible in its
+declaration and receipts.
+
+One reader owns the decode. Library Body Analysis builds its `MethodIdentity`
+through the same `MethodSemanticIdentityReader`, so the two cannot diverge.
+`MethodQuerySource_SemanticIdentityMatchesLibraryBodyAnalysis` gates that the
+source issues the analysis's identity for every MethodDef the analysis
+publishes, and a typed malformed outcome for every other.
+
+The result is typed:
+
+- **Decoded:** the identity, decoded completely.
+- **SignatureBoundExceeded:** the method signature exceeds the safe decoding
+  limits of the signature-depth guard. The identity is still published, with
+  no parameter types, an unsupported return type, and a zero header, exactly
+  as the current `MethodIdentity` degrades.
+- **Malformed:** the metadata cannot be read. No identity is published, and the
+  producer decides whether that fails the unit.
+
+The decode is bounded per method by the signature-depth guard and by the type
+decoder's relationship-node and type-specification limits. A bound that is
+exceeded degrades the affected type to an unsupported `TypeRef`, as the current
+identity does; it never reads further.
+
+The physical source decodes each MethodDef at most once per execution group;
+every lane that reads it shares that decode. The source receipt carries
+`MethodSemanticIdentityCoverage`:
+
+- whether the execution read the module's assembly name and MVID, which it does
+  once;
+- the decode work, which counts:
+  - the method signature bytes, read once by the depth guard;
+  - the type decoder's structural work for the declaring type and every
+    signature type: one unit per type node, plus the bytes of each name,
+    assembly-reference, and type-specification blob it reads;
+  - the GenericParam rows read for the generic scope and the
+    generic-declaration check;
+  - the CustomAttribute rows read by the extension-method check; and
+  - the bytes of the method's name and of its own and its declaring type's
+    generic parameter names;
+- the MethodDefs whose identity was decoded or read; and
+- the count of each outcome.
+
+The physical group receipt charges each decode once. Each request receipt
+records the identities that request read, with the work they required, so a
+request that shares another lane's decode still shows what its answer cost.
+
+### Image exposure support
+
+`PublicMethodRoots` and `ReferenceAssemblyStatus` are declared,
+execution-scoped support for producers whose answer depends on facts about the
+whole image rather than about one MethodDef, tracked by
+[#9865](https://github.com/richlander/dotnet-inspect/issues/9865). The unsafe
+member census needs both. Exposure comes from the
+[public MethodDef root inventory](public-method-root-inventory.md), and a
+reference assembly makes the census incomplete under the
+[reference-assembly rule](library-enablements.md#reference-assemblies).
+
+A producer reads them only at completion, through its completion view. They
+acquire no body, do not imply `ModuleLookup`, and do not widen breadth. A
+producer that did not declare one cannot obtain it. Semantics stay with their
+owners. This support only issues and receipts them:
+
+- **Public MethodDef roots** come from `PublicMethodRootInventoryReader.Read`,
+  with the image's own TypeDef and MethodDef row counts as limits. The result is the inventory, complete or
+  bounded with its retained prefix and boundary, or a typed failure when the
+  metadata is malformed. Under image-sized limits a well-formed image is always
+  complete; the bounded shape is preserved, not produced.
+- **Reference-assembly status** comes from
+  `LibraryEnablementFacts.ClassifyReferenceAssembly` as `Implementation`,
+  `Reference`, or `Undecidable`. A malformed assembly row is `Undecidable`,
+  exactly as the census classifies it today.
+
+Each fact is computed at most once per execution group, at the first read by a
+declaring producer, and every lane that reads it shares that result. Both
+results are detached: they hold tokens, the module version ID, and counts, never
+a reader. An image without metadata publishes a roots failure and an
+`Undecidable` status without reading anything.
+
+The source receipt carries `PublicMethodRootCoverage` and
+`ReferenceAssemblyStatusCoverage`, separate from MethodDef breadth:
+
+- roots: whether this receipt's lane computed the inventory, its
+  `PublicMethodRootInventoryReceipt` (the TypeDefs and MethodDefs visited and
+  the roots retained), whether it failed, and the number of reads; and
+- status: whether this receipt's lane computed it, the assembly CustomAttribute
+  rows it read, and the number of reads.
+
+The physical group receipt records each computation once and every read. A
+request receipt records a computation only for the lane whose read created it,
+and only that lane's reads. Coverage is empty when no producer declares the
+support or no declaring producer reads it. A failed root inventory has no
+receipt, because the reader publishes none for a malformed image.
+
 ## Planning
 
 Planning is resource-free. It validates:
@@ -547,6 +1067,12 @@ decode a body, resolve a token, or estimate the result from a path.
 An invariant owner-issued request may retain and reuse its complete source plan.
 A changed breadth, expansion, depth, terminal, producer parameter, or request
 set is planned anew. Plan reuse transfers no subject authority or result.
+
+The request creates a Method-owned assembly-source adapter. Assembly Analysis
+carries that adapter opaquely: Method breadth, layers, terminals, execution,
+and concrete receipts remain here. A Method-aware sink recovers the concrete
+receipt only after the operation or execution proves the Method source
+association.
 
 ## Serial reference execution
 
@@ -632,6 +1158,33 @@ source-support work. A critical safety bound aborts under Producer Planning's
 critical-failure contract. A consumer-selected completeness bound publishes
 source incomplete.
 
+A reached generated-expansion bound keeps the retained prefix instead of
+failing the source with empty breadth:
+
+- Breadth is the direct methods plus every body the relation recorded
+  within the limits. The work totals, `ProbeEncodedIlBytes` and
+  `RelationshipNodes`, include the attempt that reached the bound, because
+  that work was done. The handle sets `CandidateDefinitionsExamined` and
+  `ProbeBodiesAttempted` record only the handles admitted within the limit,
+  because the bound check runs before that work. An outcome is recorded only
+  after its bound check, so every origin's body is in breadth.
+- The expansion coverage names the bound in `ReachedLimit` and
+  `ReachedAtToken`. Completion is source incomplete, and the source failure
+  carries the bound's message.
+- Producers still visit the prefix and complete. Their outcome is
+  `SourceBounded`, which is not `HasValue`, so only a consumer that decides
+  what the prefix proves reads the value. A producer that stopped early is
+  also `SourceBounded`, because it answered only over the prefix.
+- During expansion a bound is not a recoverable method failure, so no
+  resolver handler turns it into a rejected or unauthenticated outcome. A
+  bound that is raised and caught anyway still bounds the relation.
+- A unit the relation had not settled when the bound was reached stays
+  `Direct`. `IsBounded` on the coverage says the relation is incomplete.
+- Once expansion settles, a module lookup that shares its attribution can
+  still charge its work, and a resolver cache that stored the bound during
+  expansion can replay it. A new bound reached then, and a replayed one, are
+  each that unit's recoverable failure.
+
 Terminal body admission retains normalized ordered ranges during forward
 traversal rather than one identity per MethodDef. A multipass request may
 revisit an earlier MethodDef, so admission materializes unordered membership
@@ -708,8 +1261,10 @@ canonical `BlockGraph` or `ExceptionFlowTopology`. The physical request
 therefore omits local-signature and canonical-context facts entirely. Async
 disposition retains the generated-type provenance metadata needed to suppress
 runtime-async methods in generated types without requesting complete
-MethodEvidence. Research consumes a focused structural result rather than
-reconstructing or publishing complete implementation profiles.
+MethodEvidence. The direct CLI route and the host-neutral AssemblyContext query
+used by package and platform Browser/Wasm exports issue the same request.
+Research consumes a focused structural result rather than reconstructing or
+publishing complete implementation profiles.
 
 The distinction is measured, not aesthetic. A rejected retained
 complete-profile packet removed traversals but improved the exact NativeAOT
@@ -766,12 +1321,38 @@ Migration is incremental:
     [Memory-safety contract support](#memory-safety-contract-support) is
     implemented; its consumers adopt it in their own slices.
     [Same-module call-target support](#same-module-call-target-support) (#8700)
-    is implemented on the same terms.
-11. Move the first exact-member consumer in #9832 through
-    [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
-    consuming #8700 and #8945 rather than defining another call resolver or
-    population.
-12. Move remaining producers and delete each superseded legacy scan and index
+    and [Semantic identity](#semantic-identity) (#9830) are implemented on the
+    same terms.
+11. The first exact-member consumer moved in #9832 through
+    [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers).
+    `ExactMethodAnalysisProducer` consumes the exact MethodDef population,
+    semantic identity, memory-safety contracts, Calls, and resolved-call body
+    analyzer owned by the source; it defines no second population or call
+    resolver. `AssemblyContextMethodAnalysisQuery` consumes that focused result
+    for identity, safety, diagnostics, and exception regions. When call
+    decoding fails recoverably, Calls retains the successfully resolved prefix
+    plus a typed stopping failure so independent evidence remains publishable.
+12. #10285 adds `LocalSignature` depth and peels exact allocation and
+    optimization into dependent producers. The allocation producer owns one
+    context and allocation-facts instance; optimization consumes that exact
+    fact. `AssemblyContextMethodAnalysisQuery` composes the focused bundle in
+    one exact source execution. Calls now owns complete MethodSpec
+    definition-token provenance; the bundle publishes direct calls,
+    multiplicity, and final signals from the same context and allocation
+    facts. For a selected generated body, exact method-analysis support
+    authenticates the ultimate declared owner without widening terminal
+    breadth or building a module-wide lifted-method census. The support receipt
+    separately reports its finite owner-type candidates, closure relationships,
+    and attribution IL probes; caller attribution and owner suppression consume
+    that answer. Final opportunity enrichment consumes only the exact evidence,
+    and the query has no `LibraryBodyAnalysisService` execution.
+    `MatchedApiMemberAnalysisQuery.InspectAllocations` and exact
+    single-member, allocation-only CLI Diff instead select
+    `ExactMethodAllocationProducer`. That request retains only semantic
+    identity, memory-safety contracts, local signatures, allocation analyzers,
+    and Method-analysis support; calls, safety, signals, and optimization do
+    not participate.
+13. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result
@@ -846,6 +1427,20 @@ Generated expansion is gated in Release:
 - `MethodQuerySource_GeneratedExpansionBoundsStateMachineMethodImplementationTraversal`
 - `MethodQuerySource_GeneratedExpansionReusesTargetedStateMachineLookup`
 - `MethodQuerySource_GeneratedExpansionBoundPublishesSourceIncomplete`
+- `MethodQuerySource_GeneratedExpansionIlByteBoundRetainsAttemptedWork`
+
+Retained-prefix bounds are gated in Release:
+
+- the two bound tests above assert the selected type's methods in breadth,
+  the typed bound, the `SourceBounded` outcome, and that presence still
+  reports incomplete;
+- `DeclaredSourceRelationBoundIsAPrefixOfTheSettledRelation` sweeps each
+  bound dimension and requires every kept outcome to be one the settled
+  relation publishes, with every origin's body in breadth;
+- `TypeScopeExpansionBoundKeepsTheRetainedPrefix` sweeps one bound across all
+  dimensions and requires an available census whose evidence is a subset of
+  the unbounded census, with the attribution-bound limitation; and
+- `ExpansionBoundIsNotRecoverableAndAlwaysBoundsTheRelation`.
 
 The instruction-demand planner and first production Method-source adoption are
 gated in Release:
@@ -886,6 +1481,41 @@ Same-module call-target support is gated in Release:
 - `MethodQuerySource_CallTargetsReceiptExactMethodWork`
 - `MethodQuerySource_CallTargetsBindDefinitionTokensWithoutTypeIndex`
 - `MethodQuerySource_CallTargetsSharedOnceAcrossLanes`
+
+Calls support is gated in Release:
+
+- `MethodQuerySource_CallsMatchLibraryBodyAnalysis`, over the call-target
+  parity subjects
+- `MethodQuerySource_CallsAbsentWhenUndeclared`
+- `MethodQuerySource_CallsRequireDeclaration`
+- `MethodQuerySource_CallsReceiptExactMethodWork`
+- `MethodQuerySource_ClosedGenericFieldTypeIsInstantiated`
+- `MethodQuerySource_CalleeIdentityPreservesPlatformContractHit`
+- `MethodQuerySource_CallsAreDecodedOnceAcrossLanes`
+- `MethodQuerySource_FieldOperandsAreDecodedOnceAcrossLanes`
+- `MethodQuerySource_MalformedCallOperandFailsBody`
+- `MethodQuerySource_FieldMemberReferenceCallFailsBody`
+- `MethodQuerySource_MalformedCalliSignatureFailsBody`
+- `MethodQuerySource_RepeatedCachedReadsRemainLogicalReads`
+- `MethodCallCountProducer_DoesNotResolveMalformedTarget`
+- `MethodCallCountProducer_DoesNotDecodeDamagedSignature`
+
+Semantic identity is gated in Release:
+
+- `MethodQuerySource_SemanticIdentityMatchesLibraryBodyAnalysis`, over the same
+  four subjects, for every MethodDef
+- `MethodQuerySource_SemanticIdentityParityCoversDeclarationShapes`: the
+  subjects include extension, generic, nested-type, bodiless, and
+  virtual-dispatch methods
+- the `SameModuleTarget_*` synthetic cases, which assert the same parity, plus
+  `SemanticIdentity_VarargDefinitionKeepsRequiredParameterCount`,
+  `SemanticIdentity_SignaturePastDecodeDepthIsBoundedNotMalformed`, and
+  `SemanticIdentity_UnreadableSignatureIsTypedMalformed`
+- `MethodQuerySource_SemanticIdentityAbsentWhenUndeclared`
+- `MethodQuerySource_SemanticIdentityRequiresDeclaration`
+- `MethodQuerySource_SemanticIdentityReceiptsExactMethodWork`
+- `MethodQuerySource_SemanticIdentityOfBodilessMethodAcquiresNoBody`
+- `MethodQuerySource_SemanticIdentityDecodedOnceAcrossLanes`
 
 The following deeper-source gates remain **unverified**:
 

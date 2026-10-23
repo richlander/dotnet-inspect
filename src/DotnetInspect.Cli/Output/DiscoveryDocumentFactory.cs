@@ -8,6 +8,13 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class DiscoveryDocumentFactory
 {
+    private static readonly OutputCapabilityCatalog s_emptyCapabilities =
+        new(
+            new Dictionary<
+                string,
+                SectionOutputCapabilities>(
+                StringComparer.OrdinalIgnoreCase));
+
     public sealed record Projection(
         DiscoveryDocument Document,
         ImmutableArray<StructuralResourcePathRegistration> ResourcePaths);
@@ -26,7 +33,10 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<
             string,
             SectionCardinalityDeclaration>? sectionCardinalities = null,
-        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null) =>
+        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null,
+        IReadOnlyDictionary<
+            string,
+            SectionDescription>? sectionDescriptions = null) =>
         CreateCore(
             catalog,
             discover,
@@ -40,7 +50,9 @@ internal static class DiscoveryDocumentFactory
             requireExactSelection,
             sectionCardinalities,
             sectionShapes,
-            includeResourcePaths: false)?.Document;
+            sectionDescriptions,
+            includeResourcePaths: false,
+            includeQueryItems: true)?.Document;
 
     public static Projection? CreateProjection(
         string catalog,
@@ -56,7 +68,10 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<
             string,
             SectionCardinalityDeclaration>? sectionCardinalities = null,
-        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null) =>
+        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null,
+        IReadOnlyDictionary<
+            string,
+            SectionDescription>? sectionDescriptions = null) =>
         CreateCore(
             catalog,
             discover,
@@ -70,7 +85,35 @@ internal static class DiscoveryDocumentFactory
             requireExactSelection,
             sectionCardinalities,
             sectionShapes,
-            includeResourcePaths: true);
+            sectionDescriptions,
+            includeResourcePaths: true,
+            includeQueryItems: true);
+
+    public static DiscoveryDocument? CreateTreeDocument(
+        string catalog,
+        string[]? discover,
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string[]>? sectionCategories,
+        IReadOnlySet<string>? catalogHiddenSections,
+        IReadOnlySet<string>? listedCategoryDoors,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations,
+        IReadOnlySet<string>? exactOnlySections) =>
+        CreateCore(
+            catalog,
+            discover,
+            schema,
+            sectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors,
+            sectionCostAnnotations,
+            exactOnlySections,
+            s_emptyCapabilities,
+            requireExactSelection: false,
+            sectionCardinalities: null,
+            sectionShapes: null,
+            sectionDescriptions: null,
+            includeResourcePaths: false,
+            includeQueryItems: false)?.Document;
 
     private static Projection? CreateCore(
         string catalog,
@@ -87,7 +130,11 @@ internal static class DiscoveryDocumentFactory
             string,
             SectionCardinalityDeclaration>? sectionCardinalities,
         IReadOnlyDictionary<string, SectionShape>? sectionShapes,
-        bool includeResourcePaths)
+        IReadOnlyDictionary<
+            string,
+            SectionDescription>? sectionDescriptions,
+        bool includeResourcePaths,
+        bool includeQueryItems)
     {
         IReadOnlyDictionary<string, string[]> categories =
             FilterCategories(sectionCategories, schema.SectionNames);
@@ -101,6 +148,8 @@ internal static class DiscoveryDocumentFactory
             new List<StructuralResourcePathRegistration>();
         IReadOnlyDictionary<string, SectionShape> shapes =
             NormalizeShapes(sectionShapes, schema.SectionNames);
+        IReadOnlyDictionary<string, SectionDescription> descriptions =
+            NormalizeDescriptions(sectionDescriptions, schema.SectionNames);
         List<DiscoveryResource> resources =
             CreateResources(
                 catalog,
@@ -109,7 +158,9 @@ internal static class DiscoveryDocumentFactory
                 capabilities,
                 cardinalities,
                 shapes,
-                includeResourcePaths ? resourcePaths : null);
+                descriptions,
+                includeResourcePaths ? resourcePaths : null,
+                includeQueryItems);
         List<DiscoveryResourceIdentity> catalogEntries =
             CreateCatalogEntries(
                 schema,
@@ -147,7 +198,9 @@ internal static class DiscoveryDocumentFactory
             string,
             SectionCardinalityDeclaration> cardinalities,
         IReadOnlyDictionary<string, SectionShape> shapes,
-        List<StructuralResourcePathRegistration>? resourcePaths)
+        IReadOnlyDictionary<string, SectionDescription> descriptions,
+        List<StructuralResourcePathRegistration>? resourcePaths,
+        bool includeQueryItems)
     {
         var resources = new List<DiscoveryResource>();
         foreach ((string name, string[] members) in categories
@@ -200,13 +253,14 @@ internal static class DiscoveryDocumentFactory
                                 item.Kind,
                                 MachineKeyPathSegment(item.Key))),
                     ];
-            if (string.Equals(
+            if (includeQueryItems
+                && (string.Equals(
                     sectionName,
                     SectionNames.PerformanceTriage,
                     StringComparison.OrdinalIgnoreCase)
                 || PerformanceKinds.Sections.Contains(
                     sectionName,
-                    StringComparer.OrdinalIgnoreCase))
+                    StringComparer.OrdinalIgnoreCase)))
             {
                 items.AddRange(
                     PerformanceTriageOptions.DiscoveryItems()
@@ -234,6 +288,9 @@ internal static class DiscoveryDocumentFactory
                 shapes.TryGetValue(sectionName, out SectionShape declaredShape)
                     ? declaredShape
                     : null;
+            descriptions.TryGetValue(
+                sectionName,
+                out SectionDescription? description);
             resources.Add(
                 new DiscoveryResource(
                     sectionIdentity,
@@ -241,7 +298,8 @@ internal static class DiscoveryDocumentFactory
                     outputModes:
                         capabilities.FormatsForSection(sectionName),
                     cardinality: cardinality,
-                    shape: shape));
+                    shape: shape,
+                    description: description));
             if (resourcePaths is not null)
             {
                 AddPath(
@@ -334,6 +392,30 @@ internal static class DiscoveryDocumentFactory
             // section hidden from the current route) is simply not advertised.
             if (known.TryGetValue(name, out string? canonicalName))
                 normalized[canonicalName] = shape;
+        }
+
+        return normalized;
+    }
+
+    private static IReadOnlyDictionary<string, SectionDescription>
+        NormalizeDescriptions(
+            IReadOnlyDictionary<string, SectionDescription>? descriptions,
+            IReadOnlyList<string> sectionNames)
+    {
+        var normalized = new Dictionary<string, SectionDescription>(
+            StringComparer.OrdinalIgnoreCase);
+        if (descriptions is null)
+            return normalized;
+
+        var known = sectionNames.ToDictionary(
+            static name => name,
+            StringComparer.OrdinalIgnoreCase);
+        foreach ((string name, SectionDescription description) in descriptions)
+        {
+            // As with shapes, a description for a section outside this schema
+            // is simply not advertised.
+            if (known.TryGetValue(name, out string? canonicalName))
+                normalized[canonicalName] = description;
         }
 
         return normalized;

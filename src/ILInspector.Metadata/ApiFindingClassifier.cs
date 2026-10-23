@@ -48,13 +48,18 @@ public static class ApiFindingClassifier
         bool newIdentityIncomplete =
             ApiDiffAnalyzer.HasIncompleteTypeIdentity(newSurface);
 
-        ClassifyTypes(typesComplete, options, oldIdentityIncomplete, newIdentityIncomplete, changesByType);
-        ClassifyMembers(membersComplete, options, wholeTypeTransition, changesByType);
+        bool compareTransitions =
+            ApiDiffAnalyzer.ComparesTransitions(oldSurface, newSurface);
+        bool classifyByApiAxis =
+            ApiDiffAnalyzer.ClassifiesByApiAxis(oldSurface, newSurface);
+        ClassifyTypes(typesComplete, options, compareTransitions, oldIdentityIncomplete, newIdentityIncomplete, changesByType);
+        ClassifyMembers(membersComplete, options, compareTransitions, wholeTypeTransition, changesByType);
 
         List<TypeDiff> typeDiffs = [];
         int totalBreaking = 0;
         int totalAdditive = 0;
         int totalPotentiallyBreaking = 0;
+        int totalNonBreaking = 0;
 
         foreach (var typeName in changesByType.Keys.Order(StringComparer.Ordinal))
         {
@@ -62,11 +67,14 @@ public static class ApiFindingClassifier
             if (changes.Count == 0)
                 continue;
 
+            if (classifyByApiAxis)
+                ApiDiffAnalyzer.ClassifyOutsideApiAxisAsNonBreaking(changes);
             var diff = new TypeDiff(typeName, changes);
             typeDiffs.Add(diff);
             totalBreaking += diff.BreakingCount;
             totalAdditive += diff.AdditiveCount;
             totalPotentiallyBreaking += diff.PotentiallyBreakingCount;
+            totalNonBreaking += diff.NonBreakingCount;
         }
 
         return new ApiDiff
@@ -76,12 +84,14 @@ public static class ApiFindingClassifier
             TotalBreaking = totalBreaking,
             TotalAdditive = totalAdditive,
             TotalPotentiallyBreaking = totalPotentiallyBreaking,
+            TotalNonBreaking = totalNonBreaking,
         };
     }
 
     static void ClassifyTypes(
         FindingComparison<ApiTypeHandle>.Complete types,
         ApiDiffOptions options,
+        bool compareTransitions,
         bool oldIdentityIncomplete,
         bool newIdentityIncomplete,
         Dictionary<string, List<ApiChange>> changesByType)
@@ -122,12 +132,12 @@ public static class ApiFindingClassifier
 
                 case PairFinding<ApiTypeHandle>.Present present:
                     Bucket(changesByType, present.New.Payload.TypeFullName).AddRange(
-                        ApiDiffAnalyzer.CompareTypeFacetsOnly(present.Old.Payload.Type, present.New.Payload.Type, options));
+                        ApiDiffAnalyzer.CompareTypeFacetsOnly(present.Old.Payload.Type, present.New.Payload.Type, options, compareTransitions));
                     break;
 
                 case PairFinding<ApiTypeHandle>.Changed changed:
                     Bucket(changesByType, changed.New.Payload.TypeFullName).AddRange(
-                        ApiDiffAnalyzer.CompareTypeFacetsOnly(changed.Old.Payload.Type, changed.New.Payload.Type, options));
+                        ApiDiffAnalyzer.CompareTypeFacetsOnly(changed.Old.Payload.Type, changed.New.Payload.Type, options, compareTransitions));
                     break;
             }
         }
@@ -164,6 +174,7 @@ public static class ApiFindingClassifier
     static void ClassifyMembers(
         FindingComparison<ApiMemberHandle>.Complete members,
         ApiDiffOptions options,
+        bool compareTransitions,
         WholeTypeTransitionSets wholeTypeTransition,
         Dictionary<string, List<ApiChange>> changesByType)
     {
@@ -231,7 +242,7 @@ public static class ApiFindingClassifier
 
                 case PairFinding<ApiMemberHandle>.Present present:
                     if (!IsCompilerGeneratedMember(present.Old.Payload))
-                        ClassifyMatchedMember(present.Old.Payload, present.New.Payload, options, changesByType);
+                        ClassifyMatchedMember(present.Old.Payload, present.New.Payload, options, compareTransitions, changesByType);
                     break;
 
                 case PairFinding<ApiMemberHandle>.Changed changed:
@@ -243,11 +254,11 @@ public static class ApiFindingClassifier
                     {
                         // Matched on the hard (identity-set) tier; the fold-in step
                         // recorded a Detail but classification is unaffected by that.
-                        ClassifyMatchedMember(changed.Old.Payload, changed.New.Payload, options, changesByType);
+                        ClassifyMatchedMember(changed.Old.Payload, changed.New.Payload, options, compareTransitions, changesByType);
                     }
                     else if (normalizeProjection)
                     {
-                        ClassifyNormalizedProjection(changed.Old.Payload, changed.New.Payload, options, changesByType);
+                        ClassifyNormalizedProjection(changed.Old.Payload, changed.New.Payload, options, compareTransitions, changesByType);
                     }
                     else
                     {
@@ -307,6 +318,7 @@ public static class ApiFindingClassifier
         ApiMemberHandle oldHandle,
         ApiMemberHandle newHandle,
         ApiDiffOptions options,
+        bool compareTransitions,
         Dictionary<string, List<ApiChange>> changesByType)
     {
         var changes = Bucket(changesByType, newHandle.TypeFullName);
@@ -319,7 +331,7 @@ public static class ApiFindingClassifier
             // itself can't see. Mirrors the legacy analyzer's own (Name, Kind)-fallback
             // MemberSignatureChanged report for this case.
             AddSignatureChangeIfDifferent(oldHandle, newHandle, changes);
-            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes);
+            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes, compareTransitions);
             ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(
                 oldHandle.Type,
                 newHandle.Type,
@@ -351,13 +363,14 @@ public static class ApiFindingClassifier
         ApiMemberHandle oldHandle,
         ApiMemberHandle newHandle,
         ApiDiffOptions options,
+        bool compareTransitions,
         Dictionary<string, List<ApiChange>> changesByType)
     {
         var changes = Bucket(changesByType, newHandle.TypeFullName);
         if (ApiDiffAnalyzer.IncludesSignature(options))
         {
             AddSignatureChangeIfDifferent(oldHandle, newHandle, changes);
-            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes);
+            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes, compareTransitions);
             ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(
                 oldHandle.Type,
                 newHandle.Type,

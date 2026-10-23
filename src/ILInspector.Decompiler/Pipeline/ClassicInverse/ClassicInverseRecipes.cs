@@ -836,7 +836,10 @@ internal static class ClassicInverseRecipes
         {
             if (!budget.Charge())
                 return null;
-            if (node is not ExpressionStatement and not StoreField)
+            if (node is not ExpressionStatement and not StoreField
+                && (node is not InitObject { Address: LoadFieldAddress fieldAddress } reset
+                    || !Equals(reset.Type, fieldAddress.Field.Type)
+                    || ClassicInverseNodeFacts.IsMachineField(fieldAddress.Field, shell.Machine)))
                 return null;
             suffix.Add(node);
         }
@@ -1110,6 +1113,12 @@ internal static class ClassicInverseRecipes
                     || rawStore.IsVolatile != planningStore.IsVolatile
                     || rawStore.HasInstance != planningStore.HasInstance
                     || rawStore.UpdateKind != planningStore.UpdateKind))
+                return false;
+            if (imported is InitObject rawInit && planned is InitObject planningInit
+                && (!Equals(rawInit.Type, planningInit.Type)
+                    || rawInit.Address is not LoadFieldAddress rawAddress
+                    || planningInit.Address is not LoadFieldAddress planningAddress
+                    || !ClassicInverseRealizationRules.PayloadEquals(rawAddress, planningAddress)))
                 return false;
         }
         return true;

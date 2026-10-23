@@ -40,6 +40,7 @@ function identity(
     typeFullName: "Example.Widget",
     memberName: "Run",
     display,
+    isObsolete: false,
   };
 }
 
@@ -97,6 +98,7 @@ function context(
         ? "Additive"
         : "Breaking",
       category: "Signature",
+      state: explore.target.member === null ? "Added" : "Changed",
       message: explore.target.member === null
         ? "Member Run() was added."
         : "Parameter type changed from int to long.",
@@ -115,17 +117,20 @@ function context(
     breakingCount: 1,
     additiveCount: 0,
     potentiallyBreakingCount: 0,
+    nonBreakingCount: 0,
     before: {
       identifier: "Example.Widget",
       namespace: "Example",
       segments: ["Widget"],
       display: "Example.Widget",
+      isObsolete: false,
     },
     after: {
       identifier: "Example.Widget",
       namespace: "Example",
       segments: ["Widget"],
       display: "Example.Widget",
+      isObsolete: false,
     },
     members: [member],
     changes: [],
@@ -153,13 +158,15 @@ function context(
       breakingCount: 1,
       additiveCount: 0,
       potentiallyBreakingCount: 0,
+      nonBreakingCount: 0,
+      outsideOrdinaryRowCount: 0,
     },
     types: [type],
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     request: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",

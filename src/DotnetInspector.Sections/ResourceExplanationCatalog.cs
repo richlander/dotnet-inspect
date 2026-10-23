@@ -9,7 +9,7 @@ using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Sections;
 
-public sealed class ResourceExplanationCatalog
+public sealed partial class ResourceExplanationCatalog
 {
     private readonly ImmutableArray<ExplanationSchema> _schemas;
     private readonly ImmutableArray<CatalogResource> _catalogResources;
@@ -751,11 +751,26 @@ public sealed class ResourceExplanationCatalog
                         .SelectMany(static route =>
                             route.QueryTermRelatedOperations)
                         .Distinct();
+            IReadOnlyDictionary<string, InspectionQueryTermPresentation>
+                termPresentations =
+                    catalog.Routes
+                        .Where(route =>
+                            ReferenceEquals(route.QuerySpace, querySpace))
+                        .SelectMany(static route =>
+                            route.QueryTermPresentations)
+                        .Distinct()
+                        .ToDictionary(
+                            static presentation =>
+                                presentation.SourceTerm,
+                            StringComparer.Ordinal);
             foreach (QuerySpaceOperationTermDescriptor term
                      in querySpace.Descriptor.Operation.Terms)
             {
                 InspectionCapabilityResourceIdentity termIdentity =
                     QueryFacetIdentity(querySpace, term);
+                termPresentations.TryGetValue(
+                    term.Identity,
+                    out InspectionQueryTermPresentation? presentation);
                 snapshots.Add(
                     Snapshot(
                         paths[termIdentity],
@@ -811,6 +826,7 @@ public sealed class ResourceExplanationCatalog
                             ResourceExplanationVocabulary.TextsFact(
                                 ResourceExplanationVocabulary.QueryFacetType,
                                 "input-rules", term.InputRules),
+                            .. QueryTermPresentationFacts(presentation),
                         ],
                         RelationshipObservations(
                             ResourceExplanationVocabulary.QueryFacetType,
@@ -940,6 +956,98 @@ public sealed class ResourceExplanationCatalog
         return Create(ResourceExplanationVocabulary.Schemas, snapshots);
     }
 
+    private static IEnumerable<ExplanationFactObservation>
+        QueryTermPresentationFacts(
+            InspectionQueryTermPresentation? presentation)
+    {
+        if (presentation is null)
+        {
+            yield return ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "presentation-order");
+            yield return ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "control-kind");
+            yield return ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "presentation-kind");
+            yield return ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "execution-class");
+            yield return ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "selection-group");
+            yield return ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "combines-within-selection-group");
+            yield return ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "replacement-group");
+            yield return ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "option-source");
+            yield return ResourceExplanationVocabulary.ValuesFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "options",
+                []);
+            yield break;
+        }
+
+        yield return ResourceExplanationVocabulary.IntegerFact(
+            ResourceExplanationVocabulary.QueryFacetType,
+            "presentation-order",
+            presentation.Order);
+        yield return ResourceExplanationVocabulary.TextFact(
+            ResourceExplanationVocabulary.QueryFacetType,
+            "control-kind",
+            presentation.ControlKind);
+        yield return ResourceExplanationVocabulary.TextFact(
+            ResourceExplanationVocabulary.QueryFacetType,
+            "presentation-kind",
+            presentation.PresentationKind);
+        yield return ResourceExplanationVocabulary.TextFact(
+            ResourceExplanationVocabulary.QueryFacetType,
+            "execution-class",
+            presentation.ExecutionClass);
+        yield return presentation.SelectionGroup is { } selectionGroup
+            ? ResourceExplanationVocabulary.TextFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "selection-group",
+                selectionGroup)
+            : ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "selection-group");
+        yield return ResourceExplanationVocabulary.BooleanFact(
+            ResourceExplanationVocabulary.QueryFacetType,
+            "combines-within-selection-group",
+            presentation.CombinesWithinSelectionGroup);
+        yield return presentation.ReplacementGroup is { } replacementGroup
+            ? ResourceExplanationVocabulary.TextFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "replacement-group",
+                replacementGroup)
+            : ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "replacement-group");
+        yield return presentation.OptionSource is { } optionSource
+            ? ResourceExplanationVocabulary.TextFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "option-source",
+                optionSource)
+            : ResourceExplanationVocabulary.AbsentFact(
+                ResourceExplanationVocabulary.QueryFacetType,
+                "option-source");
+        yield return ResourceExplanationVocabulary.ValuesFact(
+            ResourceExplanationVocabulary.QueryFacetType,
+            "options",
+            presentation.Options.Select(option =>
+                RecordValue(
+                    ResourceExplanationVocabulary.QueryFacetOptionShape,
+                    ("value", ExplanationValue.Text(option.Value)),
+                    ("label", ExplanationValue.Text(option.Label)),
+                    ("summary", ExplanationValue.Text(option.Summary)))));
+    }
+
     public static ResourceExplanationCatalog CreateAnalyses(
         InspectionCapabilityCatalog catalog)
     {
@@ -952,10 +1060,7 @@ public sealed class ResourceExplanationCatalog
         }
 
         var collectionPath = new ResourcePath(AnalysesCollectionSegment);
-        ExplanationResourceKey collectionKey =
-            ResourceExplanationVocabulary.Key(
-                ResourceExplanationVocabulary.NavigationCollectionType,
-                Pack("analysis-collection"));
+        ExplanationResourceKey collectionKey = AnalysesCollectionKey;
         var analysisKeys = catalog.Analyses.ToDictionary(
             static registration => registration,
             registration => ResourceExplanationVocabulary.Key(
@@ -1097,10 +1202,7 @@ public sealed class ResourceExplanationCatalog
             .ToHashSet(StringComparer.Ordinal);
 
         var collectionPath = new ResourcePath(VocabulariesCollectionSegment);
-        ExplanationResourceKey collectionKey =
-            ResourceExplanationVocabulary.Key(
-                ResourceExplanationVocabulary.NavigationCollectionType,
-                Pack("vocabulary-collection"));
+        ExplanationResourceKey collectionKey = VocabulariesCollectionKey;
         var snapshots = new List<ExplanationResourceSnapshot>
         {
             NavigationSnapshot(
@@ -1943,6 +2045,10 @@ public sealed class ResourceExplanationCatalog
                     : ResourceExplanationVocabulary.AbsentFact(
                         type,
                         "cardinality"),
+                DescriptionFact(type, "summary", resource.Description?.Summary),
+                DescriptionFact(type, "basis", resource.Description?.Basis),
+                DescriptionFact(type, "empty", resource.Description?.Empty),
+                DescriptionFact(type, "boundary", resource.Description?.Boundary),
             ],
             DiscoveryResourceKind.Item =>
             [
@@ -1960,6 +2066,16 @@ public sealed class ResourceExplanationCatalog
             _ => throw new InvalidOperationException(
                 "Unknown Discovery resource kind."),
         };
+
+    // An undeclared description part is reported absent, never synthesized
+    // from the section name or an empty string.
+    private static ExplanationFactObservation DescriptionFact(
+        ExplanationResourceTypeIdentity type,
+        string identity,
+        string? value) =>
+        value is null
+            ? ResourceExplanationVocabulary.AbsentFact(type, identity)
+            : ResourceExplanationVocabulary.TextFact(type, identity, value);
 
     private static ImmutableArray<ExplanationRelationshipObservation>
         StructuralRelationships(

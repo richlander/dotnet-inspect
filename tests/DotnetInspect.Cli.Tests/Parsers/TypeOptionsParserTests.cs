@@ -38,6 +38,21 @@ public class TypeOptionsParserTests
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = false };
         var memberOption = new Option<string[]>("-m") { AllowMultipleArgumentsPerToken = true };
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
+        var relationsOption = new Option<string[]>("--relations")
+        {
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var relationColorOption =
+            new Option<string[]>("--relation-color")
+            {
+                AllowMultipleArgumentsPerToken = false,
+            };
+        var requireRelationColorOption =
+            new Option<string[]>("--require-relation-color")
+            {
+                AllowMultipleArgumentsPerToken = false,
+            };
 
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
@@ -59,6 +74,9 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(repoOption);
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
+        typeCommand.Options.Add(relationsOption);
+        typeCommand.Options.Add(relationColorOption);
+        typeCommand.Options.Add(requireRelationColorOption);
         opts.AddSectionOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Details);
         opts.AddPerformanceTriageOptionsTo(typeCommand);
@@ -77,6 +95,7 @@ public class TypeOptionsParserTests
             allOption, typeFilterOption, compactOption, opts.NoHeaders,
             unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption,
+            relationsOption, relationColorOption, requireRelationColorOption,
             suppressRuntimeTypeFallbackOption);
 
         return (root, opts, args);
@@ -126,6 +145,145 @@ public class TypeOptionsParserTests
             "--library", "x.dll");
 
         Assert.Empty(options.SourceRepositories);
+    }
+
+    [Fact]
+    public async Task AnnotatedRelationsOptions_LowerRepeatedAndCommaValues()
+    {
+        TypeOptions options = await ParseSuccessAsync(
+            "type", "Some.Type",
+            "--library", "x.dll",
+            "--relations", "call,implements",
+            "--relations", "inherits",
+            "--relation-color", "color.one,color.two",
+            "--require-relation-color", "color.two",
+            "--json");
+
+        Assert.NotNull(options.AnnotatedRelationIds);
+        Assert.Equal(
+            ["call", "implements", "inherits"],
+            options.AnnotatedRelationIds);
+        Assert.Equal(
+            ["color.one", "color.two"],
+            options.AnnotatedRelationColorIds);
+        Assert.Equal(
+            ["color.two"],
+            options.AnnotatedRelationRequiredColorIds);
+    }
+
+    [Theory]
+    [InlineData(
+        "--relation-color",
+        "member.requires-dynamic-code",
+        "--relation-color requires --relations.")]
+    [InlineData(
+        "--relations",
+        "all,call",
+        "--relations all cannot be combined with family ids.")]
+    [InlineData(
+        "--relations",
+        "all",
+        "--relations requires --json or --envelope.")]
+    public void AnnotatedRelations_InvalidGesturesFailParsing(
+        string option,
+        string value,
+        string expected)
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+
+        ParseResult result = command.Parse(
+            ["Some.Type", "--library", "x.dll", option, value]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                expected,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnnotatedRelations_CountEnvelopeIsAccepted()
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--library", "x.dll",
+            "--relations", "all",
+            "--count",
+            "--envelope",
+        ]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void OrdinaryType_CountEnvelopeRemainsRejected()
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--library", "x.dll",
+            "--count",
+            "--envelope",
+        ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--envelope cannot be combined with --count.",
+                StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("--rows", "1")]
+    [InlineData("-n", "1")]
+    [InlineData("--head", null)]
+    [InlineData("--tail", null)]
+    [InlineData("--lines", null)]
+    [InlineData("--tail-lines", null)]
+    public void AnnotatedRelations_RowAndLineSelectionIsRejected(
+        string option,
+        string? value)
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+        string[] arguments = value is null
+            ?
+            [
+                "Some.Type",
+                "--library", "x.dll",
+                "--relations", "all",
+                "--json",
+                option,
+            ]
+            :
+            [
+                "Some.Type",
+                "--library", "x.dll",
+                "--relations", "all",
+                "--json",
+                option, value,
+            ];
+
+        ParseResult result = command.Parse(arguments);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--relations cannot be combined with row or line selection "
+                    + "gestures.",
+                StringComparison.Ordinal));
     }
 
     static async Task<TypeOptions> ParseSuccessAsync(params string[] args)

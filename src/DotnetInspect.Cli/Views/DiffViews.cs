@@ -359,6 +359,9 @@ public class DiffFullView(
     [MarkoutSection(Name = "Additive Changes", GroupBy = nameof(DiffChangeRow.TypeName))]
     public List<DiffChangeRow>? AdditiveChanges { get; set; }
 
+    [MarkoutSection(Name = "Non-breaking Changes", GroupBy = nameof(DiffChangeRow.TypeName))]
+    public List<DiffChangeRow>? NonBreakingChanges { get; set; }
+
     [MarkoutSection(Name = "Other API Changes", GroupBy = nameof(DiffChangeRow.TypeName))]
     public List<DiffChangeRow>? OtherChanges { get; set; }
 

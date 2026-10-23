@@ -328,7 +328,8 @@ public sealed partial class MethodDefinitionRequestSetTests
                             AssemblyAnalysisService.Instance.Execute(
                                 operation,
                                 access)))
-            .Execution;
+            .Execution
+            .MethodDefinitionExecution();
     }
 
     static MethodDefinitionHandle FindMethod(

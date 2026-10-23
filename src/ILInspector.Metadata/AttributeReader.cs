@@ -140,11 +140,7 @@ public static partial class AttributeReader
         {
             var attr = reader.GetCustomAttribute(attrHandle);
             if (beforeMaterialize is null
-                ? IsTopLevelAttributeType(
-                    reader,
-                    attr.Constructor,
-                    "System.Runtime.CompilerServices",
-                    "ExtensionAttribute")
+                ? IsExtensionAttribute(reader, attr)
                 : GetAttributeTypeName(
                     reader,
                     attr.Constructor,
@@ -156,6 +152,19 @@ public static partial class AttributeReader
         }
         return false;
     }
+
+    /// <summary>
+    /// Checks if one custom attribute is the top-level [Extension] attribute,
+    /// comparing its type name in place.
+    /// </summary>
+    public static bool IsExtensionAttribute(
+        MetadataReader reader,
+        CustomAttribute attribute)
+        => IsTopLevelAttributeType(
+            reader,
+            attribute.Constructor,
+            "System.Runtime.CompilerServices",
+            "ExtensionAttribute");
 
     internal static (bool IsExtension, bool IsReadOnly) ReadMethodMarkerAttributes(
         MetadataReader reader,
@@ -2813,7 +2822,7 @@ public static partial class AttributeReader
             == AttributeTypeIdentityDisposition.Match;
     }
 
-    static bool IsTopLevelAttributeType(
+    internal static bool IsTopLevelAttributeType(
         MetadataReader reader,
         EntityHandle constructor,
         string @namespace,

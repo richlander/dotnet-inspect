@@ -14,7 +14,16 @@ public static class ResourceExplanationDataProjection
 {
     public static JsonElement Create(
         ResourceExplanationDocument document,
-        Func<ResourcePath, string> bindAddress)
+        Func<ResourcePath, string> bindAddress) => CreateCore(document, bindAddress, hal: false);
+
+    public static JsonElement CreateHal(
+        ResourceExplanationDocument document,
+        Func<ResourcePath, string> bindAddress) => CreateCore(document, bindAddress, hal: true);
+
+    private static JsonElement CreateCore(
+        ResourceExplanationDocument document,
+        Func<ResourcePath, string> bindAddress,
+        bool hal)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(bindAddress);
@@ -23,25 +32,26 @@ public static class ResourceExplanationDataProjection
         {
             var projection = new Projection(document.Schemas, document.Relationships,
                 document, bindAddress, writer);
-            projection.WriteResource(document.Resources[0]);
+            projection.WriteResource(document.Resources[0], hal);
         }
         using JsonDocument result = JsonDocument.Parse(stream.ToArray());
         return result.RootElement.Clone();
     }
 
-    internal static ImmutableArray<JsonElement> CreateResources(
-        ResourceExplanationCatalog catalog,
-        IEnumerable<ResourceExplanationResource> resources,
-        Func<ResourcePath, string> bindAddress)
+    internal static ImmutableArray<JsonElement> CreateFactResources(
+        ResourceExplanationCatalog catalog, IEnumerable<ResourceExplanationResource> resources)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
         {
-            var projection = new Projection(catalog.Schemas, catalog.Relationships,
-                null, bindAddress, writer);
+            var projection = new Projection(catalog.Schemas, [], null, static path => path.Value, writer);
             writer.WriteStartArray();
             foreach (ResourceExplanationResource resource in resources)
-                projection.WriteResource(resource);
+            {
+                writer.WriteStartObject();
+                projection.WriteFacts(resource);
+                writer.WriteEndObject();
+            }
             writer.WriteEndArray();
         }
         using JsonDocument result = JsonDocument.Parse(stream.ToArray());
@@ -65,14 +75,167 @@ public static class ResourceExplanationDataProjection
         private readonly ILookup<ExplanationResourceKey, ResourceExplanationRelationship> _relationships =
             relationships.ToLookup(relationship => relationship.Source);
 
-        public void WriteResource(ResourceExplanationResource resource)
+        public void WriteResource(ResourceExplanationResource resource, bool hal = false)
         {
+            if (hal)
+            {
+                WriteHalResource(resource);
+                return;
+            }
             writer.WriteStartObject();
             writer.WriteNumber("schema_version", 1);
             WriteKey(resource.Key);
             writer.WriteString("scope", resource.Scope.ToString());
             if (resource.Path is not null)
                 writer.WriteString("path", resource.Path.Value);
+            WriteFacts(resource);
+            ResourceExplanationRelationship[] relationships = _relationships[resource.Key].ToArray();
+            writer.WritePropertyName("relationships");
+            writer.WriteStartObject();
+            foreach (ResourceExplanationRelationship relationship in relationships)
+            {
+                WriteRelationship(relationship);
+            }
+            writer.WriteEndObject();
+            WriteLinks(resource, relationships);
+            WriteAddresses(resource.Addresses);
+            if (document is not null && resource.Key == document.Root)
+            {
+                writer.WritePropertyName("traversal");
+                // The existing receipt is small and preserves all traversal bounds.
+                JsonSerializer.Serialize(writer, document.Traversal,
+                    ResourceExplanationJsonContext.Default.ResourceExplanationTraversalReceipt);
+                if (document.Resources.Length > 1)
+                {
+                    writer.WritePropertyName("_embedded");
+                    writer.WriteStartObject();
+                    writer.WritePropertyName("resources");
+                    writer.WriteStartArray();
+                    foreach (ResourceExplanationResource expanded in document.Resources.Skip(1))
+                        WriteResource(expanded);
+                    writer.WriteEndArray();
+                    writer.WriteEndObject();
+                }
+            }
+            writer.WriteEndObject();
+        }
+
+        private void WriteHalResource(ResourceExplanationResource resource)
+        {
+            ResourceExplanationRelationship[] edges = _relationships[resource.Key].ToArray();
+            bool Exceptional(ResourceExplanationRelationship edge) =>
+                edge.State != ExplanationObservationState.Available
+                || edge.TargetCompleteness != ResourceExplanationTargetProjectionCompleteness.Complete
+                || edge.Targets.Any(target => !target.Addresses.Any(address => PathOf(address) is not null)
+                    || target.Addresses.Any(address => PathOf(address) is null));
+            writer.WriteStartObject();
+            WriteLinks(resource, edges);
+            writer.WritePropertyName("_embedded");
+            writer.WriteStartObject();
+            writer.WritePropertyName("data");
+            writer.WriteStartObject();
+            writer.WriteString("scope", resource.Scope.ToString());
+            if (resource.Path is null)
+                WriteKey(resource.Key);
+            WriteFacts(resource);
+            if (resource.Addresses.Any(address => PathOf(address) is null))
+                WriteAddresses(resource.Addresses);
+            ResourceExplanationRelationship[] exceptional = edges.Where(Exceptional).ToArray();
+            if (exceptional.Length > 0)
+            {
+                writer.WritePropertyName("relationships");
+                writer.WriteStartObject();
+                foreach (ResourceExplanationRelationship edge in exceptional)
+                    WriteRelationship(edge);
+                writer.WriteEndObject();
+            }
+            ResourceExplanationRelationship[] empty = edges.Where(edge =>
+                edge.Targets.IsEmpty && !Exceptional(edge)).ToArray();
+            if (empty.Length > 0)
+            {
+                writer.WritePropertyName("empty_relations");
+                writer.WriteStartArray();
+                foreach (ResourceExplanationRelationship edge in empty)
+                    writer.WriteStringValue(edge.Relationship.Value);
+                writer.WriteEndArray();
+            }
+            bool root = document is not null && resource.Key == document.Root;
+            if (root)
+            {
+                writer.WritePropertyName("traversal");
+                JsonSerializer.Serialize(writer, document!.Traversal,
+                    ResourceExplanationJsonContext.Default.ResourceExplanationTraversalReceipt);
+            }
+            writer.WriteEndObject();
+            if (root && document!.Resources.Length > 1)
+            {
+                writer.WritePropertyName("resources");
+                writer.WriteStartArray();
+                foreach (ResourceExplanationResource expanded in document.Resources.Skip(1))
+                    WriteHalResource(expanded);
+                writer.WriteEndArray();
+            }
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+
+        private void WriteRelationship(ResourceExplanationRelationship relationship)
+        {
+            writer.WritePropertyName(relationship.Relationship.Value);
+            writer.WriteStartObject();
+            writer.WriteString("state", relationship.State.ToString());
+            writer.WriteString("completeness", relationship.TargetCompleteness.ToString());
+            if (relationship.OutcomeData is not null)
+            {
+                writer.WritePropertyName("outcome");
+                WriteValue(relationship.OutcomeData);
+            }
+            writer.WritePropertyName("targets");
+            writer.WriteStartArray();
+            foreach (ResourceExplanationRelationshipTarget target in relationship.Targets)
+            {
+                writer.WriteStartObject();
+                WriteKey(target.Resource);
+                WriteAddresses(target.Addresses);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+
+        private void WriteLinks(ResourceExplanationResource resource,
+            ResourceExplanationRelationship[] relationships)
+        {
+            writer.WritePropertyName("_links");
+            writer.WriteStartObject();
+            if (resource.Path is not null)
+            {
+                writer.WritePropertyName("self");
+                WriteLink(resource.Path);
+            }
+            if (resource.Scope == ExplanationSnapshotScope.Detached
+                && ResourceExplanationCatalog.ComponentContractPath(resource.ResourceType) is { } contract)
+            {
+                writer.WritePropertyName("describedby");
+                WriteLink(contract);
+            }
+            foreach (ResourceExplanationRelationship relationship in relationships)
+            {
+                ResourcePath[] paths = relationship.Targets.SelectMany(target =>
+                    target.Addresses).Select(PathOf).OfType<ResourcePath>().ToArray();
+                if (paths.Length == 0)
+                    continue;
+                writer.WritePropertyName(relationship.Relationship.Value);
+                writer.WriteStartArray();
+                foreach (ResourcePath path in paths)
+                    WriteLink(path);
+                writer.WriteEndArray();
+            }
+            writer.WriteEndObject();
+        }
+
+        public void WriteFacts(ResourceExplanationResource resource)
+        {
             writer.WritePropertyName("facts");
             writer.WriteStartObject();
             foreach (ExplanationFactObservation fact in resource.Facts)
@@ -92,73 +255,6 @@ public static class ResourceExplanationDataProjection
                     continue;
                 writer.WritePropertyName(fact.Fact.Value);
                 WriteOutcome(fact.State, fact.OutcomeData);
-            }
-            writer.WriteEndObject();
-            ResourceExplanationRelationship[] relationships = _relationships[resource.Key].ToArray();
-            writer.WritePropertyName("relationships");
-            writer.WriteStartObject();
-            foreach (ResourceExplanationRelationship relationship in relationships)
-            {
-                writer.WritePropertyName(relationship.Relationship.Value);
-                writer.WriteStartObject();
-                writer.WriteString("state", relationship.State.ToString());
-                writer.WriteString("completeness", relationship.TargetCompleteness.ToString());
-                if (relationship.OutcomeData is not null)
-                {
-                    writer.WritePropertyName("outcome");
-                    WriteValue(relationship.OutcomeData);
-                }
-                writer.WritePropertyName("targets");
-                writer.WriteStartArray();
-                foreach (ResourceExplanationRelationshipTarget target in relationship.Targets)
-                {
-                    writer.WriteStartObject();
-                    WriteKey(target.Resource);
-                    WriteAddresses(target.Addresses);
-                    writer.WriteEndObject();
-                }
-                writer.WriteEndArray();
-                writer.WriteEndObject();
-            }
-            writer.WriteEndObject();
-            writer.WritePropertyName("_links");
-            writer.WriteStartObject();
-            if (resource.Path is not null)
-            {
-                writer.WritePropertyName("self");
-                WriteLink(resource.Path);
-            }
-            foreach (ResourceExplanationRelationship relationship in relationships)
-            {
-                ResourcePath[] paths = relationship.Targets.SelectMany(target =>
-                    target.Addresses).Select(PathOf).OfType<ResourcePath>().ToArray();
-                if (paths.Length == 0)
-                    continue;
-                writer.WritePropertyName(relationship.Relationship.Value);
-                writer.WriteStartArray();
-                foreach (ResourcePath path in paths)
-                    WriteLink(path);
-                writer.WriteEndArray();
-            }
-            writer.WriteEndObject();
-            WriteAddresses(resource.Addresses);
-            if (document is not null && resource.Key == document.Root)
-            {
-                writer.WritePropertyName("traversal");
-                // The existing receipt is small and preserves all traversal bounds.
-                JsonSerializer.Serialize(writer, document.Traversal,
-                    ResourceExplanationJsonContext.Default.ResourceExplanationTraversalReceipt);
-                if (document.Resources.Length > 1)
-                {
-                    writer.WritePropertyName("_embedded");
-                    writer.WriteStartObject();
-                    writer.WritePropertyName("resources");
-                    writer.WriteStartArray();
-                    foreach (ResourceExplanationResource expanded in document.Resources.Skip(1))
-                        WriteResource(expanded);
-                    writer.WriteEndArray();
-                    writer.WriteEndObject();
-                }
             }
             writer.WriteEndObject();
         }

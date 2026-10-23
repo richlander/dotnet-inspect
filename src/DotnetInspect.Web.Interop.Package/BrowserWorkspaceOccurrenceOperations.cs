@@ -35,6 +35,7 @@ internal static class BrowserWorkspaceOccurrenceOperations
                 request.PackageId,
                 request.Version,
                 request.TargetFramework,
+                request.RuntimeIdentifier,
                 cancellationToken));
 
     internal static async Task<BrowserWorkspacePackageOccurrenceView>
@@ -379,7 +380,8 @@ internal static class BrowserWorkspaceOccurrenceOperations
                         action,
                         descriptor.PackageId,
                         descriptor.Version,
-                        descriptor.Framework ?? ""));
+                        descriptor.Framework ?? "",
+                        coordinate.RuntimeIdentifier ?? ""));
                 selections.Add(
                     action,
                     new BrowserWorkspaceOccurrenceSelection(
@@ -425,7 +427,10 @@ public static partial class PackageExports
                 entry.Version,
                 string.IsNullOrWhiteSpace(entry.Framework)
                     ? null
-                    : entry.Framework)),
+                    : entry.Framework,
+                string.IsNullOrWhiteSpace(entry.RuntimeIdentifier)
+                    ? null
+                    : entry.RuntimeIdentifier)),
         ];
         BrowserWorkspacePackageOccurrenceView view =
             await BrowserWorkspaceOccurrenceOperations
@@ -459,7 +464,8 @@ public static partial class PackageExports
             return new BrowserWorkspacePackageOccurrenceActivation(
                 Activated: false,
                 Superseded: true,
-                Package: null);
+                Package: null,
+                RuntimeIdentifier: "");
         }
 
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
@@ -472,7 +478,8 @@ public static partial class PackageExports
             return new BrowserWorkspacePackageOccurrenceActivation(
                 Activated: false,
                 Superseded: true,
-                Package: null);
+                Package: null,
+                RuntimeIdentifier: "");
         }
 
         BrowserInspectionScope scope = scopeLease.Scope;
@@ -484,7 +491,8 @@ public static partial class PackageExports
         return new BrowserWorkspacePackageOccurrenceActivation(
             Activated: true,
             Superseded: false,
-            package);
+            package,
+            selection.Coordinate.RuntimeIdentifier ?? "");
     }
 }
 }

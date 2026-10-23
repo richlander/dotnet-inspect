@@ -35,6 +35,7 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.SpoofRuntimeFixtures/ILInspector.Analysis.SpoofRuntimeFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.StringMaterializationFixtures/ILInspector.Analysis.StringMaterializationFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.TopLevelAsyncFixtures/ILInspector.Analysis.TopLevelAsyncFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.IteratorFixtures/ILInspector.Analysis.IteratorFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures/ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.UnoptimizedAsyncFixtures/ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />
     <Project Path="fixtures/cli/DotnetInspector.CallerBinding.Caller/DotnetInspector.CallerBinding.Caller.csproj" />
@@ -101,8 +102,8 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1/ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2/ILInspector.Metadata.ApiDeclarationCorrespondence.V2.csproj" />
-    <Project Path="fixtures/metadata/ILInspector.Metadata.FastDiff.V1/ILInspector.Metadata.FastDiff.V1.csproj" />
-    <Project Path="fixtures/metadata/ILInspector.Metadata.FastDiff.V2/ILInspector.Metadata.FastDiff.V2.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V1/ILInspector.Metadata.FindingDiffAny.V1.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V2/ILInspector.Metadata.FindingDiffAny.V2.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
@@ -161,6 +162,7 @@
     <Project Path="src/CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
     <Project Path="src/DotnetInspector.Cache/DotnetInspector.Cache.csproj" />
     <Project Path="src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
+    <Project Path="src/DotnetInspector.Diff/DotnetInspector.Diff.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse/DotnetInspector.DocumentationHouse.csproj" />
     <Project Path="src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj" />

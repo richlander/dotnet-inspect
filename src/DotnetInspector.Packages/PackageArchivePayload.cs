@@ -31,6 +31,15 @@ internal sealed class PackageArchivePayload
     internal IReadOnlyList<string> GetDirectories() =>
         PackageArchiveDirectories.FromPaths(_entries.Select(entry => entry.Path));
 
+    internal IReadOnlyList<PackageContentEntry> GetDirectoryEntries() =>
+        _entries
+            .Where(static entry => entry.IsDirectory)
+            .Select(static entry => new PackageContentEntry(
+                entry.Path,
+                checked((long)entry.UncompressedSize),
+                entry.LastWriteTime))
+            .ToArray();
+
     internal int ArchiveLength => _bytes.Length;
 
     internal byte[] OwnedBytes => _bytes;
@@ -93,7 +102,8 @@ internal sealed class PackageArchivePayload
 
                 entry = new(
                     candidate.Path,
-                    checked((long)candidate.UncompressedSize));
+                    checked((long)candidate.UncompressedSize),
+                    candidate.LastWriteTime);
                 return true;
             }
 
@@ -323,6 +333,7 @@ internal sealed class PackageArchivePayload
 internal readonly record struct PackageArchiveEntry(
     string Path,
     bool IsDirectory,
+    DateTimeOffset LastWriteTime,
     ushort CompressionMethod,
     uint Crc32,
     ulong CompressedSize,

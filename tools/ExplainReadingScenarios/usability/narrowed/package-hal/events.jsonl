@@ -1,0 +1,16 @@
+{"kind": "view", "file": "view-01.txt", "source": "experimental skill prototype (hal)", "time_ns": 34447625}
+{"kind": "request-start", "id": 1, "time_ns": 33544625}
+{"kind": "request", "id": 1, "time_ns": 89392208}
+{"kind": "view", "file": "view-02.txt", "source": "response-01.out", "time_ns": 26099916}
+{"kind": "request-start", "id": 2, "time_ns": 19601416}
+{"kind": "request", "id": 2, "time_ns": 50636208}
+{"kind": "view", "file": "view-03.txt", "source": "response-02.out", "time_ns": 45285458}
+{"kind": "view", "file": "view-04.txt", "source": "response-02.out", "time_ns": 27112000}
+{"kind": "request-start", "id": 3, "time_ns": 18914250}
+{"kind": "request", "id": 3, "time_ns": 49289916}
+{"kind": "view", "file": "view-05.txt", "source": "response-03.out", "time_ns": 24891125}
+{"kind": "request-start", "id": 4, "time_ns": 31624125}
+{"kind": "request", "id": 4, "time_ns": 2726372583}
+{"kind": "view", "file": "view-06.txt", "source": "response-04.out", "time_ns": 31819583}
+{"kind": "view", "file": "view-07.txt", "source": "response-04.out", "time_ns": 26577875}
+{"kind": "view", "file": "view-08.txt", "source": "response-04.err", "time_ns": 28112541}

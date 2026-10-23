@@ -129,6 +129,38 @@ public sealed class PackageArchiveReader : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Completes the archive by reading only the prefix absent from the retained
+    /// directory region. The caller admits and publishes the assembled archive.
+    /// </summary>
+    public async Task<PackageArchiveReadResult<byte[]>> ReadCompleteAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        CancellationToken token = _session.ResolveInvocationToken(cancellationToken);
+        _session.BeginCompleteRead();
+        try
+        {
+            byte[] archive = new byte[checked((int)Directory.ArchiveLength)];
+            int prefixLength = checked(archive.Length - Directory.Region.Length);
+            await _source.ReadRangeAsync(0, archive.AsMemory(0, prefixLength), token)
+                .ConfigureAwait(false);
+            Directory.Region.CopyTo(archive.AsMemory(prefixLength));
+            return new(archive);
+        }
+        catch (Exception exception)
+            when (_session.TryMap(exception, token,
+                out PackageArchiveReadResult<byte[]>? mapped))
+        {
+            token.ThrowIfCancellationRequested();
+            return mapped;
+        }
+        finally
+        {
+            _session.EndCompleteRead();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -281,6 +313,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
     private readonly PackageArchiveRequestLog? _requestLog;
     private PackageSourceCredential? _credential;
     private volatile bool _readingEntries;
+    private bool _readingComplete;
     private bool _disposed;
 
     public PackageArchiveRangeSession(
@@ -345,7 +378,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                     {
                         HttpRequestMessage attempt = Clone(request);
                         NuGetSourceRequest.ApplyCredential(attempt, _credential);
-                        NuGetHttpRequest.ConfigureBrowserRequest(attempt, _isBrowser);
+                        NuGetHttpRequest.ConfigureBrowserRangeRequest(attempt, _isBrowser);
                         sent = await _client.SendAsync(
                             attempt,
                             HttpCompletionOption.ResponseHeadersRead,
@@ -492,6 +525,9 @@ internal sealed class PackageArchiveRangeSession : IDisposable
         where T : class =>
         new(_results.FailedPackage(Coordinate, kind).Failure!);
 
+    internal void BeginCompleteRead() => _readingComplete = true;
+    internal void EndCompleteRead() => _readingComplete = false;
+
     private PackageArchiveRequestLog.Entry? BeginLogged(
         HttpRequestMessage request,
         RangeRequestKind kind)
@@ -506,7 +542,9 @@ internal sealed class PackageArchiveRangeSession : IDisposable
             : start is null
                 ? range.To ?? 0
                 : (range.To ?? start.Value) - start.Value + 1;
-        PackageArchiveRequestPurpose purpose = _readingEntries
+        PackageArchiveRequestPurpose purpose = _readingComplete
+            ? PackageArchiveRequestPurpose.CompletePrefix
+            : _readingEntries
             ? PackageArchiveRequestPurpose.EntrySpan
             : kind == RangeRequestKind.Tail
                 ? PackageArchiveRequestPurpose.DirectoryTail

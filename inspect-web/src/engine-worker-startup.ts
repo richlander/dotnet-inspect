@@ -1,4 +1,5 @@
 import type { EngineClient } from "./engine-client.ts";
+import type { PackageQueryFacetData } from "./package-query-source.ts";
 import type {
   PackageQueryDurableRowPresentationLayout,
 } from "./package-query-durable-row.ts";
@@ -26,14 +27,16 @@ export interface EngineStartupClient {
   readonly catalog: Pick<
     EngineClient["catalog"],
     "inspectVocabulary" | "listEcosystems" | "listHomeDemos"
+      | "listTypeViewFacets"
   >;
-  readonly package: Pick<
-    EngineClient["package"],
-    "listPackageActivityEcosystems" | "listPackageQueryCatalog"
-  > & {
-    readonly packageQueryDurableRowLayout:
-      () => Promise<PackageQueryDurableRowPresentationLayout>;
-  };
+  readonly package:
+    Pick<EngineClient["package"], "listPackageActivityEcosystems">
+    & {
+      readonly inspectPackageQueryFacets:
+        () => Promise<PackageQueryFacetData>;
+      readonly packageQueryDurableRowLayout:
+        () => Promise<PackageQueryDurableRowPresentationLayout>;
+    };
 }
 
 interface StartupReads {
@@ -41,9 +44,12 @@ interface StartupReads {
   readonly inspectVocabulary: EngineStartupClient["catalog"]["inspectVocabulary"];
   readonly listEcosystems: EngineStartupClient["catalog"]["listEcosystems"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
+  readonly listTypeViewFacets:
+    EngineStartupClient["catalog"]["listTypeViewFacets"];
   readonly listPackageActivityEcosystems:
     EngineStartupClient["package"]["listPackageActivityEcosystems"];
-  readonly listPackageQueryCatalog: EngineStartupClient["package"]["listPackageQueryCatalog"];
+  readonly inspectPackageQueryFacets:
+    () => Promise<unknown>;
   readonly packageQueryDurableRowLayout:
     EngineStartupClient["package"]["packageQueryDurableRowLayout"];
 }
@@ -57,7 +63,10 @@ export function registerEngineWorkerStartupOperations(
   operations: WorkerOperationCatalog,
   reads: StartupReads,
 ): void {
-  function register<TValue>(operation: StartupOperation<TValue>, read: () => Promise<TValue>) {
+  function register<TValue>(
+    operation: StartupOperation<TValue>,
+    read: () => Promise<unknown>,
+  ) {
     operations.register({
       kind: operation.kind,
       allowance: { kind: "unbounded" },
@@ -81,9 +90,14 @@ export function registerEngineWorkerStartupOperations(
     reads.packageQueryDurableRowLayout);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
   register(
+    engineStartupOperations.listTypeViewFacets,
+    reads.listTypeViewFacets);
+  register(
     engineStartupOperations.listPackageActivityEcosystems,
     reads.listPackageActivityEcosystems);
-  register(engineStartupOperations.listPackageQueryCatalog, reads.listPackageQueryCatalog);
+  register(
+    engineStartupOperations.inspectPackageQueryFacets,
+    reads.inspectPackageQueryFacets);
 }
 
 export function bindEngineWorkerStartupClient(
@@ -163,11 +177,14 @@ export function bindEngineWorkerStartupClient(
       inspectVocabulary: readVocabulary,
       listEcosystems: bind(engineStartupOperations.listEcosystems),
       listHomeDemos: bind(engineStartupOperations.listHomeDemos),
+      listTypeViewFacets:
+        bind(engineStartupOperations.listTypeViewFacets),
     },
     package: {
       listPackageActivityEcosystems:
         bind(engineStartupOperations.listPackageActivityEcosystems),
-      listPackageQueryCatalog: bind(engineStartupOperations.listPackageQueryCatalog),
+      inspectPackageQueryFacets:
+        bind(engineStartupOperations.inspectPackageQueryFacets),
       packageQueryDurableRowLayout:
         bind(engineStartupOperations.packageQueryDurableRowLayout),
     },

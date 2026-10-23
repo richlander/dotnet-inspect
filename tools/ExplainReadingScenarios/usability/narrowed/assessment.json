@@ -1,0 +1,67 @@
+{
+  "method": "Author assessment against frozen executed evidence; automatic replay does not score domain answers. Adequate does not mean protocol-perfect, exhaustive or independently verified semantics.",
+  "trials": {
+    "package-hal": {
+      "domain": "adequate",
+      "evidence": [
+        "response-04.out",
+        "response-04.err"
+      ],
+      "qualification": "One direct Microsoft.Extensions.Http.Polly 10.0.13 manifest dependency in the selected .NETStandard2.0 group for net10.0; CandidateLimitReached at 40. Dependency declaration strings are not resolved Polly versions.",
+      "friction": "After full response-02, response-03 re-fetches five facet records and the same binding rules already available locally. worked-cache-selection.jq reproduces identical facts from either response. Initial jq asks for nonexistent description/fields/facetKey properties and later uses lowercase envelope keys.",
+      "navigation": "No href or contract fetch."
+    },
+    "package-data": {
+      "domain": "adequate",
+      "evidence": [
+        "response-06.out",
+        "response-06.err"
+      ],
+      "qualification": "Same bounded direct manifest finding; versionRange labels and non-exhaustiveness explicit.",
+      "friction": "Help, bare query help, section query help, then two structured facet reads. The direct arm cannot use the HAL-only command-local terminal, so request count is not a format-only result.",
+      "navigation": "Canonical facet paths copied from query help; no contract."
+    },
+    "api-hal": {
+      "domain": "adequate",
+      "evidence": [
+        "response-03.out",
+        "response-05.out",
+        "response-06.out"
+      ],
+      "qualification": "Three actual HttpClient/HttpContent extension methods, declaring types/library, representative inspected signatures and installed 11.0.0-rc.1 runtime scope. Workflow descriptions are inferred and qualified.",
+      "friction": "find discovers JSON extension classes; type help is read for a considered route that is not executed. Ordinary results are sufficient.",
+      "navigation": "No explain or reading format used."
+    },
+    "api-data": {
+      "domain": "adequate",
+      "evidence": [
+        "response-02.out",
+        "response-03.out"
+      ],
+      "qualification": "Same three representative methods and qualification, with actual receiver/signature evidence.",
+      "friction": "Known receiver guesses are verified by needed executed inspection, not offered as uninspected answers. A first keys view returns array indices; entry schema is read next.",
+      "navigation": "No explain or reading format used."
+    },
+    "vocabulary-hal": {
+      "domain": "adequate with semantic qualification",
+      "evidence": [
+        "response-18.out",
+        "response-19.out"
+      ],
+      "qualification": "72 catalog values, exact native IDs and complete selected-values scope. Individual value meanings are explicitly ordinary interpretations of IDs; no catalog prose definitions are claimed.",
+      "friction": "19 requests including no-match searches and a failed explain --help. An inferred exact vocabularies collection provides the canonical root, then one selected HAL read suffices.",
+      "navigation": "No selected-response collection fetch or contract."
+    },
+    "vocabulary-data": {
+      "domain": "adequate with semantic qualification",
+      "evidence": [
+        "response-22.err",
+        "response-23.out",
+        "response-24.out"
+      ],
+      "qualification": "Same IDs/count/scope, with prose-definition absence explicit.",
+      "friction": "24 requests; invalid inferred vocabulary path yields a canonical suggestion. After reading the entire 540-byte direct response, it requests the equivalent 656-byte HAL response looking for descriptions or identity detail. Direct already contains Break name and native value keys.",
+      "navigation": "One actual emitted format violation; retrospective acknowledges the extra format read without finding new facts. No contract."
+    }
+  }
+}

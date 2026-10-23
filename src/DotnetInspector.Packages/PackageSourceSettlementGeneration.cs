@@ -499,13 +499,30 @@ internal sealed class PackageSourceSettlementGeneration
         string packageId,
         IPackageSourceAuthorization sourceAuthorization,
         PackageVersionDiscoveryContract contract,
-        NuGetOperationContext operationContext)
+        NuGetOperationContext operationContext,
+        Action<string>? log = null,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
         ArgumentNullException.ThrowIfNull(contract);
         CancellationToken cancellationToken = operationContext.CancellationToken;
         cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            operationContext.ThrowIfExpired();
+        }
+        catch (NuGetOperationTimeoutException)
+        {
+            return Task.FromResult(
+                _candidateIssuer.CreateIncompleteVersionDiscovery(
+                    packageId,
+                    contract,
+                    [
+                        VersionDiscoveryOperationTimeoutFailure(
+                            operationContext),
+                    ]));
+        }
         PackageSourceAuthorization authorization =
             sourceAuthorization.AuthorizeSourcesFor(packageId);
         return DiscoverVersionsCoreAsync(
@@ -513,7 +530,9 @@ internal sealed class PackageSourceSettlementGeneration
             authorization,
             contract,
             cancellationToken,
-            operationContext);
+            operationContext,
+            log,
+            observations);
     }
 
     /// <summary>
@@ -542,7 +561,8 @@ internal sealed class PackageSourceSettlementGeneration
         PackageSourceAuthorization authorization,
         PackageVersionDiscoveryContract contract,
         NuGetOperationContext operationContext,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(authorization);
@@ -553,7 +573,8 @@ internal sealed class PackageSourceSettlementGeneration
             contract,
             operationContext.CancellationToken,
             operationContext,
-            log);
+            log,
+            observations);
     }
 
     private async Task<PackageVersionDiscoveryResult>
@@ -563,99 +584,132 @@ internal sealed class PackageSourceSettlementGeneration
         PackageVersionDiscoveryContract contract,
         CancellationToken cancellationToken,
         NuGetOperationContext operation,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var outcomes = new List<
-            PackageSourceOperationResult<PackageVersionResult>>(
-                authorization.Authorities.Count);
-        for (int index = 0;
-             index < authorization.Authorities.Count;
-             index++)
-        {
-            ConfiguredPackageAuthority authority =
-                authorization.Authorities[index];
-            try
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                operation.ThrowIfExpired();
-            }
-            catch (NuGetOperationTimeoutException)
-            {
-                return _candidateIssuer
-                    .CreateIncompleteVersionDiscovery(
-                        packageId,
-                        authorization,
-                        outcomes,
-                        contract,
-                        OperationTimeoutFailures(
-                            authorization,
-                            index,
-                            operation));
-            }
-
-            IPackageSourceClient client = GetClient(authority);
-            RequireAuthority(client.Source, authority);
-
-            log?.Invoke(
-                $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
-            PackageSourceOperationResult<PackageVersionResult> outcome;
-            try
-            {
-                outcome = await client.GetVersionsAsync(
-                    packageId,
-                    cancellationToken,
-                    operation).ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
-                operation.ThrowIfExpired();
-            }
-            catch (NuGetOperationTimeoutException)
-            {
-                return _candidateIssuer
-                    .CreateIncompleteVersionDiscovery(
-                        packageId,
-                        authorization,
-                        outcomes,
-                        contract,
-                        OperationTimeoutFailures(
-                            authorization,
-                            index,
-                            operation));
-            }
-            PackageSourceResultIdentity resultSource = outcome.Failure?.Source
-                ?? outcome.Value?.Source
-                ?? throw new InvalidOperationException(
-                    "The package source version operation returned neither a value nor a failure.");
-            RequireAuthority(
-                resultSource,
-                authority,
-                client.Source);
-            outcomes.Add(outcome);
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        PackageVersionDiscoveryResult discovery =
-            _candidateIssuer.CreateVersionDiscovery(
-                packageId,
-                authorization,
-                outcomes,
-                contract);
+        List<PackageSourceDependencyVersionObservations.Observation>? participants =
+            observations is null ? null : [];
         try
         {
-            operation.ThrowIfExpired();
-        }
-        catch (NuGetOperationTimeoutException)
-        {
-            return _candidateIssuer.CreateIncompleteVersionDiscovery(
-                discovery,
-                [
-                    OperationTimeoutFailure(
-                        authority: null,
-                        operation),
-                ]);
-        }
+            var outcomes = new List<
+                PackageSourceOperationResult<PackageVersionResult>>(
+                    authorization.Authorities.Count);
+            for (int index = 0;
+                 index < authorization.Authorities.Count;
+                 index++)
+            {
+                ConfiguredPackageAuthority authority =
+                    authorization.Authorities[index];
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    operation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return _candidateIssuer
+                        .CreateIncompleteVersionDiscovery(
+                            packageId,
+                            authorization,
+                            outcomes,
+                            contract,
+                            OperationTimeoutFailures(
+                                authorization,
+                                index,
+                                operation));
+                }
 
-        return discovery;
+                IPackageSourceClient client = GetClient(authority);
+                RequireAuthority(client.Source, authority);
+
+                PackageSourceOperationResult<PackageVersionResult> outcome;
+                try
+                {
+                    if (observations is null)
+                    {
+                        log?.Invoke(
+                            $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
+                        outcome = await client.GetVersionsAsync(
+                            packageId,
+                            cancellationToken,
+                            operation).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        var shared = observations.Join(
+                            authority,
+                            client.Source,
+                            packageId,
+                            () => client.GetVersionsAsync(
+                                packageId, cancellationToken, operation),
+                            out bool reused);
+                        participants!.Add(shared);
+                        log?.Invoke(reused
+                            ? $"Reusing dependency versions from {PackageSourceDisplay.ForDiagnostics(authority.Source)}."
+                            : $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
+                        outcome = await shared.Work.Value.ConfigureAwait(false);
+                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    operation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return _candidateIssuer
+                        .CreateIncompleteVersionDiscovery(
+                            packageId,
+                            authorization,
+                            outcomes,
+                            contract,
+                            OperationTimeoutFailures(
+                                authorization,
+                                index,
+                                operation));
+                }
+                PackageSourceResultIdentity resultSource = outcome.Failure?.Source
+                    ?? outcome.Value?.Source
+                    ?? throw new InvalidOperationException(
+                        "The package source version operation returned neither a value nor a failure.");
+                RequireAuthority(
+                    resultSource,
+                    authority,
+                    client.Source);
+                outcomes.Add(outcome);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            PackageVersionDiscoveryResult discovery =
+                _candidateIssuer.CreateVersionDiscovery(
+                    packageId,
+                    authorization,
+                    outcomes,
+                    contract);
+            try
+            {
+                operation.ThrowIfExpired();
+            }
+            catch (NuGetOperationTimeoutException)
+            {
+                return _candidateIssuer.CreateIncompleteVersionDiscovery(
+                    discovery,
+                    [
+                        VersionDiscoveryOperationTimeoutFailure(operation),
+                    ]);
+            }
+
+            if (discovery.State == PackageVersionDiscoveryState.Authoritative
+                && observations is not null)
+            {
+                observations.Retain(participants!);
+            }
+
+            return discovery;
+        }
+        finally
+        {
+            if (observations is not null)
+                observations.Release(participants!);
+        }
     }
 
     /// <summary>
@@ -670,6 +724,19 @@ internal sealed class PackageSourceSettlementGeneration
             candidate,
             operationContext.CancellationToken,
             operationContext);
+    }
+
+    internal Task<ConfiguredPackageManifestResult>
+        AcquireCandidateManifestAsync(
+        PackageAcquisitionCandidate candidate,
+        NuGetOperationContext operationContext,
+        ConfiguredPackageAuthority requiredAuthority)
+    {
+        return _manifestAcquirer.AcquireAsync(
+            candidate,
+            operationContext.CancellationToken,
+            operationContext,
+            requiredAuthority);
     }
 
     /// <summary>
@@ -700,6 +767,32 @@ internal sealed class PackageSourceSettlementGeneration
             transferPolicy,
             operationContext,
             rangedRead);
+    }
+
+    internal Task<ConfiguredPackagePayloadResult>
+        AcquireCandidatePayloadAsync(
+        PackageAcquisitionCandidate candidate,
+        Func<
+            ConfiguredPackageAuthority,
+            PackageProducerIdentity,
+            IPackageStore> createStore,
+        NuGetOperationContext operationContext,
+        ConfiguredPackageAuthority requiredAuthority,
+        Action<string>? log = null,
+        PackagePayloadLimits? limits = null,
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        PackageRangedRead? rangedRead = null)
+    {
+        return _payloadAcquirer.AcquireAsync(
+            candidate,
+            createStore,
+            log,
+            limits,
+            operationContext.CancellationToken,
+            transferPolicy,
+            operationContext,
+            rangedRead,
+            requiredAuthority);
     }
 
     internal Task<ConfiguredPackagePayloadResult>
@@ -760,7 +853,10 @@ internal sealed class PackageSourceSettlementGeneration
             NuGetOperationContext operation)
     {
         var failures = new List<PackageAuthorityFailure>(
-            authorization.Authorities.Count - firstUnsettledAuthority);
+            authorization.Authorities.Count - firstUnsettledAuthority + 1)
+        {
+            VersionDiscoveryOperationTimeoutFailure(operation),
+        };
         for (int index = firstUnsettledAuthority;
              index < authorization.Authorities.Count;
              index++)
@@ -813,6 +909,33 @@ internal sealed class PackageSourceSettlementGeneration
                 OperationTimeoutFailure(authority, operation)));
         }
     }
+
+    private static PackageAuthorityFailure
+        VersionDiscoveryOperationTimeoutFailure(
+        NuGetOperationContext operation) =>
+        new(
+            InertString.Empty,
+            PackageAuthorityFailureKind.Timeout,
+            "The package version operation deadline expired before the aggregate completed.")
+        {
+            Timeout = new(
+                PackageSourceTimeoutKind.Operation,
+                operation.OperationTimeout),
+        };
+
+    internal static PackageAuthorityFailure
+        VersionDiscoveryUnsettledSourceTimeoutFailure(
+        PackageSource source,
+        NuGetOperationContext operation) =>
+        new(
+            PackageSourceDisplay.ForDiagnostics(source),
+            PackageAuthorityFailureKind.Timeout,
+            "An authorized package source was not settled before the package candidate operation deadline.")
+        {
+            Timeout = new(
+                PackageSourceTimeoutKind.Operation,
+                operation.OperationTimeout),
+        };
 
     private static PackageAuthorityFailure OperationTimeoutFailure(
         ConfiguredPackageAuthority? authority,

@@ -182,7 +182,7 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
                                 target,
                                 currentGroup,
                                 current,
-                                ApiSurfaceScope.Public,
+                                ApiSurfaceScope.ApiAxis,
                                 BrowserApiSurfacePolicy.Limits,
                                 new DiffAnalysisLibraryInspectionRequest(
                                     PackageId,

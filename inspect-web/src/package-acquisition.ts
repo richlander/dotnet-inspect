@@ -9,7 +9,6 @@ import type {
   BrowserAccessibilityDescriptor as AccessibilityDescriptorFromPackageFacade,
   BrowserApiFacetDescriptor as ApiFacetDescriptorFromPackageFacade,
   BrowserAssemblySurface as AssemblySurfaceFromPackageFacade,
-  BrowserExceptionSurface as ExceptionSurfaceFromPackageFacade,
   BrowserMemberBodySelector as MemberBodySelectorFromPackageFacade,
   BrowserMemberSurface as MemberSurfaceFromPackageFacade,
   BrowserPackageDocument as PackageDocumentFromPackageFacade,
@@ -18,6 +17,7 @@ import type {
   BrowserPackageInfoMeasurementInspection,
   BrowserPackageLoadResult,
   BrowserPackageRootLoadResult,
+  BrowserPackageRuntimePopulationChoice,
   BrowserPackageSurface as PackageSurfaceFromPackageFacade,
   BrowserPackageVersionSettlementInspection,
   BrowserParameterSurface as ParameterSurfaceFromPackageFacade,
@@ -27,7 +27,6 @@ import type {
   BrowserAccessibilityDescriptor as AccessibilityDescriptorFromCatalogFacade,
   BrowserApiFacetDescriptor as ApiFacetDescriptorFromCatalogFacade,
   BrowserAssemblySurface as AssemblySurfaceFromCatalogFacade,
-  BrowserExceptionSurface as ExceptionSurfaceFromCatalogFacade,
   BrowserMemberBodySelector as MemberBodySelectorFromCatalogFacade,
   BrowserMemberSurface as MemberSurfaceFromCatalogFacade,
   BrowserPackageDocument as PackageDocumentFromCatalogFacade,
@@ -37,7 +36,6 @@ import type {
   BrowserTypeSurface as TypeSurfaceFromCatalogFacade,
 } from "./facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserExceptionSurface as ExceptionSurfaceFromMetadataFacade,
   BrowserMemberBodySelector as MemberBodySelectorFromMetadataFacade,
   BrowserMemberSurface as MemberSurfaceFromMetadataFacade,
   BrowserParameterSurface as ParameterSurfaceFromMetadataFacade,
@@ -47,7 +45,6 @@ import type {
   BrowserLibraryAccessibilityDescriptor as AccessibilityDescriptorFromLibraryFacade,
   BrowserLibraryApiFacetDescriptor as ApiFacetDescriptorFromLibraryFacade,
   BrowserLibraryAssemblySurface as AssemblySurfaceFromLibraryFacade,
-  BrowserLibraryExceptionSurface as ExceptionSurfaceFromLibraryFacade,
   BrowserLibraryMemberBodySelector as MemberBodySelectorFromLibraryFacade,
   BrowserLibraryMemberSurface as MemberSurfaceFromLibraryFacade,
   BrowserLibraryParameterSurface as ParameterSurfaceFromLibraryFacade,
@@ -77,12 +74,6 @@ export type InspectedAssemblySurface =
   | AssemblySurfaceFromPackageFacade
   | AssemblySurfaceFromCatalogFacade
   | AssemblySurfaceFromLibraryFacade;
-
-export type InspectedExceptionSurface =
-  | ExceptionSurfaceFromPackageFacade
-  | ExceptionSurfaceFromCatalogFacade
-  | ExceptionSurfaceFromMetadataFacade
-  | ExceptionSurfaceFromLibraryFacade;
 
 export type InspectedMemberBodySelector =
   | MemberBodySelectorFromPackageFacade
@@ -125,6 +116,11 @@ export interface AppParameterSurface
   description: string | null;
 }
 
+export interface AppExceptionSurface {
+  type: string;
+  description: string;
+}
+
 export interface AppMemberSurface
   extends Omit<
     InspectedMemberSurface,
@@ -133,7 +129,7 @@ export interface AppMemberSurface
   parameters: AppParameterSurface[];
   summary: string | null;
   returns: string | null;
-  exceptions: InspectedExceptionSurface[];
+  exceptions: AppExceptionSurface[];
   documentationLoaded?: boolean;
   baselineOrdinal?: number | null;
   isExplicitInterfaceImplementation?: boolean;
@@ -153,12 +149,13 @@ export interface AppPackage {
   frameworks: string[];
   activeFramework: string;
   runtimeIdentifier?: string | null;
+  runtimeIdentifiers?: string[];
+  runtimePopulation?: BrowserPackageRuntimePopulationChoice | null;
   assembly: string;
   assemblyId: string;
   assemblyAsset: string;
-  // The selected compile library identity when the surface projected no assembly
-  // descriptor for it (a truncated surface). Navigation still treats the package as
-  // having no default assembly; engine queries scoped to the selected library use this.
+  // The selected compile Library identity when its broad surface projected no assembly
+  // descriptor. Exact Library navigation can still use the owner-issued Package child.
   selectedCompileAssetId?: string;
   source:
     | { kind: "file" }
@@ -184,6 +181,7 @@ export interface AppPackage {
   isRuntimePack: boolean;
   platformContextId?: string | null;
   surfaceRevision?: number;
+  isSummaryOnly?: boolean;
 }
 
 export interface AppPackageLibrary {
@@ -197,6 +195,7 @@ export interface AppPackageLibrary {
   members: number | null;
   platformPack: string | null;
   surfaceAvailable: boolean;
+  countsPending: boolean;
   unavailableDetail: string | null;
 }
 
@@ -265,6 +264,7 @@ export function createNuGetPackageSummaryModel(
     packageChildren,
     isRuntimePack: false,
     surfaceRevision: 0,
+    isSummaryOnly: true,
   };
 }
 
@@ -307,25 +307,52 @@ export function packageLibrariesForModel(
         members: descriptor?.publicMembers ?? null,
         platformPack: descriptor?.platformPack ?? null,
         surfaceAvailable: descriptor !== undefined,
-        unavailableDetail: descriptor
+        countsPending:
+          descriptor === undefined && packageModel.isSummaryOnly === true,
+        unavailableDetail: descriptor || packageModel.isSummaryOnly
           ? null
           : "Library surface details are unavailable.",
       };
     });
   }
-  return packageModel.assemblies.map(descriptor => ({
-    id: descriptor.id,
-    name: descriptor.name,
-    asset: descriptor.asset,
-    version: descriptor.version,
-    culture: descriptor.culture,
-    publicKeyToken: descriptor.publicKeyToken,
-    types: descriptor.publicTypes,
-    members: descriptor.publicMembers,
-    platformPack: descriptor.platformPack,
-    surfaceAvailable: true,
-    unavailableDetail: null,
-  }));
+  const selectedLibraryWithoutSurface =
+    packageModel.selectedCompileAssetId
+    && packageModel.assemblyId === packageModel.selectedCompileAssetId
+    && packageModel.assembly.length > 0
+    && packageModel.assemblyAsset.length > 0
+    && !descriptors.has(packageModel.selectedCompileAssetId)
+      ? [{
+        id: packageModel.selectedCompileAssetId,
+        name: packageModel.assembly,
+        asset: packageModel.assemblyAsset,
+        version: "",
+        culture: null,
+        publicKeyToken: null,
+        types: null,
+        members: null,
+        platformPack: null,
+        surfaceAvailable: false,
+        countsPending: false,
+        unavailableDetail: "Library surface details are unavailable.",
+      }]
+      : [];
+  return [
+    ...selectedLibraryWithoutSurface,
+    ...packageModel.assemblies.map(descriptor => ({
+      id: descriptor.id,
+      name: descriptor.name,
+      asset: descriptor.asset,
+      version: descriptor.version,
+      culture: descriptor.culture,
+      publicKeyToken: descriptor.publicKeyToken,
+      types: descriptor.publicTypes,
+      members: descriptor.publicMembers,
+      platformPack: descriptor.platformPack,
+      surfaceAvailable: true,
+      countsPending: false,
+      unavailableDetail: null,
+    })),
+  ];
 }
 
 export interface WorkspaceTypeOccurrenceCoordinate {
@@ -435,8 +462,13 @@ export function createAppMemberSurface(
 ): AppMemberSurface {
   return {
     ...surface,
-    parameters: surface.parameters.map(parameter => ({ ...parameter })),
-    exceptions: [...surface.exceptions],
+    parameters: surface.parameters.map(parameter => ({
+      ...parameter,
+      description: null,
+    })),
+    summary: null,
+    returns: null,
+    exceptions: [],
   };
 }
 
@@ -584,6 +616,23 @@ export function packageQueryAssemblyId(
   return packageModel.assemblyId || packageModel.selectedCompileAssetId || "";
 }
 
+export interface PackageDefaultLibraryIdentity {
+  readonly assetId: string;
+  readonly assetPath: string;
+  readonly assemblyName: string;
+  readonly role?: string;
+}
+
+function isPackageDefaultLibraryIdentity(
+  value: unknown,
+): value is PackageDefaultLibraryIdentity {
+  return typeof value === "object"
+    && value !== null
+    && "assetId" in value
+    && "assetPath" in value
+    && "assemblyName" in value;
+}
+
 function isPackageChildrenInspection(
   value: unknown,
 ): value is BrowserPackageChildrenInspection {
@@ -616,6 +665,10 @@ export function createNuGetPackageModel(
 ): AppPackage;
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
+  defaultLibrary: PackageDefaultLibraryIdentity,
+): AppPackage;
+export function createNuGetPackageModel(
+  result: InspectedPackageSurface,
   versionSettlement: BrowserPackageVersionSettlementInspection,
   packageInfo: BrowserPackageInfoMeasurementInspection,
 ): AppPackage;
@@ -629,10 +682,15 @@ export function createNuGetPackageModel(
   result: InspectedPackageSurface,
   versionSettlementOrChildren?:
     BrowserPackageVersionSettlementInspection
-    | BrowserPackageChildrenInspection,
+    | BrowserPackageChildrenInspection
+    | PackageDefaultLibraryIdentity,
   packageInfo?: BrowserPackageInfoMeasurementInspection,
   settledPackageChildren?: BrowserPackageChildrenInspection,
 ): AppPackage {
+  const directDefaultLibrary =
+    isPackageDefaultLibraryIdentity(versionSettlementOrChildren)
+      ? versionSettlementOrChildren
+      : undefined;
   const rootPackageChildren =
     isPackageChildrenInspection(versionSettlementOrChildren)
       ? versionSettlementOrChildren
@@ -643,32 +701,44 @@ export function createNuGetPackageModel(
       : undefined;
   const packageChildren =
     rootPackageChildren ?? settledPackageChildren;
-  const rootOnly = result.compileLibrary.status === "NoCompileAssets"
+  const declaredDefaultLibrary = directDefaultLibrary
+    ?? packageChildren?.content.libraries.find(
+      library => library.assetId === result.defaultAssemblyId);
+  const compileRootOnly = result.compileLibrary.status === "NoCompileAssets"
     || result.compileLibrary.status === "EmptyCompileGroup"
     || result.compileLibrary.status === "NoMatchingTargetFramework";
-  if (result.compileLibrary.status !== "Selected" && !rootOnly) {
+  const rootOnly = compileRootOnly && !declaredDefaultLibrary;
+  if (result.compileLibrary.status !== "Selected"
+    && !compileRootOnly) {
     throw new Error(
       result.compileLibrary.message
       || `The package Root has no selected compile library (${result.compileLibrary.status}).`);
   }
   const inspectionErrors = surfaceInspectionErrors(result);
-  // A selected compile library can still project no assembly: the engine abandons a
-  // participant whose surface exceeds the browser extraction or transport bound and
-  // reports only the truncation notice (`BrowserPackageSurfaceProjection` throws for any
-  // other empty selected surface). Load that package without a default assembly so its
-  // notice stays visible, as a root-only package does. An unmatched identity beside
-  // projected assemblies, or an empty surface without a notice, remains a contract failure.
+  const assembly = selectedAssembly(result);
   const truncatedToNoAssembly = !rootOnly
+    && !assembly
     && (result.assemblies ?? []).length === 0
     && inspectionErrors.length > 0;
-  const selectedCompileAssetId = truncatedToNoAssembly
+  const declaredToolLibraryWithoutSurface = !assembly
+    && declaredDefaultLibrary !== undefined
+    && (declaredDefaultLibrary.role === "ToolEntryPoint"
+      || declaredDefaultLibrary.role === "ToolLibrary");
+  const failedDefaultLibrarySurface = !assembly
+    && declaredDefaultLibrary !== undefined
+    && inspectionErrors.length > 0;
+  const retainedDefaultWithoutSurface = truncatedToNoAssembly
+    || declaredToolLibraryWithoutSurface
+    || failedDefaultLibrarySurface;
+  if (!rootOnly && !assembly && !retainedDefaultWithoutSurface) {
+    throw new Error(
+      "The package query did not return its selected assembly descriptor.");
+  }
+  const selectedCompileAssetId = retainedDefaultWithoutSurface
     ? requireAssemblyIdentity(
       result,
       "The package query did not return its selected assembly descriptor.")
     : undefined;
-  const assembly = rootOnly || truncatedToNoAssembly ? null : defaultAssembly(
-      result,
-      "The package query did not return its selected assembly descriptor.");
   if (rootOnly) {
     inspectionErrors.push(result.compileLibrary.message
       || `No compile Library is available (${result.compileLibrary.status}).`);
@@ -683,9 +753,9 @@ export function createNuGetPackageModel(
     version: result.version,
     frameworks: [...(result.frameworks ?? [])],
     activeFramework: result.activeFramework,
-    assembly: assembly?.name ?? "",
-    assemblyId: assembly?.id ?? "",
-    assemblyAsset: assembly?.asset ?? "",
+    assembly: assembly?.name ?? declaredDefaultLibrary?.assemblyName ?? "",
+    assemblyId: assembly?.id ?? declaredDefaultLibrary?.assetId ?? "",
+    assemblyAsset: assembly?.asset ?? declaredDefaultLibrary?.assetPath ?? "",
     ...(selectedCompileAssetId ? { selectedCompileAssetId } : {}),
     source: { kind: "nuget.org" },
     producerLabel: "NuGet.org",
@@ -711,6 +781,7 @@ export function createNuGetPackageModel(
       : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
+    isSummaryOnly: false,
   };
   if (!packageChildren) return model;
 
@@ -728,8 +799,18 @@ export function createNuGetPackageModel(
   };
 }
 
+export function createNuGetPackageModelWithDefaultLibrary(
+  result: InspectedPackageSurface,
+  defaultLibrary: PackageDefaultLibraryIdentity | null,
+): AppPackage {
+  return defaultLibrary === null
+    ? createNuGetPackageModel(result)
+    : createNuGetPackageModel(result, defaultLibrary);
+}
+
 export function createWorkspaceOccurrencePackageModel(
   result: InspectedPackageSurface,
+  runtimeIdentifier: string,
   activePackage: AppPackage | null | undefined,
   retainedPackages: readonly AppPackage[],
 ): AppPackage {
@@ -737,6 +818,7 @@ export function createWorkspaceOccurrencePackageModel(
     id: result.package,
     version: result.version,
     activeFramework: result.activeFramework,
+    runtimeIdentifier,
   });
   const retained = activePackage
     && packageIdentityKey(activePackage) === identity
@@ -748,6 +830,13 @@ export function createWorkspaceOccurrencePackageModel(
     : createNuGetPackageModel(result);
   return {
     ...model,
+    ...(runtimeIdentifier ? { runtimeIdentifier } : {}),
+    ...(retained?.runtimeIdentifiers
+      ? { runtimeIdentifiers: retained.runtimeIdentifiers }
+      : {}),
+    ...(retained?.runtimePopulation !== undefined
+      ? { runtimePopulation: retained.runtimePopulation }
+      : {}),
     ...(retained?.versionSettlement
       ? { versionSettlement: retained.versionSettlement }
       : {}),
@@ -1036,16 +1125,19 @@ export interface PackageAcquisitionDependencies {
     packageId: string,
     version: string,
     framework: string,
+    runtimeIdentifier: string,
   ): Promise<BrowserPackageLoadResult>;
-  loadRuntimePack(framework: string, platformVersion: string): Promise<string>;
+  loadRuntimePack(
+    framework: string,
+    platformVersion: string,
+  ): Promise<PackageSurfaceFromPackageFacade>;
   loadRuntimePackAssembly(
     framework: string,
     platformVersion: string,
     assemblyFileName: string,
     pack: string,
     assetFileName: string,
-  ): Promise<string>;
-  parseRuntimeSurface(json: string): InspectedPackageSurface;
+  ): Promise<PackageSurfaceFromPackageFacade>;
   runtimePackage(): AppPackage | null;
   retainPackage(packageModel: AppPackage, replacedPackage?: AppPackage | null): void;
   recordRecentPackage(id: string, version: string, framework: string, nugetOrg: boolean, highestFramework?: string): void;
@@ -1059,6 +1151,7 @@ export interface NuGetPackageRequest {
   packageId: string;
   version: string;
   framework: string;
+  runtimeIdentifier?: string | null;
   rootRequest?: string;
   replacePackage?: AppPackage | null;
   isCurrent?: () => boolean;
@@ -1159,6 +1252,7 @@ export function createPackageAcquisition(
         BrowserPackageChildrenInspection | undefined;
       let documents: readonly InspectedPackageDocument[] = [];
       let defaultLibraryId: string | null | undefined;
+      let runtimePopulation: BrowserPackageRuntimePopulationChoice | null = null;
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
@@ -1166,13 +1260,15 @@ export function createPackageAcquisition(
         const rootLoad =
           await dependencies.queryPackageRoot(request.rootRequest);
         packageChildren = rootLoad.packageChildren;
+        runtimePopulation = rootLoad.runtimePopulation;
         documents = rootLoad.documents;
         defaultLibraryId = rootLoad.defaultLibraryId;
       } else {
         const loadResult = await dependencies.queryPackageSummary(
           request.packageId,
           request.version,
-          request.framework);
+          request.framework,
+          request.runtimeIdentifier ?? "");
         versionSettlement = loadResult.versionSettlement;
         if (loadResult.versionSettlement.content.kind === "NotSettled") {
           throw new PackageVersionSettlementError(
@@ -1188,6 +1284,7 @@ export function createPackageAcquisition(
             "A settled package surface must carry Package Info measurements.");
         }
         packageInfo = loadResult.packageInfo;
+        runtimePopulation = loadResult.runtimePopulation;
         if (loadResult.packageChildren === null) {
           throw new Error(
             "A settled package surface must carry Package children.");
@@ -1225,6 +1322,13 @@ export function createPackageAcquisition(
         throw new Error(
           "A Package load requires either a surface or Package children.");
       }
+      packageModel.runtimePopulation = runtimePopulation;
+      packageModel.runtimeIdentifiers =
+        runtimePopulation?.availableRuntimeIdentifiers
+        ? [...runtimePopulation.availableRuntimeIdentifiers]
+        : [];
+      packageModel.runtimeIdentifier =
+        runtimePopulation?.selectedRuntimeIdentifier ?? null;
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(
         packageModel.id,
@@ -1260,10 +1364,9 @@ export function createPackageAcquisition(
         }
 
         return runRuntimeOperation(async () => {
-          const result = dependencies.parseRuntimeSurface(
-            await dependencies.loadRuntimePack(
-              requestedFramework,
-              requestedVersion));
+          const result = await dependencies.loadRuntimePack(
+            requestedFramework,
+            requestedVersion);
           if (!isCurrent()) return null;
           dependencies.refreshPackageStats();
           const current = dependencies.runtimePackage();
@@ -1324,13 +1427,12 @@ export function createPackageAcquisition(
         }
 
         return runRuntimeOperation(async () => {
-          const result = dependencies.parseRuntimeSurface(
-            await dependencies.loadRuntimePackAssembly(
-              requestedFramework,
-              requestedVersion,
-              assemblyFileName,
-              pack || "",
-              assetFileName));
+          const result = await dependencies.loadRuntimePackAssembly(
+            requestedFramework,
+            requestedVersion,
+            assemblyFileName,
+            pack || "",
+            assetFileName);
           if (!isCurrent()) return null;
           dependencies.refreshPackageStats();
           const existing = dependencies.runtimePackage();

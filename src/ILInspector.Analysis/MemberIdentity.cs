@@ -78,6 +78,22 @@ internal static class CallerUnsafeModeFacts
 {
     internal static bool RequiresUnsafe(CallerUnsafeMode mode)
         => mode is CallerUnsafeMode.Implicit or CallerUnsafeMode.Explicit;
+
+    /// <summary>The caller-unsafe mode of a member's normalized contract.</summary>
+    internal static CallerUnsafeMode FromContract(
+        MemorySafetyMemberContractResult contract)
+        => contract switch
+        {
+            MemorySafetyMemberContractResult.None =>
+                CallerUnsafeMode.None,
+            MemorySafetyMemberContractResult.Implicit =>
+                CallerUnsafeMode.Implicit,
+            MemorySafetyMemberContractResult.Explicit =>
+                CallerUnsafeMode.Explicit,
+            MemorySafetyMemberContractResult.Unavailable =>
+                CallerUnsafeMode.Unavailable,
+            _ => CallerUnsafeMode.Unavailable,
+        };
 }
 
 public sealed record MethodIdentity(

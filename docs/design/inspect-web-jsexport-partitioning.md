@@ -33,12 +33,12 @@ with seven independently generated facade modules:
 | Facade | Managed assembly | Context artifact | Checked-in source | Responsibility |
 | --- | --- | --- | --- | --- |
 | `inspect-web-host` | `DotnetInspect.Web` | `DotnetInspect.Web.ts` | `DotnetInspect.Web/facades/inspect-web-host.ts` | Browser/Wasm lifecycle, host configuration, and build identity |
-| `inspect-web-package` | `DotnetInspect.Web.Interop.Package` | `DotnetInspect.Web.Interop.Package.ts` | `DotnetInspect.Web/facades/inspect-web-package.ts` | Package and platform acquisition, package queries, and package content |
-| `inspect-web-metadata` | `DotnetInspect.Web.Interop.Metadata` | `DotnetInspect.Web.Interop.Metadata.ts` | `DotnetInspect.Web/facades/inspect-web-metadata.ts` | API and metadata projection |
-| `inspect-web-analysis` | `DotnetInspect.Web.Interop.Analysis` | `DotnetInspect.Web.Interop.Analysis.ts` | `DotnetInspect.Web/facades/inspect-web-analysis.ts` | Analysis, integration, opportunity, and performance results |
+| `inspect-web-package` | `DotnetInspect.Web.Interop.Package` | `DotnetInspect.Web.Interop.Package.ts` | `DotnetInspect.Web/facades/inspect-web-package.ts` | Package and platform acquisition, query and activity operations, content, capability discovery, and workspace occurrences |
+| `inspect-web-metadata` | `DotnetInspect.Web.Interop.Metadata` | `DotnetInspect.Web.Interop.Metadata.ts` | `DotnetInspect.Web/facades/inspect-web-metadata.ts` | Metadata, exact Type and Member documents, declarations, populations, and Library comparisons |
+| `inspect-web-analysis` | `DotnetInspect.Web.Interop.Analysis` | `DotnetInspect.Web.Interop.Analysis.ts` | `DotnetInspect.Web/facades/inspect-web-analysis.ts` | Analysis, clone search, integration, opportunity, performance, structural, and resource-triage results |
 | `inspect-web-source` | `DotnetInspect.Web.Interop.Source` | `DotnetInspect.Web.Interop.Source.ts` | `DotnetInspect.Web/facades/inspect-web-source.ts` | Source and annotated-source projection |
 | `inspect-web-call-graph` | `DotnetInspect.Web.Interop.CallGraph` | `DotnetInspect.Web.Interop.CallGraph.ts` | `DotnetInspect.Web/facades/inspect-web-call-graph.ts` | Package and platform call-graph expansion |
-| `inspect-web-catalog` | `DotnetInspect.Web.Interop.Catalog` | `DotnetInspect.Web.Interop.Catalog.ts` | `DotnetInspect.Web/facades/inspect-web-catalog.ts` | Product vocabulary, home demos, and workspace-share transport |
+| `inspect-web-catalog` | `DotnetInspect.Web.Interop.Catalog` | `DotnetInspect.Web.Interop.Catalog.ts` | `DotnetInspect.Web/facades/inspect-web-catalog.ts` | Product vocabulary, ecosystems, home demos, workspace-share transport, and retained-workspace lifecycle |
 
 `DotnetInspect.Web` declares the production set in compiled metadata:
 
@@ -214,34 +214,68 @@ calls. `ConfigureHost` configures shared `DotnetInspect.Web.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 21 exports
+### Package facade: 39 exports
 
-- `ActivateWorkspacePackageOccurrence`
-- `CancelPackageQuery`
-- `ClearWorkspacePackageOccurrences`
+Package acquisition, content, dependencies, documentation, and ranking:
+
+- `ClassifyPackageGraphIdentities`
 - `GetPackageDocument`
-- `ListPackageAssemblyQueryPatterns`
-- `ListPackageQueryFacets`
-- `LoadRuntimePack`
-- `LoadRuntimePackAssembly`
 - `MatchPackageDependencyCoordinate`
-- `OpenPackageAssemblyQueryResult`
 - `PackageCacheStats`
+- `QueryLibraries`
+- `QueryLibraryApi`
 - `QueryMemberDocumentation`
 - `QueryPackage`
 - `QueryPackageDependencies`
+- `QueryPackageIcon`
+- `QueryPackageRoot`
+- `QueryPackageSummary`
 - `QueryPackageVersions`
-- `QueryWorkspacePackageOccurrences`
-- `RequestPackageQueryMatches`
+- `QueryPackageVulnerabilities`
 - `ResolvePackageDependencyVersion`
-- `RunPackageAssemblyQuery`
-- `RunPackageQuery`
 - `SearchTypes`
+
+Package Query and installed-capability discovery:
+
+- `CancelPackageQuery`
+- `ExplainPackageQuery`
+- `InspectPackageQueryFacets`
+- `RequestPackageQueryMatches`
+- `RunEcosystemPackageQuery`
+- `RunPackageQuery`
+- `SearchCapabilities`
+
+Package Activity and ecosystem annotation:
+
+- `CancelPackageActivity`
+- `ClassifyEcosystemPackages`
+- `ListPackageActivityEcosystems`
+- `RunPackageActivity`
+
+Workspace package occurrences:
+
+- `ActivateWorkspacePackageOccurrence`
+- `ClearWorkspacePackageOccurrences`
+- `QueryWorkspacePackageOccurrences`
+
+Platform acquisition, documentation, and forwarder navigation:
+
+- `ActivatePlatformForwarder`
+- `ClosePlatformForwarderView`
+- `GetPlatformCatalog`
+- `GetPlatformVersions`
+- `LoadRuntimePack`
+- `LoadRuntimePackAssembly`
+- `OpenPlatformForwarderView`
+- `PrefetchPlatformPacks`
+- `QueryPlatformMemberDocumentation`
 
 This facade owns browser adaptation for package and platform acquisition,
 ordered workspace package occurrences and their opaque activation actions,
-package-query streaming, package-shipped documents, package dependency
-coordinates, and the API surface initially loaded for a package or platform.
+Package Query and Package Activity streaming, package-shipped documents,
+vulnerability evidence, package dependency coordinates, installed-capability
+discovery, ecosystem annotation, Platform-forwarder navigation, and the API
+surface initially loaded for a package or platform.
 `SearchTypes` stays here because it ranks candidates from that loaded package
 surface without opening another artifact. The facade adapts its existing
 candidate and hit records through Queries-owned `LoadedTypeSearchRanking`; it
@@ -251,53 +285,168 @@ detached value, so the wire adapter does not reference Metadata identity types.
 Platform-forwarder rows and resolution routes likewise reach the adapter
 through Web Core-owned string projection, so the facade does not inspect
 Metadata identities or structured Type names.
+Web Core owns package and Platform scope realization and operation lifetime;
+Package Queries, Queries, Sections, Services, Ecosystems, Packages, and
+Presentation own the operations and result semantics the facade adapts. Those
+typed paths plus the exact positive project and compiled-assembly ceilings own
+product semantics, so the Package facade retains only runtime platform hazards
+that dependency layering cannot distinguish.
 
-### Metadata facade: 8 exports
+### Metadata facade: 30 exports
 
-- `QueryGraphMemberSurface`
+Metadata images, tables, and heaps:
+
 - `QueryPackageHeapEntries`
 - `QueryPackageMetadata`
 - `QueryPackageMetadataTable`
 - `QueryPlatformHeapEntries`
 - `QueryPlatformMetadata`
 - `QueryPlatformMetadataTable`
+
+Exact Type and Member selection and declarations:
+
+- `FindTypes`
+- `QueryGraphMemberSurface`
+- `QueryMemberDeclaration`
+- `QueryPlatformMemberDeclaration`
 - `QueryTypeProjection`
 
-This facade adapts metadata images, tables, heaps, type projections, and the
-member surface selected from graph navigation. It consumes package or platform
-coordinates through `DotnetInspect.Web.Core`; it does not acquire artifacts
-independently.
+Type and Member documents and populations:
 
-### Analysis facade: 8 exports
+- `QueryMemberDocument`
+- `QueryMemberGroupDocument`
+- `QueryPerformanceTypeMemberPopulation`
+- `QueryPlatformMemberDocument`
+- `QueryPlatformMemberGroupDocument`
+- `QueryPlatformPerformanceTypeMemberPopulation`
+- `QueryPlatformTypeMemberPopulation`
+- `QueryPlatformTypeOverviewDocument`
+- `QueryTypeMemberPopulation`
+- `QueryTypeOverviewDocument`
+- `QueryUploadedLibraryMemberDocument`
+- `QueryUploadedLibraryMemberGroupDocument`
+- `QueryUploadedLibraryPerformanceTypeMemberPopulation`
+- `QueryUploadedLibraryTypeMemberPopulation`
+- `QueryUploadedLibraryTypeOverviewDocument`
+
+Library comparisons:
+
+- `CancelLibraryApiDiff`
+- `CancelLibraryFindingDiffAny`
+- `QueryLibraryApiDiff`
+- `QueryLibraryFindingDiffAny`
+
+This facade adapts metadata images, tables, heaps, type projections, and the
+member surface selected from graph navigation, plus exact Type and Member
+documents, declarations, populations, and Library comparisons. It consumes
+package, Platform, retained-workspace, or uploaded-Library inputs through
+Web Core and owner-issued inspection operations; it does not acquire artifacts
+or open raw images independently. Queries owns metadata roots, tables, heaps,
+exact selection, and graph-member projection; Sections and LibraryMetadata own
+bounded Type and Member documents and populations; CSharp owns declaration
+rendering; Research queries and sections own Library comparison semantics.
+Those typed paths plus the exact positive project and compiled-assembly
+ceilings own product semantics, so the Metadata facade retains only runtime
+platform hazards that dependency layering cannot distinguish.
+
+### Analysis facade: 25 exports
+
+Workspace Member, Clone, and triage presentation:
 
 - `QueryCloneCandidates`
 - `QueryMemberFacts`
+- `RenderTriageCaret`
+
+Package Analysis:
+
+- `CancelLibraryPerformanceAnalysis`
+- `QueryPackageImplementationProfiles`
 - `QueryPackageIntegrations`
+- `QueryPackageLibraryDependencyStructure`
+- `QueryPackageLibraryMetrics`
+- `QueryPackageLibraryStructuralSalience`
 - `QueryPackageOpportunities`
 - `QueryPackagePerformance`
+- `QueryPackagePerformanceStreaming`
+- `QueryPackageResourceTriage`
+- `QueryPackageTypeImplementationHeat`
+- `QueryPackageTypeMethodLeverage`
+
+Platform Analysis:
+
+- `QueryPlatformImplementationProfiles`
 - `QueryPlatformIntegrations`
+- `QueryPlatformLibraryDependencyStructure`
+- `QueryPlatformLibraryMetrics`
+- `QueryPlatformLibraryStructuralSalience`
 - `QueryPlatformOpportunities`
 - `QueryPlatformPerformance`
+- `QueryPlatformResourceTriage`
+- `QueryPlatformTypeImplementationHeat`
+- `QueryPlatformTypeMethodLeverage`
 
 The explicitly unavailable platform-performance operation stays in this facade
 so absence remains a visible capability result rather than a missing binding.
 `QueryCloneCandidates` belongs here because it adapts the Workspace structural
 Clone query and portable Presentation result without transferring candidate
 ranking or coverage semantics into the browser host.
-The module does not combine Analysis with call-graph topology; graph traversal
-has its own facade and product owner.
+Web Core owns package and Platform scope realization, exact Member resolution,
+Clone Workspace acquisition, cancellation coordination, and operation lifetime.
+Queries, Sections, Research Queries and Sections, Analysis, and Presentation
+own the typed method facts, Clone search, integration, opportunity, structural,
+implementation-profile, performance, and resource-triage results. Decompiler
+Annotations owns triage-caret geometry. The facade lowers those owner-issued
+values into Browser wire models and retains only browser cancellation, stream
+publication, and the documented navigable-member display cap. It does not open
+raw images or sessions, invoke low-level producer services, or combine Analysis
+with call-graph topology; graph traversal has its own facade and product owner.
+Those typed paths plus exact positive project and compiled-assembly ceilings
+own product semantics, so the Analysis facade retains only runtime platform
+hazards that dependency layering cannot distinguish.
 
-### Source facade: 9 exports
+### Source facade: 21 exports
 
+Managed cancellation:
+
+- `CancelMemberBodyDiff`
+- `CancelMemberSourceComparison`
 - `CancelMethodBodyComparison`
 - `CancelSourceQuery`
+- `CancelTypeExplorerQuery`
 - `CancelTypeSourceQuery`
-- `QueryMethodBodyComparison`
-- `QueryMethodBodyComparisonTargets`
-- `QueryMemberAnnotatedSource`
+
+Member and Type Source:
+
 - `QueryMemberSource`
+- `QueryPlatformMemberSource`
+- `QueryPlatformTypeSource`
 - `QueryTypeMemberSource`
 - `QueryTypeSource`
+
+Type Explorer:
+
+- `QueryTypeExplorer`
+
+Annotated Source and Finding census:
+
+- `QueryMemberAnnotatedSource`
+- `QueryMemberFindingCensus`
+- `QueryPlatformMemberFindingCensus`
+
+Source comparison:
+
+- `QueryMemberSourceComparison`
+
+Method-body comparison:
+
+- `QueryMethodBodyComparison`
+- `QueryMethodBodyComparisonTargets`
+- `QueryRetainedMethodBodyComparison`
+- `QueryRetainedMethodBodyComparisonTargets`
+
+Member Body Diff:
+
+- `QueryMemberBodyDiff`
 
 The source cancellation coordinator remains shared consumer infrastructure, but
 its public cancellation operations belong beside the work they cancel.
@@ -327,6 +476,25 @@ does not construct, inspect, or reference
 Metadata, Decompiler, and ILDiff similarly project failure mechanism names at
 their owning boundaries, so Source diagnostics do not inspect the primitive
 Metadata failure enum.
+Web Core owns package, Platform, retained-workspace, exact Member and Type
+resolution, cancellation coordination, and operation lifetime. Queries and
+Sections own member and Type Source, exact documents, and source-pair
+inspection; Services and SourceHouse own PDB/authored-source acquisition;
+CSharp and Decompiler own structured and annotated source; Research Queries
+and Sections own method-body comparison, Finding census, and Member Body Diff
+results; Presentation and Markout own portable diff lowering.
+The facade retains Browser wire projection, managed cancellation, bounded
+worker admission and retained Member Body inventory, and the Type Explorer's
+Browser-specific structural projection. It does not open raw images or
+sessions, invoke SourceLink or low-level source/decompiler producers, compare
+source text, or reconstruct primitive member and MethodDef identities.
+Those typed paths plus the exact positive project and compiled-assembly
+ceilings own product semantics. The Source facade therefore retains the three
+focused projected-identity and failure-value bans in
+`BannedSymbols.Source.txt`, plus only the runtime platform hazards that
+dependency layering cannot distinguish. The DEBUG-only
+`QueryTypeSourceEvidence` diagnostic export is not part of the production
+facade inventory.
 
 ### Call-graph facade: 2 exports
 
@@ -336,20 +504,66 @@ Metadata failure enum.
 Both package and platform traversal return the same browser call-graph
 contract. Graph-target member projection remains in the metadata facade because
 it projects one API member after navigation rather than expanding topology.
+Web Core consumes `AssemblyContextMemberCallGraphDocument` from Queries rather
+than constructing Analysis sessions or CallGraph projections. It retains
+package and Platform scope expansion, Browser Mermaid and tree rendering,
+target attribution, navigation policy, diagnostics lowering, and wire
+projection over detached Queries-owned member, tree, and diagnostic facts; Web
+Core does not reference Analysis types.
 
-### Catalog facade: 6 exports
+### Catalog facade: 31 exports
 
-- `DecodeWorkspaceShareState`
-- `EncodeWorkspaceShareState`
+Product vocabulary, ecosystems, and home demos:
+
+- `ExplainVocabularies`
+- `InspectVocabulary`
+- `ListEcosystems`
 - `ListHomeDemos`
-- `ListVocabulary`
 - `ResolveHomeDemo`
 - `RunHomeDemo`
 
+Workspace-share transport:
+
+- `CanonicalizeWorkspaceSharePacket`
+- `CaptureCompleteWorkspaceShareState`
+- `DecodeWorkspaceShareState`
+- `EncodeWorkspaceShareState`
+
+Retained-workspace preparation and lifecycle:
+
+- `ActivateRetainedWorkspaceDefinition`
+- `ActivateRetainedWorkspaceDefinitionWithCredentials`
+- `CancelRetainedWorkspaceActivation`
+- `CommitRetainedWorkspaceActivation`
+- `CompleteRetainedWorkspaceActivation`
+- `CompleteRetainedWorkspaceDeactivation`
+- `DeactivateRetainedWorkspaceDefinition`
+- `DescribeWorkspacePackageSources`
+- `ObserveRetainedWorkspaceSettlement`
+- `PrepareEcosystemWorkspaceDefinition`
+- `PreparePackageQueryWorkspaceDefinition`
+- `PrepareRetainedWorkspaceDefinition`
+- `PrepareRetainedWorkspaceDefinitionWithCredentials`
+
+Retained-workspace admission and spotlight:
+
+- `ActivateSpotlightDestination`
+- `AdmitEcosystemPackageToWorkspace`
+- `AdmitRetainedWorkspacePackage`
+- `AdmitRetainedWorkspacePlatform`
+
+Retained-workspace navigation authority:
+
+- `AbandonRetainedWorkspaceNavigation`
+- `AcknowledgeRetainedWorkspaceNavigation`
+- `RecordRetainedWorkspaceNavigationPosting`
+- `ValidateRetainedWorkspaceNavigationAuthority`
+
 The catalog facade adapts product-owned static vocabulary and demo definitions
-plus product-owned workspace-share transport. `RunHomeDemo` may call shared
-package or Platform workspace services through `DotnetInspect.Web.Core`; it
-does not call sibling facades or reuse their wire DTOs.
+plus product-owned workspace-share transport and retained-workspace lifecycle.
+`RunHomeDemo` and retained-workspace activation may call shared package,
+Platform, ecosystem, or workspace services through `DotnetInspect.Web.Core`;
+the facade does not call sibling facades or reuse their wire DTOs.
 Home-demo call graphs likewise ask Web Core to lower the owner-issued neutral
 call-graph projection. The catalog facade does not open Analysis sessions or
 reference the Analysis component directly. Queries resolves the product-issued
@@ -361,7 +575,10 @@ vocabulary from its owners' declarations (`BrowserVocabularyComposition`, under
 [Product Vocabulary ownership](vocabulary.md#ownership)), so its assembly
 ratchet admits `ILInspector.Decompiler` for the Decompiler's vocabulary
 declaration factories; it reaches that project transitively and adds no project
-reference.
+reference. Those owner declarations plus Catalog's exact positive project and
+assembly ceilings own product semantics; its compiler ban input is limited to
+runtime platform hazards that dependency layering cannot distinguish, not an
+open-ended inventory of internal product APIs.
 
 ## Managed assembly contract
 

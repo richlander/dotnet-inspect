@@ -166,6 +166,36 @@ public sealed class UnsafeEvidencePresenceQueryTests
     }
 
     [Fact]
+    public void ExactTypeBreadthSeesIteratorFinallyHelperEvidence()
+    {
+        string path =
+            FixtureCatalog.AnalysisIterators.AssemblyPath();
+        TypeDefinitionHandle type = FindType(
+            path,
+            "ILInspector.Analysis.IteratorFixtures",
+            "GeneratedIteratorFinallyUnsafeSample");
+        using PdbContext context = PdbContext.OpenMetadataOnly(path);
+
+        var available =
+            Assert.IsType<UnsafeEvidencePresenceResult.Available>(
+                UnsafeEvidencePresenceQuery.ExecuteExactTypes(
+                    path,
+                    context,
+                    type));
+
+        // The only evidence is in the iterator's <>m__Finally1 helper.
+        Assert.True(available.HasEvidence);
+        Assert.Contains(
+            available.SourceReceipt.Coverage.GeneratedExpansion.Origins,
+            origin => origin.Role
+                == MethodDefinitionGeneratedBodyRoles.UserHelper);
+        Assert.Contains(
+            available.SourceReceipt.Coverage.GeneratedExpansion.Origins,
+            origin => origin.Role
+                == MethodDefinitionGeneratedBodyRoles.Scaffolding);
+    }
+
+    [Fact]
     public void FailedExecutionPreservesOutcomeAndReceipt()
     {
         string path = Path.Combine(

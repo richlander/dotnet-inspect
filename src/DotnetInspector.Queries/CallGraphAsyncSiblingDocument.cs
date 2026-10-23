@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.CallGraph;
 
 namespace DotnetInspector.Queries;
@@ -51,11 +52,9 @@ public static class CallGraphAsyncSiblingCatalog
             {
                 CallGraphAsyncSiblingOpportunityEvidence evidence =>
                     new AsyncSiblingOccurrenceIdentity(
-                        evidence.Opportunity.Method,
-                        evidence.Opportunity.AsyncSibling!
-                            .SynchronousCall,
-                        evidence.Opportunity.AsyncSibling
-                            .AsyncCandidate),
+                        evidence.Row.Caller,
+                        evidence.Row.SynchronousCall,
+                        evidence.Row.Alternative),
                 _ => throw new ArgumentException(
                     "Unsupported async-sibling occurrence evidence.",
                     nameof(occurrence)),
@@ -69,26 +68,19 @@ public static class CallGraphAsyncSiblingCatalog
 }
 
 /// <summary>
-/// One raw Analysis opportunity retained as graph relationship evidence.
+/// One raw producer row retained as graph relationship evidence.
 /// </summary>
 public sealed record CallGraphAsyncSiblingOpportunityEvidence
     : IInspectionGraphOccurrenceEvidence
 {
     public CallGraphAsyncSiblingOpportunityEvidence(
-        OptimizationOpportunity opportunity)
+        AsyncSiblingRow row)
     {
-        ArgumentNullException.ThrowIfNull(opportunity);
-        if (opportunity.AsyncSibling is null
-            || opportunity.Shape != "sync-call-in-async")
-        {
-            throw new ArgumentException(
-                "Async-sibling graph evidence requires one typed sync-call-in-async opportunity.",
-                nameof(opportunity));
-        }
-        Opportunity = opportunity;
+        ArgumentNullException.ThrowIfNull(row);
+        Row = row;
     }
 
-    public OptimizationOpportunity Opportunity { get; }
+    public AsyncSiblingRow Row { get; }
 
     public InspectionGraphEvidenceDescriptor Descriptor =>
         CallGraphAsyncSiblingCatalog.OpportunityEvidence;
@@ -217,27 +209,19 @@ public sealed class CallGraphAsyncSiblingDocument
 {
     internal CallGraphAsyncSiblingDocument(
         InspectionGraphDocument graph,
-        LibraryBodyAnalysisReceipt receipt,
-        IEnumerable<OptimizationOpportunity> opportunities,
+        SyncCallsInAsyncResult result,
+        IEnumerable<AsyncSiblingRow> rows,
         IEnumerable<CallGraphAsyncSiblingRelationshipJoin>
             relationshipJoins)
     {
         ArgumentNullException.ThrowIfNull(graph);
-        ArgumentNullException.ThrowIfNull(receipt);
-        if (!receipt.Features.HasFlag(
-                LibraryBodyAnalysisFeatures
-                    .AsyncSiblingOpportunities))
-        {
-            throw new ArgumentException(
-                "An async-sibling graph document requires requested async-sibling evidence.",
-                nameof(receipt));
-        }
+        ArgumentNullException.ThrowIfNull(result);
 
         Graph = graph;
-        Receipt = receipt;
-        Opportunities = InspectionGraphCollections.Snapshot(
-            opportunities,
-            nameof(opportunities));
+        Result = result;
+        Rows = InspectionGraphCollections.Snapshot(
+            rows,
+            nameof(rows));
         RelationshipJoins =
             InspectionGraphCollections.Snapshot(
                 relationshipJoins,
@@ -246,27 +230,24 @@ public sealed class CallGraphAsyncSiblingDocument
     }
 
     public InspectionGraphDocument Graph { get; }
-    public LibraryBodyAnalysisReceipt Receipt { get; }
-    public bool HasFullMethodEvidenceScope =>
-        Receipt.HasFullMethodEvidenceScope;
-    public ImmutableArray<OptimizationOpportunity> Opportunities
-        { get; }
+    public SyncCallsInAsyncResult Result { get; }
+    public WorkReceipt? Receipt =>
+        Result.Receipts
+            .Where(static item =>
+                item.Closing == SyncCallsInAsyncClosing.Rows)
+            .Select(static item => item.Receipt)
+            .SingleOrDefault();
+    public ImmutableArray<AsyncSiblingRow> Rows { get; }
     public ImmutableArray<CallGraphAsyncSiblingRelationshipJoin>
         RelationshipJoins { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics =>
-        Receipt.Diagnostics;
+        Result.Diagnostics;
 
     void ValidateJoins()
     {
         int[] expected =
         [
-            .. Opportunities
-                .Select((opportunity, index) => (
-                    Opportunity: opportunity,
-                    Index: index))
-                .Where(static item =>
-                    item.Opportunity.AsyncSibling is not null)
-                .Select(static item => item.Index),
+            .. Enumerable.Range(0, Rows.Length),
         ];
         if (!RelationshipJoins
             .Select(static join => join.OpportunityIndex)
@@ -369,53 +350,54 @@ public static class CallGraphAsyncSiblingDocumentAdapter
 {
     public static CallGraphAsyncSiblingDocument Create(
         CallGraphProjection projection,
-        LibraryOptimizationAnalysisResult optimization)
+        SyncCallsInAsyncResult result)
     {
         ArgumentNullException.ThrowIfNull(projection);
-        ArgumentNullException.ThrowIfNull(optimization);
-        if (!optimization.Receipt.Features.HasFlag(
-                LibraryBodyAnalysisFeatures
-                    .AsyncSiblingOpportunities))
+        ArgumentNullException.ThrowIfNull(result);
+        SyncCallsInAsyncAnswer answer;
+        try
+        {
+            answer = result.AnswerTo(
+                SyncCallsInAsyncClosing.Rows);
+        }
+        catch (ArgumentException exception)
         {
             throw new InvalidOperationException(
-                "Async-sibling opportunities were not requested for this Analysis execution.");
+                "Sync Calls in Async rows were not requested for this query execution.",
+                exception);
         }
 
         InspectionGraphDocument baseline =
             CallGraphInspectionGraphAdapter.Create(projection);
-        ImmutableArray<OptimizationOpportunity> opportunities =
-            optimization.Opportunities;
+        ImmutableArray<AsyncSiblingRow> rows =
+            answer is SyncCallsInAsyncAnswer.Rows completed
+                ? completed.Calls
+                : [];
         var pending =
             new List<MutableRelationshipJoin>();
         var contributions =
             new List<InspectionGraphRelationshipContribution>();
 
         for (var index = 0;
-            index < opportunities.Length;
+            index < rows.Length;
             index++)
         {
-            OptimizationOpportunity opportunity =
-                opportunities[index];
-            if (opportunity.AsyncSibling is not
-                    AsyncSiblingOpportunityEvidence evidence)
-            {
-                continue;
-            }
+            AsyncSiblingRow row = rows[index];
 
             InspectionGraphNodeJoin source =
                 FindSourceNode(
                     projection,
-                    opportunity.Method);
+                    row.Caller);
             InspectionGraphNodeJoin candidate =
                 FindCandidateNode(
                     projection,
-                    evidence.AsyncCandidate);
+                    row.Alternative);
             CallOccurrenceJoin call =
                 FindObservedCall(
                     projection,
                     baseline,
                     source,
-                    evidence.SynchronousCall);
+                    row.SynchronousCall);
             var join = new MutableRelationshipJoin(
                 index,
                 source,
@@ -440,7 +422,7 @@ public static class CallGraphAsyncSiblingDocumentAdapter
                     baseline.Nodes[sourceNodeId].Subject,
                     baseline.Nodes[candidateNodeId].Subject,
                     new CallGraphAsyncSiblingOpportunityEvidence(
-                        opportunity),
+                        row),
                     [callOccurrenceId]));
         }
 
@@ -461,8 +443,8 @@ public static class CallGraphAsyncSiblingDocumentAdapter
 
         return new CallGraphAsyncSiblingDocument(
             composition.Document,
-            optimization.Receipt,
-            opportunities,
+            result,
+            rows,
             pending.Select(static join => join.Freeze()));
     }
 

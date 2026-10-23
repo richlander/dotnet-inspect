@@ -106,13 +106,36 @@ operation-lease borrow across `await`. The root implements only
 PackageHouse adopts operation-lease ownership in
 [#6622](https://github.com/richlander/dotnet-inspect/issues/6622). Each House
 execution consumes one request-matched operation lease, owns it across every
-asynchronous suspension, and releases it on every terminal path. Existing
-direct source adapters retain the root only through the scoped compatibility
-path until their owning consumers adopt transferred operation leases. Calls
-without an external context own a fresh operation lease, while existing
-external-context calls use the internal registered-work bridge. Desktop
-composition owns the root and awaits root quiescence before releasing its
-clients.
+asynchronous suspension, and releases it on every terminal path. Dependency
+candidate resolution likewise accepts only explicit authorization and a
+caller-issued operation; its former source adapter and direct root candidate
+methods were removed after all production and test consumers adopted that
+contract. Remaining compatibility calls without an external context own a
+fresh operation lease, while existing external-context calls use the internal
+registered-work bridge. Desktop composition owns the root and awaits root
+quiescence before releasing its clients.
+
+`DesktopPackageSourceComposition.GetVersionsAsync` retains its compatibility
+input validation and exact configured-authority registration, but Package
+Source settlement now owns authority consultation, result association,
+aggregation, completeness, typed failures, timeout, and candidate issuance.
+The composition no longer contains a second version-enumeration loop. Its
+caller-supplied operation-context branch remains compatibility work until those
+callers adopt transferred operation leases.
+
+Package Dependency Traversal now owns one sequentially reused operation lease
+from host issuance through candidate resolution, exact manifest acquisition,
+local projection, and final publication. Its adapters retain authorization,
+not the settlement root or an independently supplied operation context.
+Concurrent package-license inventory issues one operation per manifest
+acquisition under its shared inventory deadline; it has not adopted bounded
+concurrent operation steps. Dependency pruning reuses one operation through
+its sequential candidate-required declaration schedule. Workspace dependency
+enrichment now reuses one host-issued operation through its complete
+candidate-resolution schedule while root Nuspec acquisition remains
+PackageHouse-owned. Candidate-query tests use the same caller-issued operation
+contract as production consumers; no candidate-source compatibility interface
+remains.
 
 These compatibility paths do not claim that ordinary class aliases are
 borrows under [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).
@@ -157,6 +180,10 @@ deadlines plus caller cancellation, creates the exact lower-owner
 The operation lease owns that context and the temporary authority needed to use
 the root generation's configured clients and candidate issuer. Its issuance is
 registered with the root settlement; its release removes that registration.
+A successful release completes and disposes the context without publishing a
+new cancellation observation because the lease rejects release while a source
+step remains active. Caller cancellation and operation expiry remain visible
+through the context before that release boundary.
 
 The operation lease:
 
@@ -166,11 +193,17 @@ The operation lease:
   top-level operation;
 - accepts only coordinates, authorizations, candidates, and source results
   associated with its root settlement generation;
-- permits sequential source steps within the one top-level operation;
+- permits sequential source steps by default, or explicitly bounded overlap;
 - does not own source clients, stores, retained payload content, or detached
   results; and
-- is released synchronously only after its current awaited source step has
+- is released synchronously only after every current awaited source step has
   settled.
+
+Explicit-authorized version discovery checks the operation ceiling before
+package-ID source authorization. An already-expired operation returns typed
+failed discovery evidence without invoking the authorization policy or creating
+a source client. This boundary is enforced by
+`PackageSourceOperationOwnershipTests.ExpiredVersionDiscoveryDoesNotAuthorizeSources`.
 
 Public asynchronous Package Source operations use the operation lease rather
 than accepting a root lease, an independently supplied operation context, or
@@ -181,6 +214,74 @@ the [PackageHouse design](package-house.md). Package-backed Platform adoption
 belongs to the
 [Platform design](package-backed-platform-realization.md). A direct Package
 Source consumer may own the lease lexically for one operation.
+
+### Bounded concurrent steps
+
+Issuance may explicitly request a positive maximum number of active steps.
+The existing issuance overload preserves capacity one. Admission is atomic
+with operation release; exceeding capacity fails visibly rather than queuing
+unbounded work. Synchronous control methods also require a step slot, so a
+coordinator checks or validates between admitted jobs, not while all slots are
+occupied. This capacity bounds source API steps, not underlying HTTP requests.
+
+Overlapping ordinary steps retain the same operation context and generation.
+They do not create per-job deadlines, restart the ceiling, or require worker
+threads. The existing bounded-refresh behavior for Package Version Service is
+unchanged. Every admitted step retains its ownership obligation through terminal
+cleanup, including source failure, cancellation, and expiry. Root settlement
+still waits for operation release, not merely for the first completed step.
+
+The motivating asset and repeated-dependency shape below also motivate overlap.
+This Source-only prerequisite is
+[#10417](https://github.com/richlander/dotnet-inspect/issues/10417), slice 2 of
+[#10404](https://github.com/richlander/dotnet-inspect/issues/10404). Both CLI
+and Browser traversal adoption is the next slice; current traversal scheduling,
+graph fidelity, and pruning behavior do not change here. No end-to-end latency
+improvement is claimed before that adoption.
+
+The [operation-concurrency model](models/package-source-operation-concurrency/README.md)
+checks bounded admission, shared fetch ownership, unchanged expiry, and
+quiescent release. Focused `PackageSourceOperationOwnershipTests` establish
+actual suspended-source overlap, capacity recovery, common context,
+coalescing/retry, and cancellation/deadline cleanup.
+
+### Reusing dependency-version observations
+
+One operation may reuse complete version observations from an exact configured
+authority for the same case-insensitive package ID during dependency discovery.
+The runtime client's exact source-result identity must also match. Only
+observations from an authoritative discovery are retained. Reuse does not
+retain a selected version: each declaration still resolves its own range.
+
+Overlapping dependency discoveries share in-flight source work for that same
+operation, authority, runtime identity, and package ID. Each participating call
+retains its active-work obligation and independently authorizes and aggregates.
+Unretained work remains shareable until its participants finish; when the last
+participant leaves, incomplete or failed observations are discarded for retry.
+Source work is not awaited under a cache lock. A source identity replacement
+cannot publish into or remove another identity's observation.
+
+Every discovery still checks its cancellation and operation ceiling, obtains
+the current source authorization, validates source-result correspondence, and
+aggregates under its requested discovery contract. A changed authorization
+therefore cannot inherit an earlier aggregate's authority or hide its failures.
+Partial or failed discovery is not retained. Reuse ends with the operation;
+general version discovery remains a fresh source read and persistent version
+settlements remain with the Package Version Service.
+
+The motivating asset is `Microsoft.Azure.SignalR@1.33.1`, selected for `net8.0`.
+Its complete website hierarchy at build `7d2c086d` contains 48 declaration
+edges but only 28 dependency package IDs: repeated edge resolution issued 48
+version-index and 131 registration-document requests, alongside 36 distinct
+manifests. Reproduce through the Package References inspector's Hierarchy tab.
+The source observations are acquired normally, not embedded as a changing
+version-index fixture. Focused Release gates in
+`PackageSourceOperationOwnershipTests` cover repeated dependency discovery,
+operation and authority isolation, visible failures and cancellation, and
+fresh general discovery. The production-adapter test
+`CandidateResolution_SharedDependencyDiscoveryStillSelectsEachRange` verifies
+that two ranges select different versions from one source observation.
+Traversal graph and scheduling semantics are unchanged.
 
 ### Awaited work
 
@@ -195,8 +296,8 @@ or equivalent state so long as acquisition, parent retention, transfer into
 the asynchronous state machine, release, and exceptional cleanup remain
 metadata-visible to Resource Lifecycle Analysis.
 
-One operation lease has at most one active asynchronous source step. Its owner
-awaits that step before reuse or release. Package Source payload acquisition
+One operation lease has at most its issued capacity of active source steps.
+Its owner awaits all admitted steps before release. Package Source payload acquisition
 consumes lower-level response streams into caller-owned retained package
 content before the work obligation ends, so no returned package result
 requires the operation lease to remain live.
@@ -208,14 +309,13 @@ second `Dispose` does not create another valid release obligation.
 
 ### Results and retirement
 
-Root retirement rejects candidate issuance or use through the direct
-compatibility surface and through newly requested operations. An operation
-issued before retirement retains generation-bound candidate authority until it
-releases. The current compatibility surface does not dispose an explicitly
-caller-supplied operation context; the adopted operation surface accepts no
-such context and owns the one it creates. Completed result values retain their
-existing evidence semantics after root or operation retirement; no package
-result or House receipt stores either live lease.
+Root retirement rejects newly requested operations. An operation issued before
+retirement retains generation-bound candidate authority until it releases.
+Candidate issuance and dependency discovery are available only through that
+issued operation; the root has no direct candidate compatibility surface.
+Completed result values retain their existing evidence semantics after root or
+operation retirement; no package result or House receipt stores either live
+lease.
 
 Candidate payload acquisition consults every authorized cache before cold
 acquisition, then tries the same stable local-before-HTTP authority order used
@@ -863,8 +963,9 @@ The desktop store reuses existing admission and atomic publication. Local
 authorities publish into `package-authority-content-v1`, keyed by their
 `authority-v1` identity and exact coordinate, with producer evidence retained
 separately. The old `package-content-v5` family remains for unmigrated consumers
-and is never reinterpreted as this new namespace. Local global-packages reuse
-requires the metadata source to resolve to the same canonical local authority.
+and is never reinterpreted as this new namespace. Global-packages reuse
+requires the metadata source to resolve to the same canonical authority, local
+or HTTP.
 
 HTTP authorities currently have no durable cache identity. From adoption step
 2 of the
@@ -875,8 +976,11 @@ have one, derived from the canonical endpoint, and publish into
 a durable identity use authority-scoped temporary filesystem materialization for
 their admitted payloads,
 retained until the extraction consumer calls the existing cleanup API. They do
-not read or write persistent payload or derived package-index entries. No HTTP
-authority reads NuGet global-packages entries. Temporary ownership is
+not read or write persistent payload or derived package-index entries. A durable HTTP
+authority reads a NuGet global-packages entry when the entry's metadata
+source resolves to that same authority, by the authority key that keeps
+endpoints differing only in a query or path secret separate; an HTTP
+authority without a durable identity reads none. Temporary ownership is
 independent of the final payload's cache origin: a cached redirect target does
 not release the consumer from cleaning up earlier HTTP wrapper
 materialization. No durable HTTP key is formed from a credential-bearing

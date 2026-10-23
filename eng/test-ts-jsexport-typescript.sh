@@ -95,6 +95,21 @@ const transformed: boolean = transformValue(
 void transformed;
 TS
 
+cat > "$scratch/int64-usage.ts" <<'TS'
+import { echoBigInt, echoInt52 } from "./facade.js";
+
+export const exact: bigint = echoBigInt(9_007_199_254_740_993n);
+export const int52: number = echoInt52(9_007_199_254_740_991);
+
+// BigInt-marshaled Int64 does not accept a JavaScript number.
+// @ts-expect-error
+echoBigInt(42);
+
+// Number-marshaled Int64 does not accept a JavaScript bigint.
+// @ts-expect-error
+echoInt52(42n);
+TS
+
 cat > "$scratch/inert-usage.ts" <<'TS'
 import { getInertWidgetAsync } from "./facade.js";
 import type { InertString } from "./facade.js";
@@ -588,6 +603,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "directional-json-value-usage.ts",
     "directional-usage.ts",
     "inert-usage.ts",
+    "int64-usage.ts",
     "timestamp-usage.ts",
     "typed-input-usage.ts",
     "union-usage.ts"

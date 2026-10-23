@@ -1,6 +1,9 @@
 using System.Text.Json;
 
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Libraries;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections.Tests;
@@ -113,6 +116,175 @@ public sealed class MemberDocumentResolutionOperationTests
             Assert.IsType<MemberDocumentResolutionOutcome.Overview>(
                     copy)
                 .Document.Members.Length);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        NameOnlyOverviewComposesDocumentationForEveryResolvedMember()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        ManagedMetadataIdentity.Assembly identity =
+            LibraryInspectionTestLibrary.Identity(content);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                identity);
+        var request = new MemberDocumentAttachmentCompositionRequest(
+            library.Reference,
+            new(
+                new(
+                    Name(
+                        "System.Text.Json",
+                        "JsonSerializer"),
+                    "Serialize"),
+                s_bounds),
+            new(DocumentationDemand.CompiledXml));
+        int calls = 0;
+
+        using LibraryOperationLease operation = library.IssueOperation();
+        InspectionEnvelope<MemberDocumentAttachmentCompositionResult>
+            inspection =
+                await MemberDocumentAttachmentCompositionOperation
+                    .ExecuteAsync(
+                        request,
+                        operation,
+                        (ids, demand, _) =>
+                        {
+                            calls++;
+                            Assert.Equal(
+                                DocumentationDemand.CompiledXml,
+                                demand);
+                            IReadOnlyDictionary<
+                                string,
+                                DocumentationQueryOutcome> outcomes =
+                                    ids.ToDictionary(
+                                        static id => id,
+                                        id =>
+                                            (DocumentationQueryOutcome)
+                                                new DocumentationQueryOutcome
+                                                    .RequestRejected(
+                                                        DocumentationSubject(
+                                                            identity,
+                                                            id),
+                                                        DocumentationQueryRequestRejectionReason
+                                                            .LeaseReferenceMismatch),
+                                        StringComparer.Ordinal);
+                            return ValueTask.FromResult(outcomes);
+                        },
+                        TestContext.Current.CancellationToken);
+
+        MemberOverviewDocument document =
+            Assert.IsType<MemberDocumentResolutionOutcome.Overview>(
+                    inspection.Content.Resolution)
+                .Document;
+        var documentation =
+            Assert.IsType<
+                MemberDocumentationAttachmentOutcome.Available>(
+                inspection.Content.Documentation);
+        Assert.Equal(1, calls);
+        Assert.Equal(15, document.Members.Length);
+        Assert.Equal(
+            document.Members.Select(
+                static member => member.Subject),
+            documentation.Attachments.Select(
+                static attachment => attachment.Subject));
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task
+        DocumentationFailurePreservesCompletedFinalResolution()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var request = new MemberDocumentAttachmentCompositionRequest(
+            library.Reference,
+            new(
+                new(
+                    Name(
+                        "System.Text.Json",
+                        "JsonSerializer"),
+                    "Serialize"),
+                s_bounds),
+            new(DocumentationDemand.CompiledXml));
+
+        using LibraryOperationLease operation = library.IssueOperation();
+        InspectionEnvelope<MemberDocumentAttachmentCompositionResult>
+            inspection =
+                await MemberDocumentAttachmentCompositionOperation
+                    .ExecuteAsync(
+                        request,
+                        operation,
+                        static (_, _, _) =>
+                            ValueTask.FromResult<
+                                IReadOnlyDictionary<
+                                    string,
+                                    DocumentationQueryOutcome>>(
+                                new Dictionary<
+                                    string,
+                                    DocumentationQueryOutcome>()),
+                        TestContext.Current.CancellationToken);
+
+        Assert.IsType<MemberDocumentResolutionOutcome.Overview>(
+            inspection.Content.Resolution);
+        Assert.Equal(
+            MemberDocumentationAttachmentFailure.ResultSetMismatch,
+            Assert.IsType<
+                    MemberDocumentationAttachmentOutcome.Failed>(
+                    inspection.Content.Documentation)
+                .Reason);
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
+    public async Task ResolutionRejectionSkipsDocumentationComposition()
+    {
+        byte[] content =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                content,
+                LibraryInspectionTestLibrary.Identity(content));
+        var request = new MemberDocumentAttachmentCompositionRequest(
+            library.Reference,
+            new(
+                new(
+                    Name(
+                        "System.Text.Json",
+                        "JsonSerializer"),
+                    "Missing"),
+                s_bounds),
+            new(DocumentationDemand.CompiledXml));
+        int calls = 0;
+
+        using LibraryOperationLease operation = library.IssueOperation();
+        InspectionEnvelope<MemberDocumentAttachmentCompositionResult>
+            inspection =
+                await MemberDocumentAttachmentCompositionOperation
+                    .ExecuteAsync(
+                        request,
+                        operation,
+                        (_, _, _) =>
+                        {
+                            calls++;
+                            throw new InvalidOperationException(
+                                "Documentation should not execute after resolution rejection.");
+                        },
+                        TestContext.Current.CancellationToken);
+
+        Assert.IsType<MemberDocumentResolutionOutcome.Rejected>(
+            inspection.Content.Resolution);
+        Assert.Null(inspection.Content.Documentation);
+        Assert.Equal(0, calls);
 
         await library.RetireAsync();
     }
@@ -338,4 +510,18 @@ public sealed class MemberDocumentResolutionOperationTests
                     @namespace,
                     [.. segments]))
             .Name;
+
+    private static CompiledDocumentationSubject DocumentationSubject(
+        ManagedMetadataIdentity.Assembly identity,
+        string documentationId)
+    {
+        AssemblyReferenceIdentity assembly = identity.Identity;
+        return new(
+            new(
+                assembly.Name,
+                assembly.Version?.ToString(),
+                assembly.Culture,
+                assembly.PublicKeyToken),
+            documentationId);
+    }
 }

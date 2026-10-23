@@ -65,6 +65,17 @@ public sealed record BrowserApiFacetDescriptor(
     int Count,
     bool IsDefault);
 
+public sealed record BrowserViewFacetDescriptor(
+    string Id,
+    string Kind,
+    string Title,
+    string Summary,
+    int Order,
+    string? Role);
+
+public sealed record BrowserViewFacetCatalog(
+    BrowserViewFacetDescriptor[] Facets);
+
 public sealed record BrowserAssemblySurface(
     string Id,
     string Name,
@@ -115,9 +126,6 @@ public sealed record BrowserMemberSurface(
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
     string? DocumentationId,
-    string? Summary,
-    string? Returns,
-    BrowserExceptionSurface[] Exceptions,
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
@@ -136,12 +144,7 @@ public sealed record BrowserParameterSurface(
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue,
-    string? Description);
-
-public sealed record BrowserExceptionSurface(
-    string Type,
-    string Description);
+    string? DefaultValue);
 
 public sealed record BrowserPackageDocument(
     string Kind,
@@ -548,8 +551,9 @@ public sealed record BrowserHomeDemoRunResult(
 
 /// <summary>
 /// One product-normalized source in a canonical workspace share packet.
-/// <see cref="Kind"/> is <c>package</c> or <c>group</c>; <see cref="Source"/>
-/// is the package id or leading-colon group expression.
+/// <see cref="Kind"/> is <c>package</c>, <c>group</c>, or <c>platform</c>;
+/// <see cref="Source"/> is the package id, leading-colon group expression, or
+/// Platform family.
 /// </summary>
 public sealed record BrowserWorkspaceShareTab(
     string Id,
@@ -593,7 +597,9 @@ public sealed record BrowserWorkspaceShareState(
     BrowserWorkspaceShareContext[] Contexts,
     string ActiveTabId,
     string SelectedContextId,
-    BrowserWorkspaceShareView View);
+    BrowserWorkspaceShareView View,
+    string? TraversalTargetFramework = null,
+    string? HierarchyWorkspacePacket = null);
 
 /// <summary>Typed codec, transposition, or Browser-transport failure.</summary>
 public sealed record BrowserWorkspaceShareFailure(
@@ -844,11 +850,17 @@ public sealed record BrowserRetainedWorkspaceSurfaceSummary(
     int DocumentCount,
     bool HasInspectionNotices);
 
+public sealed record BrowserRetainedWorkspacePackageLibraryIdentity(
+    string AssetId,
+    string AssetPath,
+    string AssemblyName);
+
 public sealed record BrowserRetainedWorkspacePackageInventory(
     string NavigationId,
     int ContextIndex,
     string ConsumerPackageSubjectId,
-    BrowserRetainedWorkspaceSurfaceSummary Summary);
+    BrowserRetainedWorkspaceSurfaceSummary Summary,
+    BrowserRetainedWorkspacePackageLibraryIdentity? DefaultLibrary);
 
 public sealed record BrowserRetainedWorkspacePlatformInventory(
     string NavigationId,
@@ -893,7 +905,8 @@ public sealed record BrowserRetainedWorkspaceDefinitionState(
     BrowserWorkspaceShareContext[] Contexts,
     BrowserRetainedWorkspaceRegistration[] Registrations,
     string? ActiveTabId,
-    string? SelectedContextId);
+    string? SelectedContextId,
+    string TraversalTargetFramework);
 
 public sealed record BrowserRetainedWorkspacePackageAdmissionResult(
     string Status,
@@ -1016,6 +1029,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyInspection))]
 [JsonSerializable(typeof(BrowserVocabularyExplanationResult))]
+[JsonSerializable(typeof(BrowserViewFacetCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
 [JsonSerializable(typeof(BrowserEcosystemCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoResolveResult))]

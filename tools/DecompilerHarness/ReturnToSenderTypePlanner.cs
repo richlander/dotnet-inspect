@@ -663,12 +663,17 @@ public static partial class CompileBackSourceComposer
         return (declaring.Namespace, $"{declaring.Name}+{name}");
     }
 
-    static bool IsSupportedTypedClosureRoot(MetadataReader reader, TypeDefinition typeDef)
+    /// <summary>
+    /// The one closure-root eligibility rule for native RTS, shared by typed-reference
+    /// rooting here and diagnostic-driven growth in <c>ReturnToSender</c>. Delegates are
+    /// eligible: the shell reconstructs them from the product's <c>Invoke</c> declaration.
+    /// Compiler-generated (<c>&lt;</c>-named) types and <c>&lt;Module&gt;</c> are not.
+    /// </summary>
+    internal static bool IsSupportedTypedClosureRoot(MetadataReader reader, TypeDefinition typeDef)
     {
         string name = reader.GetString(typeDef.Name);
         return name is not "<Module>"
-            && !name.Contains('<', StringComparison.Ordinal)
-            && !IsDelegate(reader, typeDef);
+            && !name.Contains('<', StringComparison.Ordinal);
     }
 
     static string TypeRefIdentityKey(string ns, string name, string separator = "|")
@@ -3760,7 +3765,7 @@ public static partial class CompileBackSourceComposer
     {
         if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
             return CompileBackTypeKind.Interface;
-        if (IsGeneratedDynamicDelegate(reader, typeDef))
+        if (IsDelegate(reader, typeDef))
             return CompileBackTypeKind.Delegate;
 
         string baseName = typeDef.BaseType.Kind switch

@@ -13,9 +13,15 @@ strategy and target selection. This page answers a more operational design
 question: **which boss did this change beat, and which boss is still ahead?**
 
 For raising, typing, structuring, fidelity, or printer changes, continue to
-[raise-work discipline](decompiler-raise-discipline.md) and use the
-[decompiler PR template](templates/decompiler-pr.md). The harness command
-reference lives in [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md).
+[raise-work discipline](decompiler-raise-discipline.md) and use the one-page
+[decompiler PR template](templates/decompiler-pr.md), citing sections of the
+[decompiler PR reference](templates/decompiler-pr-reference.md) only when they
+apply. A PR changes a design document's contract only when it changes an
+owned claim; a narrow fix that keeps every owned claim names the owner and
+adds only the records another owner requires, such as the real-asset record
+[Development practices](development-practices.md#ground-product-behavior-in-real-assets)
+asks of a significant fix. The harness command reference lives in
+[tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md).
 
 The core idea is to stop treating the harness modes as a bag of independent
 tools. They should behave like a staged pipeline. Early stages are cheap, local,
@@ -70,6 +76,35 @@ accidentally compile a different second projection. Missing fully qualified
 target-assembly namespaces remain explicit shell-visibility noise (`CS0400`);
 the harness does not reference the inspected assembly and accidentally bind a
 different product version already present in its own runtime closure.
+When CS0165 names a local passed to an unresolved `out` invocation in the same
+executable body, and the call is required on the recognized path to the read,
+Roslyn's error recovery cannot establish that call's assignment effect.
+Conditional calls that can be skipped before the read retain CS0165, whether
+bound or unresolved. Unrecognized control flow also retains the defect.
+The same limitation can affect a bound `out` call in an `&&` guard
+containing another unresolved `out` call, when the read is in the guard's true
+arm. The validity lane reports `VLD0002` semantic coverage unavailable,
+retaining the raw CS0165 and unresolved-call evidence in its message. It does
+not claim validity, remove a product initializer, or repair the call. Independent
+defects in that body remain defects; a bound skipped-out-call read remains
+CS0165. Corpus and Render A/B report this decline rather than a validity success.
+Context-only declines do not count as completed semantic checks; a row with an
+independent defect retains its failed outcome. Attempted compilations are
+reported separately, so increasing the sample cap is not offered as a remedy
+for missing binding context.
+The motivating real asset is `dotnet-inspect.any` 0.14.0, its
+`ILInspector.Decompiler.Pipeline.TypeRef::DisplayName` body: the standalone shell
+cannot bind receiver properties or `s_keywords.TryGetValue`, while native RTS
+compiles the unchanged product artifact. `ValidityAssignmentContextTests`
+retains that observed body and bound-call, skipped-call, unrelated-local, and
+nested-body controls. The same package's `CSharpPrinter::EnumMemberName` and
+`Microsoft.CodeAnalysis.Common` 5.0.0's `AnalyzerConfig::get_GlobalLevel`
+motivate the dependent bound-call case: a first unresolved dictionary lookup
+precedes a bound dictionary lookup or `int.TryParse` in the same `&&` guard.
+The controls retain that dependency and keep reads after the guard or under
+`||` defective when the bound call can be skipped.
+This is a diagnostic coverage fix for #9939, not a new
+compilation-context composer or a native fidelity contract change.
 `CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
 gates this ownership boundary with compiler-produced runtime-async IL.
 
@@ -539,16 +574,21 @@ claim that the broad docket, lowered-fidelity, cluster, or printer-precedence
 sweeps are green.
 
 Daily Deep Inspect owns those broad sweeps through `--gate no-corpus`, which
-selects every non-corpus test regardless of `Speed`. Its decompiler step carries
-an explicit post-build condition, so an earlier Test lane suite failure does
-not skip that evidence. The historical weekly arrangement was not sufficient:
-the slow docket and byte-neutrality gates exceeded the job timeout, a
-*cancelled* job did not satisfy the workflow's `failure()` notifier, and five
-regressions (#3489–#3493) accumulated with unbounded detection latency (#3432).
-The dedicated pre-merge job originally closed that entire hole; #6889 narrowed
-the PR claim. Run 37394817789 completed `ci-required` in 10m58s even after
-other expensive work moved daily. Its bounded receipt occupied 1m30s on the
-critical path, so daily Deep Inspect now owns that receipt as well.
+selects every non-corpus test regardless of `Speed`. They run in the dedicated
+`decompiler-test` job with its own time limit, so a host-suite failure or hang
+in the Test lane cannot skip or cancel that evidence. The historical weekly
+arrangement was not sufficient: the slow docket and byte-neutrality gates
+exceeded the job timeout, a *cancelled* job did not satisfy the workflow's
+`failure()` notifier, and five regressions (#3489–#3493) accumulated with
+unbounded detection latency (#3432). The dedicated pre-merge job originally
+closed that entire hole; #6889 narrowed the PR claim. Run 37394817789
+completed `ci-required` in 10m58s even after other expensive work moved daily.
+Its bounded receipt occupied 1m30s on the critical path, so daily Deep Inspect
+now owns that receipt as well. The same hole reopened once the receipt shared
+the Test lane: from 2026-10-09 to 2026-10-15 the CLI suite consumed the six-hour
+host limit, the lane was cancelled before the decompiler step, and the red
+ratchet in #9504 stayed unobserved. The separate job and a notifier that reads
+cancelled results close it again.
 
 Source, test, and tool projects run `decompiler-gates` by default, except for
 measured false positives in
@@ -569,7 +609,7 @@ nested exemption can silently hide sources compiled by a graph project. An
 unreadable, invalid, or vacuous graph or skip list exempts nothing. Global
 build inputs and the gate's own scripts and pins remain
 explicit triggers. The fast job runs separately so it never serializes with the
-hot `test` lane; the daily Linux test lane executes `--gate pre-merge`.
+hot `test` lane; the daily `decompiler-test` job executes `--gate pre-merge`.
 
 ```bash
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
@@ -838,9 +878,9 @@ families, immediate values, symbolic member/type/string identities, and branch
 topology while tolerating local/argument macro and slot-layout changes.
 `OpcodeDiff` means opcode names differ; `OperandDiff` means the opcode names
 match but the body comparison differs; `FidelityUnavailable` means the
-comparison could not return a verdict. The contract is explicitly EH-blind and
-is not a semantic-equivalence claim. Its version is independent from the corpus
-snapshot schema version.
+comparison could not return a verdict. The contract compares exception
+clauses since v6 and is still not a semantic-equivalence claim. Its version is
+independent from the corpus snapshot schema version.
 
 Issue #4810's target contract strengthens `Exact` to require a complete
 compile-context receipt for the exact artifact and member. Under that contract,

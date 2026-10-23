@@ -45,6 +45,8 @@ import {
 import {
   fixtureFramework,
   galleryDownloadPath,
+  aspNetCoreReferenceNupkg,
+  emptyDependencyGroupNupkg,
   healthyNupkg,
   malformedAlongsideHealthyNupkg,
   malformedAssemblyBytes,
@@ -55,7 +57,7 @@ import {
   storedZip,
   type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
-import { selectFirstExactLibrary } from "./library-subject-actions.ts";
+import { chooseSubject, selectFirstExactLibrary } from "./library-subject-actions.ts";
 
 type WorkerClientModule = typeof import("../src/engine-worker-client.ts");
 
@@ -308,11 +310,44 @@ const references: FixtureCoordinate = {
     declaredDependency,
   ),
 };
+const fallbackReferences: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.FrameworkFallback",
+  version,
+  archive: manifestBackedNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.FrameworkFallback",
+    version,
+    declaredDependency,
+    "net10.0",
+  ),
+};
 const manifestOnly: FixtureCoordinate = {
   packageId: manifestOnlyPackageId,
   version,
   archive: manifestOnlyNupkg(
     manifestOnlyPackageId,
+    version,
+    declaredDependency,
+  ),
+};
+const runtimeReference: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.RuntimeReference",
+  version,
+  archive: emptyDependencyGroupNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.RuntimeReference",
+    version,
+  ),
+};
+const aspNetCoreReference: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.AspNetCoreReference",
+  version,
+  archive: aspNetCoreReferenceNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.AspNetCoreReference",
     version,
     declaredDependency,
   ),
@@ -371,6 +406,8 @@ const allFixtures: readonly FixtureCoordinate[] = [
   literalCoordinate,
   references,
   manifestOnly,
+  runtimeReference,
+  aspNetCoreReference,
   libraryDiffV1,
   libraryDiffV2,
   ...scopeCoordinates,
@@ -560,6 +597,7 @@ declare global {
           package: string;
           version: string;
           framework: string;
+          runtimeIdentifier: string;
         }[],
       ): Promise<OccurrenceView>;
       activate(action: string): Promise<OccurrenceActivation>;
@@ -609,7 +647,12 @@ declare global {
         platformPack: string,
         documentationId: string,
       ): Promise<CompiledDocumentationOutcome>;
-      loadPlatformLibrary(framework: string, version: string, assembly: string, pack: string): Promise<string>;
+      loadPlatformLibrary(
+        framework: string,
+        version: string,
+        assembly: string,
+        pack: string,
+      ): Promise<PackageSurface>;
       openPlatformForwarderView(
         framework: string,
         version: string,
@@ -672,7 +715,7 @@ async function boot(page: Page): Promise<void> {
     window.__adoption = {
       encodeWorkspaceShareState: state => client.catalog.encodeWorkspaceShareState(state),
       queryPackage: (packageId, pkgVersion, framework) =>
-        client.package.queryPackage(packageId, pkgVersion, framework),
+        client.package.queryPackage(packageId, pkgVersion, framework, ""),
       queryVersions: (packageId, currentVersion) =>
         client.package.queryPackageVersions(packageId, currentVersion),
       cacheStats: () => client.package.packageCacheStats(),
@@ -684,7 +727,7 @@ async function boot(page: Page): Promise<void> {
         client.package.clearWorkspacePackageOccurrences(),
       queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
         client.package.queryPackageDependencies(
-          packageId, pkgVersion, framework, assemblyId),
+          packageId, pkgVersion, framework, assemblyId, null),
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         client.analysis.queryPackageIntegrations(
           packageId, pkgVersion, framework, libraryId),
@@ -764,7 +807,12 @@ function driver(page: Page): {
   queryCoordinate(packageId: string, version: string, framework: string): Promise<PackageSurface>;
   queryVersions(packageId: string, currentVersion: string): Promise<PackageVersions>;
   cacheStats(): Promise<CacheStats>;
-  queryOccurrences(workspace: readonly { package: string; version: string; framework: string }[]): Promise<OccurrenceView>;
+  queryOccurrences(workspace: readonly {
+    package: string;
+    version: string;
+    framework: string;
+    runtimeIdentifier: string;
+  }[]): Promise<OccurrenceView>;
   activate(action: string): Promise<OccurrenceActivation>;
   clearOccurrences(): Promise<void>;
   queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
@@ -1008,17 +1056,20 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     breakingCount: 0,
     additiveCount: 0,
     potentiallyBreakingCount: 0,
+    nonBreakingCount: 0,
     before: {
       identifier,
       namespace: "Example",
       segments: ["A", "B"],
       display: identifier,
+      isObsolete: false,
     },
     after: {
       identifier,
       namespace: "Example",
       segments: ["A", "B"],
       display: identifier,
+      isObsolete: false,
     },
     members: [],
     changes: [],
@@ -1031,9 +1082,9 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     packet: null,
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     request: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: input.packageId,
       currentVersion: input.currentVersion,
       targetVersion: input.targetVersion,
@@ -1060,6 +1111,8 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
         breakingCount: 0,
         additiveCount: 0,
         potentiallyBreakingCount: 0,
+        nonBreakingCount: 0,
+        outsideOrdinaryRowCount: 0,
       },
       types: [type("Example.A\rB"), type("Example.A\nB")],
     },
@@ -1191,6 +1244,130 @@ test.describe("Capability Spotlight search over real Wasm", () => {
 });
 
 test.describe("Package Query website over real Wasm", () => {
+  test("restores a shared hierarchy when compile assets use a compatible framework", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { value: { write: async (items: ClipboardItem[]) => {
+        (window as Window & { copiedShare?: string }).copiedShare =
+          await (await items[0]!.getType("text/plain")).text();
+      } } });
+    });
+    const packet = Buffer.from(JSON.stringify({
+      f: 1,
+      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+        fixtureFramework, null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    await expect(page.locator('[data-inspector-tab][data-package-lens="dependencies"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
+    await page.locator('[data-inspector-tab][data-package-lens="overview"]').click();
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+    await selectFirstExactLibrary(page);
+    await expect(page.locator(".library-subject-list"))
+      .toBeVisible();
+    expect(new URL(page.url()).searchParams.get("w")).not.toBe(packet);
+    await chooseSubject(page, "package");
+    await page.locator('[data-inspector-tab][data-package-lens="dependencies"]').click();
+    await expect(page.locator('[data-package-references-tab="dependencies"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await page.locator('[data-package-references-tab="hierarchy"]').click();
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await page.locator('[data-application-action="share"]').dispatchEvent("click");
+    await expect.poll(() => page.evaluate(() =>
+      (window as Window & { copiedShare?: string }).copiedShare ?? "")).not.toBe("");
+    const shared = await page.evaluate(() =>
+      (window as Window & { copiedShare?: string }).copiedShare!);
+    const sharedPacket: unknown = JSON.parse(Buffer.from(
+      new URL(shared).searchParams.get("w")!, "base64url").toString());
+    expect(sharedPacket).toMatchObject({
+      f: 3,
+      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+        "net10.0", null]],
+      b: fixtureFramework,
+    });
+    const reopened = await context.newPage();
+    await reopened.goto(shared);
+    await expect(reopened.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+  });
+
+  test("reopens a Runtime-free Hierarchy without substituting product context", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { value: { write: async (items: ClipboardItem[]) => {
+        (window as Window & { copiedShare?: string }).copiedShare =
+          await (await items[0]!.getType("text/plain")).text();
+      } } });
+    });
+    const packet = Buffer.from(JSON.stringify({
+      f: 3,
+      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+        fixtureFramework, null]],
+      g: [[0]], r: [], a: 0, x: 0,
+      v: [
+        { t: null, u: { k: "workspace" } },
+        { t: 0, r: { k: "package" }, u: { k: "package" },
+          f: "package.dependency-hierarchy" },
+      ],
+      b: "net10.0",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await page.locator('[data-application-action="share"]').dispatchEvent("click");
+    await expect.poll(() => page.evaluate(() =>
+      (window as Window & { copiedShare?: string }).copiedShare ?? "")).not.toBe("");
+    const shared = await page.evaluate(() =>
+      (window as Window & { copiedShare?: string }).copiedShare!);
+    expect(new URL(shared).searchParams.get("w")).toBe(packet);
+    const reopened = await context.newPage();
+    await reopened.goto(shared);
+    await expect(reopened.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await expect(reopened.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
+    await expect.poll(() => new URL(reopened.url()).searchParams.get("w"))
+      .toBe(packet);
+  });
+
+  test("opens a shared Package Dependency Hierarchy and reports partial traversal", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([references]));
+    const packet = Buffer.from(JSON.stringify({
+      f: 1,
+      t: [[references.packageId.toLowerCase(), references.version,
+        fixtureFramework, null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toContainText(references.packageId.toLowerCase(), { timeout: 180_000 });
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toContainText(declaredDependency.id.toLowerCase());
+    await expect(page.locator(".package-hierarchy-diagnostics"))
+      .toContainText("Traversal partial", { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-diagnostics details"))
+      .toContainText("Could not acquire the dependency manifest");
+    await page.locator("#dependency-graph-explore").click();
+    await expect(page.getByRole("dialog", { name: "Dependency hierarchy" })
+      .locator("#package-hierarchy-graph-diagram svg")).toBeVisible();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible();
+  });
+
   test("opens a coordinate result through retained definition activation", async ({
     page,
     context,
@@ -2798,7 +2975,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
     // Awaitable occurrence activation following queryWorkspacePackageOccurrences.
     const view = await engine.queryOccurrences([
-      { package: healthy.packageId, version, framework: fixtureFramework },
+      {
+        package: healthy.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     expect(view.superseded).toBe(false);
     expect(view.occurrences.length).toBe(1);
@@ -2810,7 +2992,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
     // A stale occurrence action after clear reports a superseded rejection.
     const staleView = await engine.queryOccurrences([
-      { package: healthy.packageId, version, framework: fixtureFramework },
+      {
+        package: healthy.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     const staleAction = firstOccurrence(staleView).action;
     await engine.clearOccurrences();
@@ -2822,11 +3009,21 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // A stale occurrence action after replacement is superseded, while the
     // replacement occurrence activates successfully.
     const firstView = await engine.queryOccurrences([
-      { package: occurrenceOne.packageId, version, framework: fixtureFramework },
+      {
+        package: occurrenceOne.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     const firstAction = firstOccurrence(firstView).action;
     const secondView = await engine.queryOccurrences([
-      { package: occurrenceTwo.packageId, version, framework: fixtureFramework },
+      {
+        package: occurrenceTwo.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     const secondAction = firstOccurrence(secondView).action;
     const supersededActivation = await engine.activate(firstAction);
@@ -3055,6 +3252,70 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(group.dependencies).toEqual([
       { id: declaredDependency.id, versionRange: declaredDependency.versionRange },
     ]);
+  });
+
+  test("projects runtime defaults and explicit ASP.NET Core platform references", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
+
+    const runtime = await engine.queryDependencies(
+      runtimeReference.packageId,
+      version,
+      fixtureFramework,
+      healthyAssemblyFileName,
+    );
+    expect(runtime.platformReferences).toEqual([]);
+    expect(runtime.defaultPlatformReference).toEqual(
+      { family: "runtime", label: ".NET Runtime" },
+    );
+    expect(runtime.platformReferenceError).toBeNull();
+
+    const aspNetCore = await engine.queryDependencies(
+      aspNetCoreReference.packageId,
+      version,
+      fixtureFramework,
+      healthyAssemblyFileName,
+    );
+    expect(aspNetCore.platformReferences).toEqual([
+      { family: "aspnetcore", label: "ASP.NET Core" },
+    ]);
+    expect(aspNetCore.defaultPlatformReference).toBeNull();
+    expect(aspNetCore.platformReferenceError).toBeNull();
+
+    await page.goto(
+      `/index.html?package=${runtimeReference.packageId}&version=${version}`
+        + `&framework=${fixtureFramework}#pkg:dependencies`,
+    );
+    const panel = page.locator("#inspector-panel");
+    await expect(
+      panel.getByRole("heading", { name: "References", exact: true }),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(panel).toContainText(".NET Runtime");
+    await expect(panel.getByRole("heading", { name: "Dependency graph" }))
+      .toBeVisible();
+    await expect(panel.locator("#dependency-graph-diagram svg")).toBeVisible();
+
+    await page.goto(
+      `/index.html?package=${aspNetCoreReference.packageId}&version=${version}`
+        + `&framework=${fixtureFramework}#pkg:dependencies`,
+    );
+    await expect(
+      panel.getByRole("heading", { name: "References", exact: true }),
+    ).toBeVisible({ timeout: 60_000 });
+    const platformReference =
+      panel.locator(".platform-reference-list .dep-name");
+    await expect(platformReference).toHaveText("ASP.NET Core");
+    const platformReferenceWidth = await platformReference.evaluate(element => ({
+      client: element.clientWidth,
+      scroll: element.scrollWidth,
+    }));
+    expect(platformReferenceWidth.client)
+      .toBeGreaterThanOrEqual(platformReferenceWidth.scroll);
   });
 
   test("renders the available reference rows on the production package page", async ({
@@ -3834,6 +4095,8 @@ test.describe("bounded network-backed Worker smoke", () => {
       }],
       contexts: [{ id: "g", tabIds: ["p"] }],
       activeTabId: "p", selectedContextId: "g",
+      traversalTargetFramework: null,
+      hierarchyWorkspacePacket: null,
       view: {
         lens: "library:overview", type: null,
         memberAnchor: null, memberSignature: null, section: null,
@@ -3880,14 +4143,18 @@ test.describe("bounded network-backed Worker smoke", () => {
     const platformVersion = "11.0.0-rc.1.26425.128";
     const name = "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid";
     try {
-      const raw = await page.evaluate(ver => window.__adoption!.loadPlatformLibrary(
-        "net11.0", ver, "System.Private.CoreLib.dll", "netcore.app"), platformVersion);
-      const direct: unknown = JSON.parse(raw);
-      if (!direct || typeof direct !== "object" || !("types" in direct) || !Array.isArray(direct.types)) {
+      const direct = await page.evaluate<PackageSurface, string>(
+        ver => window.__adoption!.loadPlatformLibrary(
+          "net11.0",
+          ver,
+          "System.Private.CoreLib.dll",
+          "netcore.app"),
+        platformVersion);
+      if (direct.types.length === 0) {
         throw new Error("CoreLib omitted its Type surface.");
       }
-      expect(direct.types.some((type: unknown) => type !== null && typeof type === "object"
-        && "id" in type && type.id === `System.Private.CoreLib:${name}`)).toBe(true);
+      expect(direct.types.some(type =>
+        type.id === `System.Private.CoreLib:${name}`)).toBe(true);
       const initial = await page.evaluate(ver => window.__adoption!.openPlatformForwarderView(
         "net11.0", ver, "System.Runtime.dll", "netcore.app"), platformVersion);
       expect(initial.status, initial.message ?? "System.Runtime").toBe("opened");
@@ -4076,7 +4343,12 @@ test.describe("bounded network-backed Worker smoke", () => {
     // The awaitable Workspace occurrence for the same real coordinate activates
     // and yields the same package surface.
     const view = await engine.queryOccurrences([
-      { package: "Microsoft.Extensions.Http", version: "10.0.0", framework: "net10.0" },
+      {
+        package: "Microsoft.Extensions.Http",
+        version: "10.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: "",
+      },
     ]);
     expect(view.superseded).toBe(false);
     expect(view.occurrences.length).toBe(1);

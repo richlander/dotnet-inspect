@@ -822,12 +822,14 @@ subject-specific identity details and content
 ```
 
 Package Overview starts directly with its identity and content rather than
-reserving a quiet `Overview` header row. The Package navigation pane lists target frameworks first, then
+reserving a quiet `Overview` header row. The Package navigation pane lists target
+frameworks first, then
 versions in owner-issued release order, with the active version selected,
 text filtering, and an `Include:` group with independent Prerelease and Unlisted
 checkboxes, both unchecked initially. Listing flags come from the existing
 owner-issued version inventory; the host does not infer them from version text.
-Async inventory refresh preserves both checkbox selections. The list headings identify the pane
+Async inventory refresh preserves both checkbox selections. The list headings
+identify the pane
 without an additional Package Navigation row.
 The active coordinate remains visible regardless of filters. Loading and
 failed inventory states retain that coordinate; failure offers explicit retry.
@@ -869,7 +871,8 @@ failed reads show title unavailability while retaining the document action.
 first H1 `Json.NET` (with an inline logo). `System.Text.Json@10.0.0` motivates
 the untitled fallback: its `PACKAGE.md` has no H1.
 Frameworks
-and versions remain in the master pane for both Overview and Compare. The icon and package name identify the subject without an additional
+and versions remain in the master pane for both Overview and Compare. The icon
+and package name identify the subject without an additional
 Package label. Package Compare uses the same full-width frame, content alignment,
 as Overview, starts directly with Comparison targets without repeating
 the package icon or name, and owns that work area; Library,
@@ -977,13 +980,20 @@ of the package identity.
 The surface contains:
 
 ```text
-Dependencies                         package and reference count or state
-target-framework groups and graph
-package dependencies and assembly references
+References                              count or state  References | Hierarchy
+selected view's graph and controls
+reference lists or hierarchy diagnostics
 ```
 
-The quiet header labels the lens and reports the selected dependency group's
-package count together with the selected assembly's direct reference count.
+The quiet header labels the lens and reports the selected view's count or state.
+References is the default tab. Hierarchy is available for NuGet packages and
+uses the same bounded graph viewport, pan and zoom controls, and Graph Explore
+action. Each hierarchy occurrence is a separate graph node, including revisits
+and cycles. Its preview is bounded with an explicit shown/total count; traversal
+incompleteness and acquisition failures remain visible below the graph. Shared
+hierarchy URLs open the Hierarchy tab within References.
+For References, the header reports the selected dependency group's package
+count together with the selected assembly's direct reference count.
 Version navigation remains available in the Package master pane; the framework
 shortcut opens the master pane's framework choices. Dependency-group
 selection remains with the result because it selects a manifest group rather
@@ -1026,8 +1036,22 @@ zero-dependency case.
 
 Package Dependencies has no bottom context row. Loading, query failure,
 no-dependency, no-exact-group, graph failure, and partial-workspace states retain
-the same header, controls, and scroll owner. Failures remain visibly distinct from successful
+the same header, controls, and scroll owner. Failures remain visibly distinct
+from successful
 empty results.
+
+Foreground Package Dependencies owns one closed acquisition lifecycle shared
+by the Package References and Library References surfaces. Idle carries no
+coordinate or evidence; loading carries the exact request; ready carries the
+typed dependency and assembly-reference result, including owner-issued partial
+diagnostics or successful no-dependency evidence; failed carries a non-empty
+visible query diagnostic and no result. Only the exact current loading request
+may publish foreground evidence, and same-coordinate loading or terminal
+evidence suppresses duplicate acquisition. Workspace dependency-group caches
+remain a separate durable authority: a resident package result may populate
+its coordinate-keyed cache even after a different foreground request replaces
+it. Workspace snapshots retain ready and failed foreground evidence and
+normalize interrupted loading to idle.
 
 At narrow widths, the `Types` return control shares the quiet header, controls
 wrap within their row, and header values may elide as complete
@@ -1039,7 +1063,8 @@ Integrations, Analysis, Package Metadata, or the Metadata Explorer.
 
 Package Vulnerabilities is available for exact nuget.org package coordinates.
 It uses the complete package inspector area with the Package Overview
-Frameworks & versions navigation pane; version changes update the package coordinate, but
+Frameworks & versions navigation pane; version changes update the package
+coordinate, but
 framework selection does not alter vulnerability identity.
 
 ```text
@@ -1054,6 +1079,23 @@ advisories and Complete, Partial, or Unavailable availability without
 reinterpreting ranges or constructing another feed model. Each advisory keeps
 GHSA and optional CVE identity, severity, published and updated dates, and its
 GitHub destination.
+
+A Package Vulnerabilities request has one closed browser-owned state:
+`idle`, `loading` for one exact package-coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize an interrupted `loading`
+request to `idle`, since a snapshot has no live acquisition that can settle it.
+This contract owns only the Package Vulnerabilities surface; it does not define
+a generic asynchronous-state framework or migrate another Inspect Web
+resource.
+
+The motivating production flow is `Newtonsoft.Json` 12.0.1 from nuget.org:
+opening that exact coordinate, navigating away, and returning while advisory
+acquisition is pending must not let the retired request replace newer evidence.
+Focused coordinator tests preserve the same replacement and invalidation
+boundary deterministically.
 
 A complete empty result states only that no GitHub-reviewed NuGet advisory
 matched the exact package version. Partial and unavailable results retain typed
@@ -1077,7 +1119,8 @@ One independently scrolling region begins with a bounded one-hop AssemblyRef
 graph and follows it with the complete reference rows. The graph uses the
 existing shared Mermaid viewport and pan/zoom controls, keeps the selected
 assembly as its root, and projects only the direct references already returned
-by the Library query. It performs no additional acquisition or transitive
+by the Library query. The root assembly name fits inside its rendered node
+without clipped text. It performs no additional acquisition or transitive
 inference. The preview is capped at 80 total nodes; when a Library exceeds that
 bound, the graph reports its shown count and the complete list remains
 authoritative immediately below it.
@@ -1090,6 +1133,38 @@ carries both the exact package identity and Library identifier; selecting it
 switches to that package and opens the Library Overview. An absent or ambiguous
 match remains static, and References never guesses a package from an assembly
 display name.
+
+For package-backed References, an optional asynchronous supplier pass consumes
+the selected package Library's direct Metadata AssemblyRefs and the closed,
+reachable Package route evidence owned by
+[Package-origin AssemblyRef supply routing](package-origin-assemblyref-supply-routing.md).
+Only a terminal Package selection yields an exact package ID and version for
+the existing range-only icon request. A Platform supplier, incomplete or
+ambiguous association, and any unavailable or failed result leave the reference
+plain. This pass does not delay the direct reference rows or diagram, change
+their navigation, or admit a supplier to the Workspace. A result may update the
+same reference row and diagram node only while the package, selected Library,
+and direct reference result remain current. The graph icon sits in space added
+to the node's left edge so it cannot shorten the Library or AssemblyRef text.
+
+[`Microsoft.Extensions.AI.OpenAI@10.11.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI.OpenAI/10.11.0)
+at `net10.0` is the motivating NuGet asset: its root package declares
+`Microsoft.Extensions.AI.Abstractions@10.11.0` and `OpenAI@2.14.0`
+dependencies, while the shared References URL admits only the root package.
+The browser renderer gate uses a deterministic package-backed fixture to check
+that an external supplier icon arrives after the direct rows and diagram.
+
+For a uniquely matched Workspace Library, References may show the owning
+ordinary package's icon beside the AssemblyRef row. It uses the admitted
+Library-to-package provenance established by that exact identity match, then
+the package's retained icon or the default icon for a known package source.
+For nuget.org coordinates, the existing exact-coordinate icon query may
+replace the default. Framework/runtime Libraries and absent or ambiguous
+Workspace matches receive no icon from this path. A local artifact
+without retained package-icon evidence also remains plain. Icon loading is
+bounded and cannot change the direct AssemblyRef answer or a newer Library
+view. The graph remains an AssemblyRef diagram; icons annotate rows and nodes
+where package ownership is known.
 
 The graph and list use the available width. The quiet header remains in place
 while the content scrolls; References has no bottom context row. This follows
@@ -1136,6 +1211,40 @@ Library/coordinate freshness checks. Each mode keeps its own loading, failure,
 partial, empty, and available outcomes. Integrations presents its detected and
 suggested evidence together while preserving the independent completion and
 failure state of each source.
+
+Detected Integrations evidence has one closed Browser-owned state: `idle`,
+`loading` for one exact Library/coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize interrupted `loading` to
+`idle`. Suggested Opportunities remains an independently settling neighboring
+source. This contract does not define a generic asynchronous-state framework or
+migrate another Analysis mode.
+
+`Microsoft.Extensions.Http` 10.0.0 on nuget.org supplies the motivating
+production flow: its `Microsoft.Extensions.Http` Library produces HTTP Client
+signals including `IHttpClientFactory` and `AddHttpClient`. Replacing that
+Library/coordinate while the scan is pending must not let the retired request
+replace newer detected evidence. Focused coordinator tests preserve the same
+replacement and invalidation boundary deterministically.
+
+Suggested Opportunities evidence has its own closed Browser-owned state:
+`idle`, `loading` for one exact Library/coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize interrupted `loading` to
+`idle`. Detected Integrations remains an independently settling neighboring
+source. This transfer remains feature-specific and does not define a generic
+asynchronous-state framework or migrate another Analysis mode.
+
+`Npgsql` on nuget.org supplies the motivating production flow: its `Npgsql`
+Library produces Aspire and Health Checks opportunities for
+`NpgsqlConnection`. Replacing that Library/coordinate while the scan is pending
+must not let the retired request replace newer suggestions or publish a stale
+failure. Focused coordinator tests preserve both settlement outcomes and the
+same invalidation boundary deterministically.
 
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
@@ -1205,6 +1314,18 @@ Library-required, loading, failure, partial-failure, and no-image states retain
 the same header, controls, and scroll owner, without a bottom context row.
 Failures remain visibly distinct from a successful
 empty result.
+
+Package Metadata owns one closed acquisition lifecycle. Idle carries no
+coordinate or evidence; loading carries the exact request for its package,
+framework, and optional Library coordinate; ready carries either complete
+metadata, partial metadata with its owner-issued inspection diagnostic, or a
+successful no-image result; failed carries a non-empty visible diagnostic and
+no metadata result. Only the exact current loading request may publish.
+Explicit retry replaces failed evidence, while automatic loading does not loop
+on the same failed coordinate. Workspace snapshots retain ready and failed
+evidence and normalize interrupted loading to idle. `System.Text.Json` 10.0.0
+is the real-package witness for ordinary image evidence; focused owner tests
+preserve partial-image and all-image-failure boundaries.
 
 At narrow widths, controls wrap within their row and header values
 may elide as complete strings. The surface creates no page-level horizontal
@@ -1544,7 +1665,8 @@ navigation band. It never scrolls or obscures the Application menu.
 The bottom data bar is one compact 30 CSS-pixel line with three presentations:
 transient inspection feedback, the active inspector's result summary, and
 default product information, in that order of precedence. Its grid row remains
-allocated in every state; long messages scroll horizontally without wrapping or expansion.
+allocated in every state; long messages scroll horizontally without wrapping or
+expansion.
 
 The data bar has two feedback purposes: useful information for the user and
 genuine assertion-style errors that a dotnet-inspect maintainer should fix.
@@ -1563,7 +1685,8 @@ presentation does not clear retained evidence or automatically retry work.
 
 Home retains default product information. Library Compare's Public API Diff
 is the result-summary pilot. On a successful complete comparison it supplies
-the owner-issued Library display, version endpoints, and totals for changed, added, and removed
+the owner-issued Library display, version endpoints, and totals for changed,
+added, and removed
 Types, changed Members, and breaking, additive, and potentially breaking changes.
 Inspection notices remain named. The completed summary moves from the working
 surface into the persistent bar; comparison targets, row-level evidence, and

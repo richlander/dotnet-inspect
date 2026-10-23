@@ -125,20 +125,66 @@ public static class SyncCallsInAsyncQuery
     public static InspectionQuery<SyncCallsInAsyncResult> Definition { get; } =
         new("Sync calls in async", InspectionCost.NetworkFree);
 
+    /// <summary>
+    /// Inspects one participant while retaining the group's complete reference
+    /// binding universe.
+    /// </summary>
+    public static AssemblyContextEntry<SyncCallsInAsyncResult>
+        ExecuteParticipant(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            IReadOnlyList<SyncCallsInAsyncClosing> closings)
+    {
+        ArgumentNullException.ThrowIfNull(closings);
+        return AssemblyContextQueryExecutor.ExecuteParticipant(
+            group,
+            participant,
+            session => Execute(
+                session,
+                new AssemblyReferenceBindingAccess(
+                    participant.Assembly,
+                    participant.BindingPolicy),
+                closings));
+    }
+
     public static SyncCallsInAsyncResult Execute(
         AssemblyInspectionSession session,
         AssemblyReferenceBindingAccess referenceBinding,
         IReadOnlyList<SyncCallsInAsyncClosing> closings) =>
-        Execute(Prepare(session, referenceBinding, closings));
+        Execute(
+            Prepare(
+                session,
+                referenceBinding,
+                closings,
+                MethodDefinitionSourceBreadth.AllDefinitions));
+
+    public static SyncCallsInAsyncResult Execute(
+        AssemblyInspectionSession session,
+        AssemblyReferenceBindingAccess referenceBinding,
+        IReadOnlyList<SyncCallsInAsyncClosing> closings,
+        MethodDefinitionSourceBreadth breadth) =>
+        Execute(Prepare(session, referenceBinding, closings, breadth));
 
     public static PreparedSyncCallsInAsyncQuery Prepare(
         AssemblyInspectionSession session,
         AssemblyReferenceBindingAccess referenceBinding,
-        IReadOnlyList<SyncCallsInAsyncClosing> closings)
+        IReadOnlyList<SyncCallsInAsyncClosing> closings) =>
+        Prepare(
+            session,
+            referenceBinding,
+            closings,
+            MethodDefinitionSourceBreadth.AllDefinitions);
+
+    public static PreparedSyncCallsInAsyncQuery Prepare(
+        AssemblyInspectionSession session,
+        AssemblyReferenceBindingAccess referenceBinding,
+        IReadOnlyList<SyncCallsInAsyncClosing> closings,
+        MethodDefinitionSourceBreadth breadth)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(referenceBinding);
         ArgumentNullException.ThrowIfNull(closings);
+        ArgumentNullException.ThrowIfNull(breadth);
         ImmutableArray<SyncCallsInAsyncClosing> distinct =
             [.. closings.Distinct()];
         if (distinct.IsEmpty)
@@ -173,7 +219,8 @@ public static class SyncCallsInAsyncQuery
                 MethodDefinitionSourceRequest<AsyncSiblingProducerResult>.Create(
                     SyncCallsInAsyncQuerySpace.CreateRequest(closing),
                     work,
-                    AsyncSiblingProducer.Instance);
+                    AsyncSiblingProducer.Instance,
+                    breadth);
             MethodDefinitionSourceAssociation association =
                 MethodDefinitionSourceAssociation.Create(request);
             associations.Add(association);
@@ -229,7 +276,8 @@ public static class SyncCallsInAsyncQuery
 
         MethodDefinitionSourceRequestSetExecution completed =
             ((AssemblyAnalysisRequestSetServiceResult.Completed)serviceResult)
-                .Execution;
+                .Execution
+                .MethodDefinitionExecution();
         var answers = ImmutableArray.CreateBuilder<
             (SyncCallsInAsyncClosing, SyncCallsInAsyncAnswer)>();
         var receipts = ImmutableArray.CreateBuilder<

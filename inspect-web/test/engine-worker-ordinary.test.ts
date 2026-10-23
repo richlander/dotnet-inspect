@@ -28,7 +28,10 @@ import {
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
-import { inertStringFixture } from "./inert-string-fixture.ts";
+import {
+  inertStringFixture,
+  packageInertStringFixture,
+} from "./inert-string-fixture.ts";
 import type {
   BrowserEcosystemPackageWorkspaceAdmissionResult,
   BrowserRetainedWorkspaceActivationResult,
@@ -42,6 +45,8 @@ import type {
   BrowserTypeFindResult,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import type {
+  BrowserDocumentLeafContainmentOutcome,
+  BrowserDocumentPresentationLeaf,
   BrowserPackageLoadResult,
   BrowserPackageSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -105,6 +110,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
     searchCapabilities: () => unexpected("searchCapabilities"),
+    explainPackageQuery: () => unexpected("explainPackageQuery"),
     searchTypes: () => unexpected("searchTypes"),
     activateWorkspacePackageOccurrence: () =>
       unexpected("activateWorkspacePackageOccurrence"),
@@ -119,6 +125,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    containPackageDocumentLeaves: () =>
+      unexpected("containPackageDocumentLeaves"),
     queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
@@ -127,6 +135,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryReferencePackageSuppliers: () =>
+      unexpected("queryReferencePackageSuppliers"),
+    queryPackageHierarchy: () =>
+      unexpected("queryPackageHierarchy"),
     queryPackageIcon: () => unexpected("queryPackageIcon"),
     queryPackageVulnerabilities: () =>
       unexpected("queryPackageVulnerabilities"),
@@ -139,13 +151,13 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   metadata: {
     cancelLibraryApiDiff: () =>
       unexpected("cancelLibraryApiDiff"),
-    cancelLibraryFastDiff: () =>
-      unexpected("cancelLibraryFastDiff"),
+    cancelLibraryFindingDiffAny: () =>
+      unexpected("cancelLibraryFindingDiffAny"),
     findTypes: () => unexpected("findTypes"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
-    queryLibraryFastDiff: () =>
-      unexpected("queryLibraryFastDiff"),
+    queryLibraryFindingDiffAny: () =>
+      unexpected("queryLibraryFindingDiffAny"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
     queryMemberDocument: () =>
@@ -154,6 +166,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberGroupDocument"),
     queryPerformanceTypeMemberPopulation: () =>
       unexpected("queryPerformanceTypeMemberPopulation"),
+    queryTypeOverviewDocument: () =>
+      unexpected("queryTypeOverviewDocument"),
     queryTypeMemberPopulation: () =>
       unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
@@ -164,6 +178,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberGroupDocument"),
     queryPlatformPerformanceTypeMemberPopulation: () =>
       unexpected("queryPlatformPerformanceTypeMemberPopulation"),
+    queryPlatformTypeOverviewDocument: () =>
+      unexpected("queryPlatformTypeOverviewDocument"),
     queryUploadedLibraryMemberDocument: () =>
       unexpected("queryUploadedLibraryMemberDocument"),
     queryPlatformTypeMemberPopulation: () =>
@@ -174,6 +190,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryUploadedLibraryPerformanceTypeMemberPopulation"),
     queryUploadedLibraryTypeMemberPopulation: () =>
       unexpected("queryUploadedLibraryTypeMemberPopulation"),
+    queryUploadedLibraryTypeOverviewDocument: () =>
+      unexpected("queryUploadedLibraryTypeOverviewDocument"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -305,6 +323,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("observeRetainedWorkspaceSettlement"),
     prepareEcosystemWorkspaceDefinition: () =>
       unexpected("prepareEcosystemWorkspaceDefinition"),
+    prepareHomeDemoWorkspaceDefinition: () =>
+      unexpected("prepareHomeDemoWorkspaceDefinition"),
     preparePackageQueryWorkspaceDefinition: () =>
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
@@ -548,7 +568,7 @@ test("uploaded Library Member document queries use the retained exact image", as
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
-    [string, number[], string, string] | undefined;
+    [string, number[], string, string, string, string, boolean] | undefined;
   let exactReceived:
     [string, number[], string, string, number, string] | undefined;
   let receivedPopulation:
@@ -624,8 +644,12 @@ test("uploaded Library Member document queries use the retained exact image", as
         bytes,
         typeIdentity,
         memberName,
+        accessibility,
+        receiver,
+        includeHidden,
       ) {
-        received = [declaredName, bytes, typeIdentity, memberName];
+        received = [declaredName, bytes, typeIdentity, memberName,
+          accessibility, receiver, includeHidden];
         return {
           outcome: "Available",
           detail: null,
@@ -680,6 +704,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       identity,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   await state.environment.flushAsync();
 
@@ -689,6 +716,9 @@ test("uploaded Library Member document queries use the retained exact image", as
     content,
     "Example.Widget",
     "Run",
+    "protected",
+    "all",
+    false,
   ]);
   const population =
     state.client.metadata.queryUploadedLibraryTypeMemberPopulation(
@@ -731,6 +761,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       `sha256:${"b".repeat(64)}`,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   const mismatchFailure = assert.rejects(
     mismatched,
@@ -783,6 +816,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     }],
     activeTabId: null,
     selectedContextId: null,
+    traversalTargetFramework: "net11.0",
   } satisfies BrowserRetainedWorkspaceDefinitionState;
   const posting = {
     retainedDefinitionId: "definition-exact",
@@ -865,6 +899,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "package-subject",
+      defaultLibrary: null,
       summary: {
         selectedCompileFramework: null,
         libraryCount: 1,
@@ -1180,6 +1215,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     activated: false,
     superseded: false,
     package: null,
+    runtimeIdentifier: "",
     future: { message: "preserved" },
   };
   let cleared = 0;
@@ -1574,6 +1610,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    runtimePopulation: null,
     documents: surface.documents,
     surface,
     defaultLibraryId: surface.defaultAssemblyId,
@@ -1610,6 +1647,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     },
     packageInfo: null,
     packageChildren: null,
+    runtimePopulation: null,
     documents: [],
     surface: null,
     defaultLibraryId: null,
@@ -1627,11 +1665,13 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     "System.Text.Json",
     "latest",
     "net10.0",
+    "",
   );
   const notSettledResult = state.client.package.queryPackage(
     "Missing.Package",
     "latest",
     "net10.0",
+    "",
   );
   await state.environment.flushAsync();
 
@@ -1641,6 +1681,49 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     settled.versionSettlement);
   assert.deepEqual(await notSettledResult, notSettled);
   assert.equal((await notSettledResult).surface, null);
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
+test("ordinary package transport preserves contained presentation leaves", async () => {
+  const leaves = [
+    { identity: 3, policy: "Prose", text: "line\u202Eone" },
+    { identity: 1, policy: "Field", text: "field\nvalue" },
+  ] satisfies ReadonlyArray<BrowserDocumentPresentationLeaf>;
+  const contained = {
+    outcome: "contained",
+    generation: "document-4",
+    leaves: [
+      {
+        identity: 3,
+        policy: "Prose",
+        text: packageInertStringFixture("line\\u202Eone"),
+      },
+      {
+        identity: 1,
+        policy: "Field",
+        text: packageInertStringFixture("field\\^Jvalue"),
+      },
+    ],
+  } satisfies BrowserDocumentLeafContainmentOutcome;
+  const calls: unknown[][] = [];
+  const state = fixture({
+    package: {
+      containPackageDocumentLeaves: (generation, requested) => {
+        calls.push([generation, requested]);
+        return contained;
+      },
+    },
+  });
+
+  const result = state.client.package.containPackageDocumentLeaves(
+    "document-4",
+    leaves,
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await result, contained);
+  assert.deepEqual(calls, [["document-4", leaves]]);
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
 });
@@ -1903,17 +1986,17 @@ test("concurrent ordinary calls use independent authority sessions", async () =>
 });
 
 test("background bindings are not Worker activity", async () => {
-  const fastDiff = deferred<void>();
+  const findingDiffAny = deferred<void>();
   const state = fixture({
     metadata: {
-      queryLibraryFastDiff: async () => {
-        await fastDiff.promise;
+      queryLibraryFindingDiffAny: async () => {
+        await findingDiffAny.promise;
         return contractViolation({ schemaVersion: 2, kind: "Canceled" });
       },
     },
   });
-  const background = state.client.metadata.queryLibraryFastDiff(
-    "fast-diff-1",
+  const background = state.client.metadata.queryLibraryFindingDiffAny(
+    "finding-diff-any-1",
     {
       schemaVersion: 2,
       packageId: "Fixture",
@@ -1931,7 +2014,7 @@ test("background bindings are not Worker activity", async () => {
   // Idle resolves even though the background operation is still active.
   await state.client.activity.whenIdle();
 
-  fastDiff.resolve();
+  findingDiffAny.resolve();
   await background;
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
@@ -1995,7 +2078,8 @@ test("malformed and oversized generated results reject only their calls", async 
       queryPackageVersions: async () =>
         contractViolation({ versions: [undefined] }),
       loadRuntimePack: async () =>
-        "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+        contractViolation(
+          "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters)),
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
@@ -2256,6 +2340,60 @@ test("JSON tuple codec rejects unsafe trees and enforces explicit bounds", () =>
   assert.equal(encode(["id", null, excessive]).kind, "rejected");
 });
 
+test("query explanation transport preserves keys, addresses, and visible failure", async () => {
+  const calls: unknown[][] = [];
+  const result = { outcome: "InvalidSelection" as const, content: null, message: "Unknown facet key." };
+  const state = fixture({
+    package: {
+      explainPackageQuery: (...args) => {
+        calls.push(args);
+        return result;
+      },
+    },
+  });
+  const request = state.client.package.explainPackageQuery(
+    "inspect-resource:/package-query/query?projection=hal", ["depends", "dependency-target"],
+  );
+  const full = state.client.package.explainPackageQuery("package-query/query", null);
+  await state.environment.flushAsync();
+  assert.deepEqual(await request, result);
+  assert.deepEqual(await full, result);
+  assert.deepEqual(calls, [
+    ["inspect-resource:/package-query/query?projection=hal", ["depends", "dependency-target"]],
+    ["package-query/query", null],
+  ]);
+});
+
+test("vocabulary explanation transport preserves native arrays and typed rejection", async () => {
+  const calls: unknown[][] = [];
+  const address = "inspect-resource:/vocabularies/csharp.body-kinds?projection=hal";
+  const result = {
+    outcome: "InvalidSelection" as const,
+    explanation: null,
+    rejection: { requestedPath: address, message: "Unknown vocabulary value identity.", suggestions: [] },
+  };
+  const state = fixture({
+    catalog: {
+      explainVocabularies: (...args) => {
+        calls.push(args);
+        return result;
+      },
+    },
+  });
+  const selected = state.client.catalog.explainVocabularies(address, 0,
+    ["ObjectCreationExpression", "AddressExpression"]);
+  const full = state.client.catalog.explainVocabularies(address, 0, null);
+  const empty = state.client.catalog.explainVocabularies(address, 0, []);
+  await state.environment.flushAsync();
+  assert.deepEqual(await selected, result);
+  assert.deepEqual(await full, result);
+  assert.deepEqual(await empty, result);
+  assert.deepEqual(calls, [
+    [address, 0, ["ObjectCreationExpression", "AddressExpression"]],
+    [address, 0, null], [address, 0, []],
+  ]);
+});
+
 test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
   const calls: unknown[][] = [];
   const result = {
@@ -2360,6 +2498,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "closePlatformForwarderView",
+      "containPackageDocumentLeaves",
       "getPackageDocument",
       "getPlatformCatalog",
       "getPlatformVersions",
@@ -2375,6 +2514,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryReferencePackageSuppliers",
+      "queryPackageHierarchy",
       "queryPackageIcon",
       "queryPackageVulnerabilities",
       "queryPackageRoot",
@@ -2383,25 +2524,28 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
       "searchCapabilities",
+      "explainPackageQuery",
       "searchTypes",
     ],
     metadata: [
       "cancelLibraryApiDiff",
-      "cancelLibraryFastDiff",
+      "cancelLibraryFindingDiffAny",
       "findTypes",
       "queryLibraryApiDiff",
-      "queryLibraryFastDiff",
+      "queryLibraryFindingDiffAny",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
       "queryMemberDocument",
       "queryMemberGroupDocument",
       "queryPerformanceTypeMemberPopulation",
       "queryTypeMemberPopulation",
+      "queryTypeOverviewDocument",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
       "queryPlatformPerformanceTypeMemberPopulation",
       "queryPlatformTypeMemberPopulation",
+      "queryPlatformTypeOverviewDocument",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2413,6 +2557,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryUploadedLibraryMemberGroupDocument",
       "queryUploadedLibraryPerformanceTypeMemberPopulation",
       "queryUploadedLibraryTypeMemberPopulation",
+      "queryUploadedLibraryTypeOverviewDocument",
     ],
     analysis: [
       "queryCloneCandidates",
@@ -2481,6 +2626,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "explainVocabularies",
       "observeRetainedWorkspaceSettlement",
       "prepareEcosystemWorkspaceDefinition",
+      "prepareHomeDemoWorkspaceDefinition",
       "preparePackageQueryWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
@@ -2503,7 +2649,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 126);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 134);
 
   const state = fixture();
   const groups = [

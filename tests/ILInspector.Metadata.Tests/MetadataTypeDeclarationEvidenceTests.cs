@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata.ConsumerCanary;
+using InertText;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -448,6 +449,200 @@ public sealed class MetadataTypeDeclarationEvidenceTests
     }
 
     [Fact]
+    public void CompilerProducedParametersPostTheirConstraintAnnotations()
+    {
+        string path =
+            typeof(TypeDeclarationAnnotatedParameters<,,,,>)
+                .Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        FindType(
+                            reader,
+                            "ILInspector.Metadata.Tests",
+                            "TypeDeclarationAnnotatedParameters`5"))));
+
+        Assert.Equal(
+            [
+                ("TNotNull", "notnull", 0),
+                ("TNullableClass", "class?", 0),
+                ("TClass", "class", 0),
+                ("TUnmanaged", "unmanaged", 1),
+                ("TPlain", null, 0),
+            ],
+            posted.Evidence.Signature.GenericParameters.Select(
+                parameter =>
+                {
+                    Assert.True(parameter.Annotations.IsCanonical);
+                    return (
+                        parameter.Name
+                            .Contain(TextPolicy.Field)
+                            .ToString(),
+                        GenericConstraintKeywords.PrimaryKeyword(
+                            parameter.Attributes,
+                            parameter.Annotations.NullableFlag,
+                            parameter.Annotations.IsUnmanaged),
+                        parameter.ConstraintCount);
+                }));
+    }
+
+    [Fact]
+    public void ConstraintAnnotationsAgreeWithTheApiSurfaceProjection()
+    {
+        string path = typeof(int).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            includeAll: true,
+            typesOnly: true);
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+
+        int compared = 0;
+        foreach (ApiType type in surface.Types)
+        {
+            if (type.TypeParameters.Count == 0
+                || type.MetadataToken is not { } token)
+            {
+                continue;
+            }
+
+            var posted = Assert.IsType<
+                MetadataTypeDeclarationResult.Posted>(
+                    declarations.PostTypeDeclaration(
+                        MetadataTypeDefinitionAddress.FromHandle(
+                            reader,
+                            MetadataTokens.TypeDefinitionHandle(
+                                token)),
+                        TestContext.Current.CancellationToken));
+            ImmutableArray<
+                MetadataTypeGenericParameterDeclarationEvidence>
+                parameters =
+                    posted.Evidence.Signature.GenericParameters;
+            // A nested Type repeats its enclosing GenericParam rows, which the post retains
+            // from their declaring owner; only rows the leaf introduces are the same rows.
+            int leaf =
+                posted.Evidence.DefinitionIdentity.Segments.Length - 1;
+            if (parameters.Length != type.TypeParameters.Count
+                || parameters.Any(parameter =>
+                    parameter.DefinitionSegmentIndex != leaf))
+            {
+                continue;
+            }
+
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                MetadataTypeGenericParameterDeclarationEvidence
+                    parameter = parameters[i];
+                TypeParameter expected = type.TypeParameters[i];
+                Assert.True(
+                    parameter.Name.ValueTextEquals(
+                        System.Text.Encoding.UTF8.GetBytes(
+                            expected.Name)));
+                Assert.True(parameter.Annotations.IsCanonical);
+                if (parameter.ConstraintCount != 0)
+                    continue;
+
+                Assert.Equal(
+                    expected.Constraints,
+                    new[]
+                    {
+                        GenericConstraintKeywords.PrimaryKeyword(
+                            parameter.Attributes,
+                            parameter.Annotations.NullableFlag,
+                            parameter.Annotations.IsUnmanaged),
+                        GenericConstraintKeywords
+                            .NewConstraintKeyword(
+                                parameter.Attributes),
+                        GenericConstraintKeywords
+                            .AllowsRefStructKeyword(
+                                parameter.Attributes),
+                    }.OfType<string>());
+                compared++;
+            }
+        }
+
+        Assert.True(
+            compared > 500,
+            $"Only {compared} CoreLib generic parameters were compared.");
+    }
+
+    [Fact]
+    public void NonCanonicalAnnotationsPostWithoutAClaim()
+    {
+        using Fixture fixture =
+            Fixture.CreateGenericParameterAnnotations(
+                illFormedName: false);
+
+        MetadataTypeGenericParameterAnnotations Annotations(
+            string name) =>
+            Assert.Single(
+                Posted(fixture, name).Signature.GenericParameters)
+                .Annotations;
+
+        Assert.Equal(
+            new MetadataTypeGenericParameterAnnotations(
+                true,
+                1,
+                false),
+            Annotations("Canonical`1"));
+        Assert.Equal(
+            new MetadataTypeGenericParameterAnnotations(
+                true,
+                2,
+                false),
+            Annotations("Contextual`1"));
+        Assert.False(Annotations("Truncated`1").IsCanonical);
+        Assert.False(Annotations("Duplicated`1").IsCanonical);
+        Assert.False(Annotations("EmptyArray`1").IsCanonical);
+        Assert.False(Annotations("MalformedContext`1").IsCanonical);
+    }
+
+    [Fact]
+    public void IllFormedParameterNameKeepsItsBytes()
+    {
+        using Fixture control =
+            Fixture.CreateGenericParameterAnnotations(
+                illFormedName: false);
+        using Fixture patched =
+            Fixture.CreateGenericParameterAnnotations(
+                illFormedName: true);
+
+        var expected = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(control.Path, control["Named`1"]));
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(patched.Path, patched["Named`1"]));
+        MetadataUtf8Name expectedName =
+            Assert.Single(
+                expected.Evidence.Signature.GenericParameters).Name;
+        MetadataUtf8Name name =
+            Assert.Single(
+                posted.Evidence.Signature.GenericParameters).Name;
+
+        Assert.Equal(7, name.Length);
+        Assert.NotEqual(expectedName, name);
+        Assert.Equal(
+            "\\uDCFF\\uDCFEParam",
+            name.Contain(TextPolicy.Field).ToString());
+        Assert.Equal(
+            expected.Counters.RetainedText + 10,
+            posted.Counters.RetainedText);
+    }
+
+    [Fact]
     public void CompilerProducedNestedGenericPostsExactOpenSelf()
     {
         string path =
@@ -488,7 +683,8 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             {
                 Assert.Equal(0, parameter.DefinitionSegmentIndex);
                 Assert.Equal(0, parameter.MetadataIndex);
-                Assert.Equal("T", parameter.Name.ToString());
+                Assert.True(parameter.Name.ValueTextEquals("T"u8));
+                Assert.Equal(0, parameter.ConstraintCount);
                 Assert.Equal(
                     GenericParameterAttributes
                         .ReferenceTypeConstraint
@@ -500,7 +696,8 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             {
                 Assert.Equal(1, parameter.DefinitionSegmentIndex);
                 Assert.Equal(1, parameter.MetadataIndex);
-                Assert.Equal("U", parameter.Name.ToString());
+                Assert.True(parameter.Name.ValueTextEquals("U"u8));
+                Assert.Equal(0, parameter.ConstraintCount);
                 Assert.Equal(
                     GenericParameterAttributes.None,
                     parameter.Attributes);
@@ -2052,6 +2249,136 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 });
         }
 
+        internal static Fixture CreateGenericParameterAnnotations(
+            bool illFormedName)
+        {
+            var metadata = CreateBuilder(
+                "generic-annotations.dll",
+                "GenericAnnotations");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            MemberReferenceHandle nullable =
+                AddAttributeConstructor(
+                    metadata,
+                    core,
+                    "NullableAttribute");
+            MemberReferenceHandle context =
+                AddAttributeConstructor(
+                    metadata,
+                    core,
+                    "NullableContextAttribute");
+            AddModuleType(metadata);
+
+            var handles =
+                new Dictionary<string, TypeDefinitionHandle>();
+            void Add(
+                string name,
+                string parameterName,
+                byte[][] parameterAnnotations,
+                byte[][]? typeContexts = null)
+            {
+                TypeDefinitionHandle type = AddType(
+                    metadata,
+                    name,
+                    TypeAttributes.Public,
+                    @object);
+                GenericParameterHandle parameter =
+                    metadata.AddGenericParameter(
+                        type,
+                        GenericParameterAttributes.None,
+                        metadata.GetOrAddString(parameterName),
+                        0);
+                foreach (byte[] value in parameterAnnotations)
+                {
+                    metadata.AddCustomAttribute(
+                        parameter,
+                        nullable,
+                        metadata.GetOrAddBlob(value));
+                }
+                foreach (byte[] value in typeContexts ?? [])
+                {
+                    metadata.AddCustomAttribute(
+                        type,
+                        context,
+                        metadata.GetOrAddBlob(value));
+                }
+                handles[name] = type;
+            }
+
+            byte[] notAnnotated = [0x01, 0x00, 0x01, 0x00, 0x00];
+            byte[] annotated = [0x01, 0x00, 0x02, 0x00, 0x00];
+            Add("Canonical`1", "T", [notAnnotated]);
+            Add("Contextual`1", "T", [], [annotated]);
+            Add("Truncated`1", "T", [[0x01, 0x00, 0x01]]);
+            Add("Duplicated`1", "T", [notAnnotated, annotated]);
+            Add(
+                "EmptyArray`1",
+                "T",
+                [[0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]]);
+            Add(
+                "MalformedContext`1",
+                "T",
+                [],
+                [[0x01, 0x00, 0x02]]);
+            Add("Named`1", "QQParam", [notAnnotated]);
+
+            return Write(
+                metadata,
+                handles,
+                illFormedName
+                    ? static (image, _, _) =>
+                        PatchStringBytes(
+                            image,
+                            "\0QQParam\0"u8,
+                            1,
+                            [0xFF, 0xFE])
+                    : null);
+        }
+
+        static MemberReferenceHandle AddAttributeConstructor(
+            MetadataBuilder metadata,
+            AssemblyReferenceHandle core,
+            string name)
+        {
+            TypeReferenceHandle type = metadata.AddTypeReference(
+                core,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(name));
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: true)
+                .Parameters(
+                    1,
+                    returnType => returnType.Void(),
+                    parameters => parameters
+                        .AddParameter()
+                        .Type()
+                        .Byte());
+            return metadata.AddMemberReference(
+                type,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(signature));
+        }
+
+        static void PatchStringBytes(
+            byte[] image,
+            ReadOnlySpan<byte> unique,
+            int offset,
+            ReadOnlySpan<byte> replacement)
+        {
+            int index = image.AsSpan().IndexOf(unique);
+            Assert.True(index >= 0);
+            Assert.Equal(
+                -1,
+                image.AsSpan(index + 1).IndexOf(unique));
+            replacement.CopyTo(image.AsSpan(index + offset));
+        }
+
         static MetadataBuilder CreateBuilder(
             string moduleName,
             string assemblyName)
@@ -2275,6 +2602,19 @@ public sealed class TypeDeclarationGenericOuter<T>
     public sealed class Inner<U>
     {
     }
+}
+
+public sealed class TypeDeclarationAnnotatedParameters<
+    TNotNull,
+    TNullableClass,
+    TClass,
+    TUnmanaged,
+    TPlain>
+    where TNotNull : notnull
+    where TNullableClass : class?
+    where TClass : class
+    where TUnmanaged : unmanaged
+{
 }
 
 public ref struct TypeDeclarationRefStruct

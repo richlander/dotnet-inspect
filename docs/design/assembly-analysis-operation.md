@@ -23,7 +23,9 @@ The request-set operation now binds one immutable QuerySpace plan and publishes
 every Method request in request order, plus physical group work recorded once.
 Method Classification is its first production caller: the session-backed query
 uses request-set access while the PEReader overload remains the direct
-reference.
+reference. Direct and request-set operations now carry an owner-issued source
+adapter opaquely: the service reads no Method breadth, layer, terminal, request,
+or receipt type and contains no source-kind switch.
 Other source kinds, cancellation, residual request satisfaction, and mixed-
 hub composition remain **unverified**. The no-remainder rule and split
 exact-member prerequisites are recorded under
@@ -197,10 +199,15 @@ terminal-specialized lanes within one physical execution group. It never asks
 Producer Planning to merge distinct closings or derives one terminal result
 from another.
 
-An operation may compose Type, Member, and Method source requests. The service
-name is therefore assembly-wide rather than method-specific. Each source owner
-retains its row vocabulary, population predicates, depth, expansion,
-terminal, completion, and failure contracts.
+One direct operation carries one owner-issued source request; one request-set
+operation carries one owner-issued source plan. The source publishes an opaque
+identity, declares whether execution requires the operation access's reference
+binding, executes against admitted image access, and returns detached source
+evidence. Type, Member, and Method sources may each implement that boundary
+without adding a source enum, switch, or concrete request branch to assembly
+orchestration. Each source owner retains its row vocabulary, population
+predicates, depth, expansion, terminal, completion, failure contracts, and
+typed receipt recovery.
 
 ### `AssemblyAnalysisService`
 
@@ -217,6 +224,8 @@ The service:
   session-backed execution;
 - does not select producers, infer prerequisites, or expand compatibility
   profiles;
+- does not inspect a source's concrete request, layers, terminals, execution,
+  or receipt;
 - does not enumerate the assembly outside an owner-issued source plan;
 - does not implement an Analysis-specific request-union algorithm;
 - does not reinterpret a source or producer failure; and
@@ -238,9 +247,11 @@ semantic result. It preserves:
 - typed incompleteness and failure evidence.
 
 Consumers request a result through its producer declaration and then pass the
-focused result value to the owning query or section. The execution is not a
-runtime-type bag, string-keyed registry, compatibility profile, or substitute
-for the focused result type.
+focused result value to the owning query or section. The detached source
+receipt is carried through its base contract; a source-aware sink recovers the
+concrete receipt through that source owner's association check. The execution
+is not a runtime-type bag, string-keyed registry, compatibility profile, or
+substitute for the focused result type.
 
 The publication retains no session, access lease, borrow, PE reader, Metadata
 reader, stream, resolver, source callback, or mutable producer state.
@@ -250,6 +261,12 @@ reader, stream, resolver, source callback, or mutable producer state.
 `AssemblyAnalysisSource` names the internal composition role through which one
 exact assembly access exposes owner-issued Analysis sources. It is a source
 family, not one universal row space.
+
+Each source owns its adapter from source request or request-set plan through
+execution and typed receipt recovery. Assembly orchestration retains only the
+adapter's opaque identity, general access requirements, and detached base
+receipt. Adding another source does not add a central source-kind value or
+teach the service that source's vocabulary.
 
 For a session-backed source, Assembly Inspection has already classified the
 image and published its retained `MetadataReader` before the service receives
@@ -435,6 +452,7 @@ Exact-member work is split across focused owners:
 | Receipted memory-safety contract and accessor association support | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
 | Declared-source relation over all-definition and exact-type breadth | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) |
 | Method Query Source operand and signature resolution (Calls layer) | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868) |
+| Exact local-signature, calls, signals, allocation, and optimization ownership | [#10285](https://github.com/richlander/dotnet-inspect/issues/10285) |
 | Public root inventory and reference-assembly status as execution capabilities | [#9865](https://github.com/richlander/dotnet-inspect/issues/9865) |
 | First exact-member consumer adoption | [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) |
 
@@ -444,13 +462,62 @@ declared execution-scoped source support and receipted separately from sparse
 MethodDef breadth. It never acquires an unrelated body or silently becomes
 successful empty evidence.
 
-[#9832](https://github.com/richlander/dotnet-inspect/issues/9832) composes the
-prerequisites for `AssemblyContextMethodAnalysisQuery`. Allocations,
-optimization opportunities, and final `MethodSignals` composition remain
-explicitly on the old boundary in that mixed slice. The unsafe member census
+[#9832](https://github.com/richlander/dotnet-inspect/issues/9832) adopts those
+prerequisites for `AssemblyContextMethodAnalysisQuery` through
+`ExactMethodAnalysisProducer`. [#10285](https://github.com/richlander/dotnet-inspect/issues/10285)
+adds `ExactMethodAllocationProducer` and
+`ExactMethodOptimizationProducer`; the latter consumes the former's same-unit
+canonical context and allocation facts. One composed exact source operation
+now supplies semantic identity, call-safety evidence, local and operation
+safety evidence, unsafe occurrences, exception regions, allocations, and
+intrinsic optimization opportunities. The same operation publishes complete
+direct-call provenance and final `MethodSignals`, retains a successfully
+resolved call prefix after a later recoverable operand failure, and applies
+final opportunity enrichment directly to the exact evidence. When the
+selected physical body differs from its declared member, receipted exact
+method-analysis support authenticates the ultimate declared owner without
+expanding terminal breadth or building a module-wide lifted-method census. Its
+finite owner-type candidates, closure relationships, and attribution IL probes
+are reported in the declared-source capability receipt. Declared-owner
+identity reuses the execution's receipted memory-safety contract index. Local
+allocation exception classification follows only the operand's definition and
+bounded base chain, with those rows and any TypeSpec bytes reported in the same
+support receipt. Exact optimization reads scoped generated-code facts from
+that support; the producer owns suppression policy, while method and
+enclosing-type attribute rows, enclosing TypeDef rows, and bounded
+declaring-type relationships remain visible in their capability receipt.
+Exact declared-source attribution resolves state-machine ownership from the
+selected execution type and targeted source candidates rather than building
+the whole-module certificate; generated-type provenance reports its TypeDef,
+attribute, and enclosing-relationship reads in the declared-source capability
+receipt. Caller attribution and generated-owner suppression consume the
+authenticated owner result.
+`AssemblyContextMethodAnalysisQuery` no longer invokes
+`LibraryBodyAnalysisService`. The allocation-only matched-member route instead
+plans
+`ExactMethodAllocationProducer`, which publishes the same exact allocation
+rows without collecting calls, safety, signals, or optimization. Exact
+single-member CLI Diff requests for allocation alone use the same producer
+for the MethodDef selected from each endpoint's API surface. Package execution
+uses the endpoint's surface-to-implementation role correspondence and maps that
+surface MethodDef to the exact managed implementation body before analysis;
+local execution likewise validates that the selected MethodDef has a managed
+body. Their comparison does not construct `MethodBodyInspectionSession` or
+`LibraryBodyAnalysisService`. Mixed analysis sets, bodyless, forwarded, or
+absent declarations, and other target shapes retain the established
+body-signal fallback. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
-[Unsafe member findings](unsafe-member-findings.md#execution) states. `ILOffsetQuery` follows
-only after an owner can bind its prefetched image without reopening by path.
+[Unsafe member findings](unsafe-member-findings.md#execution) states.
+
+[#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
+exact method-analysis producer for safety-only IL-coordinate preparation.
+Direct CLI and host-neutral Library Address execution borrow the already-open
+prefetched image and issue one exact MethodDef request for the deduplicated
+coordinate methods. Allocation-only coordinate preparation independently
+plans `ExactMethodAllocationProducer` over that same bounded population. The
+two focused inputs retain exact source and work receipts; neither path opens
+`LibraryBodyAnalysisService`. Cost-only and combined semantic coordinate
+requests remain on the service until their complete result ownership moves.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first
@@ -569,13 +636,25 @@ The exact-member successors own their evidence:
 
 - #9830 gates bounded semantic MethodDef identity;
 - #9831 gates memory-safety contract and accessor-association support; and
-- #9832 gates the first consumer's complete public outcome and mixed legacy
-  provenance.
+- #9832 gates the first consumer's complete public outcome, exact one-body
+  source receipt, legacy parity, and mixed legacy provenance.
 
-When #9832 lands, it supplies
-`AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`.
-This design does not predeclare the successors' result or receipt shapes and
-does not claim their implementation evidence.
+`ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` proves that the
+focused producer selects and acquires one requested MethodDef body, declares
+semantic identity, memory-safety contracts, Calls, and local-signature support,
+performs no module lookup, and preserves the legacy identity, safety,
+diagnostic, and exception-region facts. The exact optimization gate proves
+that calls, local signatures, allocation, and optimization share one physical
+body and one canonical context. `AssemblyContextMethodAnalysisQueryTests` gate
+complete direct-call provenance, final signals, declared-owner attribution,
+generated-owner suppression, and exact publication parity without an LBA
+donor. The focused producers preserve the resolved direct-call prefix and
+independent exception-region, operation-safety, allocation, and
+safety-occurrence evidence when a later call operand fails recoverably.
+`ExactMethodAllocations_OmitUnrequestedCallAndOptimizationWork` separately
+proves that the allocation-only route acquires one body and local signature,
+publishes legacy-equivalent allocation rows, performs no call read or
+same-module call-target query, and executes one Method-analysis query.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).
@@ -603,6 +682,8 @@ method-source work so one cost cannot hide the other.
 - No acquisition, binding-policy mutation, or generation replacement during
   producer execution; reference binding is consumed, never driven.
 - No universal assembly, Type, Member, or Method source vocabulary.
+- No claim that one operation composes multiple source adapters; cross-source
+  operation composition remains unverified.
 - No Analysis-owned request collapse, source optimizer, or scheduler.
 - No broad producer result, metric bundle, or type-keyed result bag.
 - No `CompleteProfileV1` producer.

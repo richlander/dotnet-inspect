@@ -164,10 +164,14 @@ the payload is already inert. Losing the wrapper loses provenance, not
 protection.
 
 `TextConcern` retains why visual containment occurred: control, format/bidi,
-unpaired surrogate, line separator, or paragraph separator. The flags are
+unpaired surrogate, line separator, or paragraph separator. An ill-formed UTF-8
+byte reports the surrogate concern because it is spelled as its surrogate escape
+(see [Inert UTF-8](inert-bytes.md#inert-utf-8)). The flags are
 captured while the untreated scalar is available and travel with the
-`InertString` through composition, policy tightening, bounding, and persistence
-restoration. An audit can therefore aggregate categories without importing the
+`InertString` through composition, bounding, and persistence restoration.
+Policy tightening recomputes them while re-spelling the decoded source, so they
+describe what the stricter policy spelled; two adjacent surrogate escapes that
+decode to one permitted scalar no longer report a surrogate concern. An audit can therefore aggregate categories without importing the
 decoder or retaining a second raw copy. `RequiredContainment` is exactly
 `Concerns != None`; a literal backslash may affect `VisualForm` to preserve
 invertibility but contributes no concern.
@@ -214,6 +218,34 @@ the worst available failure distribution: invisible in CI, live in the field.
 So containment goes late — but not "as late as possible", which is just the
 per-site approach with better manners. It goes at **the last structural boundary
 every rendered value must cross**.
+
+### Package README entering the browser reader
+
+`WrongTurn@0.1.15` is the motivating real package. Its root `README.md` carries
+U+202E RIGHT-TO-LEFT OVERRIDE and U+202C POP DIRECTIONAL FORMATTING around
+`tegun` in source URLs. Inspect Web previously decoded and sanitized the
+Markdown but published those format controls unchanged, so the browser rendered
+package-authored text in a different visual order.
+
+Raw Markdown remains untreated through package acquisition because it still has
+structural meaning. [Contained document
+publication](contained-document-publication.md) now owns the composition from
+owner-issued structure and displayed leaves to one publishable document. This
+owner retains the scalar rule: each displayed leaf constructs `InertString`
+under its declared `TextPolicy` only after Markdown or plain-text structural
+handling. Applying containment before Markdown parsing remains intentionally
+excluded because Markdown can consume backslash spellings and collapse
+distinct source text.
+
+`PackageDocument_RealWrongTurnReadmeRetainsBidiUntilBrowserPublication`
+retains the exact package archive by `PackageDownload` and gates that the
+observed bidi shape remains untreated through acquisition. The production
+Browser gate `publishes body and frontmatter through one contained fragment`
+then covers actual controls, literal escape spellings, body text, code, link
+labels, displayed attributes, and frontmatter through the leaf-containment
+boundary. The contained-document unit gates establish exact correspondence and
+structure-preserving publication. No whole-serialized-HTML containment
+operation remains.
 
 ### Package skills entering agent context
 

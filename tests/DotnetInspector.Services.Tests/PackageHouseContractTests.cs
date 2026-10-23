@@ -43,6 +43,7 @@ public sealed class PackageHouseContractTests
             new PackageHouseDemand.Exact(Coordinate),
             PackageHouseOperation.Create(PackageHouseOperationProfile.Realize), target);
         Assert.True(request.IsCompileInventory);
+        Assert.False(request.MaterializeCompileAssets);
         Assert.Same(target, request.TargetContext);
         Assert.Equal(PackageHouseLibraryHandoffMode.PackageOnly, request.LibraryHandoff);
         Assert.IsType<PackageHouseContentNarrowing.PackageWide>(request.ContentQuery!.Narrowing);
@@ -57,6 +58,64 @@ public sealed class PackageHouseContractTests
             PackageHouseOperation.Create(PackageHouseOperationProfile.Realize), target,
             PackageHouseAssetSelectionKind.Compile,
             contentQuery: PackageHouseContentQuery.PackageFiles(["README.md"])));
+    }
+
+    [Fact]
+    public void CompileInspectionDemandRetainsInventoryAndSelectedAssets()
+    {
+        var target =
+            PackageHouseTargetContext.OwnerDefault();
+        PackageHouseRequest request =
+            PackageHouseRequest.CompileInspection(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                target);
+
+        Assert.True(request.IsCompileInventory);
+        Assert.True(request.MaterializeCompileAssets);
+        Assert.Equal(
+            PackageAssetDemand.SurfaceAndImplementation,
+            request.AssetDemand);
+        Assert.Same(target, request.TargetContext);
+        Assert.IsType<
+            PackageHouseContentNarrowing.PackageWide>(
+            request.ContentQuery!.Narrowing);
+        var fileList = Assert.IsType<
+            PackageHouseContentTerminal.FileList>(
+            Assert.Single(
+                request.ContentQuery.Terminals));
+        Assert.True(fileList.IncludeDirectories);
+    }
+
+    [Fact]
+    public void CompileLibrariesDemandDeclaresAggregateTargetContent()
+    {
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+        PackageHouseRequest request =
+            PackageHouseRequest.CompileLibraries(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                target,
+                PackageAssetDemand.Surface);
+
+        Assert.True(request.IsCompileLibraries);
+        Assert.False(request.IsCompileInventory);
+        Assert.False(request.IsCompileLibrary);
+        Assert.Equal(
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            request.LibraryHandoff);
+        Assert.Same(target, request.TargetContext);
+        Assert.IsType<PackageHouseContentNarrowing.TfmWide>(
+            request.ContentQuery!.Narrowing);
+        var terminal = Assert.IsType<
+            PackageHouseContentTerminal.CompileLibraries>(
+            Assert.Single(request.ContentQuery.Terminals));
+        Assert.Equal(
+            PackageAssetDemand.Surface,
+            terminal.AssetDemand);
     }
 
     [Fact]
@@ -91,6 +150,33 @@ public sealed class PackageHouseContractTests
                 .Select(type => type.Name)
                 .Order(StringComparer.Ordinal)
                 .ToArray());
+    }
+
+    [Fact]
+    public void LibraryPopulationDemandRejectsNamedImplementation()
+    {
+        var target = PackageHouseTargetContext.OwnerDefault();
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Realize);
+        var demand = new PackageHouseDemand.Exact(Coordinate);
+
+        var request = new PackageHouseRequest(
+            demand,
+            operation,
+            target,
+            PackageHouseAssetSelectionKind.LibraryPopulation);
+
+        Assert.Same(target, request.TargetContext);
+        Assert.Equal(
+            PackageHouseAssetSelectionKind.LibraryPopulation,
+            request.AssetSelection);
+        Assert.Throws<ArgumentException>(() =>
+            new PackageHouseRequest(
+                demand,
+                operation,
+                target,
+                PackageHouseAssetSelectionKind.LibraryPopulation,
+                implementationNames: ["Contoso.Json.dll"]));
     }
 
     [Fact]
@@ -207,6 +293,12 @@ public sealed class PackageHouseContractTests
         Assert.Throws<ArgumentException>(
             () => new PackageHouseContentNarrowing.TfmWide(
                 PackageHouseTargetContext.OwnerDefault()));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentNarrowing.TfmWide(
+                PackageHouseTargetContext.ExactTarget("net10.0")));
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseContentNarrowing.TfmWide(
+                PackageHouseTargetContext.FrozenTarget("net10.0")));
         Assert.Throws<ArgumentException>(
             () => new PackageHouseRequest(
                 new PackageHouseDemand.Exact(Coordinate),
@@ -1590,6 +1682,36 @@ public sealed class PackageHouseContractTests
         Assert.Equal(
             PackageCompileAssetSelectionPolicy.ExactTarget,
             receipt.Policy);
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseRealizationReceipt.Compile(
+                bundle.Acquisition,
+                receipt));
+    }
+
+    [Fact]
+    public void CompileReceiptRejectsDifferentCandidateEligibility()
+    {
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(Coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.FrozenTarget("net10.0"),
+            PackageHouseAssetSelectionKind.Compile);
+        IPackageContent content = Content(
+            "lib/net10.0/nested/Contoso.Json.dll");
+        AcquisitionBundle bundle = Acquisition(
+            request,
+            content.GenerationIdentity);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "contoso.json",
+                "net10.0");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExactTarget,
+            receipt.Policy);
+        Assert.False(receipt.IncludesNestedCompileAssets);
         Assert.Throws<ArgumentException>(
             () => new PackageHouseRealizationReceipt.Compile(
                 bundle.Acquisition,

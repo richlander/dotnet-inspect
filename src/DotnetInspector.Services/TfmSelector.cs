@@ -29,6 +29,8 @@ public static class TfmSelector
         RequestedLibraryNotFound,
         Ambiguous,
         NamesakeIdentityUnavailable,
+        NamesakeNotFound,
+        NamesakeAmbiguous,
     }
 
     public sealed record PackageLibraryResolution(
@@ -37,7 +39,8 @@ public static class TfmSelector
         PackageLibraryResolutionStatus Status,
         IReadOnlyList<string> CandidatePaths,
         IReadOnlyList<string>? IdentityFailurePaths = null,
-        FirstPackageLibraryReason? FirstLibraryReason = null)
+        FirstPackageLibraryReason? FirstLibraryReason = null,
+        string? PopulationPath = null)
     {
         public bool IsSelected => Status == PackageLibraryResolutionStatus.Selected && Paths.Count > 0;
     }
@@ -412,63 +415,6 @@ public static class TfmSelector
         return (selected, tfm);
     }
 
-    /// <summary>
-    /// The package-relative paths <see cref="SelectAssembliesByTfmFromPackage"/>
-    /// selects from an extraction of an archive that lists
-    /// <paramref name="entries"/>, computed from the archive directory
-    /// alone. Every <c>.dll</c> whose <c>lib</c>, <c>ref</c>, or <c>tools</c>
-    /// folder names <paramref name="tfm"/> is selected, less satellite
-    /// resource assemblies, so a package that ships both <c>ref/&lt;tfm&gt;</c>
-    /// and <c>lib/&lt;tfm&gt;</c> selects both.
-    /// </summary>
-    public static IReadOnlyList<string> SelectAssembliesByTfmFromEntries(
-        IEnumerable<string> entries,
-        string tfm)
-    {
-        ArgumentNullException.ThrowIfNull(entries);
-        ArgumentException.ThrowIfNullOrWhiteSpace(tfm);
-        StringComparison fileComparison = OperatingSystem.IsWindows()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-        var files = new HashSet<string>(
-            entries
-                .Select(static entry => entry.Replace('\\', '/'))
-                .Where(static entry => entry.Length > 0 && !entry.EndsWith('/')),
-            OperatingSystem.IsWindows()
-                ? StringComparer.OrdinalIgnoreCase
-                : StringComparer.Ordinal);
-        return
-        [
-            .. files
-                .Where(entry => entry.EndsWith(".dll", fileComparison))
-                .Where(entry => !IsSatelliteResourceEntry(entry, files))
-                .Where(entry => string.Equals(
-                    TfmResolver.ExtractTfmFromPath(entry),
-                    tfm,
-                    StringComparison.OrdinalIgnoreCase))
-                .Order(StringComparer.Ordinal),
-        ];
-    }
-
-    static bool IsSatelliteResourceEntry(string entry, HashSet<string> files)
-    {
-        string name = entry[(entry.LastIndexOf('/') + 1)..];
-        if (!name.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        int parentEnd = entry.LastIndexOf('/');
-        if (parentEnd < 0)
-            return false;
-        string parent = entry[..parentEnd];
-        int grandParentEnd = parent.LastIndexOf('/');
-        if (!IsCultureDirectoryName(parent[(grandParentEnd + 1)..]))
-            return false;
-
-        string primary = name[..^".resources.dll".Length] + ".dll";
-        return files.Contains(
-            grandParentEnd < 0 ? primary : $"{parent[..grandParentEnd]}/{primary}");
-    }
-
     public static (List<string> paths, string? tfm) SelectHighestAssemblies(List<string> dlls, string extractPath, string? tfm = null)
     {
         dlls = FilterResourceAssemblies(dlls);
@@ -552,8 +498,11 @@ public static class TfmSelector
         string extractPath,
         string packageId,
         string? requestedLibrary,
-        string? tfm = null)
+        string? tfm = null,
+        string? populationPath = null)
     {
+        populationPath ??=
+            GetPackageLibraryPopulationPath(candidates, extractPath);
         if (!string.IsNullOrWhiteSpace(requestedLibrary))
         {
             var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(
@@ -562,12 +511,18 @@ public static class TfmSelector
                 requestedLibrary,
                 tfm);
             return matchedAssembly != null
-                ? new PackageLibraryResolution([matchedAssembly], matchedTfm, PackageLibraryResolutionStatus.Selected, [matchedAssembly])
+                ? new PackageLibraryResolution(
+                    [matchedAssembly],
+                    matchedTfm,
+                    PackageLibraryResolutionStatus.Selected,
+                    [matchedAssembly],
+                    PopulationPath: populationPath)
                 : new PackageLibraryResolution(
                     [],
                     tfm,
                     PackageLibraryResolutionStatus.RequestedLibraryNotFound,
-                    candidates);
+                    candidates,
+                    PopulationPath: populationPath);
         }
 
         var identityFailures = new List<string>();
@@ -603,20 +558,31 @@ public static class TfmSelector
                 tfm,
                 PackageLibraryResolutionStatus.NamesakeIdentityUnavailable,
                 candidates,
-                identityFailures);
+                identityFailures,
+                PopulationPath: populationPath);
         }
 
-        return packageNameMatches.Count == 1
-            ? new PackageLibraryResolution(
+        return packageNameMatches.Count switch
+        {
+            1 => new PackageLibraryResolution(
                 [packageNameMatches[0]],
                 tfm,
                 PackageLibraryResolutionStatus.Selected,
-                candidates)
-            : new PackageLibraryResolution(
+                candidates,
+                PopulationPath: populationPath),
+            0 => new PackageLibraryResolution(
                 [],
                 tfm,
-                PackageLibraryResolutionStatus.Ambiguous,
-                candidates);
+                PackageLibraryResolutionStatus.NamesakeNotFound,
+                candidates,
+                PopulationPath: populationPath),
+            _ => new PackageLibraryResolution(
+                [],
+                tfm,
+                PackageLibraryResolutionStatus.NamesakeAmbiguous,
+                candidates,
+                PopulationPath: populationPath),
+        };
     }
 
     /// <summary>
@@ -631,8 +597,11 @@ public static class TfmSelector
         IReadOnlyList<string> candidates,
         string extractPath,
         string packageId,
-        string? tfm = null)
+        string? tfm = null,
+        string? populationPath = null)
     {
+        populationPath ??=
+            GetPackageLibraryPopulationPath(candidates, extractPath);
         var libraries = new List<PackageLibraryIdentity>();
         var unresolved = new List<string>();
         var paths = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -665,20 +634,58 @@ public static class TfmSelector
                     PackageLibraryResolutionStatus.Selected,
                     [.. selected.LibraryOrder.Select(
                         library => paths[library.AssetPath])],
-                    FirstLibraryReason: selected.Reason),
+                    FirstLibraryReason: selected.Reason,
+                    PopulationPath: populationPath),
             FirstPackageLibrarySelection.IdentityUnresolved failed =>
                 new PackageLibraryResolution(
                     [],
                     tfm,
                     PackageLibraryResolutionStatus.NamesakeIdentityUnavailable,
                     candidates,
-                    [.. failed.AssetPaths.Select(assetPath => paths[assetPath])]),
+                    [.. failed.AssetPaths.Select(assetPath => paths[assetPath])],
+                    PopulationPath: populationPath),
             _ => new PackageLibraryResolution(
                 [],
                 tfm,
                 PackageLibraryResolutionStatus.NoAssemblies,
-                candidates),
+                candidates,
+                PopulationPath: populationPath),
         };
+    }
+
+    private static string? GetPackageLibraryPopulationPath(
+        IReadOnlyList<string> candidates,
+        string extractPath)
+    {
+        string[][] directories =
+        [
+            .. candidates
+                .Select(path =>
+                    Path.GetRelativePath(extractPath, path)
+                        .Replace('\\', '/')
+                        .Split('/'))
+                .Where(segments => segments.Length > 1)
+                .Select(segments => segments[..^1]),
+        ];
+        if (directories.Length == 0)
+            return null;
+
+        int commonLength = directories.Min(static segments => segments.Length);
+        for (int index = 0; index < commonLength; index++)
+        {
+            if (directories.Skip(1).Any(segments =>
+                    !segments[index].Equals(
+                        directories[0][index],
+                        StringComparison.Ordinal)))
+            {
+                commonLength = index;
+                break;
+            }
+        }
+
+        return commonLength == 0
+            ? null
+            : $"{string.Join('/', directories[0][..commonLength])}/";
     }
 
     private static string? TryReadAssemblySimpleName(string path)
@@ -845,27 +852,9 @@ public static class TfmSelector
         return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
     }
 
-    /// <summary>
-    /// Every candidate that the exact Library request names, across all of
-    /// <paramref name="dlls"/>: the exact asset path when one matches, otherwise
-    /// every file whose name or bare name matches. A path-shaped request that
-    /// matches no exact asset yields no candidates.
-    /// </summary>
-    public static IReadOnlyList<string> FindAssembliesInPackage(
-        IReadOnlyList<string> dlls,
-        string extractPath,
-        string assemblyName)
-    {
-        var (exactMatch, matchingFiles) = MatchPackageAssemblies(
-            dlls,
-            extractPath,
-            assemblyName);
-        return exactMatch is not null ? [exactMatch] : matchingFiles;
-    }
-
-    // The exact Library request rule shared by the single and all-candidate
-    // searches: an exact asset path wins; otherwise a path-shaped request
-    // matches nothing, and a name matches by file name or bare name.
+    // The exact Library request rule: an exact asset path wins; otherwise a
+    // path-shaped request matches nothing, and a name matches by file name or
+    // bare name.
     private static (string? Exact, List<string> Named) MatchPackageAssemblies(
         IReadOnlyList<string> dlls,
         string extractPath,
@@ -882,9 +871,10 @@ public static class TfmSelector
         if (normalizedAssemblyName.Contains('/'))
             return (null, []);
 
-        var assemblyLeaf = Path.GetFileName(assemblyName);
+        string assemblyLeaf =
+            PackageEntryPath.GetLeafName(normalizedAssemblyName);
         var bareName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            ? Path.GetFileNameWithoutExtension(assemblyLeaf)
+            ? PackageEntryPath.GetStemName(assemblyLeaf)
             : assemblyLeaf;
         var fileName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
             ? assemblyLeaf

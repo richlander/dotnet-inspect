@@ -121,6 +121,66 @@ public class DiscoveryDocumentTests
     }
 
     [Fact]
+    public void Description_RoundTripsAndOmitsUndeclaredParts()
+    {
+        DiscoveryResourceIdentity described = Section("Top Leverage");
+        DiscoveryResourceIdentity undeclared = Section("References");
+        var document = new DiscoveryDocument(
+            "library",
+            [
+                new DiscoveryResource(
+                    described,
+                    description: new SectionDescription(
+                        "Members ranked by static reach.",
+                        "Compiled IL method bodies.",
+                        "No Member reaches another.")),
+                new DiscoveryResource(undeclared),
+            ],
+            [described, undeclared],
+            new DiscoverySelection(
+                isCatalog: true,
+                addressedResources: [],
+                rows: [described, undeclared]));
+
+        string json = JsonSerializer.Serialize(document);
+        DiscoveryDocument roundTrip =
+            JsonSerializer.Deserialize<DiscoveryDocument>(json)
+            ?? throw new InvalidOperationException(
+                "Expected Discovery Document round trip.");
+
+        Assert.Equal(
+            new SectionDescription(
+                "Members ranked by static reach.",
+                "Compiled IL method bodies.",
+                "No Member reaches another."),
+            roundTrip.GetResource(described).Description);
+        Assert.Null(roundTrip.GetResource(undeclared).Description);
+        Assert.DoesNotContain("Boundary", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Description_IsSectionOnlyAndRequiresItsParts()
+    {
+        var description = new SectionDescription("Summary.", "Basis.", "Empty.");
+        Assert.Throws<ArgumentException>(() =>
+            new DiscoveryResource(
+                Category("@Library"),
+                description: description));
+        Assert.Throws<ArgumentException>(() =>
+            new DiscoveryResource(
+                Item("References", "Name", "column"),
+                description: description));
+        Assert.Throws<ArgumentException>(() =>
+            new SectionDescription(" ", "Basis.", "Empty."));
+        Assert.Throws<ArgumentException>(() =>
+            new SectionDescription("Summary.", "", "Empty."));
+        Assert.Throws<ArgumentNullException>(() =>
+            new SectionDescription("Summary.", "Basis.", null!));
+        Assert.Throws<ArgumentException>(() =>
+            new SectionDescription("Summary.", "Basis.", "Empty.", " "));
+    }
+
+    [Fact]
     public void Constructor_AcceptsSharedSectionAcrossCategories()
     {
         DiscoveryResourceIdentity section = Section("References");

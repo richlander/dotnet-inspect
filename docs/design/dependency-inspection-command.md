@@ -19,9 +19,11 @@ implemented under
 sidecar delivery is implemented under
 [#7293](https://github.com/richlander/dotnet-inspect/issues/7293);
 Browser/Wasm adoption remains proposed.
-The explicit `Latest Versions` section is designed under
-[#9967](https://github.com/richlander/dotnet-inspect/issues/9967) and not yet
-implemented.
+The explicit `Latest Versions` section is implemented under
+[#9967](https://github.com/richlander/dotnet-inspect/issues/9967). The
+`Pruning` section's library pruning policy for
+application-authored declarations is implemented under
+[#9981](https://github.com/richlander/dotnet-inspect/issues/9981).
 
 ## Owner and claim
 
@@ -76,6 +78,9 @@ It consumes owner-issued facts and does not redefine their construction:
 - [Package House](package-house.md) owns the candidate-bound pruning
   applicability, policy result, receipt, and distinction between package
   retention and platform delegation.
+- [Platform/package pruning](platform-package-pruning.md) owns the exact
+  target prune inventory and the subsumption comparison of a requested
+  package version against it.
 - [Package Dependency Traversal](package-dependency-traversal.md) owns
   package-manifest graph identity, direct source boundaries, root-relative
   reachability, failures, and completion while preserving owner-issued
@@ -300,6 +305,12 @@ projects contribute every distinct package node in the selected
 resolved dependency node within the requested traversal boundary; explicit
 roots themselves are omitted. The license inventory then acquires only each
 coordinate's nuspec and never downloads or reads package payload content.
+It owns one monotonic inventory deadline and admits exact-manifest work in
+deterministic batches of eight. Each concurrent coordinate owns an independent
+Package Source operation clipped to the time remaining under that shared
+deadline; no operation admits overlapping source work. Completed rows remain
+ordered by coordinate, while coordinates not completed before the deadline
+retain typed incomplete-acquisition evidence.
 
 Current and latest dependency versions are another explicit projection:
 
@@ -783,7 +794,7 @@ The retail base section ladder is:
 | `Dependency Hierarchy` | One rooted dependency relationship occurrence. | Minimal |
 | `Dependencies` | One normalized direct declaration. | Normal when applicable |
 | `Licenses` | One distinct dependency package coordinate and its nuspec-derived semantic license answer. | Explicit only |
-| `Pruning` | One direct declaration's pruning applicability or candidate-bound policy result. | Explicit only |
+| `Pruning` | One direct declaration's pruning applicability, candidate-bound policy result, or restored-resolution policy result. | Explicit only |
 | `Latest Versions` | One direct declaration's current version and latest listed versions. | Explicit only |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
 
@@ -822,6 +833,12 @@ The section requires one base .NET `--tfm`. `--platform-family runtime` is the
 default; `--platform-family aspnetcore` selects the ASP.NET Core comparison
 inventory. The family is a disclosed policy comparison target, not a claim
 that an application activates that shared framework.
+
+Candidate-required declarations retain explicit source authorization and are
+resolved sequentially through one caller-owned Package Source operation. That
+operation carries caller cancellation and one absolute deadline across the
+complete pruning candidate schedule. Applicability outcomes that do not
+require a candidate perform no Package Source work.
 
 Root-set completion and the state of every requested phase are mandatory typed
 Content and remain present in unprojected JSON when the selected hierarchy or
@@ -1195,19 +1212,23 @@ Dependency Evidence:
 - one typed failure occurrence.
 
 `Pruning` composes one additional CLI row over those owner-issued currencies:
-one normalized direct declaration plus its PackageHouse pruning applicability
-or candidate-bound policy result. When a root has a selected declaration
-group, only that group's declarations participate. A post-processing root such
-as a restored project may report its earlier application-authored or already-
-processed outcome without manufacturing a selected package-manifest group.
+one normalized direct declaration plus its PackageHouse pruning applicability,
+candidate-bound policy result, or restored-resolution policy result. When a
+root has a selected declaration group, only that group's declarations
+participate. A post-processing root such as a restored project may report its
+already-processed outcome without manufacturing a selected package-manifest
+group; its application-authored declarations follow the
+[library pruning policy](#library-pruning-policy-for-application-authored-declarations).
 
 Candidate-free applicability runs before inventory or package-source work. It
 preserves application-authored exemption, unattributed authorship, unavailable
 or incomplete processing, runtime projection, and prior pruning evaluation as
 distinct outcomes. Only a package-manifest declaration that reaches
 `CandidateRequired` and whose root authorizes package-source candidate
-resolution proceeds to inventory and candidate acquisition. Direct nuspec and
-package-prefix roots remain source-bounded.
+resolution proceeds to inventory and candidate acquisition, except that an
+application-authored declaration continues under the
+[library pruning policy](#library-pruning-policy-for-application-authored-declarations).
+Direct nuspec and package-prefix roots remain source-bounded.
 
 The comparison uses one exact target-bound installed inventory per request.
 Candidate resolution remains declaration- and source-authorized. A policy
@@ -1251,6 +1272,35 @@ Human output may use document-stable occurrence numbers where an opaque typed
 identity would not be useful. Machine output retains the typed identity and
 association fields.
 
+### Library pruning policy for application-authored declarations
+
+`Pruning` answers whether a reference needs to exist before `Latest Versions`
+asks whether it should move. It assumes the consumer prunes, as libraries and
+packages do, so a direct reference that the target platform already supplies
+at that version or higher is reported as `PlatformDelegation` with reason
+`ApplicationAuthored`, even when the application authored it. The guidance that
+follows is removal, not upgrade: upgrading such a reference past the platform's
+version gives up pruning and gains nothing.
+
+For example, a restored `net10.0` application that references
+`System.Text.Json` 8.0.5 reports `PlatformDelegation`, because the platform
+supplies a higher version. The same reference at 12.0.0 reports
+`PackageRetained`.
+
+The policy judges the version the project's restore resolved, so it needs no
+package-source work, and it changes only the section's report. These
+`PlatformDelegation` rows carry no PackageHouse delegation receipt.
+PackageHouse's application-authored exemption from graph delegation, its
+precedence, and the graph itself are unchanged. The policy never delegates on missing or partial
+evidence: a declaration without a restored version, or a restored graph whose
+processing is incomplete, keeps its existing `NotEvaluated` outcome, and an
+uncertain comparison retains the package.
+
+The section does not model behavior specific to applications, such as NuGet
+keeping a direct reference in restore with warning `NU1510`, or the SDK binding
+the framework copy at runtime. An agent that needs those answers observes them
+by running restore and build.
+
 ### Latest Versions
 
 `Latest Versions` composes one CLI row per normalized direct declaration of an
@@ -1290,11 +1340,15 @@ prerelease policy excludes prereleases unless Current is a prerelease. The
 Package Version Service always discovers for that request and fails visibly
 rather than serving a prior settlement, so the receipt is discovery-backed and
 retains its complete discovery result. Latest is the request's resolved
-coordinate. Latest In Major and Majors Behind are derived from the same
-result's admitted listed observations under the same prerelease policy, so all
-three values describe one candidate population, and Current need not be a
-member of it. When Latest does not exceed Current, Behind is `None` and Majors
+coordinate. Latest In Major and Majors Behind come from the House's
+latest-per-major projection of the same result's admitted population, the
+projection `diff` history also uses, so all three values describe one
+candidate population, and Current need not be a member of it. When Latest does not exceed Current, Behind is `None` and Majors
 Behind is zero.
+
+PackageHouse makes every version and framework choice this section reports;
+the section compares and labels the House's answers and never selects a
+version or a compile slice itself.
 
 Latest Compatible answers one question about one version: can Latest be
 consumed by the Compatibility Target? The target is the request's traversal
@@ -1302,18 +1356,20 @@ target framework policy described in
 [Target framework and restored target selection](#target-framework-and-restored-target-selection):
 the supplied `--tfm`, otherwise `TraversalTargetFrameworkPolicy.ProductDefault`
 (`net11.0`). A project whose framework differs supplies it with `--tfm`. The
-answer is PackageHouse's package-local compile selection, specified by
+answer is one PackageHouse target-framework content query over Latest's exact
+coordinate, so the House's package-local compile selection, specified by
 [Package asset-selection correspondence](package-asset-selection-correspondence.md),
-evaluated for the target over Latest's validated archive directory. A selected
-compile slice, including a selected explicit empty reference group, is `Yes`; a
-typed no-match against a non-empty slice inventory is `No`; and an empty slice
-inventory, as in a dependency-only or tools package, is `NoAssets` rather than
-an incompatibility claim. The directory is acquired directory-only under the
-shared [package cache policy](package-cache-policy.md), once per distinct
-Latest coordinate, without extracting entry bodies. An acquisition or selection
-failure reports `Unavailable` and adds a typed `Failures` occurrence without
-changing the row's discovery State. Rows without a Latest leave the field
-empty.
+decides compatibility. A target the House settles, including through an
+explicit empty reference group, is `Yes`; the House's no-match for the target
+framework is `No`; and the House's report that the package has no compile
+assets, as for a dependency-only or tools package, is `NoAssets` rather than an
+incompatibility claim. Any other outcome is `Unavailable` and adds a typed
+`Failures` occurrence without changing the row's discovery State. The query
+asks only for the archive's entry inventory, so the House reads the archive
+directory where the source supports ranged reads and publishes no entry
+content. It runs once per distinct Latest coordinate under the shared
+[package cache policy](package-cache-policy.md). Rows without a Latest leave
+the field empty.
 
 Latest Compatible never selects a different version. Current, Latest, and
 Latest Compatible are reported together because Latest alone hides whether the
@@ -1798,16 +1854,19 @@ targeted Debug-build probe.
 | Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting `Dependencies` without `Dependency Hierarchy`. |
 | License completion includes root-set admission and treats an explicit depth boundary as a successful bounded inventory. | Release CLI tests combining one valid and one missing nuspec root, plus a depth-one direct-nuspec graph with a known deeper frontier. |
 | License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
+| License inventory admits at most eight independent Package Source operations, clips later batches to one absolute deadline, stops new batches after expiry, and never converts caller cancellation into an outcome. | `InventoryUsesEightIndependentConcurrentOperations`, `InventoryLaterBatchesUseTheSharedDeadline`, `InventoryDoesNotStartAnotherBatchAfterDeadline`, and `InventoryCallerCancellationDoesNotPublishOutcome`. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
-| Candidate-free pruning outcomes perform no inventory or candidate work. | Restored-project application-authorship and direct-nuspec source-boundary tests with throwing producers. |
+| Candidate-required pruning declarations resolve sequentially through one caller-owned Package Source operation; its absolute deadline stops later source authorization, caller cancellation publishes no outcome, and candidate-free applicability performs no source work. | `ExecuteAsync_OperationDeadlineKeepsIncompletionTypedAndStopsLaterSubjects`, `ExecuteAsync_CallerCancellationDoesNotPublishOutcome`, and the direct-nuspec and application-authored pruning gates. |
+| Candidate-free applicability outcomes other than the restored-resolution policy result perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
+| Application-authored declarations use the library pruning policy without package-source work and never delegate on missing or partial evidence. | Restored `net10.0` application fixtures with a throwing package-source producer and one instrumented inventory read: `System.Text.Json` 8.0.5 is `PlatformDelegation` with `ApplicationAuthored`; 12.0.0 is `PackageRetained` with `ApplicationAuthored`; a declaration without a restored resolution and an incomplete restored graph each stay `NotEvaluated` with `ApplicationAuthoredExemption`, add no failure, and leave exit status unchanged; summary counts treat compared rows as evaluated and delegated or retained. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
 | Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
-| `Latest Versions` is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery tests, plus an instrumented source test proving `Dependencies` alone performs no version discovery. |
+| `Latest Versions` is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery tests, plus a counted feed proving `Dependencies` alone issues no version-index request. |
 | `Latest Versions` reports `Resolved` only from owner-issued restored associations and `LowerBound` otherwise. | Restored-project and package-root fixtures declaring the same constraint, including an unlisted lower bound, asserting Current and Current Basis, and an open-lower-bound `NoCurrentVersion` row. |
-| Latest, Latest In Major, Behind, and Majors Behind derive from one discovery result. | Fixed version-index fixture spanning several majors, a four-part revision, and prereleases, with stable and prerelease Current values, asserting every field, each Behind value, and exactly one discovery per package identity and prerelease policy across duplicate declarations. |
+| Latest, Latest In Major, Behind, and Majors Behind derive from one discovery result and the House's latest-per-major projection. | Fixed version-index fixture spanning several majors, a four-part revision, and prereleases, with stable and prerelease Current values, asserting every field, each Behind value, and a counted feed asserting exactly one version-index request per package identity and prerelease policy across duplicate declarations. |
 | Discovery failure stays visible per package. | Version-service fixtures for unauthorized, not-found, and incomplete discovery, asserting `DiscoveryFailed`, `Failures`, sibling rows, nonzero status, and exact-count rejection; a prerelease-only package with stable Current asserting `NoListedVersion` without a failure; an `--offline` request asserting an ordinary operation failure before discovery; and a package-prefix request asserting rejection before acquisition. |
-| Latest Compatible evaluates only Latest against the traversal target. | Fixtures whose Latest drops the target (`No`, Latest unchanged), keeps it (`Yes`), selects an explicit empty reference group (`Yes`), has no compile slices (`NoAssets`), and fails directory acquisition (`Unavailable`, `Failures`, State unchanged, exact-count rejection); an omitted `--tfm` asserting Compatibility Target `net11.0`; and an instrumented source test asserting exactly one directory-only read per distinct Latest coordinate and no entry-body extraction. |
+| Latest Compatible evaluates only Latest against the traversal target. | Fixtures whose Latest drops the target (`No`, Latest unchanged), keeps it (`Yes`), selects an explicit empty reference group (`Yes`), has no compile assets (`NoAssets`), and fails acquisition (`Unavailable`, `Failures`, State unchanged, exact-count rejection); an omitted `--tfm` asserting Compatibility Target `net11.0`; and a ranged-feed fixture asserting exactly one archive-directory read per distinct Latest coordinate and no entry-content request. |
 | A local `.nupkg` root consumes source options for `Latest Versions`. | Release CLI test selecting only `Latest Versions` over a local package with a local feed source. |
 | Multi-root depth is preserved per root occurrence rather than by one global distance. | Cyclic DAG fixture in which one shared node is reached at different depths from two roots. |
 | A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress either root's occurrence rows. | Depth-asymmetric two-root fixture run in both root orders, asserting independent per-root expansion and equal tree/table/JSON/count cardinality. |
@@ -1834,6 +1893,8 @@ This design does not:
 - add automatic restore, build, project evaluation, or package mutation;
 - apply pruning to dependency graph edges or claim that PackageHouse or
   PlatformHouse execution occurred;
+- replicate NuGet's direct-reference restore exemption (`NU1510`) or the SDK's
+  build-time conflict resolution in the `Pruning` section;
 - report latest versions for transitive dependencies, report publication
   dates, find the newest version compatible with a target framework, classify
   build-only asset scope, or recommend upgrades from `Latest Versions`;
