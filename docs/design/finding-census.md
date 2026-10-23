@@ -115,9 +115,11 @@ image, on token numbers, or on row order is not canonical, as Finding Diff Any's
 [Identity](finding-diff-any.md#identity) rules state for keys.
 
 **Laziness** is per kind and stated, not assumed. An IL cursor decodes one
-instruction per advance and resolves one operand per advance, memoized per
-side. It needs one lookahead: a branch or switch target is an instruction
-index, and a forward target's index is unknown until the decoder reaches it, so
+instruction per advance and resolves one operand per advance, memoized by its
+side (`IlCensusSide`, one per image under one policy) for the side's life;
+Finding Diff Any's walk keeps member rows per unit instead. It needs one
+lookahead: a branch or switch target is an instruction index, and a forward
+target's index is unknown until the decoder reaches it, so
 the cursor runs a boundary pre-scan over the body, which decodes lengths and
 resolves nothing, before it yields its first atom. That is the one non-lazy
 step, and it is the instruction map canonical comparison already builds to
@@ -166,8 +168,10 @@ self-delimiting, never a decoded and formatted name, so two names whose bytes
 differ but decode alike stay distinct, as Finding Diff Any's
 [Identity](finding-diff-any.md#identity) requires. The cursor yields the bytes,
 lockstep compares the bytes, and only sealing for Exhaustive builds the key
-string. A cursor that yields a record with display text would pay for every
-operation what a view pays only for the operations it shows, which the
+string and projects the operand's text, since a sealed census is retained and
+may be shown after its side's reader is gone, and a side formats each distinct
+operand once. A cursor that yields a record with display text would pay for
+every operation what a view pays only for the operations it shows, which the
 measurement gate below catches.
 
 **Terminals** are the inspection outcomes of Finding nomenclature, reached in
@@ -461,12 +465,20 @@ test class gates its cursor:
      and cost gates measure that clause stage. The atom's operand identity
      is still the formatted identity of `IlFindings`, so the identity gate
      waits for 1b.
-   - **1b** ([#10476](https://github.com/richlander/dotnet-inspect/issues/10476)):
-     the atom's operand identity becomes the shared Symbol Key under the
-     policy ([Symbol Key](symbol-key.md) step 5 placed it in
-     `ILInspector.MetadataPrimitives`, below both `ILInspector.Metadata` and
-     `ILInspector.ILDiff`, with Finding Diff Any as its first adopter); gated
-     by identity. It depends on the Body policy's normalization
+   - **1b, landed as `IlCensusSide`**
+     ([#10476](https://github.com/richlander/dotnet-inspect/issues/10476)):
+     the atom's operand identity is the shared Symbol Key under the policy,
+     spelled by the one speller of metadata rows ([Symbol
+     Key](symbol-key.md#metadata-rows), placed in
+     `ILInspector.MetadataPrimitives` below both `ILInspector.Metadata` and
+     `ILInspector.ILDiff`, with Finding Diff Any as its first adopter) into
+     one side per image, memoized for the side's life, and compared as
+     bytes; the formatted text is a projection a view reads. Gated by
+     identity: over the identity images, callees whose formatted spellings
+     coincide (member names with separators, a namespace against a dotted
+     name, ill-formed names that decode alike) yield atoms that differ, and
+     the cursor's bytes are Finding Diff Any's for every operand row of a
+     real image. It depends on the Body policy's normalization
      ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
 2. **Exists over cursors.** Domain-free lockstep in `Inspector.Findings`, run
    beside Finding Diff Any's walk for every method of the fixture pairs under

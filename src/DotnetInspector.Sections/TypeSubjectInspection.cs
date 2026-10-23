@@ -205,6 +205,29 @@ public sealed record TypeSubject
     // fields, so a field filled on first read would make otherwise equal copies differ.
     private readonly LazyContainedName? _matchedName;
 
+    /// <summary>
+    /// The byte-native generic-parameter declarations behind <see cref="Signature"/>.
+    /// </summary>
+    /// <remarks>
+    /// Absent for a deserialized subject, which carries only the contained
+    /// <see cref="Signature"/> names.
+    /// </remarks>
+    [JsonIgnore]
+    public MetadataTypeDeclarationSignature? DeclarationSignature { get; internal init; }
+
+    /// <summary>
+    /// Contains the matched name for display, without each segment's canonical arity suffix.
+    /// </summary>
+    /// <returns>
+    /// The display name, or <see langword="null"/> when the subject carries no byte-native
+    /// identity or declarations.
+    /// </returns>
+    public MetadataContainedTypeDefinitionName? ContainDisplayType() =>
+        _matchedName is { } matched
+            && DeclarationSignature is { } signature
+            ? matched.Name.ContainDisplay(TextPolicy.Field, signature)
+            : null;
+
     public int TypeDefinitionToken { get; }
     public TypeDocumentDeclarationSignature Signature { get; }
     public MetadataTypeDeclarationCategory Category { get; }

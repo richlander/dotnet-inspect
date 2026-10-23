@@ -5,6 +5,7 @@ using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
@@ -497,6 +498,64 @@ public sealed class AssemblyContextCallCensusQueryTests
             Assert.Single(document.Relations);
             Assert.Single(document.Occurrences);
             Assert.Equal(2, document.Annotations.Length);
+            AnnotatedTypeRelationsCallInspectionResult.Available inspection =
+                Assert.IsType<
+                    AnnotatedTypeRelationsCallInspectionResult.Available>(
+                        AnnotatedTypeRelationsCallInspection.Execute(
+                            context.Group,
+                            caller.Registration,
+                            focusType,
+                            population,
+                            new(
+                                focus,
+                                AnnotatedTypeRelationsFamilySelection
+                                    .AllApplicable,
+                                SubjectRelationDirectionSelection.Outgoing,
+                                [
+                                    CompatibilityInspectionGraphCatalog
+                                        .RequiresUnreferencedCode.Id,
+                                    dynamicColor.Id,
+                                    filesColor.Id,
+                                ],
+                                [dynamicColor.Id, filesColor.Id],
+                                AnnotatedTypeRelationsTerminal.Rows),
+                            TestContext.Current.CancellationToken));
+            Assert.Equal(
+                document.Relations,
+                inspection.Inspection.Content.Relations);
+            Assert.Equal(
+                document.Occurrences,
+                inspection.Inspection.Content.Occurrences);
+            Assert.Equal(
+                document.Annotations,
+                inspection.Inspection.Content.Annotations);
+            using (var json = new MemoryStream())
+            {
+                using (var writer = new Utf8JsonWriter(json))
+                {
+                    AnnotatedTypeRelationsJson.Write(
+                        writer,
+                        inspection.Inspection.Content);
+                }
+
+                using JsonDocument parsed =
+                    JsonDocument.Parse(json.ToArray());
+                JsonElement root = parsed.RootElement;
+                Assert.Equal(
+                    "call",
+                    root.GetProperty("selection")
+                        .GetProperty("relationships")[0]
+                        .GetString());
+                Assert.Equal(
+                    "FocusedCallSite",
+                    root.GetProperty("occurrences")[0]
+                        .GetProperty("evidence")
+                        .GetProperty("kind")
+                        .GetString());
+                Assert.Equal(
+                    document.Annotations.Length,
+                    root.GetProperty("annotations").GetArrayLength());
+            }
 
             AnnotatedTypeRelationsContribution count =
                 AnnotatedTypeRelationsCallAdoption.Count(request);

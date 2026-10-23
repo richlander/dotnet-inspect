@@ -32,6 +32,7 @@ test("package hierarchy graph keeps repeated occurrences and bounds the preview"
   ];
   const graph = buildPackageHierarchyGraphMermaid({
     package: "Root", version: "1.0.0", framework: "net10.0",
+    traversalFramework: "net11.0",
     isComplete: false, completion: "Partial", rows, failures: [],
   });
   assert.ok(graph);

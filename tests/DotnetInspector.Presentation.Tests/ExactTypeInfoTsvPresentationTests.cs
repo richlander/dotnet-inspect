@@ -72,6 +72,74 @@ public class ExactTypeInfoTsvPresentationTests
             Encoding.UTF8.GetString(output.WrittenSpan));
     }
 
+    [Fact]
+    public void Write_SpellsGenericParametersBySegment()
+    {
+        var document = new ExactTypeInfoTsvDocument(
+            Contained("Example", "Outer", "Inner"),
+            "interface",
+            [],
+            0,
+            "Example.dll",
+            "Library")
+        {
+            TypeParameters =
+            [
+                new("out", Name("T"), ["allows ref struct"]),
+                new(null, Name("U"), []),
+                new(null, Name("V"), ["class?", "new()"]),
+            ],
+            IntroducedTypeParameterCounts = [1, 2],
+        };
+        var output = new ArrayBufferWriter<byte>();
+
+        ExactTypeInfoTsvPresentation.Write(
+            output,
+            document,
+            showHeader: false);
+
+        Assert.Equal(
+            """
+            Type	Example.Outer<T>.Inner<U, V>
+            Kind	interface
+            Type Parameters	out T : allows ref struct, U, V : class?, new()
+            Library	Example.dll
+            Source	Library
+
+            """,
+            Encoding.UTF8.GetString(output.WrittenSpan));
+    }
+
+    [Theory]
+    [InlineData(new int[0])]
+    [InlineData(new[] { 1 })]
+    [InlineData(new[] { 0, 2 })]
+    [InlineData(new[] { -1, 2 })]
+    public void Write_RejectsCountsThatDoNotCoverTheParameters(
+        int[] counts)
+    {
+        var document = new ExactTypeInfoTsvDocument(
+            Contained("Example", "Outer", "Inner"),
+            "class",
+            [],
+            0,
+            "Example.dll",
+            "Library")
+        {
+            TypeParameters = [new(null, Name("T"), [])],
+            IntroducedTypeParameterCounts = counts,
+        };
+
+        Assert.ThrowsAny<ArgumentException>(
+            () => ExactTypeInfoTsvPresentation.Write(
+                new ArrayBufferWriter<byte>(),
+                document,
+                showHeader: false));
+    }
+
+    private static InertUtf8String Name(string value) =>
+        Contained("N", value).Segments[0];
+
     private static MetadataContainedTypeDefinitionName Contained(
         string @namespace,
         params string[] segments)

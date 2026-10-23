@@ -2842,11 +2842,11 @@ async function installRetainedWorkspacePosting(
   state.errorTitle = "";
   state.errorDetail = "";
   state.retryAction = null;
-  publishRetainedLocationAssociation(
+  if (!publishRetainedLocationAssociation(
     posting,
     locationIntent,
     browserRestoration,
-  );
+  )) return;
   if (renderAfterInstall) render({ synchronizeUrl: false });
 }
 
@@ -2854,7 +2854,7 @@ function publishRetainedLocationAssociation(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
   browserRestoration?: "exact" | "changed",
-): void {
+): boolean {
   activeWorkspaceUrl = posting.canonicalLocation;
   const association: InstalledLocationAssociation = {
     identity: Symbol(posting.retainedDefinitionId),
@@ -2873,7 +2873,7 @@ function publishRetainedLocationAssociation(
   });
   if (effect.kind === "none" && effect.reason === "stale") {
     installedRetainedLocation = association;
-    return;
+    return false;
   }
   let published: boolean;
   try {
@@ -2890,6 +2890,7 @@ function publishRetainedLocationAssociation(
     );
   }
   installedRetainedLocation = association;
+  return true;
 }
 
 function completeRetainedActivationPresentation(
@@ -11618,15 +11619,21 @@ function renderPackageDependencies() {
     packageDependenciesStatus(data, selectedGroupIndex));
 }
 
-function packageHierarchySignature() {
-  const pkg = currentPackage();
-  return `${pkg.id}@${pkg.version}/${packageHierarchyTargetFramework(pkg)}`;
+function workspaceTraversalTargetFramework(): string | null {
+  return activeRetainedWorkspacePosting?.definition.traversalTargetFramework
+    ?? state.workspaceShareBasis?.traversalTargetFramework
+    ?? null;
 }
 
-function packageHierarchyTargetFramework(pkg: AppPackage): string {
-  return hierarchyShareTargetFramework(
-    state.workspaceShareBasis, pkg, state.packageLens)
-    ?? pkg.activeFramework;
+function packageHierarchySignature() {
+  const pkg = currentPackage();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}/${packageHierarchyTargetFramework(pkg) ?? "product-default"}`;
+}
+
+function packageHierarchyTargetFramework(pkg: AppPackage): string | null {
+  return workspaceTraversalTargetFramework()
+    ?? hierarchyShareTargetFramework(
+      state.workspaceShareBasis, pkg, state.packageLens);
 }
 
 function renderPackageHierarchy() {
@@ -12265,6 +12272,8 @@ function maybeAutoLoadPackageHierarchy() {
     || state.packageLens !== "hierarchy"
     || state.package?.source.kind !== "nuget.org") return;
   const pkg = currentPackage();
+  const rootFramework = pkg.activeFramework;
+  const traversalFramework = packageHierarchyTargetFramework(pkg);
   const key = packageHierarchySignature();
   if (state.packageHierarchyKey === key) {
     if (state.packageHierarchy)
@@ -12278,7 +12287,7 @@ function maybeAutoLoadPackageHierarchy() {
   observeAsync((async () => {
     try {
       const hierarchy = await inspectPackageHierarchy(
-        pkg.id, pkg.version, packageHierarchyTargetFramework(pkg));
+        pkg.id, pkg.version, rootFramework, traversalFramework);
       if (state.packageHierarchyKey === key) state.packageHierarchy = hierarchy;
     } catch (error) {
       if (state.packageHierarchyKey === key)
@@ -18366,9 +18375,7 @@ BrowserWorkspaceShareState["tabs"] {
     kind: pkg.isRuntimePack ? "group" : "package",
     source: pkg.isRuntimePack ? ":Platform" : pkg.id,
     version: pkg.version || null,
-    framework: (hierarchyShareTargetFramework(
-      state.workspaceShareBasis, pkg, state.packageLens)
-      ?? pkg.activeFramework) || null,
+    framework: pkg.activeFramework || null,
     runtimeIdentifier: pkg.runtimeIdentifier ?? null,
   }));
   if (state.platformSelection && !tabs.some(tab => tab.kind === "group" && tab.source === ":Platform")) {
@@ -18446,14 +18453,14 @@ function activeShareTabIndex(
   tabs: BrowserWorkspaceShareState["tabs"],
   resolvedTabs = tabs,
 ) {
-  const packageFramework = state.package
-    ? packageHierarchyTargetFramework(state.package)
-    : null;
+  const packageFramework = state.package?.activeFramework;
   return state.rootKind === "platform"
     ? tabs.findIndex(tab => tab.kind === "group" && tab.source === ":Platform")
     : resolvedTabs.findIndex(tab => tab.kind === "package" && tab.source === state.package?.id
       && tab.version === state.package?.version
-      && tab.framework === (packageFramework ?? state.package?.activeFramework));
+      && tab.framework === (packageFramework ?? state.package?.activeFramework)
+      && (tab.runtimeIdentifier ?? null)
+        === (state.package?.runtimeIdentifier ?? null));
 }
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
@@ -18570,6 +18577,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     contexts,
     activeTabId: activeTab.id,
     selectedContextId,
+    traversalTargetFramework: workspaceTraversalTargetFramework(),
     analysisMode: librarySubjectOpen && state.libraryLens === "analysis"
       ? state.analysisMode
       : null,
@@ -18655,6 +18663,7 @@ async function captureSavedWorkspacePacket(): Promise<string> {
     activeTabId: snapshot.activeTabId,
     selectedContextId: snapshot.selectedContextId,
     view: snapshot.view,
+    traversalTargetFramework: snapshot.traversalTargetFramework ?? null,
   });
   if (!captured.succeeded || !captured.packet) {
     throw new Error(
@@ -24883,7 +24892,7 @@ function graphExplorerTarget() {
       role: "dependency" as const,
       kind: hierarchy ? "Dependency hierarchy" : "Dependency graph",
       subject: packageCoordinateLabel(pkg),
-      context: `Target framework ${hierarchy ? packageHierarchyTargetFramework(pkg) : pkg.activeFramework}`,
+      context: `Target framework ${hierarchy ? state.packageHierarchy?.traversalFramework ?? packageHierarchyTargetFramework(pkg) ?? "product default" : pkg.activeFramework}`,
       summary: hierarchy ? "occurrences from root to leaves" : DEPENDENCY_GRAPH_SUMMARY,
       content,
       invoker,
@@ -27258,11 +27267,11 @@ async function installMethodsHomeDemoPosting(
     return false;
   }
   installRetainedWorkspaceModels(posting, models, null, false);
-  publishRetainedLocationAssociation(
+  if (!publishRetainedLocationAssociation(
     posting,
     locationIntent,
     browserRestoration,
-  );
+  )) return false;
   applyMethodsHomeDemoSelection(demo);
   return true;
 }
@@ -27297,6 +27306,7 @@ function retainPackageHomeDemoShareBasis(
     contexts: topology.contexts,
     activeTabId: activeTab.id,
     selectedContextId: topology.selectedContextId,
+    traversalTargetFramework: null,
     view: {
       lens: "api",
       type: selection.type.id,
@@ -27529,6 +27539,7 @@ async function restoreWorkspaceFromLocation(
     id: loc.package,
     version: loc.version || "latest",
     framework: loc.framework || "",
+    runtimeIdentifier: loc.tabs[loc.active]?.runtimeIdentifier ?? null,
     ...(loc.shareState ? {
       shareKind: loc.rootKind === "platform" ? "group" as const : "package" as const,
       shareSource: loc.rootKind === "platform" ? ":Platform" : "nuget.org",
@@ -27544,6 +27555,7 @@ async function restoreWorkspaceFromLocation(
     activeFramework?: string;
     shareKind?: "package" | "group";
     shareSource?: string;
+    runtimeIdentifier?: string | null;
     source?: AppPackage["source"];
   };
   const platformCoordinate = (coordinate: RestorableCoordinate) =>
@@ -27562,7 +27574,9 @@ async function restoreWorkspaceFromLocation(
         && matchesFramework(tab)
       : (!platformCoordinate(target) && tab.id.toLowerCase() === target.id.toLowerCase()
         && tab.version.toLowerCase() === target.version.toLowerCase()
-        && matchesFramework(tab));
+        && matchesFramework(tab)
+        && (tab.runtimeIdentifier ?? null)
+          === (target.runtimeIdentifier ?? null));
   if (!tabs.some(matchesTarget)) {
     if (tabs.length === MAX_WORKSPACE_PACKAGES) {
       tabs.pop();

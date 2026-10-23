@@ -259,6 +259,155 @@ public sealed class FindingDiffAnyMetadataSafetyTests
         return image;
     }
 
+    // ECMA-335 II.22.28 forbids a MethodSemantics row that names a method of
+    // another Type; the reader hands it over, and the comparison tolerates it as
+    // a spelled accessor rather than failing. The row is resolved before the
+    // property fact opens, so the member key it needs is not built inside it.
+    [Fact]
+    public void PropertyAccessorOfAnotherType_ComparesWithoutFailing()
+    {
+        byte[] image = ForeignAccessorImage();
+        FindingDiffAnyResult result = Compare(image);
+        FindingDiffAnyTypeState holder = Assert.Single(result.Types, type => type.FullName == "N.Holder");
+        Assert.Equal(FindingDiffAnyState.Unchanged, holder.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, holder.Body);
+        FindingDiffAnyTypeState owner = Assert.Single(result.Types, type => type.FullName == "N.Owner");
+        Assert.Equal(FindingDiffAnyState.Unchanged, owner.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, owner.Body);
+    }
+
+    // ECMA-335 II.23.2.7 lets a custom modifier name a TypeSpec row, the one
+    // place the reader admits one inside a signature. A composite over such a
+    // row resolves it before the composite's scratch key opens, so one spelling
+    // never opens two scratch keys.
+    [Fact]
+    public void ModifierOverAGenericInstanceTypeSpecification_ComparesWithoutFailing()
+    {
+        byte[] image = TypeSpecInSignatureImage();
+        FindingDiffAnyResult result = Compare(image);
+        FindingDiffAnyTypeState type = Assert.Single(result.Types, type => type.FullName == "N.Holder");
+        Assert.Equal(FindingDiffAnyState.Unchanged, type.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, type.Body);
+    }
+
+    // N.Holder declares abstract void Take(int32 modreq(List`1<int32>) p):
+    // the parameter is CMOD_REQD <TypeSpec row> I4, where the TypeSpec row is
+    // GENERICINST CLASS <TypeRef List`1> 1 I4.
+    static byte[] TypeSpecInSignatureImage()
+    {
+        MetadataBuilder metadata = CreateMetadata();
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"), new Version(11, 0), default, default, default, default);
+        var list = metadata.AddTypeReference(
+            runtime, metadata.GetOrAddString("System.Collections.Generic"), metadata.GetOrAddString("List`1"));
+        var specBlob = new BlobBuilder();
+        specBlob.WriteByte(0x15);
+        specBlob.WriteByte(0x12);
+        specBlob.WriteCompressedInteger((MetadataTokens.GetRowNumber(list) << 2) | 1);
+        specBlob.WriteCompressedInteger(1);
+        specBlob.WriteByte(0x08);
+        var spec = metadata.AddTypeSpecification(metadata.GetOrAddBlob(specBlob));
+        int encoded = (MetadataTokens.GetRowNumber(spec) << 2) | 2;
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x1F);
+        signature.WriteCompressedInteger(encoded);
+        signature.WriteByte(0x08);
+        var method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Take"),
+            metadata.GetOrAddBlob(signature),
+            -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Holder"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        return Serialize(metadata);
+    }
+
+    // A property's signature is decoded by the speller and embedded by Finding
+    // Diff Any; a Type the signature names and nothing else has named is spelled
+    // during that embed, and a composite later in the signature must survive it.
+    [Fact]
+    public void PropertyNamingAnUnseenTypeBeforeAComposite_ComparesWithoutFailing()
+    {
+        byte[] image = UnseenTypeThenCompositePropertyImage();
+        FindingDiffAnyResult result = Compare(image);
+        FindingDiffAnyTypeState type = Assert.Single(result.Types, type => type.FullName == "N.Holder");
+        Assert.Equal(FindingDiffAnyState.Unchanged, type.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, type.Body);
+    }
+
+    // N.Holder declares an accessor-less property int32[] P(O.Foo), where O.Foo
+    // is a Type reference no other row names: PROPERTY|HASTHIS, 1, SZARRAY I4,
+    // CLASS <TypeRef Foo>.
+    static byte[] UnseenTypeThenCompositePropertyImage()
+    {
+        MetadataBuilder metadata = CreateMetadata();
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"), new Version(1, 0), default, default, default, default);
+        var foo = metadata.AddTypeReference(runtime, metadata.GetOrAddString("O"), metadata.GetOrAddString("Foo"));
+        var holder = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Holder"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x28);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x1D);
+        signature.WriteByte(0x08);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger((MetadataTokens.GetRowNumber(foo) << 2) | 1);
+        var property = metadata.AddProperty(PropertyAttributes.None, metadata.GetOrAddString("P"), metadata.GetOrAddBlob(signature));
+        metadata.AddPropertyMap(holder, property);
+        return Serialize(metadata);
+    }
+
+    // N.Owner declares abstract int Get(); N.Holder declares property P whose
+    // getter row names Owner.Get.
+    static byte[] ForeignAccessorImage()
+    {
+        MetadataBuilder metadata = CreateMetadata();
+        var getter = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Get"),
+            metadata.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x08 }),
+            -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            getter);
+        var holder = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Holder"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        var property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("P"),
+            metadata.GetOrAddBlob(new byte[] { 0x28, 0x00, 0x08 }));
+        metadata.AddPropertyMap(holder, property);
+        metadata.AddMethodSemantics(property, MethodSemanticsAttributes.Getter, getter);
+        return Serialize(metadata);
+    }
+
     static MetadataBuilder CreateMetadata()
     {
         var metadata = new MetadataBuilder();

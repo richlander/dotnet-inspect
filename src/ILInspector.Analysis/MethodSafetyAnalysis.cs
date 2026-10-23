@@ -133,7 +133,10 @@ internal static class MethodSafetyAnalysis
                             context.Method,
                             offset,
                             UnsafetyKind.CallIndirect,
-                            calliReturnDetail(token)));
+                            calliReturnDetail(token))
+                        {
+                            InLoop = context.IsInLoopRegion(offset),
+                        });
                         stack.Clear();
                         break;
                     }
@@ -144,7 +147,10 @@ internal static class MethodSafetyAnalysis
                             context.Method,
                             offset,
                             UnsafetyKind.StackAlloc,
-                            "byte*"));
+                            "byte*")
+                        {
+                            InLoop = context.IsInLoopRegion(offset),
+                        });
                         break;
                     case ILOpCode.Ldind_i1:
                     case ILOpCode.Ldind_u1:
@@ -165,7 +171,10 @@ internal static class MethodSafetyAnalysis
                                 context.Method,
                                 offset,
                                 UnsafetyKind.Deref,
-                                IndirectTypeDetail(operation)));
+                                IndirectTypeDetail(operation))
+                        {
+                            InLoop = context.IsInLoopRegion(offset),
+                        });
                         }
                         stack.Add(new(StackValueKind.Other));
                         break;
@@ -186,7 +195,10 @@ internal static class MethodSafetyAnalysis
                                 context.Method,
                                 offset,
                                 UnsafetyKind.Deref,
-                                IndirectTypeDetail(operation)));
+                                IndirectTypeDetail(operation))
+                        {
+                            InLoop = context.IsInLoopRegion(offset),
+                        });
                         }
                         break;
                     case ILOpCode.Dup:

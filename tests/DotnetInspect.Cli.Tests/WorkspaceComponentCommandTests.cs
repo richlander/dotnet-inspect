@@ -24,6 +24,12 @@ public sealed class WorkspaceComponentCommandTests
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement component = document.RootElement.GetProperty("packages")[0];
+        Assert.Equal("workspace/components/package", component.GetProperty("contract").GetString());
+        Assert.Equal(1, component.GetProperty("schema_version").GetInt32());
+        var detached = WorkspacePackageComponentExplanation.Parse(component.GetRawText());
+        Assert.Equal("System.Text.Json", detached.Declaration.Id);
+        Assert.Null(detached.Occurrence);
         Assert.Equal(
             "contexts/g0",
             document.RootElement

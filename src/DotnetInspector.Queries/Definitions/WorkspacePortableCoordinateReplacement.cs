@@ -546,7 +546,8 @@ public static class WorkspacePortableCoordinateReplacement
             workspace.Description,
             workspace.Groups,
             workspace.Registrations,
-            workspace.PackageSources);
+            workspace.PackageSources,
+            workspace.TraversalTargetPolicy);
     }
 
     private static CommittedNavigationDefinition ReplaceNavigationCoordinate(
