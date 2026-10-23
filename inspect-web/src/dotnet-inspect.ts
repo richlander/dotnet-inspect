@@ -2507,6 +2507,15 @@ RetainedWorkspaceActivationController {
   return retainedWorkspaceActivation;
 }
 
+function currentRetainedDefinitionPosting():
+BrowserRetainedWorkspacePosting | null {
+  const activeDefinitionId =
+    retainedWorkspaceActivation?.state.activeDefinitionId;
+  return activeDefinitionId === null || activeDefinitionId === undefined
+    ? null
+    : retainedWorkspacePostings.get(activeDefinitionId) ?? null;
+}
+
 function parkActiveCompatibilityWorkspace(): void {
   const activeId = retainedWorkspaces.activeWorkspaceId;
   if (activeId === null) return;
@@ -3712,42 +3721,73 @@ async function deleteManagedRetainedWorkspace(
       history,
     )
     : null;
-  await controller.delete(
-    retainedDefinitionId,
-    successor && successorInitialPresentation && locationIntent
-    ? {
-      successorDefinitionId: successor.id,
-      acceptSuccessor: () =>
-        navigationSequence.isCurrent(navigationSeq)
-        && retainedLocationIntents.currentIntentId === locationIntent.id,
-      completeSuccessor: posting =>
-        installRetainedDefinitionPosting(
-          posting,
-          locationIntent,
-          successorInitialPresentation,
-          navigationSeq),
-      isSuccessorPresentationCurrent: posting =>
-        navigationSequence.isCurrent(navigationSeq)
-        && retainedLocationPresentationCurrent(
-          locationIntent,
-          posting.canonicalLocation,
-        ),
-    }
-    : compatibilitySuccessor && locationIntent
+  try {
+    await controller.delete(
+      retainedDefinitionId,
+      successor && successorInitialPresentation && locationIntent
       ? {
+        successorDefinitionId: successor.id,
+        acceptSuccessor: () =>
+          navigationSequence.isCurrent(navigationSeq)
+          && retainedLocationIntents.currentIntentId === locationIntent.id,
+        completeSuccessor: posting =>
+          installRetainedDefinitionPosting(
+            posting,
+            locationIntent,
+            successorInitialPresentation,
+            navigationSeq),
+        isSuccessorPresentationCurrent: posting =>
+          navigationSequence.isCurrent(navigationSeq)
+          && retainedLocationPresentationCurrent(
+            locationIntent,
+            posting.canonicalLocation,
+          ),
+      }
+      : compatibilitySuccessor && locationIntent
+        ? {
+          successorDefinitionId: null,
+          completeDeactivation: () => {
+            if (!activateRetainedWorkspaceProjection(
+              compatibilitySuccessor.id,
+              false,
+            )) {
+              throw new Error(
+                "The compatibility Workspace is no longer available.",
+              );
+            }
+            const association: InstalledLocationAssociation = {
+              identity: Symbol(compatibilitySuccessor.id),
+              canonicalLocation: activeWorkspaceUrl ?? "/demos",
+              historyState: withRetainedWorkspaceHistoryId(history.state),
+            };
+            const effect = retainedLocationIntents.classify(locationIntent, {
+              outcome: "applied",
+              synchronization: "current",
+              association,
+            });
+            if (!retainedLocationIntents.publish(effect, history)) {
+              throw new Error(
+                "The compatibility successor location intent was superseded.",
+              );
+            }
+            installedRetainedLocation = null;
+          },
+        }
+      : {
         successorDefinitionId: null,
         completeDeactivation: () => {
-          if (!activateRetainedWorkspaceProjection(
-            compatibilitySuccessor.id,
-            false,
-          )) {
-            throw new Error(
-              "The compatibility Workspace is no longer available.",
-            );
-          }
+          state.error = "";
+          state.errorTitle = "";
+          state.errorDetail = "";
+          state.retryAction = null;
+          state.workspaceSubjectOpen = true;
+          state.atPackageRoot = true;
+          state.atLibraryRoot = false;
+          activeWorkspaceUrl = "/demos";
+          if (locationIntent === null) return undefined;
           const association: InstalledLocationAssociation = {
-            identity: Symbol(compatibilitySuccessor.id),
-            canonicalLocation: activeWorkspaceUrl ?? "/demos",
+            identity: Symbol("no-workspace"),
+            canonicalLocation: "/demos",
             historyState: withRetainedWorkspaceHistoryId(history.state),
           };
           const effect = retainedLocationIntents.classify(locationIntent, {
@@ -3757,44 +3797,24 @@ async function deleteManagedRetainedWorkspace(
           });
           if (!retainedLocationIntents.publish(effect, history)) {
             throw new Error(
-              "The compatibility successor location intent was superseded.",
+              "The no-Workspace location intent was superseded.",
             );
           }
           installedRetainedLocation = null;
+          return undefined;
         },
-      }
-    : {
-      successorDefinitionId: null,
-      completeDeactivation: () => {
-        state.error = "";
-        state.errorTitle = "";
-        state.errorDetail = "";
-        state.retryAction = null;
-        state.workspaceSubjectOpen = true;
-        state.atPackageRoot = true;
-        state.atLibraryRoot = false;
-        activeWorkspaceUrl = "/demos";
-        if (locationIntent === null) return undefined;
-        const association: InstalledLocationAssociation = {
-          identity: Symbol("no-workspace"),
-          canonicalLocation: "/demos",
-          historyState: withRetainedWorkspaceHistoryId(history.state),
-        };
-        const effect = retainedLocationIntents.classify(locationIntent, {
-          outcome: "applied",
-          synchronization: "current",
-          association,
-        });
-        if (!retainedLocationIntents.publish(effect, history)) {
-          throw new Error(
-            "The no-Workspace location intent was superseded.",
-          );
-        }
-        installedRetainedLocation = null;
-        return undefined;
       },
-    },
-  );
+    );
+  } catch (error) {
+    const incumbentPreserved =
+      controller.state.activeDefinitionId === retainedDefinitionId
+      && controller.state.definitions.some(
+        definition => definition.id === retainedDefinitionId,
+      );
+    if (!navigationSequence.isCurrent(navigationSeq)
+      && incumbentPreserved) return;
+    throw error;
+  }
   if (!controller.state.definitions.some(
     definition => definition.id === retainedDefinitionId,
   )) {
@@ -9860,7 +9880,9 @@ function renderCore(options: RenderOptions) {
     restorePackageRouteReturnFocus();
     return;
   }
-  if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
+  if (state.workspaceSubjectOpen
+    && isProductHomeDemosPath(location.pathname)
+    && !retainedWorkspaceDemosDestinationOpen()) {
     renderProductDemosPage();
     if (state.settings) {
       document.querySelector<HTMLElement>("#settings-title")
@@ -18707,11 +18729,17 @@ async function buildStateUrl(base = location.href): Promise<URL> {
 }
 
 function retainedWorkspaceProductDestinationUrl(): URL | null {
-  const posting = activeRetainedWorkspacePosting;
-  if (posting === null || posting.canonicalPacket === null) return null;
+  const posting = currentRetainedDefinitionPosting();
+  if (posting === null) return null;
   const destination = new URL(posting.canonicalLocation, location.href);
   destination.hash = "workspace";
   return destination;
+}
+
+function retainedWorkspaceDemosDestinationOpen(): boolean {
+  return isProductHomeDemosPath(location.pathname)
+    && location.hash === "#workspace"
+    && currentRetainedDefinitionPosting() !== null;
 }
 
 async function buildShareUrl(base = location.href): Promise<URL> {
@@ -20476,6 +20504,9 @@ function goHome(): boolean {
 function currentProductDestination(): ProductDestination | null {
   if (isDiagnosticsPath(location.pathname) || state.credits) return null;
   if (isProductEcosystemsPath(location.pathname)) return "ecosystems";
+  if (state.workspaceSubjectOpen
+    && !state.home
+    && retainedWorkspaceDemosDestinationOpen()) return "workspace";
   if (isProductHomeDemosPath(location.pathname)) return "demos";
   if (state.packageQueryOpen) return "query";
   if (state.packageActivityOpen) return "activity";
@@ -20490,7 +20521,7 @@ function productNavigationUnavailableReason(
   if (destination === "workspace"
     && state.package === null
     && state.platformSelection === null
-    && activeRetainedWorkspacePosting === null) {
+    && currentRetainedDefinitionPosting() === null) {
     return "No workspace is open";
   }
   if (destination !== "query" && destination !== "activity") return null;
@@ -21991,7 +22022,7 @@ async function openWorkspaceProductDestination(): Promise<{
 } | null> {
   const pkg = state.package;
   if (!pkg && !state.platformSelection
-    && activeRetainedWorkspacePosting === null) return null;
+    && currentRetainedDefinitionPosting() === null) return null;
   const fallbackPackage = pkg?.source.kind === "platform" ? null : pkg;
 
   dismissModalsForRoutedNavigation();
@@ -27278,11 +27309,16 @@ async function installMethodsHomeDemoPosting(
     || retainedLocationIntents.currentIntentId !== locationIntent.id) {
     return false;
   }
+  if (currentRetainedDefinitionPosting()?.realizationId
+      !== posting.realizationId) {
+    throw new Error(
+      "A newer retained Workspace replaced this product demo.");
+  }
   const models = await loadRetainedWorkspaceModels(
     engineClient.catalog,
     posting,
   );
-  if (activeRetainedWorkspacePosting?.realizationId
+  if (currentRetainedDefinitionPosting()?.realizationId
       !== posting.realizationId) {
     throw new Error(
       "A newer retained Workspace replaced this product demo.");
@@ -29379,6 +29415,8 @@ window.addEventListener("popstate", () => {
       if (retainedWorkspaceActivation?.state.activeDefinitionId
           === historyWorkspaceId) {
         const posting = retainedWorkspacePostings.get(historyWorkspaceId);
+        const demosWorkspaceDestination =
+          retainedWorkspaceDemosDestinationOpen();
         if (initial.homeDemo !== undefined && posting === undefined) {
           throw new Error(
             "The active retained product demo omitted its posting.");
@@ -29391,7 +29429,10 @@ window.addEventListener("popstate", () => {
             initial.homeDemo,
             locationIntent,
             navigationSeq,
-            posting.canonicalLocation === location.href ? "exact" : "changed",
+            demosWorkspaceDestination
+              || posting.canonicalLocation === location.href
+              ? "exact"
+              : "changed",
           );
           if (!installed) return;
         } else {
@@ -29647,6 +29688,17 @@ window.addEventListener("popstate", () => {
       afterCurrentNavigationFrame(() =>
         focusWorkspaceOrHeading());
     }
+    return;
+  }
+  if (restoredActiveManagedWorkspace
+    && retainedWorkspaceDemosDestinationOpen()) {
+    state.credits = false;
+    state.home = false;
+    state.loading = false;
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    render({ synchronizeUrl: false });
     return;
   }
   if (restoredActiveManagedWorkspace
