@@ -595,6 +595,66 @@ public sealed class MetadataMethodDeclarationEvidenceTests
     }
 
     [Fact]
+    public void OwnerRangeOrderingIsValidatedOncePerSession()
+    {
+        using var fixture = Fixture.Create(
+            sequences: [1],
+            markerCount: 2);
+        using var assembly =
+            AssemblyInspectionSession.Open(fixture.Path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using var session =
+            assembly.CreateDeclarationSession(operation);
+        MetadataReader reader =
+            assembly.GetMetadataReaderForDeclarationSession();
+
+        Assert.IsType<MetadataMethodDeclarationResult.Posted>(
+            session.PostMethodDeclaration(
+                fixture.Type,
+                fixture.Method,
+                TestContext.Current.CancellationToken));
+        long beforeSecond =
+            operation.Counters.RelationshipEdges;
+        var secondMethod = MetadataMethodAddress.Create(
+            reader,
+            MetadataTokens.MethodDefinitionHandle(2));
+        var second = Assert.IsType<
+            MetadataMethodDeclarationResult.Posted>(
+                session.PostMethodDeclaration(
+                    fixture.OtherType,
+                    secondMethod,
+                    TestContext.Current.CancellationToken));
+        long sharedSessionSecondEdges =
+            second.Counters.RelationshipEdges - beforeSecond;
+
+        using var standaloneAssembly =
+            AssemblyInspectionSession.Open(fixture.Path);
+        using var standaloneOperation =
+            new MetadataOperationContext(
+                MetadataOperationPolicy.Unbounded);
+        using var standaloneSession =
+            standaloneAssembly.CreateDeclarationSession(
+                standaloneOperation);
+        var standaloneSecond = Assert.IsType<
+            MetadataMethodDeclarationResult.Posted>(
+                standaloneSession.PostMethodDeclaration(
+                    fixture.OtherType,
+                    secondMethod,
+                    TestContext.Current.CancellationToken));
+
+        long ownerRangeRows =
+            reader.GetTableRowCount(TableIndex.CustomAttribute)
+            + reader.GetTableRowCount(TableIndex.GenericParam)
+            + reader.GetTableRowCount(
+                TableIndex.GenericParamConstraint);
+        Assert.True(ownerRangeRows > 0);
+        Assert.Equal(
+            sharedSessionSecondEdges + ownerRangeRows,
+            standaloneSecond.Counters.RelationshipEdges);
+    }
+
+    [Fact]
     public void TypeNameSafetyBudgetIsTypedAsBudgetExceeded()
     {
         using var fixture = Fixture.Create(
