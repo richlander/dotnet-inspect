@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -505,7 +506,8 @@ public partial class DiffCommand
         string toVersion,
         DiffOptions options,
         DiffAnalysisPlan plan,
-        DiffBodyPopulation? bodies = null)
+        DiffBodyPopulation? bodies = null,
+        ResearchComparison? exactBodySignals = null)
     {
         AnalysisSetValidationResult.Accepted selection = plan.Selection;
         AnalysisReportSurfaceKind surface = selection.Surface;
@@ -581,24 +583,25 @@ public partial class DiffCommand
             options.TypeFilter,
             typeNames,
             targets?.MemberIdentities,
-            descriptors => RequireBodySignalComparison(
-                BodySignalComparisonQuery.Execute(
-                    bodies is null
-                        ? CreateBodySignalComparisonInput(
-                            fromPaths,
-                            toPaths,
-                            options,
-                            fromSurface,
-                            toSurface,
-                            descriptors)
-                        : CreateBodySignalComparisonInput(
-                            bodies,
-                            options,
-                            fromSurface,
-                            toSurface,
-                            descriptors)),
-                options,
-                "--analysis"),
+            descriptors => exactBodySignals
+                ?? RequireBodySignalComparison(
+                    BodySignalComparisonQuery.Execute(
+                        bodies is null
+                            ? CreateBodySignalComparisonInput(
+                                fromPaths,
+                                toPaths,
+                                options,
+                                fromSurface,
+                                toSurface,
+                                descriptors)
+                            : CreateBodySignalComparisonInput(
+                                bodies,
+                                options,
+                                fromSurface,
+                                toSurface,
+                                descriptors)),
+                    options,
+                    "--analysis"),
             implementation is null
                 ? null
                 : () => implementation,
@@ -721,6 +724,29 @@ public partial class DiffCommand
         DiffAnalysisPlan plan,
         CancellationToken cancellationToken)
     {
+        ResearchComparison? exactBodySignals =
+            await TryExecuteExactAllocationComparisonAsync(
+                inputs,
+                options,
+                plan,
+                cancellationToken);
+        if (exactBodySignals is not null)
+        {
+            bool packageEndpoints = inputs.From.PackageScope is not null;
+            return Complete(
+                RunAnalysisSet(
+                    inputs.Name,
+                    packageEndpoints ? [] : inputs.FromPaths,
+                    packageEndpoints ? [] : inputs.ToPaths,
+                    inputs.FromSurface,
+                    inputs.ToSurface,
+                    inputs.FromVersion,
+                    inputs.ToVersion,
+                    options,
+                    plan,
+                    exactBodySignals: exactBodySignals));
+        }
+
         // A package endpoint scope has no extracted files. An API-only set
         // reads only its merged surface; a set that reads method bodies
         // reads its implementation participants.
@@ -760,21 +786,75 @@ public partial class DiffCommand
                         plan,
                         bodied.Bodies),
                     cancellationToken);
-        int written = WriteAnalysisSet(
-            inputs.Name,
-            inputs.FromSurface,
-            inputs.ToSurface,
-            inputs.FromLabel,
-            inputs.ToLabel,
-            options,
-            plan,
-            run);
-        return PublishAcquisitionEvidence(
-            inputs,
-            options,
-            run.Inspection,
-            DiffAnalysisOutput.JsonContract,
-            written);
+        return Complete(run);
+
+        int Complete(AnalysisSetRun completed)
+        {
+            int written = WriteAnalysisSet(
+                inputs.Name,
+                inputs.FromSurface,
+                inputs.ToSurface,
+                inputs.FromLabel,
+                inputs.ToLabel,
+                options,
+                plan,
+                completed);
+            return PublishAcquisitionEvidence(
+                inputs,
+                options,
+                completed.Inspection,
+                DiffAnalysisOutput.JsonContract,
+                written);
+        }
+    }
+
+    static async Task<ResearchComparison?>
+        TryExecuteExactAllocationComparisonAsync(
+            DiffInputs inputs,
+            DiffOptions options,
+            DiffAnalysisPlan plan,
+            CancellationToken cancellationToken)
+    {
+        AnalysisSetValidationResult.Accepted selection = plan.Selection;
+        if (selection.Surface != AnalysisReportSurfaceKind.Member
+            || selection.Analyses.Length != 1
+            || selection.Analyses[0]
+                .ParticipationFor(selection.Operation)
+                ?.For(selection.Surface)
+                ?.Descriptors
+                .SingleOrDefault()?.Id
+                != AnalysisFindings.AllocationDescriptor.Id
+            || TryCreateExactAllocationTarget(inputs, options)
+                is not { } target)
+        {
+            return null;
+        }
+
+        WorkspaceMethodAllocationComparisonResult result =
+            inputs.Owner is PackageEndpointDiffSession session
+                ? await WorkspaceImplementationComparisonRunner
+                    .ExecuteAllocationsAsync(
+                        session,
+                        inputs.Name,
+                        target.Before.SurfaceAssetPath!,
+                        target.Before.MethodToken,
+                        target.After.SurfaceAssetPath!,
+                        target.After.MethodToken,
+                        cancellationToken)
+                : await WorkspaceImplementationComparisonRunner
+                    .ExecuteAllocationsAsync(
+                        inputs.From.AssemblySet,
+                        inputs.To.AssemblySet,
+                        inputs.Name,
+                        target.Before.SurfaceAssetPath!,
+                        target.Before.MethodToken,
+                        target.After.SurfaceAssetPath!,
+                        target.After.MethodToken,
+                        cancellationToken);
+        return result is WorkspaceMethodAllocationComparisonResult.Compared
+            compared
+            ? compared.Comparison
+            : null;
     }
 
     /// <summary>
