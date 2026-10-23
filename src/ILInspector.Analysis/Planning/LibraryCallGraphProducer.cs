@@ -18,15 +18,15 @@ public sealed record LibraryCallGraphProducerResult(
     IReadOnlySet<int> DeclaredSourceSuppressedMethodTokens,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
-public sealed record LibraryCallGraphBodyEvidence(
+public readonly record struct LibraryCallGraphBodyEvidence(
     MethodIdentity? Method,
     bool HasManagedBody,
     ImmutableArray<DirectCall> DirectCalls,
     ImmutableArray<UnsafeEvidence> UnsafeEvidence,
     BodySignals? BodySignals,
-    IReadOnlyDictionary<(string Namespace, string Name), bool>
+    IReadOnlyDictionary<(string Namespace, string Name), bool>?
         InAssemblyTypeIsException,
-    IReadOnlySet<int> NonHeapNewObjOperandTokens,
+    IReadOnlySet<int>? NonHeapNewObjOperandTokens,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
 public sealed class LibraryCallGraphProducer :
@@ -59,9 +59,9 @@ public sealed class LibraryCallGraphProducer :
             view.FactOf(PhysicalMethodAnalysisProducer.Instance);
         ImmutableArray<DirectCall> directCalls = [];
         BodySignals? bodySignals = null;
-        var exceptionTypes =
-            new Dictionary<(string Namespace, string Name), bool>();
-        var nonHeapNewObjectTokens = new HashSet<int>();
+        Dictionary<(string Namespace, string Name), bool>?
+            exceptionTypes = null;
+        HashSet<int>? nonHeapNewObjectTokens = null;
 
         if (method.Method is { } identity
             && method.Context is { } context)
@@ -93,7 +93,7 @@ public sealed class LibraryCallGraphProducer :
                         call.Callee.DeclaringType)
                     != NewObjectConstructionKind.Heap)
                 {
-                    nonHeapNewObjectTokens.Add(
+                    (nonHeapNewObjectTokens ??= []).Add(
                         call.OperandToken);
                 }
                 if (resolver.IsInAssemblyExceptionType(
@@ -107,7 +107,7 @@ public sealed class LibraryCallGraphProducer :
                         ? call.Callee.DeclaringType.ElementType
                             ?? call.Callee.DeclaringType
                         : call.Callee.DeclaringType;
-                    exceptionTypes.TryAdd(
+                    (exceptionTypes ??= []).TryAdd(
                         (definition.Namespace, definition.Name),
                         isException);
                 }
@@ -145,40 +145,53 @@ public sealed class LibraryCallGraphProducer :
         ImmutableArray<LibraryCallGraphBodyEvidence>.Builder accumulator,
         MethodDefinitionCompletionView completion)
     {
-        ImmutableArray<LibraryCallGraphBodyEvidence> bodies =
-            accumulator.ToImmutable();
         var bodySignals = new Dictionary<int, BodySignals>();
         var exceptionTypes =
             new Dictionary<(string Namespace, string Name), bool>();
         var nonHeapNewObjectTokens = new HashSet<int>();
         var declaredSources = new Dictionary<int, MethodIdentity>();
         var declaredSourceSuppressedMethodTokens = new HashSet<int>();
-        Dictionary<int, MethodIdentity> methodsByToken =
-            bodies
-                .Select(static body => body.Method)
-                .OfType<MethodIdentity>()
-                .ToDictionary(
-                    static method => method.MetadataToken);
+        var methodsByToken = new Dictionary<int, MethodIdentity>();
+        var declaredMethods =
+            ImmutableArray.CreateBuilder<MethodIdentity>();
+        var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
         var calls = ImmutableArray.CreateBuilder<DirectCall>();
         var unsafeEvidence =
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var diagnostics =
+            ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
 
-        foreach (LibraryCallGraphBodyEvidence body in bodies)
+        for (int index = 0; index < accumulator.Count; index++)
         {
+            if (accumulator[index].Method is { } method)
+                methodsByToken.Add(method.MetadataToken, method);
+        }
+
+        for (int index = 0; index < accumulator.Count; index++)
+        {
+            LibraryCallGraphBodyEvidence body = accumulator[index];
+            accumulator[index] = default;
+            diagnostics.AddRange(body.Diagnostics);
             if (body.Method is not { } method)
                 continue;
+            declaredMethods.Add(method);
+            if (body.HasManagedBody)
+                methods.Add(method);
             if (body.BodySignals is { } signals)
                 bodySignals.Add(method.MetadataToken, signals);
-            foreach (KeyValuePair<
-                (string Namespace, string Name),
-                bool> classification in body.InAssemblyTypeIsException)
+            if (body.InAssemblyTypeIsException is { } bodyExceptionTypes)
             {
-                exceptionTypes.TryAdd(
-                    classification.Key,
-                    classification.Value);
+                foreach (KeyValuePair<
+                    (string Namespace, string Name),
+                    bool> classification in bodyExceptionTypes)
+                {
+                    exceptionTypes.TryAdd(
+                        classification.Key,
+                        classification.Value);
+                }
             }
-            nonHeapNewObjectTokens.UnionWith(
-                body.NonHeapNewObjOperandTokens);
+            if (body.NonHeapNewObjOperandTokens is { } bodyNonHeapTokens)
+                nonHeapNewObjectTokens.UnionWith(bodyNonHeapTokens);
             MethodIdentity? owner = null;
             bool ownerSuppressesOpportunities = false;
             if (completion.DeclaredSourceOf(
@@ -202,17 +215,16 @@ public sealed class LibraryCallGraphProducer :
                     generated.Origin
                         .DeclaredOwnerSuppressesOpportunities;
             }
-            ImmutableArray<DirectCall> normalizedCalls =
-            [
-                .. body.DirectCalls.Select(call =>
+            foreach (DirectCall call in body.DirectCalls)
+            {
+                calls.Add(
                     owner is null
                         ? call
                         : call with
                         {
                             Caller = owner,
-                        }),
-            ];
-            calls.AddRange(normalizedCalls);
+                        });
+            }
             unsafeEvidence.AddRange(
                 ReconcileCallSafetyEvidence(
                     body.UnsafeEvidence,
@@ -231,17 +243,8 @@ public sealed class LibraryCallGraphProducer :
         }
 
         return new(
-            [
-                .. bodies
-                    .Select(static body => body.Method)
-                    .OfType<MethodIdentity>(),
-            ],
-            [
-                .. bodies
-                    .Where(static body => body.HasManagedBody)
-                    .Select(static body => body.Method)
-                    .OfType<MethodIdentity>(),
-            ],
+            declaredMethods.ToImmutable(),
+            methods.ToImmutable(),
             calls.ToImmutable(),
             unsafeEvidence.ToImmutable(),
             bodySignals,
@@ -249,10 +252,7 @@ public sealed class LibraryCallGraphProducer :
             nonHeapNewObjectTokens,
             declaredSources,
             declaredSourceSuppressedMethodTokens,
-            [
-                .. bodies.SelectMany(
-                    static body => body.Diagnostics),
-            ]);
+            diagnostics.ToImmutable());
     }
 
     static bool HasSignals(BodySignals? signals) =>
