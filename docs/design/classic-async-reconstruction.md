@@ -39,9 +39,10 @@ independent obligations:
 A recipe plan discharges them through its three ledgers. A
 [general inverse](#general-inverse) plan discharges them differently: the
 first by its total role ledger (every node is a removed protocol role or is
-carried), the second by carrying every user node unchanged so realization is
-identity, with `await op` the one synthesized node and bound to its proven
-members, and the third by keeping every carried node inside its own exception
+carried), the second by carrying every user node so realization is identity
+up to the role table's rebinding of machine storage, with `await op` and the
+completion `return` the synthesized nodes, each bound to its proven role, and
+the third by keeping every carried node inside its own exception
 regions and handing structure to the structurer, whose output is validated
 before the plan exists. The two forms of discharge are the only ones this
 owner licenses.
@@ -134,16 +135,20 @@ not bind, standing around ordinary user code:
   32 have a user `catch`, and 14 have no structured region at all in the
   planning view.
 - 49: a suspension state constant whose dispatch the proof does not bind. 34
-  dispatch through a `switch`, 15 through an `if` cascade; 5 have a user
-  `catch`.
+  dispatch through a `switch`; of the 15 that do not, 11 are single-await
+  async lambdas whose whole dispatch is one `V_state != 0` test with the
+  resume landing in its other arm, and 4 re-dispatch at a nested region entry
+  and carry a user `catch`.
 - 9: a read of the state local outside a proven state test. It is the
   `V_state != 0` guard Roslyn places around user prologue before a nested
   exception region; 8 of the 9 have a user `catch`.
 - 5: the raw import has a second catch handler (3) or a filter or fault
   region (2).
 
-A user `catch` therefore appears in at least 55 of the 210, and a nested user
-`try` of either kind in most of the rest. The 100 protocol-clean silent
+A user `catch` appears in 55 of the 210. Of the remaining 155, 41 have a user
+`finally` and 114 have no user exception region at all: one- or two-await
+bodies blocked only by the completion-catch clears or the dispatch form, the
+general inverse's easiest population. The 100 protocol-clean silent
 declines are sequential, conditional, and loop bodies with one or two awaits.
 The 13 accounting declines matched a recipe whose ledgers refused them and
 are visible today. The state-machine headline on the real-world baseline (60
@@ -177,7 +182,7 @@ inside the protocol try).
 | Completion tail | `this.<>1__state = -2; clears; this.<>t__builder.SetResult([V_result]); return` after the try | removed; every `leave` to it is `return [V_result]` |
 | Finally guard | `if (V_state < 0 [&& x])` around a `finally` body | folds to `[if (x)]` under `V_state = -1` |
 | Hoisted local | `<name>5__N`, `<>7__wrapN`, `<>s__N`, `<>8__N` fields on the machine | fresh local; `name` where the field carries one |
-| Hoisted parameter | a machine field named like a kickoff parameter and stored once by the kickoff | the parameter |
+| Hoisted parameter | a machine field the kickoff stores one parameter into; Roslyn names it after that parameter, but the kickoff store is the binding | that parameter |
 | Housekeeping clear | `field = null` or `default` for a hoisted field inside the completion catch or tail | removed |
 
 Class-constrained generic awaiters (the boxed awaiter form), `async void`,
@@ -263,7 +268,11 @@ retire. Nothing in this slice adds a cross-layer reference.
    `ILInspector.Decompiler.Fixtures.ClassicAsync`: a compiler-produced
    positive per role, the smallest accepted boundary, a still-flat negative
    per proof obligation, the five real witnesses pinned, and the four
-   unraised classic async fixtures in the pinned classic corpus measured. The
+   unraised classic async fixtures in the pinned classic corpus measured
+   (`Async_AwaitInCatchAndFinally`, `Async_InstanceGeneric`,
+   `Async_VoidBuilder`, `Switch_InsideAsync`; the baseline's classic-async
+   coverage counts three because the sensor classifies by the `Async_`
+   prefix). The
    census reports the state-machine headline on the real-world baseline and
    the classic baseline, with every regression classified.
 3. **Recipes retire.** The inverse runs first; a recipe is consulted only when
