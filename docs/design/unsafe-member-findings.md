@@ -456,7 +456,7 @@ Microsoft.NETCore.App and Microsoft.AspNetCore.App 11.0 rc.1 shared
 frameworks, it decides 176,431 of 188,240 bodies with no disagreement.
 `RoleScanDecisionsAgreeWithTheFullRuleOverMutatedMetadata` (`Speed=Slow`)
 holds the same agreement over 1,500 single-byte mutations each of the
-#Strings, #Blob, and table streams of three fixtures; it rejects a scan that
+`#Strings`, `#Blob`, and table streams of three fixtures; it rejects a scan that
 skips callee resolution for loaded operands.
 
 ## Non-claims
