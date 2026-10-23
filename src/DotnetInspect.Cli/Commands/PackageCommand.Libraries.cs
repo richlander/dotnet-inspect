@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.SourceSelection;
 using QuerySpace.Rows;
 using NuGetFetch;
@@ -2046,6 +2047,46 @@ public partial class PackageCommand
                 switchRows.Length != 0);
         }
 
+        if (section.Equals(
+                SectionNames.DependencyStructure,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var dependencyRows = new List<string[]>();
+            foreach (LibraryInspection inspection in inspections)
+            {
+                if (inspection.DependencyStructureQueryResult
+                    is not LibraryDependencyStructureQueryResult.Available
+                        available)
+                {
+                    CommandError.WriteWarning(
+                        $"Dependency Structure is unavailable for "
+                            + $"{inspection.FileName}.");
+                    continue;
+                }
+
+                InspectionEnvelope<LibraryDependencyStructureTable> table =
+                    LibraryDependencyStructureInspection.TableEnvelope(
+                        available);
+                LibraryDependencyStructureTableOutput.WriteDiagnostics(
+                    table.Diagnostics,
+                    inspection.FileName);
+                dependencyRows.AddRange(
+                    LibraryDependencyStructureTableOutput
+                        .Values(table.Content)
+                        .Select(values => WithProvenance(
+                            packageName,
+                            version,
+                            inspection,
+                            values)));
+            }
+
+            return new(
+                rowSchema.Headers,
+                rowSchema.StableHeaders,
+                [.. RowWindow.Apply(rowWindow, dependencyRows)],
+                dependencyRows.Count != 0);
+        }
+
         if (!section.Equals(
                 IntegrationSectionNames.Integrations,
                 StringComparison.OrdinalIgnoreCase))
@@ -2421,6 +2462,25 @@ public partial class PackageCommand
                         inspection,
                         [section],
                         options.Rows));
+                    continue;
+                }
+
+                // Dependency Structure counts its Table rows, the selected
+                // namespace edges, never its Document summary lines.
+                if (section.Equals(
+                        SectionNames.DependencyStructure,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    if (inspection.DependencyStructureQueryResult
+                        is LibraryDependencyStructureQueryResult.Available
+                            dependencyStructure)
+                    {
+                        projection.RecordRows(
+                            SectionNames.DependencyStructure,
+                            dependencyStructure.Count
+                                ?? dependencyStructure.Rows
+                                    .NamespaceEdges.Length);
+                    }
                     continue;
                 }
 

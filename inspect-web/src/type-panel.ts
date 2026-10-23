@@ -279,6 +279,7 @@ export interface TypePanelPackageContext {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
   platformContextId?: string | null;
 }
 
@@ -1230,6 +1231,7 @@ export function typeSourceSignature(
     packageContext.id,
     packageContext.version,
     packageContext.activeFramework,
+    packageContext.runtimeIdentifier ?? "",
     packageContext.platformContextId ?? "",
     item.platformPack ?? "",
     item.assembly,

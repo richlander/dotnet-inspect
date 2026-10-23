@@ -163,10 +163,14 @@ switch targets, as IL diff canonicalization requires so that a branch over an
 inserted instruction still aligns, and the kind's fold validates targets over
 the match. Equality of canonical bytes is therefore the stricter relation, and
 it is the one both scenarios' agreement is stated on. The symbolic identity of
-an IL operand is the same `SymbolKey` Finding Diff Any memoizes, byte exact and
-self-delimiting, never a decoded and formatted name, so two names whose bytes
-differ but decode alike stay distinct, as Finding Diff Any's
-[Identity](finding-diff-any.md#identity) requires. The cursor yields the bytes,
+an IL operand is the `SymbolKey` Finding Diff Any memoizes, self-delimiting
+and never a decoded and formatted name, so two names whose bytes differ but
+decode alike stay distinct, as Finding Diff Any's
+[Identity](finding-diff-any.md#identity) requires. Finding Diff Any embeds
+the named Types inside that key as `Ref` parts of the table its
+comparison's two sides share; the cursor writes them in full until step 2
+gives it that side, so its bytes are the expansion of the walk's key
+([Symbol Key interning](symbol-key.md#interning)). The cursor yields the bytes,
 lockstep compares the bytes, and only sealing for Exhaustive builds the key
 string and projects the operand's text, since a sealed census is retained and
 may be shown after its side's reader is gone, and a side formats each distinct
@@ -477,8 +481,9 @@ test class gates its cursor:
      identity: over the identity images, callees whose formatted spellings
      coincide (member names with separators, a namespace against a dotted
      name, ill-formed names that decode alike) yield atoms that differ, and
-     the cursor's bytes are Finding Diff Any's for every operand row of a
-     real image. It depends on the Body policy's normalization
+     the cursor's bytes are the expansion of Finding Diff Any's key for
+     every operand row of a real image. It depends on the Body policy's
+     normalization
      ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
 2. **Exists over cursors.** Domain-free lockstep in `Inspector.Findings`, run
    beside Finding Diff Any's walk for every method of the fixture pairs under

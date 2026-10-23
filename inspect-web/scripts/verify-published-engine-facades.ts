@@ -397,6 +397,7 @@ export function inspectWebRuntimeObservation() {
         "Fixture.dll",
         "Fixture.Type",
         "[]",
+        null,
         "source")),
       "source.queryTypeSource");
     assert.ok(

@@ -438,8 +438,29 @@ public sealed class ProductionFacadeContextTests
 
         Assert.Contains(
             "queryMemberDocumentation(packageId: string, version: string, "
-            + "framework: string, assemblyName: string, documentationId: string): "
+            + "framework: string, assemblyName: string, documentationId: string, "
+            + "runtimeIdentifier: string | null): "
             + "Promise<DocumentationQueryOutcome>",
+            facade,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductionMetadataFacade_PublishesRuntimeAwareMemberDocument()
+    {
+        string facade = File.ReadAllText(Path.Combine(
+            InspectWebRoot(),
+            "DotnetInspect.Web",
+            "facades",
+            "inspect-web-metadata.ts"));
+
+        Assert.Contains(
+            "queryMemberDocument(packageId: string, version: string, "
+            + "targetFramework: string, assemblyName: string, "
+            + "typeIdentity: string, memberName: string, "
+            + "baselineOrdinal: number, fingerprintPrefix: string, "
+            + "runtimeIdentifier: string | null): "
+            + "Promise<BrowserMemberDocumentInspection>",
             facade,
             StringComparison.Ordinal);
     }

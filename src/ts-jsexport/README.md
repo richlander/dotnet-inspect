@@ -65,6 +65,9 @@ The generated facade currently preserves supported forms of:
   order, and generated runtime dispatch keys;
 - synchronous values, `Task`/`Task<T>` as `Promise`-based APIs, nullability,
   arrays, and synchronous `Action`/`Func` callbacks;
+- authenticated direct `long` marshaling as TypeScript `bigint` for
+  `[JSMarshalAs<JSType.BigInt>]` or `number` for
+  `[JSMarshalAs<JSType.Number>]`;
 - System.Text.Json source-generated DTOs, records, enums, property names,
   constructor binding, collections, dictionaries, and recursive records;
 - readonly JSON snapshots, including `ReadonlyArray<T>` and

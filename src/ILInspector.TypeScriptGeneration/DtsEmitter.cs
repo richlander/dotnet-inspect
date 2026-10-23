@@ -718,6 +718,19 @@ static class DtsEmitter
                 $"{function.Name} JSON input parameters",
                 "invalid JSON input parameter association");
         }
+        bool validParameterInt64Marshalings =
+            TryIndexParameterInt64Marshalings(
+                function,
+                out IReadOnlyDictionary<
+                    int,
+                    JsExportParameterInt64Marshaling>
+                    parameterInt64Marshalings);
+        if (!validParameterInt64Marshalings)
+        {
+            effectiveDiagnostics.ReportUnmappedType(
+                $"{function.Name} Int64 parameters",
+                "invalid Int64 marshaling association");
+        }
         IReadOnlyDictionary<string, string> publicReturnTypeNames =
             MappedTypeNames(
                 outputTypeEnvironment,
@@ -759,7 +772,8 @@ static class DtsEmitter
                     function.ReturnTypeReferences,
                     outputTypeEnvironment.KnownTypeNames,
                     outputTypeEnvironment.KnownTypeIdentities),
-                publicReturnTypeNames);
+                publicReturnTypeNames,
+                function.ReturnInt64Marshaling);
         bool isAsync =
             TsTypeMapper.IsAsyncReturnType(function.ReturnType);
         bool returnsJsonText =
@@ -782,13 +796,16 @@ static class DtsEmitter
                     function.ReturnTypeReferences,
                     outputTypeEnvironment.KnownTypeNames,
                     outputTypeEnvironment.KnownTypeIdentities),
-                rawReturnTypeNames)
+                rawReturnTypeNames,
+                function.ReturnInt64Marshaling)
             : publicReturnType;
         bool hasMappedReturn =
             effectiveDiagnostics.UnmappedTypes.Count
                 == returnDiagnosticsBefore;
         TypeScriptParameterSignature[] parameters =
-            validDelegateAssociations && validParameterWireBindings
+            validDelegateAssociations
+                && validParameterWireBindings
+                && validParameterInt64Marshalings
                 ?
                 [
                     .. function.Parameters.Select((parameter, index) =>
@@ -806,7 +823,10 @@ static class DtsEmitter
                                 inputTypeEnvironment,
                                 parameter.TypeReferences),
                             delegateParameters.GetValueOrDefault(index),
-                            inputTypeEnvironment.DelegateMappingContext);
+                            inputTypeEnvironment.DelegateMappingContext,
+                            parameterInt64Marshalings
+                                .GetValueOrDefault(index)
+                                ?.Marshaling);
                         JsExportParameterWireBinding? wireBinding =
                             parameterWireBindings.GetValueOrDefault(index);
                         string publicType = wireBinding is null
@@ -2397,6 +2417,35 @@ static class DtsEmitter
         }
 
         parameterWireBindings = indexed;
+        return true;
+    }
+
+    static bool TryIndexParameterInt64Marshalings(
+        JsExportFunction function,
+        out IReadOnlyDictionary<int, JsExportParameterInt64Marshaling>
+            parameterInt64Marshalings)
+    {
+        var indexed =
+            new Dictionary<int, JsExportParameterInt64Marshaling>();
+        foreach (JsExportParameterInt64Marshaling marshaling
+            in function.ParameterInt64Marshalings)
+        {
+            if (marshaling is null
+                || marshaling.ParameterIndex < 0
+                || marshaling.ParameterIndex >= function.Parameters.Count
+                || !indexed.TryAdd(
+                    marshaling.ParameterIndex,
+                    marshaling))
+            {
+                parameterInt64Marshalings =
+                    new Dictionary<
+                        int,
+                        JsExportParameterInt64Marshaling>();
+                return false;
+            }
+        }
+
+        parameterInt64Marshalings = indexed;
         return true;
     }
 

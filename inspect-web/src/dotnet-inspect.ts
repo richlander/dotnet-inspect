@@ -3919,6 +3919,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.metadataToken,
         request.documentBaselineOrdinal,
         request.taste,
+        request.runtimeIdentifier ?? null,
         request.view)
     : inspectPlatformMemberSource(
         request.framework,
@@ -3952,6 +3953,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.assembly,
         request.type,
         request.taste,
+        request.runtimeIdentifier ?? null,
         request.view),
   queryGraphSource: (request, taste) => inspectTypeMemberSource(
     request.packageId,
@@ -3962,7 +3964,8 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.member,
     request.selectorKey,
     request.metadataToken,
-    taste),
+    taste,
+    request.runtimeIdentifier ?? null),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => {
     if (cancelSourceInspection) {
@@ -4214,7 +4217,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.member,
           request.selectorKey,
           request.metadataToken,
-          request.implementationMember),
+          request.implementationMember,
+          request.runtimeIdentifier),
   queryDocumentation: (request, documentationId) =>
     request.isRuntimePack
       ? inspectPlatformMemberDocumentation(
@@ -4228,7 +4232,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.version,
           request.framework,
           request.assembly,
-          documentationId),
+          documentationId,
+          request.runtimeIdentifier),
   queryFindingCensus: async request => {
     const result = await (request.kind === "platform"
       ? inspectPlatformMemberFindingCensus(
@@ -4255,7 +4260,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.memberSignature,
           request.selectorKey,
           request.metadataToken,
-          request.taste));
+          request.taste,
+          request.runtimeIdentifier));
     const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
     const findingEvidenceDocuments =
@@ -4311,7 +4317,8 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
       request.traversalFramework,
       platformRuntimePruningInventory(
         target,
-        request.traversalFramework));
+        request.traversalFramework),
+      request.runtimeIdentifier);
   },
   queryPlatform: request =>
     queryPlatformCallGraph(inspectExpandPlatformCallGraph, request),
@@ -15854,7 +15861,8 @@ function bindTriageCodeEvents() {
             target.memberName, "", target.selector, target.methodToken, triageTaste, null)
         : await inspectMemberFindingCensus(triagePackage.id, triagePackage.version, triagePackage.activeFramework,
             target.assembly, target.typeId, target.typeId, target.memberName, "",
-            target.selector, target.methodToken, triageTaste);
+            target.selector, target.methodToken, triageTaste,
+            triagePackage.runtimeIdentifier ?? null);
       const preview = triageIssuePreview(census.annotatedSource.document, target.issueOffsets);
       if (!preview) return null;
       const carets: string[] = [];
@@ -21483,6 +21491,7 @@ async function inspectTypeExplorerBody(
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     });
   }
   if (sequence !== typeExplorerBodyRequestSequence
@@ -21533,6 +21542,7 @@ async function loadTypeExplorer() {
       type.assembly,
       type.definitionId ?? type.id,
       JSON.stringify(state.taste),
+      pkg.runtimeIdentifier ?? null,
       typeExplorerRequest(state.typeExplorerIntent));
     if (!state.typeExplorerOpen
       || sequence !== typeExplorerLoadSequence
@@ -23018,6 +23028,7 @@ async function loadSelectedMemberDocumentation() {
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly,
       platformPack,
       overload,
@@ -23039,6 +23050,7 @@ async function loadSelectedMemberDocumentation() {
         overload.declarationMetadataToken ?? overload.metadataToken ?? 0,
       implementationMember:
         selectedMemberUsesImplementationDeclaration(type, overload),
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       isCurrent: () => memberRequestIsCurrent(signature),
     }),
   ]);
@@ -23457,6 +23469,7 @@ async function loadSelectedMemberSource() {
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly: type.assembly,
     });
   }
@@ -23517,6 +23530,7 @@ async function loadSelectedMemberAnnotatedSource() {
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     });
   }
   return signature;
@@ -23545,6 +23559,7 @@ function memberRequestSignature(
     pkg?.id,
     pkg?.version,
     pkg?.activeFramework,
+    pkg?.runtimeIdentifier,
     platformDemoContextIdFor(pkg ?? null),
     type?.assembly,
     type?.queryId ?? type?.id,
@@ -23612,6 +23627,7 @@ async function loadSelectedTypeSource() {
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     assembly: type.assembly,
   });
 }
@@ -24337,6 +24353,7 @@ async function loadSelectedMemberCallGraph() {
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
@@ -25024,6 +25041,7 @@ function resolveLoadedGraphTarget(
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly: type.assembly,
       type: callGraphTargetTypeId(target),
       member: target.memberName,
@@ -25059,7 +25077,8 @@ async function loadGraphMemberSurface(
     target.typeDefinitionId ?? "",
     target.memberName,
     target.selectorKey,
-    target.metadataToken ?? 0);
+    target.metadataToken ?? 0,
+    pkg.runtimeIdentifier ?? null);
 }
 
 function singleProjectedGraphMember(
