@@ -14,7 +14,7 @@ namespace DotnetInspector.Sections;
 /// admitted Workspace realization, returning only its detached terminal
 /// envelope.
 /// </summary>
-public static class ExactTypeInspectionOperation
+public static partial class ExactTypeInspectionOperation
 {
     public static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
         ExecuteAsync(
