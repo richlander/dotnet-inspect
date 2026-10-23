@@ -65,7 +65,8 @@ public static partial class ExactTypeInspectionOperation
         PackageEndpointScopeRequest endpointRequest;
         try
         {
-            endpointRequest = new(
+            endpointRequest = PackageEndpointScopeRequest
+                .ForCompileLibraries(
                 PackageSourceCoordinate.Create(
                     request.PackageId,
                     request.Version),

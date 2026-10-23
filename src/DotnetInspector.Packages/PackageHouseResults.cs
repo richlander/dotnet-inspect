@@ -1442,7 +1442,9 @@ public sealed class PackageHouseEvidence
             && (acquisition is null
                 || (request.ContentQuery?.LibraryInventoryTerminal is null
                     && request.ContentQuery
-                        ?.LibraryAndInventoryTerminal is null)
+                        ?.LibraryAndInventoryTerminal is null
+                    && request.ContentQuery
+                        ?.CompileLibrariesTerminal is null)
                 || !ReferenceEquals(
                     libraryInventory.Narrowing,
                     contentNarrowing)

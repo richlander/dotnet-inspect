@@ -1165,6 +1165,50 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Type_DirectLibraryGenericExactType_WritesParametersThroughUtf8Sink()
+    {
+        string assemblyPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        var bytes = new ArrayBufferWriter<byte>();
+
+        var (exit, output, error) =
+            await ConsoleCapture.RunAsync(async () =>
+            {
+                using IDisposable redirect =
+                    Utf8StandardOutput.Redirect(payload =>
+                    {
+                        payload.Span.CopyTo(
+                            bytes.GetSpan(payload.Length));
+                        bytes.Advance(payload.Length);
+                    });
+                return await InvokeAppAsync(
+                    [
+                        "type",
+                        "System.Collections.Generic.Dictionary`2",
+                        "--library",
+                        assemblyPath,
+                        "-S",
+                        SectionNames.TypeInfo,
+                        "--tsv",
+                    ]);
+            });
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Empty(error);
+        string written = Encoding.UTF8.GetString(bytes.WrittenSpan);
+        Assert.Contains(
+            "Type\tSystem.Collections.Generic.Dictionary<TKey, TValue>\n",
+            written,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Type Parameters\tTKey : notnull, TValue\n",
+            written,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
         Type_DirectLibraryNonAsciiExactType_WritesUtf8WithoutTextProjection()
     {
         const string typeName = "Δοκιμή.內部";
@@ -1271,6 +1315,21 @@ public partial class CommandExecutionTests
     [InlineData(
         "System.IDisposable",
         "Dispose")]
+    [InlineData(
+        "System.Collections.Generic.List`1",
+        "Add")]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2",
+        "Add")]
+    [InlineData(
+        "System.Collections.Generic.IEnumerable`1",
+        "GetEnumerator")]
+    [InlineData(
+        "System.Runtime.CompilerServices.ConditionalWeakTable`2",
+        "Add")]
+    [InlineData(
+        "System.Span`1",
+        "Clear")]
     public async Task
         Type_DirectLibraryExactType_TypeInfoMatchesRichFallback(
             string typeName,
@@ -1314,7 +1373,63 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("System.Collections.Generic.List`1")]
+    [InlineData(
+        "System.Text.StringBuilder",
+        "Append")]
+    [InlineData(
+        "System.Collections.Generic.List`1",
+        "Add")]
+    public async Task
+        Type_DirectLibraryExactType_RelativeLibraryPathMatchesRichFallback(
+            string typeName,
+            string memberName)
+    {
+        string fullPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        string assemblyPath = Path.GetRelativePath(
+            Environment.CurrentDirectory,
+            fullPath);
+        Assert.False(Path.IsPathRooted(assemblyPath));
+
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+            [
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-S",
+                SectionNames.TypeInfo,
+                "--tsv",
+            ]);
+        var (fallbackExit, fallbackOutput, fallbackError) =
+            await RunAppAsync(
+            [
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-m",
+                memberName,
+                "-S",
+                SectionNames.TypeInfo,
+                "--tsv",
+            ]);
+
+        Assert.Equal(0, directExit);
+        Assert.Equal(0, fallbackExit);
+        Assert.Empty(directError);
+        Assert.Empty(fallbackError);
+        Assert.Contains(
+            $"Library\t{fullPath}",
+            directOutput,
+            StringComparison.Ordinal);
+        Assert.Equal(fallbackOutput, directOutput);
+    }
+
+    [Theory]
+    [InlineData("System.Nullable`1")]
+    [InlineData("System.Collections.Generic.Dictionary`2+Enumerator")]
     [InlineData("System.MulticastDelegate")]
     public async Task
         Type_DirectLibraryIneligibleTypeInfoUsesRichFallback(
