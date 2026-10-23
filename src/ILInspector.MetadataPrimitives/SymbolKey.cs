@@ -72,6 +72,18 @@ public static class SymbolKeyDomain
         return Validated<TDomain>.Declared[marker];
     }
 
+    /// <summary>
+    /// The domain's declared markers as a 256-entry table, for a builder to
+    /// hold by instance: a generic static read on every shared marker would be
+    /// a lazy lookup per write under NativeAOT.
+    /// </summary>
+    internal static bool[] DeclaredMarkers<TDomain>()
+        where TDomain : unmanaged, Enum
+    {
+        Validate<TDomain>();
+        return Validated<TDomain>.Declared;
+    }
+
     static class Validated<TDomain>
         where TDomain : unmanaged, Enum
     {

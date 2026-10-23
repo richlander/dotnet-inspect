@@ -143,6 +143,8 @@ public sealed class SymbolKeyBuilder<TDomain>
     const int NotOpen = -1;
 
     readonly int _initialCapacity;
+    // The domain's declared markers, held by instance so MarkShared reads no generic static.
+    readonly bool[] _declared;
     byte[] _scratch;
     int _length;
     int _generation;
@@ -151,7 +153,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     public SymbolKeyBuilder(int initialCapacity = 1024)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(initialCapacity);
-        SymbolKeyDomain.Validate<TDomain>();
+        _declared = SymbolKeyDomain.DeclaredMarkers<TDomain>();
         _initialCapacity = Math.Max(16, initialCapacity);
         _scratch = new byte[_initialCapacity];
     }
@@ -197,7 +199,7 @@ public sealed class SymbolKeyBuilder<TDomain>
         if (Unsafe.SizeOf<TShared>() != 1)
             throw new SymbolKeyStateException($"Shared vocabulary {typeof(TShared).Name} must be a byte-backed enum.");
         byte value = SymbolKeyDomain.Marker(marker);
-        if (!SymbolKeyDomain.Declares<TDomain>(value))
+        if (!_declared[value])
             throw new SymbolKeyStateException($"Domain {typeof(TDomain).Name} does not declare the shared marker {marker} (0x{value:X2}).");
         RequireOpen();
         Ensure(1);
