@@ -42,6 +42,18 @@ public static partial class MemberCommand
             ? ExecuteWorkspaceAsync(options, plan, CreateWorkspaceLoadOptions(options))
             : ExecuteWithShareAsync(options, plan);
 
+    internal static Task<int> ExecuteAsync(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan,
+        PackageHouse packageHouse,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issuePackageOperation) =>
+        ExecuteCoreAsync(
+            options,
+            plan,
+            packageHouse: packageHouse,
+            issuePackageOperation: issuePackageOperation);
+
     internal static Task<int> ExecuteResolvedAsync(
         MemberOptions options,
         ApiSourceResult source,
@@ -58,7 +70,10 @@ public static partial class MemberCommand
         ApiSourceResult? resolvedSource = null,
         ApiServices.LoadedApiSurface? loadedSurface = null,
         Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
-            ShareProjectionPlan>? resolvedMember = null)
+            ShareProjectionPlan>? resolvedMember = null,
+        PackageHouse? packageHouse = null,
+        Func<CancellationToken, PackageSourceOperationLease>?
+            issuePackageOperation = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
             throw new ArgumentException(
@@ -124,6 +139,35 @@ public static partial class MemberCommand
             return 1;
         if (ApiCommand.RejectRouteIndependentOptionShape(options))
             return 1;
+
+        if (resolvedSource is null
+            && loadedSurface is null
+            && TryCreateSharedDefaultMemberRequest(
+                options,
+                out ExactTypeInspectionRequest? exactTypeRequest))
+        {
+            int? exactMemberExitCode =
+                await (packageHouse is null
+                    ? ExecuteSharedDefaultMemberAsync(
+                        options,
+                        plan,
+                        exactTypeRequest,
+                        CancellationToken.None)
+                    : ExecuteSharedDefaultMemberAsync(
+                        options,
+                        plan,
+                        exactTypeRequest,
+                        packageHouse,
+                        (issuePackageOperation
+                            ?? throw new InvalidOperationException(
+                                "An injected default-Member PackageHouse "
+                                    + "requires a source-operation issuer."))(
+                            CancellationToken.None),
+                        CancellationToken.None))
+                .ConfigureAwait(false);
+            if (exactMemberExitCode is { } completed)
+                return completed;
+        }
 
         var unresolvedOptions = options;
         bool memberGestureChanged = false;

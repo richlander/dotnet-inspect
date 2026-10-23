@@ -481,7 +481,7 @@ internal static class ExactTypeInspectionQuery
             projectionLimits);
     }
 
-    static ExactTypeInspectionExecution ExecutePackageContext(
+    internal static ExactTypeInspectionExecution ExecutePackageContext(
         InspectionWorkspaceIdentity realization,
         ExactTypeInspectionContext context,
         ExactTypeInspectionRequest request,

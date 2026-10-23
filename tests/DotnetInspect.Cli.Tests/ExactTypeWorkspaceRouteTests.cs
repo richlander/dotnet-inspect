@@ -1603,6 +1603,123 @@ public sealed class ExactTypeWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task DefaultMemberRouteFindsTypeInNonNamesakeLibrary()
+    {
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            ShowDocs = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    house,
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("Accessibility", output, StringComparison.Ordinal);
+        Assert.Contains(
+            $"Library: lib/{Framework}/ILInspector.Metadata.dll",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "selected.dll",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "inspect-type-workspace",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DefaultMemberRicherViewsRemainOnCompatibilityPath()
+    {
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            ShowDocs = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        Assert.True(
+            MemberCommand.TryCreateSharedDefaultMemberRequest(
+                options,
+                out _));
+        Assert.True(
+            MemberCommand.TryCreateSharedDefaultMemberRequest(
+                options with
+                {
+                    MemberFilter = ["Accessibility"],
+                    OverloadIndex = 1,
+                },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateSharedDefaultMemberRequest(
+                options with
+                {
+                    IncludeSections =
+                        [SectionNames.DecompiledSource],
+                },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateSharedDefaultMemberRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    FormatExplicitlySet = true,
+                },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateSharedDefaultMemberRequest(
+                options with
+                {
+                    PackagePath = PackageId,
+                },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateSharedDefaultMemberRequest(
+                options with
+                {
+                    Tfm = null,
+                },
+                out _));
+    }
+
     static async Task<IPackageStore> CachedStoreAsync(
         params (string EntryPath, byte[] Content)[] entries)
     {
