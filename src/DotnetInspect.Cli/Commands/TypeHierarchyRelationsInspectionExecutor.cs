@@ -801,7 +801,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             source.Source);
     }
 
-    private static AssemblySetRequest BuildAssemblySetRequest(
+    internal static AssemblySetRequest BuildAssemblySetRequest(
         TypeOptions options,
         ApiSourceResult source,
         string? exactPlatformFocusPath,
@@ -857,7 +857,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
         };
     }
 
-    private static AssemblySetEntry ExactPlatformFocusEntry(
+    internal static AssemblySetEntry ExactPlatformFocusEntry(
         AssemblySetEntry entry,
         ApiSourceResult source) =>
         new(
@@ -867,7 +867,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             AssemblySetSourceKind.PlatformAssembly,
             source.SelectedTfm);
 
-    private static string? SelectExactPlatformFocusPath(
+    internal static string? SelectExactPlatformFocusPath(
         TypeOptions options,
         ApiSourceResult source)
     {
@@ -987,7 +987,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             : [options.PlatformFramework];
     }
 
-    private static bool IsPlatformSource(
+    internal static bool IsPlatformSource(
         TypeOptions options,
         ApiSourceResult source) =>
         string.Equals(
@@ -1066,7 +1066,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
         };
     }
 
-    private static (int? Index, string? Error) SelectPreferredEntry(
+    internal static (int? Index, string? Error) SelectPreferredEntry(
         IReadOnlyList<AssemblySetEntry> entries,
         ApiSourceResult source,
         string? exactPlatformFocusPath)
@@ -1185,7 +1185,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string? PackagePopulationRoot(
+    internal static string? PackagePopulationRoot(
         AssemblySetEntry selectedEntry,
         ApiSourceResult source)
     {
@@ -1259,7 +1259,7 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                 "One adapted hierarchy Library must produce one admitted "
                     + "occurrence.");
 
-    private static AssemblyResolutionProvenance ProvenanceFor(
+    internal static AssemblyResolutionProvenance ProvenanceFor(
         AssemblySetEntry entry,
         TypeOptions options,
         string? packageExtractPath) =>

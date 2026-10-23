@@ -489,7 +489,8 @@ vocabularies:
 | `library address --json` | `SurfaceAndImplementation` plus the established complete Library JSON metadata | complete |
 | CLI package documentation for one exact Library | `SurfaceAndImplementation`; one named implementation and a listed adjacent Portable PDB are added for authored source | directory-first, with complete acquisition at or below the cut |
 | Browser member documentation for one exact Library | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB | directory-first, with complete acquisition at or below the cut |
-| `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
+| Package-scoped exact Type overview with one pinned version and explicit TFM | aggregate `Surface` across every owner-issued Library | directory-first exact Library entries, with complete acquisition at or below the cut |
+| Other `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
 | `package ID@VERSION --content` of a root `README.md` or `skills/**/SKILL.md` | one exact file | directory-first, with complete acquisition at or below the cut |
@@ -552,9 +553,10 @@ All gates run in Release.
    handoff selection, and typed failure for CLI Address, CLI package
    documentation, and Browser member documentation. Documentation selects
    selection or implementation depth from its authored-source demand.
-5. `type`, `member`, and the remaining `library` operations adopt ranged
-   access, naming the assemblies that define what they inspect and reusing the
-   folders a surface search cached.
+5. Package-scoped exact Type overview adopts the semantic Libraries terminal,
+   preserving aggregate all-Library lookup while naming only owner-issued
+   assembly entries. `member`, richer `type`, and the remaining `library`
+   operations follow with their required implementation evidence.
 6. `graph` adopts ranged access with `SurfaceAndImplementation`.
 7. Runtime packs are realized with named implementation demand once the
    [package-backed platform source](package-backed-platform-realization.md)

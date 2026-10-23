@@ -99,16 +99,19 @@ public sealed class WorkspaceScopeRevision
 {
     internal WorkspaceScopeRevision(
         InspectionWorkspaceIdentity workspace,
-        ImmutableArray<WorkspacePackageOccurrence> packages)
+        ImmutableArray<WorkspacePackageOccurrence> packages,
+        WorkspaceProjectOccurrence? project = null)
     {
         Workspace = workspace;
         Identity = new();
         Packages = packages;
+        Project = project;
     }
 
     public InspectionWorkspaceIdentity Workspace { get; }
     public WorkspaceScopeRevisionIdentity Identity { get; }
     public ImmutableArray<WorkspacePackageOccurrence> Packages { get; }
+    public WorkspaceProjectOccurrence? Project { get; }
     public WorkspaceScopeLimits Limits => WorkspaceScopeLimits.Closed;
 }
 
@@ -328,6 +331,7 @@ public sealed class WorkspaceScopeSnapshot
     public WorkspaceScopePublicationBaseIdentity PublicationBase { get; }
     public ArtifactRootCompositionGenerationIdentity PhysicalComposition { get; }
     public ImmutableArray<WorkspacePackageOccurrenceDescriptor> Packages { get; }
+    public WorkspaceProjectOccurrence? Project => Revision.Project;
     public WorkspaceClosureObservation Closure { get; }
     public WorkspaceScopePreparationDescriptor? Preparing { get; }
 

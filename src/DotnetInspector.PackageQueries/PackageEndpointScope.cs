@@ -46,6 +46,23 @@ public sealed class PackageEndpointScopeRequest
         PackageAssetDemand assetDemand,
         IEnumerable<string>? implementationNames = null,
         PackageLibrarySelector? librarySelector = null)
+        : this(
+            demand,
+            target,
+            assetDemand,
+            implementationNames,
+            librarySelector,
+            compileLibraries: false)
+    {
+    }
+
+    private PackageEndpointScopeRequest(
+        PackageHouseDemand demand,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames,
+        PackageLibrarySelector? librarySelector,
+        bool compileLibraries)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(target);
@@ -78,7 +95,31 @@ public sealed class PackageEndpointScopeRequest
             ? null
             : [.. implementationNames];
         LibrarySelector = librarySelector;
+        CompileLibraries = compileLibraries;
     }
+
+    /// <summary>
+    /// Creates an endpoint whose complete compile-Library population is a
+    /// semantic House content demand.
+    /// </summary>
+    public static PackageEndpointScopeRequest ForCompileLibraries(
+        PackageSourceCoordinate coordinate,
+        string targetFramework,
+        PackageAssetDemand assetDemand) =>
+        new(
+            new PackageHouseDemand.Exact(
+                coordinate
+                ?? throw new ArgumentNullException(nameof(coordinate))),
+            PackageHouseTargetContext.Exact(
+                string.IsNullOrWhiteSpace(targetFramework)
+                    ? throw new ArgumentException(
+                        "A target framework is required.",
+                        nameof(targetFramework))
+                    : targetFramework),
+            assetDemand,
+            implementationNames: null,
+            librarySelector: null,
+            compileLibraries: true);
 
     /// <summary>The package demand the House settles: exact or selecting.</summary>
     public PackageHouseDemand Demand { get; }
@@ -92,6 +133,8 @@ public sealed class PackageEndpointScopeRequest
 
     /// <summary>The exact compile Library to select before acquisition, or <see langword="null"/> for the complete role population.</summary>
     public PackageLibrarySelector? LibrarySelector { get; }
+
+    internal bool CompileLibraries { get; }
 
     /// <summary>The host's realization limits, or <see langword="null"/> for the Workspace defaults.</summary>
     public PackageAssemblyContextRealizationOptions? RealizationOptions { get; init; }
@@ -292,7 +335,13 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                     PackageHouseOperationProfile.Realize,
                     sourceOperation.RequestTimeout,
                     sourceOperation.OperationTimeout);
-            houseRequest = request.LibrarySelector is null
+            houseRequest = request.CompileLibraries
+                ? PackageHouseRequest.CompileLibraries(
+                    request.Demand,
+                    operation,
+                    request.Target,
+                    request.AssetDemand)
+                : request.LibrarySelector is null
                 ? new PackageHouseRequest(
                     request.Demand,
                     operation,

@@ -4,6 +4,7 @@ namespace DotnetInspector.Queries;
 
 public sealed partial class InspectionWorkspace
 {
+    readonly WorkspaceProjectOccurrence? _scopeProject;
     WorkspaceScopeSnapshot? _scopeSnapshot;
     ScopePreparation? _scopePreparation;
 
@@ -632,7 +633,8 @@ public sealed partial class InspectionWorkspace
                     break;
             }
         }
-        var revision = new WorkspaceScopeRevision(_identity, occurrences.MoveToImmutable());
+        var revision = new WorkspaceScopeRevision(
+            _identity, occurrences.MoveToImmutable(), _scopeProject);
         var candidate = new ScopePublicationCandidate(this, operation, current.PublicationBase, revision);
         return new(operation.Authority, current.PhysicalComposition,
             entries.MoveToImmutable(), receipt is null ? [] : [receipt], new(candidate));
@@ -702,7 +704,7 @@ public sealed partial class InspectionWorkspace
         {
             if (!lease.Roots.IsEmpty)
                 throw new WorkspaceScopeInvariantException(null, ArtifactRootFailure.CompositionMismatch);
-            var revision = new WorkspaceScopeRevision(_identity, []);
+            var revision = new WorkspaceScopeRevision(_identity, [], _scopeProject);
             _scopeSnapshot = new(revision, lease.Composition, [], new(revision.Identity), null);
         }
         else if (!ReferenceEquals(_scopeSnapshot.PhysicalComposition, lease.Composition))

@@ -504,6 +504,64 @@ public static class WorkspaceSharePacketTransposer
         return ToPacket(committed, cancellationToken);
     }
 
+    /// <summary>
+    /// Projects an exact Package Hierarchy with its complete Workspace registration context.
+    /// </summary>
+    public static WorkspaceSharePacketProjectionResult ToPackageHierarchyPacket(
+        WorkspaceDefinition workspace,
+        CommittedNavigationDefinition navigation,
+        string? selectedContext,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(navigation);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (navigation.Tabs.SingleOrDefault(
+                tab => tab.Id == navigation.Focus)?.Coordinate
+            is not DefinitionMemberCoordinate.PackageCoordinate)
+        {
+            return NonProjectable(
+                "navigation.focus",
+                "Hierarchy sharing requires one exact direct Package selection.");
+        }
+
+        int schema = workspace.SchemaVersion;
+        var states = new List<CommittedViewStateDefinition>
+        {
+            new(navigation: null, subject: new PortableSubjectRequest.Workspace()),
+        };
+        foreach (NavigationTabDefinition tab in navigation.Tabs)
+        {
+            states.Add(
+                tab.Coordinate is DefinitionMemberCoordinate.PackageCoordinate
+                    ? new(
+                        tab.Id,
+                        new PortableSubjectRequest.Package(),
+                        new PortableRetainedSubjectContext.Package(),
+                        facet: tab.Id == navigation.Focus
+                            ? "package.dependency-hierarchy"
+                            : null)
+                    : new(tab.Id));
+        }
+        var view = new CommittedViewDefinition(schema, ViewId, states);
+        var scenario = new ScenarioDefinition(
+            schema, ScenarioId,
+            workspace: workspace.Id,
+            context: selectedContext,
+            view: view.Id,
+            navigation: navigation.Id);
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(view);
+        registry.Add(scenario);
+        CommittedScenarioDefinitionSet committed = AssertCommitted(
+            registry.PreparePacketScenarioWithCancellation(
+                ScenarioId, cancellationToken),
+            schema);
+        return ToPacket(committed, cancellationToken);
+    }
+
     private static WorkspaceContextDefinition[] ToWorkspaceContexts(
         WorkspaceSharePacket packet)
     {

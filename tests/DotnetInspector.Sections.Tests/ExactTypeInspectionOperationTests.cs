@@ -1498,7 +1498,7 @@ public sealed partial class ExactTypeInspectionOperationTests
                     authority => clients[authority.Association]);
             var house = new PackageHouse(
                 capabilities.SourceAuthorization,
-                new PackagePayloadAcquisitionPlan(
+                PackagePayloadAcquisitionPlan.ForContentQueries(
                     (_, _) => capabilities.PackageStore,
                     capabilities.PayloadLimits,
                     capabilities.PackageTransferPolicy,

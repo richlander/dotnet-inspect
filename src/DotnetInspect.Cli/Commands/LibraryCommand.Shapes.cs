@@ -14,10 +14,10 @@ namespace DotnetInspect.Cli.Commands;
 public partial class LibraryCommand
 {
     /// <summary>
-    /// A lone selected Table streams TSV rows and the lone Hierarchy,
+    /// A lone selected Table, including <c>Dependency Structure</c>'s
+    /// namespace-edge Table, streams TSV rows and the lone Hierarchy,
     /// <c>Reference Hierarchy</c>, renders its tree; the library catalog has no
-    /// Text, and the Graph <c>Dependency Structure</c> declares no shape, so it
-    /// keeps its current default. Explicit intent — a format flag or
+    /// Text. Explicit intent — a format flag or
     /// environment default, <c>--print</c>, <c>--row</c>, <c>--value</c>,
     /// <c>--urls</c>, <c>--paths</c>, <c>--tree</c>, <c>--count</c>, a
     /// projection, an envelope, discovery, or an analysis query — leaves the

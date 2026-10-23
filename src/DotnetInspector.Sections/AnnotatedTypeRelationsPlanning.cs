@@ -409,6 +409,12 @@ public sealed class AnnotatedTypeRelationsCatalog
         _colors = colors;
     }
 
+    public ImmutableArray<AnnotatedTypeRelationsRelationshipRegistration>
+        Relationships => _relationships;
+
+    public ImmutableArray<AnnotatedTypeRelationsColorRegistration> Colors =>
+        _colors;
+
     public AnnotatedTypeRelationsPlanningResult Resolve(
         AnnotatedTypeRelationsPlanningRequest request,
         IInspectionQueryCatalog queryCatalog)

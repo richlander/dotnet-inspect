@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Views;
 
 namespace DotnetInspect.Cli;

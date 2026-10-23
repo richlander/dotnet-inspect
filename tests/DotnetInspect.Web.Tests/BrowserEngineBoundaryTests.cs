@@ -1009,6 +1009,43 @@ public sealed partial class BrowserEngineBoundaryTests
         }
     }
 
+    sealed class MultipleGalleryPackageHandler(
+        string version,
+        IReadOnlyDictionary<string, HttpMessageHandler> packages)
+        : HttpMessageHandler
+    {
+        readonly Dictionary<string, HttpMessageInvoker> _handlers =
+            packages.ToDictionary(
+                pair =>
+                    "https://globalcdn.nuget.org/packages/"
+                    + $"{pair.Key.ToLowerInvariant()}.{version}.nupkg",
+                pair => new HttpMessageInvoker(pair.Value),
+                StringComparer.OrdinalIgnoreCase);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string url = request.RequestUri!.AbsoluteUri;
+            return _handlers.TryGetValue(url, out HttpMessageInvoker? handler)
+                ? handler.SendAsync(request, cancellationToken)
+                : Task.FromResult(
+                    new HttpResponseMessage(
+                        System.Net.HttpStatusCode.NotFound));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                foreach (HttpMessageInvoker handler in _handlers.Values)
+                    handler.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+    }
+
     sealed class GalleryPackageHandler(
         string packageId,
         string version,
