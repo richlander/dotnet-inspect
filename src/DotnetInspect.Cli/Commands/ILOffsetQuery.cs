@@ -15,11 +15,12 @@ namespace DotnetInspect.Cli.Commands;
 
 internal sealed record ILOffsetAnalysisPreparation(
     ILOffsetAnalysisInput? Input,
+    ILOffsetAllocationAnalysisInput? AllocationInput,
     ILOffsetSafetyAnalysisInput? SafetyInput,
     string? Failure)
 {
     internal static ILOffsetAnalysisPreparation None { get; } =
-        new(null, null, null);
+        new(null, null, null, null);
 }
 
 internal static class ILOffsetQuery
@@ -149,7 +150,8 @@ internal static class ILOffsetQuery
             AnalysisFailure: analysis.Failure,
             AllowNonBoundaryContextAbsence:
                 allowNonBoundaryContextAbsence,
-            SafetyAnalysis: analysis.SafetyInput));
+            SafetyAnalysis: analysis.SafetyInput,
+            AllocationAnalysis: analysis.AllocationInput));
         if (!outcome.Succeeded)
         {
             var failure = outcome.Failure!;
@@ -194,12 +196,29 @@ internal static class ILOffsetQuery
         try
         {
             PdbContext context = service.Context;
+            if (RequiresOnlyAllocation(capabilities))
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Borrow(context);
+                return new(
+                    Input: null,
+                    ILOffsetAllocationAnalysis.Execute(
+                        session,
+                        context.AssemblyPathOrNull
+                            ?? "IL-offset assembly",
+                        context.ModuleVersionId(),
+                        bodyScope),
+                    SafetyInput: null,
+                    Failure: null);
+            }
+
             if (RequiresOnlySafety(capabilities))
             {
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Borrow(context);
                 return new(
                     Input: null,
+                    AllocationInput: null,
                     ILOffsetSafetyAnalysis.Execute(
                         session,
                         context.AssemblyPathOrNull
@@ -222,6 +241,7 @@ internal static class ILOffsetQuery
                     execution.Allocations,
                     execution.Safety,
                     execution.CallGraph),
+                AllocationInput: null,
                 SafetyInput: null,
                 Failure: null);
         }
@@ -233,6 +253,7 @@ internal static class ILOffsetQuery
         {
             return new(
                 Input: null,
+                AllocationInput: null,
                 SafetyInput: null,
                 $"IL-offset semantic analysis unavailable: "
                     + $"{ex.GetType().Name}: {ex.Message}");
@@ -313,6 +334,14 @@ internal static class ILOffsetQuery
             & ILOffsetProjectionCapabilities.SafetyContext) != 0
         && (capabilities
             & (ILOffsetProjectionCapabilities.AllocationContext
+                | ILOffsetProjectionCapabilities.CostContext)) == 0;
+
+    static bool RequiresOnlyAllocation(
+        ILOffsetProjectionCapabilities capabilities) =>
+        (capabilities
+            & ILOffsetProjectionCapabilities.AllocationContext) != 0
+        && (capabilities
+            & (ILOffsetProjectionCapabilities.SafetyContext
                 | ILOffsetProjectionCapabilities.CostContext)) == 0;
 
     static void WriteError(bool enabled, string message)

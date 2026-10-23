@@ -1074,6 +1074,10 @@ rules, this document describes subsystem ownership, and
   exact relationship and color registration, Type-focus and direction
   admission, terminal-specialized adapter-query binding, and immutable typed
   query demand without duplicating QuerySpace or inspection query execution.
+- [Annotated Type Relations request](design/annotated-type-relations-request.md):
+  explicit all-applicable or canonical-id family selection, deterministic
+  binding to one admitted relations catalog, preservation of requested and
+  resolved identities, and typed rejection before producer work.
 - [Annotated Type Relations generation](design/annotated-type-relations-generation.md):
   concrete typed contribution correspondence, independent relationship and
   color-family settlement, and canonical Rows/Count/Exists document generation

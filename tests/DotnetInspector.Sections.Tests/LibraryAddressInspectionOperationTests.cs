@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using QuerySpace.Composition;
@@ -15,6 +16,8 @@ namespace DotnetInspector.Sections.Tests;
 
 public sealed class LibraryAddressInspectionOperationTests
 {
+    static object AllocateForCoordinate() => new();
+
     [Fact]
     public void PopulationQueryCachesCanonicalRequestsAndPlans()
     {
@@ -279,6 +282,60 @@ public sealed class LibraryAddressInspectionOperationTests
         Assert.Equal(
             "System.Net.Sockets",
             resolved.Projection.MemberContext!.Assembly);
+    }
+
+    [Fact]
+    public async Task AllocationContextResolvesFromImplementation()
+    {
+        string path =
+            typeof(LibraryAddressInspectionOperationTests)
+                .Assembly.Location;
+        byte[] implementation =
+            await File.ReadAllBytesAsync(
+                path,
+                TestContext.Current.CancellationToken);
+        int methodToken =
+            typeof(LibraryAddressInspectionOperationTests)
+                .GetMethod(
+                    nameof(AllocateForCoordinate),
+                    System.Reflection.BindingFlags.Static
+                        | System.Reflection.BindingFlags.NonPublic)!
+                .MetadataToken;
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.Allocations,
+                    new HashSet<int> { methodToken }));
+        int ilOffset = Assert.Single(
+            analysis.Allocations.Occurrences[methodToken]).ILOffset;
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(
+                    implementation));
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(
+                library,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    ilOffset,
+                    ILOffsetProjectionCapabilities
+                        .AllocationContext));
+
+        var completed = Assert.IsType<
+            LibraryAddressInspectionOutcome.Completed>(
+                envelope.Content);
+        var document =
+            Assert.IsType<LibraryAddressDocument.IlPoint>(
+                completed.Document);
+        var resolved =
+            Assert.IsType<LibraryIlAddressOutcome.Resolved>(
+                document.Result);
+        Assert.Single(
+            resolved.Projection.AllocationContext!);
+        Assert.Empty(envelope.Diagnostics);
     }
 
     [Fact]

@@ -6,69 +6,8 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 
 using InertText;
-using InertText.Encoding;
 
 namespace ILInspector.Metadata;
-
-/// <summary>
-/// One metadata Name range whose UTF-8 meaning is established by the Metadata grammar.
-/// </summary>
-public readonly struct MetadataUtf8Name : IEquatable<MetadataUtf8Name>
-{
-    private readonly OpaqueByteRange _range;
-
-    internal MetadataUtf8Name(OpaqueByteRange range) =>
-        _range = range;
-
-    /// <summary>Tests an exact caller-supplied UTF-8 sequence without decoding this Name.</summary>
-    public bool ValueTextEquals(ReadOnlySpan<byte> utf8Text) =>
-        Utf8RangeClassification.Read(_range).ValueTextEquals(utf8Text);
-
-    internal OpaqueByteRange Range => _range;
-
-    /// <summary>Constructs the policy-contained UTF-8 presentation value.</summary>
-    public InertUtf8String Contain(TextPolicy policy) =>
-        new(policy, Utf8RangeClassification.Read(_range));
-
-    /// <summary>The number of exact metadata Name bytes.</summary>
-    public int Length => _range.Length;
-
-    /// <summary>
-    /// Views the exact bytes of one bounded #Strings entry without decoding them.
-    /// </summary>
-    internal static unsafe ReadOnlySpan<byte> ReadExactBytes(BlobReader reader) =>
-        new(reader.StartPointer, reader.Length);
-
-    /// <summary>
-    /// Detaches exact Name bytes and measures their contained Field spelling, which is the
-    /// UTF-16 length a producer charges to <see cref="MetadataOperationDimension.RetainedText"/>.
-    /// </summary>
-    internal static MetadataUtf8Name Detach(
-        ReadOnlySpan<byte> bytes,
-        out int containedLength)
-    {
-        OpaqueByteRange range = OpaqueByteRange.Copy(bytes);
-        containedLength = Utf8VisualEncoder.MeasureInertStringLength(
-            TextPolicy.Field,
-            Utf8RangeClassification.Read(range));
-        return new(range);
-    }
-
-    /// <summary>Compares exact Name bytes.</summary>
-    public bool Equals(MetadataUtf8Name other) => _range.Equals(other._range);
-
-    public override bool Equals(object? obj) =>
-        obj is MetadataUtf8Name other && Equals(other);
-
-    public override int GetHashCode() => _range.GetHashCode();
-
-
-    public static bool operator ==(MetadataUtf8Name left, MetadataUtf8Name right) =>
-        left.Equals(right);
-
-    public static bool operator !=(MetadataUtf8Name left, MetadataUtf8Name right) =>
-        !left.Equals(right);
-}
 
 /// <summary>
 /// A host-owned exact Type query with one UTF-8 encoding of its structured
@@ -130,6 +69,58 @@ public sealed class MetadataUtf8TypeDefinitionName
                 .. Segments.Select(segment =>
                     segment.Contain(policy)),
             ]);
+
+    /// <summary>
+    /// Contains this identity for display, removing a segment's canonical arity suffix when
+    /// it declares exactly the generic parameters that segment introduces.
+    /// </summary>
+    /// <returns>
+    /// The display name, or <see langword="null"/> when a generic parameter in
+    /// <paramref name="signature"/> names a segment this identity does not have.
+    /// </returns>
+    /// <remarks>
+    /// A segment whose suffix disagrees with its introduced count keeps its exact Name, which
+    /// is the <see cref="MetadataTypeNameFormatter"/> rule for a Type display name.
+    /// </remarks>
+    public MetadataContainedTypeDefinitionName? ContainDisplay(
+        TextPolicy policy,
+        MetadataTypeDeclarationSignature signature)
+    {
+        ArgumentNullException.ThrowIfNull(signature);
+
+        Span<int> introduced = Segments.Length <= 32
+            ? stackalloc int[Segments.Length]
+            : new int[Segments.Length];
+        introduced.Clear();
+        foreach (MetadataTypeGenericParameterDeclarationEvidence parameter
+            in signature.GenericParameters)
+        {
+            if ((uint)parameter.DefinitionSegmentIndex
+                >= (uint)Segments.Length)
+            {
+                return null;
+            }
+            introduced[parameter.DefinitionSegmentIndex]++;
+        }
+
+        var segments =
+            ImmutableArray.CreateBuilder<InertUtf8String>(
+                Segments.Length);
+        for (int i = 0; i < Segments.Length; i++)
+        {
+            MetadataUtf8Name segment = Segments[i];
+            segments.Add(
+                segment.TryRemoveAritySuffix(
+                    introduced[i],
+                    out MetadataUtf8Name withoutArity)
+                    ? withoutArity.Contain(policy)
+                    : segment.Contain(policy));
+        }
+
+        return new(
+            Namespace.Contain(policy),
+            segments.MoveToImmutable());
+    }
 }
 
 /// <summary>

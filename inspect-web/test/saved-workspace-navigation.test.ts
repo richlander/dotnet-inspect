@@ -14,6 +14,7 @@ import {
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
   retainWorkspacePackage,
+  setTypeViewFacetCatalog,
   typeLensesFor,
 } from "../src/data.ts";
 import type {
@@ -32,6 +33,7 @@ import {
   invalidateMemberCallGraphWork,
   memberScopeIsActive,
 } from "../src/member-filtering.ts";
+
 import {
   createPackageAcquisition,
   type PackageAcquisitionDependencies,
@@ -100,6 +102,7 @@ assert.deepEqual(app.errors, []);
 
 interface CapturedWorkspaceUrlState {
   activeTabId: string;
+  hierarchyWorkspacePacket: string | null;
   subject: unknown;
   tabs: Array<{ runtimeIdentifier: string | null }>;
   view: {
@@ -129,6 +132,9 @@ function isCapturedWorkspaceUrlState(
   if (!value || typeof value !== "object"
     || !("activeTabId" in value)
     || typeof value.activeTabId !== "string"
+    || !("hierarchyWorkspacePacket" in value)
+    || (value.hierarchyWorkspacePacket !== null
+      && typeof value.hierarchyWorkspacePacket !== "string")
     || !("subject" in value)
     || !("tabs" in value)
     || !Array.isArray(value.tabs)
@@ -150,6 +156,7 @@ function isCapturedWorkspaceUrlState(
 
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
+  "retainedPackageRootLens",
   "currentCompareSubject",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount", "packageHierarchyTargetFramework",
@@ -406,6 +413,7 @@ function sharedState(): BrowserWorkspaceShareState {
     activeTabId: "second",
     selectedContextId: "both",
     traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
@@ -988,6 +996,13 @@ function harness() {
   };
 }
 
+setTypeViewFacetCatalog([
+  { id: "type.api", kind: "Type", title: "API", order: 100 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
+  { id: "type.source", kind: "Type", title: "Source", order: 300 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+]);
+
 test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {
   const h = harness();
   const runtimeDiagnostic = [
@@ -1031,6 +1046,47 @@ test("failed workspace restore retains the background Wasm stack through its for
   assert.ok(
     h.state.errorDetail.indexOf("index out of bounds")
       < h.state.errorDetail.indexOf("runtime is not running"),
+  );
+});
+
+for (const contextSource of ["retained", "decoded"] as const) {
+  test(`Hierarchy capture carries the ${contextSource} Workspace context`, () => {
+    const h = harness();
+    h.state.workspaceSubjectOpen = false;
+    h.state.packageLens = "hierarchy";
+    h.state.workspaceShareBasis = {
+      ...sharedState(), hierarchyWorkspacePacket: "decoded-context",
+    };
+    if (contextSource === "retained") {
+      Object.assign(h.context, {
+        activeRetainedWorkspacePosting: {
+          canonicalPacket: "retained-context",
+          definition: { traversalTargetFramework: "net8.0" },
+        },
+      });
+    }
+
+    const captured = h.captureUrlState();
+
+    assert.equal(captured.view.lens, "hierarchy");
+    assert.equal(captured.hierarchyWorkspacePacket, `${contextSource}-context`);
+  });
+}
+
+test("Hierarchy capture refuses non-projectable retained context instead of product defaults", () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = false;
+  h.state.packageLens = "hierarchy";
+  Object.assign(h.context, {
+    activeRetainedWorkspacePosting: {
+      canonicalPacket: null,
+      definition: { traversalTargetFramework: null },
+    },
+  });
+
+  assert.throws(
+    () => h.captureUrlState(),
+    /Workspace context cannot be projected into a share packet/u,
   );
 });
 
@@ -1729,6 +1785,7 @@ test("RID-distinct package tabs retain exact active identity through capture and
     activeTabId: "windows",
     selectedContextId: "both",
     traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: null,
       type: null,
@@ -1864,6 +1921,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     activeTabId: "platform",
     selectedContextId: "platform-context",
     traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
@@ -2479,7 +2537,10 @@ test("mixed source publication keeps its inactive Platform visible", () => {
       ],
     },
     navigation: {
-      snapshot: { activePackage: "package-subject" },
+      snapshot: {
+        activePackage: "package-subject",
+        lensOutcome: { request: null, effectiveLens: null },
+      },
     },
   };
   const models = {
@@ -2936,6 +2997,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null },
   });

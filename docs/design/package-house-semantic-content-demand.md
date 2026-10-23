@@ -80,6 +80,8 @@ The result terminals are:
 - **Files.** Return the complete validated content of one or more exact package
   entries within the base narrowed space.
 - **Libraries.** Return every compatible library in the base narrowed space.
+  The terminal carries the declared Surface or SurfaceAndImplementation role
+  demand and materializes only the exact owner-issued assembly entries.
 - **Library and inventory for target.**
   `GetLibraryAndInventoryForTarget` requires TFM-wide narrowing and returns one
   policy-selected Library plus the complete logical Library inventory for that
@@ -104,6 +106,9 @@ references through later retained Files queries.
 `GetLibraryInventoryForTarget` is supported by Portable PDB settlement for an
 already-realized Browser/Wasm package assembly; it binds the exact provenance
 path to an inventory row before requesting only that row's PDB reference.
+The Libraries terminal is supported first by Package-scoped exact Type
+inspection. It preserves aggregate lookup across the complete owner-issued
+Library population while excluding unrelated sibling files.
 
 Package-wide and TFM-wide Files and File List are implemented. Their results
 retain the exact acquired generation and, for TFM-wide narrowing, the existing

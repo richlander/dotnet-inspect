@@ -1070,7 +1070,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(
             "role\tpath\tname\tpurpose\taccepts\tdestinations\tquestions",
             lines[0]);
-        Assert.Equal(9, lines.Length);
+        Assert.Equal(10, lines.Length);
         Assert.Contains(
             lines,
             static line => line.StartsWith(
@@ -1181,7 +1181,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "root",
             document.RootElement.GetProperty("path").GetString());
         Assert.Equal(
-            8,
+            9,
             Regex.Matches(
                     result.Output,
                     "\"path\":\"((subject-kinds|operations|references)/[a-z-]+)\"")

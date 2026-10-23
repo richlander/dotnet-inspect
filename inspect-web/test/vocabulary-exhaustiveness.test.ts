@@ -1,11 +1,10 @@
 // The closed vocabularies in `src/data.ts` and `src/spotlight.ts` are derived from catalogs
-// that also drive visible UI choices, so adding a catalog entry both widens the union and
-// immediately offers the new value to users. Nothing at runtime can observe that: the value
-// simply takes whichever branch the consumer falls through to. The gate for that property is
-// therefore the compiler, and this test is that gate — it widens each catalog in a throwaway
-// copy of `src/` and asserts `tsc` rejects the result at the `assertNever` call in every
-// consumer. Deleting an exhaustive dispatch makes the corresponding case below go green,
-// which fails the assertion.
+// that also drive visible UI choices or bind owner-issued facets to renderers. Adding an entry
+// widens the union and can expose the new value without a consumer dispatch. The gate for that
+// property is therefore the compiler, and this test is that gate — it widens each catalog or
+// binding in a throwaway copy of `src/` and asserts `tsc` rejects the result at the
+// `assertNever` call in every consumer. Deleting an exhaustive dispatch makes the
+// corresponding case below go green, which fails the assertion.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
@@ -35,8 +34,8 @@ const widenings = [
   {
     vocabulary: "TypeLens",
     file: "data.ts",
-    find: '  ["source", "Source"]\n] as const;\n\nexport type TypeLens',
-    replace: '  ["source", "Source"],\n  ["probe-type-lens", "Probe"]\n] as const;\n\nexport type TypeLens',
+    find: '  "type.compare": "compare",\n} as const;\n\nexport type TypeLens',
+    replace: '  "type.compare": "compare",\n  "type.probe": "probe-type-lens",\n} as const;\n\nexport type TypeLens',
     token: "probe-type-lens",
     dispatches: [
       "renderLens",

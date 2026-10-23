@@ -43,6 +43,8 @@ test("catalog facade exposes the typed vocabulary snapshot envelope", () => {
   assert.ok(!catalogDeclarations.includes("BrowserVocabularyMapIdentity"));
   assert.ok(catalogDeclarations.includes(
     "inspectVocabulary(): BrowserVocabularyInspection;"));
+  assert.ok(catalogDeclarations.includes(
+    "listTypeViewFacets(): BrowserViewFacetCatalog;"));
   assert.ok(!catalogDeclarations.includes("BrowserVocabularyDocument"));
   assert.ok(!catalogDeclarations.includes("listVocabulary()"));
 });
