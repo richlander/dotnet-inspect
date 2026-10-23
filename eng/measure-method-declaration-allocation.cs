@@ -1,5 +1,8 @@
 #:project ../src/ILInspector.Metadata/ILInspector.Metadata.csproj
 #:property IsPublishable=true
+#:property PublishAot=true
+#:property OptimizationPreference=Speed
+#:property InvariantGlobalization=true
 #:property EnablePreviewFeatures=true
 #:property NoWarn=CA2252
 
