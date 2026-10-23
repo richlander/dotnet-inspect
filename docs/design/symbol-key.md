@@ -162,7 +162,7 @@ The second form is a semantic copy required by the self-contained grammar:
 both the independent key and its nested occurrence exist in the finished
 population. It uses no intermediate array. A domain that adopts
 [interning](#interning) replaces repeated embedded keys with `Ref` parts, as
-Finding Diff Any does for its Type-level keys.
+Finding Diff Any does for the named Types its keys embed.
 
 Finding Diff Any keeps two builders per side and spells rows through the
 [shared speller](#metadata-rows). Its Type-level keys, Type definitions,
@@ -627,8 +627,8 @@ Eight steps, tracked by
    a completed comparison retains the Type-level keys and the unit tables. The
    second half is done too: `SymbolKeyInterner<TDomain>`, the `Ref` part,
    and Finding Diff Any embedding every named Type as the `Ref` of the id
-   its comparison-wide table gave it, composites as `Key` parts of those
-   `Ref`s
+   its comparison-wide table gave it, and composites as `Key` parts whose
+   Types are those `Ref`s
    ([#10533](https://github.com/richlander/dotnet-inspect/issues/10533)).
 8. **Browser exchange.** The first Inspect Web consumer that passes a key to
    TypeScript and back adopts the text form, with the host-parity gate.

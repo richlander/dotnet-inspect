@@ -167,7 +167,7 @@ an IL operand is the `SymbolKey` Finding Diff Any memoizes, self-delimiting
 and never a decoded and formatted name, so two names whose bytes differ but
 decode alike stay distinct, as Finding Diff Any's
 [Identity](finding-diff-any.md#identity) requires. Finding Diff Any embeds
-the Type-level keys inside that key as `Ref` parts of the table its
+the named Types inside that key as `Ref` parts of the table its
 comparison's two sides share; the cursor writes them in full until step 2
 gives it that side, so its bytes are the expansion of the walk's key
 ([Symbol Key interning](symbol-key.md#interning)). The cursor yields the bytes,
