@@ -323,11 +323,13 @@ which the hosts call one member at a time and which creates its two sides
 per call, is 1–5% faster on five pairs and 3.5% slower on Aspire.Hosting,
 reproduced in both head rounds. The other five pairs allocate 0.2–5.2% more
 on it from the per-call side setup (two builders, a speller with its
-scratch, and the memos; CoreLib +5.2%, about 6–12 KB per call); Aspire.Hosting
-allocates 1.1% less, which does not rule that setup out: by the other
-pairs' per-call cost it is likely present and outweighed by its larger
-key-path saving, so its slowdown is likely the key-plus-text work of its
-Compare cell plus that setup, not counted by the run.
+scratch, and the memos; CoreLib +5.2%): about 10–14 KiB per call, estimated
+as the endpoint allocation change less the Compare change over the paired
+count. Aspire.Hosting allocates 1.1% less, which does not rule that setup
+out: the same estimate leaves it about 6 KiB per call, so the setup is
+likely present and outweighed by its larger key-path saving, and its
+slowdown is likely the key-plus-text work of its Compare cell plus that
+setup, not counted by the run.
 Sharing sides across a host's member requests, a smaller speller scratch
 for a one-method side, and a text projection from the key's parts are
 recorded on
