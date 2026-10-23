@@ -557,8 +557,9 @@ Component input admits bounded `--depth` and the existing Markdown, plain
 text and JSON presentations/destination. JSON is the direct reading; `.data`
 and `.hal` select shared readings and `.contract` selects the typed Document.
 The projections require JSON; closed data readings reject explicit depth.
-Search result limits, vocabulary narrowing, envelope and table/row formats
-are rejected before input is opened. Malformed input leaves stdout and an
+Search result limits, vocabulary narrowing, envelope, table/row formats and
+header suppression (`--no-headers` / `--nh`) are rejected before input is
+opened. Malformed input leaves stdout and an
 existing output destination untouched. File/stdin reading is bounded by the
 component owner's byte budget and rejects invalid UTF-8 before owner admission.
 

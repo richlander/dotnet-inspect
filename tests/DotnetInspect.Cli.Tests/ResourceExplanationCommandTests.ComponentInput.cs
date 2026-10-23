@@ -114,6 +114,8 @@ public sealed partial class ResourceExplanationCommandTests
     [InlineData("--table")]
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
+    [InlineData("--no-headers", ".hal", "--json")]
+    [InlineData("--nh", ".hal", "--json")]
     [InlineData(".hal", "--depth", "0", "--json")]
     [InlineData(".data", "--depth", "1", "--json")]
     [InlineData(".hal")]
@@ -127,6 +129,7 @@ public sealed partial class ResourceExplanationCommandTests
         Assert.Empty(result.Output);
         Assert.DoesNotContain("Could not find", result.Error);
         Assert.DoesNotContain("FileNotFound", result.Error);
+        Assert.DoesNotContain(missing, result.Error);
     }
 
     [Fact]

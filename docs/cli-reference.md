@@ -3024,7 +3024,8 @@ parent packet, copied path/context/focus claims remain unavailable. With one,
 Workspace validates correspondence without restoration or acquisition.
 `.data --json` and ordinary JSON expose direct facts; `.contract --json`
 exposes the typed Document. Markdown/plain text use the existing presentation.
-`-n`, `-Q`, `--envelope` and table/row formats do not apply to components.
+`-n`, `-Q`, `--envelope`, `--no-headers` / `--nh` and table/row formats do not
+apply to components.
 The [worked reading](../tools/ExplainReadingScenarios/continuous-components/README.md)
 includes captured JSON files and standalone versus parent-qualified examples.
 

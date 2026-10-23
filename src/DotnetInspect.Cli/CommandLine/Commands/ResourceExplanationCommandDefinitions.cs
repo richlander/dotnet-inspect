@@ -104,11 +104,12 @@ public static class ResourceExplanationCommandDefinitions
                     return 1;
                 }
                 if (parseResult.GetResult(valuesOption) is { Implicit: false }
+                    || parseResult.GetResult(opts.NoHeaders) is { Implicit: false }
                     || parseResult.GetValue(opts.Limit) is not null
                     || parseResult.GetValue(opts.Envelope)
                     || format is not (OutputFormat.Markdown or OutputFormat.PlainText or OutputFormat.Json))
                 {
-                    CommandError.Write("Component explanation supports Markdown, plain text and JSON; -n, -Q, --envelope and table/row formats do not apply.");
+                    CommandError.Write("Component explanation supports Markdown, plain text and JSON; -n, -Q, --envelope, --no-headers and table/row formats do not apply.");
                     return 1;
                 }
                 if (projection is not null && format != OutputFormat.Json)
