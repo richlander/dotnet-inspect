@@ -84,6 +84,7 @@ public sealed class ExactLibraryApiInspectionOperationTests
                     options,
                     TestContext.Current.CancellationToken))
             .Root;
+        Assert.NotNull(root.Root.AssetSelection);
         PackageCompileAsset asset = Assert.Single(
             root.Root.AssetSelection.Assets,
             candidate => candidate.AssemblyName
@@ -163,7 +164,7 @@ public sealed class ExactLibraryApiInspectionOperationTests
             .Root;
         Assert.Equal(
             PackageCompileAssetSelectionStatus.NoCompileAssets,
-            root.Root.AssetSelection.Status);
+            Assert.IsType<PackageCompileAssetSelection>(root.Root.AssetSelection).Status);
 
         ExactLibraryApiInspectionExecution execution =
             await ExactLibraryApiInspectionOperation.ExecuteToolEntryAsync(

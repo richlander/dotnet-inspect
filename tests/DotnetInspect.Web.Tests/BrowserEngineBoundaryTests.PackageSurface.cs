@@ -1774,7 +1774,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserPackageCoordinate coordinate = Assert.Single(rootScope.Coordinates);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.NoCompileAssets,
-            coordinate.Root.AssetSelection.Status);
+            Assert.IsType<PackageCompileAssetSelection>(coordinate.Root.AssetSelection).Status);
         Assert.Equal(
             coordinate.Package.Content.FromCache,
             coordinate.Root.FromCache);

@@ -1899,6 +1899,8 @@ internal static class BrowserPackageWorkspace
             AcquiredPackageSourcePayload payload,
             PackageRootBinding binding)
     {
+        if (binding.Root.AssetSelection is not { } selection)
+            return null;
         PackageAssetSelectionReceipt receipt =
             PackageAssetSelector.EvaluateSingleRuntime(
                 payload.Content,
@@ -1906,7 +1908,7 @@ internal static class BrowserPackageWorkspace
         if (receipt.AvailableRuntimePopulations.Count == 0)
             return null;
         if (binding.Root.RequestedRuntimeIdentifier is null
-            && binding.Root.AssetSelection.ImplementationAssets.Any(
+            && selection.ImplementationAssets.Any(
                 static asset => asset.RuntimeIdentifier is null))
         {
             return null;
@@ -5952,7 +5954,9 @@ internal sealed class BrowserPackageCoordinate
             "The legacy Browser package coordinate has no acquisition-issued binding.");
 
     public PackageCompileAssetSelection Selection =>
-        Root.AssetSelection;
+        Root.AssetSelection
+        ?? throw new InvalidOperationException(
+            "This Browser Package view requires a realized Library selection.");
 
     internal PackageInspectionInput CreateInspectionInput() =>
         Binding is not null

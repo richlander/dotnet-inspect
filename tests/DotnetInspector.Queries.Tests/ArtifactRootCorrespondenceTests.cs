@@ -108,9 +108,9 @@ public sealed class ArtifactRootCorrespondenceTests
                 omittedTarget),
             workspace.CreatePackageArtifactRootCorrespondence(
                 blankTarget));
-        Assert.True(extendedTarget.Root.AssetSelection.IsSelected);
+        Assert.True(Assert.IsType<PackageCompileAssetSelection>(extendedTarget.Root.AssetSelection).IsSelected);
         Assert.True(
-            equivalentExtendedTargetSpelling.Root.AssetSelection.IsSelected);
+            Assert.IsType<PackageCompileAssetSelection>(equivalentExtendedTargetSpelling.Root.AssetSelection).IsSelected);
         Assert.Equal(
             workspace.CreatePackageArtifactRootCorrespondence(
                 extendedTarget),

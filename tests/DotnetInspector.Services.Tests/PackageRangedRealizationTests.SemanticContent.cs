@@ -39,6 +39,7 @@ public sealed partial class PackageRangedRealizationTests
         var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(await house.ExecuteAsync(request, operation));
         var contribution = Assert.IsType<DotnetInspector.PackageQueries.PackageHouseRootContributionOutcome.Contributed>(
             DotnetInspector.PackageQueries.PackageHouseRootContributionAdapter.Create(acquired));
+        Assert.NotNull(contribution.Contribution.Binding.Root.AssetSelection);
         Assert.Equal(2, contribution.Contribution.Binding.Root.AssetSelection.Assets.Count);
         await using var workspace = new DotnetInspector.Queries.InspectionWorkspace();
         using var roles = workspace.RealizePackageAssemblyContextRoles([contribution.Contribution.Binding.Root],

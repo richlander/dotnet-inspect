@@ -260,7 +260,7 @@ public sealed class PackageEndpointScope : IAsyncDisposable
     public string PackageVersion => Root.Root.PackageVersion;
 
     /// <summary>The target framework the House's compile selection chose.</summary>
-    public string TargetFramework => Root.Root.AssetSelection.TargetFramework!;
+    public string TargetFramework => Contribution.SelectionReceipt.Selection.TargetFramework!;
 
     /// <summary>One per selected compile asset, in selection order.</summary>
     public ImmutableArray<PackageEndpointParticipant> SurfaceParticipants { get; }
@@ -348,7 +348,7 @@ public sealed class PackageEndpointScope : IAsyncDisposable
 
         PackageHouseRootContribution contribution = contributed.Contribution;
         PackageCompileAssetSelection selection =
-            contribution.Binding.Root.AssetSelection;
+            contribution.SelectionReceipt.Selection;
         if (!selection.IsSelected)
         {
             return Failure(

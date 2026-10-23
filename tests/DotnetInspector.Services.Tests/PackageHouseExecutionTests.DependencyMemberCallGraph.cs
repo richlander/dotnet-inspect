@@ -1090,6 +1090,7 @@ public sealed partial class PackageHouseExecutionTests
                     successorBindings,
                     DateTimeOffset.UtcNow.AddMinutes(1),
                     TestContext.Current.CancellationToken)).Snapshot;
+        Assert.NotNull(selected.Root.AssetSelection);
         PackageCompileAsset selectedAsset =
             Assert.Single(selected.Root.AssetSelection.Assets);
         await using PackageDependencyMemberCallGraphGeneration generation =

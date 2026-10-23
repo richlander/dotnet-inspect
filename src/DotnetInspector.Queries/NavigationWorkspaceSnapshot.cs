@@ -90,7 +90,7 @@ public sealed record NavigationPackageEvaluation
                 nameof(libraries));
         }
         IReadOnlyList<PackageCompileAsset> selectedAssets =
-            binding.Root.AssetSelection.Assets;
+            binding.Root.AssetSelection?.Assets ?? [];
         if (libraries.Length != selectedAssets.Count)
         {
             throw new ArgumentException(
@@ -127,7 +127,7 @@ public sealed record NavigationPackageEvaluation
 
         Occurrence = occurrence;
         PrimaryAssetId =
-            binding.Root.AssetSelection.DefaultAsset?.Id;
+            binding.Root.AssetSelection?.DefaultAsset?.Id;
         Libraries = libraries;
         Surface = surface;
     }
