@@ -31,6 +31,25 @@ public interface IMetadataRowKeys<TDomain, TRow>
 
     /// <summary>Embeds a resolved row's key as a nested Key part of the key open in <paramref name="into"/>.</summary>
     void Embed(SymbolKeyBuilder<TDomain> into, TRow row);
+
+    /// <summary>
+    /// Writes the name part of a Type, method, or field definition into the
+    /// open key: the <c>#Strings</c> name as stored
+    /// (<see cref="SymbolKeyBuilder{TDomain}.Name(StringHandle)"/>), or a
+    /// spelling the consumer's policy puts in its place, such as a
+    /// compiler-generated name with its ordinal elided. A reference's names
+    /// are never the consumer's to rewrite.
+    /// </summary>
+    void Name(SymbolKeyBuilder<TDomain> into, EntityHandle definition, StringHandle name);
+
+    /// <summary>
+    /// Under <see cref="MetadataSymbolScope.Declared"/>, the name the
+    /// consumer's policy substitutes for a resolution scope (an assembly or
+    /// module reference, or the current assembly or module definition), or
+    /// empty to declare the scope as it is. Never consulted under
+    /// <see cref="MetadataSymbolScope.Omitted"/>.
+    /// </summary>
+    ReadOnlySpan<byte> ScopeName(EntityHandle scope);
 }
 
 /// <summary>
@@ -44,7 +63,10 @@ public interface IMetadataRowKeys<TDomain, TRow>
 /// scratch population and embedded by their consumer. Rows a spelling refers
 /// to are resolved through <typeparamref name="TRow"/> by the consumer, which
 /// owns their storage and memo, so two consumers over one image spell one row
-/// with the same bytes. Guards bound every signature and specification decode;
+/// with the same bytes; a definition's name part and, under
+/// <see cref="MetadataSymbolScope.Declared"/>, a substituted scope name are
+/// the consumer's too, so a policy that rewrites names or scopes is the
+/// consumer's and the grammar stays one. Guards bound every signature and specification decode;
 /// a rejected shape is a <see cref="BadImageFormatException"/>. The consumer is
 /// a struct type parameter, so the instantiation is specialized and its
 /// resolve and embed are direct calls on the hot path; a class argument would
@@ -117,10 +139,10 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         try
         {
             Span<TypeDefinitionHandle> chain = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
-            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(_reader, handle, chain, out int length, out _, out _)
+            if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(_reader, handle, chain, out int length, out _, out var rejection)
                 || length == 0)
             {
-                throw new BadImageFormatException("The Type has an invalid declaring chain.");
+                throw new BadImageFormatException(Rejected(rejection, "The Type has an invalid declaring chain."));
             }
             int mark = into.Begin();
             Mark(into, MetadataSymbolPart.Type);
@@ -128,7 +150,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             if (!root.Namespace.IsNil)
                 Mark(into, MetadataSymbolPart.Namespace).Name(root.Namespace);
             for (int i = 0; i < length; i++)
-                into.Name(_reader.GetTypeDefinition(chain[i]).Name);
+                _rows.Name(into, chain[i], _reader.GetTypeDefinition(chain[i]).Name);
             if (_scope == MetadataSymbolScope.Declared)
                 CurrentScope(into);
             return into.End(mark);
@@ -149,8 +171,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
                     _reader, handle, chain, out int length, out EntityHandle terminal, out var rejection)
                 || length == 0)
             {
-                throw new BadImageFormatException(
-                    rejection?.Detail ?? "The Type reference has an invalid resolution-scope chain.");
+                throw new BadImageFormatException(Rejected(rejection, "The Type reference has an invalid resolution-scope chain."));
             }
             int mark = into.Begin();
             Mark(into, MetadataSymbolPart.Type);
@@ -170,19 +191,24 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     }
 
     // The scope kinds, as the first part after the Scope marker, so a module and
-    // an assembly of one name spell differently.
+    // an assembly of one name spell differently, and a name a consumer's policy
+    // substitutes differently from any declared one.
     const int AssemblyScope = 0;
     const int ModuleScope = 1;
     const int CurrentAssemblyScope = 2;
+    const int SubstitutedScope = 3;
 
     // The declared scope of a Type reference: its assembly reference's identity
-    // as parts, its module reference's name, or the current assembly's name.
+    // as parts, its module reference's name, or the current assembly's name,
+    // unless the consumer substitutes a name for it.
     void ResolutionScope(SymbolKeyBuilder<TDomain> into, EntityHandle terminal)
     {
         switch (terminal.Kind)
         {
             case HandleKind.AssemblyReference:
             {
+                if (TrySubstitutedScope(into, terminal))
+                    return;
                 AssemblyReference reference = _reader.GetAssemblyReference((AssemblyReferenceHandle)terminal);
                 Mark(into, MetadataSymbolPart.Scope).Int(AssemblyScope).Name(reference.Name)
                     .Int(reference.Version.Major).Int(reference.Version.Minor)
@@ -194,6 +220,8 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
                 return;
             }
             case HandleKind.ModuleReference:
+                if (TrySubstitutedScope(into, terminal))
+                    return;
                 Mark(into, MetadataSymbolPart.Scope).Int(ModuleScope)
                     .Name(_reader.GetModuleReference((ModuleReferenceHandle)terminal).Name);
                 return;
@@ -203,14 +231,26 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         }
     }
 
-    // The current assembly's name, or the module's when the image is no assembly.
+    // The current assembly's name, or the module's when the image is no assembly,
+    // unless the consumer substitutes a name for the current scope.
     void CurrentScope(SymbolKeyBuilder<TDomain> into)
     {
+        if (TrySubstitutedScope(into, _reader.IsAssembly ? EntityHandle.AssemblyDefinition : EntityHandle.ModuleDefinition))
+            return;
         Mark(into, MetadataSymbolPart.Scope).Int(CurrentAssemblyScope);
         if (_reader.IsAssembly)
             into.Name(_reader.GetAssemblyDefinition().Name);
         else
             into.Name(_reader.GetModuleDefinition().Name);
+    }
+
+    bool TrySubstitutedScope(SymbolKeyBuilder<TDomain> into, EntityHandle scope)
+    {
+        ReadOnlySpan<byte> name = _rows.ScopeName(scope);
+        if (name.IsEmpty)
+            return false;
+        Mark(into, MetadataSymbolPart.Scope).Int(SubstitutedScope).Name(name);
+        return true;
     }
 
     /// <summary>
@@ -267,7 +307,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             Guard(method.Signature, SignatureBlobGuard.Kind.Method);
             MethodSignature<MetadataSignatureKey> signature = method.DecodeSignature(_provider, null);
             TRow declaring = _rows.Resolve(method.GetDeclaringType(), MetadataRowRole.Declaring);
-            return MethodKey(into, declaring, method.Name, signature);
+            return MethodKey(into, declaring, handle, method.Name, signature);
         }
         finally
         {
@@ -284,7 +324,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             Guard(field.Signature, SignatureBlobGuard.Kind.Field);
             MetadataSignatureKey type = field.DecodeSignature(_provider, null);
             TRow declaring = _rows.Resolve(field.GetDeclaringType(), MetadataRowRole.Declaring);
-            return FieldKey(into, declaring, field.Name, type);
+            return FieldKey(into, declaring, handle, field.Name, type);
         }
         finally
         {
@@ -302,10 +342,10 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             if (member.GetKind() == MemberReferenceKind.Field)
             {
                 Guard(member.Signature, SignatureBlobGuard.Kind.Field);
-                return FieldKey(into, parent, member.Name, member.DecodeFieldSignature(_provider, null));
+                return FieldKey(into, parent, default, member.Name, member.DecodeFieldSignature(_provider, null));
             }
             Guard(member.Signature, SignatureBlobGuard.Kind.Method);
-            return MethodKey(into, parent, member.Name, member.DecodeMethodSignature(_provider, null));
+            return MethodKey(into, parent, default, member.Name, member.DecodeMethodSignature(_provider, null));
         }
         finally
         {
@@ -423,24 +463,35 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     /// <summary>Ends the spelling <see cref="DecodeProperty"/> opened, once the consumer has embedded its signature.</summary>
     public void Discard() => Exit();
 
-    StagedSymbolKey<TDomain> MethodKey(SymbolKeyBuilder<TDomain> into, TRow parent, StringHandle name, MethodSignature<MetadataSignatureKey> signature)
+    // A definition's name is the consumer's to write; a member reference's
+    // (a nil definition) is the heap's as stored.
+    StagedSymbolKey<TDomain> MethodKey(SymbolKeyBuilder<TDomain> into, TRow parent, EntityHandle definition, StringHandle name, MethodSignature<MetadataSignatureKey> signature)
     {
         int mark = into.Begin();
         Mark(into, MetadataSymbolPart.Method);
         _rows.Embed(into, parent);
-        into.Name(name).Int(signature.GenericParameterCount).Int(signature.Header.RawValue);
+        Name(into, definition, name);
+        into.Int(signature.GenericParameterCount).Int(signature.Header.RawValue);
         Signature(into, signature);
         return into.End(mark);
     }
 
-    StagedSymbolKey<TDomain> FieldKey(SymbolKeyBuilder<TDomain> into, TRow parent, StringHandle name, MetadataSignatureKey type)
+    StagedSymbolKey<TDomain> FieldKey(SymbolKeyBuilder<TDomain> into, TRow parent, EntityHandle definition, StringHandle name, MetadataSignatureKey type)
     {
         int mark = into.Begin();
         Mark(into, MetadataSymbolPart.Field);
         _rows.Embed(into, parent);
-        into.Name(name);
+        Name(into, definition, name);
         Embed(into, type);
         return into.End(mark);
+    }
+
+    void Name(SymbolKeyBuilder<TDomain> into, EntityHandle definition, StringHandle name)
+    {
+        if (definition.IsNil)
+            into.Name(name);
+        else
+            _rows.Name(into, definition, name);
     }
 
     StagedSymbolKey<TDomain> ScratchKey(MetadataSignatureKey key)
@@ -450,10 +501,15 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         return Scratch.Resolve(new SymbolKeySlot(key.Offset, key.Length));
     }
 
+    // A traversal's rejection names its kind (a cycle, the node budget) so a
+    // consumer's failure reason says why the chain was refused.
+    static string Rejected(RelationshipTraversalRejection? rejection, string fallback)
+        => rejection is null ? fallback : $"{rejection.Kind}: {rejection.Detail}";
+
     void Guard(BlobHandle signature, SignatureBlobGuard.Kind kind)
     {
         if (!SignatureBlobGuard.IsSafeToDecode(_reader, signature, kind))
-            throw new BadImageFormatException("The signature blob is too deep to decode.");
+            throw new BadImageFormatException("The signature guard refuses the blob: too deep, or not the signature grammar.");
     }
 
     void Enter() => _depth++;

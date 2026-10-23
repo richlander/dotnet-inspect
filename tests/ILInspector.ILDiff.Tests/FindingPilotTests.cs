@@ -999,7 +999,7 @@ public class FindingPilotTests
             FindingInspection<CanonicalIlOperation>.Complete value => value,
             _ => throw new InvalidOperationException("Expected a complete IL inspection."),
         };
-        var absent = IlFindings.Inspect(null, null, IlSubject);
+        var absent = IlFindings.Inspect(body: null, reader: null, IlSubject);
         var failed = IlFindings.Inspect(malformed, null, IlSubject);
 
         Assert.Contains(complete.Findings, f => f.Descriptor.Id == "il.op");

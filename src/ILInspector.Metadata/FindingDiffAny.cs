@@ -298,12 +298,12 @@ public static class FindingDiffAny
         if (methodA.RelativeVirtualAddress == 0)
             return true;
 
-        MethodBodyBlock bodyA = a.Pe.GetMethodBody(methodA.RelativeVirtualAddress);
-        MethodBodyBlock bodyB = b.Pe.GetMethodBody(methodB.RelativeVirtualAddress);
-        BlobReader readerA = bodyA.GetILReader();
-        BlobReader readerB = bodyB.GetILReader();
+        RawMethodBodyView bodyA = RawMethodBodyView.Read(a.Pe, methodA.RelativeVirtualAddress);
+        RawMethodBodyView bodyB = RawMethodBodyView.Read(b.Pe, methodB.RelativeVirtualAddress);
+        BlobReader readerA = bodyA.IL;
+        BlobReader readerB = bodyB.IL;
         work.IlBytes += readerA.Length;
-        return work.Walk.Equal(a, readerA, bodyA.ExceptionRegions, b, readerB, bodyB.ExceptionRegions);
+        return work.Walk.Equal(a, readerA, bodyA, b, readerB, bodyB);
     }
 
     /// <summary>
@@ -415,10 +415,10 @@ public static class FindingDiffAny
         public bool Equal(
             Side a,
             BlobReader readerA,
-            ImmutableArray<ExceptionRegion> regionsA,
+            RawMethodBodyView bodyA,
             Side b,
             BlobReader readerB,
-            ImmutableArray<ExceptionRegion> regionsB)
+            RawMethodBodyView bodyB)
         {
             int count = 0;
             int targets = 0;
@@ -547,7 +547,7 @@ public static class FindingDiffAny
                 if (TargetIndex(_startsA, count, _targetsA[i]) != TargetIndex(_startsB, count, _targetsB[i]))
                     return false;
             }
-            return ClausesEqual(a, regionsA, readerA.Length, b, regionsB, readerB.Length, count);
+            return ClausesEqual(a, bodyA, readerA.Length, b, bodyB, readerB.Length, count);
         }
 
         /// <summary>
@@ -561,23 +561,26 @@ public static class FindingDiffAny
         /// </summary>
         bool ClausesEqual(
             Side a,
-            ImmutableArray<ExceptionRegion> regionsA,
+            RawMethodBodyView bodyA,
             int lengthA,
             Side b,
-            ImmutableArray<ExceptionRegion> regionsB,
+            RawMethodBodyView bodyB,
             int lengthB,
             int count)
         {
-            foreach (ExceptionRegion region in regionsA)
-                RequireBoundaries(_startsA, count, lengthA, region);
-            foreach (ExceptionRegion region in regionsB)
-                RequireBoundaries(_startsB, count, lengthB, region);
-            if (regionsA.Length != regionsB.Length)
-                return false;
-            for (int i = 0; i < regionsA.Length; i++)
+            RawExceptionRegionEnumerator validationA = bodyA.ExceptionRegions;
+            while (validationA.MoveNext(out RawExceptionRegion regionA))
+                RequireBoundaries(_startsA, count, lengthA, regionA);
+            RawExceptionRegionEnumerator validationB = bodyB.ExceptionRegions;
+            while (validationB.MoveNext(out RawExceptionRegion regionB))
+                RequireBoundaries(_startsB, count, lengthB, regionB);
+
+            RawExceptionRegionEnumerator regionsA = bodyA.ExceptionRegions;
+            RawExceptionRegionEnumerator regionsB = bodyB.ExceptionRegions;
+            while (regionsA.MoveNext(out RawExceptionRegion x))
             {
-                ExceptionRegion x = regionsA[i];
-                ExceptionRegion y = regionsB[i];
+                if (!regionsB.MoveNext(out RawExceptionRegion y))
+                    return false;
                 if (x.Kind != y.Kind)
                     return false;
                 if (x.Kind == ExceptionRegionKind.Catch)
@@ -600,10 +603,10 @@ public static class FindingDiffAny
                     return false;
                 }
             }
-            return true;
+            return !regionsB.MoveNext(out _);
         }
 
-        void RequireBoundaries(int[] starts, int count, int length, ExceptionRegion region)
+        void RequireBoundaries(int[] starts, int count, int length, RawExceptionRegion region)
         {
             BoundaryIndex(starts, count, length, region.TryOffset);
             BoundaryIndex(starts, count, length, region.TryOffset + region.TryLength);
@@ -1004,6 +1007,11 @@ public static class FindingDiffAny
             public void Embed(SymbolKeyBuilder<FindingDiffAnyPart> into, KeyRef row) => into.Key(row);
 
             public KeyRef Primitive(PrimitiveTypeCode typeCode) => side.Primitive(typeCode);
+
+            // Names are the heap's as stored, and no scope is spelled under Omitted.
+            public void Name(SymbolKeyBuilder<FindingDiffAnyPart> into, EntityHandle definition, StringHandle name) => into.Name(name);
+
+            public ReadOnlySpan<byte> ScopeName(EntityHandle scope) => default;
         }
 
         public MetadataStringHeap Names { get; private set; }

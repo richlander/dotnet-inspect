@@ -37,7 +37,11 @@ public class SignatureDecoderSafetyTests
             "new.dll");
 
         Assert.True(result.Diff.ComparedBodyCount > 0);
-        Assert.Equal(2, result.Diff.FailureCount);
+        // Two method identities the map cannot resolve, and the Entry body
+        // twice (its self-diff and its pair): an operand whose signature the
+        // guard rejects is unresolvable, as Finding Diff Any reads it, rather
+        // than compared through a stand-in identity.
+        Assert.Equal(4, result.Diff.FailureCount);
         Assert.Equal(2, result.Diff.IdentityFailures.Length);
 
         using var oneOverload = new MemoryStream(BuildRejectedOverloadImage(methodCount: 1));
@@ -61,9 +65,12 @@ public class SignatureDecoderSafetyTests
             shiftedStream,
             "shifted.dll");
 
-        Assert.Equal(3, shiftedResult.Diff.FailureCount);
+        // Caller names Guarded, whose signature the guard rejects: its
+        // self-diff and its pair are unavailable rather than exact through a
+        // stand-in identity, as Finding Diff Any reads such a row.
+        Assert.Equal(5, shiftedResult.Diff.FailureCount);
         Assert.Equal(2, shiftedResult.Diff.IdentityFailures.Length);
-        Assert.Equal(1, shiftedResult.Diff.PairExactCount);
+        Assert.Equal(0, shiftedResult.Diff.PairExactCount);
 
         using var oldPe = new PEReader(new MemoryStream(unshifted));
         using var newPe = new PEReader(new MemoryStream(shifted));
@@ -77,7 +84,8 @@ public class SignatureDecoderSafetyTests
             newReader,
             FindMethod(newReader, "Caller"));
 
-        Assert.True(memberResult.Diff.IsExact);
+        Assert.False(memberResult.Diff.IsExact);
+        Assert.Equal(IlDiffFailureKind.TokenResolutionFailure, Assert.Single(memberResult.Diff.FailureRows).Kind);
     }
 
     [Fact]
