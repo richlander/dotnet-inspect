@@ -132,14 +132,27 @@ public static class AssemblyPairCallUseQuery
             RequireParticipant(group, first);
         AssemblyContextParticipant secondParticipant =
             RequireParticipant(group, second);
+        AssemblyContextCallGraphAnalysisResult? firstAnalysis =
+            null;
+        AssemblyContextCallGraphAnalysisResult? secondAnalysis =
+            null;
+        Parallel.Invoke(
+            new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 2,
+            },
+            () => firstAnalysis =
+                AssemblyContextCallGraphAnalysis.Execute(
+                    group,
+                    firstParticipant),
+            () => secondAnalysis =
+                AssemblyContextCallGraphAnalysis.Execute(
+                    group,
+                    secondParticipant));
         return ExecuteAnalyzed(
             group,
-            AssemblyContextCallGraphAnalysis.Execute(
-                group,
-                firstParticipant),
-            AssemblyContextCallGraphAnalysis.Execute(
-                group,
-                secondParticipant));
+            firstAnalysis!,
+            secondAnalysis!);
     }
 
     internal static AssemblyPairCallUseResult ExecuteAnalyzed(

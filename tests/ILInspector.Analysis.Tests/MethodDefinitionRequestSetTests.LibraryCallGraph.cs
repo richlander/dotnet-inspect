@@ -130,12 +130,17 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Equal(
             0,
             receipt.Coverage.MethodAnalysis.DeclaredSource.Queries);
-        Assert.DoesNotContain(
-            sourceResult.WorkReceipt
-                .For(LibraryCallGraphProducer.Instance)
-                .Layers,
-            layer => layer.Layer
-                == nameof(MethodDefinitionLayers.MethodAnalysis));
+        ProducerLayerParticipation methodAnalysis =
+            Assert.Single(
+                sourceResult.WorkReceipt
+                    .For(LibraryCallGraphProducer.Instance)
+                    .Layers,
+                layer => layer.Layer
+                    == nameof(
+                        MethodDefinitionLayers.MethodAnalysis));
+        Assert.Equal(
+            receipt.BodiesAcquired,
+            methodAnalysis.Acquired);
         Assert.True(actual.HasFullMethodEvidenceScope);
 
         static string DescribeSignals(

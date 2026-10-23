@@ -142,17 +142,6 @@ public sealed class ExactMethodAllocationProducer :
     {
         ExactMethodAnalysisBody analysis =
             view.FactOf(PhysicalMethodAnalysisProducer.Instance);
-        return Collect(
-            view,
-            analysis,
-            classifyEscapes: true);
-    }
-
-    internal static ExactMethodAllocationBody Collect(
-        scoped MethodDefinitionView view,
-        ExactMethodAnalysisBody analysis,
-        bool classifyEscapes)
-    {
         int token = analysis.MethodToken;
         var diagnostics =
             ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
@@ -175,10 +164,7 @@ public sealed class ExactMethodAllocationProducer :
                 view.BeginMethodAnalysis(
                     method,
                     context.Instructions);
-            if (classifyEscapes)
-                facts.Collect(query.Resolver);
-            else
-                facts.CollectForCallGraph(query.Resolver);
+            facts.Collect(query.Resolver);
             if (facts.CollectionFailure is { } failure)
             {
                 diagnostics.Add(

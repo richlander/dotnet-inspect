@@ -29,15 +29,15 @@ public sealed record LibraryCallGraphBodyEvidence(
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
-internal sealed class LibraryCallGraphAllocationProducer :
+public sealed class LibraryCallGraphProducer :
     MethodDefinitionProducer<
-        ExactMethodAllocationBody,
-        ImmutableArray<ExactMethodAllocationBody>.Builder,
-        ImmutableArray<ExactMethodAllocationBody>>
+        LibraryCallGraphBodyEvidence,
+        ImmutableArray<LibraryCallGraphBodyEvidence>.Builder,
+        LibraryCallGraphProducerResult>
 {
-    LibraryCallGraphAllocationProducer()
+    LibraryCallGraphProducer()
         : base(
-            "Library Call Graph Allocation",
+            "Library Call Graph",
             version: 1,
             tier: 0,
             MethodDefinitionLayers.MethodAnalysis,
@@ -50,65 +50,6 @@ internal sealed class LibraryCallGraphAllocationProducer :
     {
     }
 
-    internal static LibraryCallGraphAllocationProducer Instance { get; } =
-        new();
-
-    internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
-        InstructionAnalyzers =>
-        [
-            MethodBodyAnalyzerDeclarations.BoundedFlow,
-        ];
-
-    internal override ExactMethodAllocationBody Visit(
-        scoped MethodDefinitionView view) =>
-        ExactMethodAllocationProducer.Collect(
-            view,
-            view.FactOf(PhysicalMethodAnalysisProducer.Instance),
-            classifyEscapes: false);
-
-    internal override ImmutableArray<ExactMethodAllocationBody>.Builder
-        Seed() =>
-        ImmutableArray.CreateBuilder<ExactMethodAllocationBody>();
-
-    internal override ImmutableArray<ExactMethodAllocationBody>.Builder
-        Accumulate(
-            ImmutableArray<ExactMethodAllocationBody>.Builder accumulator,
-            ExactMethodAllocationBody fact)
-    {
-        accumulator.Add(fact);
-        return accumulator;
-    }
-
-    internal override ImmutableArray<ExactMethodAllocationBody> Complete(
-        ImmutableArray<ExactMethodAllocationBody>.Builder accumulator,
-        MethodDefinitionCompletionView completion) =>
-        accumulator.ToImmutable();
-}
-
-public sealed class LibraryCallGraphProducer :
-    MethodDefinitionProducer<
-        LibraryCallGraphBodyEvidence,
-        ImmutableArray<LibraryCallGraphBodyEvidence>.Builder,
-        LibraryCallGraphProducerResult>
-{
-    LibraryCallGraphProducer()
-        : base(
-            "Library Call Graph",
-            version: 1,
-            tier: 0,
-            layers: 0,
-            dependencies: static () =>
-            [
-                new(
-                    PhysicalMethodAnalysisProducer.Instance,
-                    ProducerDependencyKind.VisitNeedsVisit),
-                new(
-                    LibraryCallGraphAllocationProducer.Instance,
-                    ProducerDependencyKind.VisitNeedsVisit),
-            ])
-    {
-    }
-
     public static LibraryCallGraphProducer Instance { get; } = new();
 
     internal override LibraryCallGraphBodyEvidence Visit(
@@ -116,27 +57,61 @@ public sealed class LibraryCallGraphProducer :
     {
         ExactMethodAnalysisBody method =
             view.FactOf(PhysicalMethodAnalysisProducer.Instance);
-        ExactMethodAllocationBody allocation =
-            view.FactOf(LibraryCallGraphAllocationProducer.Instance);
-        ImmutableArray<DirectCall> directCalls =
-            ExactMethodAnalysisProducer.CollectDirectCalls(
-                method,
-                allocation.Facts,
-                out _);
+        ImmutableArray<DirectCall> directCalls = [];
         BodySignals? bodySignals = null;
+        var exceptionTypes =
+            new Dictionary<(string Namespace, string Name), bool>();
+        var nonHeapNewObjectTokens = new HashSet<int>();
 
         if (method.Method is { } identity
             && method.Context is { } context)
         {
+            MethodAllocationFacts facts =
+                MethodAllocationFacts.Create(context);
+            directCalls =
+                ExactMethodAnalysisProducer.CollectDirectCalls(
+                    method,
+                    facts,
+                    out _);
+            using MethodAnalysisQuery query =
+                view.BeginMethodAnalysis(
+                    identity,
+                    context.Instructions);
+            IMethodAllocationResolver resolver = query.Resolver;
             bodySignals = BodySignalAnalysis.Collect(
                 context,
                 operandToken =>
-                    allocation.Allocations.Any(
-                        occurrence =>
-                            occurrence.Kind == AllocationKind.Box
-                            && occurrence.OperandToken
-                                == operandToken
-                            && occurrence.CountsAsHeapAllocation));
+                    resolver.IsAllocatingValueTypeBox(
+                        operandToken,
+                        resolver.ResolveType(operandToken)));
+            foreach (DirectCall call in directCalls)
+            {
+                if (call.Kind != CallKind.NewObject)
+                    continue;
+                if (resolver.ClassifyConstruction(
+                        call.OperandToken,
+                        call.Callee.DeclaringType)
+                    != NewObjectConstructionKind.Heap)
+                {
+                    nonHeapNewObjectTokens.Add(
+                        call.OperandToken);
+                }
+                if (resolver.IsInAssemblyExceptionType(
+                        call.OperandToken,
+                        call.Callee.DeclaringType)
+                    is bool isException)
+                {
+                    TypeRef definition =
+                        call.Callee.DeclaringType.Kind
+                            == TypeRefKind.GenericInstance
+                        ? call.Callee.DeclaringType.ElementType
+                            ?? call.Callee.DeclaringType
+                        : call.Callee.DeclaringType;
+                    exceptionTypes.TryAdd(
+                        (definition.Namespace, definition.Name),
+                        isException);
+                }
+            }
         }
 
         return new(
@@ -148,9 +123,8 @@ public sealed class LibraryCallGraphProducer :
                 && HasSignals(bodySignals)
                 ? bodySignals
                 : null,
-            allocation.InAssemblyTypeIsException,
-            allocation.Facts?.NonHeapNewObjectOperandTokens
-                ?? new HashSet<int>(),
+            exceptionTypes,
+            nonHeapNewObjectTokens,
             method.Diagnostics);
     }
 
