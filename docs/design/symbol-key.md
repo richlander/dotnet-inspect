@@ -485,9 +485,10 @@ Eight steps, tracked by
    Diff Any step 5. The memo is the pairing: once both sides have spelled a
    row and compared, the diff needs the verdict, not the spelling. The first
    half is done: member rows are spelled per unit and discarded, and the
-   body comparison retains the pairing of operand rows proven equal rather
-   than their spellings, so a completed comparison retains the Type-level
-   keys, the pairing, and the tables. The second half, shared ids as `Ref`
+   body comparison keeps the pairing of operand rows proven equal, rather
+   than their spellings, while it runs and releases it when it completes, so
+   a completed comparison retains the Type-level keys and the tables. The
+   second half, shared ids as `Ref`
    parts for the Type-level keys embedded in member spellings, shrinks the
    spellings themselves and lands in its own candidate.
 8. **Browser exchange.** The first Inspect Web consumer that passes a key to
