@@ -13,6 +13,71 @@ namespace DotnetInspector.Services.Tests;
 /// </summary>
 public sealed partial class PackageRangedRealizationTests
 {
+    [Fact]
+    public async Task
+        EndpointScope_ExactAllocationMapsSurfaceMethodToImplementation()
+    {
+        const string package = "System.Text.Json";
+        const string version = "10.0.0";
+        var server = new RangeFeed(
+            package,
+            version,
+            File.ReadAllBytes(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "PackageAdmission",
+                    "System.Text.Json.10.0.0.nupkg")));
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        await using PackageEndpointScope scope = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                new InMemoryPackageStore(),
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(package, version),
+                    "net9.0",
+                    PackageAssetDemand.SurfaceAndImplementation)));
+        ILInspector.Metadata.ApiSurface surface =
+            await PackageEndpointApiSurfaceQuery.ExecuteAsync(
+                scope,
+                package,
+                ApiSurfaceScope.IncludeAll,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        ILInspector.Metadata.ApiType type = Assert.Single(
+            surface.Types,
+            candidate =>
+                candidate.FullName
+                    == "System.Text.Json.Schema.JsonSchemaExporter");
+        ILInspector.Metadata.ResolvedMemberTarget target =
+            Assert.IsType<ILInspector.Metadata.ResolvedMemberTarget>(
+                ILInspector.Metadata.MemberTargetResolver.Resolve(
+                    type,
+                    ILInspector.Metadata.MemberTargetSelector.Parse(
+                        "MapJsonSchemaCore")).Target);
+        int surfaceToken =
+            Assert.IsType<int>(target.Body!.MetadataToken);
+
+        PackageEndpointMethodAllocationResult result =
+            await PackageEndpointMethodAllocationQuery.ExecuteAsync(
+                scope,
+                Assert.IsType<string>(type.SourceAssemblyPath),
+                surfaceToken,
+                TestContext.Current.CancellationToken);
+
+        var analyzed = Assert.IsType<
+            PackageEndpointMethodAllocationResult.Analyzed>(result);
+        AssemblyMethodAllocationAnalysis analysis = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAllocationAnalysis>.Available>(
+                analyzed.Entry).Value;
+        Assert.Equal(
+            analysis.RequestedMethodToken,
+            analysis.Method.MetadataToken);
+        Assert.Empty(analysis.Diagnostics);
+        Assert.NotEmpty(analysis.Allocations);
+    }
+
     /// <summary>
     /// Step 4 part 2: an endpoint's merged API surface holds every surface
     /// participant's Types, ordered by name, with the participants' counts

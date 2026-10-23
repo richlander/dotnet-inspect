@@ -41,6 +41,12 @@ public sealed class SymbolKeyTests
         Type = 0x10,
     }
 
+    enum TwicePart : byte
+    {
+        Type = 0x10,
+        Again = 0x10,
+    }
+
     static StagedSymbolKey<TestPart> Build(SymbolKeyBuilder<TestPart> keys, Action<SymbolKeyBuilder<TestPart>> parts)
     {
         int mark = keys.Begin();
@@ -145,6 +151,7 @@ public sealed class SymbolKeyTests
 
         Assert.Throws<InvalidOperationException>(() => new SymbolKeyBuilder<LowPart>());
         Assert.Throws<InvalidOperationException>(() => new SymbolKeyBuilder<WidePart>());
+        Assert.Throws<InvalidOperationException>(() => new SymbolKeyBuilder<TwicePart>());
     }
 
     [Fact]
@@ -347,6 +354,27 @@ public sealed class SymbolKeyTests
         new ManagedPEBuilder(PEHeaderBuilder.CreateLibraryHeader(), new MetadataRootBuilder(metadata), new BlobBuilder(),
             flags: CorFlags.ILOnly).Serialize(image);
         return image.ToArray();
+    }
+
+    enum SharedPart : byte
+    {
+        Type = SymbolKeyDomain.FirstMarker,
+        Other = 0x7F,
+    }
+
+    [Fact]
+    public void MarkShared_WritesADeclaredSharedMarker_AndRefusesAnUndeclaredOne()
+    {
+        var keys = new SymbolKeyBuilder<TestPart>();
+        int mark = keys.Begin();
+        StagedSymbolKey<TestPart> shared = keys.MarkShared(SharedPart.Type).Int(1).End(mark);
+        StagedSymbolKey<TestPart> own = Build(keys, k => k.Int(1));
+        Assert.Equal(own, shared);
+        Assert.Equal(TestPart.Type, shared.Kind);
+
+        keys.Begin();
+        Assert.Throws<SymbolKeyStateException>(() => keys.MarkShared(SharedPart.Other));
+        Assert.Throws<SymbolKeyStateException>(() => keys.MarkShared(WidePart.Type));
     }
 
     [Fact]

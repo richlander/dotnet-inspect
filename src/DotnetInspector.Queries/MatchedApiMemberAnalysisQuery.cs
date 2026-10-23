@@ -88,6 +88,8 @@ public static class MatchedApiMemberAnalysisQuery
             correspondence,
             subject,
             AnalysisFindings.AllocationDescriptor,
+            AssemblyContextMethodAllocationQuery.ExecuteParticipant,
+            static analysis => analysis.Diagnostics,
             static (analysis, findingSubject) =>
                 AnalysisFindings.InspectAllocations(
                     analysis.Allocations,
@@ -105,6 +107,8 @@ public static class MatchedApiMemberAnalysisQuery
             correspondence,
             subject,
             AnalysisFindings.CallSiteDescriptor,
+            AssemblyContextMethodAnalysisQuery.ExecuteParticipant,
+            static analysis => analysis.Diagnostics,
             static (analysis, findingSubject) =>
                 AnalysisFindings.InspectCallSites(
                     analysis.DirectCalls,
@@ -122,19 +126,28 @@ public static class MatchedApiMemberAnalysisQuery
             correspondence,
             subject,
             AnalysisFindings.UnsafetyDescriptor,
+            AssemblyContextMethodAnalysisQuery.ExecuteParticipant,
+            static analysis => analysis.Diagnostics,
             static (analysis, findingSubject) =>
                 AnalysisFindings.InspectUnsafety(
                     analysis.UnsafetyOccurrences,
                     findingSubject),
             cancellationToken);
 
-    static MatchedApiMemberAnalysisResult<T> Execute<T>(
+    static MatchedApiMemberAnalysisResult<T> Execute<T, TAnalysis>(
         PackageAssemblyContextRealization realization,
         ApiCoordinateCorrespondenceResult correspondence,
         FindingSubject subject,
         FindingDescriptor descriptor,
         Func<
-            AssemblyMethodAnalysis,
+            AssemblyContextGroup,
+            AssemblyContextParticipant,
+            int,
+            CancellationToken,
+            AssemblyContextEntry<TAnalysis>> analyze,
+        Func<TAnalysis, ImmutableArray<AnalysisDiagnostic>> diagnostics,
+        Func<
+            TAnalysis,
             FindingSubject,
             ImmutableArray<Finding<T>>> project,
         CancellationToken cancellationToken)
@@ -144,6 +157,8 @@ public static class MatchedApiMemberAnalysisQuery
         ArgumentNullException.ThrowIfNull(correspondence);
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(analyze);
+        ArgumentNullException.ThrowIfNull(diagnostics);
         ArgumentNullException.ThrowIfNull(project);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -278,8 +293,8 @@ public static class MatchedApiMemberAnalysisQuery
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        AssemblyContextEntry<AssemblyMethodAnalysis> entry =
-            AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+        AssemblyContextEntry<TAnalysis> entry =
+            analyze(
                 realization.ImplementationGroup!,
                 implementation.Participant,
                 methodToken,
@@ -287,14 +302,15 @@ public static class MatchedApiMemberAnalysisQuery
         cancellationToken.ThrowIfCancellationRequested();
         return entry switch
         {
-            AssemblyContextEntry<AssemblyMethodAnalysis>.Available available =>
+            AssemblyContextEntry<TAnalysis>.Available available =>
                 Complete(
                     resolution.Evidence,
                     available.Value,
                     subject,
                     descriptor,
+                    diagnostics,
                     project),
-            AssemblyContextEntry<AssemblyMethodAnalysis>.Rejected rejected =>
+            AssemblyContextEntry<TAnalysis>.Rejected rejected =>
                 Failed<T>(
                     resolution.Evidence with
                     {
@@ -304,7 +320,7 @@ public static class MatchedApiMemberAnalysisQuery
                     },
                     subject,
                     descriptor),
-            AssemblyContextEntry<AssemblyMethodAnalysis>.Failed failed =>
+            AssemblyContextEntry<TAnalysis>.Failed failed =>
                 Failed<T>(
                     resolution.Evidence with
                     {
@@ -605,25 +621,28 @@ public static class MatchedApiMemberAnalysisQuery
         }
     }
 
-    static MatchedApiMemberAnalysisResult<T> Complete<T>(
+    static MatchedApiMemberAnalysisResult<T> Complete<T, TAnalysis>(
         MatchedApiMemberBodyResolutionEvidence resolution,
-        AssemblyMethodAnalysis analysis,
+        TAnalysis analysis,
         FindingSubject subject,
         FindingDescriptor descriptor,
+        Func<TAnalysis, ImmutableArray<AnalysisDiagnostic>> diagnostics,
         Func<
-            AssemblyMethodAnalysis,
+            TAnalysis,
             FindingSubject,
             ImmutableArray<Finding<T>>> project)
         where T : notnull
     {
-        if (!analysis.Diagnostics.IsEmpty)
+        ImmutableArray<AnalysisDiagnostic> analysisDiagnostics =
+            diagnostics(analysis);
+        if (!analysisDiagnostics.IsEmpty)
         {
-            AnalysisDiagnostic first = analysis.Diagnostics[0];
+            AnalysisDiagnostic first = analysisDiagnostics[0];
             string prefix =
-                analysis.Diagnostics.Length == 1
+                analysisDiagnostics.Length == 1
                     ? "Method Analysis is incomplete"
                     : $"Method Analysis is incomplete with "
-                        + $"{analysis.Diagnostics.Length} diagnostics; first";
+                        + $"{analysisDiagnostics.Length} diagnostics; first";
             return Failed<T>(
                 resolution with
                 {

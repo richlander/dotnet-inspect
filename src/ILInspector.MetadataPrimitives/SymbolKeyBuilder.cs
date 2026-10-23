@@ -60,6 +60,9 @@ public readonly struct StagedSymbolKey<TDomain> : IEquatable<StagedSymbolKey<TDo
 
     public bool Equals(StagedSymbolKey<TDomain> other) => Bytes.SequenceEqual(other.Bytes);
 
+    /// <summary>Copies the key's bytes, <see cref="Length"/> of them, into <paramref name="destination"/>.</summary>
+    public void CopyTo(Span<byte> destination) => Bytes.CopyTo(destination);
+
     /// <summary>Whether a frozen key holds the same parts as this key.</summary>
     public bool Equals(SymbolKey<TDomain> other) => other.Equals(this);
 
@@ -143,6 +146,8 @@ public sealed class SymbolKeyBuilder<TDomain>
     const int NotOpen = -1;
 
     readonly int _initialCapacity;
+    // The domain's declared markers, held by instance so MarkShared reads no generic static.
+    readonly bool[] _declared;
     byte[] _scratch;
     int _length;
     int _generation;
@@ -151,7 +156,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     public SymbolKeyBuilder(int initialCapacity = 1024)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(initialCapacity);
-        SymbolKeyDomain.Validate<TDomain>();
+        _declared = SymbolKeyDomain.DeclaredMarkers<TDomain>();
         _initialCapacity = Math.Max(16, initialCapacity);
         _scratch = new byte[_initialCapacity];
     }
@@ -182,6 +187,42 @@ public sealed class SymbolKeyBuilder<TDomain>
         RequireOpen();
         Ensure(1);
         _scratch[_length++] = SymbolKeyDomain.Marker(marker);
+        return this;
+    }
+
+    /// <summary>
+    /// Writes a marker of a shared vocabulary, which this domain must declare
+    /// under its own name with the same value; a value the domain does not
+    /// declare is refused, so a shared spelling never writes a part the domain
+    /// cannot read back.
+    /// </summary>
+    public SymbolKeyBuilder<TDomain> MarkShared<TShared>(TShared marker)
+        where TShared : unmanaged, Enum
+    {
+        if (Unsafe.SizeOf<TShared>() != 1)
+            throw new SymbolKeyStateException($"Shared vocabulary {typeof(TShared).Name} must be a byte-backed enum.");
+        byte value = SymbolKeyDomain.Marker(marker);
+        if (!_declared[value])
+            throw new SymbolKeyStateException($"Domain {typeof(TDomain).Name} does not declare the shared marker {marker} (0x{value:X2}).");
+        RequireOpen();
+        Ensure(1);
+        _scratch[_length++] = value;
+        return this;
+    }
+
+    /// <summary>Whether this builder's domain declares <paramref name="marker"/>.</summary>
+    internal bool Declares(byte marker) => _declared[marker];
+
+    /// <summary>
+    /// Writes a marker byte a caller has already validated against the domain
+    /// (the speller validates its whole vocabulary once at construction), so
+    /// the hot path carries no per-marker check.
+    /// </summary>
+    internal SymbolKeyBuilder<TDomain> MarkValidated(byte marker)
+    {
+        RequireOpen();
+        Ensure(1);
+        _scratch[_length++] = marker;
         return this;
     }
 

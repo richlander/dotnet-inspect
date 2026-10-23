@@ -1755,7 +1755,8 @@ internal static class BrowserRetainedWorkspaceActivationService
             ],
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
-            definition.Scenario.Context);
+            definition.Scenario.Context,
+            workspace.TraversalTargetPolicy.TargetFramework);
     }
 
     static BrowserRetainedWorkspaceDefinitionState
@@ -1772,7 +1773,8 @@ internal static class BrowserRetainedWorkspaceActivationService
             [],
             [.. request.Plan.Registrations.Select(Registration)],
             ActiveTabId: null,
-            SelectedContextId: null);
+            SelectedContextId: null,
+            request.Plan.TraversalTargetPolicy.TargetFramework);
     }
 
     static BrowserRetainedWorkspaceDefinitionState
@@ -1823,7 +1825,8 @@ internal static class BrowserRetainedWorkspaceActivationService
             [new BrowserWorkspaceShareContext(context.Name, [tab.Id])],
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
-            definition.Scenario.Context);
+            definition.Scenario.Context,
+            workspace.TraversalTargetPolicy.TargetFramework);
     }
 
     static T AssertSingle<T>(

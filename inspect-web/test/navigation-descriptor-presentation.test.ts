@@ -216,6 +216,7 @@ function posting(): BrowserRetainedWorkspacePosting {
       registrations: [],
       activeTabId: null,
       selectedContextId: null,
+      traversalTargetFramework: "net11.0",
     },
     navigation: {
       operation: "Initialize",
@@ -295,6 +296,7 @@ test("active Ecosystem uses the catalog-authored retained label", () => {
       registrations: [],
       activeTabId: null,
       selectedContextId: null,
+      traversalTargetFramework: "net11.0",
     },
     navigation: {
       ...source.navigation,
