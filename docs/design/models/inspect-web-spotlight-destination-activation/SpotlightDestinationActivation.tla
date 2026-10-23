@@ -8,7 +8,8 @@
 (* into an activation intent without rebinding it to live state. Current    *)
 (* Package admission may commit before focus settles. External-package      *)
 (* construction is an opaque Workspace Definitions result that only a       *)
-(* current attempt may publish.                                             *)
+(* current attempt may publish. A package-backed Type must prepare exact     *)
+(* focus in that result before fresh-Workspace publication.                  *)
 (***************************************************************************)
 EXTENDS Naturals, Sequences, TLC
 
@@ -23,12 +24,14 @@ StaleDirectFocus == "StaleDirectFocus"
 StalePostMembershipFocus == "StalePostMembershipFocus"
 StaleFreshPublication == "StaleFreshPublication"
 WrongLibraryOccurrence == "WrongLibraryOccurrence"
+WrongPackageTypeOccurrence == "WrongPackageTypeOccurrence"
 PublishFailedFreshActivation == "PublishFailedFreshActivation"
 DualCurrentAndFreshPublication == "DualCurrentAndFreshPublication"
 RepeatPlatformNavigation == "RepeatPlatformNavigation"
 PlatformDescendantNavigation == "PlatformDescendantNavigation"
 LeakRealizationAcrossWorkspace == "LeakRealizationAcrossWorkspace"
 RebindRenderedDescriptor == "RebindRenderedDescriptor"
+PublishUnfocusedFreshType == "PublishUnfocusedFreshType"
 
 Mutations ==
     {NoMutation,
@@ -40,12 +43,14 @@ Mutations ==
      StalePostMembershipFocus,
      StaleFreshPublication,
      WrongLibraryOccurrence,
+     WrongPackageTypeOccurrence,
      PublishFailedFreshActivation,
      DualCurrentAndFreshPublication,
      RepeatPlatformNavigation,
      PlatformDescendantNavigation,
      LeakRealizationAcrossWorkspace,
-     RebindRenderedDescriptor}
+     RebindRenderedDescriptor,
+     PublishUnfocusedFreshType}
 
 ASSUME Mutation \in Mutations
 
@@ -58,6 +63,7 @@ RepeatPlatformScenario == "RepeatPlatform"
 PlatformDescendantsScenario == "PlatformDescendants"
 StaleDescriptorScenario == "StaleDescriptor"
 StalePlatformDescriptorScenario == "StalePlatformDescriptor"
+PackageTypeScenario == "PackageType"
 Scenarios ==
     {SourcePairScenario,
      CoveredPackageScenario,
@@ -67,7 +73,8 @@ Scenarios ==
      RepeatPlatformScenario,
      PlatformDescendantsScenario,
      StaleDescriptorScenario,
-     StalePlatformDescriptorScenario}
+     StalePlatformDescriptorScenario,
+     PackageTypeScenario}
 
 ASSUME Scenario \in Scenarios
 
@@ -89,6 +96,9 @@ PlatformJsonMember ==
 PackageJson == "package-System.Text.Json"
 PackageJsonLibrary == "package-System.Text.Json-library"
 ExtensionsPackage == "package-Microsoft.Extensions.Logging"
+AspireRedisPackage == "package-Aspire.StackExchange.Redis"
+AspireRedisType ==
+    "package-Aspire.StackExchange.Redis/AspireRedisExtensions"
 Destinations ==
     {ExistingPackage,
      PlatformJsonLibrary,
@@ -96,10 +106,13 @@ Destinations ==
      PlatformJsonMember,
      PackageJson,
      PackageJsonLibrary,
-     ExtensionsPackage}
+     ExtensionsPackage,
+     AspireRedisPackage,
+     AspireRedisType}
 
 PackageDestinations ==
-    {ExistingPackage, PackageJson, ExtensionsPackage}
+    {ExistingPackage, PackageJson, ExtensionsPackage, AspireRedisPackage}
+PackageTypeDestinations == {AspireRedisType}
 PlatformDestinations ==
     {PlatformJsonLibrary, PlatformJsonType, PlatformJsonMember}
 PlatformDeepDestinations ==
@@ -126,6 +139,8 @@ DirectPackagePrefixWitness == "direct-System-prefix"
 EcosystemPackagePrefixWitness == "ecosystem.sample/System-prefix"
 ExtensionsEcosystemPrefixWitness ==
     "ecosystem.extensions/Microsoft.Extensions-prefix"
+AspireEcosystemPrefixWitness ==
+    "ecosystem.aspire/Aspire-prefix"
 
 CoverageWitnesses ==
     {PlatformExactWitness,
@@ -133,14 +148,19 @@ CoverageWitnesses ==
      PackageExactLibraryWitness,
      DirectPackagePrefixWitness,
      EcosystemPackagePrefixWitness,
-     ExtensionsEcosystemPrefixWitness}
+     ExtensionsEcosystemPrefixWitness,
+     AspireEcosystemPrefixWitness}
 
 NavigateCurrent == "navigate-current"
 ActivateCurrentPackageLibrary == "activate-current-package-library"
 AddCurrentPackage == "add-current-package"
 AddCurrentPackageLibrary == "add-current-package-library"
+ActivateCurrentPackageType == "activate-current-package-type"
+AddCurrentPackageType == "add-current-package-type"
 ActivateCurrentPlatform == "activate-current-platform"
 RestoreExternalPackageWorkspace == "restore-external-package-workspace"
+RestoreExternalPackageTypeWorkspace ==
+    "restore-external-package-type-workspace"
 UnavailableLibrary == "unavailable-library"
 
 Plans ==
@@ -148,8 +168,11 @@ Plans ==
      ActivateCurrentPackageLibrary,
      AddCurrentPackage,
      AddCurrentPackageLibrary,
+     ActivateCurrentPackageType,
+     AddCurrentPackageType,
      ActivateCurrentPlatform,
      RestoreExternalPackageWorkspace,
+     RestoreExternalPackageTypeWorkspace,
      UnavailableLibrary}
 
 Unused == "unused"
@@ -161,11 +184,13 @@ Ready == "ready"
 CurrentMembershipCommitted == "current-membership-committed"
 DefinitionsPending == "definitions-pending"
 DefinitionsPrepared == "definitions-prepared"
+DefinitionsTypeFocused == "definitions-type-focused"
 Phases ==
     {Ready,
      CurrentMembershipCommitted,
      DefinitionsPending,
-     DefinitionsPrepared}
+     DefinitionsPrepared,
+     DefinitionsTypeFocused}
 
 NoSelectionBasisStatus == "no-selection-basis-status"
 CurrentAtSelection == "current-at-selection"
@@ -222,13 +247,17 @@ IssuedOccurrenceFor(t) ==
 EnclosingPackage(destination) ==
     IF destination = PackageJsonLibrary
     THEN PackageJson
+    ELSE IF destination = AspireRedisType
+    THEN AspireRedisPackage
     ELSE destination
 
 EmptyOccurrences ==
     [package \in PackageDestinations |-> NoOccurrence]
 
 FullCoverage(profile, destination) ==
-    IF destination = PlatformJsonLibrary
+    IF destination = AspireRedisType /\ profile = 1
+    THEN <<AspireEcosystemPrefixWitness>>
+    ELSE IF destination = PlatformJsonLibrary
     THEN
         IF profile \in {1, 3}
         THEN <<PlatformExactWitness, PlatformEcosystemWitness>>
@@ -260,12 +289,21 @@ ProjectedCoverage(profile, destination) ==
 OccurrenceFor(occurrences, destination) ==
     IF destination = PackageJsonLibrary
     THEN occurrences[PackageJson]
+    ELSE IF destination = AspireRedisType
+    THEN occurrences[AspireRedisPackage]
     ELSE IF destination \in PackageDestinations
     THEN occurrences[destination]
     ELSE NoOccurrence
 
 PlanFor(occurrences, realizedLibraries, coverage, destination) ==
-    IF /\ destination \in PackageDestinations
+    IF destination \in PackageTypeDestinations
+    THEN
+        IF OccurrenceFor(occurrences, destination) # NoOccurrence
+        THEN ActivateCurrentPackageType
+        ELSE IF Len(coverage) > 0
+        THEN AddCurrentPackageType
+        ELSE RestoreExternalPackageTypeWorkspace
+    ELSE IF /\ destination \in PackageDestinations
        /\ OccurrenceFor(occurrences, destination) # NoOccurrence
     THEN NavigateCurrent
     ELSE IF destination \in PlatformDestinations
@@ -334,6 +372,8 @@ AllowedDestination(token, destination) ==
       [] Scenario = StalePlatformDescriptorScenario ->
         /\ token = 1
         /\ destination = PlatformJsonLibrary
+      [] Scenario = PackageTypeScenario ->
+        destination = AspireRedisType
       [] OTHER -> FALSE
 
 AllowedReplacementProfile(profile) ==
@@ -344,6 +384,7 @@ AllowedReplacementProfile(profile) ==
       [] Scenario = RepeatPlatformScenario -> profile = 2
       [] Scenario = PlatformDescendantsScenario -> profile = 2
       [] Scenario = StaleDescriptorScenario -> profile = 3
+      [] Scenario = PackageTypeScenario -> profile = 2
       [] OTHER -> profile \in {2, 3}
 
 NoAttempt ==
@@ -843,8 +884,10 @@ CompleteDirectFocus(token) ==
         expectedOccurrence ==
             OccurrenceFor(packageOccurrences[workspace], destination)
         usedOccurrence ==
-            IF /\ Mutation = WrongLibraryOccurrence
-               /\ destination = PackageJsonLibrary
+            IF /\ (Mutation = WrongLibraryOccurrence
+                    /\ destination = PackageJsonLibrary)
+                  \/ (Mutation = WrongPackageTypeOccurrence
+                    /\ destination = AspireRedisType)
             THEN WrongOccurrence
             ELSE attempts[token].occurrence
         authority == CapturedBasisIsCurrent(token)
@@ -854,6 +897,7 @@ CompleteDirectFocus(token) ==
     /\ attempts[token].plan \in
         {NavigateCurrent,
          ActivateCurrentPackageLibrary,
+         ActivateCurrentPackageType,
          ActivateCurrentPlatform}
     /\ (authority \/ Mutation = StaleDirectFocus)
     /\ attempts' = [attempts EXCEPT ![token].state = Settled]
@@ -874,7 +918,8 @@ CompleteDirectFocus(token) ==
     /\ badDirectFocus' =
         IF authority THEN badDirectFocus ELSE TRUE
     /\ badLibraryOccurrence' =
-        IF /\ destination = PackageJsonLibrary
+        IF /\ destination \in
+                    {PackageJsonLibrary, AspireRedisType}
            /\ (usedOccurrence = NoOccurrence
                \/ usedOccurrence # expectedOccurrence)
         THEN TRUE
@@ -909,7 +954,9 @@ CommitCurrentMembership(token) ==
     /\ attempts[token].state = Pending
     /\ attempts[token].phase = Ready
     /\ attempts[token].plan \in
-        {AddCurrentPackage, AddCurrentPackageLibrary}
+        {AddCurrentPackage,
+         AddCurrentPackageLibrary,
+         AddCurrentPackageType}
     /\ scopeRevision[workspace] < 3
     /\ scopeBase[workspace] < 4
     /\ (authority \/ Mutation = StaleCurrentCommit)
@@ -954,8 +1001,10 @@ CompletePostMembershipFocus(token) ==
         package == EnclosingPackage(destination)
         expectedOccurrence == packageOccurrences[workspace][package]
         usedOccurrence ==
-            IF /\ Mutation = WrongLibraryOccurrence
-               /\ destination = PackageJsonLibrary
+            IF /\ (Mutation = WrongLibraryOccurrence
+                    /\ destination = PackageJsonLibrary)
+                  \/ (Mutation = WrongPackageTypeOccurrence
+                    /\ destination = AspireRedisType)
             THEN WrongOccurrence
             ELSE attempts[token].returnedOccurrence
         authority == CommittedBasisIsCurrent(token)
@@ -963,7 +1012,9 @@ CompletePostMembershipFocus(token) ==
     /\ attempts[token].state = Pending
     /\ attempts[token].phase = CurrentMembershipCommitted
     /\ attempts[token].plan \in
-        {AddCurrentPackage, AddCurrentPackageLibrary}
+        {AddCurrentPackage,
+         AddCurrentPackageLibrary,
+         AddCurrentPackageType}
     /\ (authority \/ Mutation = StalePostMembershipFocus)
     /\ attempts' = [attempts EXCEPT ![token].state = Settled]
     /\ results' = [results EXCEPT ![token] = CurrentActivated]
@@ -978,7 +1029,8 @@ CompletePostMembershipFocus(token) ==
     /\ badPostMembershipFocus' =
         IF authority THEN badPostMembershipFocus ELSE TRUE
     /\ badLibraryOccurrence' =
-        IF /\ destination = PackageJsonLibrary
+        IF /\ destination \in
+                    {PackageJsonLibrary, AspireRedisType}
            /\ (usedOccurrence = NoOccurrence
                \/ usedOccurrence # expectedOccurrence)
         THEN TRUE
@@ -1011,8 +1063,10 @@ FailCurrentBeforeCommit(token) ==
     /\ attempts[token].plan \in
         {NavigateCurrent,
          ActivateCurrentPackageLibrary,
+         ActivateCurrentPackageType,
          AddCurrentPackage,
          AddCurrentPackageLibrary,
+         AddCurrentPackageType,
          ActivateCurrentPlatform}
     /\ CapturedBasisIsCurrent(token)
     /\ attempts' = [attempts EXCEPT ![token].state = Settled]
@@ -1022,10 +1076,12 @@ FailCurrentBeforeCommit(token) ==
         IF fallback THEN freshWorkspace ELSE activeWorkspace
     /\ focus' = IF fallback THEN destination ELSE focus
     /\ packageOccurrences' =
-        IF fallback /\ destination \in PackageDestinations
+        IF fallback
+            /\ destination
+                \in PackageDestinations \cup PackageTypeDestinations
         THEN
             [packageOccurrences EXCEPT
-                ![freshWorkspace][destination] =
+                ![freshWorkspace][EnclosingPackage(destination)] =
                     IssuedOccurrenceFor(token)]
         ELSE packageOccurrences
     /\ freshPublications' =
@@ -1066,10 +1122,12 @@ FailPostMembershipFocus(token) ==
         IF fallback THEN freshWorkspace ELSE activeWorkspace
     /\ focus' = IF fallback THEN destination ELSE focus
     /\ packageOccurrences' =
-        IF fallback /\ destination \in PackageDestinations
+        IF fallback
+            /\ destination
+                \in PackageDestinations \cup PackageTypeDestinations
         THEN
             [packageOccurrences EXCEPT
-                ![freshWorkspace][destination] =
+                ![freshWorkspace][EnclosingPackage(destination)] =
                     IssuedOccurrenceFor(token)]
         ELSE packageOccurrences
     /\ freshPublications' =
@@ -1097,7 +1155,9 @@ FailPostMembershipFocus(token) ==
 RequestDefinitionsActivation(token) ==
     /\ attempts[token].state = Pending
     /\ attempts[token].phase = Ready
-    /\ attempts[token].plan = RestoreExternalPackageWorkspace
+    /\ attempts[token].plan
+        \in {RestoreExternalPackageWorkspace,
+             RestoreExternalPackageTypeWorkspace}
     /\ CapturedBasisIsCurrent(token)
     /\ attempts' =
         [attempts EXCEPT ![token].phase = DefinitionsPending]
@@ -1197,6 +1257,67 @@ DefinitionsFailActivation(token) ==
           badLibraryOccurrence,
           descriptorState>>
 
+PrepareFreshTypeFocus(token) ==
+    /\ attempts[token].state = Pending
+    /\ attempts[token].phase = DefinitionsPrepared
+    /\ attempts[token].plan = RestoreExternalPackageTypeWorkspace
+    /\ CapturedBasisIsCurrent(token)
+    /\ attempts' =
+        [attempts EXCEPT ![token].phase = DefinitionsTypeFocused]
+    /\ UNCHANGED
+        <<activeWorkspace,
+          scopeRevision,
+          scopeBase,
+          registrationProfile,
+          packageOccurrences,
+          realizedLibraries,
+          focus,
+          intent,
+          results,
+          membershipCommits,
+          focusPublications,
+          freshPublications,
+          visibleFailures,
+          definitionsRequests,
+          definitionsReady,
+          sourceMutations,
+          badCurrentCommit,
+          badDirectFocus,
+          badPostMembershipFocus,
+          badFreshPublication,
+          badLibraryOccurrence,
+          descriptorState>>
+
+FailFreshTypeFocus(token) ==
+    /\ attempts[token].state = Pending
+    /\ attempts[token].phase = DefinitionsPrepared
+    /\ attempts[token].plan = RestoreExternalPackageTypeWorkspace
+    /\ CapturedBasisIsCurrent(token)
+    /\ attempts' = [attempts EXCEPT ![token].state = Settled]
+    /\ results' = [results EXCEPT ![token] = Failed]
+    /\ visibleFailures' = visibleFailures \cup {token}
+    /\ UNCHANGED
+        <<activeWorkspace,
+          scopeRevision,
+          scopeBase,
+          registrationProfile,
+          packageOccurrences,
+          realizedLibraries,
+          focus,
+          intent,
+          membershipCommits,
+          focusPublications,
+          freshPublications,
+          definitionsRequests,
+          definitionsReady,
+          sourceMutations,
+          badCurrentCommit,
+          badDirectFocus,
+          badPostMembershipFocus,
+          badFreshPublication,
+          badLibraryOccurrence,
+          descriptorState>>
+
 PublishFreshActivation(token) ==
     LET freshWorkspace == FreshWorkspaceFor(token)
         sourceWorkspace == attempts[token].workspace
@@ -1205,13 +1326,21 @@ PublishFreshActivation(token) ==
         dual == Mutation = DualCurrentAndFreshPublication
     IN
     /\ attempts[token].state = Pending
-    /\ attempts[token].phase = DefinitionsPrepared
+    /\ (/\ attempts[token].phase = DefinitionsPrepared
+        /\ attempts[token].plan = RestoreExternalPackageWorkspace
+        \/ /\ attempts[token].phase = DefinitionsTypeFocused
+           /\ attempts[token].plan =
+                RestoreExternalPackageTypeWorkspace
+        \/ /\ Mutation = PublishUnfocusedFreshType
+           /\ attempts[token].phase = DefinitionsPrepared
+           /\ attempts[token].plan =
+                RestoreExternalPackageTypeWorkspace)
     /\ (authority \/ Mutation = StaleFreshPublication)
     /\ activeWorkspace' = freshWorkspace
     /\ focus' = destination
     /\ packageOccurrences' =
         [packageOccurrences EXCEPT
-            ![freshWorkspace][destination] =
+            ![freshWorkspace][EnclosingPackage(destination)] =
                 IssuedOccurrenceFor(token)]
     /\ attempts' = [attempts EXCEPT ![token].state = Settled]
     /\ results' =
@@ -1321,6 +1450,8 @@ SettleAttempt(token) ==
     \/ RequestDefinitionsActivation(token)
     \/ DefinitionsPrepareCompleteActivation(token)
     \/ DefinitionsFailActivation(token)
+    \/ PrepareFreshTypeFocus(token)
+    \/ FailFreshTypeFocus(token)
     \/ PublishFreshActivation(token)
     \/ SettleUnavailable(token)
     \/ SettleStaleOrSuperseded(token)
@@ -1358,6 +1489,8 @@ ExactSourceIdentityControlsClassification ==
                     RestoreExternalPackageWorkspace)
             /\ (attempts[token].destination = PackageJsonLibrary
                   => attempts[token].plan = UnavailableLibrary)
+            /\ (attempts[token].destination = AspireRedisType
+                  => attempts[token].plan = AddCurrentPackageType)
         ELSE TRUE
 
 RenderedDescriptorSelectionPreservesBasis ==
@@ -1410,22 +1543,40 @@ PackageMembershipCoversLibraryWithoutDuplicateAdd ==
             /\ attempts[token].destination = PackageJsonLibrary
             /\ attempts[token].occurrence # NoOccurrence
 
+PackageMembershipRoutesTypeWithoutDuplicateAdd ==
+    \A token \in Tokens :
+        attempts[token].plan = ActivateCurrentPackageType
+        =>
+            /\ attempts[token].destination = AspireRedisType
+            /\ attempts[token].occurrence # NoOccurrence
+
 CurrentPublicationsMatchPlan ==
     /\ \A token \in focusPublications :
         attempts[token].plan \in
             {NavigateCurrent,
              ActivateCurrentPackageLibrary,
+             ActivateCurrentPackageType,
              AddCurrentPackage,
              AddCurrentPackageLibrary,
+             AddCurrentPackageType,
              ActivateCurrentPlatform}
     /\ \A token \in membershipCommits :
         attempts[token].plan \in
-            {AddCurrentPackage, AddCurrentPackageLibrary}
+            {AddCurrentPackage,
+             AddCurrentPackageLibrary,
+             AddCurrentPackageType}
 
 FreshPublicationsMatchPlanAndDefinitions ==
     \A token \in freshPublications :
-        /\ attempts[token].plan = RestoreExternalPackageWorkspace
+        /\ attempts[token].plan
+            \in {RestoreExternalPackageWorkspace,
+                 RestoreExternalPackageTypeWorkspace}
         /\ token \in definitionsReady
+
+FreshTypePublicationRequiresPreparedFocus ==
+    \A token \in freshPublications :
+        attempts[token].plan = RestoreExternalPackageTypeWorkspace
+        => attempts[token].phase = DefinitionsTypeFocused
 
 OneWorkspaceEffectPerAttempt ==
     /\ membershipCommits \cap freshPublications = {}
@@ -1443,7 +1594,7 @@ AllEffectPublicationHeldCurrentAuthority ==
     /\ ~badPostMembershipFocus
     /\ ~badFreshPublication
 
-PackageLibraryFocusUsesExactOccurrence ==
+PackageDescendantFocusUsesExactOccurrence ==
     ~badLibraryOccurrence
 
 CommittedMembershipSurvivesFocusNonSuccess ==
@@ -1492,6 +1643,17 @@ NoAddCurrentPackageLibraryActivation ==
           /\ token \in membershipCommits
           /\ results[token] = CurrentActivated)
 
+NoAddCurrentPackageTypeActivation ==
+    \A token \in Tokens :
+        ~(/\ attempts[token].plan = AddCurrentPackageType
+          /\ token \in membershipCommits
+          /\ results[token] = CurrentActivated)
+
+NoActivateCurrentPackageTypeActivation ==
+    \A token \in Tokens :
+        ~(/\ attempts[token].plan = ActivateCurrentPackageType
+          /\ results[token] = CurrentActivated)
+
 NoPlatformActivation ==
     \A token \in Tokens :
         ~(/\ attempts[token].plan = ActivateCurrentPlatform
@@ -1537,6 +1699,13 @@ NoReplacementWorkspaceUnavailableAfterSourceRealization ==
 NoFreshWorkspacePublication ==
     \A token \in Tokens :
         ~(/\ attempts[token].plan = RestoreExternalPackageWorkspace
+          /\ results[token] = FreshWorkspaceActivated)
+
+NoFreshPackageTypePublication ==
+    \A token \in Tokens :
+        ~(/\ attempts[token].plan =
+                RestoreExternalPackageTypeWorkspace
+          /\ attempts[token].phase = DefinitionsTypeFocused
           /\ results[token] = FreshWorkspaceActivated)
 
 NoUnavailableLibrarySettlement ==
