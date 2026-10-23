@@ -182,6 +182,64 @@ public sealed partial class PackageRangedRealizationTests
         Assert.True(receipt.BytesReceived < archive.Length);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompileLibrariesWithFiles_MaterializesEveryTerminal(
+        bool complete)
+    {
+        const string RequestedFile = "lib/net45/PCLStorage.xml";
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net45");
+        var query = new PackageHouseContentQuery(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [
+                new PackageHouseContentTerminal.CompileLibraries(
+                    PackageAssetDemand.Surface),
+                new PackageHouseContentTerminal.Files([RequestedFile]),
+            ]);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                query,
+                sizeCut: complete ? archive.Length : 0,
+                targetContext: target));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Equal(
+            complete
+                ? PackagePayloadOrigin.Download
+                : PackagePayloadOrigin.Ranged,
+            acquired.Payload.Origin);
+        string[] expected =
+        [
+            .. Net45Assemblies,
+            RequestedFile,
+        ];
+        Assert.Equal(
+            expected.Order(StringComparer.Ordinal),
+            acquired.Payload.Content
+                .EnumerateEntries()
+                .Order(StringComparer.Ordinal));
+        foreach (string path in expected)
+        {
+            Assert.True(
+                acquired.Payload.Content.TryOpenEntry(
+                    path,
+                    out Stream? stream));
+            stream.Dispose();
+        }
+        Assert.False(
+            acquired.Payload.Content.TryOpenEntry(
+                "lib/net45/PCLStorage.Abstractions.xml",
+                out _));
+    }
+
     [Fact]
     public async Task SemanticFiles_CompleteFallbackRetainsArchiveButPublishesOnlyExactEntries()
     {

@@ -18,6 +18,15 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class TypeOptionsParser
 {
+    private static string[] SplitValues(string[]? values) =>
+    [
+        .. (values ?? []).SelectMany(value =>
+            value.Split(
+                ',',
+                StringSplitOptions.TrimEntries
+                    | StringSplitOptions.RemoveEmptyEntries)),
+    ];
+
     public static bool TryCreateStructuralPlan(
         ParseResult parseResult,
         SharedOptions options,
@@ -162,6 +171,9 @@ public static class TypeOptionsParser
         Option<string?> AtOption,
         Option<string?> WorkspaceOption,
         Option<string?> ShareOption,
+        Option<string[]> RelationsOption,
+        Option<string[]> RelationColorOption,
+        Option<string[]> RequireRelationColorOption,
         Option<string?> SuppressRuntimeTypeFallbackOption);
 
     internal static bool IsTypeListingRowSelection(
@@ -516,6 +528,18 @@ public static class TypeOptionsParser
                 source.UsedPlatformPrefixFallback,
             RouterCompletedPlatformLookup =
                 routerCompletedPlatformLookup,
+            AnnotatedRelationIds =
+                parseResult.GetResult(args.RelationsOption)
+                    is { Implicit: false }
+                    ? SplitValues(parseResult.GetValue(args.RelationsOption))
+                    : null,
+            AnnotatedRelationColorIds =
+                SplitValues(
+                    parseResult.GetValue(args.RelationColorOption)),
+            AnnotatedRelationRequiredColorIds =
+                SplitValues(
+                    parseResult.GetValue(
+                        args.RequireRelationColorOption)),
             WorkspacePacket = workspacePacket,
             ShareFormat = shareFormat,
             PackagePath = source.PackagePath,
