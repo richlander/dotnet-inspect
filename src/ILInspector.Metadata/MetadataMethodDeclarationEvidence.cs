@@ -161,6 +161,7 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
     readonly MetadataOperationContext _context;
     readonly Func<Action, Action<TypeDefinitionHandle>, Action,
         Action<int>, MetadataTypeDefinitionIndex> _getIndex;
+    readonly bool _validateOwnerRangeOrdering;
     readonly HashSet<TypeSpecificationHandle> _validatedSpecs = [];
     MetadataMethodDeclarationRequest _request;
     TypeSpecificationHandle _activeSpec;
@@ -170,12 +171,16 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
         MetadataReader reader,
         MetadataOperationContext context,
         Func<Action, Action<TypeDefinitionHandle>, Action,
-            Action<int>, MetadataTypeDefinitionIndex> getIndex)
+            Action<int>, MetadataTypeDefinitionIndex> getIndex,
+        bool validateOwnerRangeOrdering)
     {
         _reader = reader;
         _context = context;
         _getIndex = getIndex;
+        _validateOwnerRangeOrdering = validateOwnerRangeOrdering;
     }
+
+    internal bool OwnerRangeOrderingValidated { get; private set; }
 
     internal MetadataMethodDeclarationResult Post(
         MetadataTypeDefinitionAddress type,
@@ -198,7 +203,11 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                     "The requested TypeDef or MethodDef does not resolve in this image.");
             }
             Charge(site, MetadataOperationDimension.DeclarationCandidates);
-            ValidateOwnerRangeOrdering();
+            if (_validateOwnerRangeOrdering)
+            {
+                ValidateOwnerRangeOrdering();
+                OwnerRangeOrderingValidated = true;
+            }
             site = new(MetadataMethodDeclarationStage.MethodDefinitionRead,
                 MetadataMethodDeclarationMechanism.RowRead, methodHandle);
             MethodDefinition definition = Read(site,
@@ -1104,9 +1113,8 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             Charge(
                 rowSite,
                 MetadataOperationDimension.RelationshipEdges);
-            EntityHandle parent = Read(
-                rowSite,
-                () => _reader.GetCustomAttribute(handle).Parent);
+            EntityHandle parent =
+                ReadCustomAttributeParent(handle, rowSite);
             int coded;
             try
             {
@@ -1143,9 +1151,8 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             Charge(
                 rowSite,
                 MetadataOperationDimension.RelationshipEdges);
-            EntityHandle parent = Read(
-                rowSite,
-                () => _reader.GetGenericParameter(handle).Parent);
+            EntityHandle parent =
+                ReadGenericParameterParent(handle, rowSite);
             int coded;
             try
             {
@@ -1183,10 +1190,8 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             Charge(
                 rowSite,
                 MetadataOperationDimension.RelationshipEdges);
-            GenericParameterHandle owner = Read(
-                rowSite,
-                () => _reader.GetGenericParameterConstraint(handle)
-                    .Parameter);
+            GenericParameterHandle owner =
+                ReadGenericParameterConstraintOwner(handle, rowSite);
             int ownerRow = MetadataTokens.GetRowNumber(owner);
             if (ownerRow <= 0
                 || ownerRow > genericParameterRows
@@ -1199,6 +1204,64 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
                     "The GenericParamConstraint table is not ordered by a valid owner.");
             }
             previousOwner = ownerRow;
+        }
+    }
+
+    EntityHandle ReadCustomAttributeParent(
+        CustomAttributeHandle handle,
+        MetadataMethodDeclarationSite site)
+    {
+        _token.ThrowIfCancellationRequested();
+        try
+        {
+            return _reader.GetCustomAttribute(handle).Parent;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or ArgumentOutOfRangeException or IndexOutOfRangeException)
+        {
+            throw Refuse(
+                site,
+                MetadataMethodDeclarationFailureReason.MalformedMetadata,
+                ex.Message);
+        }
+    }
+
+    EntityHandle ReadGenericParameterParent(
+        GenericParameterHandle handle,
+        MetadataMethodDeclarationSite site)
+    {
+        _token.ThrowIfCancellationRequested();
+        try
+        {
+            return _reader.GetGenericParameter(handle).Parent;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or ArgumentOutOfRangeException or IndexOutOfRangeException)
+        {
+            throw Refuse(
+                site,
+                MetadataMethodDeclarationFailureReason.MalformedMetadata,
+                ex.Message);
+        }
+    }
+
+    GenericParameterHandle ReadGenericParameterConstraintOwner(
+        GenericParameterConstraintHandle handle,
+        MetadataMethodDeclarationSite site)
+    {
+        _token.ThrowIfCancellationRequested();
+        try
+        {
+            return _reader.GetGenericParameterConstraint(handle)
+                .Parameter;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or ArgumentOutOfRangeException or IndexOutOfRangeException)
+        {
+            throw Refuse(
+                site,
+                MetadataMethodDeclarationFailureReason.MalformedMetadata,
+                ex.Message);
         }
     }
 
