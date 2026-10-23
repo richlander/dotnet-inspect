@@ -606,9 +606,13 @@ focused exact-Type adoption:
    path. Compare exact source-native and established output and publish exact
    NativeAOT base/head evidence for Types that need no additional identities
    and Types that do.
+4. **Browser/Wasm producer adoption.** Express existing exact-Type document
+   requirements through the same host-neutral capabilities and plan before
+   producer work. Preserve the established Browser contract and interaction;
+   this step adds no Browser gesture or presentation mode.
 
 Type population Count and Name, filtered listings, Platform prefix browse, and
-Browser presentation are separate adopters under
+new Browser presentation are separate adopters under
 [#10569](https://github.com/richlander/dotnet-inspect/issues/10569). They do
 not broaden this exact-Type stack.
 
@@ -626,6 +630,9 @@ Implementation slices must add Release gates proving:
 - exact `Type Info` requests full signature, produces byte-identical output
   and exit status against the established path, and executes one selected
   producer strategy;
+- CLI and Browser/Wasm exact-Type consumers express equivalent declaration
+  needs through the same host-neutral capabilities without reconstructing
+  coverage in either host;
 - `TypeOverviewDocument` returns Member names without complete exact-Member
   signatures, with an exact-Member Count on every row when the plan's
   `TypeMemberGroupRowsRequest` sets `IncludeExactMemberCount` and on none when
