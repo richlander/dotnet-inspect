@@ -146,6 +146,9 @@ public sealed class FindingDiffAnyBodyTests
         { "TryBoundaryMoved", false },
         { "ShiftedClauseOffsets", true },
         { "NestedClausesIdentical", true },
+        { "FilterIdentical", true },
+        { "FaultIdentical", true },
+        { "FatClauseIdentical", true },
         { "FinallyVsCatchAll", false },
         { "ClauseRemoved", false },
     };
@@ -166,6 +169,59 @@ public sealed class FindingDiffAnyBodyTests
     {
         (byte[] before, byte[] after) = ClauseImages.Value;
         AssertPerMethodAgreement(before, after, decided: true);
+    }
+
+    [Fact]
+    public void RawBodyView_MatchesMaterializedBodies()
+    {
+        (byte[] encodingBefore, byte[] encodingAfter) = EncodingImages.Value;
+        (byte[] clauseBefore, byte[] clauseAfter) = ClauseImages.Value;
+        foreach (byte[] image in new[] { encodingBefore, encodingAfter, clauseBefore, clauseAfter })
+        {
+            using var pe = new PEReader(new MemoryStream(image, writable: false));
+            AssertRawBodiesMatch(pe);
+        }
+
+        using var runtime = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
+        AssertRawBodiesMatch(runtime);
+    }
+
+    static void AssertRawBodiesMatch(PEReader pe)
+    {
+        MetadataReader metadata = pe.GetMetadataReader();
+        foreach (MethodDefinitionHandle handle in metadata.MethodDefinitions)
+        {
+            int rva = metadata.GetMethodDefinition(handle).RelativeVirtualAddress;
+            if (rva == 0)
+                continue;
+
+            MethodBodyBlock expected = pe.GetMethodBody(rva);
+            RawMethodBodyView actual = RawMethodBodyView.Read(pe, rva);
+            BlobReader expectedIL = expected.GetILReader();
+            BlobReader actualIL = actual.IL;
+            Assert.Equal(
+                expectedIL.ReadBytes(expectedIL.Length),
+                actualIL.ReadBytes(actualIL.Length));
+
+            var actualRegions = new List<RawExceptionRegion>();
+            RawExceptionRegionEnumerator regions = actual.ExceptionRegions;
+            while (regions.MoveNext(out RawExceptionRegion region))
+                actualRegions.Add(region);
+
+            Assert.Equal(expected.ExceptionRegions.Length, actualRegions.Count);
+            for (int i = 0; i < actualRegions.Count; i++)
+            {
+                ExceptionRegion x = expected.ExceptionRegions[i];
+                RawExceptionRegion y = actualRegions[i];
+                Assert.Equal(x.Kind, y.Kind);
+                Assert.Equal(x.TryOffset, y.TryOffset);
+                Assert.Equal(x.TryLength, y.TryLength);
+                Assert.Equal(x.HandlerOffset, y.HandlerOffset);
+                Assert.Equal(x.HandlerLength, y.HandlerLength);
+                Assert.Equal(x.CatchType, y.CatchType);
+                Assert.Equal(x.FilterOffset, y.FilterOffset);
+            }
+        }
     }
 
     [Fact]
@@ -502,6 +558,9 @@ public sealed class FindingDiffAnyBodyTests
         image.AddCase("TryBoundaryMoved", il => Catch(il, callee, invalidOperation, ILOpCode.Br_s, widerTry: after));
         image.AddCase("ShiftedClauseOffsets", il => Catch(il, callee, invalidOperation, after ? ILOpCode.Br : ILOpCode.Br_s, widerTry: false));
         image.AddCase("NestedClausesIdentical", il => NestedCatchInFinally(il, callee, invalidOperation));
+        image.AddCase("FilterIdentical", il => Filter(il, callee, invalidOperation));
+        image.AddCase("FaultIdentical", il => Fault(il, callee));
+        image.AddCase("FatClauseIdentical", il => FatFinally(il));
         image.AddCase("FinallyVsCatchAll", il =>
         {
             if (after)
@@ -588,6 +647,80 @@ public sealed class FindingDiffAnyBodyTests
         il.MarkLabel(tryEnd);
         il.MarkLabel(handlerStart);
         il.OpCode(ILOpCode.Nop);
+        il.OpCode(ILOpCode.Endfinally);
+        il.MarkLabel(handlerEnd);
+        il.MarkLabel(end);
+        il.OpCode(ILOpCode.Ret);
+        il.ControlFlowBuilder!.AddFinallyRegion(tryStart, tryEnd, handlerStart, handlerEnd);
+    }
+
+    static void Fault(InstructionEncoder il, MethodDefinitionHandle callee)
+    {
+        LabelHandle tryStart = il.DefineLabel();
+        LabelHandle tryEnd = il.DefineLabel();
+        LabelHandle handlerStart = il.DefineLabel();
+        LabelHandle handlerEnd = il.DefineLabel();
+        LabelHandle end = il.DefineLabel();
+        il.MarkLabel(tryStart);
+        il.Call(callee);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(tryEnd);
+        il.MarkLabel(handlerStart);
+        il.OpCode(ILOpCode.Endfinally);
+        il.MarkLabel(handlerEnd);
+        il.MarkLabel(end);
+        il.OpCode(ILOpCode.Ret);
+        il.ControlFlowBuilder!.AddFaultRegion(tryStart, tryEnd, handlerStart, handlerEnd);
+    }
+
+    static void Filter(
+        InstructionEncoder il,
+        MethodDefinitionHandle callee,
+        EntityHandle filterType)
+    {
+        LabelHandle tryStart = il.DefineLabel();
+        LabelHandle tryEnd = il.DefineLabel();
+        LabelHandle filterStart = il.DefineLabel();
+        LabelHandle handlerStart = il.DefineLabel();
+        LabelHandle handlerEnd = il.DefineLabel();
+        LabelHandle end = il.DefineLabel();
+        il.MarkLabel(tryStart);
+        il.Call(callee);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(tryEnd);
+        il.MarkLabel(filterStart);
+        il.OpCode(ILOpCode.Isinst);
+        il.Token(filterType);
+        il.OpCode(ILOpCode.Ldnull);
+        il.OpCode(ILOpCode.Cgt_un);
+        il.OpCode(ILOpCode.Endfilter);
+        il.MarkLabel(handlerStart);
+        il.OpCode(ILOpCode.Pop);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(handlerEnd);
+        il.MarkLabel(end);
+        il.OpCode(ILOpCode.Ret);
+        il.ControlFlowBuilder!.AddFilterRegion(
+            tryStart,
+            tryEnd,
+            handlerStart,
+            handlerEnd,
+            filterStart);
+    }
+
+    static void FatFinally(InstructionEncoder il)
+    {
+        LabelHandle tryStart = il.DefineLabel();
+        LabelHandle tryEnd = il.DefineLabel();
+        LabelHandle handlerStart = il.DefineLabel();
+        LabelHandle handlerEnd = il.DefineLabel();
+        LabelHandle end = il.DefineLabel();
+        il.MarkLabel(tryStart);
+        for (int i = 0; i < 300; i++)
+            il.OpCode(ILOpCode.Nop);
+        il.Branch(ILOpCode.Leave, end);
+        il.MarkLabel(tryEnd);
+        il.MarkLabel(handlerStart);
         il.OpCode(ILOpCode.Endfinally);
         il.MarkLabel(handlerEnd);
         il.MarkLabel(end);
