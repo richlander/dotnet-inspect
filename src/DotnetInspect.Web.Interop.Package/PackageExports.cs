@@ -933,7 +933,11 @@ public static partial class PackageExports
                                 reference.Culture,
                                 reference.PublicKeyToken)),
                     ];
-                    assemblyReferences = new(new BrowserAssemblyReferenceList(references));
+                    assemblyReferences = new(
+                        new BrowserAssemblyReferenceOutcome(
+                            WasRequested: true,
+                            references,
+                            Message: null));
                     break;
                 case AssemblyContextEntry<
                     ImmutableArray<AssemblyReferenceRow>>.Rejected rejected:
@@ -953,13 +957,17 @@ public static partial class PackageExports
         }
         else if (coordinate.Selection.IsSelected)
         {
-            assemblyReferences =
-                new("Assembly reference inspection was not requested.");
+            assemblyReferences = new(
+                new BrowserAssemblyReferenceOutcome(
+                    WasRequested: false,
+                    [],
+                    "Assembly reference inspection was not requested."));
         }
         else
         {
             assemblyReferences = new(
-                compileLibrary.Message ?? "No compile library is available for this package.");
+                compileLibrary.Message
+                    ?? "No compile library is available for this package.");
         }
 
         string? dependencyGroupError =

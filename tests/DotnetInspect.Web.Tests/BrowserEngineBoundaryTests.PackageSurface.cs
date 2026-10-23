@@ -2533,7 +2533,7 @@ public sealed partial class BrowserEngineBoundaryTests
     [Fact]
     public async Task QueryPackage_HouseSelectsCompatibleReferenceAssetsAndRetainsDependencies()
     {
-        const string packageId = "Reference.Only";
+        const string packageId = "Dependency.Reference.Only.Compatible";
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 packageId,
@@ -2584,10 +2584,14 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Equal("net11.0", dependencies.ActiveFramework);
         Assert.Null(dependencies.Assembly);
+        BrowserAssemblyReferenceOutcome referenceOutcome =
+            Assert.IsType<BrowserAssemblyReferenceOutcome>(
+                dependencies.AssemblyReferences.Value);
+        Assert.False(referenceOutcome.WasRequested);
+        Assert.Empty(referenceOutcome.References);
         Assert.Equal(
             "Assembly reference inspection was not requested.",
-            Assert.IsType<string>(
-                dependencies.AssemblyReferences.Value));
+            referenceOutcome.Message);
         Assert.Equal(
             BrowserCompileLibraryStatus.Selected,
             dependencies.CompileLibrary.Status);
@@ -3370,8 +3374,9 @@ public sealed partial class BrowserEngineBoundaryTests
                         .BrowserPackageDependencies));
 
         Assert.Equal($"{packageId}.dll", dependencies.Assembly);
-        Assert.IsType<BrowserAssemblyReferenceList>(
-            dependencies.AssemblyReferences.Value);
+        Assert.True(
+            Assert.IsType<BrowserAssemblyReferenceOutcome>(
+                dependencies.AssemblyReferences.Value).WasRequested);
     }
 
     [Fact]

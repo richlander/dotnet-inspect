@@ -253,7 +253,11 @@ function packageDependenciesResult(
     platformReferences: [],
     defaultPlatformReference: null,
     declarationFailures: [],
-    assemblyReferences: { references: [] },
+    assemblyReferences: {
+      wasRequested: true,
+      references: [],
+      message: null,
+    },
     dependencyGroupError: null,
     platformReferenceError: null,
     compileLibrary: {

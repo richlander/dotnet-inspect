@@ -128,7 +128,11 @@ function dependencyResult(
     platformReferences: [],
     defaultPlatformReference: null,
     declarationFailures: [],
-    assemblyReferences: { references: [] },
+    assemblyReferences: {
+      wasRequested: true,
+      references: [],
+      message: null,
+    },
     dependencyGroupError: error,
     platformReferenceError: null,
     compileLibrary: selectedCompileLibrary,

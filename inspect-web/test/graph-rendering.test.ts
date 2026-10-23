@@ -190,7 +190,7 @@ test("assembly-reference graphs retain typed names and bound the preview", () =>
   }));
   const graph = buildAssemblyReferenceGraphMermaid(
     "Example\u202E\uD800-Caf\u00E9\u{1F600}",
-    { references });
+    { wasRequested: true, references, message: null });
   assert.ok(graph);
   assert.equal(graph.referenceCount, 81);
   assert.equal(graph.shownReferenceCount, 79);

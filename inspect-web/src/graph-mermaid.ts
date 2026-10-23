@@ -17,7 +17,7 @@ import type {
   BrowserCallGraphTarget,
 } from "./facades/inspect-web-source.d.ts";
 import type {
-  BrowserAssemblyReferenceList,
+  BrowserAssemblyReferenceOutcome,
   BrowserPackageHierarchy,
   BrowserPackageHierarchyRow,
 } from "./facades/inspect-web-package.d.ts";
@@ -112,7 +112,7 @@ export function buildPackageHierarchyGraphMermaid(
 
 export function buildAssemblyReferenceGraphMermaid(
   assemblyName: string,
-  referenceList: BrowserAssemblyReferenceList,
+  referenceList: BrowserAssemblyReferenceOutcome,
 ): AssemblyReferenceGraph | null {
   const references = referenceList.references;
   if (!references.length) return null;
