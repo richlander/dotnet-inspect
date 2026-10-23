@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect-project-analysis
-version: 0.4.0
+version: 0.4.1
 description: Review a project, package, or library as a 30-second elevator pitch or an evidence-bounded deep dive — learn it, weigh dependency risk, map complexity and clustering, or pursue a topic such as performance, unsafe code, or ownership.
 ---
 
@@ -263,9 +263,9 @@ Read these with care until their owners close the gaps:
 - The package-wide view (`library --package Id@v` without
   `--namesake-library`) silently drops `Dependency Structure` from `--json`
   output and drops `Clone Candidates` entirely (#10080); always select one
-  exact library for them. The installed
-  product does not yet explain the structure fields (#10077); read them as
-  described above.
+  exact library for them.
+  `explain library/sections/dependency-structure` states these fields'
+  meaning; individual columns do not yet carry their own (#10077).
 - `Member Metrics` has no ranking operators (#10083); rank its rows locally.
 - Architectural Families can include compiler-generated names such as `c`
   and `d` (#10082); set them aside.

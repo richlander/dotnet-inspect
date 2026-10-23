@@ -156,11 +156,29 @@ Routes reach the agent in two stages, each measured on the same tasks:
    continuations. It replaces the baseline only where it matches or beats the
    bar on the same tasks.
 
+The first comparison
+([Explanation-directed comparison](#explanation-directed-comparison)) kept
+the baseline's named routes. An explanation-led draft that replaced them with
+search, then exact explanation, then the binding, matched the baseline's
+efficacy on three tasks but cost more invocations, and it lost a material
+finding where it dropped a named check. A hybrid that kept every named route
+and added two pointers, reading a Library section's `Empty` and `Boundary`
+before reporting none and searching for a thread the skill does not name,
+matched efficacy on every task. It did not improve efficiency: it was equal
+on dependency risk and cost one to four more invocations, with more bytes
+read, on the other three. Neither variant met the bar, so the skill keeps its
+named routes and adds no explanation pointer. It takes only the comparison's
+factual correction: the product does explain the Dependency Structure fields.
+Each task ran once per skill revision, so a later variant needs a task whose
+result depends on explanation, and repeated runs, to show an improvement.
+
 Efficacy is whether each review reaches the task's predetermined material
 findings with correct evidence classes and qualifications. Efficiency is
-invocations, rounds, tool time, and bytes read. Comparisons hold the binary,
-tasks, subjects, cache state, and participant configuration fixed, and remain
-descriptive evidence rather than a regression gate.
+invocations, rounds, tool time, and bytes read. Comparisons hold the tasks,
+rubric, subjects, cache state, and participant configuration fixed. Each
+variant runs against its own build, and product changes between builds are
+recorded beside the deltas. Comparisons remain descriptive evidence rather
+than a regression gate.
 
 ## Result validation
 
@@ -351,6 +369,75 @@ narrowing ([#10080](https://github.com/richlander/dotnet-inspect/issues/10080)).
 
 This is one descriptive wave per task, not a regression gate or a population
 estimate.
+
+### Explanation-directed comparison
+
+Two explanation variants repeated the baseline's four tasks, rubric, subjects,
+prompts, and warm cache. Each participant prompt added only `explain` to the
+admitted discovery sources and route-trace labels. Both builds are NativeAOT
+`linux-x64` builds of `159b2f361` with the variant skill embedded: SHA-256
+`2618db0dbf90195b5833719e9737acf57871e1593ce67c0d7126451d41cda738` for the
+explanation-led draft (E) and
+`7003f20f8ade78d8667c22e52107abab1e808cb602c30ea33ac8714b7559c1a3` for the
+hybrid (H). Each task ran with a fresh Claude Opus 5.5
+general-purpose agent. The baseline ran on `2e8e54c`, so the deltas also
+include product changes between the two builds.
+
+| Task | Baseline | E: explanation-led | H: hybrid |
+| --- | --- | --- | --- |
+| B1 Learn, quick | 6 / 6; 9 calls; 0.7 s; 34 KB | 6 / 6; 19 calls (7 `explain`); 2.2 s; 173 KB | 6 / 6; 12 calls (1 `explain`); 1.0 s; 39 KB |
+| B2 Dependency risk, quick | 7 / 7; 18 calls; 7.0 s; 48 KB | 5.5 / 7 †; 15 calls (3 `explain`) | 7 / 7; 18 calls (0 `explain`); 2.9 s; 49 KB |
+| B3 Complexity, thorough | 7 / 7; 20 calls; 5.2 s; 3,539 KB | 7 / 7; 32 calls (12 `explain`); 6.2 s; 6,164 KB | 7 / 7; 24 calls (2 `explain`); 8.0 s; 4,971 KB |
+| B4 Deep-dive, thorough | 6 / 6; 37 calls; 3.7 s; 96 KB | 6 / 6; 38 calls (7 `explain`); 2.8 s; 121 KB | 6 / 6; 38 calls (3 `explain`); 2.7 s; 259 KB |
+
+The wrappers record invocations, tool time, and bytes, not rounds, so the
+table omits rounds.
+
+† E2 missed the added `http://` literal because the draft dropped the quick
+review's named literal check. It also missed the advisory, because its
+working directory inherited a `nuget.config` that redefined the `nuget.org`
+source to another feed with no advisory data. The first two hybrid
+B2 participants inherited the same configuration. The recorded H2 is a rerun
+from a working directory outside it, with an added instruction not to change
+directory; the configuration's effects are
+filed as #10263 and #10264.
+
+Discovery through search and exact explanation costs two calls where the
+skill names a command. The draft therefore doubled Learn's invocations and
+raised Complexity's by 60 percent. Package and Member section explanations
+carry only shape, so participants recorded them as dead ends (#10265).
+
+The hybrid's six explanation calls were three exact reads and three
+searches. Each task's call delta is net: participants also chose different
+probes from the baseline's, so the explanation calls and their follow-ups
+account for part of each delta, not all of it.
+
+- **B1 (+3):** one read, Integrations' `Empty`, qualified an empty section.
+  The participant also made two Unsafe Members probes. The baseline and
+  hybrid B1 participants recovered README text the same way.
+- **B2 (0):** no explanation calls. Equal only as a net count: the
+  participant spent five calls on failed string-literal diffs and a help read,
+  and three re-running the literal checks, where the baseline spent calls on a
+  repeated breaking diff and Unsafe Members probes.
+- **B3 (+4):** one read of Dependency Structure's fields, and one search,
+  `explain clones`, which led to three Member Clone Candidates probes on a
+  route the skill does not name. Among other differences, the participant
+  also repeated a Library Metrics read and dated one more version, and
+  skipped six of the baseline's probes, three of them `type` probes.
+- **B4 (+1):** a search and read for Array Pool Escapes' scope, and an
+  `explain callers` search that dead-ended. Among other differences,
+  `library coordinate` and `library address` rejected the skill's
+  `--namesake-library` target form in two calls (#10281), and two more read
+  help to recover.
+
+The E3 and H3 participants were given work directories under the same
+inherited configuration; the logs do not record whether they ran from them.
+Their scores are unaffected, but tool time may include feed probes: H3's
+9.0.1 read took 1.46 s against 0.21 s in the baseline. The participants also surfaced `type -D` omitting Called Types and `package`
+rejecting `--package` without a hint (#10266).
+
+This is one descriptive wave per variant, not a regression gate. Neither
+variant is adopted.
 
 ### Exploratory explanation-first run
 
