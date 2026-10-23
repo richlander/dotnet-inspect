@@ -89,15 +89,18 @@ public class PlatformCallerUnsafeContractsTests
     }
 
     [Fact]
-    public void EmbeddedLoad_ReadsTheVerifiedProjection()
+    public void EmbeddedTablesMatchTheProjection()
     {
+        string text = ReadCommittedProjection();
+        PlatformCallerUnsafeContracts verified = PlatformCallerUnsafeContracts.Parse(text);
         PlatformCallerUnsafeContracts embedded = PlatformCallerUnsafeContracts.Embedded;
-        PlatformCallerUnsafeContracts verified =
-            PlatformCallerUnsafeContracts.Parse(ReadEmbeddedProjection());
 
         Assert.Equal(verified.Source, embedded.Source);
         Assert.Equal(verified.Digest, embedded.Digest);
-        Assert.True(verified.Identifiers.SetEquals(embedded.Identifiers));
+        Assert.Equal(verified.Count, embedded.Count);
+        Assert.Equal(
+            PlatformCallerUnsafeProjectionBuilder.BuildTables(text),
+            File.ReadAllText(CommittedPath("PlatformCallerUnsafeContracts.Tables.cs")));
     }
 
     [Fact]
@@ -107,7 +110,7 @@ public class PlatformCallerUnsafeContractsTests
         Assert.Equal("Microsoft.NETCore.App.Ref", platform.Source.PackId);
         Assert.True(platform.Count > 0);
 
-        string text = ReadEmbeddedProjection();
+        string text = ReadCommittedProjection();
         Assert.Equal(platform.Count, PlatformCallerUnsafeContracts.Parse(text).Count);
         string tampered = text.Replace(
             "M:System.Runtime.CompilerServices.Unsafe.As``1(System.Object)",
@@ -135,11 +138,14 @@ public class PlatformCallerUnsafeContractsTests
         Assert.Equal(runtime, PlatformCallerUnsafeContracts.Embedded.Source.PackVersion);
     }
 
-    static string ReadEmbeddedProjection()
+    static string ReadCommittedProjection() =>
+        File.ReadAllText(CommittedPath("PlatformCallerUnsafeContracts.txt"));
+
+    static string CommittedPath(string fileName)
     {
-        using Stream stream = typeof(PlatformCallerUnsafeContracts).Assembly
-            .GetManifestResourceStream(PlatformCallerUnsafeContracts.ResourceName)!;
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
+        string root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "global.json")))
+            root = Path.GetDirectoryName(root) ?? throw new InvalidOperationException("global.json not found.");
+        return Path.Combine(root, "src", "ILInspector.Analysis", fileName);
     }
 }

@@ -168,28 +168,28 @@ leaves unmarked and removes none that upstream marks.
 ## Data acquisition
 
 `eng/generate-platform-caller-unsafe-contracts.cs` reads an exact
-`Microsoft.NETCore.App.Ref` directory and writes the committed projection that
-Analysis embeds. The projection records the pack identity and version, the
-number of entries, and a content digest, then one sorted
+`Microsoft.NETCore.App.Ref` directory and writes the committed projection,
+`PlatformCallerUnsafeContracts.txt`. The projection records the pack identity
+and version, the number of entries, and a content digest, then one sorted
 `assembly<TAB>identifier` line per entry. Generation fails when a pack assembly
 cannot be read, when a marked method appears in an assembly that lacks
 `MemorySafetyRulesAttribute`, or when two entries collide.
+
+The projection is the reviewed source. From it the generator also writes
+`PlatformCallerUnsafeContracts.Tables.cs`, which Analysis compiles as the
+embedded projection. It holds three tables: the identifiers, the member names,
+and the innermost declaring-type names. Each table is distinct UTF-8 strings
+in ordinal byte order, stored as one UTF-8 literal with an offset table. Both
+compile to read-only data, so the embedded projection constructs nothing: a
+lookup is a binary search over that data, with the name tables as cheap
+rejections before an identifier is built. `EmbeddedTablesMatchTheProjection`
+fails when the committed tables differ from what the projection generates.
 
 The projection tracks the repository's pinned SDK reference pack. Moving the
 pin regenerates the projection in the same change, so review sees contract
 changes beside the version that caused them; a gate enforces that the recorded
 pack version is the pinned SDK's reference-pack version. No inspection-time download or
-pack probe is added, and the data loads lazily only when the inventory runs.
-
-The embedded load parses the projection's UTF-8 lines directly. It builds one
-string per identifier and one per distinct member and declaring-type name,
-and it does not recompute the digest, which `ProjectionMatchesItsHeader`
-verifies for the committed file. In NativeAOT the first load costs about
-1.2 ms. That is most of the one-time discovery cost on System.Text.Json,
-where the census reaches its first finding after four bodies.
-[#10480](https://github.com/richlander/dotnet-inspect/issues/10480) tracks
-emitting the projection as preinitialized static tables, so the load
-constructs nothing.
+pack probe is added, and the tables are read only when the inventory runs.
 
 ## Lifetime
 
@@ -234,7 +234,7 @@ others are in `LibraryBodyIndexTests`:
 | A projected contract adds no declaration role | `ProjectionAddsNoDeclarationRole` |
 | The constructor wrapping a recognized span `stackalloc` admits nothing | `UnsafeMemberUses_ApplyUpdatedSemanticsToUpdatedAssembly` and `UnsafeMemberUses_ApplyUpdatedSemanticsToLegacyAssembly` |
 | Constant-data spans, `u8` literals, and `<PrivateImplementationDetails>` helpers admit nothing, while an explicit source call to the constructor does | `CompilerLoweredConstantSpansAndHelpersAdmitNothing` |
-| The embedded load reads the same identifiers, source, and digest as the verified parse | `EmbeddedLoad_ReadsTheVerifiedProjection` |
+| The embedded tables are the ones the committed projection generates, with its source, digest, and count | `EmbeddedTablesMatchTheProjection` |
 | The committed projection matches its recorded digest and count | `ProjectionMatchesItsHeader` |
 | The recorded pack version is the pinned SDK's reference-pack version | `ProjectionTracksPinnedSdk` |
 | An unreadable pack assembly fails generation | `GenerationFailsOnUnreadableAssembly` |
