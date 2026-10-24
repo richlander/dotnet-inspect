@@ -220,18 +220,36 @@ readonly ref struct SortedUtf8Span(ReadOnlySpan<byte> bytes, ReadOnlySpan<int> o
 
     public bool Contains(ReadOnlySpan<char> value)
     {
-        int max = Encoding.UTF8.GetMaxByteCount(value.Length);
-        byte[]? rented = max > 512 ? System.Buffers.ArrayPool<byte>.Shared.Rent(max) : null;
-        Span<byte> buffer = rented ?? stackalloc byte[512];
-        try
+        // UTF-8 and UTF-16 order ASCII alike, so an ASCII value compares with
+        // the stored bytes directly; any other value is encoded first.
+        if (!System.Text.Ascii.IsValid(value))
+            return Contains(Encoding.UTF8.GetBytes(value.ToString()));
+        int low = 0;
+        int high = Count - 1;
+        while (low <= high)
         {
-            return Contains(buffer[..Encoding.UTF8.GetBytes(value, buffer)]);
+            int middle = low + ((high - low) >> 1);
+            int order = CompareAscii(this[middle], value);
+            if (order == 0)
+                return true;
+            if (order < 0)
+                low = middle + 1;
+            else
+                high = middle - 1;
         }
-        finally
+        return false;
+    }
+
+    static int CompareAscii(ReadOnlySpan<byte> stored, ReadOnlySpan<char> value)
+    {
+        int length = Math.Min(stored.Length, value.Length);
+        for (int i = 0; i < length; i++)
         {
-            if (rented is not null)
-                System.Buffers.ArrayPool<byte>.Shared.Return(rented);
+            int order = stored[i] - value[i];
+            if (order != 0)
+                return order;
         }
+        return stored.Length - value.Length;
     }
 
     public bool Contains(ReadOnlySpan<byte> value)
