@@ -187,12 +187,10 @@ internal static class TypeHierarchyRelationsInspectionExecutor
                     .ConfigureAwait(false);
         }
         catch (Exception exception) when (
-            exception is IOException
-                or UnauthorizedAccessException
-                or BadImageFormatException
-                or InvalidOperationException
-                or ArgumentException)
+            exception is not OperationCanceledException)
         {
+            // A probe failure is reported and leaves the sections undecided;
+            // it never fails the discovery that asked.
             await workspace.CloseAsync().ConfigureAwait(false);
             CommandError.WriteWarning(
                 "Could not determine hierarchy section applicability: "

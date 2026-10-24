@@ -1,5 +1,9 @@
+using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
+using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
+using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.Sections.Tests;
