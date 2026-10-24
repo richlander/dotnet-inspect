@@ -118,6 +118,9 @@ public sealed class IlExistsTests
         // A terminal known before reading decides without an atom being read on either side.
         Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 0, 0), Decide(Scripted(noBody), Scripted(complete, "a")));
         Assert.Equal(new FindingExistsResult(FindingExistsDecision.Indeterminate, 0, 0), Decide(Scripted(complete, "a"), Scripted(readingFailed)));
+        // A cursor created complete is read as ended, never advanced.
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 0, 1), Decide(Scripted(complete), Scripted(complete, "a")));
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Unchanged, 0, 0), Decide(Scripted(complete), Scripted(complete)));
         Assert.Equal(FindingExistsDecision.Unchanged, Decide(Scripted(noBody), Scripted(noBody)).Decision);
         Assert.Equal(FindingExistsDecision.Changed, Decide(Scripted(noBody), Scripted(noRow)).Decision);
         Assert.Equal(FindingExistsDecision.Changed, Decide(Scripted(noBody), Scripted(readingFailed)).Decision);

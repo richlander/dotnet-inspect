@@ -113,6 +113,8 @@ public static class IlFindings
         PEReader newPe,
         MethodDefinitionHandle newMethod)
     {
+        ArgumentNullException.ThrowIfNull(oldSide);
+        ArgumentNullException.ThrowIfNull(newSide);
         IlBodyDiff.RequireOnePolicy(oldSide, newSide);
         return Exists(IlCensusCursor.Create(oldSide, oldPe, oldMethod), IlCensusCursor.Create(newSide, newPe, newMethod));
     }

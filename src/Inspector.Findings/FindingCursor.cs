@@ -189,8 +189,9 @@ public static class FindingExists
         bool deferred = false;
         while (true)
         {
-            bool oldMore = oldCursor.Advance();
-            bool newMore = newCursor.Advance();
+            // A cursor at its terminal is never advanced; a cursor created there is read as ended.
+            bool oldMore = oldCursor.Terminal is null && oldCursor.Advance();
+            bool newMore = newCursor.Terminal is null && newCursor.Advance();
             if (oldMore && newMore)
             {
                 switch (equality.Compare(oldCursor.Current!, newCursor.Current!))

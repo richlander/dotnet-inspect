@@ -422,6 +422,41 @@ every row a member names is spelled once for all the members of the run.
 The whole-assembly, census, and comparison paths, which the change does
 not touch, moved by −2.2% to +1.3%.
 
+### Cost of Exists over the cursors
+
+Finding census step 2a
+([#10609](https://github.com/richlander/dotnet-inspect/pull/10609)) added the
+`exists` leg: `IlFindings.Exists` over every paired method through one side
+per image, lockstep over two cursors with nothing sealed. Measured as the
+records above are, NativeAOT linux-x64, base a668847aa (binary `49483bad`)
+against head 21c23eea1 (`6d124cde`), six pairs, ten timed runs per process
+after two warmups, two rounds, each process on a quiet host; raw outputs in
+the [gist](https://gist.github.com/richlander/92a3d30b958b28d23f79e2fef31244a7).
+Lockstep's decisions equal the comparison leg's on every pair (unchanged where
+the comparison is exact, changed where it differs, nothing indeterminate). It
+decides every pair in 20–35% of the census comparison's time and 17–30% of
+the whole-assembly comparison's, allocating about half of what the comparison
+allocates; what it still allocates is the cursor's atoms, the 2b target. The
+duplicate-Type-row set, found once per metadata reader, leaves the per-call
+endpoint path flat, as the last two columns show; a first head that found it
+per side had put CoreLib's per-call leg from 2.5 s to 41 s.
+
+Medians in ms (p95 in parentheses for Exists), head unless stated:
+
+| Pair | Exists | Compare | Assembly | Exists / Compare | Exists MB | Compare MB | Endpoints base → head | Endpoints shared base → head |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 450.1 (465.9) | 1287.9 | 1508.9 | 35% | 1506 | 2636 | 2085 → 2091 (+0.3%) | 2024 → 2021 (−0.1%) |
+| System.Text.Json 9.0.0 to 10.0.0 | 59.9 (64.2) | 190.7 | 227.3 | 31% | 205 | 448 | 317 → 316 (−0.5%) | 296 → 291 (−2.0%) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 105.9 (112.1) | 304.0 | 370.1 | 35% | 374 | 678 | 501 → 506 (+1.1%) | 477 → 473 (−0.8%) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 55.8 (60.0) | 272.4 | 334.2 | 20% | 185 | 608 | 457 → 464 (+1.5%) | 430 → 429 (−0.2%) |
+| System.Private.Xml 10 to 11 | 398.6 (411.0) | 1362.9 | 1657.0 | 29% | 1427 | 2853 | 2352 → 2332 (−0.9%) | 2199 → 2158 (−1.9%) |
+| System.Private.CoreLib 10 to 11 | 508.7 (519.8) | 1490.8 | 1840.8 | 34% | 1759 | 3526 | 2502 → 2503 (+0.0%) | 2355 → 2351 (−0.2%) |
+
+The assembly, census, and comparison legs moved by −1.7% to +1.5% between
+base and head with identical allocation, the noise band of the records above.
+Lockstep beside Finding Diff Any's walk is 2b's measurement; this leg is the
+cursor's own baseline for it.
+
 ## Guarantees
 
 ### Opcode macro folding

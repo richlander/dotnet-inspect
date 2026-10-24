@@ -1,7 +1,8 @@
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.CompilerServices;
+using System.Text;
 
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -383,18 +384,32 @@ public sealed class IlCensusSide
     /// </summary>
     sealed class PlainTypeNameComparer(MetadataReader reader, MetadataStringHeap names) : IEqualityComparer<TypeDefinitionHandle>
     {
+        // The walk's unit admission: a valid declaring chain, no compiler-generated
+        // Type in it, well-formed names, no empty name, and a full name within the
+        // Type name budget, counted in characters as the walk's escaped name is.
         public bool IsUnit(TypeDefinitionHandle handle)
         {
             Span<TypeDefinitionHandle> chain = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
             if (!Walk(handle, chain, out int length))
                 return false;
             TypeDefinition root = reader.GetTypeDefinition(chain[0]);
-            if (!root.Namespace.IsNil && !names.IsWellFormed(root.Namespace))
-                return false;
+            long characters = 0;
+            if (!root.Namespace.IsNil)
+            {
+                if (!names.IsWellFormed(root.Namespace))
+                    return false;
+                characters += Encoding.UTF8.GetCharCount(names.Bytes(root.Namespace));
+            }
             for (int i = 0; i < length; i++)
             {
                 StringHandle name = reader.GetTypeDefinition(chain[i]).Name;
                 if (reader.StringComparer.StartsWith(name, "<") || !names.IsWellFormed(name))
+                    return false;
+                ReadOnlySpan<byte> bytes = names.Bytes(name);
+                if (bytes.IsEmpty)
+                    return false;
+                characters += Encoding.UTF8.GetCharCount(bytes);
+                if (characters > MetadataSafetyPolicy.MaxTypeNameCharacters)
                     return false;
             }
             return true;

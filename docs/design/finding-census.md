@@ -295,13 +295,16 @@ is kept while it is measurably cheaper than lockstep and deleted when
 lockstep matches it, under the rule that a fast provision is justified by
 performance alone and never by a second definition of change. Until it is
 deleted, both answer under one gate: for every row of every fixture pair, the
-walk's verdict equals lockstep's. Two readings of malformed input differ and
-are recorded rather than reconciled: where one stream ends and the other
-continues into an instruction whose operand cannot be resolved, or whose
-shorter body's clause table is malformed, the walk decides `Changed` from the
-continuation before it reads the fault, and lockstep meets the fault while
-producing that position and reads `Indeterminate`, the conservative reading
-rule 3 of Diff capabilities permits; the fixture pairs hold neither shape.
+walk's verdict equals lockstep's. One class of malformed input reads
+differently and is recorded rather than reconciled: a fault the walk reaches
+only after its continuation or target decision. Where one stream ends and the
+other continues into an instruction whose operand cannot be resolved or is
+truncated, or where bodies that the walk decides by continuation or by a
+target difference carry a clause table that fails validation, the walk
+decides `Changed` before it reads the fault, and lockstep, whose cursor
+produces every position and validates its clauses before it completes, meets
+the fault first and reads `Indeterminate`, the conservative reading rule 3 of
+Diff capabilities permits. The fixture pairs hold none of these shapes.
 
 ## Exhaustive
 
@@ -371,8 +374,8 @@ lockstep over two cursors; per-point Exists is covered after the rules:
    matcher cannot run, by a failure or by its bounds, the view shows that,
    never an empty diff.
 3. **Undecided is never read either way.** Lockstep `Indeterminate` holds
-   exactly when a drain ends `Failed` and no difference precedes the
-   failure. The Exhaustive comparison is `Failed` for the same reason, and
+   exactly when a drain ends `Failed` and no non-target difference precedes
+   the failure. The Exhaustive comparison is `Failed` for the same reason, and
    both say so.
 
 Per-point Exists keeps rules 1 and 3 as stated and narrows rule 2: it reads
@@ -523,9 +526,11 @@ test class gates its cursor:
      images, and a real image against itself), fault order, and laziness
      (atom counts asserted). The `exists` leg of
      `eng/measure-il-diff-exhaustive.cs` reports lockstep's time and
-     allocation per pair beside the census and comparison legs. The atom is
-     still the sealed census's record, allocated per advance, so the
-     allocation gate waits for 2b.
+     allocation per pair beside the census and comparison legs
+     ([cost record](il-diff-canonicalization.md#cost-of-exists-over-the-cursors):
+     20–35% of the census comparison's time on the six pairs, deciding as
+     it does on every pair). The atom is still the sealed census's record,
+     allocated per advance, so the allocation gate waits for 2b.
    - **2b:** atoms without per-advance allocation, lockstep beside the walk
      in `eng/measure-finding-diff-any.cs` Library-wide and per Type on the
      perf hosts under NativeAOT and Browser/Wasm, and the walk deleted or
