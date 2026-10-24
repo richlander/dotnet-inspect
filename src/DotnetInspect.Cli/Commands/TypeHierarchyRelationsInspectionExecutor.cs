@@ -167,7 +167,13 @@ internal static class TypeHierarchyRelationsInspectionExecutor
         if (!implementers && !derivedTypes)
             return null;
         if (options.PackageRangeAddress is not null)
+        {
+            CommandError.WriteWarning(
+                "Could not determine hierarchy section applicability: "
+                    + "hierarchy relation sections do not support unresolved "
+                    + "package range addresses.");
             return null;
+        }
 
         var probe = new TypeHierarchyRelationsExistsProbe(
             implementers,
@@ -210,14 +216,18 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             return null;
         }
 
-        return new(
-            Decide(probe.Implementers),
-            Decide(probe.DerivedTypes));
+        TypeHierarchyRelationsApplicability applicability =
+            TypeHierarchyRelationsApplicability.Resolve(
+                probe,
+                out ImmutableArray<string> undecided);
+        foreach (string reason in undecided)
+        {
+            CommandError.WriteWarning(
+                "Could not determine hierarchy section applicability: "
+                    + reason);
+        }
 
-        static bool? Decide(SubjectRelationPopulationExistsOutcome? outcome) =>
-            outcome is SubjectRelationPopulationExistsOutcome.Decided decided
-                ? decided.Value
-                : null;
+        return applicability;
     }
 
     private static void ExecuteExists(
@@ -794,7 +804,17 @@ internal static class TypeHierarchyRelationsInspectionExecutor
             {
                 // An Exists probe decides section applicability over the
                 // same population and focus the sections render from, and
-                // asks nothing else: no exact Type inspection, no row.
+                // asks nothing else: no exact Type inspection, no row. It
+                // carries the assembly set's completeness as the section path
+                // does, so a population missing a skipped source never
+                // decides a section empty.
+                existsProbe.PopulationComplete =
+                    assemblySet.Diagnostics.Count == 0;
+                existsProbe.PopulationDiagnostics =
+                [
+                    .. assemblySet.Diagnostics.Select(
+                        static diagnostic => diagnostic.Message),
+                ];
                 ExecuteExists(
                     options,
                     relationPopulation,
@@ -1582,7 +1602,71 @@ internal static class TypeHierarchyRelationsInspectionExecutor
 /// </summary>
 internal sealed record TypeHierarchyRelationsApplicability(
     bool? Implementers,
-    bool? DerivedTypes);
+    bool? DerivedTypes)
+{
+    /// <summary>
+    /// Reads the probe's outcomes as discovery does: a decided non-empty
+    /// population applies; a decided empty population removes the section
+    /// only when the assembly set resolved every requested source, because
+    /// the sections' own path reports that population incomplete; every other
+    /// outcome is undecided and names its reason.
+    /// </summary>
+    internal static TypeHierarchyRelationsApplicability Resolve(
+        TypeHierarchyRelationsExistsProbe probe,
+        out ImmutableArray<string> undecided)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+        var reasons = ImmutableArray.CreateBuilder<string>();
+        bool? implementers = probe.RequestsImplementers
+            ? Decide(SectionNames.Implementers, probe.Implementers, probe, reasons)
+            : null;
+        bool? derivedTypes = probe.RequestsDerivedTypes
+            ? Decide(SectionNames.DerivedTypes, probe.DerivedTypes, probe, reasons)
+            : null;
+        undecided = reasons.ToImmutable();
+        return new(implementers, derivedTypes);
+    }
+
+    private static bool? Decide(
+        string section,
+        SubjectRelationPopulationExistsOutcome? outcome,
+        TypeHierarchyRelationsExistsProbe probe,
+        ImmutableArray<string>.Builder reasons)
+    {
+        switch (outcome)
+        {
+            case SubjectRelationPopulationExistsOutcome.Decided { Value: true }:
+                return true;
+            case SubjectRelationPopulationExistsOutcome.Decided { Value: false }
+                when probe.PopulationComplete:
+                return false;
+            case SubjectRelationPopulationExistsOutcome.Decided:
+                reasons.Add(
+                    $"{section} found no row, but the hierarchy population is "
+                        + "incomplete ("
+                        + string.Join("; ", probe.PopulationDiagnostics)
+                        + ").");
+                return null;
+            case SubjectRelationPopulationExistsOutcome.Incomplete:
+                reasons.Add(
+                    $"{section} could not read every candidate before deciding.");
+                return null;
+            case SubjectRelationPopulationExistsOutcome.Unavailable:
+                reasons.Add(
+                    $"{section} had no available candidate to read.");
+                return null;
+            case SubjectRelationPopulationExistsOutcome.Failed:
+                reasons.Add($"{section} failed to read its candidates.");
+                return null;
+            case null:
+                reasons.Add($"{section} returned no Exists outcome.");
+                return null;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown hierarchy Exists outcome.");
+        }
+    }
+}
 
 internal sealed class TypeHierarchyRelationsExistsProbe
 {
@@ -1601,6 +1685,12 @@ internal sealed class TypeHierarchyRelationsExistsProbe
     internal SubjectRelationPopulationExistsOutcome? Implementers { get; set; }
 
     internal SubjectRelationPopulationExistsOutcome? DerivedTypes { get; set; }
+
+    /// <summary>Whether the assembly set resolved every requested source.</summary>
+    internal bool PopulationComplete { get; set; } = true;
+
+    /// <summary>The assembly set's skipped-source messages, when any.</summary>
+    internal ImmutableArray<string> PopulationDiagnostics { get; set; } = [];
 }
 
 internal sealed record TypeHierarchyExactTypeInspection(

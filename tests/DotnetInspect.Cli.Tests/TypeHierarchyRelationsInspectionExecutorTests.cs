@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
@@ -67,6 +68,86 @@ public sealed class TypeHierarchyRelationsInspectionExecutorTests
         Assert.Null(request.Rows);
         Assert.NotNull(request.Exists);
         Assert.Equal(SubjectRelationForm.BaseType, request.Selection.Form);
+    }
+
+    [Fact]
+    public void ExistsApplicabilityRemovesOnlyADecidedEmptyCompletePopulation()
+    {
+        var complete = new TypeHierarchyRelationsExistsProbe(
+            implementers: true,
+            derivedTypes: true)
+        {
+            Implementers = new SubjectRelationPopulationExistsOutcome.Decided(true),
+            DerivedTypes = new SubjectRelationPopulationExistsOutcome.Decided(false),
+        };
+
+        TypeHierarchyRelationsApplicability decided =
+            TypeHierarchyRelationsApplicability.Resolve(
+                complete,
+                out ImmutableArray<string> noReasons);
+
+        Assert.True(decided.Implementers);
+        Assert.False(decided.DerivedTypes);
+        Assert.Empty(noReasons);
+
+        // An empty answer over a population missing a skipped source is
+        // undecided with the skipped source named; a non-empty answer stands.
+        var incompletePopulation = new TypeHierarchyRelationsExistsProbe(
+            implementers: true,
+            derivedTypes: true)
+        {
+            Implementers = new SubjectRelationPopulationExistsOutcome.Decided(true),
+            DerivedTypes = new SubjectRelationPopulationExistsOutcome.Decided(false),
+            PopulationComplete = false,
+            PopulationDiagnostics = ["aspnetcore: pack unavailable, skipping."],
+        };
+
+        TypeHierarchyRelationsApplicability undecided =
+            TypeHierarchyRelationsApplicability.Resolve(
+                incompletePopulation,
+                out ImmutableArray<string> reasons);
+
+        Assert.True(undecided.Implementers);
+        Assert.Null(undecided.DerivedTypes);
+        string reason = Assert.Single(reasons);
+        Assert.Contains(SectionNames.DerivedTypes, reason);
+        Assert.Contains("aspnetcore: pack unavailable", reason);
+
+        // Every non-decided outcome is undecided and names its reason.
+        var unread = new TypeHierarchyRelationsExistsProbe(
+            implementers: true,
+            derivedTypes: true)
+        {
+            Implementers = new SubjectRelationPopulationExistsOutcome.Incomplete(),
+            DerivedTypes = new SubjectRelationPopulationExistsOutcome.Unavailable(),
+        };
+
+        TypeHierarchyRelationsApplicability unreadApplicability =
+            TypeHierarchyRelationsApplicability.Resolve(
+                unread,
+                out ImmutableArray<string> unreadReasons);
+
+        Assert.Null(unreadApplicability.Implementers);
+        Assert.Null(unreadApplicability.DerivedTypes);
+        Assert.Equal(2, unreadReasons.Length);
+        Assert.Contains(unreadReasons, r => r.Contains(SectionNames.Implementers));
+        Assert.Contains(unreadReasons, r => r.Contains(SectionNames.DerivedTypes));
+
+        // A form the probe did not request contributes neither a decision
+        // nor a reason.
+        var oneForm = new TypeHierarchyRelationsExistsProbe(
+            implementers: false,
+            derivedTypes: true)
+        {
+            DerivedTypes = new SubjectRelationPopulationExistsOutcome.Failed(),
+        };
+        TypeHierarchyRelationsApplicability oneFormApplicability =
+            TypeHierarchyRelationsApplicability.Resolve(
+                oneForm,
+                out ImmutableArray<string> oneReason);
+        Assert.Null(oneFormApplicability.Implementers);
+        Assert.Null(oneFormApplicability.DerivedTypes);
+        Assert.Contains(SectionNames.DerivedTypes, Assert.Single(oneReason));
     }
 
     [Fact]

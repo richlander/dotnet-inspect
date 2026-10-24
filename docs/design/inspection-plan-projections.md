@@ -177,7 +177,9 @@ hierarchy relations operation's Exists closing
 over the same population the sections render from; a decided-empty population
 removes the section from the effective catalog, and a probe that cannot decide
 leaves it structurally present with a visible warning rather than failing the
-discovery.
+discovery. The probe carries the assembly set's completeness as the section
+path does: an empty answer over a population missing a skipped source is
+undecided, with the skipped source named in the warning, never a removal.
 
 Effective-discovery outcomes remain bound to the operation and preflighted
 plan as specified by Member Inspection Planning. They are not portable share
