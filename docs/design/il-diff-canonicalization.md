@@ -539,10 +539,12 @@ and signature. A row the speller rejects, whose signature exceeds the decode
 budget, whose declaring or resolution-scope chain cycles or exceeds the node
 budget, or which an opcode does not take, fails the operand, and the body is
 unavailable (`TokenResolutionFailure`); no stand-in identity is compared in
-its place. Two Type rows that spell one key are Finding Diff Any's
-`Indeterminate`, which it decides from its unit table; the side refuses an
-operand that names either row or a member of one, as Finding Diff Any's
-reference path does. The duplicates are found once per image, on the first
+its place. Two Type rows that spell one key, among the Types Finding Diff
+Any's unit table admits, are its `Indeterminate`, which it decides from that
+table; the side refuses an operand that names either row or a member of one,
+as Finding Diff Any's reference path does, and no other row (a Type over the
+name budget, for one, is a malformed unit there, and neither provision
+refuses it). The duplicates are found once per image, on the first
 operand that names a Type definition or one of its members, by comparing the
 stored bytes of every unit-admitted Type's root namespace and declaring-chain
 names, which is the plain key's equality without a spelling, and kept per
