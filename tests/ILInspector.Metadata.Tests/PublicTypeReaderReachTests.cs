@@ -163,6 +163,24 @@ public sealed class PublicTypeReaderReachTests
                 [image.Path]).Found);
     }
 
+    [Fact]
+    public void Extensions_RequireADeclaringTypePublicThroughEveryEnclosingType()
+    {
+        using var reader = new PEReader(new MemoryStream(Image.Value));
+
+        Assert.Equal(
+            ["Twice"],
+            ExtensionMethodScanner.FindAllExtensions(reader).Select(static extension => extension.MethodName));
+        Assert.Equal(
+            ["Twice"],
+            ExtensionMethodScanner.FindExtensions(reader, "System.Int32").Select(static extension => extension.MethodName));
+        Assert.Equal(
+            ["Thrice", "Twice"],
+            ExtensionMethodScanner.FindAllExtensions(reader, includeAll: true)
+                .Select(static extension => extension.MethodName)
+                .Order(StringComparer.Ordinal));
+    }
+
     static byte[] Compile(string name, string source)
     {
         CSharpCompilation compilation = CSharpCompilation.Create(

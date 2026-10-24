@@ -67,8 +67,8 @@ public enum MethodClassification
     StateMachineAsync,
 
     /// <summary>
-    /// A public static extension method declared by a static extension type,
-    /// neither hidden, as <c>ExtensionMethodScanner.FindAllExtensions</c>
+    /// A public static extension method declared by a static extension type
+    /// that is public through every enclosing type, neither hidden, as <c>ExtensionMethodScanner.FindAllExtensions</c>
     /// selects it without <c>includeAll</c>.
     /// </summary>
     Extension,
