@@ -40,6 +40,18 @@ agnostic at the bottom. Analysis and the decompiler depend on `Instructions`;
 neither owns it. The product path stays SRM-only, NativeAOT-friendly, Roslyn-free,
 and never loads inspected assemblies.
 
+The IL byte layer, `ILReader`, the opcode tables (`IsValid`,
+`GetInstructionSize`, `IsPrefix`, `IsBranch`, `GetOperandKind`), and
+`OperandKind`, lives in `ILInspector.MetadataPrimitives`, below both
+Instructions and `ILInspector.Metadata`, in the `ILInspector.Instructions`
+namespace it has always had. Two readers sit on it: the decoder, which builds
+instructions, and Finding Diff Any's paired Body walk, which builds none
+([Finding Diff Any](finding-diff-any.md#axes)). Metadata and Instructions still
+do not reference each other, which
+`LayeringTests.MetadataAndInstructions_DoNotReferenceEachOther` gates, and the
+primitives floor stays InertText-only
+([Metadata primitives](../metadata-primitives.md#current-boundary)).
+
 The implemented
 [instruction exception-flow facts](instruction-exception-flow-facts.md)
 compose this substrate with

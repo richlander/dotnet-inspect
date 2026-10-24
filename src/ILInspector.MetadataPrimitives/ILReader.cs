@@ -12,6 +12,9 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Reflection.Metadata;
 
+// Placed in ILInspector.MetadataPrimitives, below both ILInspector.Instructions
+// and ILInspector.Metadata, so the decoder and Finding Diff Any's Body walk read
+// one IL byte layer; the namespace stays the substrate's.
 namespace ILInspector.Instructions;
 
 /// <summary>
