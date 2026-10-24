@@ -384,6 +384,19 @@ The type command's effective discovery asks this closing to decide whether
 [Inspection plan projections](inspection-plan-projections.md#effective-section-discovery),
 in place of listing both sections structurally.
 
+Cost of that probe, recorded for #10616 slice 1 (NativeAOT linux-x64 on
+`dotnet-inspect-perf-2`, base `9e8fb4863` against head `463aea4e9`, the
+Linux runtime `11.0.0-rc.1.26425.128` as the platform population of 197
+assemblies, 30 in-process samples per scenario in two ABBA runs): a probed
+section discovery costs 212 to 239 ms and about 210 MB more than the
+structural listing it replaces, 0.86 s to 1.07 s median on the whole command,
+whether the first candidate decides (IDisposable implementers, Stream derived
+Types) or every candidate is read (String derived Types, decided empty). The
+scan itself is therefore cheap; the cost is the Workspace population the probe
+builds, which the Count and Rows terminals of the same sections also build.
+Count, one-row Rows, and bare `-D` are unchanged within noise. Reusing the
+population the rich route has already acquired is the named follow-up.
+
 Workspace Rows continuation binds the exact focus and captured population,
 selection, ordering, projection, visibility policy, Metadata operation policy,
 next global ordinal, current candidate index, and any singleton continuation
