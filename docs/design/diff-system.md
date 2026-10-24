@@ -107,10 +107,13 @@ returns first-difference text, not states. It reaches the member scenario
 only through internal gate hooks; the member Body diff lives in IL diff's
 endpoints, and a member's API today is read as a filter over the surface-wide
 API comparison. [Diff History](diff-history.md) composes the chain form, each
-consecutive pair of a version population through Finding Diff Any, and its
-adaptive probing is a bisect at Type scope over whole comparisons at every
-point; batch as a star and bisect over Exists are not composed. Finding Diff
-Any is therefore one composition, not the solution.
+consecutive pair of a version population, in two ways: Library-scope History
+over Finding Diff Any at explicit points, and Type- or Member-focused History
+over Finding producers, the API member and Analysis Findings, whose adaptive
+probing bisects one Type's or one Member's Findings by inspecting each point
+it probes, with no assumption that the member changed once. Batch as a star,
+and bisect over Exists on Finding Diff Any's axes, are not composed. Finding
+Diff Any is therefore one composition, not the solution.
 
 What is foundational is what every row of the table uses: the cursors and
 `FindingExists` of [Finding census](finding-census.md), which owns the
@@ -125,7 +128,7 @@ measurably cheaper than lockstep over the cursors and deleted when lockstep
 matches it, under Finding census step 2b; it is justified by time alone,
 never by a second definition of change.
 
-Three consequences follow for the scenarios not yet composed:
+Three consequences follow for what Finding Diff Any does not compose:
 
 - **Batch** wants one census side per image reused across the batch's
   comparisons, so an image's Type-level keys are spelled once. The Symbol Key
@@ -137,10 +140,12 @@ Three consequences follow for the scenarios not yet composed:
   is one member times the versions probed, never a whole comparison per
   point. Its Body axis needs the declaration cursor of Finding census step 3
   beside the IL cursor, since a member's Body facts include declaration facts,
-  and its API axis needs a per-member API reading that no owner provides yet.
-- **The Type scenario at rung 3** needs the per-Member exhaustive readings
-  composed under one Type, which [Annotated Type Map](annotated-type-map.md)
-  provides and Finding Diff Any does not.
+  and its API axis needs a per-member reading under Finding Diff Any's
+  API-axis equality, which its [Member level](finding-diff-any.md#member)
+  defines and no owner provides yet.
+- **The Type scenario at rung 3** is composed by
+  [Annotated Type Map](annotated-type-map.md), which reads the per-Member
+  exhaustive diffs under one Type; Finding Diff Any does not compose it.
 
 ## Layers
 
