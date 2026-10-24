@@ -17,8 +17,7 @@ public partial class CommandExecutionTests
             assembly,
             "--all",
             "-D",
-            SectionNames.Implementers,
-            "--effective");
+            SectionNames.Implementers);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -38,8 +37,7 @@ public partial class CommandExecutionTests
             assembly,
             "--all",
             "-D",
-            SectionNames.DerivedTypes,
-            "--effective");
+            SectionNames.DerivedTypes);
 
         // A sealed Type has no derived Types; the Exists probe decides that
         // without materializing a row, so discovery no longer lists the

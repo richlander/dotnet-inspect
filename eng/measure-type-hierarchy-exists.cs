@@ -18,7 +18,8 @@
 //
 // Platform scenarios resolve the installed shared framework through
 // DOTNET_ROOT; set it to a root whose shared/Microsoft.NETCore.App holds the
-// pinned runtime before running.
+// pinned runtime before running. For the type command, -D is effective
+// discovery; --schema is the structural form.
 
 using System.CommandLine;
 using System.Diagnostics;
@@ -76,25 +77,25 @@ NuGetCache.Initialize("dotnet-inspect");
 (string Name, string[] Arguments)[] scenarios =
 [
     ("IDisposable.implementers.exists",
-        ["type", "System.IDisposable", "--platform", "-D", "Implementers", "--effective"]),
+        ["type", "System.IDisposable", "--platform", "System.Private.CoreLib", "-D", "Implementers"]),
     ("IDisposable.implementers.count",
-        ["type", "System.IDisposable", "--platform", "-S", "Implementers", "--count"]),
+        ["type", "System.IDisposable", "--platform", "System.Private.CoreLib", "-S", "Implementers", "--count"]),
     ("IDisposable.implementers.rows1",
-        ["type", "System.IDisposable", "--platform", "-S", "Implementers", "--rows", "1"]),
+        ["type", "System.IDisposable", "--platform", "System.Private.CoreLib", "-S", "Implementers", "--rows", "1"]),
     ("Stream.derived.exists",
-        ["type", "System.IO.Stream", "--platform", "-D", "Derived Types", "--effective"]),
+        ["type", "System.IO.Stream", "--platform", "System.Private.CoreLib", "-D", "Derived Types"]),
     ("Stream.derived.count",
-        ["type", "System.IO.Stream", "--platform", "-S", "Derived Types", "--count"]),
+        ["type", "System.IO.Stream", "--platform", "System.Private.CoreLib", "-S", "Derived Types", "--count"]),
     ("Stream.derived.rows1",
-        ["type", "System.IO.Stream", "--platform", "-S", "Derived Types", "--rows", "1"]),
+        ["type", "System.IO.Stream", "--platform", "System.Private.CoreLib", "-S", "Derived Types", "--rows", "1"]),
     ("String.derived.exists",
-        ["type", "System.String", "--platform", "-D", "Derived Types", "--effective"]),
+        ["type", "System.String", "--platform", "System.Private.CoreLib", "-D", "Derived Types"]),
     ("String.derived.count",
-        ["type", "System.String", "--platform", "-S", "Derived Types", "--count"]),
+        ["type", "System.String", "--platform", "System.Private.CoreLib", "-S", "Derived Types", "--count"]),
     ("IDisposable.catalog",
-        ["type", "System.IDisposable", "--platform", "-D", "--effective"]),
+        ["type", "System.IDisposable", "--platform", "System.Private.CoreLib", "-D"]),
     ("String.catalog",
-        ["type", "System.String", "--platform", "-D", "--effective"]),
+        ["type", "System.String", "--platform", "System.Private.CoreLib", "-D"]),
 ];
 if (only is not null)
     scenarios = [.. scenarios.Where(scenario => only.Contains(scenario.Name))];
