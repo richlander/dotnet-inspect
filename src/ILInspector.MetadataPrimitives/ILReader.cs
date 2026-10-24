@@ -22,7 +22,8 @@ namespace ILInspector.Instructions;
 /// from dotnet/runtime Internal.IL.ILReader (the same reader ILVerify and
 /// the ILC type system build on), retargeted to the BCL's ILOpCode enum and
 /// extended with peeking, skipping, and branch-destination helpers. Shared
-/// by both decompiler pipelines.
+/// by the decoder, both decompiler pipelines, and Finding Diff Any's Body
+/// walk.
 /// </summary>
 public ref struct ILReader
 {

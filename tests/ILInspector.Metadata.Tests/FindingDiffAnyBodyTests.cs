@@ -275,6 +275,30 @@ public sealed class FindingDiffAnyBodyTests
         AssertUndecidable([0x2A], [0x2A, 0x24]);
     }
 
+    [Theory]
+    [InlineData(new byte[] { 0x00, 0xFE }, new byte[] { 0x00, 0x2A })] // nop; a two-byte escape cut short
+    [InlineData(new byte[] { 0x20, 0x01, 0x00 }, new byte[] { 0x20, 0x01, 0x00, 0x00, 0x00 })] // ldc.i4 cut short
+    [InlineData(new byte[] { 0x2B }, new byte[] { 0x2B, 0x00 })] // br.s with no displacement
+    public void BodyEndingInsideAnInstruction_IsIndeterminate(byte[] cut, byte[] whole)
+    {
+        // The reader reports a body whose IL length cuts an opcode or operand
+        // short as an invalid program; the walk reads it as a body it cannot
+        // decode, on one side and on both, before any difference is decided.
+        AssertUndecidable(cut, cut);
+        AssertUndecidable(cut, whole);
+        AssertUndecidable(whole, cut);
+    }
+
+    [Fact]
+    public void BodyEndingInsideAnInstructionAfterADifference_IsChanged()
+    {
+        // nop vs ret differ at the first opcode; the cut escape after it is
+        // never read.
+        FindingDiffAnyResult result = CompareRaw([0x00, 0xFE], [0x2A, 0xFE]);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Body);
+        AssertPerMethodAgreement(RawImage([0x00, 0xFE]), RawImage([0x2A, 0xFE]), decided: true);
+    }
+
     [Fact]
     public void TrailingInstruction_IsChanged()
     {

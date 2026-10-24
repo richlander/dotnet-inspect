@@ -461,9 +461,10 @@ public static class FindingDiffAny
             }
             catch (InvalidProgramException ex)
             {
-                // The reader reports a truncated opcode or operand as an invalid
-                // program; here it is a body canonical comparison cannot decode.
-                throw new BadImageFormatException(ex.Message, ex);
+                // The reader reports an opcode or operand the IL length cuts
+                // short as an invalid program; here it is a body canonical
+                // comparison cannot decode.
+                throw new BadImageFormatException("The IL ends inside an instruction.", ex);
             }
         }
 
