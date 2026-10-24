@@ -72,6 +72,9 @@ public sealed record FindingDiffAnyReceipt(
 /// <see cref="FindingExistsDecision.Changed"/>, or
 /// <see cref="FindingExistsDecision.Indeterminate"/>, which the comparison
 /// folds as it folds a body the walk could not read. The default is the walk.
+/// Under a reader the receipt's <see cref="FindingDiffAnyReceipt.IlBytesCompared"/>
+/// is zero, since only the walk reads IL through the comparison;
+/// <see cref="FindingDiffAny.Explain"/> reads through the walk alone.
 /// </summary>
 public delegate FindingExistsDecision FindingDiffAnyBodyReader(
     PEReader before,
