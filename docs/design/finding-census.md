@@ -347,20 +347,19 @@ whole comparison.
 | System.Private.CoreLib 10 to 11 | 163.1 / 162.6 | 407.9 / 409.9 | 2.5× / 2.5× | 87 / 87 | 332 / 334 | 115 → 1044 | +0.7% / +0.9% |
 
 The walk pays for itself today: the whole comparison is 1.4× to 6.8× slower
-through the cursors, and the Body axis alone 1.5× to 7.7× slower, at 2.3 to
-31 times the allocation. The seam costs the walk nothing (within ±1.7%, the
-noise band). The hypothesis for the gap, not yet isolated by an ablation, is
-the cursor's per-advance materialization, a decoded instruction record, an
+through the cursors, and the Body axis alone 1.5× to 7.7× slower, at 2.3 to 31
+times the allocation. The seam costs the walk nothing (within ±1.7%, the noise
+band). The hypothesis for the gap, not yet isolated by an ablation, is the
+cursor's per-advance materialization, a decoded instruction record, an
 operation record with its target arrays, a family string, and a cursor per
 method, none of which the walk materializes, together with the work lockstep
 does that the walk skips: it resolves a whole atom before comparing and
-validates clause tables. That is the gap step 2b's allocation-free atoms
-would have to close before lockstep could replace the walk inside Finding
-Diff Any; until it does, the walk stays as the provision, and lockstep over
-the cursors serves the scenarios the walk does not reach (member, bisect),
-where the cost is per member rather than per assembly. The seam reaches the comparison's Body
-decisions; `Explain` and the per-method gate hooks still read through the
-walk.
+validates clause tables. That is the gap step 2b's allocation-free atoms would
+have to close before lockstep could replace the walk inside Finding Diff Any;
+until it does, the walk stays as the provision, and lockstep over the cursors
+serves the scenarios the walk does not reach (member, bisect), where the cost
+is per member rather than per assembly. The seam reaches the comparison's Body
+decisions; `Explain` and the per-method gate hooks still read through the walk.
 
 Two readings follow that reach past this pair of readers. An Exists terminal
 at the source can deliver outsize wins: the walk is one, a reader that
