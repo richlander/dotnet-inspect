@@ -283,12 +283,13 @@ The ported `ILReader` + size table are faithful — byte-level tiling and
 round-trip hold because the reader sizes every opcode correctly, prefixes
 included. The bugs adversarial review found were all in the *connective tissue
 we hand-roll above the reader* (`InstructionDecoder`, `MethodInstructions`, the
-gated `StackTypeInterpreter`), never in the ported files. Three hand-written
-members do sit inside `ILOpcodeExtensions.cs` beside the ported size table:
-`IsPrefix`, `IsShortBranch`, and `GetOperandKind`, the decoder's operand
-classification moved there so that the decoder and Finding Diff Any's walk
-consult one file. A diff against upstream should expect those three and nothing
-else.
+gated `StackTypeInterpreter`), never in the ported files.
+`ILOpcodeExtensions.cs` does hold hand-written members beside the ported size
+table: `IsBranch`, `IsUnconditionalBranch`, `IsShortBranch`, `IsPrefix`, and
+`GetIndex`, the port's adaptations to SRM's `ILOpCode`, and `GetOperandKind`,
+the decoder's operand classification moved there so that the decoder and
+Finding Diff Any's walk consult one file. A diff against upstream should expect
+those and read the rest as the port.
 
 That is the deliberate boundary. The substrate guarantees **structural
 completeness** — the stream tiles `[0, ilLength)`, branch targets land on
