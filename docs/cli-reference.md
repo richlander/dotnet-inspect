@@ -231,10 +231,18 @@ together with `--framework`, `--version`, `--preview`, one `--tfm`,
 `--namesake-library`, `--first-library`, NuGet source options, and `--verbose`.
 `--namesake-library` requires a unique assembly-name match to the package ID.
 `--first-library` takes the first namesake in host-neutral Library order, or
-the first Library in that order when there is no namesake. A package that
-contributes more than one Library keeps the multi-Library view unless one of
-those explicit narrowing gestures is supplied; explicit `--tree` or
-`--mermaid` on an aggregate fails and asks for the assembly within the package.
+the first Library in that order when there is no namesake. The Tree describes
+one Library, so a package that contributes more than one Library renders the
+Library that `--first-library` selects unless an exact Library or
+`--namesake-library` narrows it. When no Library was named, one warning line
+on standard error says how many Libraries the package has and how to list
+them:
+
+```text
+Warning: Microsoft.Azure.SignalR@1.33.1 has 2 libraries; one is shown. Use `dotnet-inspect package Microsoft.Azure.SignalR@1.33.1` to list them.
+```
+
+Sectioned views such as `-S "Library Info"` keep the multi-Library aggregate.
 Package-scoped Type lookup is also aggregate by default: it searches every
 Library in the selected Package population. Its supported exact `--library`
 source narrows that lookup to one Library. Inspect Web's First Library entry

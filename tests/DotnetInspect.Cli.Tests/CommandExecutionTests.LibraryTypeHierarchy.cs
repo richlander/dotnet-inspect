@@ -223,30 +223,64 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData(null)]
     [InlineData("--tree")]
     [InlineData("--mermaid")]
-    public async Task Library_MultiLibraryPackage_ExplicitHierarchyFails(
-        string gesture)
+    public async Task Library_MultiLibraryPackage_HierarchyShowsFirstLibraryWithWarning(
+        string? gesture)
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var bare = await RunAppAsync("library", "--package", packagePath);
+            string[] gestures = gesture is null ? [] : [gesture];
+            var unnarrowed = await RunAppAsync(
+                ["library", "--package", packagePath, .. gestures]);
+            var first = await RunAppAsync(
+            [
+                "library",
+                "--package",
+                packagePath,
+                "--first-library",
+                .. gestures,
+            ]);
+
+            Assert.Equal(0, unnarrowed.Exit);
+            Assert.Equal(0, first.Exit);
+            Assert.Equal(
+                $"Warning: {packagePath} has 2 libraries; one is shown. "
+                    + $"Use `dotnet-inspect package {packagePath}` to list them.",
+                unnarrowed.Error.Trim());
+            Assert.Empty(first.Error);
+            Assert.NotEmpty(unnarrowed.Output);
+            Assert.DoesNotContain(
+                "Library Info",
+                unnarrowed.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(first.Output, unnarrowed.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Library_MultiLibraryPackage_ExplicitSectionsKeepAggregate()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
             var (exit, output, error) = await RunAppAsync(
                 "library",
                 "--package",
                 packagePath,
-                gesture);
+                "-S",
+                "Library Info");
 
-            Assert.Equal(0, bare.Exit);
-            Assert.Contains("Latest.One.dll", bare.Output, StringComparison.Ordinal);
-            Assert.Contains("Latest.Two.dll", bare.Output, StringComparison.Ordinal);
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                LibraryCommandPlanner.OneLibraryError,
-                error,
-                StringComparison.Ordinal);
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Latest.One.dll", output, StringComparison.Ordinal);
+            Assert.Contains("Latest.Two.dll", output, StringComparison.Ordinal);
         }
         finally
         {
