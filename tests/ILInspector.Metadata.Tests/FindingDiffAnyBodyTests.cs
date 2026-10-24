@@ -293,10 +293,24 @@ public sealed class FindingDiffAnyBodyTests
     public void BodyEndingInsideAnInstructionAfterADifference_IsChanged()
     {
         // nop vs ret differ at the first opcode; the cut escape after it is
-        // never read.
-        FindingDiffAnyResult result = CompareRaw([0x00, 0xFE], [0x2A, 0xFE]);
+        // never read. Canonical comparison decodes the whole body first and
+        // meets the cut, so it reads the pair as Indeterminate: the one
+        // designed departure, a difference decided before a fault
+        // (finding-diff-any.md, Axes; finding-census.md, Provisions).
+        byte[] before = [0x00, 0xFE];
+        byte[] after = [0x2A, 0xFE];
+        FindingDiffAnyResult result = CompareRaw(before, after);
         Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Body);
-        AssertPerMethodAgreement(RawImage([0x00, 0xFE]), RawImage([0x2A, 0xFE]), decided: true);
+
+        using var beforeReader = new PEReader(new MemoryStream(RawImage(before), writable: false));
+        using var afterReader = new PEReader(new MemoryStream(RawImage(after), writable: false));
+        List<FindingDiffAny.BodyVerdict> changed = FindingDiffAny.BodyVerdicts(beforeReader, afterReader)
+            .Where(verdict => verdict.Body == FindingDiffAnyState.Changed)
+            .ToList();
+        Assert.NotEmpty(changed);
+        Assert.All(changed, verdict => Assert.Equal(
+            FindingDiffAnyState.Indeterminate,
+            FindingDiffAnyTests.CanonicalBodyVerdict(beforeReader, afterReader, verdict)));
     }
 
     [Fact]
