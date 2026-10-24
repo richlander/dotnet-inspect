@@ -1674,7 +1674,7 @@ public sealed class ExactTypeWorkspaceRouteTests
                     typeof(ApiType).Assembly.Location,
                     TestContext.Current.CancellationToken)),
             ($"lib/{Framework}/ILInspector.Metadata.xml",
-                Encoding.UTF8.GetBytes("<doc>")));
+                Encoding.UTF8.GetBytes("<doc><members>")));
         var authorization =
             new UniformPackageSourceAuthorization([Source]);
         ConfiguredPackageAuthority authority = Assert.Single(

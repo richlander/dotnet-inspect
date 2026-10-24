@@ -211,6 +211,8 @@ public static partial class MemberCommand
                                 (MemberOptions)preamble.Options;
                         }
 
+                        effectiveOptions =
+                            effectiveOptions with { ShowDocs = false };
                         ExactTypeInspectionRequest selectedRequest =
                             requests.First(candidate =>
                                 candidate.Type.Equals(
