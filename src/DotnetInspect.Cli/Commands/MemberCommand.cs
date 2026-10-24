@@ -73,7 +73,8 @@ public static partial class MemberCommand
             ShareProjectionPlan>? resolvedMember = null,
         PackageHouse? packageHouse = null,
         Func<CancellationToken, PackageSourceOperationLease>?
-            issuePackageOperation = null)
+            issuePackageOperation = null,
+        bool allowImplicitDocumentation = true)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
             throw new ArgumentException(
@@ -538,7 +539,9 @@ public static partial class MemberCommand
             // Default --docs on for single-type view at Normal+ unless explicitly disabled
             MemberOptions contextualSubjectOptions = options;
             MemberOptions effectiveOptions = options;
-            if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
+            if (allowImplicitDocumentation
+                && !options.DocsExplicitlySet
+                && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
             if (effectiveOptions.HasCallerScope
                 && !ApiCommand.HasExactCallGraphDocumentSelection(

@@ -226,52 +226,21 @@ public static partial class ExactTypeInspectionOperation
             await scope.UsePackageAssemblyRolesAsync(
                     async (workspace, package, realization, token) =>
                     {
-                        ExactTypeInspectionExecution retained =
-                            await ExecuteRetainedExecutionCoreAsync(
+                        FirstAvailableExactTypeInspectionExecution retained =
+                            await ExecuteRetainedFirstAvailableExecutionCoreAsync(
                                 workspace,
                                 package,
                                 realization,
-                                request,
+                                requests,
                                 projectionLimits,
                                 surfaceScope,
                                 token)
                             .ConfigureAwait(false);
-                        ExactTypeInspectionRequest selectedRequest = request;
-                        if (retained.Result.Outcome
-                            == ExactTypeInspectionOutcome.NotFound)
-                        {
-                            for (int index = 1;
-                                index < requests.Count;
-                                index++)
-                            {
-                                ExactTypeInspectionRequest candidate =
-                                    requests[index];
-                                ExactTypeInspectionExecution candidateResult =
-                                    await ExecuteRetainedExecutionCoreAsync(
-                                        workspace,
-                                        package,
-                                        realization,
-                                        candidate,
-                                        projectionLimits,
-                                        surfaceScope,
-                                        token)
-                                    .ConfigureAwait(false);
-                                if (candidateResult.Result.Outcome
-                                    == ExactTypeInspectionOutcome.NotFound)
-                                {
-                                    continue;
-                                }
-
-                                retained = candidateResult;
-                                selectedRequest = candidate;
-                                break;
-                            }
-                        }
                         return await use(
                                 Envelope(
-                                    retained.Result,
-                                    selectedRequest),
-                                LiveTarget(retained.Target),
+                                    retained.Execution.Result,
+                                    retained.Request),
+                                LiveTarget(retained.Execution.Target),
                                 token)
                             .ConfigureAwait(false);
                     },
@@ -468,10 +437,40 @@ public static partial class ExactTypeInspectionOperation
         ApiSurfaceScope scope,
         CancellationToken cancellationToken)
     {
+        FirstAvailableExactTypeInspectionExecution execution =
+            await ExecuteRetainedFirstAvailableExecutionCoreAsync(
+                    workspace,
+                    package,
+                    realization,
+                    [request],
+                    projectionLimits,
+                    scope,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return execution.Execution;
+    }
+
+    static async Task<FirstAvailableExactTypeInspectionExecution>
+        ExecuteRetainedFirstAvailableExecutionCoreAsync(
+        InspectionWorkspace workspace,
+        PackageRootBinding package,
+        PackageAssemblyContextRealization realization,
+        IReadOnlyList<ExactTypeInspectionRequest> requests,
+        ApiSurfaceProjectionLimits? projectionLimits,
+        ApiSurfaceScope scope,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(realization);
-        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(requests);
+        if (requests.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one exact Type request is required.",
+                nameof(requests));
+        }
+        ExactTypeInspectionRequest request = requests[0];
         cancellationToken.ThrowIfCancellationRequested();
 
         ImmutableArray<PackageAssemblyRoleParticipant> participants =
@@ -484,11 +483,13 @@ public static partial class ExactTypeInspectionOperation
         if (participants.IsEmpty)
         {
             return new(
-                ExactTypeInspectionResult.ContextUnavailable(
-                    request,
-                    "The admitted package Root has no surface participant."),
-                [],
-                Target: null);
+                request,
+                new(
+                    ExactTypeInspectionResult.ContextUnavailable(
+                        request,
+                        "The admitted package Root has no surface participant."),
+                    [],
+                    Target: null));
         }
 
         var selected = new HashSet<AssemblyContextParticipant>(
@@ -498,7 +499,7 @@ public static partial class ExactTypeInspectionOperation
         if (realization.SurfaceGroup.Participants.Length == selected.Count
             && realization.SurfaceGroup.Participants.All(selected.Contains))
         {
-            return ExecuteExecutionCore(
+            return ExecuteFirstAvailableExecutionCore(
                 workspace,
                 Loaded(
                     workspace.Identity,
@@ -506,7 +507,7 @@ public static partial class ExactTypeInspectionOperation
                     selected,
                     package,
                     request),
-                request,
+                requests,
                 scope,
                 projectionLimits);
         }
@@ -526,26 +527,28 @@ public static partial class ExactTypeInspectionOperation
                     .Rejected rejected)
             {
                 return new(
-                    new ExactTypeInspectionResult(
-                        ExactTypeInspectionOutcome.Unavailable,
-                        request.Type,
-                        MatchedType: null,
-                        Type: null,
-                        RequestedAssembly: null,
-                        SupplierAssembly: null,
-                        ForwardingHops: [],
-                        Suggestions: [],
-                        InspectionFailures: [],
-                        Failures:
-                        [
-                            new ExactTypeInspectionFailure(
-                                ExactTypeInspectionFailureKind
-                                    .ParticipantRejected,
-                                rejected.Failure.Detail,
-                                participant.Participant.Assembly.Identity),
-                        ]),
-                    [],
-                    Target: null);
+                    request,
+                    new(
+                        new ExactTypeInspectionResult(
+                            ExactTypeInspectionOutcome.Unavailable,
+                            request.Type,
+                            MatchedType: null,
+                            Type: null,
+                            RequestedAssembly: null,
+                            SupplierAssembly: null,
+                            ForwardingHops: [],
+                            Suggestions: [],
+                            InspectionFailures: [],
+                            Failures:
+                            [
+                                new ExactTypeInspectionFailure(
+                                    ExactTypeInspectionFailureKind
+                                        .ParticipantRejected,
+                                    rejected.Failure.Detail,
+                                    participant.Participant.Assembly.Identity),
+                            ]),
+                        [],
+                        Target: null));
             }
             retained.Add(
                 new AssemblyContextParticipant(
@@ -557,7 +560,7 @@ public static partial class ExactTypeInspectionOperation
         await using var selectedWorkspace = new InspectionWorkspace();
         using AssemblyContextGroup selectedGroup =
             selectedWorkspace.CreateAssemblyContextGroup(retained);
-        return ExecuteExecutionCore(
+        return ExecuteFirstAvailableExecutionCore(
             selectedWorkspace,
             Loaded(
                 selectedWorkspace.Identity,
@@ -565,21 +568,22 @@ public static partial class ExactTypeInspectionOperation
                 retained,
                 package,
                 request),
-            request,
+            requests,
             scope,
             projectionLimits);
     }
 
-    static ExactTypeInspectionExecution ExecuteExecutionCore(
-        InspectionWorkspace workspace,
-        WorkspaceContextLoadOutcome.Loaded loaded,
-        ExactTypeInspectionRequest request,
-        ApiSurfaceScope scope,
-        ApiSurfaceProjectionLimits? projectionLimits) =>
-        ExactTypeInspectionQuery.ExecutePackageContext(
+    static FirstAvailableExactTypeInspectionExecution
+        ExecuteFirstAvailableExecutionCore(
+            InspectionWorkspace workspace,
+            WorkspaceContextLoadOutcome.Loaded loaded,
+            IReadOnlyList<ExactTypeInspectionRequest> requests,
+            ApiSurfaceScope scope,
+            ApiSurfaceProjectionLimits? projectionLimits) =>
+        ExactTypeInspectionQuery.ExecuteFirstAvailablePackageContext(
             workspace.Identity,
             new ExactTypeInspectionContext(loaded),
-            request,
+            requests,
             scope,
             projectionLimits);
 

@@ -1665,6 +1665,59 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task
+        DefaultMemberRouteDoesNotReadImplicitCompiledDocumentation()
+    {
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)),
+            ($"lib/{Framework}/ILInspector.Metadata.xml",
+                Encoding.UTF8.GetBytes("<doc>")));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            ShowDocs = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    house,
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            nameof(ApiType.Accessibility),
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DefaultMemberPositionalSelectorStaysOnPackageHouseRoute()
     {
         var store = await CachedStoreAsync(
@@ -1806,6 +1859,13 @@ public sealed class ExactTypeWorkspaceRouteTests
                 {
                     MemberFilter = ["Accessibility"],
                     OverloadIndex = 1,
+                },
+                out _));
+        Assert.False(
+            MemberCommand.TryCreateSharedDefaultMemberRequest(
+                options with
+                {
+                    DocsExplicitlySet = true,
                 },
                 out _));
         Assert.False(

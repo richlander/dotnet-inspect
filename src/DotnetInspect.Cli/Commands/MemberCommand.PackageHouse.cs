@@ -233,7 +233,9 @@ public static partial class MemberCommand
                                             effectiveOptions,
                                             effectivePlan,
                                             source,
-                                            loaded))
+                                            loaded,
+                                            allowImplicitDocumentation:
+                                                false))
                                 .ConfigureAwait(false);
                         return exitCode == 0
                             && envelope.Content.IsComplete
