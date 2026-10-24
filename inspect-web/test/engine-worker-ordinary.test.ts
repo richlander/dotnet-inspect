@@ -314,6 +314,9 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     describeWorkspacePackageSources: () =>
       unexpected("describeWorkspacePackageSources"),
     explainVocabularies: () => unexpected("explainVocabularies"),
+    explainResources: () => unexpected("explainResources"),
+    describeWorkspaceComponents: () => unexpected("describeWorkspaceComponents"),
+    explainWorkspaceComponent: () => unexpected("explainWorkspaceComponent"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
     decodeWorkspaceShareState: () =>
       unexpected("decodeWorkspaceShareState"),
@@ -2397,6 +2400,35 @@ test("vocabulary explanation transport preserves native arrays and typed rejecti
   ]);
 });
 
+test("component explanation transport keeps owner JSON, parent and failures intact", async () => {
+  const calls: unknown[][] = [];
+  const result = { outcome: "UnsupportedVersion", explanation: null, error: "Unsupported schema." };
+  const inventory = { outcome: "Described", components: [
+    { path: "packet-local", name: "Package", declaration: "owner-issued JSON" },
+  ], error: null };
+  const state = fixture({
+    catalog: {
+      explainResources: (...args) => { calls.push(["root", ...args]); return result; },
+      describeWorkspaceComponents: (...args) => { calls.push(["list", ...args]); return inventory; },
+      explainWorkspaceComponent: (...args) => { calls.push(["component", ...args]); return result; },
+    },
+  });
+  const root = state.client.catalog.explainResources("root", "hal");
+  const list = state.client.catalog.describeWorkspaceComponents("owner-packet");
+  const detached = state.client.catalog.explainWorkspaceComponent("owner-issued JSON", null, "hal");
+  const qualified = state.client.catalog.explainWorkspaceComponent("owner-issued JSON", "owner-packet", "data");
+  await state.environment.flushAsync();
+  assert.deepEqual(await root, result);
+  assert.deepEqual(await list, inventory);
+  assert.deepEqual(await detached, result);
+  assert.deepEqual(await qualified, result);
+  assert.deepEqual(calls, [
+    ["root", "root", "hal"], ["list", "owner-packet"],
+    ["component", "owner-issued JSON", null, "hal"],
+    ["component", "owner-issued JSON", "owner-packet", "data"],
+  ]);
+});
+
 test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
   const calls: unknown[][] = [];
   const result = {
@@ -2627,6 +2659,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "explainVocabularies",
+      "explainResources",
+      "describeWorkspaceComponents",
+      "explainWorkspaceComponent",
       "observeRetainedWorkspaceSettlement",
       "prepareEcosystemWorkspaceDefinition",
       "prepareHomeDemoWorkspaceDefinition",
@@ -2652,7 +2687,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 134);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 137);
 
   const state = fixture();
   const groups = [
