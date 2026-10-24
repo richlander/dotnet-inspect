@@ -1717,8 +1717,11 @@ public sealed class ExactTypeWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task DefaultMemberPositionalSelectorStaysOnPackageHouseRoute()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DefaultMemberPositionalSelectorStaysOnPackageHouseRoute(
+        bool explicitMemberFilter)
     {
         var store = await CachedStoreAsync(
             ($"lib/{Framework}/{PackageId}.dll",
@@ -1748,6 +1751,12 @@ public sealed class ExactTypeWorkspaceRouteTests
             Tfm = Framework,
             TypeName =
                 $"{typeof(ApiType).FullName}.{nameof(ApiType.Accessibility)}",
+            MemberFilter = explicitMemberFilter
+                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        nameof(ApiType.Accessibility),
+                    }
+                : [],
             ShowDocs = true,
             CompanionOutput = CompanionOutput.None,
         };

@@ -139,21 +139,18 @@ public static partial class MemberCommand
                 new List<ExactTypeInspectionRequest> { request };
             var impliedMembers =
                 new Dictionary<string, string>(StringComparer.Ordinal);
-            if (options.MemberFilter.Count == 0)
+            foreach (ImpliedMemberTypeCandidate candidate
+                in ApiTypeLookupService.GetImpliedMemberTypeCandidates(
+                    options.TypeName!))
             {
-                foreach (ImpliedMemberTypeCandidate candidate
-                    in ApiTypeLookupService.GetImpliedMemberTypeCandidates(
-                        options.TypeName!))
-                {
-                    var candidateRequest = new ExactTypeInspectionRequest(
-                        request.PackageId,
-                        request.Version,
-                        request.TargetFramework,
-                        candidate.TypeName);
-                    requests.Add(candidateRequest);
-                    impliedMembers[candidateRequest.Type] =
-                        candidate.MemberSelector;
-                }
+                var candidateRequest = new ExactTypeInspectionRequest(
+                    request.PackageId,
+                    request.Version,
+                    request.TargetFramework,
+                    candidate.TypeName);
+                requests.Add(candidateRequest);
+                impliedMembers[candidateRequest.Type] =
+                    candidate.MemberSelector;
             }
 
             return await ExactTypeInspectionOperation
@@ -179,24 +176,11 @@ public static partial class MemberCommand
                                 envelope.Content.RequestedType,
                                 out string? impliedMember))
                         {
-                            MemberTargetSelector selector =
-                                MemberTargetSelector.Parse(impliedMember);
-                            effectiveOptions = options with
-                            {
-                                MemberFilter =
-                                    new HashSet<string>(
-                                        StringComparer.OrdinalIgnoreCase)
-                                    {
-                                        selector.Name,
-                                    },
-                                MemberGenericArity = selector.GenericArity,
-                                OverloadIndex =
-                                    options.OverloadIndex
-                                    ?? selector.OverloadIndex,
-                                MemberDigest = MergeDigestPrefixes(
-                                    options.MemberDigest,
-                                    selector.DigestPrefix),
-                            };
+                            if (!TryMergeImpliedMemberOptions(
+                                options,
+                                impliedMember,
+                                out effectiveOptions))
+                                return 1;
                             effectivePlan =
                                 ResolvedMemberInspectionPlan
                                     .FromCompatibilityOptions(
