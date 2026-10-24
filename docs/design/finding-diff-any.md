@@ -152,7 +152,14 @@ As in canonical comparison, body size, the local signature, stack size, and
 `init locals` are not compared, and stand-alone signatures compare as
 canonical comparison compares them. The walk is allocation-free in lockstep
 and stops at the first difference; a retargeted branch or a moved clause
-extent is found once the body's instruction map is complete.
+extent is found once the body's instruction map is complete. The walk is a
+provision behind one seam: a caller may supply a `FindingDiffAnyBodyReader`,
+which receives the two images and the two method rows the comparison paired
+and answers as Exists answers, and the comparison then folds its answer as it
+folds the walk's, an undecided pair as a body it could not read. Finding
+census step 2b runs lockstep over two IL cursors through that seam, beside
+the walk, to decide whether the walk is kept
+([Finding census](finding-census.md#provisions)).
 
 A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,

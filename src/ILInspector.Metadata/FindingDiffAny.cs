@@ -9,6 +9,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
 using InertText;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata;
 
@@ -62,6 +63,25 @@ public sealed record FindingDiffAnyReceipt(
     int BodiesCompared,
     long IlBytesCompared);
 
+/// <summary>
+/// A provision for the Body decision of one paired method, the seam at which
+/// Finding census step 2b runs lockstep over two IL cursors in place of the
+/// walk (<c>docs/design/finding-census.md#provisions</c>). It receives the
+/// two images and the two method rows the comparison paired, under the Body
+/// policy, and answers as Exists answers: <see cref="FindingExistsDecision.Unchanged"/>,
+/// <see cref="FindingExistsDecision.Changed"/>, or
+/// <see cref="FindingExistsDecision.Indeterminate"/>, which the comparison
+/// folds as it folds a body the walk could not read. The default is the walk.
+/// Under a reader the receipt's <see cref="FindingDiffAnyReceipt.IlBytesCompared"/>
+/// is zero, since only the walk reads IL through the comparison;
+/// <see cref="FindingDiffAny.Explain"/> reads through the walk alone.
+/// </summary>
+public delegate FindingExistsDecision FindingDiffAnyBodyReader(
+    PEReader before,
+    MethodDefinitionHandle beforeMethod,
+    PEReader after,
+    MethodDefinitionHandle afterMethod);
+
 public sealed record FindingDiffAnyResult(
     ImmutableArray<FindingDiffAnyTypeState> Types,
     FindingDiffAnyReceipt Receipt);
@@ -105,8 +125,17 @@ public static class FindingDiffAny
         PEReader after,
         FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
         CancellationToken cancellationToken = default)
+        => Compare(before, after, bodyReader: null, axes, cancellationToken);
+
+    /// <summary>Compares with the Body decision of each paired method read by <paramref name="bodyReader"/> in place of the walk.</summary>
+    public static FindingDiffAnyResult Compare(
+        PEReader before,
+        PEReader after,
+        FindingDiffAnyBodyReader? bodyReader,
+        FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
+        CancellationToken cancellationToken = default)
     {
-        var comparison = new FindingDiffAnyComparison(axes);
+        var comparison = new FindingDiffAnyComparison(axes, bodyReader);
         comparison.Step(before, after, Timeout.InfiniteTimeSpan, cancellationToken);
         return comparison.Result!;
     }
@@ -292,6 +321,17 @@ public static class FindingDiffAny
         MethodDefinitionHandle handleB,
         Work work)
     {
+        if (work.BodyReader is { } reader)
+        {
+            // The provision reads presence and the body alike; an undecided
+            // pair is the malformed body the caller reads as Indeterminate.
+            return reader(a.Pe, handleA, b.Pe, handleB) switch
+            {
+                FindingExistsDecision.Unchanged => true,
+                FindingExistsDecision.Changed => false,
+                _ => throw new BadImageFormatException("The body reader could not decide the paired methods."),
+            };
+        }
         MethodDefinition methodA = a.Md.GetMethodDefinition(handleA);
         MethodDefinition methodB = b.Md.GetMethodDefinition(handleB);
         if ((methodA.RelativeVirtualAddress == 0) != (methodB.RelativeVirtualAddress == 0))
@@ -918,6 +958,9 @@ public static class FindingDiffAny
         public long IlBytes;
 
         public BodyWalk Walk { get; } = new();
+
+        /// <summary>The Body provision in place of the walk, or null for the walk.</summary>
+        public FindingDiffAnyBodyReader? BodyReader { get; init; }
     }
 
     internal sealed record Unit(
@@ -2053,13 +2096,13 @@ internal static class FindingDiffAnyKeyBuilderExtensions
 
 }
 
-public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody)
+public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody, FindingDiffAnyBodyReader? bodyReader = null)
 {
     readonly FindingDiffAny.UnitTable _unitsA = new();
     readonly FindingDiffAny.UnitTable _unitsB = new();
     readonly ImmutableArray<FindingDiffAnyTypeState>.Builder _states =
         ImmutableArray.CreateBuilder<FindingDiffAnyTypeState>();
-    readonly FindingDiffAny.Work _work = new();
+    readonly FindingDiffAny.Work _work = new() { BodyReader = bodyReader };
     SymbolKeyInterner<FindingDiffAnyPart>? _interner;
     FindingDiffAny.Side? _a;
     FindingDiffAny.Side? _b;
