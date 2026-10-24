@@ -5,6 +5,8 @@ using System.Reflection.Metadata;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
+using Inspector.Findings;
+
 namespace ILInspector.ILDiff;
 
 
@@ -538,7 +540,7 @@ public static partial class IlBodyDiff
         var builder = ImmutableArray.CreateBuilder<CanonicalIlOperation>(body.Instructions.Length + body.Blocks.Regions.Length);
         while (cursor.Advance())
             builder.Add(cursor.Current!);
-        if (cursor.Terminal!.Kind != IlCensusTerminalKind.Complete)
+        if (cursor.Terminal!.Kind != FindingCursorTerminalKind.Complete)
         {
             operations = [];
             failure = label.Length == 0 ? cursor.Terminal.Reason : $"{label} body {cursor.Terminal.Reason}";

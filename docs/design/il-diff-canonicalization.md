@@ -152,7 +152,7 @@ for one body under one named policy, from an already decoded
 `MethodInstructions`, from a method definition and its image, or from raw IL
 and its exception regions, and it yields one `CanonicalIlOperation` per
 `Advance`, each instruction and then each exception clause in declaration
-order, ending in exactly one `IlCensusTerminal`: `Complete`, `Absent` with its
+order, ending in exactly one `FindingCursorTerminal`: `Complete`, `Absent` with its
 typed kind, or `Failed` with the stage and IL offset it could not read past.
 `Drain` lowers the atoms and terminal into the kind's
 `FindingInspection<CanonicalIlOperation>`, which is `IlFindings.Inspect`;
@@ -502,9 +502,13 @@ budget, whose declaring or resolution-scope chain cycles or exceeds the node
 budget, or which an opcode does not take, fails the operand, and the body is
 unavailable (`TokenResolutionFailure`); no stand-in identity is compared in
 its place. Two Type rows that spell one key are Finding Diff Any's
-`Indeterminate`, which it decides from its unit table; the cursor has no such
-table and compares them by their shared key, a question the Exists agreement
-gate of [Finding census](finding-census.md#gates) takes up.
+`Indeterminate`, which it decides from its unit table; the side refuses an
+operand that names either row or a member of one, as Finding Diff Any's
+reference path does, finding the duplicates once per side by spelling every
+Type definition's plain key on the first operand that names a Type
+definition or one of its members, so Exists over the cursors decides as the
+walk does, which the Exists agreement gate of
+[Finding census](finding-census.md#gates) asserts.
 
 Without a metadata-backed comparison, token operands fail closed. This prevents
 raw token numbers from being treated as comparable identities across assemblies

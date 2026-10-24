@@ -51,6 +51,9 @@ public sealed class IlCensusSide
     readonly Dictionary<int, StagedSymbolKey<IlOperandPart>> _rows = [];
     readonly Dictionary<int, StagedSymbolKey<IlOperandPart>> _referenced;
     readonly Dictionary<(OperandKind Kind, int Token), IlOperandIdentity> _operands = [];
+    // The tokens of Type rows that share a key with another, found on the
+    // first operand that names a Type definition or one of its members.
+    HashSet<int>? _duplicateTypeRows;
     IlBodyDiff.OperandText? _text;
     string? _assemblyName;
     bool _rewriting;
@@ -200,6 +203,7 @@ public sealed class IlCensusSide
         EntityHandle row = MetadataTokens.EntityHandle(token);
         Expect(kind, row);
         RequireNotCompilerControlled(row);
+        RequireNotDuplicateTypeRow(row);
         StagedSymbolKey<IlOperandPart> key = kind == OperandKind.InlineSig
             ? CalliSignature((StandaloneSignatureHandle)row)
             : Row(row, rewrite: true);
@@ -214,6 +218,9 @@ public sealed class IlCensusSide
     // name and signature, is refused where a reference names it (an operand,
     // or a row a spelling resolves), as Finding Diff Any's ReferenceKey
     // refuses it; the definition itself is spelled for pairing (Definition).
+    // An operand that names one of two Type rows sharing a key, or a member
+    // of one, is refused as ReferenceKey refuses it: the rows cannot be told
+    // apart, so a reference to either is undecided.
     void Expect(OperandKind kind, EntityHandle row)
     {
         bool admitted = kind switch
@@ -296,6 +303,50 @@ public sealed class IlCensusSide
             default:
                 throw new BadImageFormatException($"Unsupported metadata token 0x{token:X8} in an IL operand.");
         }
+    }
+
+    void RequireNotDuplicateTypeRow(EntityHandle row)
+    {
+        TypeDefinitionHandle type = row.Kind switch
+        {
+            HandleKind.TypeDefinition => (TypeDefinitionHandle)row,
+            HandleKind.MethodDefinition => _reader.GetMethodDefinition((MethodDefinitionHandle)row).GetDeclaringType(),
+            HandleKind.FieldDefinition => _reader.GetFieldDefinition((FieldDefinitionHandle)row).GetDeclaringType(),
+            _ => default,
+        };
+        if (type.IsNil)
+            return;
+        _duplicateTypeRows ??= DuplicateTypeRows();
+        if (_duplicateTypeRows.Count != 0 && _duplicateTypeRows.Contains(MetadataTokens.GetToken(type)))
+            throw new BadImageFormatException("A reference names one of two Type rows that share a key.");
+    }
+
+    // Every Type definition's plain key, spelled once and kept in the side's
+    // memo; a row the speller rejects is a failure of the operands that name
+    // it, not of this scan.
+    HashSet<int> DuplicateTypeRows()
+    {
+        var duplicates = new HashSet<int>();
+        var seen = new Dictionary<StagedSymbolKey<IlOperandPart>, TypeDefinitionHandle>();
+        foreach (TypeDefinitionHandle handle in _reader.TypeDefinitions)
+        {
+            StagedSymbolKey<IlOperandPart> key;
+            try
+            {
+                key = Row(handle, rewrite: false);
+            }
+            catch (Exception ex) when (IsMalformed(ex))
+            {
+                Abandon();
+                continue;
+            }
+            if (!seen.TryAdd(key, handle))
+            {
+                duplicates.Add(MetadataTokens.GetToken(handle));
+                duplicates.Add(MetadataTokens.GetToken(seen[key]));
+            }
+        }
+        return duplicates;
     }
 
     // A reference to a compiler-controlled member cannot say which of the

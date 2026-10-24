@@ -100,6 +100,31 @@ public static class IlFindings
         => IlCensusCursor.Create(side, pe, method, subject).Drain();
 
     /// <summary>
+    /// Exists over two method definitions through their images' sides
+    /// (<c>docs/design/finding-census.md#exists</c>): lockstep over the two
+    /// cursors under the sides' one policy, stopping at the first event that
+    /// decides, with nothing sealed or formatted.
+    /// </summary>
+    public static FindingExistsResult Exists(
+        IlCensusSide oldSide,
+        PEReader oldPe,
+        MethodDefinitionHandle oldMethod,
+        IlCensusSide newSide,
+        PEReader newPe,
+        MethodDefinitionHandle newMethod)
+    {
+        ArgumentNullException.ThrowIfNull(oldSide);
+        ArgumentNullException.ThrowIfNull(newSide);
+        if (oldSide.Policy != newSide.Policy)
+            throw new ArgumentException("Both sides of one Exists call are under one policy.", nameof(newSide));
+        return Exists(IlCensusCursor.Create(oldSide, oldPe, oldMethod), IlCensusCursor.Create(newSide, newPe, newMethod));
+    }
+
+    /// <summary>Exists over two cursors created under one policy.</summary>
+    public static FindingExistsResult Exists(IlCensusCursor oldCursor, IlCensusCursor newCursor)
+        => FindingExists.Decide(oldCursor, newCursor, default(IlAtomEquality));
+
+    /// <summary>
     /// Compares already-acquired inspections. This overload preserves explicit absent sides for
     /// added and removed methods. Target validation runs over the atoms' instruction indexes, so
     /// it needs no body; a census beyond <see cref="MaxCanonicalOperations"/> on either side is a

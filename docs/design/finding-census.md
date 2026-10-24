@@ -491,7 +491,27 @@ test class gates its cursor:
    Finding Diff Any's Shared Body equality
    ([#10196](https://github.com/richlander/dotnet-inspect/issues/10196)) landed
    first, so the walk and lockstep decide one equality. The walk is deleted or
-   kept by the cost gate's answer.
+   kept by the cost gate's answer. Taken in two slices:
+   - **2a, landed as `FindingExists`:** the cursor contract in
+     `Inspector.Findings` (`IFindingCursor<TAtom>` with its
+     `FindingCursorTerminal`, which the IL cursor's terminal became) and
+     lockstep `FindingExists.Decide`, which reads the Exists table above,
+     identity first, then presence, then reading, and returns the decision
+     with the atoms each side yielded; the IL kind's atom equality
+     (`IlAtomEquality`, with the undecided-target exclusion) and
+     `IlFindings.Exists` over two cursors through one side per image under
+     one policy. Gated by Exists agreement (per method against the walk's
+     Body verdict over the Finding Diff Any fixture pair, the identity
+     images, and a real image against itself), fault order, and laziness
+     (atom counts asserted). The `exists` leg of
+     `eng/measure-il-diff-exhaustive.cs` reports lockstep's time and
+     allocation per pair beside the census and comparison legs. The atom is
+     still the sealed census's record, allocated per advance, so the
+     allocation gate waits for 2b.
+   - **2b:** atoms without per-advance allocation, lockstep beside the walk
+     in `eng/measure-finding-diff-any.cs` Library-wide and per Type on the
+     perf hosts under NativeAOT and Browser/Wasm, and the walk deleted or
+     kept by the cost gate's answer.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Finding Diff Any's declaration census, which is the view's
    adoption step DV1 taken through this owner; gated as step 1 is.
