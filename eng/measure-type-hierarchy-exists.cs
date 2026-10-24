@@ -146,7 +146,10 @@ for (int sample = 0; sample < samples; sample++)
         int exitCode = await InvokeAsync(arguments, TextWriter.Null, TextWriter.Null);
         double elapsed = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
         long allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
-        if (exitCode != 0)
+        // A bounded Rows segment that stops at the CLI row bound exits 1 by
+        // design after printing its rows; every other scenario exits 0.
+        int expectedExit = name.EndsWith(".rows1", StringComparison.Ordinal) ? 1 : 0;
+        if (exitCode != expectedExit)
         {
             errors.WriteLine($"exit\t{name}\t{exitCode}");
             return 1;

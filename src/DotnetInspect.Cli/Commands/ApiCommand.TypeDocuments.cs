@@ -239,9 +239,10 @@ public partial class ApiCommand
     /// <summary>
     /// Executes effective discovery for a single type after deciding the
     /// hierarchy sections' applicability through their Exists closing. The
-    /// probe runs only for a hierarchy section discovery would otherwise list
-    /// unprobed: both sections under bare discovery, or the ones a specific
-    /// discovery names.
+    /// probe runs only for a hierarchy section the discovery would otherwise
+    /// list unprobed: one the gesture names directly or through its category.
+    /// Bare discovery lists the <c>@Member</c> door rather than its members, so
+    /// it asks nothing.
     /// </summary>
     internal static async Task<int> ExecuteEffectiveDiscoveryAsync(
         ApiType apiType,
@@ -280,8 +281,9 @@ public partial class ApiCommand
             hierarchyApplicability: applicability);
 
         bool ShouldProbe(string section) =>
-            candidates.Contains(section, StringComparer.OrdinalIgnoreCase)
-            && (requested is null || requested.Contains(section));
+            requested is not null
+            && requested.Contains(section)
+            && candidates.Contains(section, StringComparer.OrdinalIgnoreCase);
     }
 
     private static void ApplyTypeHierarchyRelationsApplicability(
