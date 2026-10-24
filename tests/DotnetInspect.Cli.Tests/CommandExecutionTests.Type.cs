@@ -307,7 +307,7 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains(
             "Type row selection stage 1 requires row 9999, "
-                + "but only 91 rows are available.",
+                + "but only 89 rows are available.",
             error,
             StringComparison.Ordinal);
     }

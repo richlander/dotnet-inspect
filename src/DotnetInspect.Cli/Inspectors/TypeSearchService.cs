@@ -623,7 +623,7 @@ internal static class TypeSearchService
                 || (!includeAll
                     && candidate.DeclarationKind
                         is AssemblyTypeDeclarationKind.Definition
-                    && candidate.IsDefinitionPublic is not true)
+                    && !candidate.IsPublicSurface)
                 || (!includeAll
                 && attributes
                     is { IsEditorBrowsableNever: true }

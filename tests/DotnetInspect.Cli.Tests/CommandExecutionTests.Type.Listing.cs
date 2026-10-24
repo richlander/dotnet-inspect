@@ -175,7 +175,9 @@ public partial class CommandExecutionTests
 
         // Structured resolution reaches ParamCollectionAttribute through the
         // platform policy instead of dropping it with the sibling-only probe.
-        Assert.Contains("Types: 91", fieldsOutput, StringComparison.Ordinal);
+        // The public nested Types of the internal FSharpCoreReflectionProxy
+        // are not public API (docs/design/api-population-scope.md).
+        Assert.Contains("Types: 89", fieldsOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Methods:", fieldsOutput, StringComparison.Ordinal);
 
         // --columns is the same surface and was the case the first fix missed: it does not filter
@@ -192,7 +194,7 @@ public partial class CommandExecutionTests
             "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo);
 
         Assert.Equal(0, bothExit);
-        Assert.Contains("| Types | 91 |", bothOutput, StringComparison.Ordinal);
+        Assert.Contains("| Types | 89 |", bothOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
     }
 
