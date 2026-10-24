@@ -312,20 +312,32 @@ capabilities permits. The fixture pairs hold none of these shapes.
 ### Cost beside the walk
 
 The first measurement of step 2b, through Finding Diff Any's Body provision
-seam: the whole comparison run twice over the same images, once with the walk
-and once with lockstep over two IL cursors deciding every paired method, so
-the two differ in the body reader alone and reach the same Type states, which
-the `lockstep` leg of `eng/measure-finding-diff-any.cs` asserts. NativeAOT
-linux-x64, base 9e8fb4863 (binary `06b97459`) and head binary `3e56d973`
-(built from the sources of the commit that records this), six pairs, twenty
-timed runs per process, two rounds, each process on a quiet host; raw outputs
-in the
-[gist](https://gist.github.com/richlander/df0ff5e352b2e79f4b33d246d68971ff).
-Medians in ms; the body share is the whole comparison less the API axis
-alone, run in the same process; allocation is the median per whole
-comparison; the seam's cost on the walk is base → head.
+seam. Two body readers decide the same paired methods of the same images:
 
-| Pair | Walk, whole ms r1 / r2 | Lockstep, whole ms r1 / r2 | Lockstep / walk | Body share, walk | Body share, lockstep | Allocated MB, walk → lockstep | Seam cost on the walk |
+- **Walk**: Finding Diff Any's own reader, the paired walk in `IlBodyDiff`
+  that reads two bodies in one pass and decides at the first difference,
+  without a cursor. It is the reader `main` runs today and the provision
+  [Provisions](#provisions) describes.
+- **Lockstep**: Finding Exists, `FindingExists.Decide` over two
+  `IlCensusCursor`s under the Body policy (step 2a), supplied through the
+  seam as the comparison's `FindingDiffAnyBodyReader`, so the whole
+  comparison runs with either reader and the two differ in the body reader
+  alone. The `lockstep` leg of `eng/measure-finding-diff-any.cs` asserts
+  that both reach the same Type states, which they did on every pair.
+
+Base is 9e8fb4863, the commit before the seam (binary `06b97459`), which has
+the walk only. Head is the sources of the commit that records this (binary
+`3e56d973`), which has both readers. The walk and lockstep columns are both
+measured at head; the last column is the walk at base against the walk at
+head, which is what the seam costs the walk. NativeAOT linux-x64, six pairs,
+twenty timed runs per process, two rounds, each process on a quiet host; raw
+outputs in the
+[gist](https://gist.github.com/richlander/df0ff5e352b2e79f4b33d246d68971ff).
+Medians in ms, lower is better; the body share is the whole comparison less
+the API axis alone, run in the same process; allocation is the median per
+whole comparison.
+
+| Pair | Walk (Finding Diff Any), whole ms r1 / r2 | Lockstep (Finding Exists), whole ms r1 / r2 | Lockstep ÷ walk | Body share ms, walk | Body share ms, lockstep | Allocated MB, walk → lockstep | Walk, base → head |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Aspire.Hosting 13.6.0 to 13.6.1 | 73.6 / 73.7 | 499.9 / 504.3 | 6.8× / 6.8× | 64 / 64 | 491 / 495 | 50 → 1585 | −0.2% / +0.9% |
 | System.Text.Json 9.0.0 to 10.0.0 | 11.8 / 12.0 | 28.4 / 28.2 | 2.4× / 2.3× | 8 / 9 | 25 / 25 | 11 → 69 | −1.4% / +1.1% |
@@ -349,6 +361,23 @@ the cursors serves the scenarios the walk does not reach, where the cost is
 per member rather than per assembly. The seam reaches the comparison's Body
 decisions; `Explain` and the per-method gate hooks still read through the
 walk.
+
+Two readings follow that reach past this pair of readers. An Exists terminal
+at the source can deliver outsize wins: the walk is one, a reader that
+decides from the bytes it has read and builds nothing, and that is where a
+whole-assembly Body verdict in tens of milliseconds and tens of megabytes
+comes from. The presence of such a terminal is not by itself optimality:
+lockstep is also an Exists terminal at the source, deciding as the walk
+decides and sealing no census, and it is still several times slower, because
+what each advance materializes counts as much as how far the read goes. The
+contract names what may be cheap; only the measurement says whether it is.
+
+This record is at assembly scope: every paired method of a Library, where
+the per-method cost is paid thousands of times. The next measurement of step
+2b is at Type scope, the inventory of member differences for one Type pair,
+each member row decided by Exists through both readers, which is the
+scenario the cursors are meant to serve and the one this record does not
+reach.
 
 ## Exhaustive
 
@@ -581,9 +610,12 @@ test class gates its cursor:
      either reader and the two differ in the body reader alone; the
      `lockstep` leg of `eng/measure-finding-diff-any.cs` measures it
      Library-wide on the perf hosts under NativeAOT, with the two readers'
-     Type states asserted equal; then atoms without per-advance allocation,
-     the per-Type and Browser/Wasm measurements, and the walk deleted or
-     kept by the cost gate's answer.
+     Type states asserted equal ([cost record](#cost-beside-the-walk): the
+     walk is kept, 1.4× to 6.8× faster at assembly scope); then the Type
+     scope measurement, the inventory of member differences for one Type
+     pair decided by Exists through both readers, atoms without per-advance
+     allocation, the Browser/Wasm measurement, and the walk deleted or kept
+     by the cost gate's answer.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Finding Diff Any's declaration census, which is the view's
    adoption step DV1 taken through this owner; gated as step 1 is.
