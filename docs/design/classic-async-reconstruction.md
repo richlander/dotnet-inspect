@@ -154,9 +154,9 @@ declines are sequential, conditional, and loop bodies with one or two awaits,
 four of them with a user `finally`.
 The 13 accounting declines matched a recipe whose ledgers refused them and
 are visible today. The state-machine headline on the real-world baseline (60
-of 540 fully raised) counts 334 classic kickoffs and 205 iterators by the
-harness's kickoff classification over its sampled population, where the
-census counts authenticated requests over every method, so the
+of 540 fully raised) counts these same 335 classic kickoffs (12 raised), the
+population the census authenticates, plus 204 iterators and one async
+iterator (48 raised), so the
 classic side cannot move far without these 323 bodies.
 
 ### Lowering shell
