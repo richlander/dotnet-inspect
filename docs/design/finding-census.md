@@ -309,6 +309,43 @@ for the walk, which decided before it read the fault, and `Indeterminate` for
 lockstep, which met the fault first: the conservative reading rule 3 of Diff
 capabilities permits. The fixture pairs hold none of these shapes.
 
+### Cost beside the walk
+
+The first measurement of step 2b, through Finding Diff Any's Body provision
+seam: the whole comparison run twice over the same images, once with the walk
+and once with lockstep over two IL cursors deciding every paired method, so
+the two differ in the body reader alone and reach the same Type states, which
+the `lockstep` leg of `eng/measure-finding-diff-any.cs` asserts. NativeAOT
+linux-x64, base 9e8fb4863 (binary `06b97459`) and head binary `3e56d973`
+(built from the sources of the commit that records this), six pairs, twenty
+timed runs per process, two rounds, each process on a quiet host; raw outputs
+in the
+[gist](https://gist.github.com/richlander/df0ff5e352b2e79f4b33d246d68971ff).
+Medians in ms; the body share is the whole comparison less the API axis
+alone, run in the same process; allocation is the median per whole
+comparison; the seam's cost on the walk is base → head.
+
+| Pair | Walk, whole ms r1 / r2 | Lockstep, whole ms r1 / r2 | Lockstep / walk | Body share, walk | Body share, lockstep | Allocated MB, walk → lockstep | Seam cost on the walk |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 73.6 / 73.7 | 499.9 / 504.3 | 6.8× / 6.8× | 64 / 64 | 491 / 495 | 50 → 1585 | −0.2% / +0.9% |
+| System.Text.Json 9.0.0 to 10.0.0 | 11.8 / 12.0 | 28.4 / 28.2 | 2.4× / 2.3× | 8 / 9 | 25 / 25 | 11 → 69 | −1.4% / +1.1% |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 15.0 / 14.9 | 55.0 / 54.3 | 3.7× / 3.6× | 11 / 11 | 51 / 50 | 12 → 152 | +1.6% / −0.9% |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 11.6 / 11.7 | 15.7 / 15.8 | 1.4× / 1.4× | 8 / 8 | 12 / 12 | 10 → 24 | −0.7% / +1.7% |
+| System.Private.Xml 10 to 11 | 54.3 / 54.7 | 309.1 / 309.0 | 5.7× / 5.6× | 46 / 46 | 300 / 301 | 37 → 1018 | −0.8% / +0.2% |
+| System.Private.CoreLib 10 to 11 | 163.1 / 162.6 | 407.9 / 409.9 | 2.5× / 2.5× | 87 / 87 | 332 / 334 | 115 → 1044 | +0.7% / +0.9% |
+
+The walk pays for itself today: the whole comparison is 1.4× to 6.9× slower
+through the cursors, and the Body axis alone 1.5× to 7.6× slower, at six to
+thirty times the allocation. The seam costs the walk nothing (within ±1.7%,
+the noise band). The cursor's per-advance work is what lockstep pays for:
+a decoded instruction record, an operation record with its target arrays, a
+family string, and a cursor per method, none of which the walk materializes.
+That is the gap step 2b's allocation-free atoms would have to close before
+lockstep could replace the walk inside Finding Diff Any; until it does, the
+walk stays as the provision, and lockstep over the cursors serves the
+scenarios the walk does not reach, where the cost is per member rather than
+per assembly.
+
 ## Exhaustive
 
 Exhaustive drains each cursor to its `FindingInspection<T>`, seals a `Complete`
@@ -534,9 +571,14 @@ test class gates its cursor:
      21–35% of the census comparison's time on the six pairs, deciding as
      it does on every pair). The atom is still the sealed census's record,
      allocated per advance, so the allocation gate waits for 2b.
-   - **2b:** atoms without per-advance allocation, lockstep beside the walk
-     in `eng/measure-finding-diff-any.cs` Library-wide and per Type on the
-     perf hosts under NativeAOT and Browser/Wasm, and the walk deleted or
+   - **2b:** lockstep beside the walk through Finding Diff Any's Body
+     provision seam (`FindingDiffAnyBodyReader`, the one point at which a
+     paired method's Body is decided), so the whole comparison runs with
+     either reader and the two differ in the body reader alone; the
+     `lockstep` leg of `eng/measure-finding-diff-any.cs` measures it
+     Library-wide on the perf hosts under NativeAOT, with the two readers'
+     Type states asserted equal; then atoms without per-advance allocation,
+     the per-Type and Browser/Wasm measurements, and the walk deleted or
      kept by the cost gate's answer.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Finding Diff Any's declaration census, which is the view's
