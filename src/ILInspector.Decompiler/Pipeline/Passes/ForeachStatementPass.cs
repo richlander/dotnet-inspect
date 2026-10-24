@@ -1060,16 +1060,23 @@ public sealed class ForeachStatementPass : IIrPass
     /// <summary>
     /// C# forbids assigning a foreach iteration variable (CS1656), so a loop
     /// whose item local has any store other than the header's element or
-    /// Current store is not a foreach and keeps its lowered form (#10577).
-    /// Address uses stay allowed: a struct item's instance-method receiver is
-    /// an address load.
+    /// Current store is not a foreach and keeps its lowered form (#10577). A
+    /// store is a <see cref="StoreLocal"/> or an <see cref="InitObject"/> on
+    /// the local's address (<c>item = default</c> on a struct or type
+    /// parameter). Other address uses stay allowed: a struct item's
+    /// instance-method receiver is an address load.
     /// </summary>
     static bool IterationVariableOnlyStoredByHeader(IrFunction function, StoreLocal headerStore)
     {
         foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
-            if (node is StoreLocal store && store.Index == headerStore.Index && !ReferenceEquals(store, headerStore))
-                return false;
+            switch (node)
+            {
+                case StoreLocal store when store.Index == headerStore.Index && !ReferenceEquals(store, headerStore):
+                    return false;
+                case InitObject { Address: LoadLocalAddress address } when address.Index == headerStore.Index:
+                    return false;
+            }
         }
         return true;
     }

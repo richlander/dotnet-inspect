@@ -1082,6 +1082,17 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void ArrayCopyLoopDefaultingStructItem_NeverAssignsTheForeachVariable()
+    {
+        // #10577: `item = default` on a struct lowers to initobj on the item's
+        // address, not to a store; it is still an assignment.
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ArrayCopyLoopDefaultsStructItem));
+        AssertNoStoreToForeachVariable(function);
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    [Fact]
     public void ArrayCopyLoopAssigningItem_NeverAssignsTheForeachVariable()
     {
         // #10577: the indexed-array raise has the same obligation and no inline
@@ -1099,6 +1110,9 @@ public class ForeachStatementPassTests
             Assert.DoesNotContain(
                 foreachStatement.Body.Descendants.OfType<StoreLocal>(),
                 store => store.Index == foreachStatement.LocalIndex);
+            Assert.DoesNotContain(
+                foreachStatement.Body.Descendants.OfType<InitObject>(),
+                init => init.Address is LoadLocalAddress address && address.Index == foreachStatement.LocalIndex);
         }
     }
 }

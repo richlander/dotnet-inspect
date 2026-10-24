@@ -6448,6 +6448,24 @@ public class CfgSampleClass
         return sum;
     }
 
+    // #10577: `item = default` on a struct lowers to initobj on the item's
+    // address rather than a store; it is an assignment all the same.
+    public static long ArrayCopyLoopDefaultsStructItem(DateTime[] items)
+    {
+        long total = 0;
+        DateTime[] copy = items;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            DateTime stamp = copy[i];
+            total += stamp.Ticks;
+            total ^= stamp.Ticks;
+            stamp = default;
+            total += stamp.Ticks;
+            total ^= stamp.Ticks;
+        }
+        return total;
+    }
+
     // #10577: the array-copy indexed loop with an assigned item variable stays a
     // for loop for the same reason.
     public static int ArrayCopyLoopAssignsItem(string[] items)
