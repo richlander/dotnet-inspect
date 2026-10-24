@@ -361,6 +361,9 @@ public sealed record TypeFindSemanticMatch(
 
 /// <summary>
 /// One portable Type candidate supplied to the Find semantic owner.
+/// <paramref name="IsPublicSurface"/> is whether the definition is public
+/// through every enclosing Type, the Public scope's Type admission
+/// (docs/design/api-population-scope.md).
 /// </summary>
 public sealed record TypeFindSemanticCandidate(
     MetadataTypeDefinitionName Name,
@@ -368,7 +371,7 @@ public sealed record TypeFindSemanticCandidate(
     int DeclarationOrder,
     AssemblyTypeDeclarationKind DeclarationKind,
     AssemblyTypeDefinitionKind? DefinitionKind,
-    bool? IsDefinitionPublic,
+    bool? IsPublicSurface,
     TypeDeclarationDiscoveryAttributes? DiscoveryAttributes);
 
 /// <summary>Why portable candidate evaluation stopped.</summary>
@@ -488,7 +491,7 @@ public static class TypeFindCandidateEvaluator
         if (visibility is FindVisibility.All)
             return true;
 
-        return candidate.IsDefinitionPublic is true
+        return candidate.IsPublicSurface is true
             && candidate.DiscoveryAttributes
                 is not { IsEditorBrowsableNever: true }
                 and not { IsObsolete: true };
@@ -1045,7 +1048,7 @@ public static class TypeFindSourceEvaluator
                     candidate.DeclarationOrder,
                     candidate.Kind,
                     candidate.DefinitionKind,
-                    candidate.IsDefinitionPublic,
+                    candidate.IsPublicSurface,
                     candidate.DiscoveryAttributes)),
         ];
         var matches = ImmutableArray.CreateBuilder<TypeFindSemanticMatch>();
