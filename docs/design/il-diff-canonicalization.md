@@ -152,7 +152,7 @@ for one body under one named policy, from an already decoded
 `MethodInstructions`, from a method definition and its image, or from raw IL
 and its exception regions, and it yields one `CanonicalIlOperation` per
 `Advance`, each instruction and then each exception clause in declaration
-order, ending in exactly one `IlCensusTerminal`: `Complete`, `Absent` with its
+order, ending in exactly one `FindingCursorTerminal`: `Complete`, `Absent` with its
 typed kind, or `Failed` with the stage and IL offset it could not read past.
 `Drain` lowers the atoms and terminal into the kind's
 `FindingInspection<CanonicalIlOperation>`, which is `IlFindings.Inspect`;
@@ -422,6 +422,44 @@ every row a member names is spelled once for all the members of the run.
 The whole-assembly, census, and comparison paths, which the change does
 not touch, moved by −2.2% to +1.3%.
 
+### Cost of Exists over the cursors
+
+Finding census step 2a
+([#10609](https://github.com/richlander/dotnet-inspect/pull/10609)) added the
+`exists` leg: `IlFindings.Exists` over every paired method through one side
+per image, lockstep over two cursors with nothing sealed. Measured as the
+records above are, NativeAOT linux-x64, base a668847aa (binary `49483bad`)
+against head binary `fcc39887`, built from the sources of the commit that
+records this (the record is the only difference), six pairs, ten timed runs
+per process after two warmups, two rounds, each process on a quiet host; raw
+outputs in the
+[gist](https://gist.github.com/richlander/4132484f779ccde41e13bf629db44f36).
+Lockstep's decisions equal the comparison leg's on every pair (unchanged where
+the comparison is exact, changed where it differs, nothing indeterminate). It
+decides every pair in 21–35% of the census comparison's time and 17–30% of
+the whole-assembly comparison's, allocating 30–57% of what the comparison
+allocates, about half on four pairs; what it still allocates is the cursor's
+atoms, the 2b target. The duplicate-Type-row set, found once per metadata
+reader, leaves the per-call endpoint path flat, as the last two columns show;
+a first head that found it per side had put CoreLib's per-call leg from 2.5 s
+to 41 s.
+
+Medians in ms (p95 in parentheses for Exists), head unless stated:
+
+| Pair | Exists | Compare | Assembly | Exists / Compare | Exists MB | Compare MB | Endpoints base → head | Endpoints shared base → head |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 456.7 (467.9) | 1292.5 | 1522.1 | 35% | 1506 | 2636 | 2080 → 2092 (+0.6%) | 2006 → 2027 (+1.1%) |
+| System.Text.Json 9.0.0 to 10.0.0 | 60.4 (62.9) | 187.2 | 225.2 | 32% | 205 | 448 | 316 → 314 (−0.7%) | 293 → 291 (−0.7%) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 104.2 (110.9) | 300.9 | 367.0 | 35% | 374 | 678 | 500 → 498 (−0.5%) | 474 → 473 (−0.3%) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 56.6 (58.8) | 270.5 | 334.1 | 21% | 185 | 608 | 464 → 455 (−2.0%) | 433 → 426 (−1.6%) |
+| System.Private.Xml 10 to 11 | 409.6 (417.4) | 1350.7 | 1639.2 | 30% | 1427 | 2853 | 2320 → 2298 (−1.0%) | 2170 → 2157 (−0.6%) |
+| System.Private.CoreLib 10 to 11 | 505.2 (515.9) | 1481.1 | 1819.3 | 34% | 1759 | 3526 | 2503 → 2493 (−0.4%) | 2338 → 2316 (−0.9%) |
+
+The assembly, census, comparison, and endpoint legs moved by −2.0% to +2.0%
+between base and head, the noise band of the records above, with allocation
+within 0.7 MB of base on every leg. Lockstep beside Finding Diff Any's walk
+is 2b's measurement; this leg is the cursor's own baseline for it.
+
 ## Guarantees
 
 ### Opcode macro folding
@@ -501,10 +539,19 @@ and signature. A row the speller rejects, whose signature exceeds the decode
 budget, whose declaring or resolution-scope chain cycles or exceeds the node
 budget, or which an opcode does not take, fails the operand, and the body is
 unavailable (`TokenResolutionFailure`); no stand-in identity is compared in
-its place. Two Type rows that spell one key are Finding Diff Any's
-`Indeterminate`, which it decides from its unit table; the cursor has no such
-table and compares them by their shared key, a question the Exists agreement
-gate of [Finding census](finding-census.md#gates) takes up.
+its place. Two Type rows that spell one key, among the Types Finding Diff
+Any's unit table admits, are its `Indeterminate`, which it decides from that
+table; the side refuses an operand that names either row or a member of one,
+as Finding Diff Any's reference path does, and no other row (a Type over the
+name budget, for one, is a malformed unit there, and neither provision
+refuses it). The duplicates are found once per image, on the first
+operand that names a Type definition or one of its members, by comparing the
+stored bytes of every unit-admitted Type's root namespace and declaring-chain
+names, which is the plain key's equality without a spelling, and kept per
+metadata reader as the generated-ordinal index is, so a host that creates a
+side per call pays the scan once. So Exists over the cursors decides as the
+walk does, which the Exists agreement gate of
+[Finding census](finding-census.md#gates) asserts.
 
 Without a metadata-backed comparison, token operands fail closed. This prevents
 raw token numbers from being treated as comparable identities across assemblies
