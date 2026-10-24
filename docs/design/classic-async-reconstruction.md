@@ -154,7 +154,9 @@ declines are sequential, conditional, and loop bodies with one or two awaits,
 four of them with a user `finally`.
 The 13 accounting declines matched a recipe whose ledgers refused them and
 are visible today. The state-machine headline on the real-world baseline (60
-of 540 fully raised) counts 334 classic kickoffs and 205 iterators, so the
+of 540 fully raised) counts 334 classic kickoffs and 205 iterators by the
+harness's kickoff classification over its sampled population, where the
+census counts authenticated requests over every method, so the
 classic side cannot move far without these 323 bodies.
 
 ### Lowering shell
@@ -185,7 +187,7 @@ inside the protocol try).
 | Finally guard | `if (V_state < 0 [&& x])` around a `finally` body | folds to `[if (x)]` under `V_state = -1` |
 | Hoisted local | `<name>5__N`, `<>7__wrapN`, `<>s__N`, `<>8__N` fields on the machine | fresh local; `name` where the field carries one |
 | Hoisted parameter | a machine field the kickoff stores one parameter into; Roslyn names it after that parameter, but the kickoff store is the binding | that parameter |
-| Housekeeping clear | `field = null` or `default` for a hoisted field where the store is provably the compiler's and provably dead: inside the completion catch or tail; a store to a compiler temporary (`<>7__wrapN`, `<>s__N`), which no source statement can name, from which no read of that field is reachable before another store to it; or the second of two clears of one field that are adjacent statements of the same basic block (the user's `x = null` at a scope end followed by Roslyn's own); a clear that is a branch target is a join, not adjacent, because the field need not hold the value on every path into it. A compiler-temporary store that a read can reach is state, not a clear, whichever arm would otherwise match it: the await-in-`catch`/`finally` lowering resets its pending-branch selector and pending-exception holder at every loop iteration, and those stores are carried. Removals are decided one at a time against the already-reduced body, each arm's premise re-checked after every removal, so two clears that each justify the other's removal (a construct's final clear of a reused temporary followed by the next construct's reset of it) lose exactly one | removed |
+| Housekeeping clear | `field = null` or `default` for a hoisted field where the store is provably unobservable: inside the completion catch or tail; a store to a field no source statement can name (`<>7__wrapN`, `<>s__N`, and the display-class environment `<>8__N`, whose scope-end clear Roslyn emits like a local's) from which no read of that field is reachable before another store to it; or the second of two clears of one field that are adjacent statements of the same basic block, a redundant store of the value the location already holds whether Roslyn's scope-end clear or, under Release field reuse, a user's `t = null` initializer that follows it (the Lean adjacent-store lemma does not depend on authorship); a clear that is a branch target is a join, not adjacent, because the field need not hold the value on every path into it. A compiler-temporary store that a read can reach is state, not a clear, whichever arm would otherwise match it: the await-in-`catch`/`finally` lowering resets its pending-branch selector and pending-exception holder at every loop iteration, and those stores are carried. Removals are decided one at a time against the already-reduced body, each arm's premise re-checked after every removal, so two clears that each justify the other's removal (a construct's final clear of a reused temporary followed by the next construct's reset of it) lose exactly one | removed |
 | Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back. For a hoisted `using` variable the carried store makes `UsingStatementPass` keep the try/finally form, which is valid. For a hoisted `foreach` iteration variable the carried store must make every `foreach` raise in `ForeachStatementPass` whose iteration variable can hold a managed type (enumerator, pattern, array, rectangular array, and `await foreach`; the string raise's `char` variable has no clear) keep its lowered form; today those raises check only their scaffold locals and would produce a `foreach` whose variable is assigned (CS1656 at Full), so [#10577](https://github.com/richlander/dotnet-inspect/issues/10577) is a stage 2 prerequisite. A later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
 
 Class-constrained generic awaiters (the boxed awaiter form), `async void`,
@@ -246,8 +248,9 @@ compiler-produced or corpus method whose raised body passes every check above
 yet whose compile-back shows a user call or store dropped, added, or
 reordered, a compiler store removed whose absence changes an observable
 value, or an exception region with a different extent; a dead compiler clear
-carried into the output and regenerated once more at compile-back is a
-redundant store, not a falsification.
+carried into the output and regenerated once more at compile-back, or a
+removed store of the value its location already held, is not a
+falsification.
 
 ### Layering
 
@@ -286,7 +289,10 @@ retire. Nothing in this slice adds a cross-layer reference.
    `foreach` loops over an `IEnumerable<T>` and over an array, each with a
    reference-type iteration variable used after the await (valid only once
    #10577 lands), the smallest accepted boundary, a still-flat negative
-   per proof obligation, the five real witnesses pinned, and the four
+   per proof obligation, a compiler-produced positive with a lambda-captured
+   local read after an await whose display-class environment clear must be
+   removed so the closure raise folds it, the five real witnesses pinned, and
+   the four
    unraised classic async fixtures in the pinned classic corpus measured
    (`Async_AwaitInCatchAndFinally`, `Async_InstanceGeneric`,
    `Async_VoidBuilder`, `Switch_InsideAsync`; the baseline's classic-async
