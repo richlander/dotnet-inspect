@@ -226,7 +226,7 @@ public partial class CommandExecutionTests
     [InlineData(null)]
     [InlineData("--tree")]
     [InlineData("--mermaid")]
-    public async Task Library_MultiLibraryPackage_HierarchySelectsFirstLibrary(
+    public async Task Library_MultiLibraryPackage_HierarchyShowsFirstLibraryWithWarning(
         string? gesture)
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
@@ -246,7 +246,11 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, unnarrowed.Exit);
             Assert.Equal(0, first.Exit);
-            Assert.Empty(unnarrowed.Error);
+            Assert.Equal(
+                $"Warning: {packagePath} has 2 libraries; one is shown. "
+                    + $"Use `dotnet-inspect package {packagePath}` to list them.",
+                unnarrowed.Error.Trim());
+            Assert.Empty(first.Error);
             Assert.NotEmpty(unnarrowed.Output);
             Assert.DoesNotContain(
                 "Library Info",

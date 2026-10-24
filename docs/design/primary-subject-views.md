@@ -29,6 +29,11 @@ The pattern has five obligations. An adopting command meets all of them:
    Package, Library, Type, or Member subject, respectively, or fails visibly.
    It never renders a list of subjects, silently picks one candidate, or treats
    a subject from the preceding containment level as a listing request.
+   A Package source with several Libraries and no named Library is the one
+   defined default: it resolves the
+   [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
+   and writes a one-line warning that names the Library count and the
+   `package` gesture that lists them, so the choice is never silent.
    In particular, `type <Library>` and `member <Type>` fail and identify
    `library <Library>` and `type <Type>` as the corresponding subject
    inspections.
@@ -228,8 +233,10 @@ adopts it, in that owner's document, with its own gates.
   declaration Count exceeds a threshold, proposed as 100. Collapsed namespace
   counts still include forwarders, and the tree ends with a tip naming the
   expansion gesture.
-- **Subject resolution:** a `library` source that selects more than one
-  Library fails with a candidate list instead of silently picking one, and an
+- **Subject resolution:** a Package source that selects more than one
+  Library and names none renders the First Library with the obligation 1
+  warning. Any other `library` source that selects more than one Library
+  fails with a candidate list instead of silently picking one, and an
   exact Library selector resolves one Library occurrence, bound to package
   source, version, and target. The selector consumes the Library's asset path
   within the selected slice, not only its file name, because one slice can
@@ -241,7 +248,9 @@ adopts it, in that owner's document, with its own gates.
   as defined by
   [Inspection Subject Navigation](inspection-subject-navigation.md#initial-aggregate-and-package),
   may appear as a tip on that failure when it would apply, never as the silent
-  subject.
+  subject. The First Library default above is not silent: its warning states
+  that other Libraries exist and how to list them, and the Tree's title names
+  the Library shown.
 - **Narrowing:** `library L --namespace N`, so that every collapsed row can be
   expanded.
 - **Namespace as input:** `library N`, where `N` names a namespace rather
@@ -377,7 +386,7 @@ Observed with production dotnet-inspect 0.26.0 on 2026-09-23, unless noted:
 | platform `Timer` | `type Timer` silently renders `System.Threading.Timer` | Obligation 1 requires a visible ambiguity failure |
 | `member JsonSerializer` | Renders member-group tables duplicating `type` | Two commands render one subject's children |
 | `type JsonElement --platform System.Text.Json` | Tree shows `Inherits`, `Properties`, `Methods`, and `Extension Methods` declared on `JsonSerializer`; `-S "Member Index" --count` is 62 exact Members, including the five `extension:Deserialize:N` rows | Several children sections plus labeled context; the Type's children are MemberGroups, so the attached extension `Deserialize` is one counted child with a distinct row kind, and the 62 exact Members are the `member`-level population, not the Type children Count |
-| Microsoft.TestPlatform.ObjectModel 18.10.1 | Three Libraries for net8.0; `library` silently renders `Microsoft.TestPlatform.CoreUtilities.dll` | Obligation 1 requires Library subject resolution |
+| Microsoft.TestPlatform.ObjectModel 18.10.1 | Three Libraries for net8.0; `library` silently renders `Microsoft.TestPlatform.CoreUtilities.dll` | Obligation 1 requires Library subject resolution; the defined First Library default renders it with the warning |
 
 The 97 and 1,447 figures come from the Library Type Count and Rows work in
 [#8385](https://github.com/richlander/dotnet-inspect/pull/8385) and
@@ -428,16 +437,18 @@ Bare CLI `library L`, `--tree`, and `-v:m` render the Library owner's default
 leaf hierarchy. `--mermaid` lowers the same nodes. Admission is limited to
 Library source options, so every other option keeps the sectioned view.
 `-S "Library Info"` is the opt-in facts section. A package source that yields
-several Libraries renders the Tree for the Library that `--first-library`
-selects (#10580), using the same host-neutral selection; an exact Library or
-`--namesake-library` still narrows it, and sectioned views keep the
-multi-Library aggregate. Collapse, namespace input,
+several Libraries and names none renders the Tree for the Library that
+`--first-library` selects (#10580), using the same host-neutral selection,
+and writes the obligation 1 warning to standard error; an explicit
+`--first-library`, an exact Library, or `--namesake-library` writes no
+warning, and sectioned views keep the multi-Library aggregate. Collapse, namespace input,
 exhaustive `-v:n`/`-v:d` Trees, and Inspect Web adoption remain open.
 An empty public population renders as such (obligation 5).
 `CommandExecutionTests.LibraryTypeHierarchy` gates:
 - the admitted gestures;
 - the competing-demand boundary, including a `DOTNET_INSPECT_FORMAT` default;
-- the multi-Library default, which matches `--first-library`, and the
+- the multi-Library default, which matches `--first-library` on standard
+  output and adds the warning only when no Library was named, and the
   aggregate kept by explicit sections;
 - the empty population and the visible Rows failures;
 - the work bound: the default plan requests no Member Count, and no returned
@@ -470,8 +481,9 @@ This document's obligations are gated through each adoption, in Release,
 against that adoption's motivating assets:
 
 - obligation 1: `package dotnet-inspect` renders its RID packages rather
-  than the `dotnet-inspect.any` payload; the platform `Timer` collision,
-  Microsoft.TestPlatform.ObjectModel's three Libraries, and the platform
+  than the `dotnet-inspect.any` payload; a Package with several Libraries and
+  no named Library renders the First Library's Tree with the one-line
+  warning; the platform `Timer` collision and the platform
   `System.Collections.Generic` namespace each fail with candidates, and
   `library System.Text.Json.Nodes` renders the same output as
   `library System.Text.Json --namespace System.Text.Json.Nodes`;

@@ -1171,10 +1171,21 @@ public partial class PackageCommand
                     candidates.PopulationPath);
         }
         if (resolution.IsSelected)
+        {
+            if (options.ReportUnnamedLibrarySelection
+                && candidates.Paths.Count > 1)
+            {
+                WriteUnnamedLibrarySelection(
+                    options.PackageArgs.FirstOrDefault(),
+                    packageId,
+                    version,
+                    candidates.Paths.Count);
+            }
             return new PackageLibrarySelection(
                 resolution.Paths[0],
                 resolution.Tfm,
                 population.RuntimeIdentifier);
+        }
 
         ReportPackageLibraryResolutionFailure(
             extractPath,
@@ -2590,6 +2601,23 @@ public partial class PackageCommand
     /// observed one.
     /// </remarks>
     private static string CodeCell(string value) => MarkoutInline.Code(value);
+
+    static void WriteUnnamedLibrarySelection(
+        string? packageArgument,
+        string packageId,
+        string version,
+        int libraryCount)
+    {
+        string package =
+            packageArgument is not null && File.Exists(packageArgument)
+                ? packageArgument
+                : string.IsNullOrWhiteSpace(version)
+                    ? packageId
+                    : $"{packageId}@{version}";
+        CommandError.WriteWarning(
+            $"{package} has {libraryCount} libraries; one is shown. Use "
+                + $"`dotnet-inspect package {package}` to list them.");
+    }
 
     private static void WritePackageLibraryCandidates(
         string extractPath,
