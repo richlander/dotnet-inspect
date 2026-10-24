@@ -3,9 +3,10 @@
 // Measures the exhaustive IL diff paths over one Library image pair under the
 // Body policy: the whole-assembly canonical IL comparison, the per-method
 // census of each image through IlFindings.Inspect, the per-pair census
-// comparison through IlFindings.Compare, and the Member Body Diff endpoint
-// path through IlAssemblyDiff.CompareMemberEndpoints. The census and
-// comparison paths run over one IlCensusSide per image per run, so the
+// comparison through IlFindings.Compare, Exists per pair through
+// IlFindings.Exists (lockstep over two cursors, nothing sealed), and the
+// Member Body Diff endpoint path through IlAssemblyDiff.CompareMemberEndpoints.
+// The census, comparison, and Exists paths run over one IlCensusSide per image per run, so the
 // operands every body names are spelled once per image, as the assembly
 // comparison spells them; the endpoint path runs twice, creating its sides
 // per call and then through one side per image held for the run, the two
@@ -121,6 +122,34 @@ int[] compared = Measure("compare", () =>
     return new[] { exact, changed, failed };
 });
 Console.WriteLine($"  exact={compared[0]}\tchanged={compared[1]}\tfailed={compared[2]}");
+
+// 3b. Exists per pair: lockstep over two cursors through one side per image,
+// stopping at the first deciding event, with nothing sealed or formatted.
+int[] exists = Measure("exists", () =>
+{
+    int unchanged = 0;
+    int changed = 0;
+    int indeterminate = 0;
+    IlCensusSide beforeSide = IlCensusSide.Create(beforeReader, IlBodyDiffPolicy.Body);
+    IlCensusSide afterSide = IlCensusSide.Create(afterReader, IlBodyDiffPolicy.Body);
+    foreach ((Method x, Method y) in pairs)
+    {
+        switch (IlFindings.Exists(beforeSide, before, x.Handle, afterSide, after, y.Handle).Decision)
+        {
+            case FindingExistsDecision.Unchanged:
+                unchanged++;
+                break;
+            case FindingExistsDecision.Changed:
+                changed++;
+                break;
+            default:
+                indeterminate++;
+                break;
+        }
+    }
+    return new[] { unchanged, changed, indeterminate };
+});
+Console.WriteLine($"  unchanged={exists[0]}\tchanged={exists[1]}\tindeterminate={exists[2]}");
 
 // 4. The Member Body Diff endpoint path the hosts call.
 int[] endpoints = Measure("endpoints", () =>
