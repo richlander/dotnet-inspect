@@ -19,9 +19,13 @@ public partial class CommandExecutionTests
             "-D",
             SectionNames.Implementers);
 
+        // Effective discovery of one section lists that section's columns;
+        // the Exists probe decided the section applies, so the columns show
+        // and no "no data" note is written.
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains(SectionNames.Implementers, output);
+        Assert.Contains("| Library | column |", output);
+        Assert.Contains("| Source | column |", output);
     }
 
     [Fact]
