@@ -357,26 +357,28 @@ does that the walk skips: it resolves a whole atom before comparing and
 validates clause tables. That is the gap step 2b's allocation-free atoms
 would have to close before lockstep could replace the walk inside Finding
 Diff Any; until it does, the walk stays as the provision, and lockstep over
-the cursors serves the scenarios the walk does not reach, where the cost is
-per member rather than per assembly. The seam reaches the comparison's Body
+the cursors serves the scenarios the walk does not reach (member, bisect),
+where the cost is per member rather than per assembly. The seam reaches the comparison's Body
 decisions; `Explain` and the per-method gate hooks still read through the
 walk.
 
 Two readings follow that reach past this pair of readers. An Exists terminal
 at the source can deliver outsize wins: the walk is one, a reader that
 decides from the bytes it has read and builds nothing, and that is where a
-whole-assembly Body verdict in tens of milliseconds and tens of megabytes
-comes from. The presence of such a terminal is not by itself optimality:
-lockstep is also an Exists terminal at the source, deciding as the walk
-decides and sealing no census, and it is still several times slower, because
-what each advance materializes counts as much as how far the read goes. The
-contract names what may be cheap; only the measurement says whether it is.
+whole-assembly Body verdict in tens of milliseconds, with the walk allocating
+nothing of its own, comes from. The presence of such a terminal is not by
+itself optimality: lockstep is also an Exists terminal at the source,
+deciding as the walk decides on these pairs and sealing no census, and it is
+still 1.4× to 6.8× slower on the whole comparison, which the hypothesis
+above puts on what each advance materializes and on the work lockstep does
+that the walk skips, not on how far the read goes. The contract names what
+may be cheap; only the measurement says whether it is.
 
 This record is at assembly scope: every paired method of a Library, where
 the per-method cost is paid thousands of times. The next measurement of step
 2b is at Type scope, the inventory of member differences for one Type pair,
-each member row decided by Exists through both readers, which is the
-scenario the cursors are meant to serve and the one this record does not
+each member row decided by Exists through both readers: the scope the
+per-member scenarios are built from, and the one this record does not
 reach.
 
 ## Exhaustive
