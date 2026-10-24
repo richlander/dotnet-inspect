@@ -293,6 +293,7 @@ SubjectRelationPopulationRequest
     concept
   optional Count request
   optional Rows request
+  optional Exists request
 
 SubjectRelationPopulationRowsRequest
   ordering
@@ -333,8 +334,16 @@ cost. Subject Relations does not redefine reader construction, format
 classification, lifetime, or admission failure semantics.
 
 For one already-resolved exact Type focus and one candidate assembly, the
-host-neutral hierarchy operation carries independent Count and producer-ordered
-Rows requests into the direct targeted Metadata producer. The source endpoint
+host-neutral hierarchy operation carries independent Count, producer-ordered
+Rows, and Exists requests into the direct targeted Metadata producer. Exists
+is the forward scan bounded to one accepted candidate: it stops at the first
+relation row without materializing it, and it never runs the one-row lookahead
+a bounded Rows segment performs for its continuation. A population is decided
+non-empty by that first row, whatever the stopped scan's coverage, and decided
+empty only by a complete scan with no row; a scan that could not read every
+candidate before finding one stays `Incomplete`, `Unavailable`, or `Failed`,
+never empty. Exists agrees with Count: a decided-empty population never
+accompanies a non-zero exact Count. The source endpoint
 retains the candidate assembly registration; the target endpoint and focus
 correspondence retain the exact focus assembly registration. Continued Rows
 reuse producer authority bound to both registrations, the hierarchy target and
@@ -362,6 +371,18 @@ failure evidence, makes requested Count incomplete, and does not discard useful
 Rows from realized candidates. Canonical relation rows remain the source of the
 focused candidate rows; the coordinator does not recreate hierarchy matching
 or scan Metadata independently.
+
+Workspace Exists asks each candidate in member order until one decides the
+population non-empty, and reports the candidates after it as not visited, so
+a decided-non-empty population carries honestly partial coverage. It is
+decided empty only when every candidate was read completely and none held a
+row; an unavailable candidate or unrealized context makes it `Incomplete`
+rather than empty. Count and Rows requested beside Exists keep visiting every
+candidate they need, so their evidence is unchanged by the early decision.
+The type command's effective discovery asks this closing to decide whether
+`Implementers` and `Derived Types` apply to a Type, under
+[Inspection plan projections](inspection-plan-projections.md#effective-section-discovery),
+in place of listing both sections structurally.
 
 Workspace Rows continuation binds the exact focus and captured population,
 selection, ordering, projection, visibility policy, Metadata operation policy,

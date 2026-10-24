@@ -841,8 +841,20 @@ public static partial class TypeCommand
 
                     if (effectiveOptions.EffectiveDiscovery)
                     {
-                        return ApiCommand.ExecuteEffectiveDiscovery(
-                            apiType, memberPipeline, effectiveOptions,
+                        TypeOptions probeOptions = effectiveOptions;
+                        return await ApiCommand.ExecuteEffectiveDiscoveryAsync(
+                            apiType,
+                            memberPipeline,
+                            effectiveOptions,
+                            (implementers, derivedTypes, probeCancellation) =>
+                                TypeHierarchyRelationsInspectionExecutor
+                                    .ProbeExistsAsync(
+                                        probeOptions,
+                                        source,
+                                        implementers,
+                                        derivedTypes,
+                                        probeCancellation),
+                            cancellationToken,
                             acquisition);
                     }
 

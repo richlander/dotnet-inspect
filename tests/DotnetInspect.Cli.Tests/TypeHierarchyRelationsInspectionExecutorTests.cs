@@ -57,6 +57,19 @@ public sealed class TypeHierarchyRelationsInspectionExecutorTests
     }
 
     [Fact]
+    public void ExistsRequestRequestsOnlyExists()
+    {
+        SubjectRelationPopulationRequest request =
+            TypeHierarchyRelationsInspectionExecutor.CreateExistsRequest(
+                SubjectRelationForm.BaseType);
+
+        Assert.Null(request.Count);
+        Assert.Null(request.Rows);
+        Assert.NotNull(request.Exists);
+        Assert.Equal(SubjectRelationForm.BaseType, request.Selection.Form);
+    }
+
+    [Fact]
     public void DefaultPlatformHierarchyUsesEveryPlatformFramework()
     {
         IReadOnlyList<string> frameworks =

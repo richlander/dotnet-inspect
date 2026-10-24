@@ -40,6 +40,21 @@ adds no generic section-row Exists executor; [Open and closed
 queries](open-and-closed-queries.md) owns the terminal's meaning, and the
 unsafe-evidence operation owns its predicate and result.
 
+The hierarchy relations population is the second Exists adopter
+([#10616](https://github.com/richlander/dotnet-inspect/issues/10616)). Its
+producer-owned request carries Exists beside Count and Rows, the Metadata and
+Workspace hierarchy operations answer it natively by stopping at the first
+accepted candidate, and the type command's effective discovery consumes the
+answer for `Implementers` and `Derived Types` under
+[Subject relations](subject-relations-workflows.md#request-driven-queryspace-composition).
+The same slice adds the reference Exists-from-cardinality path
+(`RowQueryExecutor.TryApplyExists`): a plan with no residual predicate reads
+Exists from the source count and its selection stages without a row, admitting
+a ranking stage that the Count path must decline because order never changes
+whether a row exists. Library Address is its first caller. A lazy reference
+Exists over a row sequence, and Exists in the inventory declaration of
+[Section cardinality](section-cardinality.md), remain later slices of #10616.
+
 Those owners remain authoritative for their own semantics. This design owns
 only their reusable composition into one discoverable query space.
 

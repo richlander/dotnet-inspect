@@ -547,34 +547,54 @@ public static class LibraryAddressInspectionOperation
             LibraryAddressIntent.Population population,
             LibraryAddressPopulationQueryResolution.Accepted query)
     {
-        if (!RowQueryExecutor.TryApplyCount(
-                population.Records.Length,
-                query.Plan.Rows,
-                out RowSelectionCountResult selection))
-        {
-            throw new ArgumentException(
-                "The Library Address population query cannot be evaluated "
-                    + "from source cardinality.",
-                nameof(population));
-        }
-        if (!selection.IsSuccess)
-            return PopulationQueryRejected(selection.Failure!);
-
         bool isComplete = !population.HasMalformedRecords;
-        LibraryAddressPopulationResult result =
-            query.Terminal switch
+        LibraryAddressPopulationResult result;
+        switch (query.Terminal)
+        {
+            case QuerySpaceTerminalRequirement.Count:
             {
-                QuerySpaceTerminalRequirement.Count =>
-                    LibraryAddressPopulationResult.ForCount(
-                        selection.Count,
-                        isComplete),
-                QuerySpaceTerminalRequirement.Exists =>
-                    LibraryAddressPopulationResult.ForExists(
-                        selection.Count != 0,
-                        isComplete),
-                _ => throw new InvalidOperationException(
-                    "A source-cardinality execution requires Count or Exists."),
-            };
+                if (!RowQueryExecutor.TryApplyCount(
+                        population.Records.Length,
+                        query.Plan.Rows,
+                        out RowSelectionCountResult selection))
+                {
+                    throw new ArgumentException(
+                        "The Library Address population query cannot be "
+                            + "evaluated from source cardinality.",
+                        nameof(population));
+                }
+                if (!selection.IsSuccess)
+                    return PopulationQueryRejected(selection.Failure!);
+                result = LibraryAddressPopulationResult.ForCount(
+                    selection.Count,
+                    isComplete);
+                break;
+            }
+            case QuerySpaceTerminalRequirement.Exists:
+            {
+                // Exists is read from the same cardinality without deriving
+                // it from a Count the request did not ask for.
+                if (!RowQueryExecutor.TryApplyExists(
+                        population.Records.Length,
+                        query.Plan.Rows,
+                        out RowSelectionExistsResult selection))
+                {
+                    throw new ArgumentException(
+                        "The Library Address population query cannot be "
+                            + "evaluated from source cardinality.",
+                        nameof(population));
+                }
+                if (!selection.IsSuccess)
+                    return PopulationQueryRejected(selection.Failure!);
+                result = LibraryAddressPopulationResult.ForExists(
+                    selection.Exists,
+                    isComplete);
+                break;
+            }
+            default:
+                throw new InvalidOperationException(
+                    "A source-cardinality execution requires Count or Exists.");
+        }
         var document = new LibraryAddressDocument.Population(result);
         if (isComplete)
             return Completed(document);
