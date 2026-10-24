@@ -39,7 +39,7 @@ public static partial class ApiSurfaceExtractor
     /// (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
     /// A public nested Type of a non-public Type is not admitted: no other
     /// assembly can reach it. Nor is one nested in a protected Type, which only a
-    /// derived Type can reach, so it belongs to the <c>protected</c> bucket.
+    /// derived Type can reach.
     /// Type discovery's public surface applies the same rule. A malformed
     /// nesting graph is admitted here so the Type identity read that follows
     /// rejects the row with its typed relationship failure.
