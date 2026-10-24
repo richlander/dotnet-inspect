@@ -386,7 +386,8 @@ public sealed class IlCensusSide
     {
         // The walk's unit admission: a valid declaring chain, no compiler-generated
         // Type in it, well-formed names, no empty name, and a full name within the
-        // Type name budget, counted in characters as the walk's escaped name is.
+        // Type name budget, counted in characters with one delimiter per segment,
+        // as the walk's escaped name is.
         public bool IsUnit(TypeDefinitionHandle handle)
         {
             Span<TypeDefinitionHandle> chain = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -408,7 +409,7 @@ public sealed class IlCensusSide
                 ReadOnlySpan<byte> bytes = names.Bytes(name);
                 if (bytes.IsEmpty)
                     return false;
-                characters += Encoding.UTF8.GetCharCount(bytes);
+                characters += 1 + Encoding.UTF8.GetCharCount(bytes);
                 if (characters > MetadataSafetyPolicy.MaxTypeNameCharacters)
                     return false;
             }

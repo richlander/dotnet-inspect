@@ -296,15 +296,18 @@ lockstep matches it, under the rule that a fast provision is justified by
 performance alone and never by a second definition of change. Until it is
 deleted, both answer under one gate: for every row of every fixture pair, the
 walk's verdict equals lockstep's. One class of malformed input reads
-differently and is recorded rather than reconciled: a fault the walk reaches
-only after its continuation or target decision. Where one stream ends and the
-other continues into an instruction whose operand cannot be resolved or is
-truncated, or where bodies that the walk decides by continuation or by a
-target difference carry a clause table that fails validation, the walk
-decides `Changed` before it reads the fault, and lockstep, whose cursor
-produces every position and validates its clauses before it completes, meets
-the fault first and reads `Indeterminate`, the conservative reading rule 3 of
-Diff capabilities permits. The fixture pairs hold none of these shapes.
+differently and is recorded rather than reconciled: a fault inside or after
+the atom at which the walk decides. The walk decides a difference from the
+part of an atom it has read, an opcode family, an `ldc` form, a switch arm
+count, a clause kind or count, or a stream that continues where the other
+ended, before it reads the rest of that atom, while the cursor produces a
+whole atom, operand resolved, before lockstep compares it. A fault in the
+rest of that atom (an operand that cannot be resolved or is truncated), a
+clause table that fails validation on the shorter body under a continuation,
+or on either body under a pending target difference, is therefore `Changed`
+for the walk, which decided before it read the fault, and `Indeterminate` for
+lockstep, which met the fault first: the conservative reading rule 3 of Diff
+capabilities permits. The fixture pairs hold none of these shapes.
 
 ## Exhaustive
 
@@ -528,7 +531,7 @@ test class gates its cursor:
      `eng/measure-il-diff-exhaustive.cs` reports lockstep's time and
      allocation per pair beside the census and comparison legs
      ([cost record](il-diff-canonicalization.md#cost-of-exists-over-the-cursors):
-     20–35% of the census comparison's time on the six pairs, deciding as
+     21–35% of the census comparison's time on the six pairs, deciding as
      it does on every pair). The atom is still the sealed census's record,
      allocated per advance, so the allocation gate waits for 2b.
    - **2b:** atoms without per-advance allocation, lockstep beside the walk

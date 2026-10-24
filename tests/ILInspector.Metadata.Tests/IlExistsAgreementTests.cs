@@ -58,10 +58,18 @@ public sealed class IlExistsAgreementTests
         byte[] branchSelfThenInvalid = [0x00, 0x2B, 0xFE, 0x24];
         TypeSpec compilerControlled = new("N", "C", null, ReturnOne, ["M", "M"], PrivateScope: true);
         TypeSpec callee = new("N", "C", null, ReturnOne);
+        // Two rows of one long name: within the Type name budget (namespace, one
+        // delimiter per segment, name) they are duplicates both provisions refuse
+        // to name; one character over, the walk's unit is malformed instead and
+        // neither refuses, so the two methods compare by their shared key.
+        TypeSpec longWithin = new("N", new string('L', MetadataSafetyPolicy.MaxTypeNameCharacters - 2), null, ReturnOne);
+        TypeSpec longOver = new("N", new string('L', MetadataSafetyPolicy.MaxTypeNameCharacters - 1), null, ReturnOne);
         return new TheoryData<string, byte[], byte[], FindingExistsDecision>
         {
             { "N.D", Image([compilerControlled, new("N", "D", null, callFirst)]), Image([compilerControlled, new("N", "D", null, callSecond)]), FindingExistsDecision.Indeterminate },
             { "N.D", Image([callee, callee, new("N", "D", null, callFirst)]), Image([callee, callee, new("N", "D", null, callSecond)]), FindingExistsDecision.Indeterminate },
+            { "N.D", Image([longWithin, longWithin, new("N", "D", null, callFirst)]), Image([longWithin, longWithin, new("N", "D", null, callSecond)]), FindingExistsDecision.Indeterminate },
+            { "N.D", Image([longOver, longOver, new("N", "D", null, callFirst)]), Image([longOver, longOver, new("N", "D", null, callSecond)]), FindingExistsDecision.Unchanged },
             { "N.C", Image([new("N", "C", null, invalid)]), Image([new("N", "C", null, invalid)]), FindingExistsDecision.Indeterminate },
             { "N.C", Image([new("N", "C", null, invalidAfterOne)]), Image([new("N", "C", null, invalidAfterTwo)]), FindingExistsDecision.Changed },
             { "N.C", Image([new("N", "C", null, ReturnOne)]), Image([new("N", "C", null, returnTwo)]), FindingExistsDecision.Changed },

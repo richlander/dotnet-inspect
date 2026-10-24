@@ -429,33 +429,36 @@ Finding census step 2a
 `exists` leg: `IlFindings.Exists` over every paired method through one side
 per image, lockstep over two cursors with nothing sealed. Measured as the
 records above are, NativeAOT linux-x64, base a668847aa (binary `49483bad`)
-against head 21c23eea1 (`6d124cde`), six pairs, ten timed runs per process
-after two warmups, two rounds, each process on a quiet host; raw outputs in
-the [gist](https://gist.github.com/richlander/92a3d30b958b28d23f79e2fef31244a7).
+against head binary `fcc39887`, built from the sources of the commit that
+records this (the record is the only difference), six pairs, ten timed runs
+per process after two warmups, two rounds, each process on a quiet host; raw
+outputs in the
+[gist](https://gist.github.com/richlander/4132484f779ccde41e13bf629db44f36).
 Lockstep's decisions equal the comparison leg's on every pair (unchanged where
 the comparison is exact, changed where it differs, nothing indeterminate). It
-decides every pair in 20–35% of the census comparison's time and 17–30% of
-the whole-assembly comparison's, allocating about half of what the comparison
-allocates; what it still allocates is the cursor's atoms, the 2b target. The
-duplicate-Type-row set, found once per metadata reader, leaves the per-call
-endpoint path flat, as the last two columns show; a first head that found it
-per side had put CoreLib's per-call leg from 2.5 s to 41 s.
+decides every pair in 21–35% of the census comparison's time and 17–30% of
+the whole-assembly comparison's, allocating 30–57% of what the comparison
+allocates, about half on four pairs; what it still allocates is the cursor's
+atoms, the 2b target. The duplicate-Type-row set, found once per metadata
+reader, leaves the per-call endpoint path flat, as the last two columns show;
+a first head that found it per side had put CoreLib's per-call leg from 2.5 s
+to 41 s.
 
 Medians in ms (p95 in parentheses for Exists), head unless stated:
 
 | Pair | Exists | Compare | Assembly | Exists / Compare | Exists MB | Compare MB | Endpoints base → head | Endpoints shared base → head |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Aspire.Hosting 13.6.0 to 13.6.1 | 450.1 (465.9) | 1287.9 | 1508.9 | 35% | 1506 | 2636 | 2085 → 2091 (+0.3%) | 2024 → 2021 (−0.1%) |
-| System.Text.Json 9.0.0 to 10.0.0 | 59.9 (64.2) | 190.7 | 227.3 | 31% | 205 | 448 | 317 → 316 (−0.5%) | 296 → 291 (−2.0%) |
-| Newtonsoft.Json 13.0.3 to 13.0.4 | 105.9 (112.1) | 304.0 | 370.1 | 35% | 374 | 678 | 501 → 506 (+1.1%) | 477 → 473 (−0.8%) |
-| Newtonsoft.Json 11.0.2 to 13.0.4 | 55.8 (60.0) | 272.4 | 334.2 | 20% | 185 | 608 | 457 → 464 (+1.5%) | 430 → 429 (−0.2%) |
-| System.Private.Xml 10 to 11 | 398.6 (411.0) | 1362.9 | 1657.0 | 29% | 1427 | 2853 | 2352 → 2332 (−0.9%) | 2199 → 2158 (−1.9%) |
-| System.Private.CoreLib 10 to 11 | 508.7 (519.8) | 1490.8 | 1840.8 | 34% | 1759 | 3526 | 2502 → 2503 (+0.0%) | 2355 → 2351 (−0.2%) |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 456.7 (467.9) | 1292.5 | 1522.1 | 35% | 1506 | 2636 | 2080 → 2092 (+0.6%) | 2006 → 2027 (+1.1%) |
+| System.Text.Json 9.0.0 to 10.0.0 | 60.4 (62.9) | 187.2 | 225.2 | 32% | 205 | 448 | 316 → 314 (−0.7%) | 293 → 291 (−0.7%) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 104.2 (110.9) | 300.9 | 367.0 | 35% | 374 | 678 | 500 → 498 (−0.5%) | 474 → 473 (−0.3%) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 56.6 (58.8) | 270.5 | 334.1 | 21% | 185 | 608 | 464 → 455 (−2.0%) | 433 → 426 (−1.6%) |
+| System.Private.Xml 10 to 11 | 409.6 (417.4) | 1350.7 | 1639.2 | 30% | 1427 | 2853 | 2320 → 2298 (−1.0%) | 2170 → 2157 (−0.6%) |
+| System.Private.CoreLib 10 to 11 | 505.2 (515.9) | 1481.1 | 1819.3 | 34% | 1759 | 3526 | 2503 → 2493 (−0.4%) | 2338 → 2316 (−0.9%) |
 
-The assembly, census, and comparison legs moved by −1.7% to +1.5% between
-base and head with identical allocation, the noise band of the records above.
-Lockstep beside Finding Diff Any's walk is 2b's measurement; this leg is the
-cursor's own baseline for it.
+The assembly, census, comparison, and endpoint legs moved by −2.0% to +2.0%
+between base and head, the noise band of the records above, with allocation
+within 0.7 MB of base on every leg. Lockstep beside Finding Diff Any's walk
+is 2b's measurement; this leg is the cursor's own baseline for it.
 
 ## Guarantees
 
