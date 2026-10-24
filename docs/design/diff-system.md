@@ -71,6 +71,70 @@ comparison.
 > Comparison infrastructure that does not depend on packages, versions or
 > hosts lives in the `ILInspector` layer, where any scenario can reuse it.
 
+## Scenarios
+
+The scarce resource is time. The goal is a diff, and findings in general,
+cheap enough to be always available: the way IntelliSense made every Type and
+member list available on a partial name or a trailing dot, and the way the
+`.Add*` queries carry that one step further. For diff that means opening a
+package and seeing at once what changed, broadly or for one member, and asking
+of one member when it last changed. The Exists case carries that promise; the
+exhaustive case explains what Exists found.
+
+Five scenarios are foundational, and each is one composition of three
+primitives: rows are paired across images by Symbol Key; each paired row is
+decided by **Exists** (lockstep that stops at the first difference) or read in
+full by **Exhaustive** (the complete diff of the row); and row decisions fold
+up to the requested scope. The axes, API and Body, are which row kinds are
+read.
+
+| Scenario | Pairing | Per-row decision | Fold | Rungs |
+| --- | --- | --- | --- | --- |
+| **Member**: one member, A against A' | One member by key | Exists, or Exhaustive, on API and/or Body | None; the single-atom diff | 4, and 2 for one row |
+| **Type**: one Type, A against A' | The Type's members and its declaration facts | Exists per row, or Inventory, every row's decision kept | One state per axis for the Type | 1 and 2 |
+| **Assembly**: A against A' | Every Type, then every member | Type Exists; or Exhaustive per Type, per Member, or both | Type states, then the Library state; the full offline assembly diff | 1 to 4 |
+| **Batch**: A against several versions | One image paired with each of the others | Exists per row | Type states per version pair, such as the current major's previous patch and the last major's patch | 1 and 2, repeated |
+| **Bisect**: one member across a version sequence | One member by key in each version | Exists per row | The first or last version at which the member differs, on API and/or Body | 2 for one row, repeated |
+
+The rungs are [Diff capabilities](diff-capabilities.md)'. Inventory is rung
+2 kept whole, one state per row, rather than stopped at the Type's first
+difference.
+
+Finding Diff Any is the assembly scenario, hard-wired: assembly-wide pairing,
+Type-scope folds, and a private body reader, the walk, that decides a paired
+method's Body without a cursor. It serves the Type scenario only as a filter
+over the assembly result, the member scenario only through internal hooks,
+and batch and bisect not at all; Diff History iterates a version population
+at Library scope over it, which is batch's Library-scope form. The member
+Body diff lives in IL diff's endpoints and the member API comparison beside
+it, and nothing composes batch or bisect. Finding Diff Any is therefore one
+composition, not the solution.
+
+What is foundational is what every row of the table uses: the cursors and
+`FindingExists` of [Finding census](finding-census.md), the exhaustive
+comparison of each kind, and the vocabulary Finding Diff Any owns, which is
+contract rather than mechanism: the pairing rules, which rows count toward
+which axis, the `Indeterminate` rules, and how a Type's rows fold. Finding
+census step 4 makes Finding Diff Any the owner of Exists at Library, Type,
+and Member scope, which is the point at which it becomes a thin composition
+of those primitives. The walk is a provision of that owner, kept while it is
+measurably cheaper than lockstep over the cursors and deleted when lockstep
+matches it, under Finding census step 2b; it is justified by time alone,
+never by a second definition of change.
+
+Two consequences follow for the scenarios not yet composed:
+
+- **Batch** wants one census side per image reused across the batch's
+  comparisons, so an image's Type-level keys are spelled once. The Symbol Key
+  interning table is scoped to one comparison today and a side releases it
+  when it completes, so batch needs the table scoped to the batch, recorded
+  on [#10533](https://github.com/richlander/dotnet-inspect/issues/10533).
+- **Bisect** is where per-row Exists pays most: it reads one member per
+  version and stops at the first difference, so its cost is one member times
+  the versions probed, never an assembly-wide pass. It needs cheap side
+  creation per image, which the per-reader duplicate-row set keeps, and
+  nothing else new.
+
 ## Layers
 
 | Layer | Owns | Assemblies |
