@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -51,9 +52,9 @@ public sealed class IlCensusSide
     readonly Dictionary<int, StagedSymbolKey<IlOperandPart>> _rows = [];
     readonly Dictionary<int, StagedSymbolKey<IlOperandPart>> _referenced;
     readonly Dictionary<(OperandKind Kind, int Token), IlOperandIdentity> _operands = [];
-    // The tokens of Type rows that share a key with another, found on the
-    // first operand that names a Type definition or one of its members.
-    HashSet<int>? _duplicateTypeRows;
+    // The Type rows that share a plain key with another, found once per image
+    // on the first operand that names a Type definition or one of its members.
+    DuplicateTypeRows? _duplicateTypeRows;
     IlBodyDiff.OperandText? _text;
     string? _assemblyName;
     bool _rewriting;
@@ -316,37 +317,131 @@ public sealed class IlCensusSide
         };
         if (type.IsNil)
             return;
-        _duplicateTypeRows ??= DuplicateTypeRows();
-        if (_duplicateTypeRows.Count != 0 && _duplicateTypeRows.Contains(MetadataTokens.GetToken(type)))
+        _duplicateTypeRows ??= DuplicateTypeRows.Of(_reader);
+        if (_duplicateTypeRows.Contains(type))
             throw new BadImageFormatException("A reference names one of two Type rows that share a key.");
     }
 
-    // Every Type definition's plain key, spelled once and kept in the side's
-    // memo; a row the speller rejects is a failure of the operands that name
-    // it, not of this scan.
-    HashSet<int> DuplicateTypeRows()
+    /// <summary>
+    /// The Type rows of one image that share a plain key with another, over
+    /// the Types the walk's unit table admits: a Type with an invalid
+    /// declaring chain, a compiler-generated Type in its chain, or a name that
+    /// is not well-formed UTF-8 is not a unit there and so never in its
+    /// duplicate set. Two Types share a key exactly when their root
+    /// namespaces and their declaring-chain names agree byte for byte, so the
+    /// set is found by comparing stored names, spelling nothing, once per
+    /// image and kept per metadata reader as the generated-ordinal index is,
+    /// so a host that creates a side per call pays it once.
+    /// </summary>
+    sealed class DuplicateTypeRows
     {
-        var duplicates = new HashSet<int>();
-        var seen = new Dictionary<StagedSymbolKey<IlOperandPart>, TypeDefinitionHandle>();
-        foreach (TypeDefinitionHandle handle in _reader.TypeDefinitions)
+        static readonly ConditionalWeakTable<MetadataReader, DuplicateTypeRows> s_cache = new();
+        static readonly DuplicateTypeRows s_none = new([]);
+
+        readonly HashSet<int> _tokens;
+
+        DuplicateTypeRows(HashSet<int> tokens) => _tokens = tokens;
+
+        public static DuplicateTypeRows Of(MetadataReader reader) => s_cache.GetValue(reader, Compute);
+
+        public bool Contains(TypeDefinitionHandle type) => _tokens.Count != 0 && _tokens.Contains(MetadataTokens.GetToken(type));
+
+        static DuplicateTypeRows Compute(MetadataReader reader)
         {
-            StagedSymbolKey<IlOperandPart> key;
-            try
+            var names = new MetadataStringHeap(reader);
+            var comparer = new PlainTypeNameComparer(reader, names);
+            var seen = new Dictionary<TypeDefinitionHandle, TypeDefinitionHandle>(comparer);
+            HashSet<int>? duplicates = null;
+            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
             {
-                key = Row(handle, rewrite: false);
+                // A row whose names or chain cannot be read is a malformed
+                // unit in the walk's table, never a duplicate; it fails the
+                // operands that name it, not this scan.
+                try
+                {
+                    if (!comparer.IsUnit(handle))
+                        continue;
+                    if (seen.TryAdd(handle, handle))
+                        continue;
+                    duplicates ??= [];
+                    duplicates.Add(MetadataTokens.GetToken(handle));
+                    duplicates.Add(MetadataTokens.GetToken(seen[handle]));
+                }
+                catch (Exception ex) when (IsMalformed(ex))
+                {
+                    continue;
+                }
             }
-            catch (Exception ex) when (IsMalformed(ex))
-            {
-                Abandon();
-                continue;
-            }
-            if (!seen.TryAdd(key, handle))
-            {
-                duplicates.Add(MetadataTokens.GetToken(handle));
-                duplicates.Add(MetadataTokens.GetToken(seen[key]));
-            }
+            return duplicates is null ? s_none : new DuplicateTypeRows(duplicates);
         }
-        return duplicates;
+    }
+
+    /// <summary>
+    /// Equality of two Type definitions by the plain key the speller would
+    /// write for them: the root namespace, if any, and the names along the
+    /// declaring chain, each compared as stored bytes.
+    /// </summary>
+    sealed class PlainTypeNameComparer(MetadataReader reader, MetadataStringHeap names) : IEqualityComparer<TypeDefinitionHandle>
+    {
+        public bool IsUnit(TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!Walk(handle, chain, out int length))
+                return false;
+            TypeDefinition root = reader.GetTypeDefinition(chain[0]);
+            if (!root.Namespace.IsNil && !names.IsWellFormed(root.Namespace))
+                return false;
+            for (int i = 0; i < length; i++)
+            {
+                StringHandle name = reader.GetTypeDefinition(chain[i]).Name;
+                if (reader.StringComparer.StartsWith(name, "<") || !names.IsWellFormed(name))
+                    return false;
+            }
+            return true;
+        }
+
+        public bool Equals(TypeDefinitionHandle x, TypeDefinitionHandle y)
+        {
+            if (x == y)
+                return true;
+            Span<TypeDefinitionHandle> chainX = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            Span<TypeDefinitionHandle> chainY = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!Walk(x, chainX, out int lengthX) || !Walk(y, chainY, out int lengthY) || lengthX != lengthY)
+                return false;
+            TypeDefinition rootX = reader.GetTypeDefinition(chainX[0]);
+            TypeDefinition rootY = reader.GetTypeDefinition(chainY[0]);
+            if (rootX.Namespace.IsNil != rootY.Namespace.IsNil)
+                return false;
+            if (!rootX.Namespace.IsNil && !names.Bytes(rootX.Namespace).SequenceEqual(names.Bytes(rootY.Namespace)))
+                return false;
+            for (int i = 0; i < lengthX; i++)
+            {
+                if (!names.Bytes(reader.GetTypeDefinition(chainX[i]).Name).SequenceEqual(names.Bytes(reader.GetTypeDefinition(chainY[i]).Name)))
+                    return false;
+            }
+            return true;
+        }
+
+        public int GetHashCode(TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            var hash = new HashCode();
+            if (!Walk(handle, chain, out int length))
+                return 0;
+            TypeDefinition root = reader.GetTypeDefinition(chain[0]);
+            if (!root.Namespace.IsNil)
+                hash.AddBytes(names.Bytes(root.Namespace));
+            for (int i = 0; i < length; i++)
+            {
+                ReadOnlySpan<byte> name = names.Bytes(reader.GetTypeDefinition(chain[i]).Name);
+                hash.Add(name.Length);
+                hash.AddBytes(name);
+            }
+            return hash.ToHashCode();
+        }
+
+        bool Walk(TypeDefinitionHandle handle, Span<TypeDefinitionHandle> chain, out int length)
+            => MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(reader, handle, chain, out length, out _, out _) && length > 0;
     }
 
     // A reference to a compiler-controlled member cannot say which of the

@@ -7,10 +7,12 @@ namespace ILInspector.ILDiff;
 /// <summary>
 /// The IL kind's canonical-bytes equality of two atoms for Exists
 /// (<c>docs/design/finding-census.md#the-cursor</c>): the equality
-/// <see cref="IlBodyDiff.AtomsEqual"/> decides, with the one exclusion the
-/// cursor contract names: a branch or switch target undecided on either side
-/// is left out, and the position is pending when the rest is equal. A struct,
-/// so lockstep's call is direct.
+/// <see cref="IlBodyDiff.AtomsEqual"/> decides, read as the cursor contract
+/// reads targets: a branch or switch target undecided on either side is left
+/// out and the position is pending; a decided target that differs is a
+/// difference the end of both streams decides, as Finding Diff Any's walk
+/// decides targets once the instruction map is complete. A struct, so
+/// lockstep's call is direct.
 /// </summary>
 public readonly struct IlAtomEquality : IFindingAtomEquality<CanonicalIlOperation>
 {
@@ -43,9 +45,9 @@ public readonly struct IlAtomEquality : IFindingAtomEquality<CanonicalIlOperatio
             int oldIndex = oldIndexes[i];
             int newIndex = newIndexes[i];
             if (oldIndex == CanonicalIlOperation.UndecidedTarget || newIndex == CanonicalIlOperation.UndecidedTarget)
-                equality = FindingAtomEquality.EqualPending;
-            else if (oldIndex != newIndex)
-                return FindingAtomEquality.Unequal;
+                equality = FindingAtomEquality.Undecided;
+            else if (oldIndex != newIndex && equality == FindingAtomEquality.Equal)
+                equality = FindingAtomEquality.Deferred;
         }
         return equality;
     }

@@ -82,7 +82,11 @@ public sealed record FindingCursorTerminal
 /// A census cursor (<c>docs/design/finding-census.md#the-cursor</c>): a
 /// one-sided producer with a position, created for one row of one kind over
 /// one image, that yields the row's atoms in the kind's canonical order and
-/// ends in exactly one terminal, after which it is never advanced.
+/// ends in exactly one terminal, after which it is never advanced. A cursor
+/// whose row is absent, or whose identity or body could not be read at all,
+/// is created at its terminal: <see cref="Terminal"/> is set before any
+/// <see cref="Advance"/>, so presence is read without decoding an atom; a
+/// cursor whose terminal is null before its first advance has a present row.
 /// </summary>
 public interface IFindingCursor<TAtom>
     where TAtom : class
@@ -111,9 +115,20 @@ public enum FindingAtomEquality
 
     /// <summary>
     /// The canonical bytes are equal apart from a target undecided on either
-    /// side, which is left out of the comparison; the position is pending.
+    /// side, which is left out of the comparison; the position is pending, and
+    /// the side that carries the undecided target will end failed.
     /// </summary>
-    EqualPending,
+    Undecided,
+
+    /// <summary>
+    /// The atoms differ only in a part the kind decides once both streams are
+    /// complete, a decided target: the position is pending, two complete
+    /// streams decide <see cref="FindingExistsDecision.Changed"/>, and a
+    /// failure before then is <see cref="FindingExistsDecision.Indeterminate"/>,
+    /// as Finding Diff Any's walk decides targets once the instruction map
+    /// is complete.
+    /// </summary>
+    Deferred,
 }
 
 /// <summary>A kind's canonical-bytes equality of two atoms, with the undecided-target exclusion.</summary>
@@ -157,7 +172,21 @@ public static class FindingExists
     {
         ArgumentNullException.ThrowIfNull(oldCursor);
         ArgumentNullException.ThrowIfNull(newCursor);
-        bool pending = false;
+
+        // Identity and presence first: a cursor created at its terminal says
+        // so before any atom is decoded on either side, and a row absent or
+        // unreadable on one side decides without reading the other.
+        FindingCursorTerminal? oldBefore = oldCursor.Terminal;
+        FindingCursorTerminal? newBefore = newCursor.Terminal;
+        if (oldBefore is not null || newBefore is not null)
+        {
+            FindingExistsDecision? early = BeforeReading(oldBefore, newBefore);
+            if (early is { } decided)
+                return Result(decided, oldCursor, newCursor);
+        }
+
+        bool undecided = false;
+        bool deferred = false;
         while (true)
         {
             bool oldMore = oldCursor.Advance();
@@ -168,8 +197,11 @@ public static class FindingExists
                 {
                     case FindingAtomEquality.Unequal:
                         return Result(FindingExistsDecision.Changed, oldCursor, newCursor);
-                    case FindingAtomEquality.EqualPending:
-                        pending = true;
+                    case FindingAtomEquality.Undecided:
+                        undecided = true;
+                        break;
+                    case FindingAtomEquality.Deferred:
+                        deferred = true;
                         break;
                 }
                 continue;
@@ -177,34 +209,48 @@ public static class FindingExists
 
             FindingCursorTerminal? oldEnd = oldMore ? null : oldCursor.Terminal;
             FindingCursorTerminal? newEnd = newMore ? null : newCursor.Terminal;
-            return Result(Decide(oldEnd, newEnd, pending), oldCursor, newCursor);
+            return Result(Decide(oldEnd, newEnd, undecided, deferred), oldCursor, newCursor);
         }
+    }
+
+    // The identity and presence rows of the Exists table over terminals known
+    // before reading; null when reading must decide. A cursor with no terminal
+    // yet has a present row.
+    static FindingExistsDecision? BeforeReading(FindingCursorTerminal? oldBefore, FindingCursorTerminal? newBefore)
+    {
+        if (oldBefore is { IsIdentityFailure: true } || newBefore is { IsIdentityFailure: true })
+            return FindingExistsDecision.Indeterminate;
+
+        bool oldAbsent = oldBefore?.Kind == FindingCursorTerminalKind.Absent;
+        bool newAbsent = newBefore?.Kind == FindingCursorTerminalKind.Absent;
+        if (oldAbsent && newAbsent)
+            return oldBefore!.AbsenceKind == newBefore!.AbsenceKind ? FindingExistsDecision.Unchanged : FindingExistsDecision.Changed;
+        if (oldAbsent || newAbsent)
+            return FindingExistsDecision.Changed;
+
+        // A row present on both sides whose reading failed at once on either.
+        if (oldBefore?.Kind == FindingCursorTerminalKind.Failed || newBefore?.Kind == FindingCursorTerminalKind.Failed)
+            return FindingExistsDecision.Indeterminate;
+        return null;
     }
 
     // The Exists table, read top down: identity, then presence, then reading.
     // A null terminal is an atom at this position.
-    static FindingExistsDecision Decide(FindingCursorTerminal? oldEnd, FindingCursorTerminal? newEnd, bool pending)
+    static FindingExistsDecision Decide(FindingCursorTerminal? oldEnd, FindingCursorTerminal? newEnd, bool undecided, bool deferred)
     {
-        if (oldEnd is { IsIdentityFailure: true } || newEnd is { IsIdentityFailure: true })
-            return FindingExistsDecision.Indeterminate;
-
-        bool oldAbsent = oldEnd?.Kind == FindingCursorTerminalKind.Absent;
-        bool newAbsent = newEnd?.Kind == FindingCursorTerminalKind.Absent;
-        if (oldAbsent && newAbsent)
-            return oldEnd!.AbsenceKind == newEnd!.AbsenceKind ? FindingExistsDecision.Unchanged : FindingExistsDecision.Changed;
-        if (oldAbsent || newAbsent)
-            return FindingExistsDecision.Changed;
-
-        if (oldEnd?.Kind == FindingCursorTerminalKind.Failed || newEnd?.Kind == FindingCursorTerminalKind.Failed)
-            return FindingExistsDecision.Indeterminate;
+        FindingExistsDecision? early = BeforeReading(oldEnd, newEnd);
+        if (early is { } decided)
+            return decided;
 
         if (oldEnd is not null && newEnd is not null)
         {
             // Both complete. An undecided target occurs only on a side that
-            // ends failed, so a pending position with two complete censuses
-            // is unreachable by construction; it is read as undecided, never
-            // as equal.
-            return pending ? FindingExistsDecision.Indeterminate : FindingExistsDecision.Unchanged;
+            // ends failed, so a pending undecided position with two complete
+            // censuses is unreachable by construction; it is read as undecided,
+            // never as equal. A deferred difference is decided now.
+            if (undecided)
+                return FindingExistsDecision.Indeterminate;
+            return deferred ? FindingExistsDecision.Changed : FindingExistsDecision.Unchanged;
         }
 
         // One complete, the other with an atom at this position.

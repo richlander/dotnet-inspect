@@ -9,7 +9,6 @@ using Inspector.Findings;
 
 namespace ILInspector.ILDiff;
 
-/// <summary>How a census cursor ended.</summary>
 /// <summary>
 /// The census cursor of the IL kind (<c>docs/design/finding-census.md#the-cursor</c>):
 /// a one-sided producer over one method body that yields the body's canonical
@@ -65,9 +64,10 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
     CanonicalIlOperation? _current;
     FindingCursorTerminal? _terminal;
 
-    IlCensusCursor(FindingSubject? subject, FindingCursorTerminal terminal)
+    IlCensusCursor(FindingSubject? subject, IlBodyDiffNormalization policy, FindingCursorTerminal terminal)
     {
         _subject = subject;
+        _policy = policy;
         _terminal = terminal;
         _map = IlBodyDiff.InstructionMap.Empty;
         _faultOffset = -1;
@@ -131,7 +131,7 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
         ArgumentNullException.ThrowIfNull(subject);
         IlBodyDiff.RequireSingleSidePolicy(policy);
         if (body is null)
-            return new IlCensusCursor(subject, FindingCursorTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
+            return new IlCensusCursor(subject, policy, FindingCursorTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
         return Create(body, Side(reader, policy), policy, subject);
     }
 
@@ -144,7 +144,7 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
         ArgumentNullException.ThrowIfNull(side);
         ArgumentNullException.ThrowIfNull(subject);
         if (body is null)
-            return new IlCensusCursor(subject, FindingCursorTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
+            return new IlCensusCursor(subject, side.Policy, FindingCursorTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
         return Create(body, side, side.Policy, subject);
     }
 
@@ -200,10 +200,10 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
-            return new IlCensusCursor(subject, FindingCursorTerminal.Failed(FindingCursorFailureStage.Identity, position: 0, ex.Message));
+            return new IlCensusCursor(subject, side.Policy, FindingCursorTerminal.Failed(FindingCursorFailureStage.Identity, position: 0, ex.Message));
         }
         if (rva == 0)
-            return new IlCensusCursor(subject, FindingCursorTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
+            return new IlCensusCursor(subject, side.Policy, FindingCursorTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
 
         MethodBodyBlock methodBody;
         try
@@ -212,7 +212,7 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
-            return new IlCensusCursor(subject, FindingCursorTerminal.Failed(FindingCursorFailureStage.Reading, position: 0, ex.Message));
+            return new IlCensusCursor(subject, side.Policy, FindingCursorTerminal.Failed(FindingCursorFailureStage.Reading, position: 0, ex.Message));
         }
 
         return new IlCensusCursor(subject, side, side.Policy, methodBody.GetILBytes() ?? [], methodBody.ExceptionRegions);
@@ -262,6 +262,7 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
         {
             return new IlCensusCursor(
                 subject,
+                policy,
                 FindingCursorTerminal.Failed(FindingCursorFailureStage.Reading, position: 0, body.Blocks.IncompleteReason ?? "body decode failed"));
         }
 

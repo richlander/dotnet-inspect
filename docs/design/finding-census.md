@@ -148,9 +148,13 @@ step's axis fixes at every point of one request. No census records the policy.
 
 **Atoms compare as bytes.** An atom's **canonical bytes** are its whole content
 as the kind's owner defines it under the policy, and they are what lockstep
-compares, with one exclusion: a branch or switch target that is undecided, as
-the pre-scan rule above leaves it, is left out of the comparison, and the
-position is pending when the rest is equal. A target that does not land on an
+compares, with targets read as the walk reads them: a branch or switch target
+that is undecided, as the pre-scan rule above leaves it, is left out of the
+comparison, and the position is pending when the rest is equal; a decided
+target that differs is a difference the end of both streams decides, so the
+position is pending too, two complete streams decide `Changed`, and a fault
+before then is `Indeterminate`, as Finding Diff Any decides targets once the
+body's instruction map is complete. A target that does not land on an
 instruction boundary of its own body, or lands at its end or outside it, is one
 the decoder canonical comparison runs rejects; the atom carries it as undecided,
 and a cursor whose stream completes with such a target ends `Failed` instead of
@@ -213,11 +217,13 @@ event that decides. The events at one position, in the order they are tested:
 | `Failed` before presence | any | `Indeterminate` |
 | `Absent(k)` | `Absent(k)` | `Unchanged` |
 | `Absent` | atom, `Complete`, `Failed` after presence, or `Absent` of another kind | `Changed` |
-| atom | atom, equal bytes, targets decided | advance both |
+| atom | atom, equal bytes, targets decided and equal | advance both |
 | atom | atom, equal bytes, a target undecided on either | advance both, pending |
+| atom | atom, equal bytes apart from a decided target that differs | advance both, pending a difference |
 | atom | atom, unequal bytes | `Changed` |
 | atom | `Complete` | `Changed` |
 | `Complete` | `Complete`, nothing pending | `Unchanged` |
+| `Complete` | `Complete`, a difference pending and no undecided target | `Changed` |
 | `Failed` | atom, `Complete`, or `Failed` | `Indeterminate` |
 
 The rows are symmetric in the two sides, and the table is read top down at each
@@ -233,9 +239,14 @@ advanced again, so a fault at position ninety on either side is never seen. A
 fault before any difference is `Indeterminate` whichever side faulted, and when
 both fault at the same position, since equal so far is not equal. An undecided
 target can only occur on a side whose cursor will end `Failed`, so a pending
-position never resolves: a body whose only differences before an undefined
-opcode are targets is `Indeterminate`, and a non-target difference before the
-fault is `Changed`, as Finding Diff Any states both. That is Diff capabilities'
+undecided position never resolves, and a pending difference is decided only
+by two complete streams: a body whose only differences before an undefined
+opcode are targets, decided or not, is `Indeterminate`, and a non-target
+difference before the fault is `Changed`, as Finding Diff Any states both.
+Deciding a decided target difference at the end rather than at its position
+is the provision's reading kept so that both decide one equality; it costs
+lockstep a full read of a pair that differs only in a target, which the
+census length bounds. That is Diff capabilities'
 rule 3, undecided is never read either way, and the `Changed`-before-fault case
 is the bounded exception to its rule 2 that the contract names: the row's
 Exhaustive view is the visible failure the kind reports for the side it could
@@ -284,7 +295,13 @@ is kept while it is measurably cheaper than lockstep and deleted when
 lockstep matches it, under the rule that a fast provision is justified by
 performance alone and never by a second definition of change. Until it is
 deleted, both answer under one gate: for every row of every fixture pair, the
-walk's verdict equals lockstep's.
+walk's verdict equals lockstep's. Two readings of malformed input differ and
+are recorded rather than reconciled: where one stream ends and the other
+continues into an instruction whose operand cannot be resolved, or whose
+shorter body's clause table is malformed, the walk decides `Changed` from the
+continuation before it reads the fault, and lockstep meets the fault while
+producing that position and reads `Indeterminate`, the conservative reading
+rule 3 of Diff capabilities permits; the fixture pairs hold neither shape.
 
 ## Exhaustive
 
@@ -346,7 +363,7 @@ lockstep over two cursors; per-point Exists is covered after the rules:
    nothing to show.
 2. **Changed is observable.** Lockstep `Changed` holds exactly when both drains
    are non-`Failed` and differ in bytes at some position or in topology, or
-   when a difference precedes a failure. Then the Exhaustive comparison, when
+   when a non-target difference precedes a failure. Then the Exhaustive comparison, when
    its matcher runs, has a pair other than `Present` with no difference: an
    `Added` or `Removed`, a `Changed`, including a matched branch whose target
    fails validation, a `Present` whose difference is a move, as the ordered
@@ -405,8 +422,9 @@ test class gates its cursor:
 - **Fault order:** a body that differs and then holds an undefined opcode is
   `Changed`; an undefined opcode, an unresolvable operand, or an undecodable
   body before any difference is `Indeterminate` on either side and on both; a
-  body whose only differences before an undefined opcode are targets is
-  `Indeterminate`; a body undecodable on one side and absent on the other is
+  body whose only differences before an undefined opcode are targets, decided
+  or not, is `Indeterminate`, and a retargeted branch alone is `Changed`; a
+  body undecodable on one side and absent on the other is
   `Changed`; a malformed Type present on one side only is `Indeterminate`; and a
   declaration fact whose key cannot be formed is `Indeterminate` for its kind.
   The cases are Finding Diff Any's `FindingDiffAnyIdentityTests` and

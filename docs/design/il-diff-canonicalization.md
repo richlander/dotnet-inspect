@@ -504,9 +504,12 @@ unavailable (`TokenResolutionFailure`); no stand-in identity is compared in
 its place. Two Type rows that spell one key are Finding Diff Any's
 `Indeterminate`, which it decides from its unit table; the side refuses an
 operand that names either row or a member of one, as Finding Diff Any's
-reference path does, finding the duplicates once per side by spelling every
-Type definition's plain key on the first operand that names a Type
-definition or one of its members, so Exists over the cursors decides as the
+reference path does. The duplicates are found once per image, on the first
+operand that names a Type definition or one of its members, by comparing the
+stored bytes of every unit-admitted Type's root namespace and declaring-chain
+names, which is the plain key's equality without a spelling, and kept per
+metadata reader as the generated-ordinal index is, so a host that creates a
+side per call pays the scan once. So Exists over the cursors decides as the
 walk does, which the Exists agreement gate of
 [Finding census](finding-census.md#gates) asserts.
 

@@ -63,14 +63,39 @@ public sealed class IlExistsTests
     }
 
     [Fact]
-    public void Presence_IsDecidedBeforeReading()
+    public void RetargetedBranch_IsDecidedOnceBothStreamsComplete()
+    {
+        // br.s back to the nop on one side and to itself on the other: both
+        // targets are decided, and the difference is decided at the end, as
+        // the walk decides targets once the instruction map is complete.
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 3, 3), Exists([Nop, BrS, 0xFD, Ret], [Nop, BrS, 0xFE, Ret]));
+        // The same retargeting followed by a fault is undecided, on either side and on both.
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Indeterminate, 3, 2), Exists([Nop, BrS, 0xFD, Ret], [Nop, BrS, 0xFE, Undefined]));
+        Assert.Equal(FindingExistsDecision.Indeterminate, Exists([Nop, BrS, 0xFD, Undefined], [Nop, BrS, 0xFE, Ret]).Decision);
+        Assert.Equal(FindingExistsDecision.Indeterminate, Exists([Nop, BrS, 0xFD, Undefined], [Nop, BrS, 0xFE, Undefined]).Decision);
+        // A non-target difference after the retargeting decides at once.
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 3, 3), Exists([Nop, BrS, 0xFD, Ldc0, Ret], [Nop, BrS, 0xFE, Ldc1, Ret]));
+    }
+
+    [Fact]
+    public void Presence_IsDecidedBeforeReading_WithoutDecodingAnAtom()
     {
         IlCensusCursor absent() => IlCensusCursor.Create((MethodInstructions?)null, reader: null, Subject, IlBodyDiffPolicy.Body);
         Assert.Equal(new FindingExistsResult(FindingExistsDecision.Unchanged, 0, 0), IlFindings.Exists(absent(), absent()));
-        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 0, 1), IlFindings.Exists(absent(), Raw([Nop, Ret])));
-        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 1, 0), IlFindings.Exists(Raw([Nop, Ret]), absent()));
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 0, 0), IlFindings.Exists(absent(), Raw([Nop, Ret])));
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 0, 0), IlFindings.Exists(Raw([Nop, Ret]), absent()));
         // Undecodable on one side and absent on the other is a difference, not undecided.
         Assert.Equal(FindingExistsDecision.Changed, IlFindings.Exists(absent(), Raw([Undefined])).Decision);
+    }
+
+    [Fact]
+    public void CursorsUnderTwoPolicies_AreRefused()
+    {
+        IlCensusCursor none = IlCensusCursor.Create([Ret], Array.Empty<ExceptionRegion>(), reader: null, Subject);
+        IlCensusCursor absentBody = IlCensusCursor.Create((MethodInstructions?)null, reader: null, Subject, IlBodyDiffPolicy.Body);
+        Assert.Equal(IlBodyDiffPolicy.Body, absentBody.Policy);
+        Assert.Throws<ArgumentException>(() => IlFindings.Exists(none, Raw([Ret])));
+        Assert.Throws<ArgumentException>(() => IlFindings.Exists(none, absentBody));
     }
 
     [Fact]
@@ -90,6 +115,9 @@ public sealed class IlExistsTests
 
         Assert.Equal(FindingExistsDecision.Indeterminate, Decide(Scripted(identityFailed), Scripted(noBody)).Decision);
         Assert.Equal(FindingExistsDecision.Indeterminate, Decide(Scripted(complete, "a"), Scripted(identityFailed)).Decision);
+        // A terminal known before reading decides without an atom being read on either side.
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 0, 0), Decide(Scripted(noBody), Scripted(complete, "a")));
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Indeterminate, 0, 0), Decide(Scripted(complete, "a"), Scripted(readingFailed)));
         Assert.Equal(FindingExistsDecision.Unchanged, Decide(Scripted(noBody), Scripted(noBody)).Decision);
         Assert.Equal(FindingExistsDecision.Changed, Decide(Scripted(noBody), Scripted(noRow)).Decision);
         Assert.Equal(FindingExistsDecision.Changed, Decide(Scripted(noBody), Scripted(readingFailed)).Decision);
@@ -99,9 +127,14 @@ public sealed class IlExistsTests
         Assert.Equal(FindingExistsDecision.Unchanged, Decide(Scripted(complete, "a", "b"), Scripted(complete, "a", "b")).Decision);
         Assert.Equal(FindingExistsDecision.Changed, Decide(Scripted(complete, "a", "b"), Scripted(complete, "a", "c")).Decision);
         Assert.Equal(FindingExistsDecision.Changed, Decide(Scripted(complete, "a"), Scripted(complete, "a", "b")).Decision);
-        // Two complete censuses with a pending position cannot arise from a cursor; read as undecided, never equal.
+        // Two complete censuses with an undecided position cannot arise from a cursor; read as undecided, never equal.
         Assert.Equal(FindingExistsDecision.Indeterminate, Decide(Scripted(complete, "a?"), Scripted(complete, "a")).Decision);
         Assert.Equal(FindingExistsDecision.Changed, Decide(Scripted(complete, "a?", "b"), Scripted(complete, "a", "c")).Decision);
+        // A deferred difference is decided by two complete streams, and is undecided before a fault.
+        Assert.Equal(new FindingExistsResult(FindingExistsDecision.Changed, 2, 2), Decide(Scripted(complete, "a!", "b"), Scripted(complete, "a", "b")));
+        Assert.Equal(FindingExistsDecision.Indeterminate, Decide(Scripted(readingFailed, "a!", "b"), Scripted(complete, "a", "b")).Decision);
+        Assert.Equal(FindingExistsDecision.Indeterminate, Decide(Scripted(complete, "a!", "b?"), Scripted(complete, "a", "b")).Decision);
+        Assert.Equal(FindingExistsDecision.Changed, Decide(Scripted(complete, "a!", "b"), Scripted(complete, "a", "c")).Decision);
     }
 
     static FindingExistsResult Exists(byte[] oldIl, byte[] newIl) => IlFindings.Exists(Raw(oldIl), Raw(newIl));
@@ -119,25 +152,30 @@ public sealed class IlExistsTests
 
     static ScriptedCursor Scripted(FindingCursorTerminal terminal, params string[] atoms) => new(atoms, terminal);
 
-    // A trailing '?' marks an atom whose target is undecided: equal otherwise, the position pends.
+    // A trailing '?' marks an atom whose target is undecided, a trailing '!'
+    // one whose decided target differs: equal otherwise, the position pends.
     readonly struct ScriptedEquality : IFindingAtomEquality<string>
     {
         public FindingAtomEquality Compare(string oldAtom, string newAtom)
         {
-            bool pending = oldAtom.EndsWith('?') || newAtom.EndsWith('?');
-            if (oldAtom.TrimEnd('?') != newAtom.TrimEnd('?'))
+            bool undecided = oldAtom.EndsWith('?') || newAtom.EndsWith('?');
+            bool deferred = oldAtom.EndsWith('!') || newAtom.EndsWith('!');
+            if (oldAtom.TrimEnd('?', '!') != newAtom.TrimEnd('?', '!'))
                 return FindingAtomEquality.Unequal;
-            return pending ? FindingAtomEquality.EqualPending : FindingAtomEquality.Equal;
+            return undecided ? FindingAtomEquality.Undecided
+                : deferred ? FindingAtomEquality.Deferred
+                : FindingAtomEquality.Equal;
         }
     }
 
+    // A cursor with no atoms is created at its terminal, as an absent, unreadable, or identity-failed row's cursor is.
     sealed class ScriptedCursor(string[] atoms, FindingCursorTerminal terminal) : IFindingCursor<string>
     {
         public string? Current { get; private set; }
 
         public int Position { get; private set; }
 
-        public FindingCursorTerminal? Terminal { get; private set; }
+        public FindingCursorTerminal? Terminal { get; private set; } = atoms.Length == 0 ? terminal : null;
 
         public bool AdvancedPastTerminal { get; private set; }
 

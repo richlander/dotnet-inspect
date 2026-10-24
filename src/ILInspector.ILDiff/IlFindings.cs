@@ -113,16 +113,19 @@ public static class IlFindings
         PEReader newPe,
         MethodDefinitionHandle newMethod)
     {
-        ArgumentNullException.ThrowIfNull(oldSide);
-        ArgumentNullException.ThrowIfNull(newSide);
-        if (oldSide.Policy != newSide.Policy)
-            throw new ArgumentException("Both sides of one Exists call are under one policy.", nameof(newSide));
+        IlBodyDiff.RequireOnePolicy(oldSide, newSide);
         return Exists(IlCensusCursor.Create(oldSide, oldPe, oldMethod), IlCensusCursor.Create(newSide, newPe, newMethod));
     }
 
-    /// <summary>Exists over two cursors created under one policy.</summary>
+    /// <summary>Exists over two cursors, which one call creates under one policy; a mismatch is refused.</summary>
     public static FindingExistsResult Exists(IlCensusCursor oldCursor, IlCensusCursor newCursor)
-        => FindingExists.Decide(oldCursor, newCursor, default(IlAtomEquality));
+    {
+        ArgumentNullException.ThrowIfNull(oldCursor);
+        ArgumentNullException.ThrowIfNull(newCursor);
+        if (oldCursor.Policy != newCursor.Policy)
+            throw new ArgumentException("Both cursors of one Exists call are under one policy.", nameof(newCursor));
+        return FindingExists.Decide(oldCursor, newCursor, default(IlAtomEquality));
+    }
 
     /// <summary>
     /// Compares already-acquired inspections. This overload preserves explicit absent sides for

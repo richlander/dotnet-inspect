@@ -52,6 +52,10 @@ public sealed class IlExistsAgreementTests
         byte[] invalid = [0x24, 0x2A];
         byte[] invalidAfterOne = [0x17, 0x24, 0x2A];
         byte[] invalidAfterTwo = [0x18, 0x24, 0x2A];
+        byte[] branchBack = [0x00, 0x2B, 0xFD, 0x2A]; // nop; br.s to the nop; ret
+        byte[] branchSelf = [0x00, 0x2B, 0xFE, 0x2A]; // nop; br.s to itself; ret
+        byte[] branchBackThenInvalid = [0x00, 0x2B, 0xFD, 0x24];
+        byte[] branchSelfThenInvalid = [0x00, 0x2B, 0xFE, 0x24];
         TypeSpec compilerControlled = new("N", "C", null, ReturnOne, ["M", "M"], PrivateScope: true);
         TypeSpec callee = new("N", "C", null, ReturnOne);
         return new TheoryData<string, byte[], byte[], FindingExistsDecision>
@@ -62,6 +66,9 @@ public sealed class IlExistsAgreementTests
             { "N.C", Image([new("N", "C", null, invalidAfterOne)]), Image([new("N", "C", null, invalidAfterTwo)]), FindingExistsDecision.Changed },
             { "N.C", Image([new("N", "C", null, ReturnOne)]), Image([new("N", "C", null, returnTwo)]), FindingExistsDecision.Changed },
             { "N.C", Image([new("N", "C", null, ReturnOne)]), Image([new("N", "C", null, ReturnOne)]), FindingExistsDecision.Unchanged },
+            // A retargeted branch is decided once both streams complete; before a fault it is undecided on both provisions.
+            { "N.C", Image([new("N", "C", null, branchBack)]), Image([new("N", "C", null, branchSelf)]), FindingExistsDecision.Changed },
+            { "N.C", Image([new("N", "C", null, branchBackThenInvalid)]), Image([new("N", "C", null, branchSelfThenInvalid)]), FindingExistsDecision.Indeterminate },
         };
     }
 
