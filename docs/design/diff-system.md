@@ -82,58 +82,65 @@ of one member when it last changed. The Exists case carries that promise; the
 exhaustive case explains what Exists found.
 
 Five scenarios are foundational, and each is one composition of three
-primitives: rows are paired across images by Symbol Key; each paired row is
-decided by **Exists** (lockstep that stops at the first difference) or read in
-full by **Exhaustive** (the complete diff of the row); and row decisions fold
-up to the requested scope. The axes, API and Body, are which row kinds are
-read.
+primitives: rows are paired across images by their owner's correspondence
+(Finding Diff Any's [identity](finding-diff-any.md#identity) for Types and
+the members it reads, [API qualified anchor](api-qualified-anchor.md) for a
+member named across versions); each paired row is decided by **Exists**
+(lockstep that stops at the row's first difference) or read in full by
+**Exhaustive** (the complete diff of the row); and row decisions fold up to
+the requested scope. The axes, API and Body, are which row kinds are read.
+The rungs are [Diff capabilities](diff-capabilities.md)'.
 
-| Scenario | Pairing | Per-row decision | Fold | Rungs |
-| --- | --- | --- | --- | --- |
-| **Member**: one member, A against A' | One member by key | Exists, or Exhaustive, on API and/or Body | None; the single-atom diff | 4, and 2 for one row |
-| **Type**: one Type, A against A' | The Type's members and its declaration facts | Exists per row, or Inventory, every row's decision kept | One state per axis for the Type | 1 and 2 |
-| **Assembly**: A against A' | Every Type, then every member | Type Exists; or Exhaustive per Type, per Member, or both | Type states, then the Library state; the full offline assembly diff | 1 to 4 |
-| **Batch**: A against several versions | One image paired with each of the others | Exists per row | Type states per version pair, such as the current major's previous patch and the last major's patch | 1 and 2, repeated |
-| **Bisect**: one member across a version sequence | One member by key in each version | Exists per row | The first or last version at which the member differs, on API and/or Body | 2 for one row, repeated |
-
-The rungs are [Diff capabilities](diff-capabilities.md)'. Inventory is rung
-2 kept whole, one state per row, rather than stopped at the Type's first
-difference.
+| Scenario | Pairing | Per-row decision and fold | Rungs |
+| --- | --- | --- | --- |
+| **Member**: one member, A against A' | One member by its anchor | Exists, or Exhaustive, on API and/or Body; no fold: the single-atom diff | 2 for one row, 4 |
+| **Type**: one Type, A against A' | The Type's members and its declaration facts | Type Exists, stopped at the Type's first difference; every row's Exists state; or Exhaustive per row | 1, 2, 3 |
+| **Assembly**: A against A' | Every Type, then every member | Type Exists for every Type; or Exhaustive per Type, per Member, or both, folded to Type states and the Library state: the full offline assembly diff | 1 to 4 |
+| **Batch**: A against several versions | One image paired with each of the others, a star | Exists per row, folded to Type states per version pair, such as the current major's previous patch and the last major's patch against A | 1 and 2, repeated |
+| **Bisect**: one member across a version sequence | One member by its anchor in each version | Exists per row, folded to every version interval across which the member differs, on API and/or Body, with no assumption that it changed once | 2 for one row, repeated |
 
 Finding Diff Any is the assembly scenario, hard-wired: assembly-wide pairing,
 Type-scope folds, and a private body reader, the walk, that decides a paired
-method's Body without a cursor. It serves the Type scenario only as a filter
-over the assembly result, the member scenario only through internal hooks,
-and batch and bisect not at all; Diff History iterates a version population
-at Library scope over it, which is batch's Library-scope form. The member
-Body diff lives in IL diff's endpoints and the member API comparison beside
-it, and nothing composes batch or bisect. Finding Diff Any is therefore one
-composition, not the solution.
+method's Body without a cursor. Product hosts reach the Type scenario by
+filtering its assembly result, and its one Type-scoped entry, `Explain`,
+returns first-difference text, not states. It reaches the member scenario
+only through internal gate hooks; the member Body diff lives in IL diff's
+endpoints, and a member's API today is read as a filter over the surface-wide
+API comparison. [Diff History](diff-history.md) composes the chain form, each
+consecutive pair of a version population through Finding Diff Any, and its
+adaptive probing is a bisect at Type scope over whole comparisons at every
+point; batch as a star and bisect over Exists are not composed. Finding Diff
+Any is therefore one composition, not the solution.
 
 What is foundational is what every row of the table uses: the cursors and
-`FindingExists` of [Finding census](finding-census.md), the exhaustive
-comparison of each kind, and the vocabulary Finding Diff Any owns, which is
-contract rather than mechanism: the pairing rules, which rows count toward
-which axis, the `Indeterminate` rules, and how a Type's rows fold. Finding
-census step 4 makes Finding Diff Any the owner of Exists at Library, Type,
-and Member scope, which is the point at which it becomes a thin composition
-of those primitives. The walk is a provision of that owner, kept while it is
+`FindingExists` of [Finding census](finding-census.md), which owns the
+reading of one row on one kind including when it is `Indeterminate`; the
+exhaustive comparison of each kind; and the vocabulary Finding Diff Any owns
+as contract rather than mechanism: the identity rule, which rows count toward
+which axis, and how a Type's rows and their undecided readings fold. Finding
+census step 4 makes Finding Diff Any the owner of Exists at Library, Type, and
+Member scope, which is the point at which it becomes a thin composition of
+those primitives. The walk is a provision of that owner, kept while it is
 measurably cheaper than lockstep over the cursors and deleted when lockstep
 matches it, under Finding census step 2b; it is justified by time alone,
 never by a second definition of change.
 
-Two consequences follow for the scenarios not yet composed:
+Three consequences follow for the scenarios not yet composed:
 
 - **Batch** wants one census side per image reused across the batch's
   comparisons, so an image's Type-level keys are spelled once. The Symbol Key
   interning table is scoped to one comparison today and a side releases it
   when it completes, so batch needs the table scoped to the batch, recorded
   on [#10533](https://github.com/richlander/dotnet-inspect/issues/10533).
-- **Bisect** is where per-row Exists pays most: it reads one member per
-  version and stops at the first difference, so its cost is one member times
-  the versions probed, never an assembly-wide pass. It needs cheap side
-  creation per image, which the per-reader duplicate-row set keeps, and
-  nothing else new.
+- **Bisect over Exists** is where per-row Exists pays most: it reads one
+  member per version and stops at that member's first difference, so its cost
+  is one member times the versions probed, never a whole comparison per
+  point. Its Body axis needs the declaration cursor of Finding census step 3
+  beside the IL cursor, since a member's Body facts include declaration facts,
+  and its API axis needs a per-member API reading that no owner provides yet.
+- **The Type scenario at rung 3** needs the per-Member exhaustive readings
+  composed under one Type, which [Annotated Type Map](annotated-type-map.md)
+  provides and Finding Diff Any does not.
 
 ## Layers
 
