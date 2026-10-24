@@ -109,9 +109,10 @@ endpoints, and a member's API today is read as a filter over the surface-wide
 API comparison. [Diff History](diff-history.md) composes the chain form, each
 consecutive pair of a version population, in two ways: Library-scope History
 over Finding Diff Any at explicit points, and Type- or Member-focused History
-over Finding producers, the API member and Analysis Findings, whose adaptive
-probing bisects one Type's or one Member's Findings by inspecting each point
-it probes, with no assumption that the member changed once. Batch as a star,
+over Finding producers, such as the API member and Analysis Findings, whose
+adaptive probing bisects one Type's or one Member's Findings by inspecting
+each point it probes, with no assumption that the focus changed once. Batch
+as a star,
 and bisect over Exists on Finding Diff Any's axes, are not composed. Finding
 Diff Any is therefore one composition, not the solution.
 
