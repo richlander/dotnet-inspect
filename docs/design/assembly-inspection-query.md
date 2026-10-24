@@ -1109,6 +1109,9 @@ multi-participant context, then richly projects only participants carrying a
 potentially matching root and any terminal suppliers Metadata resolves from
 those roots. If a declaration inventory is rejected or incomplete, execution
 falls back to full participant projection rather than weakening the answer.
+Declaration admission mirrors rich extraction's own-Type visibility and
+suppression rules; enclosing-Type reachability does not reclassify a nested
+definition before exact matching.
 The query projects public members for public Types and complete members for an
 exact non-public Type, prefers an exact full-name declaration over fuzzy
 generic-name matching, and retains every declaration matched by a non-full-name

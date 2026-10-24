@@ -1378,9 +1378,9 @@ internal static class ExactTypeInspectionQuery
         return scope switch
         {
             ApiSurfaceScope.Public =>
-                declaration.IsPublicSurface && !hidden,
+                declaration.IsDefinitionPublic == true && !hidden,
             ApiSurfaceScope.PublicWithNonPublicTypes =>
-                !declaration.IsPublicSurface || !hidden,
+                declaration.IsDefinitionPublic != true || !hidden,
             ApiSurfaceScope.IncludeAll => true,
             _ => true,
         };
