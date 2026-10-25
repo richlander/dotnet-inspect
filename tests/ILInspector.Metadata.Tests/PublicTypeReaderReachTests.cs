@@ -51,6 +51,8 @@ public sealed class PublicTypeReaderReachTests
         """;
 
     // Only public nested Types of internal Types carry the scanners' names.
+    // Opportunities keep one row per concept, so the public row would mask
+    // an unreachable one in the mixed image.
     const string UnreachableOnlySource = """
         namespace Microsoft.AspNetCore.Reach
         {
@@ -60,6 +62,11 @@ public sealed class PublicTypeReaderReachTests
         namespace OpenTelemetry.Reach
         {
             internal class Hidden { public class InternalNestedExporter { } }
+        }
+
+        namespace Azure.Reach
+        {
+            internal class Hidden { public class InternalNestedClient { } }
         }
         """;
 
@@ -129,12 +136,13 @@ public sealed class PublicTypeReaderReachTests
     public void IntegrationOpportunities_AdmitOnlyTypesPublicThroughEveryEnclosingType()
     {
         using var reader = new PEReader(new MemoryStream(Image.Value));
+        using var unreachable = new PEReader(new MemoryStream(UnreachableOnlyImage.Value));
 
         List<IntegrationOpportunityInfo> opportunities =
             IntegrationOpportunityScanner.Scan(reader, new HashSet<string>());
 
         Assert.Contains(opportunities, opportunity => opportunity.Api.Contains("PublicNestedClient", StringComparison.Ordinal));
-        Assert.DoesNotContain(opportunities, opportunity => opportunity.Api.Contains("InternalNested", StringComparison.Ordinal));
+        Assert.Empty(IntegrationOpportunityScanner.Scan(unreachable, new HashSet<string>()));
     }
 
     [Fact]
