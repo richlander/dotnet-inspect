@@ -102,7 +102,9 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
         _il = il;
         _rawRegions = exceptionRegions;
         _map = IlBodyDiff.InstructionMap.Scan(il, out _faultOffset, out _faultReason);
-        _collected = IlAblation.NoClauses ? null : ImmutableArray.CreateBuilder<DecodedInstruction>(_map.InstructionCount);
+        _collected = IlAblation.NoClauses || (IlAblation.SkipEmptyClauses && exceptionRegions.Count == 0)
+            ? null
+            : ImmutableArray.CreateBuilder<DecodedInstruction>(_map.InstructionCount);
     }
 
     /// <summary>The policy the cursor's atoms are read under.</summary>
@@ -303,7 +305,7 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
             if (_faultOffset >= 0)
                 return Fail(_faultOffset, _faultReason ?? "body decode failed");
             int undecided = _firstUndecidedOffset >= 0 ? _firstUndecidedOffset : _map.IlLength;
-            if (IlAblation.NoClauses && _il is not null)
+            if (_il is not null && _collected is null)
                 _clauses = [];
             else if (!TryValidateClauses(out string? clauseFailure))
                 return Fail(undecided, clauseFailure);
