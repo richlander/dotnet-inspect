@@ -12,8 +12,8 @@ namespace ILInspector.ILDiff.Tests;
 /// The clause stage over the cursor's instruction map applies the decoder's
 /// clause-table rules: a table the decoder rejects ends the cursor failed at
 /// the body's end with the decode's reason, and a table it admits yields
-/// its clause atoms. Regions are encoded unchecked so the table can be
-/// malformed in each way the boundary check must reject.
+/// its clause atoms. The encoder checks only its own ranges, so the table can
+/// be malformed in each way the boundary check must reject.
 /// </summary>
 public class IlCensusCursorClauseTableTests
 {
@@ -100,7 +100,9 @@ public class IlCensusCursorClauseTableTests
             MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
         MethodBodyStreamEncoder.MethodBody body = stream.AddMethodBody(il.Length, maxStack: 2, exceptionRegionCount: 1, hasSmallExceptionRegions: true);
         new BlobWriter(body.Instructions).WriteBytes(il);
-        body.ExceptionRegions.AddUnchecked(ExceptionRegionKind.Finally, tryOffset, tryLength, handlerOffset, handlerLength);
+        // Add checks the small-format ranges and nothing about the body, so a
+        // region may start inside an operand or end past the IL.
+        body.ExceptionRegions.Add(ExceptionRegionKind.Finally, tryOffset, tryLength, handlerOffset, handlerLength);
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, MethodImplAttributes.IL,
             metadata.GetOrAddString("M"), voidHandle, body.Offset, default);

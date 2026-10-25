@@ -471,9 +471,9 @@ further runs placed the clause cost: skipping the stage only for bodies with no
 exception regions recovered 31% (Aspire, whose async state machines carry
 regions) to 84% (System.Private.CoreLib) of it, family table against family
 table with the skip, and applying the topology without building blocks
-recovered only 20% to 26%, because the topology built the same hash set and
-then ran the exception-flow facts' transfer validation over every instruction,
-which the block graph never consulted.
+recovered only 16% to 29% on the same basis, because the topology built the
+same hash set and then ran the exception-flow facts' transfer validation over
+every instruction, which the block graph never consulted.
 
 The stage now applies the decoder's clause-table rules over the cursor's own
 instruction map, which answers each boundary by binary search, retains no
