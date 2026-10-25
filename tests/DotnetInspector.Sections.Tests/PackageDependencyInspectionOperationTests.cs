@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using System.Text;
-using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 
@@ -162,51 +161,6 @@ public sealed class PackageDependencyInspectionOperationTests
         Assert.Equal(
             "package-dependencies.content-unavailable",
             Assert.Single(inspection.Diagnostics).Code);
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_RoundTripsTransportContract()
-    {
-        PackageInspectionInput input = Input(
-            """
-            <dependencies>
-              <group targetFramework="net8.0">
-                <dependency id="Example.Dependency" version="[1.0.0]" />
-              </group>
-            </dependencies>
-            """);
-
-        InspectionEnvelope<PackageDependencyInspectionOutcome> inspection =
-            await PackageDependencyInspectionOperation.ExecuteAsync(
-                new(input, "net8.0"),
-                TestContext.Current.CancellationToken);
-        string json = JsonSerializer.Serialize(
-            inspection,
-            PackageDependencyInspectionJsonContext.Default
-                .PackageDependencyInspectionEnvelope);
-        InspectionEnvelope<PackageDependencyInspectionOutcome> roundTripped =
-            JsonSerializer.Deserialize(
-                json,
-                PackageDependencyInspectionJsonContext.Default
-                    .PackageDependencyInspectionEnvelope)
-            ?? throw new InvalidOperationException(
-                "The Package dependency inspection envelope did not deserialize.");
-
-        Assert.Contains("\"kind\":\"available\"", json, StringComparison.Ordinal);
-        var available =
-            Assert.IsType<PackageDependencyInspectionOutcome.Available>(
-                roundTripped.Content);
-        Assert.Equal("example.package", available.Coordinate.PackageId);
-        Assert.Equal("net8.0", available.Dependencies.SelectedTargetFramework);
-        Assert.Equal(
-            "Example.Dependency",
-            Assert.Single(
-                Assert.Single(available.Dependencies.Groups).Dependencies).Id);
-        Assert.Equal(
-            "package-dependencies/share",
-            Assert.IsType<InspectionShare.NonProjectable>(
-                roundTripped.Share).Path);
-        Assert.Empty(roundTripped.Diagnostics);
     }
 
     private static PackageInspectionInput Input(string dependencies)

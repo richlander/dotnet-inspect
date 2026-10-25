@@ -49,15 +49,6 @@ internal static class PackageInspector
                 : NuGetSourceResolver.RestrictToSourceKeys(
                     sourceOptions,
                     [resolution.ProducerKey]);
-        InspectionEnvelope<PackageDependencyInspectionOutcome>
-            dependencyInspection =
-            await InspectPackageDependenciesAsync(
-                    resolution,
-                    packageName,
-                    version,
-                    nuspec,
-                    requestedTargetFramework)
-                .ConfigureAwait(false);
 
         PackageIndexCacheSubject? cacheSubject = null;
         if (!isLocalFile)
@@ -87,11 +78,6 @@ internal static class PackageInspector
             }
             if (cached != null)
             {
-                ApplyPackageDependencies(
-                    cached,
-                    dependencyInspection,
-                    logger.Log);
-                CanonicalizePersistentProjection(cached);
                 // Keep section rows consistent with the shared folder producer,
                 // including indexes written before case-insensitive de-duplication.
                 var cachedFrameworkFolders = TfmSelector.GetPackageFrameworkFolders(extractPath);
@@ -144,6 +130,15 @@ internal static class PackageInspector
             }
         }
 
+        InspectionEnvelope<PackageDependencyInspectionOutcome>
+            dependencyInspection =
+            await InspectPackageDependenciesAsync(
+                    resolution,
+                    packageName,
+                    version,
+                    nuspec,
+                    requestedTargetFramework)
+                .ConfigureAwait(false);
         var result = new InspectionResult
         {
             PackageName = packageName,
