@@ -19,6 +19,10 @@ because that type is its Producer Planning declaration and execution
 participant. Gate classifiers remain `*Scope`/`MethodRowClassifier` types;
 composite Analysis helpers that prove relationships retain `*Analyzer`.
 
+Adoption step 3 of [Notable findings](notable-findings.md#adoption) adds the
+Library's compilation profile facts under
+[Compilation profile facts](#compilation-profile-facts).
+
 Slice 2b of #8733 amends the async analyzer chosen in
 [#8788](https://github.com/richlander/dotnet-inspect/issues/8788). Async is
 now two analyzers, runtime async and compiler async, and the async analyzer
@@ -71,7 +75,9 @@ This owner defines:
 - each analyzer's test and the fields it declares;
 - the fidelity each analyzer promises; and
 - the async analyzer that asks both async tests and the merge order that reproduces the
-  legacy list.
+  legacy list; and
+- the compilation profile facts under
+  [Compilation profile facts](#compilation-profile-facts).
 
 This owner does not define:
 
@@ -450,7 +456,60 @@ at one method. That is the Microsoft.CodeAnalysis.CSharp 4.14.0 result
 recorded as `incomplete`. Moving it to the typed critical signal is follow-up
 work, tracked in #8733, and not part of this change.
 
+## Compilation profile facts
+
+[Notable findings](notable-findings.md#library-explained-facts) judges Member
+findings against two Library-level facts: whether the build is Debug, and
+whether the Library has runtime async. Its adoption step 3 names this owner,
+because the facts are the per-method async classification read over the whole
+population plus one assembly attribute. This owner therefore also owns this
+claim:
+
+> `LibraryCompilationProfileScanner.Scan` reads, for one metadata reader, the
+> Debug fact from the assembly's `DebuggableAttribute` arguments and, over
+> every method definition with a non-zero RVA at every accessibility, the
+> counts of runtime-async bodies, compiler state-machine async bodies (classic
+> async and async iterator, without the runtime flag), the async iterators
+> among them, and iterators. `MethodClassificationScanner.ClassifyStateMachine`
+> is the per-method claim it reads: the method's own state-machine attributes,
+> matched in place as the compiler-async analyzer matches them.
+
+- **Debug** is `DebuggingModes.DisableOptimizations` in the one-argument
+  constructor, or `isJITOptimizerDisabled` in the two-argument constructor.
+  An absent attribute, or an argument blob the decoder refuses, reads as
+  optimized. The attribute's type is matched in place; only its arguments are
+  decoded, through `AttributeDecoder`.
+- **The population is every body.** `PresenceFlags.HasRuntimeAsync` and
+  `HasStateMachineAsync` summarize public non-accessor methods on types whose
+  name does not start with `<`; the profile does not, so a Library whose only
+  runtime-async method is internal, or a lambda on a closure type, has runtime
+  async in its profile and none in its flags. Nothing in the walk reads a
+  name, so it materializes no string.
+- **The derived rules restate the pattern owner.** `ExplainsStateMachine` is
+  true for Debug and a classic async claim and never for an iterator or async
+  iterator; `UnexpectedStateMachineAsyncMethods` is the state-machine async
+  count in a runtime-async Library and zero otherwise. Both read
+  [The notable set](notable-findings.md#the-notable-set); this owner issues
+  the facts and decides no mark.
+- **`ClassifyAsyncMethod` is unchanged.** It keeps its materialized
+  comparison because the legacy oracle reads it, and the profile gate compares
+  the in-place walk against it over every fixture body.
+- **No host.** CLI Facts, the Library Overview profile line, and the Findings
+  row read these facts under their own adoption steps; the notable preset
+  reads them through `NotableFindingContext.For`, under
+  [Hidden-fact annotations](hidden-fact-annotations.md#notable-preset-and-guidance-catalog).
+
 ## Verification
+
+- **Compilation profile.** The Release and Debug builds of one source,
+  `ILInspector.Metadata.StateMachineFixtures` and its `.Debug` twin, agree on
+  every async and iterator count and differ in the Debug fact; a runtime-async
+  fixture whose only runtime-async method is internal counts it, counts its
+  async iterator and `async void` method as state-machine async and reports
+  both as unexpected, while `ScanPresenceFlags` reports no runtime async; the
+  enablement fixture's closure lambda counts the same way; and over every
+  fixture body the in-place counts equal the materialized
+  `ClassifyAsyncMethod` and `AttributeReader.HasAttribute` walk.
 
 - **Combined consumers.** Async section Rows and a LibraryInfo async Count
   remain separate terminal lanes with equal answers and share one physical

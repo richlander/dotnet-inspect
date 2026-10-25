@@ -99,4 +99,34 @@ public static class MethodClassificationScanner
         return null;
     }
 
+    static readonly MetadataTypeNameTarget AsyncStateMachine =
+        new(KnownAttributeNames.AsyncStateMachineAttribute);
+
+    static readonly MetadataTypeNameTarget AsyncIteratorStateMachine =
+        new(KnownAttributeNames.AsyncIteratorStateMachineAttribute);
+
+    static readonly MetadataTypeNameTarget IteratorStateMachine =
+        new(KnownAttributeNames.IteratorStateMachineAttribute);
+
+    /// <summary>
+    /// The state-machine kind a method's own attributes claim, matched in
+    /// place as the classification analyzers match them, or null when the
+    /// method claims none. It reads only the state-machine attributes, so a
+    /// runtime-async method claims none and a caller that distinguishes
+    /// runtime async tests the implementation flag first.
+    /// <see cref="ClassifyAsyncMethod"/> keeps its materialized comparison as
+    /// the legacy oracle's reference.
+    /// </summary>
+    public static StateMachineClaimKind? ClassifyStateMachine(MetadataReader reader, MethodDefinition method)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        var attributes = method.GetCustomAttributes();
+        if (MetadataTypeNameMatch.AnyAttributeHasType(reader, attributes, AsyncStateMachine))
+            return StateMachineClaimKind.ClassicAsync;
+        if (MetadataTypeNameMatch.AnyAttributeHasType(reader, attributes, AsyncIteratorStateMachine))
+            return StateMachineClaimKind.AsyncIterator;
+        if (MetadataTypeNameMatch.AnyAttributeHasType(reader, attributes, IteratorStateMachine))
+            return StateMachineClaimKind.Iterator;
+        return null;
+    }
 }
