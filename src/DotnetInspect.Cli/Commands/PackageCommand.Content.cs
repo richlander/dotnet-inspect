@@ -857,7 +857,8 @@ public partial class PackageCommand
                 fetchMetadata: wantsPackageMetadata,
                 requireIdentifierMetadata: wantsIdentifierMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
-                sourceOptions: options.SourceOptions);
+                sourceOptions: options.SourceOptions,
+                requestedTargetFramework: options.Tfm);
 
             await ApplyPackageInfoMeasurementsAsync(
                 result,
@@ -1649,9 +1650,12 @@ public partial class PackageCommand
             return PackageInfoInventoryAttempt.NotHandled;
 
         InspectionResult result =
-            PackageInspector.InspectPackageInventory(
+            await PackageInspector.InspectPackageInventoryAsync(
                 settlement,
-                nuspec);
+                nuspec,
+                context.Logger.Log,
+                options.Tfm)
+                .ConfigureAwait(false);
         ApplyPackageInfoMeasurementInspection(
             result,
             PackageInfoMeasurementInspection.Project(
@@ -3088,28 +3092,4 @@ public partial class PackageCommand
         => rows is { IsUnlimited: false } window
             ? window.Resolve(count)
             : (0, count);
-
-    private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
-    {
-        result.PackageName = nuspec.PackageName ?? result.PackageName;
-        result.ManifestVersion = nuspec.ManifestVersion;
-        result.Version = nuspec.Version ?? result.Version;
-        result.Description = nuspec.Description;
-        result.Authors = nuspec.Authors;
-        result.Repository = nuspec.Repository;
-        result.RepositoryType = nuspec.RepositoryType;
-        result.RepositoryCommit = nuspec.RepositoryCommit;
-        result.License = nuspec.License;
-        result.LicenseUrl = nuspec.LicenseUrl;
-        result.DeclaredLicenseFile = nuspec.LicenseDeclaration is
-            {
-                Kind: PackageLicenseDeclarationKind.File,
-            } license
-                ? license.Value
-                : null;
-        result.PackageTypes = nuspec.PackageTypes;
-        result.IsToolPackage = nuspec.IsToolPackage;
-        result.ReadmeFile = nuspec.ReadmeFile;
-        result.DependencyGroups = nuspec.DependencyGroups;
-    }
 }

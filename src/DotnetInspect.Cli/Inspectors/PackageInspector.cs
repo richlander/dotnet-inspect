@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -31,7 +32,8 @@ internal static class PackageInspector
         bool requireIdentifierMetadata = false,
         bool verifyRidPackageAvailability = false,
         bool scanBinarySignals = true,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        string? requestedTargetFramework = null)
     {
         string extractPath = resolution.ExtractPath;
         string packageName = resolution.PackageName ?? fallbackPackageName;
@@ -47,6 +49,15 @@ internal static class PackageInspector
                 : NuGetSourceResolver.RestrictToSourceKeys(
                     sourceOptions,
                     [resolution.ProducerKey]);
+        InspectionEnvelope<PackageDependencyInspectionOutcome>
+            dependencyInspection =
+            await InspectPackageDependenciesAsync(
+                    resolution,
+                    packageName,
+                    version,
+                    nuspec,
+                    requestedTargetFramework)
+                .ConfigureAwait(false);
 
         PackageIndexCacheSubject? cacheSubject = null;
         if (!isLocalFile)
@@ -76,6 +87,11 @@ internal static class PackageInspector
             }
             if (cached != null)
             {
+                ApplyPackageDependencies(
+                    cached,
+                    dependencyInspection,
+                    logger.Log);
+                CanonicalizePersistentProjection(cached);
                 // Keep section rows consistent with the shared folder producer,
                 // including indexes written before case-insensitive de-duplication.
                 var cachedFrameworkFolders = TfmSelector.GetPackageFrameworkFolders(extractPath);
@@ -135,6 +151,10 @@ internal static class PackageInspector
         };
 
         ApplyNuspec(result, nuspec);
+        bool dependencyProjectionComplete = ApplyPackageDependencies(
+            result,
+            dependencyInspection,
+            logger.Log);
 
         result.PackageReadmeFile = PackageFileLister.ResolvePackageReadme(extractPath, result.ReadmeFile);
         result.HasReadme = result.PackageReadmeFile != null;
@@ -145,7 +165,8 @@ internal static class PackageInspector
         string libDir = Path.Combine(extractPath, "lib");
         bool hasToolsDir = Directory.Exists(toolsDir);
         bool hasLibDir = Directory.Exists(libDir);
-        bool productionComplete = nuspec is not null;
+        bool productionComplete =
+            nuspec is not null && dependencyProjectionComplete;
         if (cacheSubject is not null && nuspec is null)
         {
             logger.LogWarning(
@@ -309,11 +330,14 @@ internal static class PackageInspector
         return result;
     }
 
-    internal static InspectionResult InspectPackageInventory(
+    internal static async Task<InspectionResult> InspectPackageInventoryAsync(
         PackageHouseSettlement.Acquired settlement,
-        NuspecData? nuspec)
+        NuspecData? nuspec,
+        Action<string> log,
+        string? requestedTargetFramework = null)
     {
         ArgumentNullException.ThrowIfNull(settlement);
+        ArgumentNullException.ThrowIfNull(log);
         PackageHouseFileList fileList =
             settlement.Result.Evidence.FileList
             ?? throw new InvalidOperationException(
@@ -324,6 +348,18 @@ internal static class PackageInspector
             Version = settlement.Payload.Coordinate.Version,
         };
         ApplyNuspec(result, nuspec);
+        InspectionEnvelope<PackageDependencyInspectionOutcome>
+            dependencyInspection =
+            await PackageDependencyInspectionOperation.ExecuteAsync(
+                    new(
+                        PackageInspectionInput.CreateFromPayload(
+                            settlement.Payload),
+                        requestedTargetFramework))
+                .ConfigureAwait(false);
+        ApplyPackageDependencies(
+            result,
+            dependencyInspection,
+            log);
 
         PackagePrimaryDocumentResolution readme =
             PackagePrimaryDocumentInspection.Execute(
@@ -383,7 +419,88 @@ internal static class PackageInspector
         result.PackageTypes = nuspec.PackageTypes;
         result.IsToolPackage = nuspec.IsToolPackage;
         result.ReadmeFile = nuspec.ReadmeFile;
-        result.DependencyGroups = nuspec.DependencyGroups;
+    }
+
+    private static async Task<
+        InspectionEnvelope<PackageDependencyInspectionOutcome>>
+        InspectPackageDependenciesAsync(
+            PackageExtractionResult resolution,
+            string packageName,
+            string version,
+            NuspecData? nuspec,
+            string? requestedTargetFramework)
+    {
+        PackageInspectionInput input =
+            resolution.AcquiredPayload is { } acquired
+                ? PackageInspectionInput.CreateFromPayload(acquired)
+                : PackageInspectionInput.CreateLocal(
+                    new FileSystemPackageContent(
+                        resolution.ExtractPath,
+                        resolution.NupkgPath,
+                        resolution.FromCache,
+                        resolution.ProducerKey ?? "local-package"),
+                    nuspec?.PackageName ?? packageName,
+                    nuspec?.Version ?? version);
+        return await PackageDependencyInspectionOperation.ExecuteAsync(
+                new(input, requestedTargetFramework))
+            .ConfigureAwait(false);
+    }
+
+    private static bool ApplyPackageDependencies(
+        InspectionResult result,
+        InspectionEnvelope<PackageDependencyInspectionOutcome> inspection,
+        Action<string> log)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(inspection);
+        ArgumentNullException.ThrowIfNull(log);
+
+        if (inspection.Content is
+            PackageDependencyInspectionOutcome.Available available)
+        {
+            result.DependencyGroups =
+            [
+                .. available.Dependencies.Groups.Select(group =>
+                    new DependencyGroup
+                    {
+                        TargetFramework = group.TargetFramework,
+                        IsImplicitManifestGroup =
+                            group.IsImplicitManifestGroup,
+                        Dependencies =
+                        [
+                            .. group.Dependencies.Select(dependency =>
+                                new PackageDependency
+                                {
+                                    Id = dependency.Id,
+                                    Version = dependency.VersionRange,
+                                }),
+                        ],
+                    }),
+            ];
+            return true;
+        }
+
+        result.DependencyGroups = null;
+        string summary = inspection.Content switch
+        {
+            PackageDependencyInspectionOutcome.NoManifest =>
+                "The package manifest is unavailable; dependencies were not projected.",
+            PackageDependencyInspectionOutcome.Failed failed =>
+                failed.Reason switch
+                {
+                    PackageDependencyInspectionFailureReason
+                        .PackageIdentityUnavailable =>
+                        "The package identity is unavailable; dependencies were not projected.",
+                    PackageDependencyInspectionFailureReason.ManifestRejected =>
+                        "The package manifest was rejected; dependencies were not projected.",
+                    _ =>
+                        "The package manifest could not be read; dependencies were not projected.",
+                },
+            _ => throw new InvalidOperationException(
+                "Unknown package dependency inspection outcome."),
+        };
+        log(summary);
+        return false;
     }
 
     private static IReadOnlyList<string> DeriveInventoryDirectories(

@@ -62,6 +62,30 @@ public static class PackageDependencyGroupsQuery
     public static InspectionQuery<PackageDependencyGroupsResult> Definition { get; } =
         new("Package dependency groups", InspectionCost.NetworkFree);
 
+    public static Task<PackageDependencyGroupsResult> ExecuteAsync(
+        PackageInspectionInput input,
+        string? requestedTargetFramework = null,
+        CancellationToken cancellationToken = default,
+        bool allowCompatibleFallbackForRequestedTfm = false)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (input.PackageId is null || input.PackageVersion is null)
+        {
+            return Task.FromResult<PackageDependencyGroupsResult>(
+                new PackageDependencyGroupsResult.Failed(
+                    new InvalidOperationException(
+                        "Package dependency inspection requires an exact package identity.")));
+        }
+
+        return ExecuteAsync(
+            input.Content,
+            input.PackageId,
+            input.PackageVersion,
+            requestedTargetFramework,
+            cancellationToken,
+            allowCompatibleFallbackForRequestedTfm);
+    }
+
     public static async Task<PackageDependencyGroupsResult> ExecuteAsync(
         IPackageContent content,
         string packageId,

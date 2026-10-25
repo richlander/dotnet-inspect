@@ -1471,7 +1471,8 @@ public partial class PackageCommand
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 scanBinarySignals:
                     !IsPackageChildrenProjection(options),
-                sourceOptions: options.SourceOptions);
+                sourceOptions: options.SourceOptions,
+                requestedTargetFramework: options.Tfm);
             observedInspection = result;
 
             if (admittedPackageInfoMeasurements is not null
