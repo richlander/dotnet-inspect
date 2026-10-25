@@ -127,7 +127,7 @@ public sealed class DeclarationCensusAgreementTests
         Assert.Equal(FindingInspectionAbsenceKind.NoApplicableInput, cursor.Terminal.AbsenceKind);
 
         TypeDefinitionHandle module = reader.TypeDefinitions.First();
-        Assert.False(units.Contains(module));
+        Assert.DoesNotContain(module, units);
         DeclarationCensusCursor moduleCursor = DeclarationCensusCursor.Create(side, module, DeclarationAxis.Api);
         Assert.False(moduleCursor.Advance());
         Assert.Equal(FindingCursorTerminalKind.Absent, moduleCursor.Terminal!.Kind);
