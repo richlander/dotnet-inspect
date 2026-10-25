@@ -772,13 +772,13 @@ public static partial class IlBodyDiff
             return false;
         }
 
-        ImmutableArray<int> targets = instruction.BranchTargets.IsDefault ? [] : instruction.BranchTargets;
+        ImmutableArray<int> targets = IlAblation.NoTargets || instruction.BranchTargets.IsDefault ? [] : instruction.BranchTargets;
         operation = new CanonicalIlOperation(
             instruction.Offset,
             OpcodeFamily(instruction, normalization),
             operand,
             targets,
-            map.BranchTargetIndexes(targets));
+            IlAblation.NoTargets ? [] : map.BranchTargetIndexes(targets));
         return true;
     }
 
@@ -856,11 +856,18 @@ public static partial class IlBodyDiff
                 return false;
             }
 
+            if (IlAblation.NoTokens)
+            {
+                operand = null;
+                failure = null;
+                return true;
+            }
             return side.TryResolve(instruction, out operand, out failure);
         }
 
-        operand = ImmediateOperandIdentity(instruction)
-            ?? OperandIdentityByKind(instruction, normalization);
+        operand = IlAblation.NoImmediates
+            ? null
+            : ImmediateOperandIdentity(instruction) ?? OperandIdentityByKind(instruction, normalization);
         failure = null;
         return true;
     }
