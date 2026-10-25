@@ -6,12 +6,27 @@ namespace DotnetInspect.Web.Interop.Source;
 
 public sealed record BrowserMemberBodyDiffRequest(
     string PackageId, string BeforeVersion, string AfterVersion, string Framework,
-    string CompileAssetId, string Generation, string? InventoryId = null, string? MemberId = null);
+    string RuntimeIdentifier, string CompileAssetId, string Generation,
+    string? InventoryId = null, string? MemberId = null);
 
 public sealed record BrowserMemberBodyDiffResult(
     string Kind, BrowserMemberBodyDiffInventory? Inventory,
     BrowserMemberBodyDiffDocument? Document, string? Detail,
-    InspectionEnvelope<JsonElement>? Inspection = null);
+    InspectionEnvelope<JsonElement>? Inspection = null,
+    BrowserMemberBodyDiffMissingCounterpart? MissingCounterpart = null);
+
+public sealed record BrowserMemberBodyDiffMissingCounterpart(
+    BrowserMemberBodyDiffEndpoint Endpoint,
+    string Version,
+    string RuntimeIdentifier,
+    string[] AvailableRuntimeIdentifiers);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserMemberBodyDiffEndpoint>))]
+public enum BrowserMemberBodyDiffEndpoint
+{
+    Before,
+    After,
+}
 
 public sealed record BrowserMemberBodyDiffInventory(
     string Id, bool IsComplete, BrowserMemberBodyCoverage[] Coverage,

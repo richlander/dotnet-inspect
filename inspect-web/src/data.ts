@@ -14,22 +14,111 @@ export function assertNever(value: never, vocabulary: string): never {
   throw new Error(`Unhandled ${vocabulary}: ${JSON.stringify(value)}`);
 }
 
-// Not exported: every consumer now goes through `typeLensesFor`, which applies the
-// runtime-pack filter. A direct export would be a way to skip it.
-const lenses = [
-  ["api", "API"],
-  ["compare", "Compare"],
-  ["metadata", "Metadata"],
-  ["source", "Source"]
+const typeLensRouteByFacetId = {
+  "type.api": "api",
+  "type.metadata": "metadata",
+  "type.source": "source",
+  "type.compare": "compare",
+} as const;
+
+const libraryLensRouteByFacetId = {
+  "library.references": "references",
+  "library.compare": "compare",
+  "library.metadata": "metadata",
+} as const;
+
+const requiredLibraryViewFacetIds = [
+  "library.references",
+  "library.compare",
+  "library.metadata",
+] as const satisfies readonly (keyof typeof libraryLensRouteByFacetId)[];
+
+const libraryLensRoutes = [
+  "overview",
+  "references",
+  "compare",
+  "analysis",
+  "metadata",
 ] as const;
 
-export type TypeLens = (typeof lenses)[number][0] | "overview";
+export type TypeLens =
+  (typeof typeLensRouteByFacetId)[keyof typeof typeLensRouteByFacetId]
+  | "overview";
+
+type RegisteredTypeLens = Exclude<TypeLens, "overview">;
+
+function isTypeViewFacetId(
+  value: string,
+): value is keyof typeof typeLensRouteByFacetId {
+  return Object.hasOwn(typeLensRouteByFacetId, value);
+}
+
+function isLibraryViewFacetId(
+  value: string,
+): value is keyof typeof libraryLensRouteByFacetId {
+  return Object.hasOwn(libraryLensRouteByFacetId, value);
+}
+
+export interface ViewFacetDescriptor {
+  readonly id: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly order: number;
+}
+
+export type TypeViewFacetDescriptor = ViewFacetDescriptor;
+export type LibraryViewFacetDescriptor = ViewFacetDescriptor;
+
+let typeLenses: readonly (readonly [RegisteredTypeLens, string])[] | null = null;
+type RegisteredLibraryLens =
+  (typeof libraryLensRouteByFacetId)[keyof typeof libraryLensRouteByFacetId];
+let libraryViewFacetTitles:
+  ReadonlyMap<RegisteredLibraryLens, string> | null = null;
+
+export function setTypeViewFacetCatalog(
+  descriptors: readonly TypeViewFacetDescriptor[],
+): void {
+  const typeDescriptors = descriptors.filter(
+    descriptor => descriptor.kind === "Type");
+  const seen = new Set<string>();
+  let previousOrder = Number.NEGATIVE_INFINITY;
+  const projected: (readonly [RegisteredTypeLens, string])[] = [];
+  for (const descriptor of typeDescriptors) {
+    if (!isTypeViewFacetId(descriptor.id)) {
+      throw new Error(
+        `Type view facet '${descriptor.id}' has no Browser renderer binding.`);
+    }
+    if (seen.has(descriptor.id)) {
+      throw new Error(`Type view facet '${descriptor.id}' is duplicated.`);
+    }
+    if (!descriptor.title.trim()) {
+      throw new Error(`Type view facet '${descriptor.id}' has no title.`);
+    }
+    if (!Number.isFinite(descriptor.order) || descriptor.order < previousOrder) {
+      throw new Error(
+        "Type view facets must retain product-issued finite ascending order.");
+    }
+    seen.add(descriptor.id);
+    previousOrder = descriptor.order;
+    projected.push([
+      typeLensRouteByFacetId[descriptor.id],
+      descriptor.title,
+    ]);
+  }
+  for (const id of Object.keys(typeLensRouteByFacetId)) {
+    if (!seen.has(id)) {
+      throw new Error(`Required Type view facet '${id}' is missing.`);
+    }
+  }
+  typeLenses = projected;
+}
 
 export function isTypeLens(
   value: string | null | undefined,
 ): value is TypeLens {
   return typeof value === "string"
-    && (value === "overview" || lenses.some(([id]) => id === value));
+    && (value === "overview"
+      || Object.values(typeLensRouteByFacetId).some(id => id === value));
 }
 
 export const packageLenses = [
@@ -59,14 +148,6 @@ export function packageLensesFor(pkg: PackageInspectorContext | null) {
   });
 }
 
-export const libraryLenses = [
-  ["overview", "Overview"],
-  ["references", "References"],
-  ["compare", "Compare"],
-  ["analysis", "Analysis"],
-  ["metadata", "Metadata"]
-] as const;
-
 export type PackageLens = (typeof packageLenses)[number][0];
 
 export function isPackageLens(
@@ -76,13 +157,76 @@ export function isPackageLens(
     && packageLenses.some(([id]) => id === value);
 }
 
-export type LibraryLens = (typeof libraryLenses)[number][0];
+export type LibraryLens = (typeof libraryLensRoutes)[number];
+
+export function setLibraryViewFacetCatalog(
+  descriptors: readonly LibraryViewFacetDescriptor[],
+): void {
+  const seen = new Set<string>();
+  const titles = new Map<RegisteredLibraryLens, string>();
+  let previousOrder = Number.NEGATIVE_INFINITY;
+  for (const descriptor of descriptors) {
+    if (descriptor.kind !== "Library") continue;
+    if (seen.has(descriptor.id)) {
+      throw new Error(`Library view facet '${descriptor.id}' is duplicated.`);
+    }
+    if (!descriptor.title.trim()) {
+      throw new Error(`Library view facet '${descriptor.id}' has no title.`);
+    }
+    if (!Number.isFinite(descriptor.order) || descriptor.order < previousOrder) {
+      throw new Error(
+        "Library view facets must retain product-issued finite ascending order.");
+    }
+    seen.add(descriptor.id);
+    previousOrder = descriptor.order;
+    if (isLibraryViewFacetId(descriptor.id)) {
+      titles.set(
+        libraryLensRouteByFacetId[descriptor.id],
+        descriptor.title);
+    }
+  }
+  for (const id of requiredLibraryViewFacetIds) {
+    const route = libraryLensRouteByFacetId[id];
+    if (!titles.has(route)) {
+      throw new Error(`Required Library view facet '${id}' is missing.`);
+    }
+  }
+  libraryViewFacetTitles = titles;
+}
+
+export function libraryLensDefinitions():
+  readonly (readonly [LibraryLens, string])[] {
+  const titles = libraryViewFacetTitles;
+  if (titles === null) {
+    throw new Error("The product Library view-facet catalog is unavailable.");
+  }
+  return libraryLensRoutes.map(route => {
+    switch (route) {
+      case "overview":
+        return [route, "Overview"] as const;
+      case "analysis":
+        return [route, "Analysis"] as const;
+      case "references":
+      case "compare":
+      case "metadata": {
+        const title = titles.get(route);
+        if (title === undefined) {
+          throw new Error(
+            `The Library view-facet title for '${route}' is unavailable.`);
+        }
+        return [route, title] as const;
+      }
+      default:
+        return assertNever(route, "Library lens");
+    }
+  });
+}
 
 export function isLibraryLens(
   value: string | null | undefined,
 ): value is LibraryLens {
   return typeof value === "string"
-    && libraryLenses.some(([id]) => id === value);
+    && libraryLensRoutes.some(id => id === value);
 }
 
 export const memberSectionDefinitions = [
@@ -1792,15 +1936,18 @@ export function typeLensesFor(
   forwarded = false,
 ): readonly (readonly [TypeLens, string])[] {
   if (forwarded) return [["overview", "Overview"]];
+  if (typeLenses === null) {
+    throw new Error("The product Type view-facet catalog is unavailable.");
+  }
   if (pkg?.source?.kind === "file")
-    return lenses.filter(([id]) => id === "api");
+    return typeLenses.filter(([id]) => id === "api");
   if (pkg?.isRuntimePack)
-    return lenses.filter(([id]) => id === "api" || id === "source");
+    return typeLenses.filter(([id]) => id === "api" || id === "source");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
   return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
-    ? lenses.filter(([id]) => id !== "compare")
-    : lenses;
+    ? typeLenses.filter(([id]) => id !== "compare")
+    : typeLenses;
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;

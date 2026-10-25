@@ -1090,6 +1090,18 @@ parallel host catalog merely to observe the renderer.
 
 The descriptor/status, product-action, generation, effect-authority, and
 complete Navigation-result gates above remain pending with #5510 and #5511.
+As a bounded presentation-only contribution to #5510, the ordinary Type strip
+now consumes Registry-issued Type descriptor identity, labels, and order
+through `CatalogExports.ListTypeViewFacets`. Browser route bindings and current
+applicability filters remain local until subject-scoped Navigation descriptors,
+statuses, and actions replace them; this partial adoption does not claim the
+pending gates.
+The ordinary Library strip also consumes Registry-issued descriptor identity
+and labels for the exact `library.references`, `library.metadata`, and
+`library.compare` matches through `CatalogExports.ListLibraryViewFacets`.
+Browser Overview and Analysis remain local composites, and Browser route
+tokens, order, applicability, activation, and rendering remain local; this
+bounded adoption does not alias either composite to one Registry facet.
 Until those owners' migrations land, this implementation claims the adaptive
 Browser presentation and retirement contract, not full product Navigation
 descriptor or consumer conformance.

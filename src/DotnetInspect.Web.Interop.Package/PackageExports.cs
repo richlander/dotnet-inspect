@@ -1262,7 +1262,8 @@ public static partial class PackageExports
         string version,
         string framework,
         string assemblyName,
-        string documentationId)
+        string documentationId,
+        string? runtimeIdentifier)
     {
         DocumentationQueryOutcome documentation =
             await BrowserPackageWorkspace.QueryMemberDocumentationAsync(
@@ -1270,13 +1271,28 @@ public static partial class PackageExports
                     version,
                     framework,
                     assemblyName,
-                    documentationId)
+                    documentationId,
+                    runtimeIdentifier)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             documentation,
             DocumentationQueryJsonContext.Default
                 .DocumentationQueryOutcome);
     }
+
+    public static Task<string> QueryMemberDocumentation(
+        string packageId,
+        string version,
+        string framework,
+        string assemblyName,
+        string documentationId) =>
+        QueryMemberDocumentation(
+            packageId,
+            version,
+            framework,
+            assemblyName,
+            documentationId,
+            runtimeIdentifier: null);
 
     /// <summary>
     /// One exact member's shared compiled-documentation outcome from a

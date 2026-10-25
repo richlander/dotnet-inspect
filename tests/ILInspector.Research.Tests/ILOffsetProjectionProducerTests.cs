@@ -32,6 +32,8 @@ public class ILOffsetProjectionProducerTests
 
     static int AddOne(int value) => value + 1;
 
+    static object Allocate() => new();
+
     static int Stackalloc()
     {
         Span<int> values = stackalloc int[1];
@@ -248,6 +250,54 @@ public class ILOffsetProjectionProducerTests
             "no focused Analysis input",
             outcome.Failure.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ProjectILOffset_ExactAllocationUsesOneDeduplicatedMethodRequest()
+    {
+        MethodInfo method =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(Allocate),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        string path =
+            typeof(ILOffsetProjectionProducerTests).Assembly.Location;
+        using var source = SourceLinkService.OpenPrefetched(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(source.Context);
+
+        ILOffsetAllocationAnalysisInput allocation =
+            ILOffsetAllocationAnalysis.Execute(
+                session,
+                "IL-offset exact allocation test",
+                source.Context.ModuleVersionId(),
+                [method.MetadataToken, method.MetadataToken],
+                TestContext.Current.CancellationToken);
+        AllocationOccurrence occurrence = Assert.Single(
+            allocation.Occurrences[method.MetadataToken]);
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    method.MetadataToken,
+                    occurrence.ILOffset,
+                    ILOffsetProjectionCapabilities.AllocationContext,
+                    AllocationAnalysis: allocation));
+
+        Assert.True(outcome.Succeeded);
+        Assert.Single(outcome.Projection!.AllocationContext!);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.ExactMethods,
+            allocation.SourceReceipt.Breadth.Kind);
+        Assert.Single(allocation.SourceReceipt.Breadth.Methods);
+        Assert.Equal(
+            session.ImageLength,
+            allocation.SourceReceipt.TerminalWorkLimits
+                .MaximumEncodedIlBytes);
+        Assert.Equal(1, allocation.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, allocation.SourceReceipt.BodiesAcquired);
+        Assert.Equal(0, allocation.SourceReceipt.ModuleLookups);
+        Assert.Single(allocation.WorkReceipt.Producers);
     }
 
     [Fact]

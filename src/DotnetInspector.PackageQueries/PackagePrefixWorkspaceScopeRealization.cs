@@ -382,8 +382,9 @@ public static class PackagePrefixWorkspaceScopeRealization
     static WorkspaceContextLoadFailure? ScopePreparationFailure(
         RealizedMemberCoordinate.Package coordinate,
         PackageRootBinding root) =>
-        root.Root.AssetSelection.Status switch
+        root.Root.AssetSelection?.Status switch
         {
+            null or
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
                 new(
                     WorkspaceContextLoadFailureKind.PackageAssetUnavailable,

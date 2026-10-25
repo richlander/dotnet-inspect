@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Runtime.CompilerServices;
+using System.Text;
 
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -15,8 +17,9 @@ namespace ILInspector.ILDiff;
 /// <see cref="MetadataSymbolSpeller{TDomain,TRow,TRows}"/> into this side's
 /// population and memoized by token for the side's life, so a token met again
 /// costs a lookup and every cursor over the image spells a row once. Under
-/// Finding Diff Any's Body policy the bytes are the keys that comparison
-/// memoizes. The text a view shows is a projection
+/// Finding Diff Any's Body policy the bytes are the expansions of the keys
+/// that comparison memoizes, which embed named Types as Ref parts of its
+/// table. The text a view shows is a projection
 /// (<see cref="IlOperandIdentity.Value"/>), formatted from the side only where
 /// it is read and never compared.
 /// </summary>
@@ -50,6 +53,9 @@ public sealed class IlCensusSide
     readonly Dictionary<int, StagedSymbolKey<IlOperandPart>> _rows = [];
     readonly Dictionary<int, StagedSymbolKey<IlOperandPart>> _referenced;
     readonly Dictionary<(OperandKind Kind, int Token), IlOperandIdentity> _operands = [];
+    // The Type rows that share a plain key with another, found once per image
+    // on the first operand that names a Type definition or one of its members.
+    DuplicateTypeRows? _duplicateTypeRows;
     IlBodyDiff.OperandText? _text;
     string? _assemblyName;
     bool _rewriting;
@@ -70,7 +76,8 @@ public sealed class IlCensusSide
             reader,
             names,
             (policy & IlBodyDiffNormalization.NormalizeAssemblyScope) != 0 ? MetadataSymbolScope.Omitted : MetadataSymbolScope.Declared,
-            new Rows(this));
+            new Rows(this),
+            scratchCapacity: 1024);
         _referenced = ReferenceEquals(correspondence, CompilerGeneratedOrdinalCorrespondence.Empty) ? _rows : [];
     }
 
@@ -197,6 +204,8 @@ public sealed class IlCensusSide
             return new IlOperandIdentity(IlOperandIdentityKind.Token, Text.Format(kind, token));
         EntityHandle row = MetadataTokens.EntityHandle(token);
         Expect(kind, row);
+        RequireNotCompilerControlled(row);
+        RequireNotDuplicateTypeRow(row);
         StagedSymbolKey<IlOperandPart> key = kind == OperandKind.InlineSig
             ? CalliSignature((StandaloneSignatureHandle)row)
             : Row(row, rewrite: true);
@@ -208,8 +217,12 @@ public sealed class IlCensusSide
     // parent is a Type (Roslyn's vararg call site has a method parent), and a
     // method specification of a definition or of such a reference. A
     // compiler-controlled (PrivateScope) member, which ECMA-335 lets share a
-    // name and signature, is refused where it is spelled (Row), as Finding
-    // Diff Any's ReferenceKey refuses it.
+    // name and signature, is refused where a reference names it (an operand,
+    // or a row a spelling resolves), as Finding Diff Any's ReferenceKey
+    // refuses it; the definition itself is spelled for pairing (Definition).
+    // An operand that names one of two Type rows sharing a key, or a member
+    // of one, is refused as ReferenceKey refuses it: the rows cannot be told
+    // apart, so a reference to either is undecided.
     void Expect(OperandKind kind, EntityHandle row)
     {
         bool admitted = kind switch
@@ -282,12 +295,8 @@ public sealed class IlCensusSide
                 memo[token] = alias;
                 return alias;
             case HandleKind.MethodDefinition:
-                if ((_reader.GetMethodDefinition((MethodDefinitionHandle)row).Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.PrivateScope)
-                    throw new BadImageFormatException("A reference names a compiler-controlled method.");
                 return Memoize(memo, token, _speller.Method(_members, (MethodDefinitionHandle)row));
             case HandleKind.FieldDefinition:
-                if ((_reader.GetFieldDefinition((FieldDefinitionHandle)row).Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.PrivateScope)
-                    throw new BadImageFormatException("A reference names a compiler-controlled field.");
                 return Memoize(memo, token, _speller.Field(_members, (FieldDefinitionHandle)row));
             case HandleKind.MemberReference:
                 return Memoize(memo, token, _speller.MemberReference(_members, (MemberReferenceHandle)row));
@@ -295,6 +304,201 @@ public sealed class IlCensusSide
                 return Memoize(memo, token, _speller.MethodSpecification(_members, (MethodSpecificationHandle)row));
             default:
                 throw new BadImageFormatException($"Unsupported metadata token 0x{token:X8} in an IL operand.");
+        }
+    }
+
+    void RequireNotDuplicateTypeRow(EntityHandle row)
+    {
+        TypeDefinitionHandle type = row.Kind switch
+        {
+            HandleKind.TypeDefinition => (TypeDefinitionHandle)row,
+            HandleKind.MethodDefinition => _reader.GetMethodDefinition((MethodDefinitionHandle)row).GetDeclaringType(),
+            HandleKind.FieldDefinition => _reader.GetFieldDefinition((FieldDefinitionHandle)row).GetDeclaringType(),
+            _ => default,
+        };
+        if (type.IsNil)
+            return;
+        _duplicateTypeRows ??= DuplicateTypeRows.Of(_reader);
+        if (_duplicateTypeRows.Contains(type))
+            throw new BadImageFormatException("A reference names one of two Type rows that share a key.");
+    }
+
+    /// <summary>
+    /// The Type rows of one image that share a plain key with another, over
+    /// the Types the walk's unit table admits: a Type with an invalid
+    /// declaring chain, a compiler-generated Type in its chain, or a name that
+    /// is not well-formed UTF-8 is not a unit there and so never in its
+    /// duplicate set. Two Types share a key exactly when their root
+    /// namespaces and their declaring-chain names agree byte for byte, so the
+    /// set is found by comparing stored names, spelling nothing, once per
+    /// image and kept per metadata reader as the generated-ordinal index is,
+    /// so a host that creates a side per call pays it once.
+    /// </summary>
+    sealed class DuplicateTypeRows
+    {
+        static readonly ConditionalWeakTable<MetadataReader, DuplicateTypeRows> s_cache = new();
+        static readonly DuplicateTypeRows s_none = new([]);
+
+        readonly HashSet<int> _tokens;
+
+        DuplicateTypeRows(HashSet<int> tokens) => _tokens = tokens;
+
+        public static DuplicateTypeRows Of(MetadataReader reader) => s_cache.GetValue(reader, Compute);
+
+        public bool Contains(TypeDefinitionHandle type) => _tokens.Count != 0 && _tokens.Contains(MetadataTokens.GetToken(type));
+
+        static DuplicateTypeRows Compute(MetadataReader reader)
+        {
+            var names = new MetadataStringHeap(reader);
+            var comparer = new PlainTypeNameComparer(reader, names);
+            var seen = new Dictionary<TypeDefinitionHandle, TypeDefinitionHandle>(comparer);
+            HashSet<int>? duplicates = null;
+            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+            {
+                // A row whose names or chain cannot be read is a malformed
+                // unit in the walk's table, never a duplicate; it fails the
+                // operands that name it, not this scan.
+                try
+                {
+                    if (!comparer.IsUnit(handle))
+                        continue;
+                    if (seen.TryAdd(handle, handle))
+                        continue;
+                    duplicates ??= [];
+                    duplicates.Add(MetadataTokens.GetToken(handle));
+                    duplicates.Add(MetadataTokens.GetToken(seen[handle]));
+                }
+                catch (Exception ex) when (IsMalformed(ex))
+                {
+                    continue;
+                }
+            }
+            return duplicates is null ? s_none : new DuplicateTypeRows(duplicates);
+        }
+    }
+
+    /// <summary>
+    /// Equality of two Type definitions by the plain key the speller would
+    /// write for them: the root namespace, if any, and the names along the
+    /// declaring chain, each compared as stored bytes.
+    /// </summary>
+    sealed class PlainTypeNameComparer(MetadataReader reader, MetadataStringHeap names) : IEqualityComparer<TypeDefinitionHandle>
+    {
+        // The walk's unit admission: a valid declaring chain, no compiler-generated
+        // Type in it, well-formed names, no empty name, and a full name within the
+        // Type name budget, counted in characters with one delimiter per segment,
+        // as the walk's escaped name is.
+        public bool IsUnit(TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!Walk(handle, chain, out int length))
+                return false;
+            TypeDefinition root = reader.GetTypeDefinition(chain[0]);
+            long characters = 0;
+            if (!root.Namespace.IsNil)
+            {
+                if (!names.IsWellFormed(root.Namespace))
+                    return false;
+                characters += Encoding.UTF8.GetCharCount(names.Bytes(root.Namespace));
+            }
+            for (int i = 0; i < length; i++)
+            {
+                StringHandle name = reader.GetTypeDefinition(chain[i]).Name;
+                if (reader.StringComparer.StartsWith(name, "<") || !names.IsWellFormed(name))
+                    return false;
+                ReadOnlySpan<byte> bytes = names.Bytes(name);
+                if (bytes.IsEmpty)
+                    return false;
+                characters += 1 + Encoding.UTF8.GetCharCount(bytes);
+                if (characters > MetadataSafetyPolicy.MaxTypeNameCharacters)
+                    return false;
+            }
+            return true;
+        }
+
+        public bool Equals(TypeDefinitionHandle x, TypeDefinitionHandle y)
+        {
+            if (x == y)
+                return true;
+            Span<TypeDefinitionHandle> chainX = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            Span<TypeDefinitionHandle> chainY = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!Walk(x, chainX, out int lengthX) || !Walk(y, chainY, out int lengthY) || lengthX != lengthY)
+                return false;
+            TypeDefinition rootX = reader.GetTypeDefinition(chainX[0]);
+            TypeDefinition rootY = reader.GetTypeDefinition(chainY[0]);
+            if (rootX.Namespace.IsNil != rootY.Namespace.IsNil)
+                return false;
+            if (!rootX.Namespace.IsNil && !names.Bytes(rootX.Namespace).SequenceEqual(names.Bytes(rootY.Namespace)))
+                return false;
+            for (int i = 0; i < lengthX; i++)
+            {
+                if (!names.Bytes(reader.GetTypeDefinition(chainX[i]).Name).SequenceEqual(names.Bytes(reader.GetTypeDefinition(chainY[i]).Name)))
+                    return false;
+            }
+            return true;
+        }
+
+        public int GetHashCode(TypeDefinitionHandle handle)
+        {
+            Span<TypeDefinitionHandle> chain = stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+            var hash = new HashCode();
+            if (!Walk(handle, chain, out int length))
+                return 0;
+            TypeDefinition root = reader.GetTypeDefinition(chain[0]);
+            if (!root.Namespace.IsNil)
+                hash.AddBytes(names.Bytes(root.Namespace));
+            for (int i = 0; i < length; i++)
+            {
+                ReadOnlySpan<byte> name = names.Bytes(reader.GetTypeDefinition(chain[i]).Name);
+                hash.Add(name.Length);
+                hash.AddBytes(name);
+            }
+            return hash.ToHashCode();
+        }
+
+        bool Walk(TypeDefinitionHandle handle, Span<TypeDefinitionHandle> chain, out int length)
+            => MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(reader, handle, chain, out length, out _, out _) && length > 0;
+    }
+
+    // A reference to a compiler-controlled member cannot say which of the
+    // members sharing its name and signature it names; Finding Diff Any's
+    // ReferenceKey refuses it with these words.
+    void RequireNotCompilerControlled(EntityHandle row)
+    {
+        switch (row.Kind)
+        {
+            case HandleKind.MethodDefinition
+                when (_reader.GetMethodDefinition((MethodDefinitionHandle)row).Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.PrivateScope:
+                throw new BadImageFormatException("A reference names a compiler-controlled method.");
+            case HandleKind.FieldDefinition
+                when (_reader.GetFieldDefinition((FieldDefinitionHandle)row).Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.PrivateScope:
+                throw new BadImageFormatException("A reference names a compiler-controlled field.");
+        }
+    }
+
+    /// <summary>
+    /// A method definition's key, the identity <see cref="IlAssemblyDiff"/>
+    /// pairs bodies by: the same spelling a call operand naming the method
+    /// memoizes, so a map built through the comparison's side spells each
+    /// method once for both. A compiler-controlled definition is spelled (two
+    /// of them pair by occurrence); only a reference to one is refused. A
+    /// definition the speller rejects is a failure of that method alone: the
+    /// spelling it left open is abandoned, and memoized keys stay valid.
+    /// </summary>
+    internal bool TryDefinition(MethodDefinitionHandle handle, out StagedSymbolKey<IlOperandPart> key, out string? failure)
+    {
+        try
+        {
+            key = Row(handle, rewrite: true);
+            failure = null;
+            return true;
+        }
+        catch (Exception ex) when (IsMalformed(ex))
+        {
+            Abandon();
+            key = default;
+            failure = ex.Message;
+            return false;
         }
     }
 
@@ -394,8 +598,11 @@ public sealed class IlCensusSide
         _rewriting = false;
     }
 
+    // A builder or speller used out of its lifetime is a defect, not malformed
+    // input, and is never classified as the image's.
     static bool IsMalformed(Exception ex)
-        => ex is BadImageFormatException or ArgumentException or InvalidOperationException;
+        => ex is BadImageFormatException or ArgumentException or InvalidOperationException
+            && ex is not SymbolKeyStateException;
 
     /// <summary>
     /// The side as the speller's consumer: a struct, so the speller's
@@ -404,7 +611,10 @@ public sealed class IlCensusSide
     readonly struct Rows(IlCensusSide side) : IMetadataRowKeys<IlOperandPart, StagedSymbolKey<IlOperandPart>>
     {
         public StagedSymbolKey<IlOperandPart> Resolve(EntityHandle row, MetadataRowRole role)
-            => side.Row(row, rewrite: role != MetadataRowRole.Referenced);
+        {
+            side.RequireNotCompilerControlled(row);
+            return side.Row(row, rewrite: role != MetadataRowRole.Referenced);
+        }
 
         public StagedSymbolKey<IlOperandPart> Primitive(PrimitiveTypeCode typeCode) => side.Primitive(typeCode);
 

@@ -1757,7 +1757,7 @@ public sealed partial class BrowserEngineBoundaryTests
             "Browser package operation exceeded its 10-second deadline",
             failure.Message);
         Assert.Contains(
-            "authorized package source was not settled",
+            "PackageHouse version-listing operation deadline expired",
             failure.InnerException?.Message);
         Assert.Equal(1, handler.FlatContainerRequests);
         Assert.True(handler.RegistrationRequests >= 1);

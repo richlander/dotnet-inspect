@@ -1341,6 +1341,64 @@ selection protection, detail, and focus-target identities; and
 focus restoration, and layered Escape. A payload the portable model rejects
 remains a visible failure rather than rendering success-shaped empty output.
 
+## Continuous resource explanation
+
+The Workspace page offers explicit catalog exploration and declaration
+explanation. These gestures use the Catalog facade and shared Resource
+Explanation operation; they do not activate a Workspace, settle versions or
+acquire Package content. The Browser publishes a root over the vocabulary and
+component-contract resources its Catalog facade admits. The existing shared
+reachability gate withholds that root if any admitted resource is unreachable.
+Coverage describes this host's registrations rather than implying complete
+explanation of every Browser inspector.
+
+Catalog links identify resources independently of representation.
+`catalog.explainResources(path, projection)` accepts a plain installed path or
+`inspect-resource:/` address and an explicit `hal`, `data` or `contract`
+reading. Root/component-contract readings consume the shared completed Document;
+vocabulary roots use their shared closed reading profile and other vocabulary
+resources use the shared Document projection.
+The Browser does not construct a second description model. The Workspace view
+renders locally available data and offers links for explicit selection rather
+than fetching linked resources for verification. Its interactive HTML renderer
+consumes the shared JSON reading directly: Browser buttons and local async
+state belong to the host, while Markout remains the CLI presentation path.
+
+For Workspace declarations, the UI captures a canonical packet through the
+existing complete-share capture path, without changing saved definitions or
+the URL. `catalog.describeWorkspaceComponents(packet)` decodes that immutable
+packet and projects Workspace-owned Package descriptors. The UI retains each
+owner-produced declaration intact and passes it to
+`catalog.explainWorkspaceComponent(json, parentPacket, projection)`.
+The validating owner supplies the exact typed input to the existing shared
+detached operation. A standalone request leaves parent facts unavailable;
+supplying the actual packet qualifies correspondence, context and focus.
+Packet-local paths do not become installed resource identity.
+
+Unknown kinds/versions, malformed declarations/packets and unsupported readings
+remain typed visible refusals without search or activation fallback.
+Successful explanation preserves shared Content, Share and diagnostics through
+the existing Catalog envelope projection. UI transport failures and diagnostics
+remain visible. An async result for an older Workspace/navigation cannot
+replace the current reading. Browser transport owns neither packet grammar,
+component validity, resource identity nor realization authority.
+
+The real witness is System.Text.Json 10.0.0/net10.0: its
+[extracted declaration](../docs/examples/workspace-package-component.json) and
+[saved Package packet](../docs/examples/workspace-package-replay.json) motivate
+the same standalone and parent-qualified questions as CLI `explain`.
+Managed facade tests compare the existing direct/HAL captures and gate owner
+failures, root reachability, envelope preservation and zero Package requests.
+Frontend tests exercise explicit reading/navigation, stale-result suppression,
+diagnostic rendering and escaped data. Generated-facade and published Wasm
+gates exercise the actual C#/TypeScript boundary.
+
+This is step 21 of the 23-step continuous-discovery plan in #10132, after CLI
+component admission #10140 / PR #10604. Scoped relations (#10142) and agent
+trials (#10143) remain separate. No previous Browser component/root description
+path exists to retire. Vocabulary native-value selection retains its current
+specialized entrance below; this adoption does not change its contract.
+
 ## Browser vocabulary explanation admission
 
 `catalog.explainVocabularies(path, depth, valueIds)` reads installed vocabulary

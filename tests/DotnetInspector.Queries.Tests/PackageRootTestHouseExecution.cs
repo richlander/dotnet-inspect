@@ -45,13 +45,21 @@ internal static class PackageRootTestHouseExecution
             await using var composition =
                 new DesktopPackageSourceComposition(
                     request.Operation.RequestTimeout);
-            var payloadAcquisition = new PackagePayloadAcquisitionPlan(
-                (_, _) => new EntryOpaquePackageStore(
-                    options.PackageStore),
-                options.PayloadLimits,
-                options.PackageTransferPolicy,
-                options.Log,
-                access: PackagePayloadAccess.Ranged);
+            PackageStoreProvider getStore =
+                (_, _) => new EntryOpaquePackageStore(options.PackageStore);
+            PackagePayloadAcquisitionPlan payloadAcquisition =
+                request.ContentQuery is not null
+                    ? PackagePayloadAcquisitionPlan.ForContentQueries(
+                        getStore,
+                        options.PayloadLimits,
+                        options.PackageTransferPolicy,
+                        options.Log)
+                    : new PackagePayloadAcquisitionPlan(
+                        getStore,
+                        options.PayloadLimits,
+                        options.PackageTransferPolicy,
+                        options.Log,
+                        access: PackagePayloadAccess.Ranged);
             PackageHouse house = authorization.Sources.Count == 0
                 && requiredProducerKey is null
                 ? new PackageHouse(

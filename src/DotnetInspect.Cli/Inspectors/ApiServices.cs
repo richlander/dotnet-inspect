@@ -28,13 +28,15 @@ internal static class ApiServices
         SelectedTypeBindingContext? RootBindingContext = null,
         IReadOnlyDictionary<
             ApiType,
-            SelectedTypeBindingContext>? BindingContexts = null)
+            SelectedTypeBindingContext>? BindingContexts = null,
+        string? LibraryAssetPath = null)
     {
         internal string GetLibraryAssetPath(string? packageExtractPath) =>
-            packageExtractPath is null
+            LibraryAssetPath
+            ?? (packageExtractPath is null
                 ? Path.GetFullPath(ApiDllPath)
                 : Path.GetRelativePath(packageExtractPath, ApiDllPath)
-                    .Replace(Path.DirectorySeparatorChar, '/');
+                    .Replace(Path.DirectorySeparatorChar, '/'));
 
         internal ResolvedAssemblyReference GetSourceAssembly(
             ApiType type)

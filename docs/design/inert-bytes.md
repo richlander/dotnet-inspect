@@ -175,11 +175,17 @@ exact-Type inspection boundary:
 3. Presentation writes the Type spelling directly to `IBufferWriter<byte>`,
    and the CLI writes the completed UTF-8 document to standard output without
    an intermediate UTF-16 document.
-4. The direct document is admitted only for a clean non-generic Type whose
-   established `Type Info` projection needs no rendered base-Type identity.
-   Generic Types, transformed names, nontrivial base Types, other formats,
-   row or column projections, and every broader command shape retain the
-   established renderer.
+4. The direct document is admitted only for a clean Type whose established
+   `Type Info` projection needs no rendered base-Type identity. A generic Type
+   is admitted when the leaf segment introduces every parameter, no parameter
+   has a constraint row or a non-canonical annotation, and every parameter
+   name is clean and is not a keyword the constraint spelling would escape.
+   Metadata removes each segment's canonical arity suffix by slicing its
+   range, and the `Type Parameters` row spells variance and constraint
+   keywords from the posted flags and annotations, so no parameter name is
+   decoded. Constraint types, Types nested in generic Types, transformed
+   names, nontrivial base Types, other formats, row or column projections, and
+   every broader command shape retain the established renderer.
 
 That eligibility rule preserves the byte-identical selected document while
 establishing one complete host-input-to-byte-sink path. Diagnostic reach

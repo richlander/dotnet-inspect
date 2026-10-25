@@ -10,7 +10,35 @@ public static class PackageEntryPath
         ArgumentException.ThrowIfNullOrWhiteSpace(assetPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
         string[] segments = assetPath.Split('/');
-        int populationSegments =
+        int populationSegments = LibraryPopulationSegments(
+                segments,
+                targetFramework)
+            ?? throw new InvalidOperationException(
+                $"'{assetPath}' is not in a recognized Library population.");
+        return $"{string.Join('/', segments[..populationSegments])}/";
+    }
+
+    internal static string? TryGetLibraryRelativePath(
+        string assetPath,
+        string targetFramework)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+        string[] segments = assetPath.Split('/');
+        int? populationSegments = LibraryPopulationSegments(
+            segments,
+            targetFramework);
+        return populationSegments is null
+            || segments.Length <= populationSegments.Value
+                ? null
+                : string.Join(
+                    '/',
+                    segments[populationSegments.Value..]);
+    }
+
+    static int? LibraryPopulationSegments(
+        string[] segments,
+        string targetFramework) =>
             segments.Length >= 5
             && segments[0].Equals(
                 "runtimes",
@@ -52,10 +80,7 @@ public static class PackageEntryPath
                             "any",
                             StringComparison.OrdinalIgnoreCase)
                             ? 1
-                            : throw new InvalidOperationException(
-                                $"'{assetPath}' is not in a recognized Library population.");
-        return $"{string.Join('/', segments[..populationSegments])}/";
-    }
+                            : null;
 
     /// <summary>
     /// Returns the final lexical segment of a package or archive entry.

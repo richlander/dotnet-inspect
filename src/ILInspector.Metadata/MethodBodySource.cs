@@ -240,7 +240,10 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         string metadataName = _reader.GetString(type.Name);
         if (TypeFilters.IsCompilerGenerated(metadataName)
             || (!includeAll
-                && (!type.IsPublic
+                && (!ApiSurfaceExtractor.AdmitsPublicScopeType(
+                        _reader,
+                        typeHandle,
+                        type)
                     || AttributeReader.HasHiddenAttribute(
                         _reader,
                         type.GetCustomAttributes()))))

@@ -236,6 +236,19 @@ public sealed class JsExportFunction
         { get; init; } = [];
 
     /// <summary>
+    /// Authenticated direct <see cref="System.Int64"/> return marshaling.
+    /// Null when the return is not a direct <see cref="System.Int64"/> slot.
+    /// </summary>
+    public JsExportInt64Marshaling? ReturnInt64Marshaling { get; init; }
+
+    /// <summary>
+    /// Authenticated direct <see cref="System.Int64"/> parameter marshaling,
+    /// correlated to <see cref="Parameters"/> by zero-based parameter index.
+    /// </summary>
+    public IReadOnlyList<JsExportParameterInt64Marshaling>
+        ParameterInt64Marshalings { get; init; } = [];
+
+    /// <summary>
     /// The DTO type actually serialized by this method's own body onto its return value, resolved
     /// from a <c>JsonSerializer.Serialize</c> call site — not inferred from the assembly's whole
     /// registered shape vocabulary. Null when the body contains no such call (e.g. <see
@@ -357,6 +370,12 @@ public enum JsExportDelegateKind
     Func,
 }
 
+public enum JsExportInt64Marshaling
+{
+    Number,
+    BigInt,
+}
+
 /// <summary>
 /// One authenticated synchronous delegate parameter. TypeScript and other
 /// consumers may choose their own function-type spelling from these
@@ -373,4 +392,11 @@ public sealed class JsExportDelegateParameter
 
     [JsonIgnore]
     public TypeRef? ReturnType { get; init; }
+}
+
+public sealed class JsExportParameterInt64Marshaling
+{
+    public required int ParameterIndex { get; init; }
+
+    public required JsExportInt64Marshaling Marshaling { get; init; }
 }

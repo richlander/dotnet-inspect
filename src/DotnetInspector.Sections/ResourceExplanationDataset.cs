@@ -13,16 +13,18 @@ public sealed partial class ResourceExplanationDataset
     private readonly ImmutableArray<ResourceExplanationResource> _resources;
     private readonly string _kind;
     private readonly bool _narrowed;
+    private readonly ResourceExplanationDocument? _description;
 
     private ResourceExplanationDataset(ResourceExplanationCatalog catalog,
         ResourceExplanationResource root, ImmutableArray<ResourceExplanationResource> resources,
-        string kind, bool narrowed = false)
+        string kind, bool narrowed = false, ResourceExplanationDocument? description = null)
     {
         _catalog = catalog;
         _root = root;
         _resources = resources;
         _kind = kind;
         _narrowed = narrowed;
+        _description = description;
     }
 
     public ImmutableArray<ResourceExplanationResource> Resources => _resources;
@@ -37,6 +39,16 @@ public sealed partial class ResourceExplanationDataset
         ArgumentNullException.ThrowIfNull(resolution);
         var byKey = catalog.Resources.ToDictionary(resource => resource.Key);
         ResourceExplanationResource root = byKey[resolution.Key];
+        if (IsDescriptionReading(root))
+        {
+            if (facetKeys is not null || valueIds is not null)
+                throw new InvalidOperationException("Description readings do not admit facet or value selection.");
+            int depth = root.ResourceType == ResourceExplanationVocabulary.ExplanationRootType ? 2
+                : root.ResourceType == ResourceExplanationVocabulary.RoutingCollectionType ? 1 : 0;
+            ResourceExplanationDocument description = catalog.Explain(resolution,
+                ResourceExplanationRequest.ForHost(depth)).Content;
+            return new(catalog, root, description.Resources, "description", description: description);
+        }
         var selected = new HashSet<ExplanationResourceKey>();
         var queue = new Queue<ExplanationResourceKey>();
         int targetCount = 0;
@@ -116,10 +128,24 @@ public sealed partial class ResourceExplanationDataset
         Func<ResourcePath, string>? bindHalAddress = null)
     {
         ArgumentNullException.ThrowIfNull(bindAddress);
+        if (_kind == "description")
+        {
+            ResourceExplanationDocument document = _description!;
+            // Discovery addresses identify resources, independently of representation.
+            return hal ? ResourceExplanationDataProjection.CreateHal(document, bindAddress)
+                : ResourceExplanationDataProjection.Create(document, bindAddress);
+        }
         return _kind == "query-facets"
             ? WriteQueryPreparation(hal, bindHalAddress ?? bindAddress)
             : WriteVocabularyReading(hal, bindHalAddress ?? bindAddress);
     }
+
+    private static bool IsDescriptionReading(ResourceExplanationResource resource) =>
+        resource.ResourceType == ResourceExplanationVocabulary.ExplanationRootType
+        || resource.ResourceType == ResourceExplanationVocabulary.RoutingCollectionType
+        || resource.ResourceType == ResourceExplanationVocabulary.RoutingEntryType
+        || resource.ResourceType == ResourceExplanationVocabulary.ComponentContractType
+        || resource.Path?.Value == ResourceExplanationCatalog.ComponentContractsCollectionSegment;
 
     /// <summary>
     /// Returns registered query controls and reading facts for presentation consumers.

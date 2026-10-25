@@ -213,6 +213,7 @@ public sealed partial class PackageRangedRealizationTests
             selected.Asset.Path,
             StringComparison.Ordinal);
         Assert.Empty(scope.ImplementationParticipants);
+        Assert.NotNull(scope.Root.Root.AssetSelection);
         Assert.Equal(11, scope.Root.Root.AssetSelection.Assets.Count);
         var content =
             Assert.IsType<RangedPackageContent>(scope.Payload.Content);
@@ -220,6 +221,75 @@ public sealed partial class PackageRangedRealizationTests
         Assert.False(
             content.IsMaterialized(
                 $"{AvaloniaSurface}Avalonia.Dialogs.dll"));
+    }
+
+    [Fact]
+    public async Task
+        EndpointScope_CompileLibrariesDemandMaterializesExactAggregateEntries()
+    {
+        byte[] archive = ReadAvalonia();
+        var server = new RangeFeed(
+            Avalonia,
+            AvaloniaVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        PackageEndpointScopeRequest request =
+            PackageEndpointScopeRequest.ForCompileLibraries(
+                PackageSourceCoordinate.Create(
+                    Avalonia,
+                    AvaloniaVersion),
+                "net10.0",
+                PackageAssetDemand.Surface);
+
+        await using PackageEndpointScope cold =
+            AssertOpened(
+                await OpenSemanticEndpointAsync(
+                    environment,
+                    store,
+                    request));
+        string[] expected =
+        [
+            .. cold.SurfaceParticipants.Select(
+                static participant =>
+                    participant.Asset.Path),
+        ];
+        Assert.Equal(11, expected.Length);
+        Assert.Equal(
+            expected.Order(StringComparer.Ordinal),
+            cold.Payload.Content
+                .EnumerateEntries()
+                .Order(StringComparer.Ordinal));
+        Assert.DoesNotContain(
+            cold.Payload.Content.EnumerateEntries(),
+            static path => path.EndsWith(
+                ".xml",
+                StringComparison.OrdinalIgnoreCase));
+        PackageTransferReceipt coldTransfer =
+            cold.Contribution.Result.Evidence.Acquisition!.Transfer;
+        Assert.Equal(
+            PackagePayloadOrigin.Ranged,
+            cold.Payload.Origin);
+        Assert.NotEmpty(coldTransfer.Requests);
+
+        await using PackageEndpointScope warm =
+            AssertOpened(
+                await OpenSemanticEndpointAsync(
+                    environment,
+                    store,
+                    request));
+        PackageTransferReceipt warmTransfer =
+            warm.Contribution.Result.Evidence.Acquisition!.Transfer;
+        Assert.Equal(
+            PackagePayloadOrigin.Cache,
+            warm.Payload.Origin);
+        Assert.Empty(warmTransfer.Requests);
+        Assert.Equal(
+            expected.Order(StringComparer.Ordinal),
+            warm.Payload.Content
+                .EnumerateEntries()
+                .Order(StringComparer.Ordinal));
     }
 
     /// <summary>
@@ -538,6 +608,30 @@ public sealed partial class PackageRangedRealizationTests
             environment.Authorization,
             acquisition);
         var operation = PackageHouseOperation.Create(PackageHouseOperationProfile.Realize);
+        return PackageEndpointScope.OpenAsync(
+            house,
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operation.RequestTimeout,
+                operation.OperationTimeout),
+            request,
+            TestContext.Current.CancellationToken);
+    }
+
+    private static Task<PackageEndpointScopeOutcome>
+        OpenSemanticEndpointAsync(
+            RangedEnvironment environment,
+            IPackageStore store,
+            PackageEndpointScopeRequest request)
+    {
+        var house = new PackageHouse(
+            environment.Authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store,
+                log: environment.Log.Enqueue,
+                rangedSizeCut: 0));
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Realize);
         return PackageEndpointScope.OpenAsync(
             house,
             environment.Root.IssueOperationLease(

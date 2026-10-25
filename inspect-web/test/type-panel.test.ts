@@ -1457,6 +1457,7 @@ test("type source signature routes through the shared decompiler-taste-aware key
       "net9.0",
       "",
       "",
+      "",
       "System.Text.Json.dll",
       "T:System.Text.Json.JsonSerializer",
       "source",
@@ -1497,6 +1498,13 @@ test("platform type source identity includes pack and retained context", () => {
     typeSourceSignature(
       item,
       { ...packageContext, platformContextId: null },
+      [],
+      requestKey));
+  assert.notEqual(
+    signature,
+    typeSourceSignature(
+      item,
+      { ...packageContext, runtimeIdentifier: "win-x64" },
       [],
       requestKey));
 });
