@@ -68,6 +68,7 @@ Then apply the matching transition.
   across breadth, depth, terminal, access/retention, and preparation/sharing.
   Keep source planning with its owner; sharing must not widen a cheap request's
   cost class. Judge preparation and specialization by end-to-end benefit.
+  Prefer narrow typed semantic contracts over bare ranges or full-spelled text.
 - For applicable QuerySpace work, assess terminal correctness and least-work
   execution separately; terminal availability is not performance evidence.
   Require each terminal's required facts, avoided work, stopping condition,

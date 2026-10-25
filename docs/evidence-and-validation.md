@@ -208,13 +208,26 @@ reverse indices, and
 retained caches are not automatically beneficial: justify their construction
 and retention against the request breadth and reuse that amortize them.
 
-Preserve source-issued coordinates, typed identity, and the cheapest sufficient
-representation through host-neutral composition to the real consumer or sink.
-For byte-originated text, do not introduce UTF-16 or full spelling merely to
-match, transport, or immediately re-encode it. Preserve an established rich
-fallback for shapes outside a narrow route's supported contract, and exercise
-a neighboring case that actually selects that fallback. Correct output alone
-does not prove that the intended cheaper route executed.
+Prefer narrow owner-issued typed facts or
+[domain views](design/inert-bytes.md#domain-views) as semantic consumer
+contracts, rather than bare `OpaqueByteRange`. The range is byte backing, not
+domain meaning; a typed view preserves that meaning and exposes the components
+or closed semantic operations the consumer actually needs over the same bytes.
+Do not add byte backing when an ordinary typed fact already answers the question.
+
+Returning full-spelled strings as semantic interchange, then making consumers
+parse, reverse-engineer, or lower them to recover a fact or component, is an
+anti-pattern. It charges the full read-to-display cost before the consumer can
+ask its narrower question. Preserve source-issued coordinates, typed identity,
+and narrow views through host-neutral composition. Decode and spell only what
+the requested operation or final presentation requires; for byte-originated
+text, do not introduce UTF-16 merely to transport or immediately re-encode it.
+Display text remains appropriate when the consumer actually needs presentation.
+
+Preserve an established rich fallback for shapes outside a narrow route's
+supported contract, and exercise a neighboring case that actually selects that
+fallback. Correct output alone does not prove that the intended cheaper route
+executed.
 
 Judge the complete production operation, not only a specialized kernel.
 Account for latency, allocation, relevant retained or peak memory, and any
