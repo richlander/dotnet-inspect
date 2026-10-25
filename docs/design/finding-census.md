@@ -156,31 +156,32 @@ position is pending too, two complete streams decide `Changed`, and a fault
 before then is `Indeterminate`, as Finding Diff Any decides targets once the
 body's instruction map is complete. A target that does not land on an
 instruction boundary of its own body, or lands at its end or outside it, is one
-the decoder canonical comparison runs rejects; the atom carries it as undecided,
-and a cursor whose stream completes with such a target ends `Failed` instead of
-`Complete`, so a difference decided before the end is read as Finding Diff Any's
-walk reads it. The atom's `FindingKey` is the kind's **matcher projection** of
-those bytes, which may be the same or less: a declaration fact's identity key is
-a lossless encoding of its whole census key, as the declaration view states, so
-its projection is the bytes; an IL operation's identity key omits its branch and
-switch targets, as IL diff canonicalization requires so that a branch over an
-inserted instruction still aligns, and the kind's fold validates targets over
-the match. Equality of canonical bytes is therefore the stricter relation, and
-it is the one both scenarios' agreement is stated on. The symbolic identity of
-an IL operand is the `SymbolKey` Finding Diff Any memoizes, self-delimiting
-and never a decoded and formatted name, so two names whose bytes differ but
-decode alike stay distinct, as Finding Diff Any's
-[Identity](finding-diff-any.md#identity) requires. Finding Diff Any embeds
-the named Types inside that key as `Ref` parts of the table its
-comparison's two sides share; the cursor writes them in full until step 2
-gives it that side, so its bytes are the expansion of the walk's key
-([Symbol Key interning](symbol-key.md#interning)). The cursor yields the bytes,
-lockstep compares the bytes, and only sealing for Exhaustive builds the key
-string and projects the operand's text, since a sealed census is retained and
-may be shown after its side's reader is gone, and a side formats each distinct
-operand once. A cursor that yields a record with display text would pay for
-every operation what a view pays only for the operations it shows, which the
-measurement gate below catches.
+the decoder canonical comparison runs rejects; the atom carries it as
+undecided, and a cursor whose stream completes with such a target ends `Failed`
+instead of `Complete`, so a difference decided before the end is read as
+Finding Diff Any's walk reads it. The atom's `FindingKey` is the kind's
+**matcher projection** of those bytes, which may be the same or less: a
+declaration fact's identity key is a lossless encoding of its whole census key,
+as the declaration view states, so its projection is the bytes; an IL
+operation's identity key omits its branch and switch targets, as IL diff
+canonicalization requires so that a branch over an inserted instruction still
+aligns, and the kind's fold validates targets over the match. Equality of
+canonical bytes is therefore the stricter relation, and it is the one both
+scenarios' agreement is stated on. The symbolic identity of an IL operand is
+the `SymbolKey` Finding Diff Any memoizes, self-delimiting and never a decoded
+and formatted name, so two names whose bytes differ but decode alike stay
+distinct, as Finding Diff Any's [Identity](finding-diff-any.md#identity)
+requires. Finding Diff Any embeds the named Types inside that key as `Ref`
+parts of the table its comparison's two sides share; the cursor writes them in
+full, so its bytes are the expansion of the walk's key and mean the same thing
+in any pairing ([what remains of the gap](#what-remains-of-the-gap) records
+why) ([Symbol Key interning](symbol-key.md#interning)). The cursor yields the
+bytes, lockstep compares the bytes, and only sealing for Exhaustive builds the
+key string and projects the operand's text, since a sealed census is retained
+and may be shown after its side's reader is gone, and a side formats each
+distinct operand once. A cursor that yields a record with display text would
+pay for every operation what a view pays only for the operations it shows,
+which the measurement gate below catches.
 
 **Terminals** are the inspection outcomes of Finding nomenclature, reached in
 sequence:
@@ -356,11 +357,12 @@ family string, and a cursor per method, none of which the walk materializes,
 together with the work lockstep does that the walk skips: it resolves a whole
 atom before comparing and validates clause tables. That gap the
 [ablation](#ablation-of-the-gap) has since attributed mostly to the cursor's
-clause stage, now repaired, with the atoms a small part; until what remains
-closes, the walk stays as the provision, and lockstep over the cursors serves
-the scenarios the walk does not reach (member, bisect), where the cost is per
-member rather than per assembly. The seam reaches the comparison's Body
-decisions; `Explain` and the per-method gate hooks still read through the walk.
+clause stage, now repaired; [what remains](#what-remains-of-the-gap) is token
+spelling and the atom records, and the walk stays as the provision, and
+lockstep over the cursors serves the scenarios the walk does not reach (member,
+bisect), where the cost is per member rather than per assembly. The seam
+reaches the comparison's Body decisions; `Explain` and the per-method gate
+hooks still read through the walk.
 
 Two readings follow that reach past this pair of readers. An Exists terminal
 at the source can deliver outsize wins: the walk is one, a reader that
@@ -534,29 +536,33 @@ share of lockstep less walk:
 Token operands are now 52% to 78% of the time gap, and the residue, the
 per-atom records and a cursor per method, 54% to 72% of the allocation gap.
 Splitting the token cost: comparing two resolved operands is 0% to 9% of it,
-and first-time resolution of each distinct token the rest. Within resolution,
-spelling the row's Symbol Key is 43% to 71% of the token cost and nearly all of
-its allocation (9 to 66 MB), the per-token memo and identity bookkeeping 27% to
-46%, formatting a user string's text at most 14%, and the admission checks
+and resolution the rest. Spelling each distinct row's Symbol Key is 43% to 71%
+of the token cost and 73% to 84% of its allocation (9 to 66 MB), the memo
+lookups and identity bookkeeping, for repeated tokens as well as new ones, 27%
+to 46%, formatting a user string's text at most 14%, and the admission checks
 within noise.
 
 The spelling share is what Ref parts saved Finding Diff Any's own side ([Symbol
 Key](symbol-key.md#interning)). It is not taken here. A Ref-form key means
-something only relative to its table, so two sides compare only when they share
-one, while census sides are context-free by design: a host holds one per image
-and pairs them freely (the member endpoint diff, the Research session), and the
-scenarios lockstep serves are one image against many. A bisect or a batch
-compares each version with several others, so its identities must not depend on
-the comparison that spelled them, which is also why a persisted key never
-contains a Ref part. Ref interning is a two-way optimization; it suits Finding
-Diff Any, which owns both of its sides inside one comparison, and not the
-census side.
+something only relative to its table, so every side that may be compared must
+share one. Finding Diff Any's table serves one comparison, which owns both of
+its sides. A census side has no table: a host holds one per image and pairs it
+freely (the member endpoint diff, the Research session), and the scenarios
+lockstep serves, bisect and batch, compare each version with several others.
+Ref parts could reach them only through a table scoped to the session or batch,
+which #10533 and [Diff system](diff-system.md#scenarios) plan and which a
+persisted key cannot use, since it never contains a Ref part. Adopting one
+would make every host that holds sides scope a table for the saving, and the
+saving is not needed: the decision rests on cost, below, not on the encoding.
 
 The pursuit of parity stops at this record. Lockstep matches the walk on no
 reported number, so the walk stays as the provision, and what lockstep is for
-is already cheap: a Type's first request costs 23 to 40 µs at the median, a
-member less. The remaining gap is recorded here as the cursor's state, not as
-work owed.
+is already cheap: a Type's first request costs 23 to 40 µs at the median. The
+remaining gap is recorded here as the cursor's state, not as work owed. The
+domain-free Allocation gate in [Gates](#gates) is unmet: the atom records are
+still allocated per advance, 54% to 72% of the allocation gap. It stays a gate,
+owned by any change that would let lockstep replace the walk, together with the
+Cost gate and the Browser/Wasm measurement.
 
 ## Exhaustive
 
@@ -782,7 +788,8 @@ test class gates its cursor:
      ([cost record](il-diff-canonicalization.md#cost-of-exists-over-the-cursors):
      21–35% of the census comparison's time on the six pairs, deciding as
      it does on every pair). The atom is still the sealed census's record,
-     allocated per advance, so the allocation gate waits for 2b.
+     allocated per advance, so the allocation gate is unmet; 2b records it
+     ([what remains of the gap](#what-remains-of-the-gap)).
    - **2b:** lockstep beside the walk through Finding Diff Any's Body
      provision seam (`FindingDiffAnyBodyReader`, the one point at which a
      paired method's Body is decided), so the whole comparison runs with
@@ -797,8 +804,9 @@ test class gates its cursor:
      [ablation](#ablation-of-the-gap) that repaired the clause stage; and the
      cost gate's answer, the walk kept, with
      [what remains of the gap](#what-remains-of-the-gap) recorded and no
-     further parity work owed. The Browser/Wasm measurement remains for any
-     later change that would delete the walk.
+     further parity work owed. The Allocation gate, unmet, and the
+     Browser/Wasm measurement remain for any later change that would delete
+     the walk.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Finding Diff Any's declaration census, which is the view's
    adoption step DV1 taken through this owner; gated as step 1 is.
