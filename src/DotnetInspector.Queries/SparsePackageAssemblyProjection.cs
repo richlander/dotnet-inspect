@@ -413,8 +413,9 @@ public sealed partial class InspectionWorkspace
             return new SparsePackageAssemblyProjectionOutcome
                 .InvalidBinding();
         }
-        if (!IsCanonicalSelectedAsset(
-                package.Root.AssetSelection,
+        if (package.Root.AssetSelection is not { } selection
+            || !IsCanonicalSelectedAsset(
+                selection,
                 selectedAsset))
         {
             return new SparsePackageAssemblyProjectionOutcome

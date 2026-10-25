@@ -63,6 +63,18 @@ Then apply the matching transition.
 
 ## Review and metadata
 
+- For applicable inspection work, review
+  [demand-shaped execution](../../../docs/evidence-and-validation.md#demand-shaped-execution)
+  across breadth, depth, terminal, access/retention, and preparation/sharing.
+  Keep source planning with its owner; sharing must not widen a cheap request's
+  cost class. Judge preparation and specialization by end-to-end benefit.
+  Prefer narrow typed semantic contracts over bare ranges or full-spelled text.
+- For applicable QuerySpace work, assess terminal correctness and least-work
+  execution separately; terminal availability is not performance evidence.
+  Require each terminal's required facts, avoided work, stopping condition,
+  and [efficiency evidence](../../../docs/evidence-and-validation.md#terminal-correctness-and-least-work-execution).
+  Investigate Exists/Count costs approaching equivalent Rows costs; explain
+  unavoidable work or identify missed reduction before claiming readiness.
 - For network-related commands, use the command's Debug evidence envelope
   during investigation. If support is missing, ask the operator to approve a
   diagnostics side quest before adding it. Follow the

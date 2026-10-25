@@ -55,7 +55,17 @@ population and unprojected `--json` reports it. The fixture cases under
 - **Obsolete**: `IsObsolete`, `ObsoleteMessage`, and `ObsoleteIsError` on
   `ApiType` and `ApiMember`. The Type facts are not serialized, as
   `ApiType.IsHidden` is not, so existing Type JSON is unchanged. `[Obsolete]`'s
-  `DiagnosticId` and `UrlFormat` are not recorded.
+  `DiagnosticId` and `UrlFormat` are not recorded. The compiler's
+  compatibility marker is Roslyn's `[Obsolete(message, true)]` with its exact
+  message on the declaration it stamps: "Types with embedded references are
+  not supported in this version of your compiler." on a ref struct Type,
+  which carries `[IsByRefLike]`, and "Constructors of types with required
+  members are not supported in this version of your compiler." on a
+  constructor carrying `[CompilerFeatureRequired("RequiredMembers")]`. A ref
+  struct's `[CompilerFeatureRequired("RefStructs")]` is not required, as
+  Roslyn omits it where that attribute type is absent, such as on
+  `netstandard2.0`. `AttributeReader` owns this one rule for every reader of
+  the fact, including the Public scope's suppression.
 
 A Type's two facts are recorded only for a Type the Public scope would
 suppress, which is exactly a Type that is hidden or obsolete. An extension
@@ -156,8 +166,9 @@ owns that presentation and the obsolete marker.
   category, classification, and values.
 - The Public comparison reports the hidden and obsolete-Type cases as a
   removal or an addition and reports no status row.
-- `ApiDiffAnalyzerTests` classify every transition in the table above,
-  including a subject outside the API axis under include-all.
+- `ApiDiffAnalyzerTests` classify every transition in the table above through
+  the production comparer, `MetadataFindings.CompareApi`, including a subject
+  outside the API axis under include-all.
 - `LibraryApiDiffCommandTests` assert `--all` JSON status rows and totals.
 
 ## Non-claims

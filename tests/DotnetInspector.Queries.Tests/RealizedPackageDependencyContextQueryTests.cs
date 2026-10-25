@@ -147,7 +147,7 @@ public sealed class RealizedPackageDependencyContextQueryTests
             {
                 Assert.Equal(
                     "net8.0",
-                    binding.Root.AssetSelection.TargetFramework);
+                    Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).TargetFramework);
                 Assert.Equal(
                     "net9.0",
                     result.Context.Evidence.Selection.SelectedFramework

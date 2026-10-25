@@ -472,6 +472,108 @@ public sealed partial class ExactTypeInspectionOperationTests
 
     [Fact]
     public async Task
+        SelectedContext_UnrelatedLibraryDoesNotProjectRichFailure()
+    {
+        const string selectedName = "Selected";
+        const string selectedType = "Exact.Selected";
+        const string unrelatedName = "Malformed";
+        ResolvedAssemblyReference selected =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(
+                    BuildAssembly(
+                        selectedName,
+                        selectedType,
+                        typeof(IDisposable)),
+                    writable: false),
+                AssemblyResolutionProvenance.Local(selectedName))
+            ?? throw new InvalidOperationException(
+                "The selected fixture must contain managed metadata.");
+        ResolvedAssemblyReference unrelated =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(
+                    BuildMalformedTypeAssembly(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local(unrelatedName))
+            ?? throw new InvalidOperationException(
+                "The unrelated fixture must contain managed metadata.");
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextParticipant[] participants =
+        [
+            new(selected, NoResolverAssemblyBindingPolicy.Instance),
+            new(unrelated, NoResolverAssemblyBindingPolicy.Instance),
+        ];
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(participants);
+        WorkspaceMemberCoordinate[] declared =
+        [
+            WorkspaceMemberCoordinate.Embedded(
+                "assemblies/Selected.dll",
+                new string('0', 64),
+                selectedName),
+            WorkspaceMemberCoordinate.Embedded(
+                "assemblies/Constraint.dll",
+                new string('1', 64),
+                unrelatedName),
+        ];
+        RealizedMemberCoordinate.Embedded[] realized =
+        [
+            new(
+                "assemblies/Selected.dll",
+                new string('0', 64),
+                selectedName),
+            new(
+                "assemblies/Constraint.dll",
+                new string('1', 64),
+                unrelatedName),
+        ];
+        var input =
+            new WorkspaceContextInput
+            {
+                Members = declared,
+            };
+        WorkspaceDeclarationContext context =
+            Assert.IsType<
+                WorkspaceAssemblyDeclarationContextAdmissionOutcome.Admitted>(
+                    WorkspaceAssemblyDeclarationContextAdmission.Admit(
+                        workspace,
+                        group,
+                        input,
+                        [
+                            new(
+                                participants[0],
+                                new ExactLibrarySourceCoordinate.Local(
+                                    new ManagedMetadataIdentity.Assembly(
+                                        selected.Identity)),
+                                declared[0],
+                                realized[0],
+                                packageRequest: null),
+                            new(
+                                participants[1],
+                                new ExactLibrarySourceCoordinate.Local(
+                                    new ManagedMetadataIdentity.Assembly(
+                                        unrelated.Identity)),
+                                declared[1],
+                                realized[1],
+                                packageRequest: null),
+                        ]))
+                .Context;
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
+                workspace,
+                context,
+                new SelectedContextExactTypeInspectionRequest(
+                    selectedType),
+                static _ => { });
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            envelope.Content.Inspection.Outcome);
+        Assert.Empty(envelope.Content.Inspection.InspectionFailures);
+    }
+
+    [Fact]
+    public async Task
         SelectedContext_MissingDefiningCoordinateIsUnavailable()
     {
         const string assemblyName = "CoordinateUnavailable";

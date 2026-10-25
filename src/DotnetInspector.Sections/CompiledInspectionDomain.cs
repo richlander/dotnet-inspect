@@ -85,6 +85,15 @@ public sealed class CompiledInspectionLens<TContext, TModel>
         return CompilePlan(sectionPlan, hostDemand);
     }
 
+    /// <summary>Plans an exact section selection without an automatic view level.</summary>
+    public CompiledInspectionPlan<TContext> PlanSelected(
+        HashSet<string> include,
+        bool excludeUnbounded = false,
+        IReadOnlyList<HostQueryDemand>? hostDemand = null)
+        => CompilePlan(
+            Sections.PlanSelectedQueries(include, excludeUnbounded),
+            hostDemand);
+
     private CompiledInspectionPlan<TContext> CompilePlan(
         SectionQueryPlan sectionPlan,
         IReadOnlyList<HostQueryDemand>? hostDemand)

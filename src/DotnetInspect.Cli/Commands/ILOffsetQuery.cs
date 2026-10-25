@@ -17,10 +17,11 @@ internal sealed record ILOffsetAnalysisPreparation(
     ILOffsetAnalysisInput? Input,
     ILOffsetAllocationAnalysisInput? AllocationInput,
     ILOffsetSafetyAnalysisInput? SafetyInput,
+    ILOffsetCostAnalysisInput? CostInput,
     string? Failure)
 {
     internal static ILOffsetAnalysisPreparation None { get; } =
-        new(null, null, null, null);
+        new(null, null, null, null, null);
 }
 
 internal static class ILOffsetQuery
@@ -151,7 +152,8 @@ internal static class ILOffsetQuery
             AllowNonBoundaryContextAbsence:
                 allowNonBoundaryContextAbsence,
             SafetyAnalysis: analysis.SafetyInput,
-            AllocationAnalysis: analysis.AllocationInput));
+            AllocationAnalysis: analysis.AllocationInput,
+            CostAnalysis: analysis.CostInput));
         if (!outcome.Succeeded)
         {
             var failure = outcome.Failure!;
@@ -202,13 +204,14 @@ internal static class ILOffsetQuery
                     AssemblyInspectionSession.Borrow(context);
                 return new(
                     Input: null,
-                    ILOffsetAllocationAnalysis.Execute(
+                    AllocationInput: ILOffsetAllocationAnalysis.Execute(
                         session,
                         context.AssemblyPathOrNull
                             ?? "IL-offset assembly",
                         context.ModuleVersionId(),
                         bodyScope),
                     SafetyInput: null,
+                    CostInput: null,
                     Failure: null);
             }
 
@@ -219,7 +222,25 @@ internal static class ILOffsetQuery
                 return new(
                     Input: null,
                     AllocationInput: null,
-                    ILOffsetSafetyAnalysis.Execute(
+                    SafetyInput: ILOffsetSafetyAnalysis.Execute(
+                        session,
+                        context.AssemblyPathOrNull
+                            ?? "IL-offset assembly",
+                        context.ModuleVersionId(),
+                        bodyScope),
+                    CostInput: null,
+                    Failure: null);
+            }
+
+            if (RequiresOnlyCost(capabilities))
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Borrow(context);
+                return new(
+                    Input: null,
+                    AllocationInput: null,
+                    SafetyInput: null,
+                    CostInput: ILOffsetCostAnalysis.Execute(
                         session,
                         context.AssemblyPathOrNull
                             ?? "IL-offset assembly",
@@ -243,6 +264,7 @@ internal static class ILOffsetQuery
                     execution.CallGraph),
                 AllocationInput: null,
                 SafetyInput: null,
+                CostInput: null,
                 Failure: null);
         }
         catch (Exception ex) when (ex is BadImageFormatException
@@ -255,7 +277,8 @@ internal static class ILOffsetQuery
                 Input: null,
                 AllocationInput: null,
                 SafetyInput: null,
-                $"IL-offset semantic analysis unavailable: "
+                CostInput: null,
+                Failure: $"IL-offset semantic analysis unavailable: "
                     + $"{ex.GetType().Name}: {ex.Message}");
         }
     }
@@ -343,6 +366,14 @@ internal static class ILOffsetQuery
         && (capabilities
             & (ILOffsetProjectionCapabilities.SafetyContext
                 | ILOffsetProjectionCapabilities.CostContext)) == 0;
+
+    static bool RequiresOnlyCost(
+        ILOffsetProjectionCapabilities capabilities) =>
+        (capabilities
+            & ILOffsetProjectionCapabilities.CostContext) != 0
+        && (capabilities
+            & (ILOffsetProjectionCapabilities.AllocationContext
+                | ILOffsetProjectionCapabilities.SafetyContext)) == 0;
 
     static void WriteError(bool enabled, string message)
     {

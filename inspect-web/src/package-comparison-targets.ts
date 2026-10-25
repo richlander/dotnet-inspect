@@ -4,7 +4,17 @@ export interface ComparisonPackage {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
   source: { kind: string };
+}
+
+export const PRODUCT_DEFAULT_COMPARISON_RUNTIME_IDENTIFIER = "linux-x64";
+
+export function implementationComparisonRuntimeIdentifier(
+  pkg: Pick<ComparisonPackage, "runtimeIdentifier">,
+): string {
+  return pkg.runtimeIdentifier
+    ?? PRODUCT_DEFAULT_COMPARISON_RUNTIME_IDENTIFIER;
 }
 
 export type DiffTarget = { kind: "previous" } | { kind: "exact"; version: string };

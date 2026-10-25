@@ -22,6 +22,7 @@ const request: TypeApiDiffCueRequest = {
     currentVersion: "2.0.0",
     targetVersion: "1.0.0",
     targetFramework: "net11.0",
+    runtimeIdentifier: "win-x64",
     compileAssetId: "lib/net11.0/Example.dll",
     axes: "ApiAndBody",
   },

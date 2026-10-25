@@ -36,7 +36,7 @@ import {
   memberRequestKey,
   isMemberSection,
   isEmptyPackageFramework,
-  libraryLenses,
+  libraryLensDefinitions,
   memberSectionDefinitions,
   memberSectionIdsFor,
   packageCoordinateLabel,
@@ -60,6 +60,7 @@ import {
   runtimePackForFramework,
   scopedRequestState,
   searchableMemberGroups,
+  setLibraryViewFacetCatalog,
   setTypeViewFacetCatalog,
   sourceReloadKind,
   spotlightCandidateKey,
@@ -512,6 +513,10 @@ import {
   workspaceOccurrenceActionsAreVisible,
 } from "./workspace-subject.ts";
 import {
+  bindWorkspaceExplanation,
+  createWorkspaceExplanation,
+} from "./workspace-explanation.ts";
+import {
   activateRetainedWorkspace as activateRetainedWorkspaceState,
   createRetainedWorkspaceCollection,
   deleteRetainedWorkspace as deleteRetainedWorkspaceState,
@@ -678,6 +683,7 @@ import {
   bindDiffContent,
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
+  implementationComparisonRuntimeIdentifier,
   isCompareMode,
   renderPackageComparisonTargets,
   resolveEffectiveDiffTarget,
@@ -3933,6 +3939,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.metadataToken,
         request.documentBaselineOrdinal,
         request.taste,
+        request.runtimeIdentifier ?? null,
         request.view)
     : inspectPlatformMemberSource(
         request.framework,
@@ -3966,6 +3973,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.assembly,
         request.type,
         request.taste,
+        request.runtimeIdentifier ?? null,
         request.view),
   queryGraphSource: (request, taste) => inspectTypeMemberSource(
     request.packageId,
@@ -3976,7 +3984,8 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.member,
     request.selectorKey,
     request.metadataToken,
-    taste),
+    taste,
+    request.runtimeIdentifier ?? null),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => {
     if (cancelSourceInspection) {
@@ -4242,7 +4251,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.member,
           request.selectorKey,
           request.metadataToken,
-          request.implementationMember),
+          request.implementationMember,
+          request.runtimeIdentifier),
   queryDocumentation: (request, documentationId) =>
     request.isRuntimePack
       ? inspectPlatformMemberDocumentation(
@@ -4256,7 +4266,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.version,
           request.framework,
           request.assembly,
-          documentationId),
+          documentationId,
+          request.runtimeIdentifier),
   queryFindingCensus: async request => {
     const result = await (request.kind === "platform"
       ? inspectPlatformMemberFindingCensus(
@@ -4283,7 +4294,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.memberSignature,
           request.selectorKey,
           request.metadataToken,
-          request.taste));
+          request.taste,
+          request.runtimeIdentifier));
     const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
     const findingEvidenceDocuments =
@@ -4339,7 +4351,8 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
       request.traversalFramework,
       platformRuntimePruningInventory(
         target,
-        request.traversalFramework));
+        request.traversalFramework),
+      request.runtimeIdentifier);
   },
   queryPlatform: request =>
     queryPlatformCallGraph(inspectExpandPlatformCallGraph, request),
@@ -5489,6 +5502,16 @@ const packageRemoval = createPackageRemoval({
     localStorage.setItem("inspect-recent-packages", JSON.stringify(entries)),
   activate: activateAfterPackageRemoval,
   release: finishPackageRemoval,
+});
+const workspaceExplanation = createWorkspaceExplanation({
+  catalog: {
+    explainResources: (...args) => engineClient.catalog.explainResources(...args),
+    describeWorkspaceComponents: (...args) => engineClient.catalog.describeWorkspaceComponents(...args),
+    explainWorkspaceComponent: (...args) => engineClient.catalog.explainWorkspaceComponent(...args),
+  },
+  capturePacket: captureSavedWorkspacePacket,
+  contextKey: () => navigationSequence.current(),
+  changed: () => render({ synchronizeUrl: false }),
 });
 const savedWorkspaces = createSavedWorkspaces({
   read: () => localStorage.getItem("inspect-saved-workspaces"),
@@ -7887,6 +7910,7 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
 }
 
 function libraryLensesFor(pkg: AppPackage | null) {
+  const libraryLenses = libraryLensDefinitions();
   if (state.rootKind === "library")
     return libraryLenses.filter(([id]) => id === "overview");
   return libraryLenses.filter(([id]) => {
@@ -8381,7 +8405,9 @@ function currentMemberBodyDiffContext(): MemberBodyDiffContext | null {
     packageModel: subject.pkg,
     request: {
       packageId: subject.pkg.id, beforeVersion: target.version, afterVersion: subject.pkg.version,
-      framework: subject.pkg.activeFramework, compileAssetId: subject.library.id,
+      framework: subject.pkg.activeFramework,
+      runtimeIdentifier: implementationComparisonRuntimeIdentifier(subject.pkg),
+      compileAssetId: subject.library.id,
       generation: typeAnalysisWorkspaceGeneration(subject.pkg), inventoryId: null, memberId: null,
     },
     subject: subject.kind, subjectLabel: compareSubjectLabel(subject),
@@ -8667,6 +8693,7 @@ function currentLibraryFindingDiffAnyBaseline(): LibraryFindingDiffAnyBaseline |
     currentVersion: pkg.version,
     targetVersion: target.version,
     targetFramework: pkg.activeFramework,
+    runtimeIdentifier: implementationComparisonRuntimeIdentifier(pkg),
     compileAssetId: library.id,
     axes: "ApiAndBody",
   };
@@ -11380,6 +11407,10 @@ function renderWorkspaceView() {
           frameworkPackage.assemblyId)
       : null);
   return renderWorkspaceViewPure({
+    explanation: {
+      state: workspaceExplanation.view(),
+      available: state.engineReady && !state.loading && !state.error,
+    },
     savedWorkspaces: {
       state: savedWorkspaces.state,
       canSave: state.engineReady
@@ -11456,7 +11487,8 @@ function packageLensBody() {
 function libraryLensBody() {
   if (aggregateLibrarySubjectIsActive()
     && libraryLensRequiresExactLibrary(state.libraryLens)) {
-    const label = libraryLenses.find(([id]) => id === state.libraryLens)?.[1]
+    const label = libraryLensDefinitions()
+      .find(([id]) => id === state.libraryLens)?.[1]
       ?? "This inspector";
     return `<section class="document-section empty-document">
       <span class="large-glyph">◇</span>
@@ -15825,6 +15857,7 @@ const graphBackActions: GraphBackBindingActions = {
 };
 
 function bindWorkspaceSubjectEvents() {
+  bindWorkspaceExplanation(document, workspaceExplanation);
   bindSavedWorkspaces(document, savedWorkspaces);
   bindWorkspaceSubject(document, {
     onSelect: selectRetainedWorkspace,
@@ -15897,7 +15930,8 @@ function bindTriageCodeEvents() {
             target.memberName, "", target.selector, target.methodToken, triageTaste, null)
         : await inspectMemberFindingCensus(triagePackage.id, triagePackage.version, triagePackage.activeFramework,
             target.assembly, target.typeId, target.typeId, target.memberName, "",
-            target.selector, target.methodToken, triageTaste);
+            target.selector, target.methodToken, triageTaste,
+            triagePackage.runtimeIdentifier ?? null);
       const preview = triageIssuePreview(census.annotatedSource.document, target.issueOffsets);
       if (!preview) return null;
       const carets: string[] = [];
@@ -21526,6 +21560,7 @@ async function inspectTypeExplorerBody(
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     });
   }
   if (sequence !== typeExplorerBodyRequestSequence
@@ -21576,6 +21611,7 @@ async function loadTypeExplorer() {
       type.assembly,
       type.definitionId ?? type.id,
       JSON.stringify(state.taste),
+      pkg.runtimeIdentifier ?? null,
       typeExplorerRequest(state.typeExplorerIntent));
     if (!state.typeExplorerOpen
       || sequence !== typeExplorerLoadSequence
@@ -23061,6 +23097,7 @@ async function loadSelectedMemberDocumentation() {
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly,
       platformPack,
       overload,
@@ -23082,6 +23119,7 @@ async function loadSelectedMemberDocumentation() {
         overload.declarationMetadataToken ?? overload.metadataToken ?? 0,
       implementationMember:
         selectedMemberUsesImplementationDeclaration(type, overload),
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       isCurrent: () => memberRequestIsCurrent(signature),
     }),
   ]);
@@ -23500,6 +23538,7 @@ async function loadSelectedMemberSource() {
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly: type.assembly,
     });
   }
@@ -23560,6 +23599,7 @@ async function loadSelectedMemberAnnotatedSource() {
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     });
   }
   return signature;
@@ -23588,6 +23628,7 @@ function memberRequestSignature(
     pkg?.id,
     pkg?.version,
     pkg?.activeFramework,
+    pkg?.runtimeIdentifier,
     platformDemoContextIdFor(pkg ?? null),
     type?.assembly,
     type?.queryId ?? type?.id,
@@ -23655,6 +23696,7 @@ async function loadSelectedTypeSource() {
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     assembly: type.assembly,
   });
 }
@@ -24411,6 +24453,7 @@ async function loadSelectedMemberCallGraph() {
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
@@ -25098,6 +25141,7 @@ function resolveLoadedGraphTarget(
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly: type.assembly,
       type: callGraphTargetTypeId(target),
       member: target.memberName,
@@ -25133,7 +25177,8 @@ async function loadGraphMemberSurface(
     target.typeDefinitionId ?? "",
     target.memberName,
     target.selectorKey,
-    target.metadataToken ?? 0);
+    target.metadataToken ?? 0,
+    pkg.runtimeIdentifier ?? null);
 }
 
 function singleProjectedGraphMember(
@@ -28454,6 +28499,8 @@ async function bootstrap() {
       productHomeDemoCatalogError =
         `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
+    setLibraryViewFacetCatalog(
+      (await engineClient.catalog.listLibraryViewFacets()).facets);
     setTypeViewFacetCatalog(
       (await engineClient.catalog.listTypeViewFacets()).facets);
     try {

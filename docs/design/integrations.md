@@ -185,7 +185,9 @@ library JSON properties, the Workspace Census, or browser presentation.
 Detection reads metadata only:
 
 1. Public package-owned type definitions and curated public starter extension
-   methods are scanned for integration currency.
+   methods are scanned for integration currency. A type definition is public
+   when it is public through every enclosing Type, the
+   [Public scope's Type admission](api-population-scope.md#accessibility-within-api-visibility-scope).
 2. External "famous" types from referenced assemblies are not enough to create a
    focused row; rows should identify what to use from the inspected package.
 3. Public package-owned telemetry control APIs such as `DisableTracing` and

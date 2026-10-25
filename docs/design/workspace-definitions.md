@@ -3695,9 +3695,23 @@ exact Ecosystem `ViewFacetId`. The plan must have no contexts and must retain
 the product-default traversal target policy. Preparation rejects an absent
 registration or a non-Ecosystem facet before construction.
 
-The host constructs the fresh Workspace from that exact plan. Definitions
-reads the exact current registration revision, resolves the selected
-owner-issued `WorkspaceEcosystemRegistrationOccurrence`, creates
+The closed package-Type form carries the same context-free plan and exact
+Ecosystem registration ID plus one exact `PackageSourceCoordinate`, one
+`ExactLibrarySourceCoordinate.Package`, and one structured
+`MetadataTypeDefinitionName`; the package request is derived from the exact
+Library coordinate rather than accepted as a second independently variable
+value, and the form carries no Ecosystem facet. Definitions
+derives one private construction plan by preserving the plan's registrations
+and traversal policy and adding exactly one context for the coordinate's
+exact pinned package at the product-default target. The caller's curated plan
+remains context-free and unchanged. A supplied context, configured traversal
+target, floating package, or absent or repeated Ecosystem registration is
+invalid before construction.
+
+For the Ecosystem-subject form, the host constructs the fresh Workspace from
+the exact caller plan. Definitions reads the exact current registration
+revision, resolves the selected owner-issued
+`WorkspaceEcosystemRegistrationOccurrence`, creates
 `NavigationEcosystemEvaluation`, and submits that evaluation plus the exact
 Ecosystem subject and facet through canonical Navigation restoration. It never
 selects a sibling registration or reconstructs runtime identity from the
@@ -3705,13 +3719,35 @@ portable registration ID. Missing, replaced, unknown, or inapplicable evidence
 fails visibly before publication and the ordinary Complete Restoration
 lifecycle closes the unpublished Workspace.
 
-This request is deliberately `NonProjectable`: it adds no definition member
-coordinate, packet subject tag, URL/share encoding, or packet/schema version.
-Its detached resolved state retains only the selected registration ID,
-Navigation initialization, and exact lens-resolution result; scanner-bearing
+For the package-Type form, the host constructs from the Definitions-derived
+plan. Definitions admits the resulting exact package Root to Scope and
+evaluates the Scope-issued occurrence. Before Type selection, it also verifies
+that the fresh registration revision retains the exact selected owner-issued
+Ecosystem occurrence. It matches the Library by the full managed assembly
+identity in the exact package coordinate and submits the structured Type
+identity through canonical Navigation restoration. Navigation's owner-issued
+subject inventory proves that the exact Type occurs once in that Library and
+chooses the ordinary Type lens recommendation. Display text, assembly simple
+name, and Ecosystem scanner output are not matching substrates. Before private
+construction authority can be released, the returned activation contains the
+Type as its active Navigation subject, the exact package request/evaluation
+pair for ready-package projection, and a
+`CompleteRestorationSubjectPreparation.Ready` receipt over the exact Root,
+occurrence, Library evaluation, Type subject, and effective lens. Missing or
+ambiguous package, Library, or Type evidence, incomplete inventory, stale
+authority, and Navigation failure are typed non-install outcomes that close
+the unpublished Workspace.
+
+Both request forms are deliberately `NonProjectable`: they add no definition
+member coordinate, packet subject tag, URL/share encoding, or packet/schema
+version. The Ecosystem-subject resolved state retains only the selected
+registration ID, Navigation initialization, and exact lens-resolution result.
+The package-Type resolved state retains the selected registration ID, exact
+Library and Type intent, and Navigation initialization. Scanner-bearing
 declarations remain inside the in-process plan and live Workspace. #9130 is the
-counted first production consumer and reissues this request from exact catalog
-identity. Portable active-Ecosystem sharing, if needed, requires a separate
+counted first Ecosystem-subject production consumer; #10566 owns package-Type
+preparation for the indexed Spotlight destination contract. Portable
+active-Ecosystem or package-Type sharing, if needed, requires a separate
 Workspace Definitions design.
 
 Browser history may identify retained definitions only within one loaded page
@@ -4818,14 +4854,39 @@ Definition records and product demos (this slice):
   request/plan/Workspace association, pre-construction rejection, evidence
   order, current-intent activation, and one-shot cleanup. The neighboring
   registration-only Ecosystem arm accepts an exact context-free product-default
-  `WorkspacePlan`, selected registration ID, and Ecosystem facet; resolves the
-  exact fresh occurrence; activates it through canonical Navigation; and
-  returns a typed non-projectable result with no Package or Platform inventory.
+  `WorkspacePlan` and selected registration ID. Its Ecosystem-subject form
+  accepts an Ecosystem facet, resolves the exact fresh occurrence, and returns
+  a typed non-projectable result with no Package or Platform inventory. Its
+  package-Type form accepts an exact package-backed Library and structured
+  Type, privately derives one pinned construction context, proves the exact
+  Library and Type through owner-issued package and Navigation evidence, and
+  returns the selected-Type receipt before construction authority is released.
+  Both forms activate through canonical Navigation.
   `RegistrationOnlyEcosystem_PreparesExactNonProjectablePlan`,
   `RegistrationOnlyAspire_RestoresExactEcosystem`, and
   `RegistrationOnlyEcosystem_SelectsRequestedNeighbor` gate this boundary with
   the shipped scanner-bearing Aspire declaration and a Microsoft.Extensions
-  neighbor; and
+  neighbor.
+  `RegistrationOnlyPackageType_DerivesOneExactConstructionContext`,
+  `RegistrationOnlyPackageType_PreparesExactType`, and
+  `RegistrationOnlyPackageType_RejectsMissingExactIdentity` gate the
+  package-Type boundary with real `Aspire.StackExchange.Redis@13.6.3`, exact
+  `lib/net10.0/Aspire.StackExchange.Redis.dll` and
+  `Microsoft.Extensions.Hosting.AspireRedisExtensions` identities, missing
+  Library and Type outcomes, the Type lens, selected-subject receipt,
+  non-projectability, and unpublished-candidate cleanup.
+  `RegistrationOnlyPackageType_RejectsIncompleteInventory` and
+  `RegistrationOnlyPackageType_RejectsAmbiguousTypeBinding` gate bounded
+  inventory refusal and duplicate structured Type identities before selection.
+  `RegistrationOnlyPackageType_IgnoresSameNamedNeighbor` proves that a
+  neighboring Library declaring the same structured Type name cannot replace
+  the exact full assembly identity.
+  `RegistrationOnlyPackageType_RejectsStaleConstruction` gates expired,
+  canceled, and superseded construction before candidate release.
+  `RegistrationOnlyPackageType_RejectsReplacedEcosystem` gates exact fresh
+  Ecosystem occurrence identity. The success gate also executes the
+  projection-enabled restoration path and preserves the exact package
+  request, binding, and evaluation; and
 - Definitions accepts schema-version-2-through-4 portable query records, binds them
   through owner-issued typed descriptors, preserves state-bound query and
   multi-Library scope through packet formats 2 through 4, and admits the exact

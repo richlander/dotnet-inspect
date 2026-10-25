@@ -590,11 +590,11 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
                         coordinate.PackageId,
                         coordinate.Version,
                         coordinate.Framework,
-                        runtimeIdentifier: null),
+                        coordinate.RuntimeIdentifier),
                     coordinate.RealizedCoordinate,
                     new FindPackageSourceRequest(
                         coordinate.Framework,
-                        requestedRuntimeIdentifier: null));
+                        coordinate.RuntimeIdentifier));
             }),
         ];
         WorkspaceContextInput input = new()

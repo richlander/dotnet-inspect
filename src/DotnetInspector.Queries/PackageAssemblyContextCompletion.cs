@@ -1220,7 +1220,7 @@ public sealed partial class InspectionWorkspace
         }
         if (bindings.Any(
                 static binding =>
-                    !binding.Root.AssetSelection.IsSelected))
+                    binding.Root.AssetSelection is not { IsSelected: true }))
         {
             throw new ArgumentException(
                 "A shareable package-role operation accepts only selected package bindings.",

@@ -22,13 +22,14 @@ import type {
   OperationId,
 } from "./operation-authority.ts";
 
-const LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION = 2;
+const LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION = 3;
 
 export interface LibraryFindingDiffAnyBaseline {
   readonly packageId: string;
   readonly currentVersion: string;
   readonly targetVersion: string;
   readonly targetFramework: string;
+  readonly runtimeIdentifier: string | null;
   readonly compileAssetId: string;
   readonly axes: BrowserFindingDiffAnyAxes;
 }
@@ -59,6 +60,7 @@ export function libraryFindingDiffAnyKey(baseline: LibraryFindingDiffAnyBaseline
     baseline.currentVersion,
     baseline.targetVersion,
     baseline.targetFramework,
+    baseline.runtimeIdentifier,
     baseline.compileAssetId,
     baseline.axes,
   ]);
@@ -114,16 +116,21 @@ function readResult(result: unknown, request: BrowserLibraryFindingDiffAnyReques
   const record = requireRecord(result, "Library Finding Diff Any result");
   if (record.schemaVersion !== LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION)
     throw new Error("Unsupported Library Finding Diff Any result schema.");
+  const echoed = requireRecord(
+    record.request,
+    "Library Finding Diff Any result request",
+  );
+  if (echoed.packageId !== request.packageId
+    || echoed.currentVersion !== request.currentVersion
+    || echoed.targetVersion !== request.targetVersion
+    || echoed.targetFramework !== request.targetFramework
+    || echoed.runtimeIdentifier !== request.runtimeIdentifier
+    || echoed.compileAssetId !== request.compileAssetId
+    || echoed.axes !== request.axes) {
+    throw new Error("Library Finding Diff Any result does not match its request.");
+  }
   switch (record.kind) {
     case "Succeeded": {
-      const echoed = requireRecord(record.request, "Library Finding Diff Any result request");
-      if (echoed.packageId !== request.packageId
-        || echoed.currentVersion !== request.currentVersion
-        || echoed.targetVersion !== request.targetVersion
-        || echoed.compileAssetId !== request.compileAssetId
-        || echoed.axes !== request.axes) {
-        throw new Error("Library Finding Diff Any result does not match its request.");
-      }
       const value = requireRecord(record.value, "Library Finding Diff Any value");
       if (!Array.isArray(value.types))
         throw new Error("Library Finding Diff Any Types must be an array.");
@@ -140,6 +147,7 @@ function readResult(result: unknown, request: BrowserLibraryFindingDiffAnyReques
       });
       return { kind: "ready", types };
     }
+    case "MissingCounterpart":
     case "Rejected":
     case "Failed":
       return {

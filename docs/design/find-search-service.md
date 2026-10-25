@@ -58,10 +58,12 @@ additional `TypeFindResult` rows. Metadata supplies each definition's published
 type category (`class`, `struct`, `interface`, `enum`, or `delegate`); the
 locator's declaration role never becomes that category.
 
-Default discovery consumes Metadata's definition-local `IsDefinitionPublic`
-and `DiscoveryAttributes` facts. A definition whose own row is not Public or
-NestedPublic, a compiler-generated leaf name, or a known
-`EditorBrowsable(Never)` or obsolete definition is suppressed; `--all` admits
+Default discovery consumes Metadata's `IsPublicSurface` and definition-local
+`DiscoveryAttributes` facts. A definition that is not public through every
+enclosing Type, the Public scope's Type admission in
+[API population scope](api-population-scope.md#accessibility-within-api-visibility-scope),
+a compiler-generated leaf name, or a known `EditorBrowsable(Never)` or
+obsolete definition is suppressed; `--all` admits
 nonpublic and attribute-hidden definitions but continues to suppress generated
 names. When required definition-local evidence cannot be established, Find
 uses the compatibility inventory rather than publishing a candidate under a
@@ -114,11 +116,12 @@ or Member consumer may reconstruct identity from its `FullName`, `Library`,
 `Source`, or `SourceVersion` strings.
 Package rows retain the caller's Package ID spelling for presentation; the
 normalized locator coordinate remains the identity used for handoff.
-Find requests the locator's all-declaration view because the locator's default
-public-surface view evaluates the enclosing definition chain, while established
-Find visibility is row-local. The CLI then applies its own policy from
-Metadata-issued `IsDefinitionPublic`, `DiscoveryAttributes`, and generated-name
-grammar evidence without changing the shared locator view.
+Find requests the locator's all-declaration view and applies its own policy
+from Metadata-issued `IsPublicSurface`, `DiscoveryAttributes`, and
+generated-name grammar evidence without changing the shared locator view.
+Visibility matches the default public-surface view, which evaluates the
+enclosing definition chain as the Public scope does; the all-declaration view
+is kept for the generated-name rule below.
 [The shared visibility selector](type-declaration-visibility.md) remains the
 owner for consumer-controlled `PublicSurface`, EditorBrowsable, and obsolete
 facets and their attributed unknown evidence. Its raw projection is the
@@ -543,8 +546,8 @@ the command compatibility boundary:
 - explicit source scopes without implicit package expansion;
 - semantic row selection after complete namespace observation;
 - established metadata-arity spelling for generic locator rows;
-- parity with compatibility Find for row-local nested visibility and
-  compiler-generated suppression under `--all`;
+- default nested visibility through every enclosing Type, matching the
+  Public scope, and compiler-generated suppression under `--all`;
 - visible Package locator acquisition failures;
 - compatibility fallback when a Package has no implementation-view surface;
 - visible locator inventory/access rejection without duplicate diagnostics

@@ -316,6 +316,9 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     describeWorkspacePackageSources: () =>
       unexpected("describeWorkspacePackageSources"),
     explainVocabularies: () => unexpected("explainVocabularies"),
+    explainResources: () => unexpected("explainResources"),
+    describeWorkspaceComponents: () => unexpected("describeWorkspaceComponents"),
+    explainWorkspaceComponent: () => unexpected("explainWorkspaceComponent"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
     decodeWorkspaceShareState: () =>
       unexpected("decodeWorkspaceShareState"),
@@ -1334,6 +1337,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "net10.0",
     "Example.dll",
     "M:Example.Api.Run",
+    null,
   );
   const libraryQuery = state.client.package.queryLibraries(
     "Example",
@@ -1786,6 +1790,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     0x06000001,
     0,
     "[]",
+    null,
     "source",
   );
   const graphResult = state.client.source.queryTypeMemberSource(
@@ -1798,6 +1803,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "selector",
     0x06000001,
     "[]",
+    null,
   );
   const platformMemberResult = state.client.source.queryPlatformMemberSource(
     "net11.0",
@@ -1993,18 +1999,19 @@ test("background bindings are not Worker activity", async () => {
     metadata: {
       queryLibraryFindingDiffAny: async () => {
         await findingDiffAny.promise;
-        return contractViolation({ schemaVersion: 2, kind: "Canceled" });
+        return contractViolation({ schemaVersion: 3, kind: "Canceled" });
       },
     },
   });
   const background = state.client.metadata.queryLibraryFindingDiffAny(
     "finding-diff-any-1",
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Fixture",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net10.0",
+      runtimeIdentifier: "win-x64",
       compileAssetId: "compile:lib/net10.0/Fixture.dll",
       axes: "ApiAndBody",
     },
@@ -2396,6 +2403,35 @@ test("vocabulary explanation transport preserves native arrays and typed rejecti
   ]);
 });
 
+test("component explanation transport keeps owner JSON, parent and failures intact", async () => {
+  const calls: unknown[][] = [];
+  const result = { outcome: "UnsupportedVersion", explanation: null, error: "Unsupported schema." };
+  const inventory = { outcome: "Described", components: [
+    { path: "packet-local", name: "Package", declaration: "owner-issued JSON" },
+  ], error: null };
+  const state = fixture({
+    catalog: {
+      explainResources: (...args) => { calls.push(["root", ...args]); return result; },
+      describeWorkspaceComponents: (...args) => { calls.push(["list", ...args]); return inventory; },
+      explainWorkspaceComponent: (...args) => { calls.push(["component", ...args]); return result; },
+    },
+  });
+  const root = state.client.catalog.explainResources("root", "hal");
+  const list = state.client.catalog.describeWorkspaceComponents("owner-packet");
+  const detached = state.client.catalog.explainWorkspaceComponent("owner-issued JSON", null, "hal");
+  const qualified = state.client.catalog.explainWorkspaceComponent("owner-issued JSON", "owner-packet", "data");
+  await state.environment.flushAsync();
+  assert.deepEqual(await root, result);
+  assert.deepEqual(await list, inventory);
+  assert.deepEqual(await detached, result);
+  assert.deepEqual(await qualified, result);
+  assert.deepEqual(calls, [
+    ["root", "root", "hal"], ["list", "owner-packet"],
+    ["component", "owner-issued JSON", null, "hal"],
+    ["component", "owner-issued JSON", "owner-packet", "data"],
+  ]);
+});
+
 test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
   const calls: unknown[][] = [];
   const result = {
@@ -2627,6 +2663,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
       "explainVocabularies",
+      "explainResources",
+      "describeWorkspaceComponents",
+      "explainWorkspaceComponent",
       "observeRetainedWorkspaceSettlement",
       "prepareEcosystemWorkspaceDefinition",
       "prepareHomeDemoWorkspaceDefinition",
@@ -2652,7 +2691,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 135);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 138);
 
   const state = fixture();
   const groups = [

@@ -231,10 +231,23 @@ together with `--framework`, `--version`, `--preview`, one `--tfm`,
 `--namesake-library`, `--first-library`, NuGet source options, and `--verbose`.
 `--namesake-library` requires a unique assembly-name match to the package ID.
 `--first-library` takes the first namesake in host-neutral Library order, or
-the first Library in that order when there is no namesake. A package that
-contributes more than one Library keeps the multi-Library view unless one of
-those explicit narrowing gestures is supplied; explicit `--tree` or
-`--mermaid` on an aggregate fails and asks for the assembly within the package.
+the first Library in that order when there is no namesake. The Tree describes
+one Library, so a package that contributes more than one Library renders the
+Library that `--first-library` selects unless an exact Library or
+`--namesake-library` narrows it. When no Library was named, one warning line
+on standard error says how many Libraries the package has and how to list
+them:
+
+```text
+Warning: Microsoft.Azure.SignalR@1.33.1 has 2 libraries; one is shown. Use `dotnet-inspect package Microsoft.Azure.SignalR@1.33.1` to list them.
+```
+
+The suggested `package` command repeats `--tfm` and the NuGet source options
+that selected the Libraries. A package whose Libraries come only from a
+runtime-specific folder, which `package` does not list, gets the count
+without a suggestion.
+
+Sectioned views such as `-S "Library Info"` keep the multi-Library aggregate.
 Package-scoped Type lookup is also aggregate by default: it searches every
 Library in the selected Package population. Its supported exact `--library`
 source narrows that lookup to one Library. Inspect Web's First Library entry
@@ -806,8 +819,8 @@ top-level catalog, or report one exact category or section in detail:
 `Formats`, and, where the owner declares them, `Shape` (`table`, `hierarchy`,
 or `text`, per [Section shapes](design/section-shapes.md)), `Cardinality`
 (`scalar` or `inventory`), and `Terminals`. Every owner declares all of them;
-`Call Graph` and Library `Dependency Structure` are graphs and declare no
-shape. A category reports the formats supported by its
+`Call Graph` is a graph and declares no shape. Library `Dependency Structure`
+is a Table of namespace edges. A category reports the formats supported by its
 complete expansion plus the formats of each member; it never selects or drops
 members to satisfy a format. Use the result to choose an exact section before
 requesting a single-result projection such as `--tree` or `--mermaid`.
@@ -834,8 +847,8 @@ shape's native format when no format is named, per
 (`library MyLib.dll -S References`, the `Library Info` record as field/value
 TSV, each metadata table, and each `Context:` section on `library address`)
 and `Reference Hierarchy` renders its tree; `--markdown` or `--mermaid` names
-another of its formats. `Dependency Structure` is a graph and keeps its
-current rendering. An explicit format, an environment default, `--print`,
+another of its formats. `Dependency Structure` streams its namespace-edge
+rows; `--markdown` names its Document. An explicit format, an environment default, `--print`,
 `--row`, `--value`, `--urls`, `--paths`, `--tree`, `--count`, a projection,
 an envelope, or discovery keeps its existing behavior, and selecting several
 sections composes Markdown as before, including a mixed selection whose
@@ -2033,14 +2046,39 @@ currently `nonProjectable`.
 
 Exact `library ... -S "Dependency Structure"` reports internal namespace
 dependencies derived from whole-library method evidence. Namespace edges are
-the section's QuerySpace rows. Nodes show Type count and topological level;
-cycle members are emphasized and carry their exact cycle index. Isolated
-namespaces remain visible in an unwindowed graph:
+the section's QuerySpace rows. On one exact library, with no format named, the
+section streams them as TSV, one row per edge:
+
+| Column | Meaning |
+| --- | --- |
+| `from`, `to` | The source and target namespaces |
+| `calls`, `function_references` | The relationship counts |
+| `from_level`, `to_level` | Each namespace's topological level |
+| `from_cycle`, `to_cycle` | Each namespace's 1-based cycle number, empty outside any cycle |
+
+Rows sharing a cycle number belong to one cycle. A qualified document, one
+with unresolved calls or incomplete bodies, adds a warning on stderr.
+`library <package>@<version> -S "Dependency Structure"` renders the Document
+by default, like every section on that route. With `--tsv` or `--jsonl`, it
+prefixes each row with `package`, `version`, `library`, and `tfm`. Each
+library numbers its own cycles and applies row selection on its own. Group by
+`library` and `tfm` before counting cycles. Qualified warnings name their
+library, and `--count` sums the Table rows across libraries.
+
+`--markdown` and `--plaintext` render the Document. It states the cycle count
+(`Cycles`) and, under `Cycle Members`, each cycle's namespaces; edge selection
+never narrows either. The edge graph follows, with Type count and topological
+level on each node. Cycle members are emphasized and tagged with their cycle's
+1-based position, such as `cycle 1 of 1`. Isolated namespaces remain visible
+in an unwindowed graph:
 
 ```bash
 dotnet-inspect library FluentValidation.dll \
   --package FluentValidation@12.1.1 --tfm net8.0 \
   -S "Dependency Structure"
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Dependency Structure" --markdown
 dotnet-inspect library FluentValidation.dll \
   --package FluentValidation@12.1.1 --tfm net8.0 \
   -S "Dependency Structure" --mermaid
@@ -2049,12 +2087,11 @@ dotnet-inspect library FluentValidation.dll \
   -S "Dependency Structure" -n 10 --head
 ```
 
-`-n`, `--head`, `--tail`, and `--rows` select namespace edges before graph
-rendering; a selected graph retains only edge endpoints. `--count` executes the
-namespace-edge QuerySpace Count terminal. The section is explicit-only and is
-not added by verbosity or category selection. Markdown and tabular formats
-lower the Markout graph as an edge table; `--mermaid` lowers the same graph as
-a diagram.
+`-n`, `--head`, `--tail`, and `--rows` select namespace edges before
+rendering. A selected graph retains only edge endpoints. `--count` executes the
+namespace-edge QuerySpace Count terminal, which equals the Table's row count.
+The section is explicit-only and is not added by verbosity or category
+selection. `--mermaid` lowers the same graph as a diagram.
 
 Exact `-S "Dependency Structure" --json` emits the complete Research document:
 Analysis and population receipts, Type and namespace nodes, internal and
@@ -2982,8 +3019,26 @@ traversal outcomes, and these links omit projection parameters.
 For these readings, `_embedded.data` contains native resource data and
 `_embedded.resources` contains already expanded resources. A detached component
 explanation has no instance `self`; its `describedby` relation identifies this
-installed kind contract. The shared operation consumes owner-validated
-component inputs; CLI admission of a component file is a later facade slice.
+installed kind contract. Explicit `--component FILE` selects owner-validated
+component input; `--component -` reads redirected UTF-8 stdin:
+
+```bash
+dotnet-inspect explain --component component.json .hal --json > declaration.json
+jq '._embedded.data | {declared: .facts, unavailable: .fact_states}' declaration.json
+
+# Supply the actual encoded parent only when the question needs parent facts.
+dotnet-inspect explain --component component.json --parent-packet "$w" .hal --json
+```
+
+A filename or JSON value in the ordinary positional operand does not select
+this mode. Component input cannot accompany a resource/search operand. Unknown
+contract/version or invalid declarations fail without searching. Without a
+parent packet, copied path/context/focus claims remain unavailable. With one,
+Workspace validates correspondence without restoration or acquisition.
+`.data --json` and ordinary JSON expose direct facts; `.contract --json`
+exposes the typed Document. Markdown/plain text use the existing presentation.
+`-n`, `-Q`, `--envelope`, `--no-headers` / `--nh` and table/row formats do not
+apply to components.
 The [worked reading](../tools/ExplainReadingScenarios/continuous-components/README.md)
 includes captured JSON files and standalone versus parent-qualified examples.
 

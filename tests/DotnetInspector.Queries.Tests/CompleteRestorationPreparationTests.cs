@@ -2,6 +2,8 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
 using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -259,6 +261,61 @@ public sealed class CompleteRestorationPreparationTests
                     ready.Plan.Recipe);
         Assert.Equal(registration.Declaration.Id, recipe.Ecosystem);
         Assert.Equal("ecosystem.overview", recipe.Facet.Value);
+        Assert.Empty(ready.Plan.ConfiguredPackageSources);
+    }
+
+    [Fact]
+    public void RegistrationOnlyPackageType_DerivesOneExactConstructionContext()
+    {
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        var library = new ExactLibrarySourceCoordinate.Package(
+            PackageSourceCoordinate.Create("Contoso.Widget", "1.2.3"),
+            new ManagedMetadataIdentity.Assembly(
+                new AssemblyReferenceIdentity(
+                    "Contoso.Widget",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null)));
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contoso",
+                    ["Widget"]))
+                .Name;
+        var request = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                plan,
+                registration.Declaration.Id,
+                library,
+                type);
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer
+                .PrepareEcosystemPackageTypeRestoration(
+                    request,
+                    new TestIntentAuthority(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Same(request, ready.Plan.Request);
+        Assert.Empty(plan.Contexts);
+        WorkspaceContextInput context =
+            Assert.Single(ready.Plan.WorkspacePlan.Contexts);
+        Assert.Equal(
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
+            context.Framework);
+        var member = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
+            Assert.Single(context.Members));
+        Assert.Equal("contoso.widget", member.PackageId);
+        Assert.Equal("1.2.3", member.Version);
+        var recipe = Assert.IsType<CompleteRestorationRecipe
+            .RegistrationOnlyEcosystemPackageType>(ready.Plan.Recipe);
+        Assert.Same(library.PackageCoordinate, request.Package);
+        Assert.Same(library.PackageCoordinate, recipe.Package);
+        Assert.Equal(library, recipe.Library);
+        Assert.Equal(type, recipe.Type);
         Assert.Empty(ready.Plan.ConfiguredPackageSources);
     }
 

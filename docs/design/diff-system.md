@@ -71,6 +71,86 @@ comparison.
 > Comparison infrastructure that does not depend on packages, versions or
 > hosts lives in the `ILInspector` layer, where any scenario can reuse it.
 
+## Scenarios
+
+The scarce resource is time. The goal is a diff, and findings in general,
+cheap enough to be always available: the way IntelliSense made every Type and
+member list available on a partial name or a trailing dot, and the way the
+`.Add*` queries carry that one step further. For diff that means opening a
+package and seeing at once what changed, broadly or for one member, and asking
+of one member when it last changed. The Exists case carries that promise; the
+exhaustive case explains what Exists found.
+
+Five scenarios are foundational, and each is one composition of three
+primitives: rows are paired across images by their owner's correspondence
+(Finding Diff Any's [identity](finding-diff-any.md#identity) for Types and
+the members it reads, [API qualified anchor](api-qualified-anchor.md) for a
+member named across versions); each paired row is decided by **Exists**
+(lockstep that stops at the row's first difference) or read in full by
+**Exhaustive** (the complete diff of the row); and row decisions fold up to
+the requested scope. The axes, API and Body, are which row kinds are read.
+The rungs are [Diff capabilities](diff-capabilities.md)'.
+
+| Scenario | Pairing | Per-row decision and fold | Rungs |
+| --- | --- | --- | --- |
+| **Member**: one member, A against A' | One member by its anchor | Exists, or Exhaustive, on API and/or Body; no fold: the single-atom diff | 2 for one row, 4 |
+| **Type**: one Type, A against A' | The Type's members and its declaration facts | Type Exists, stopped at the Type's first difference; every row's Exists state; or Exhaustive per row | 1, 2, 3 |
+| **Assembly**: A against A' | Every Type, then every member | Type Exists for every Type; or Exhaustive per Type, per Member, or both, folded to Type states and the Library state: the full offline assembly diff | 1 to 4 |
+| **Batch**: A against several versions | One image paired with each of the others, a star | Exists per row, folded to Type states per version pair, such as the current major's previous patch and the last major's patch against A | 1 and 2, repeated |
+| **Bisect**: one member across a version sequence | One member by its anchor in each version | Exists per row, folded to every version interval across which the member differs, on API and/or Body, with no assumption that it changed once | 2 for one row, repeated |
+
+Finding Diff Any is the assembly scenario, hard-wired: assembly-wide pairing,
+Type-scope folds, and a private body reader, the walk, that decides a paired
+method's Body without a cursor. Product hosts reach the Type scenario today by
+filtering its assembly result; its Type-scoped entry,
+`FindingDiffAnyTypePairing`, pairs two images once and returns one paired
+Type's rows and states through either body reader ([Type
+inventory](finding-diff-any.md#type)), with no product host yet; the Member
+fold over those rows is the Type level's, not yet composed, and `Explain`
+returns first-difference text. It reaches the member scenario only through
+internal gate hooks; the member Body diff lives in IL diff's endpoints, and a
+member's API today is read as a filter over the surface-wide API comparison.
+[Diff History](diff-history.md) composes the chain form, each consecutive pair
+of a version population, in two ways: Library-scope History over Finding Diff
+Any at explicit points, and Type- or Member-focused History over Finding
+producers, such as the API member and Analysis Findings, whose adaptive probing
+bisects one Type's or one Member's Findings by inspecting each point it probes,
+with no assumption that the focus changed once. Batch as a star, and bisect
+over Exists on Finding Diff Any's axes, are not composed. Finding Diff Any is
+therefore one composition, not the solution.
+
+What is foundational is what every row of the table uses: the cursors and
+`FindingExists` of [Finding census](finding-census.md), which owns the
+reading of one row on one kind including when it is `Indeterminate`; the
+exhaustive comparison of each kind; and the vocabulary Finding Diff Any owns
+as contract rather than mechanism: the identity rule, which rows count toward
+which axis, and how a Type's rows and their undecided readings fold. Finding
+census step 4 makes Finding Diff Any the owner of Exists at Library, Type, and
+Member scope, which is the point at which it becomes a thin composition of
+those primitives. The walk is a provision of that owner, kept while it is
+measurably cheaper than lockstep over the cursors and deleted when lockstep
+matches it, under Finding census step 2b; it is justified by time alone,
+never by a second definition of change.
+
+Three consequences follow for what Finding Diff Any does not compose:
+
+- **Batch** wants one census side per image reused across the batch's
+  comparisons, so an image's Type-level keys are spelled once. The Symbol Key
+  interning table is scoped to one comparison today and a side releases it
+  when it completes, so batch needs the table scoped to the batch, recorded
+  on [#10533](https://github.com/richlander/dotnet-inspect/issues/10533).
+- **Bisect over Exists** is where per-row Exists pays most: it reads one
+  member per version and stops at that member's first difference, so its cost
+  is one member times the versions probed, never a whole comparison per
+  point. Its Body axis needs the declaration cursor of Finding census step 3
+  beside the IL cursor, since a member's Body facts include declaration facts,
+  and its API axis needs a per-member reading under Finding Diff Any's
+  API-axis equality, which its [Member level](finding-diff-any.md#member)
+  defines and no owner provides yet.
+- **The Type scenario at rung 3** is composed by
+  [Annotated Type Map](annotated-type-map.md), which reads the per-Member
+  exhaustive diffs under one Type; Finding Diff Any does not compose it.
+
 ## Layers
 
 | Layer | Owns | Assemblies |
@@ -208,7 +288,7 @@ today, across about thirty payloads, while the other rungs serve narrow domains:
 covers History's six payloads, and exact-identity Correlate is API members only.
 The designed `ComparisonDocument<AnalysisDiff<TItem>>` and
 `ComparisonDocument<MappedTextDiff>` forms have no production instantiation.
-Finding Diff Any's `FindingDiffAnyState`, `ApiDiffAnalyzer`'s `ApiChange`, and
+Finding Diff Any's `FindingDiffAnyState`, `ApiFindingClassifier`'s `ApiChange`, and
 the IL and C# body rows have no `T` at all; they are the producers that the next
 table marks as off the ladder.
 
@@ -222,7 +302,7 @@ table marks as off the ladder.
 | **Text characterization** | `TextDiffCharacterization` (`TextRegion`, `TextChange`, `TextMove`) over an `AnalysisDiff<string>` | Lines, with whitespace-only and moved changes | Facts over an `AnalysisDiff<string>` | [Text whitespace](text-whitespace-characterization.md), [text moves](text-move-characterization.md) |
 | **Canonical IL comparison** | `IlBodyDiff` rows over `CanonicalIlOperation` | One method body | No: native rows; IL Findings take the ladder separately | [IL diff canonicalization](il-diff-canonicalization.md) |
 | **C# body comparison** | `CSharpBodyDiff` line rows; `CSharpStructuralComparison` node matches within one body | One method body | No: native rows; C# Findings take the ladder separately | [Implementation diff](implementation-diff.md#structural-body-comparison) |
-| **API surface comparison** | `ApiDiffAnalyzer` `ApiChange` with `ChangeKind` and `ChangeClassification` | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
+| **API surface comparison** | `ApiFindingClassifier` `ApiChange` with `ChangeKind` and `ChangeClassification`, from `ApiDiffAnalyzer`'s change facts over the API Finding correspondence | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
 | **Axis summary** | `FindingDiffAnyState` per Type and axis | Type, with Member and residual partitions designed | No: per-pair states | [Finding Diff Any](finding-diff-any.md#levels) |
 | **Subject composition** | `ComparisonSubjectChange`: Diff, Addition, Deletion, Rename, Move, RenameAndMove | A root or subject in a composed comparison | Composition, not a rung | [Comparison document](comparison-document.md#subject-changes) |
 
@@ -270,7 +350,7 @@ way for every producer.
 - **Moves inside IL and C# line diffs.** Only Findings, text and C# structure
   detect moves.
 - **Correlation for non-Finding producers.** Finding Diff Any,
-  `ApiDiffAnalyzer`, and the IL and C# body diffs return native rows rather than
+  `ApiFindingClassifier`, and the IL and C# body diffs return native rows rather than
   Findings, so their results cannot be correlated across versions; only their
   Finding projections can.
 - **One alignment kernel.** Three product LCS implementations exist:
