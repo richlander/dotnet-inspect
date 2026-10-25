@@ -420,17 +420,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The managed API targets .NET 10. setup-dotnet installs the 10.0 SDK,
-      # and with it the ASP.NET Core 10 runtime, from the release feed beside
-      # the repository's SDK, which global.json keeps selected. The channel
-      # links dotnet-install.sh resolves now redirect to a storage account
-      # that refuses public access (#10651).
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: |
-            10.0.x
-            11.0.100-rc.1.26425.128
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      # dotnetup refuses the runner's system .NET location, and a channel
+      # request through dotnet-install.sh resolves an aka.ms link to a storage
+      # account that refuses public access (#10651). An exact version builds
+      # its URL from the release feed, so the latest 10.0 runtime is read from
+      # that feed's release metadata first.
+      - name: Install .NET 10 runtime (inspect-web test target)
+        run: |
+          set -euo pipefail
+          feed=https://builds.dotnet.microsoft.com/dotnet
+          version=$(curl -fsSL --retry 3 "$feed/release-metadata/10.0/releases.json" \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["latest-runtime"])')
+          curl -fsSL --retry 3 https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+          bash /tmp/dotnet-install.sh --version "$version" --runtime aspnetcore \
+            --azure-feed "$feed" --install-dir "$DOTNET_ROOT"
 
       - name: Test Inspect Web managed API
         run: dotnet run --project tests/MsdlProxy.Tests -c Release
