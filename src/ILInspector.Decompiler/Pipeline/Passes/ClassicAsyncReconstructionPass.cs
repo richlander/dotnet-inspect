@@ -223,19 +223,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         function.ClearImportedExceptionFacts();
         // Slots the splice emptied (the state local, awaiter locals, the this
         // copy, machine temporaries) keep their lowered types but have no use;
-        // declare only the slots the body still references.
-        var used = new HashSet<int>();
-        foreach (IrNode node in body.Descendants)
-        {
-            switch (node)
-            {
-                case LoadLocal load: used.Add(load.Index); break;
-                case StoreLocal store: used.Add(store.Index); break;
-                case LoadLocalAddress address: used.Add(address.Index); break;
-            }
-        }
+        // declare only the slots the body still binds or reads, judged by the
+        // same reference census the printer and the invariant use (catch
+        // variables, using and foreach headers, and pattern bindings included).
         var eliminated = new HashSet<int>(body.EliminatedLocalSlots);
-        eliminated.UnionWith(Enumerable.Range(0, body.Locals.Length).Where(index => !used.Contains(index)));
+        eliminated.UnionWith(
+            Enumerable.Range(0, body.Locals.Length)
+                .Where(index => !IrFunction.LocalSlotReferencesInScope(body, index).Any()));
         function.ResetLocals(
             body.Locals,
             body.LocalNames,
