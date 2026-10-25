@@ -432,8 +432,8 @@ The leaf is the same contract referenced by detached Package explanation.
 Hosts compose this catalog and its reference declaration with their installed
 catalog. The existing completed-catalog reachability check applies; it is not a
 separate list of expected component paths. The CLI composition is the first
-production consumer. Component-file admission remains Contextual Resource
-Explanation's next adoption, with the Browser consuming the same operation in
+production consumer. Component-file admission belongs to Contextual Resource
+Explanation, with the Browser consuming the same operation in
 its counted host slice.
 
 Generic HAL reading puts `_links` first. Native facts, observation outcomes and
@@ -489,8 +489,8 @@ Supporting boundaries remain independently owned:
   new owner-issued explanation input. Its packet schema and codec are unchanged
   by this proposal.
 - [Contextual Resource Explanation](contextual-resource-explanation.md#explain-facade-dispatch)
-  owns input admission and direct typed handoff. Its present three operand
-  families are unchanged until its focused adoption adds a component entrance.
+  owns input admission and direct typed handoff, including its explicit
+  component entrance alongside the three ordinary operand families.
 - [CLI host architecture](../cli-architecture.md) owns bare-root and `--help`
   admission; [Find Workspace scope](find-workspace-scope.md) and query owners
   supply the bindings and grains of the intended unified `find` route. This

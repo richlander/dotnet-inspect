@@ -294,7 +294,11 @@ public static class MemberSearch
                 string metadataName =
                     reader.GetString(type.Name);
                 if (TypeFilters.IsCompilerGenerated(metadataName)
-                    || !includeAll && !type.IsPublic
+                    || !includeAll
+                        && !ApiSurfaceExtractor.AdmitsPublicScopeType(
+                            reader,
+                            typeHandle,
+                            type)
                     || !includeAll
                         && AttributeReader.HasHiddenAttribute(
                             reader,
@@ -526,7 +530,11 @@ public static class MemberSearch
                     reader.GetString(type.Name);
                 if (TypeFilters.IsCompilerGenerated(
                         metadataName)
-                    || !includeAll && !type.IsPublic
+                    || !includeAll
+                        && !ApiSurfaceExtractor.AdmitsPublicScopeType(
+                            reader,
+                            handle,
+                            type)
                     || !includeAll
                         && AttributeReader.HasHiddenAttribute(
                             reader,

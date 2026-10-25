@@ -359,7 +359,7 @@ public class ResearchDiffTests
         var oldSurface = Surface("Widget", Member("Existing", ["A"]));
         var newSurface = Surface("Widget", Member("Existing", ["B"]));
 
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+        var diff = ProductionApiDiff(oldSurface, newSurface);
 
         Assert.Empty(diff.TypeDiffs);
     }
@@ -370,7 +370,7 @@ public class ResearchDiffTests
         var oldSurface = Surface("Widget", Member("Existing", ["A"]));
         var newSurface = Surface("Widget", Member("Existing", ["B"]));
 
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(ApiDiffScope.Attributes));
+        var diff = ProductionApiDiff(oldSurface, newSurface, ApiDiffScope.Attributes);
 
         var type = Assert.Single(diff.TypeDiffs);
         Assert.Collection(
@@ -420,7 +420,7 @@ public class ResearchDiffTests
         var oldSurface = Surface("Widget", Member("Existing"));
         var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
 
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+        var diff = ProductionApiDiff(oldSurface, newSurface);
 
         var change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
         Assert.Equal(ChangeKind.MemberAdded, change.Kind);
@@ -451,7 +451,7 @@ public class ResearchDiffTests
     {
         var oldSurface = Surface("Widget", Member("Existing"));
         var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
-        var api = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+        var api = ProductionApiDiff(oldSurface, newSurface);
 
         var diff = ResearchDiff.FromApiDiff(api);
 
@@ -896,7 +896,7 @@ public class ResearchDiffTests
     {
         var oldSurface = Surface("Widget", Member("Existing"));
         var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
-        var api = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+        var api = ProductionApiDiff(oldSurface, newSurface);
         var apiResult = ResearchDiff.FromApiDiff(api);
         var ilResult = ResearchDiff.FromIlBodyDiff(new IlBodyDiffResult(
             IlBodyDiffOutcome.Exact,
@@ -932,7 +932,7 @@ public class ResearchDiffTests
     {
         var legacySurface = Surface("Legacy", Member("Existing"));
         var legacyResult = ResearchDiff.FromApiDiff(
-            ApiDiffAnalyzer.Compare(legacySurface, Surface("Legacy", Member("Added"))));
+            ProductionApiDiff(legacySurface, Surface("Legacy", Member("Added"))));
         var oldSurface = Surface("Widget", Member("Existing"));
         var newSurface = Surface("Widget", Member("Existing"), Member("Added"));
         var structuredResult = ResearchDiff.CompareApiSurfaces(oldSurface, newSurface);
@@ -3393,6 +3393,21 @@ public class ResearchDiffTests
             kind == AllocationKind.Array
                 ? AllocationFactSource.Newarr
                 : AllocationFactSource.Newobj);
+
+    /// <summary>
+    /// The production API comparison's classified <see cref="ApiDiff"/>, as
+    /// <c>diff --analysis api</c> produces it.
+    /// </summary>
+    static ApiDiff ProductionApiDiff(
+        ApiSurface oldSurface,
+        ApiSurface newSurface,
+        ApiDiffScope scope = ApiDiffScope.Signature)
+        => ResearchDiff.Compare(
+                ResearchDiffInput.FromApiSurface(oldSurface),
+                ResearchDiffInput.FromApiSurface(newSurface),
+                new ResearchDiffOptions(ResearchChangeMechanism.Api, ApiScope: scope))
+            .ApiDiff
+            ?? throw new Xunit.Sdk.XunitException("Expected an API diff.");
 
     static ApiSurface Surface(string typeName, params ApiMember[] members)
         => new()

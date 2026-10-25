@@ -136,6 +136,83 @@ supported terminal, verified result cardinality, reported median and p95, and
 explained a bounded terminal tradeoff alongside substantial end-to-end
 improvements.
 
+### Input provenance budget
+
+The product's primary input is assemblies the .NET SDK produces: compiler
+output from Roslyn (C#, Visual Basic, source generators, Razor) and F#,
+rewritten by ILLink or crossgen2, plus SDK reference assemblies and the shared
+frameworks built with the same tools. That population sets the performance
+bar, so the pinned real assets come from it. This budget decides what other
+input may cost that population; it does not replace the interpretation rule
+above.
+
+| Input | Correctness | Performance |
+| --- | --- | --- |
+| Produced by the .NET SDK | The owning design's fidelity claim | The bar above |
+| Valid, from another producer | Exact unless the owning design records a non-claim | May take a slower path |
+| Malformed | Bounded and inert; fails visibly where the reads it performs fail | May take a slower path |
+
+A guard is a correctness check that SDK-produced input pays only to keep the
+other rows exact or failing visibly, such as validation a fast path performs
+before it may decide. Containment that keeps every supported input bounded and
+inert, such as
+[MetadataPrimitives](metadata-primitives.md) traversal bounds, work budgets,
+and typed mechanical rejection, is not a guard and needs no occurrence.
+
+A guard needs a real occurrence: a published assembly from a real producer on
+which the unguarded path gives a wrong answer. Fixtures, mutation tests, and
+fuzzing verify a guard once an occurrence justifies it; they never justify
+one. Search before building or measuring a guard. Run the unguarded variant
+over the shared frameworks to confirm it stays exact on the first row, and
+over a corpus of other producers to look for an occurrence, including
+obfuscators and protectors, IL weavers and rewriters, F#, C++/CLI, ILAsm,
+tlbimp, IKVM, and pre-SDK compilers. Without an occurrence, leave the guard
+out, state the unguarded input as a non-claim in the owning design, and file
+an issue that names the search; add the guard when an occurrence appears.
+
+A justified guard may cost at most 5% of the base's time on any measured
+terminal. Attribute that share by measuring the candidate against a variant
+without the guard; the candidate without the guard's share still meets the
+bar above.
+
+## Terminal correctness and least-work execution
+
+For applicable QuerySpace adoption or changed terminal execution, assess two
+separate dimensions: whether `Exists`, `Count`, and `Rows` answer correctly,
+and whether each executes only the work its answer requires. Implementing the
+terminals does not establish high performance.
+
+For each affected terminal, state its required facts, stopping condition, and
+work avoided across acquisition, traversal, decoding, row materialization,
+allocation, and spelling. Assess work at the storage-component boundary, not
+merely at the final result type. For API queries, independently stored
+signature components can be queried without first spelling the whole
+signature; separating Name from Signature is not the end of specialization.
+Full signature spelling belongs only where a predicate or presentation
+requires it. Preserve required correctness, containment, completion, and
+failure evidence when reducing work.
+
+Compare the supported terminals over the same scope, population, and
+predicates, allowing each only its terminal-required projection and output
+consumption. Use representative early-match, late-match, no-match, and
+population-sensitive Count cases as applicable to expose whether execution
+actually specializes. Apply the
+[exact-base/head NativeAOT protocol](#nativeaot-beforeafter-for-modernization)
+and, for QuerySpace enablement, the
+[performance oracles](#performance-oracles-for-queryspace-enablement).
+Separate fixed startup and acquisition costs from query execution when they
+mask the difference. Work and allocation evidence explains that difference;
+it does not replace NativeAOT timing.
+
+`Exists` or `Count` costs approaching equivalent `Rows` costs are a diagnostic
+signal, not automatic proof of a defect or of acceptable performance.
+Investigate missed pushdown, eager decoding or spelling, and unnecessary row
+materialization or allocation before claiming readiness. Exact Count and
+unsuccessful Exists may require exhaustive traversal, and unavoidable shared
+work can dominate elapsed time; neither necessarily requires Rows' projection
+or spelling work. Explain unavoidable costs and demonstrate which work was
+avoided or remains necessary. Do not impose a universal speedup ratio.
+
 ## Performance oracles for QuerySpace enablement
 
 The end-to-end comparison above proves what a user sees. It does not show

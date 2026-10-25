@@ -815,10 +815,26 @@ internal sealed class StateMachineSourceResolver
         MethodDefinition sourceMethod,
         MethodDefinitionGeneratedExpansionWork work,
         out MethodDefinitionHandle executionMethod,
-        out TypeDefinitionHandle resolvedStateMachine)
+        out TypeDefinitionHandle resolvedStateMachine) =>
+        TryResolveTargetedStateMachineExecutionMethod(
+            sourceHandle,
+            sourceMethod,
+            work,
+            out executionMethod,
+            out resolvedStateMachine,
+            out _);
+
+    internal bool TryResolveTargetedStateMachineExecutionMethod(
+        MethodDefinitionHandle sourceHandle,
+        MethodDefinition sourceMethod,
+        MethodDefinitionGeneratedExpansionWork work,
+        out MethodDefinitionHandle executionMethod,
+        out TypeDefinitionHandle resolvedStateMachine,
+        out bool isAsyncStateMachine)
     {
         executionMethod = default;
         resolvedStateMachine = default;
+        isAsyncStateMachine = false;
         StateMachineAttributeInfo attribute =
             StateMachineExecutionAttribute(
                 sourceMethod.GetCustomAttributes(),
@@ -885,6 +901,10 @@ internal sealed class StateMachineSourceResolver
                 + "execution body.");
         }
         resolvedStateMachine = stateMachineHandle;
+        isAsyncStateMachine =
+            attribute.Kind is
+                StateMachineKind.ClassicAsync
+                or StateMachineKind.AsyncIterator;
         return true;
     }
 

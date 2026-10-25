@@ -96,7 +96,10 @@ This owner does not define:
 
 The extension analyzer uses its own gate classifier, the **extension scope**,
 not the classification scope. Its type scope is a static (sealed abstract)
-type carrying `[Extension]` and not hidden; its one class, `Extension`, is a
+type carrying `[Extension]`, not hidden, and public through every enclosing
+Type (the
+[Public scope's Type admission](api-population-scope.md#accessibility-within-api-visibility-scope));
+its one class, `Extension`, is a
 public static method carrying `[Extension]` and not hidden. That is the
 method half of `ExtensionMethodScanner.FindAllExtensions(includeAll: false)`,
 which the Library Info Extension Methods row counts; extension properties

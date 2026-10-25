@@ -49,9 +49,8 @@ pass, and required reviews are review-clean; recreate it later when needed.
   evidence, CSharpText owns model-free textual grammar and layout, CSharp owns
   model-bound spelling and type views, Research composes evidence, and the CLI
   owns commands and presentation.
-- Reuse the applicable substrate: clearing houses and services; `InertString`,
-  ownership, borrowing, and snapshots; QuerySpace queries, rows, and limits;
-  host-neutral APIs, `InspectionEnvelope<TContent>`, and host-specific sinks.
+- Use the applicable
+  [modern infrastructure](#modern-infrastructure-and-legacy-adoption).
   Every low-level capability needs a production caller.
 - Preserve Content, Share, and diagnostics. Keep failures visible and
   behavior-safe defaults intact; network, source-content, exhaustive, and
@@ -72,6 +71,64 @@ renderer must say why it bypasses Markout.
 Commands follow [Progressive disclosure](design/progressive-disclosure.md). A
 new section enters the default `-v:m` view only when it is the command's single
 high-value section.
+
+## Modern infrastructure and legacy adoption
+
+These approaches are as-appropriate choices, not a mandatory stack or
+checklist: some features need none, others need all, and many need a subset.
+Use an approach only when it fits the scenario and offers a clear benefit.
+Applying architecture where it does not fit or offers no clear benefit is an
+anti-pattern. Choose the smallest sufficient composition, using current
+owner-issued infrastructure rather than the first legacy precedent found.
+[Building shared inspections](building-shared-inspections.md#choose-only-the-infrastructure-the-question-needs)
+guides those choices without requiring every layer for every capability.
+
+- **Houses.** Use the owning House architecture, such as
+  [PackageHouse](design/package-house.md), PlatformHouse, SourceHouse, or
+  DocumentationHouse, rather than reconstructing its settlement and policy in
+  a consumer.
+- **Package acquisition.** NuGetFetch offers range downloads for performance;
+  PackageHouse exposes that capability as an implementation detail. Use
+  [semantic content demand](design/package-house-semantic-content-demand.md)
+  to declare the required assets and evidence through the conventional House
+  API. Let its policies choose cache, ranged, or complete acquisition and
+  fallback; do not hard-code today's transfer strategy in callers. Optimal
+  acquisition policy can change over time.
+- **Bytes and text.** Use
+  [`OpaqueByteRange`](design/inert-bytes.md) for retained assembly and package
+  content and typed domain views for matching. For byte-originated display
+  text, construct `InertUtf8String` at the presentation boundary; project to
+  `InertString` only when the sink specifically requires UTF-16/string content.
+  Do not use contained presentation spelling as identity or matching input.
+- **Queries.** Compose query-capable scenarios through
+  [QuerySpace](design/query-space-composition.md), selecting the applicable
+  `Exists`, `Count`, or `Rows` terminal before execution. Preserve
+  terminal-specific work: do not materialize Rows merely to answer existence
+  or count when the producer can answer directly.
+- **Shared host-neutral APIs.** When the website and CLI serve the same or
+  similar semantic scenario, use the same
+  [host-neutral operation](building-shared-inspections.md#what-success-looks-like)
+  and its `InspectionEnvelope<TContent>`, not merely the same lower-level
+  House through separate algorithms. Keep host gestures and rendering in
+  thin adapters.
+- **Section content.** Expose the applicable
+  [Hierarchy, Table, and Document representations](design/section-shapes.md#section-representations).
+  Select typed representation demand before execution; structural requests
+  must not construct a Document only to discard its summary or context.
+- **CLI rendering.** With no explicit format intent for one effective section,
+  prefer Hierarchy, then Table, then Document under
+  [consumer selection](design/section-shapes.md#consumer-selection).
+  Markdown is often opt-in, not the assumed default. Preserve explicit output
+  intent and the Document composition needed for heterogeneous selections.
+
+The repository still contains legacy architectures. Where modern adoption
+fits the requested work and offers a clear benefit, migrate the relevant
+legacy path as a prerequisite or as a focused part of that work rather than
+extending it. Legacy infrastructure alone does not justify migration or
+adding layers. Keep migration within the
+[owning design's scope](design-scope.md): independently owned prerequisites
+land as separate focused efforts or stack slices. Do not turn a local change
+into an unrelated repository-wide migration.
 
 ## Threat-model boundary
 

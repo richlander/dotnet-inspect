@@ -3,16 +3,13 @@ using Inspector.Findings;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// Produces an <see cref="ApiDiff"/> from the Finding lane's own type and member
+/// Produces the production <see cref="ApiDiff"/> from the Finding lane's own type and member
 /// correspondence (<see cref="FindingComparison{T}"/> over <see cref="ApiTypeHandle"/> and
-/// <see cref="ApiMemberHandle"/>) instead of <see cref="ApiDiffAnalyzer"/>'s independent
-/// type-name/member-signature walk. Type-level classification reuses
-/// <see cref="ApiDiffAnalyzer.CompareTypeFacetsOnly"/> unchanged (type identity is the same
-/// full-name key in both lanes). Member-level classification is intentionally sourced from
-/// the Finding lane's richer identity/soft-key matching rather than
-/// <see cref="ApiDiffAnalyzer"/>'s bespoke signature-then-(Name,Kind) matcher -- see
-/// <see cref="ApiDiffNormalization"/> for the explicit, opt-in policy this introduces for
-/// fuzzy-matched (soft-key) member pairs.
+/// <see cref="ApiMemberHandle"/>), applying <see cref="ApiDiffAnalyzer"/>'s change facts and
+/// classification gates to each corresponding pair. Member correspondence is the Finding
+/// lane's identity/soft-key matching; members are never paired by name alone -- see
+/// <see cref="ApiDiffNormalization"/> for the explicit, opt-in policy for fuzzy-matched
+/// (soft-key) member pairs.
 /// </summary>
 public static class ApiFindingClassifier
 {
@@ -32,9 +29,9 @@ public static class ApiFindingClassifier
         var inspectionFailures = BuildInspectionFailures(oldSurface, newSurface);
 
         // Matching never ran on at least one side; there is nothing to classify beyond the
-        // structured inspection failures themselves (mirrors the legacy analyzer's own
-        // identity-incomplete skip, but as a full bail-out rather than a per-type skip since
-        // the Finding lane doesn't expose a partial-comparison shape).
+        // structured inspection failures themselves (a full bail-out rather than the per-type
+        // identity-incomplete skip below, since the Finding lane doesn't expose a
+        // partial-comparison shape).
         if (types.Value is not FindingComparison<ApiTypeHandle>.Complete typesComplete
             || members.Value is not FindingComparison<ApiMemberHandle>.Complete membersComplete)
         {
@@ -101,9 +98,8 @@ public static class ApiFindingClassifier
             switch ((object)pair.Value)
             {
                 case PairFinding<ApiTypeHandle>.Added added:
-                    // Mirrors the legacy analyzer's own oldIdentityIncomplete skip: if the old
-                    // surface failed to resolve identity for some type(s), a type that's
-                    // "only in new" may really be a type whose old-side identity just failed
+                    // If the old surface failed to resolve identity for some type(s), a type
+                    // that's "only in new" may really be a type whose old-side identity just failed
                     // to decode, not a genuine addition.
                     if (ApiDiffAnalyzer.IncludesSignature(options) && !oldIdentityIncomplete)
                     {
@@ -116,8 +112,8 @@ public static class ApiFindingClassifier
                     break;
 
                 case PairFinding<ApiTypeHandle>.Removed removed:
-                    // Mirrors the legacy analyzer's own newIdentityIncomplete skip (see
-                    // ApiSurfaceRelationshipFailureTests.ApiDiff_IncompleteNewIdentityDoesNotClaimOldTypeWasRemoved):
+                    // If the new surface failed to resolve identity for some type(s) (see
+                    // ApiSurfaceRelationshipFailureTests.ApiDiff_IncompleteNewIdentityDoesNotClaimOldTypeWasRemoved),
                     // a type that's "only in old" may really be a type whose new-side identity
                     // just failed to decode (e.g. a metadata cycle), not a genuine removal.
                     if (ApiDiffAnalyzer.IncludesSignature(options) && !newIdentityIncomplete)
@@ -146,9 +142,7 @@ public static class ApiFindingClassifier
     /// <summary>
     /// Type full names present only on one side (a whole-type addition/removal). A member
     /// belonging to one of these types is already covered by the type-level change and must
-    /// not also be reported as its own member-level addition/removal -- mirroring the legacy
-    /// analyzer, whose per-type walk never descends into <c>CompareMembers</c> for a type
-    /// that was itself added or removed.
+    /// not also be reported as its own member-level addition/removal.
     /// </summary>
     readonly record struct WholeTypeTransitionSets(HashSet<string> Added, HashSet<string> Removed);
 
@@ -264,9 +258,9 @@ public static class ApiFindingClassifier
                     {
                         // Strict default: a fuzzy/soft-key correspondence (e.g. an extension
                         // method's static/instance projection) is not assumed to be the same
-                        // member. Report it the way the legacy analyzer's own matcher would --
-                        // as an unrelated removal and addition -- unless the caller explicitly
-                        // opts into ApiDiffNormalization.NormalizeMemberProjection.
+                        // member. Report it as an unrelated removal and addition, unless the
+                        // caller explicitly opts into
+                        // ApiDiffNormalization.NormalizeMemberProjection.
                         if (ApiDiffAnalyzer.IncludesSignature(options))
                         {
                             if (!wholeTypeTransition.Removed.Contains(changed.Old.Payload.TypeFullName))
@@ -293,10 +287,9 @@ public static class ApiFindingClassifier
     }
 
     /// <summary>
-    /// Legacy <c>ApiDiffAnalyzer.CompareMembers</c> drops compiler-generated members (backing
-    /// fields, enum <c>value__</c> slots, closure/state-machine artifacts -- see
-    /// <see cref="MemberFilters.IsCompilerGenerated"/>) via its own <c>FilterMembers</c> before
-    /// matching, since they are not part of the authored API surface. The Finding lane's member
+    /// Compiler-generated members (backing fields, enum <c>value__</c> slots,
+    /// closure/state-machine artifacts -- see <see cref="MemberFilters.IsCompilerGenerated"/>)
+    /// are not part of the authored API surface. The Finding lane's member
     /// producer deliberately does not apply this heuristic itself (it is a raw, unfiltered
     /// census -- see <c>MetadataFindingsTests.ApiSurfaceMembersAreNotFilteredByNameHeuristics</c>),
     /// so classification is where this policy must be applied instead.
@@ -306,8 +299,7 @@ public static class ApiFindingClassifier
 
     /// <summary>
     /// Adding a member to an interface is potentially breaking (existing implementers must
-    /// add it too); adding a member to a class/struct/enum is purely additive. Mirrors the
-    /// legacy analyzer's own <c>newType.Kind == "interface"</c> check in <c>CompareMembers</c>.
+    /// add it too); adding a member to a class/struct/enum is purely additive.
     /// </summary>
     static ChangeClassification MemberAddedClassification(ApiMemberHandle newHandle)
         => newHandle.Type.Kind == "interface"
@@ -328,8 +320,7 @@ public static class ApiFindingClassifier
             // return type (see MemberAnchor.ComputeFingerprint). Two hard-matched members can
             // therefore still differ in raw Signature text (return type changed, e.g.
             // `void Changed()` -> `int Changed()`) -- a real signature change the identity key
-            // itself can't see. Mirrors the legacy analyzer's own (Name, Kind)-fallback
-            // MemberSignatureChanged report for this case.
+            // itself can't see.
             AddSignatureChangeIfDifferent(oldHandle, newHandle, changes);
             ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes, compareTransitions);
             ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(
@@ -393,8 +384,7 @@ public static class ApiFindingClassifier
 
     /// <summary>
     /// Reports a <see cref="ChangeKind.MemberSignatureChanged"/> fact for a matched member pair
-    /// (hard-identity or normalized-projection) whose raw signature text differs, matching the
-    /// legacy analyzer's classification for its own (Name, Kind)-fallback pairing.
+    /// (hard-identity or normalized-projection) whose raw signature text differs.
     /// </summary>
     static void AddSignatureChangeIfDifferent(ApiMemberHandle oldHandle, ApiMemberHandle newHandle, List<ApiChange> changes)
     {

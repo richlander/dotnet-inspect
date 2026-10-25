@@ -63,6 +63,12 @@ Then apply the matching transition.
 
 ## Review and metadata
 
+- For applicable QuerySpace work, assess terminal correctness and least-work
+  execution separately; terminal availability is not performance evidence.
+  Require each terminal's required facts, avoided work, stopping condition,
+  and [efficiency evidence](../../../docs/evidence-and-validation.md#terminal-correctness-and-least-work-execution).
+  Investigate Exists/Count costs approaching equivalent Rows costs; explain
+  unavoidable work or identify missed reduction before claiming readiness.
 - For network-related commands, use the command's Debug evidence envelope
   during investigation. If support is missing, ask the operator to approve a
   diagnostics side quest before adding it. Follow the

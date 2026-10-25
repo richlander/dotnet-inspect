@@ -10,6 +10,9 @@
 
 using System.Reflection.Metadata;
 
+// Placed in ILInspector.MetadataPrimitives, below both ILInspector.Instructions
+// and ILInspector.Metadata, so the decoder and Finding Diff Any's Body walk read
+// one IL byte layer; the namespace stays the substrate's.
 namespace ILInspector.Instructions;
 
 /// <summary>
@@ -79,6 +82,50 @@ public static class ILOpcodeExtensions
     public static bool IsPrefix(this ILOpCode opcode)
         => opcode is ILOpCode.Constrained or ILOpCode.Readonly or ILOpCode.Tail
             or ILOpCode.Unaligned or ILOpCode.Volatile or (ILOpCode)0xFE19; // no.
+
+    /// <summary>
+    /// The inline operand an opcode takes, <see cref="OperandKind.None"/> for one
+    /// that takes none, and <see cref="OperandKind.None"/> for one <see cref="IsValid"/>
+    /// rejects. This is the decoder's own classification, shared so that a reader
+    /// below the decoder stays on one opcode table.
+    /// </summary>
+    public static OperandKind GetOperandKind(this ILOpCode opcode) => opcode switch
+    {
+        ILOpCode.Ldarg_s or ILOpCode.Ldarga_s or ILOpCode.Starg_s
+            or ILOpCode.Ldloc_s or ILOpCode.Ldloca_s or ILOpCode.Stloc_s
+            => OperandKind.ShortInlineVar,
+        ILOpCode.Ldarg or ILOpCode.Ldarga or ILOpCode.Starg
+            or ILOpCode.Ldloc or ILOpCode.Ldloca or ILOpCode.Stloc
+            => OperandKind.InlineVar,
+
+        ILOpCode.Ldc_i4_s or ILOpCode.Unaligned or (ILOpCode)0xFE19 => OperandKind.ShortInlineI, // 0xFE19 = no.
+        ILOpCode.Ldc_i4 => OperandKind.InlineI,
+        ILOpCode.Ldc_i8 => OperandKind.InlineI8,
+        ILOpCode.Ldc_r4 => OperandKind.ShortInlineR,
+        ILOpCode.Ldc_r8 => OperandKind.InlineR,
+        ILOpCode.Ldstr => OperandKind.InlineString,
+
+        ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Jmp
+            or ILOpCode.Ldftn or ILOpCode.Ldvirtftn
+            => OperandKind.InlineMethod,
+        ILOpCode.Calli => OperandKind.InlineSig,
+        ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld
+            or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
+            => OperandKind.InlineField,
+        ILOpCode.Cpobj or ILOpCode.Ldobj or ILOpCode.Castclass or ILOpCode.Isinst
+            or ILOpCode.Unbox or ILOpCode.Unbox_any or ILOpCode.Stobj or ILOpCode.Box
+            or ILOpCode.Newarr or ILOpCode.Ldelema or ILOpCode.Ldelem or ILOpCode.Stelem
+            or ILOpCode.Refanyval or ILOpCode.Mkrefany or ILOpCode.Initobj
+            or ILOpCode.Constrained or ILOpCode.Sizeof
+            => OperandKind.InlineType,
+        ILOpCode.Ldtoken => OperandKind.InlineTok,
+
+        ILOpCode.Switch => OperandKind.InlineSwitch,
+        _ when opcode.IsShortBranch() => OperandKind.ShortInlineBrTarget,
+        _ when opcode.IsBranch() => OperandKind.InlineBrTarget,
+
+        _ => OperandKind.None,
+    };
 
     /// <summary>
     /// Maps ILOpCode to a linear index for lookup table access.

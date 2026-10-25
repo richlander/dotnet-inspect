@@ -30,10 +30,20 @@ public static partial class MemberCommand
         ResolvedMemberInspectionPlan plan,
         ApiSourceResult? source = null,
         ApiServices.LoadedApiSurface? loaded = null,
-        Func<ApiType, ShareProjectionPlan, InspectionShare>? project = null)
+        Func<ApiType, ShareProjectionPlan, InspectionShare>? project = null,
+        bool allowImplicitDocumentation = true)
     {
         if (options.ShareFormat is null)
-            return await ExecuteCoreAsync(options, plan, source, loaded).ConfigureAwait(false);
+        {
+            return await ExecuteCoreAsync(
+                    options,
+                    plan,
+                    source,
+                    loaded,
+                    allowImplicitDocumentation:
+                        allowImplicitDocumentation)
+                .ConfigureAwait(false);
+        }
 
         InspectionShare share = new InspectionShare.NonProjectable(
             "member.selection",
@@ -54,7 +64,9 @@ public static partial class MemberCommand
                         ? project(type, member)
                         : MemberShareProjection.Project(
                             resolvedSource, surface, type, member);
-            }).ConfigureAwait(false);
+            },
+            allowImplicitDocumentation:
+                allowImplicitDocumentation).ConfigureAwait(false);
         if (options.ShareFormat is not { } format)
             return exitCode;
         // Failure cannot produce a successful-looking navigation scalar.

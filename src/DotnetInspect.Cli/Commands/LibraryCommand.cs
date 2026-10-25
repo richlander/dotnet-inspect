@@ -5592,7 +5592,7 @@ public partial class LibraryCommand
         return suffix == null ? null : packageName[..^suffix.Length] + ".any";
     }
 
-    private static string? TryFindLocalSiblingPackage(string originalPackageSource, string payloadId, string version)
+    internal static string? TryFindLocalSiblingPackage(string originalPackageSource, string payloadId, string version)
     {
         if (!originalPackageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
             return null;

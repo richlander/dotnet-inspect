@@ -46,6 +46,7 @@ export interface MemberCallGraphRequest {
   packageId: string;
   version: string;
   framework: string;
+  runtimeIdentifier: string | null;
   assembly: string;
   platformPack: string;
   platformContextId: string | null;

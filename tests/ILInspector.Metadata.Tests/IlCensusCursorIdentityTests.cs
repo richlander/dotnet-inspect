@@ -15,8 +15,10 @@ namespace ILInspector.Metadata.Tests;
 /// identity images, the IL cursor's atoms differ where Finding Diff Any's walk
 /// differs, which a formatted operand does not satisfy. Each case names two
 /// callees whose formatted spellings coincide and whose keys do not; and under
-/// the Body policy the cursor's key for an operand row is the key Finding Diff
-/// Any memoizes, byte for byte.
+/// the Body policy the cursor's key for an operand row is the expansion of the
+/// key Finding Diff Any memoizes: that comparison embeds Type-level keys as
+/// Refs of its table, and the cursor, until it joins that table, writes them
+/// in full.
 /// </summary>
 public sealed class IlCensusCursorIdentityTests
 {
@@ -84,11 +86,13 @@ public sealed class IlCensusCursorIdentityTests
     }
 
     [Fact]
-    public void OperandKeys_AreFindingDiffAnysBytes()
+    public void OperandKeys_ExpandToFindingDiffAnysKeys()
     {
         using var pe = new PEReader(File.OpenRead(typeof(FindingDiffAny).Assembly.Location));
         MetadataReader reader = pe.GetMetadataReader();
-        var walk = new FindingDiffAny.Side(pe);
+        var table = new SymbolKeyInterner<FindingDiffAnyPart>();
+        var walk = new FindingDiffAny.Side(pe, table);
+        var expansion = new SymbolKeyBuilder<FindingDiffAnyPart>();
         IlCensusSide cursor = IlCensusSide.Create(reader, IlBodyDiffPolicy.Body);
         var seen = new HashSet<int>();
         byte[] buffer = new byte[64 * 1024];
@@ -120,13 +124,15 @@ public sealed class IlCensusCursorIdentityTests
                 }
                 catch (BadImageFormatException)
                 {
-                    // A compiler-controlled member or a duplicate Type row, which the walk refuses to name.
+                    // A compiler-controlled member or a duplicate Type row, which the walk and the cursor both refuse to name.
                     continue;
                 }
-                SymbolKey<FindingDiffAnyPart> expected = walkKey.IsFrozen ? walkKey.Frozen : walkKey.Detach();
+                expansion.Reset();
+                StagedSymbolKey<FindingDiffAnyPart> expected =
+                    table.Expand(walkKey.IsFrozen ? walkKey.Frozen : walkKey.Detach(), expansion);
                 Span<byte> bytes = buffer.AsSpan(0, key.Length);
                 key.CopyTo(bytes);
-                Assert.True(expected.Range.SequenceEqual(bytes), $"row 0x{token:X8} spells differently: {operand.Value}");
+                Assert.True(expected.Detach().Range.SequenceEqual(bytes), $"row 0x{token:X8} spells differently: {operand.Value}");
                 compared++;
             }
         }

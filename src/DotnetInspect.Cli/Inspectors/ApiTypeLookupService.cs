@@ -73,6 +73,10 @@ internal sealed record MemberFilterValidationResult(
     }
 }
 
+internal readonly record struct ImpliedMemberTypeCandidate(
+    string TypeName,
+    string MemberSelector);
+
 internal static class ApiTypeLookupService
 {
     private const int MaxTypeMemberBoundaryProbes = 64;
@@ -94,6 +98,26 @@ internal static class ApiTypeLookupService
         // "System" is a namespace — so it is resolved here against real metadata: peel the
         // trailing segment and retry the prefix as a type. If the prefix resolves, the peeled
         // suffix is surfaced as an implied member filter.
+        foreach (ImpliedMemberTypeCandidate candidate
+            in GetImpliedMemberTypeCandidates(typeName))
+        {
+            var prefixLookup = TypeMatcher.Lookup(
+                typeNames,
+                candidate.TypeName);
+            if (prefixLookup.Match != null)
+                return new ApiTypeLookupResult(
+                    typeName,
+                    prefixLookup,
+                    api.Types.First(t => t.FullName == prefixLookup.Match),
+                    candidate.MemberSelector);
+        }
+
+        return new ApiTypeLookupResult(typeName, lookup, null);
+    }
+
+    internal static IEnumerable<ImpliedMemberTypeCandidate>
+        GetImpliedMemberTypeCandidates(string typeName)
+    {
         var searchEnd = typeName.Length;
         var probes = 0;
         while (searchEnd > 0
@@ -102,7 +126,7 @@ internal static class ApiTypeLookupService
             probes++;
             var dot = FqnParser.LastTopLevelDot(typeName[..searchEnd]);
             if (dot <= 0)
-                break;
+                yield break;
 
             var member = typeName[(dot + 1)..];
             var typeEnd = dot;
@@ -123,21 +147,11 @@ internal static class ApiTypeLookupService
                 typeEnd--;
             }
 
-            var typeCandidate = typeName[..typeEnd];
-            var prefixLookup = TypeMatcher.Lookup(
-                typeNames,
-                typeCandidate);
-            if (prefixLookup.Match != null)
-                return new ApiTypeLookupResult(
-                    typeName,
-                    prefixLookup,
-                    api.Types.First(t => t.FullName == prefixLookup.Match),
-                    member);
-
+            yield return new(
+                typeName[..typeEnd],
+                member);
             searchEnd = dot;
         }
-
-        return new ApiTypeLookupResult(typeName, lookup, null);
     }
 
     public static MemberFilterValidationResult ValidateMemberFilters(

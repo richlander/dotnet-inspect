@@ -159,6 +159,7 @@ public enum SymbolKeyPartKind
     Name,
     Key,
     Blob,
+    Ref,
 }
 
 /// <summary>
@@ -203,6 +204,15 @@ public ref struct SymbolKeyPartReader<TDomain>
     /// <summary>The opaque range of a <see cref="SymbolKeyPartKind.Blob"/> part.</summary>
     public OpaqueByteRange Blob => _payload;
 
+    /// <summary>
+    /// The id of a <see cref="SymbolKeyPartKind.Ref"/> part, meaningful only
+    /// in the <see cref="SymbolKeyInterner{TDomain}"/> that issued it.
+    /// </summary>
+    public int Id => (int)_int;
+
+    /// <summary>The payload range of a Name, Key, or Blob part, for the expansion that copies it.</summary>
+    internal OpaqueByteRange Payload => _payload;
+
     /// <summary>Advances to the next part; false after the last.</summary>
     public bool Read()
     {
@@ -234,6 +244,13 @@ public ref struct SymbolKeyPartReader<TDomain>
             case SymbolKeyTag.Blob:
                 _payload = ReadPayload();
                 _kind = SymbolKeyPartKind.Blob;
+                return true;
+            case SymbolKeyTag.Ref:
+                ulong id = ReadVarint();
+                if (id > int.MaxValue)
+                    throw new InvalidOperationException("A key holds a Ref part whose id exceeds the table range.");
+                _int = (long)id;
+                _kind = SymbolKeyPartKind.Ref;
                 return true;
             default:
                 throw new InvalidOperationException($"The key holds an unsupported part tag 0x{tag:X2}.");
