@@ -136,6 +136,45 @@ supported terminal, verified result cardinality, reported median and p95, and
 explained a bounded terminal tradeoff alongside substantial end-to-end
 improvements.
 
+### Input provenance budget
+
+The product's primary input is assemblies the .NET SDK produces: compiler
+output from Roslyn (C#, Visual Basic, source generators, Razor) and F#,
+rewritten by ILLink or crossgen2, plus SDK reference assemblies and the shared
+frameworks built with the same tools. That population sets the performance
+bar, so the pinned real assets come from it. This budget decides what other
+input may cost that population; it does not replace the interpretation rule
+above.
+
+| Input | Correctness | Performance |
+| --- | --- | --- |
+| Produced by the .NET SDK | The owning design's fidelity claim | The bar above |
+| Valid, from another producer | Exact unless the owning design records a non-claim | May take a slower path |
+| Malformed | Bounded and inert; fails visibly where the reads it performs fail | May take a slower path |
+
+A guard is a correctness check that SDK-produced input pays only to keep the
+other rows exact or failing visibly, such as validation a fast path performs
+before it may decide. Containment that keeps every supported input bounded and
+inert, such as
+[MetadataPrimitives](metadata-primitives.md) traversal bounds, work budgets,
+and typed mechanical rejection, is not a guard and needs no occurrence.
+
+A guard needs a real occurrence: a published assembly from a real producer on
+which the unguarded path gives a wrong answer. Fixtures, mutation tests, and
+fuzzing verify a guard once an occurrence justifies it; they never justify
+one. Search before building or measuring a guard. Run the unguarded variant
+over the shared frameworks to confirm it stays exact on the first row, and
+over a corpus of other producers to look for an occurrence, including
+obfuscators and protectors, IL weavers and rewriters, F#, C++/CLI, ILAsm,
+tlbimp, IKVM, and pre-SDK compilers. Without an occurrence, leave the guard
+out, state the unguarded input as a non-claim in the owning design, and file
+an issue that names the search; add the guard when an occurrence appears.
+
+A justified guard may cost at most 5% of the base's time on any measured
+terminal. Attribute that share by measuring the candidate against a variant
+without the guard; the candidate without the guard's share still meets the
+bar above.
+
 ## Terminal correctness and least-work execution
 
 For applicable QuerySpace adoption or changed terminal execution, assess two
