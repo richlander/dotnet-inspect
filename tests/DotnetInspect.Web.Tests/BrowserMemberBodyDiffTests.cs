@@ -232,6 +232,7 @@ public sealed class BrowserMemberBodyDiffTests
             packageId,
             BeforeVersion,
             (ReferencePath, reference),
+            ($"lib/{Framework}/Unrelated.dll", [0x01]),
             (RuntimePath("linux-x64"),
                 File.ReadAllBytes(
                     FixtureCatalog.DiffPair.OldAssemblyPath())));

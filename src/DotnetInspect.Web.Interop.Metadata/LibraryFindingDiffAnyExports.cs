@@ -140,6 +140,9 @@ public static partial class MetadataExports
                     request.TargetVersion,
                     request.TargetFramework,
                     request.RuntimeIdentifier!,
+                    new PackageLibrarySelector(
+                        PackageEntryPath.GetLeafName(
+                            request.CompileAssetId)),
                     cancellationToken)
                 .ConfigureAwait(false);
         if (targetResult
@@ -162,6 +165,9 @@ public static partial class MetadataExports
                     request.CurrentVersion,
                     request.TargetFramework,
                     request.RuntimeIdentifier!,
+                    new PackageLibrarySelector(
+                        request.CompileAssetId,
+                        PackageLibrarySelectionKind.AssetId),
                     cancellationToken)
                 .ConfigureAwait(false);
         if (currentResult

@@ -2940,8 +2940,10 @@ internal static class BrowserPackageWorkspace
             string version,
             string targetFramework,
             string runtimeIdentifier,
+            PackageLibrarySelector librarySelector,
             CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(librarySelector);
         BrowserPackage package = await AcquireAsync(
                 packageId,
                 version,
@@ -2971,9 +2973,14 @@ internal static class BrowserPackageWorkspace
             && !availableRuntimeIdentifiers.Contains(
                 runtimeIdentifier,
                 StringComparer.Ordinal);
+        IReadOnlyList<PackageCompileAsset> libraryAssets =
+            librarySelector.Select(selection);
+        bool libraryHasImplementation =
+            libraryAssets.Count == 1
+            && selection.FindImplementationAsset(libraryAssets[0]) is not null;
         if (requestedRuntimeIsMissing
-            && (!selection.IsSelected
-                || selection.ImplementationAssets.Count == 0))
+            && libraryAssets.Count == 1
+            && !libraryHasImplementation)
         {
             return new BrowserPackageImplementationComparisonScopeResult
                 .MissingRuntimePopulation(

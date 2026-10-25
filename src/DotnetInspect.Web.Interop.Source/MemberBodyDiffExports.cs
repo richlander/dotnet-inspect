@@ -107,6 +107,9 @@ public static partial class SourceExports
                 request.BeforeVersion,
                 request.Framework,
                 request.RuntimeIdentifier,
+                new PackageLibrarySelector(
+                    PackageEntryPath.GetLeafName(
+                        request.CompileAssetId)),
                 token);
         if (beforeResult
             is BrowserPackageImplementationComparisonScopeResult
@@ -128,6 +131,9 @@ public static partial class SourceExports
                 request.AfterVersion,
                 request.Framework,
                 request.RuntimeIdentifier,
+                new PackageLibrarySelector(
+                    request.CompileAssetId,
+                    PackageLibrarySelectionKind.AssetId),
                 token);
         if (afterResult
             is BrowserPackageImplementationComparisonScopeResult
