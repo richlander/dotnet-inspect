@@ -227,17 +227,36 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
         IlCensusSide freshSideB = IlCensusSide.Create(after.GetMetadataReader(), IlBodyDiffPolicy.Body);
         var freshLockstep = new FindingDiffAnyTypePairing(before, after, (beforePe, beforeMethod, afterPe, afterMethod) =>
             IlFindings.Exists(freshSideA, beforePe, beforeMethod, freshSideB, afterPe, afterMethod).Decision);
+        // Alternating which pairing reads a Type first, so neither always finds
+        // the Type's rows and IL in the CPU cache; timed and counted inline so
+        // the two phases allocate alike.
         for (int i = 0; i < count; i++)
         {
             string name = names[i];
-            long allocated = GC.GetAllocatedBytesForCurrentThread();
-            firstWalkUs[i, pass] = Timed(() => freshWalk.Inventory(name)) * 1000;
-            if (pass == 0)
-                firstWalkBytes[i] = GC.GetAllocatedBytesForCurrentThread() - allocated;
-            allocated = GC.GetAllocatedBytesForCurrentThread();
-            firstLockstepUs[i, pass] = Timed(() => freshLockstep.Inventory(name)) * 1000;
-            if (pass == 0)
-                firstLockstepBytes[i] = GC.GetAllocatedBytesForCurrentThread() - allocated;
+            bool walkFirst = (pass + i) % 2 == 0;
+            for (int turn = 0; turn < 2; turn++)
+            {
+                bool walk = walkFirst == (turn == 0);
+                long allocated = GC.GetAllocatedBytesForCurrentThread();
+                long started = Stopwatch.GetTimestamp();
+                if (walk)
+                    freshWalk.Inventory(name);
+                else
+                    freshLockstep.Inventory(name);
+                double elapsedUs = Stopwatch.GetElapsedTime(started).TotalMilliseconds * 1000;
+                long bytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
+                if (walk)
+                    firstWalkUs[i, pass] = elapsedUs;
+                else
+                    firstLockstepUs[i, pass] = elapsedUs;
+                if (pass == 0)
+                {
+                    if (walk)
+                        firstWalkBytes[i] = bytes;
+                    else
+                        firstLockstepBytes[i] = bytes;
+                }
+            }
         }
         freshWalk.Release();
         freshLockstep.Release();
@@ -363,6 +382,110 @@ static void ReportType(
         $"  {label}\t{name}\tbodies={bodies}\tfirst-walk-us={firstWalkUs:F1}\tfirst-lockstep-us={firstLockstepUs:F1}"
             + $"\trepeat-walk-us={repeatWalkUs:F1}\trepeat-lockstep-us={repeatLockstepUs:F1}"
             + $"\tfirstWalkBytes={firstWalkBytes}\tfirstLockstepBytes={firstLockstepBytes}");
+
+// Complete Public API comparison, signatures and attributes.
+const ApiSurfaceExtractionScope surfaceScope = ApiSurfaceExtractionScope.Public;
+ApiSurface Surface(byte[] bytes)
+{
+    using var reader = new PEReader(new MemoryStream(bytes, writable: false));
+    return ApiSurfaceExtractor.Extract(reader, surfaceScope);
+}
+ApiFindingComparison complete = MetadataFindings.CompareApi(
+    Surface(beforeBytes), Surface(afterBytes), new FindingSubject("api", "API"),
+    new ApiDiffOptions(ApiDiffScope.All));
+var apiChanged = new HashSet<string>(StringComparer.Ordinal);
+foreach (TypeDiff type in complete.ApiDiff.TypeDiffs)
+    apiChanged.Add(type.TypeFullName);
+if (complete.Types.Value is FindingComparison<ApiTypeHandle>.Complete types)
+{
+    foreach (PairFinding<ApiTypeHandle> pair in types.Pairs)
+    {
+        if (pair.Kind != PairKind.Present)
+            apiChanged.Add(Payload<ApiTypeHandle>(pair).TypeFullName);
+    }
+}
+if (complete.Members.Value is FindingComparison<ApiMemberHandle>.Complete members)
+{
+    foreach (PairFinding<ApiMemberHandle> pair in members.Pairs)
+    {
+        if (pair.Kind != PairKind.Present)
+            apiChanged.Add(Payload<ApiMemberHandle>(pair).TypeFullName);
+    }
+}
+
+// Canonical IL comparison: the declared owners of changed bodies.
+IlAssemblyDiffResult il = IlAssemblyDiff.CompareStreams(
+    new MemoryStream(beforeBytes, writable: false), beforePath,
+    new MemoryStream(afterBytes, writable: false), afterPath,
+    maxExamples: int.MaxValue,
+    normalization: IlBodyDiffPolicy.Body).Diff;
+var bodyChanged = new HashSet<string>(StringComparer.Ordinal);
+foreach (IlAssemblyDiffExample example in il.Examples)
+    bodyChanged.Add(DeclaredOwner(example.Method));
+
+Dictionary<string, FindingDiffAnyTypeState> byName = [];
+foreach (FindingDiffAnyTypeState state in result.Types)
+    byName[state.FullName] = state;
+
+int apiMissed = apiChanged.Count(name => byName.TryGetValue(name, out var s) && s.Api == FindingDiffAnyState.Unchanged);
+int apiUnmatched = apiChanged.Count(name => !byName.ContainsKey(name));
+int apiOverReported = result.Types.Count(s => s.Api == FindingDiffAnyState.Changed && !apiChanged.Contains(s.FullName));
+int bodyMissed = bodyChanged.Count(name => byName.TryGetValue(name, out var s) && s.Body == FindingDiffAnyState.Unchanged);
+int bodyUnmatched = bodyChanged.Count(name => !byName.ContainsKey(name));
+// A Body Changed with no changed IL owner is decided by a declaration fact,
+// which canonical IL comparison does not show; EXPLAIN=1 names the fact.
+int bodyOverReported = result.Types.Count(s => s.Body == FindingDiffAnyState.Changed && !bodyChanged.Contains(s.FullName));
+
+Console.WriteLine($"pair\t{Path.GetFileName(beforePath)}");
+Console.WriteLine(
+    $"types\t{result.Types.Length}\tapiChanged={result.Types.Count(s => s.Api == FindingDiffAnyState.Changed)}"
+        + $"\tbodyChanged={result.Types.Count(s => s.Body == FindingDiffAnyState.Changed)}"
+        + $"\tanyChanged={result.Types.Count(s => s.Api == FindingDiffAnyState.Changed || s.Body == FindingDiffAnyState.Changed)}"
+        + $"\tindeterminate={result.Types.Count(s => s.Api == FindingDiffAnyState.Indeterminate || s.Body == FindingDiffAnyState.Indeterminate)}");
+Console.WriteLine($"work\tbodies={result.Receipt.BodiesCompared}\tilBytes={result.Receipt.IlBytesCompared}");
+Console.WriteLine(
+    $"ms\tmedian={samples[samples.Count / 2]:F2}\tp95={samples[(int)(samples.Count * 0.95)]:F2}"
+        + $"\tmin={samples[0]:F2}\tsamples={samples.Count}");
+Console.WriteLine(
+    $"api-oracle\tchanged={apiChanged.Count}\tmissed={apiMissed}\tunmatched={apiUnmatched}\tover-reported={apiOverReported}");
+Console.WriteLine(
+    $"body-oracle\tchangedOwners={bodyChanged.Count}\tmissed={bodyMissed}\tunmatched={bodyUnmatched}"
+        + $"\tdeclarationOnly={bodyOverReported}\tilFailures={il.FailureCount}");
+foreach (string name in apiChanged.Where(n => byName.TryGetValue(n, out var s) && s.Api == FindingDiffAnyState.Unchanged).Take(20))
+    Console.WriteLine($"  api-missed\t{name}");
+foreach (string name in bodyChanged.Where(n => byName.TryGetValue(n, out var s) && s.Body == FindingDiffAnyState.Unchanged).Take(20))
+{
+    Console.WriteLine($"  body-missed\t{name}");
+    IlAssemblyDiffExample example = il.Examples.First(e => DeclaredOwner(e.Method) == name);
+    Console.WriteLine($"    {example.Method}");
+    foreach (IlDiffRow row in example.Diff.Rows.Take(3))
+        Console.WriteLine($"    {row.Kind} {row.Message}");
+}
+if (Environment.GetEnvironmentVariable("LIST") == "1")
+{
+    foreach (FindingDiffAnyTypeState state in result.Types.Where(s => s.Api != FindingDiffAnyState.Unchanged || s.Body != FindingDiffAnyState.Unchanged))
+        Console.WriteLine($"  changed\t{state.FullName}\tapi={state.Api}\tbody={state.Body}");
+}
+if (Environment.GetEnvironmentVariable("EXPLAIN") == "1")
+{
+    using var explainBefore = new PEReader(new MemoryStream(beforeBytes, writable: false));
+    using var explainAfter = new PEReader(new MemoryStream(afterBytes, writable: false));
+    foreach (FindingDiffAnyTypeState state in result.Types.Where(s => s.Api == FindingDiffAnyState.Changed && !apiChanged.Contains(s.FullName)).Take(40))
+    {
+        var (api, _) = FindingDiffAny.Explain(explainBefore, explainAfter, state.FullName);
+        Console.WriteLine($"  api-over\t{state.FullName}\n{api}");
+    }
+    foreach (FindingDiffAnyTypeState state in result.Types.Where(s => s.Body == FindingDiffAnyState.Changed && !bodyChanged.Contains(s.FullName)).Take(40))
+    {
+        var (_, body) = FindingDiffAny.Explain(explainBefore, explainAfter, state.FullName);
+        Console.WriteLine($"  body-over\t{state.FullName}\n{body}");
+    }
+}
+foreach (string name in apiChanged.Where(n => !byName.ContainsKey(n)).Take(10))
+    Console.WriteLine($"  api-unmatched\t{name}");
+foreach (string name in bodyChanged.Where(n => !byName.ContainsKey(n)).Take(10))
+    Console.WriteLine($"  body-unmatched\t{name}");
+return apiMissed == 0 && bodyMissed == 0 ? 0 : 1;
 
 static T Payload<T>(PairFinding<T> pair) where T : notnull
     => (((IPairFinding)pair).New as Finding<T> ?? (Finding<T>)((IPairFinding)pair).Old!).Payload;
