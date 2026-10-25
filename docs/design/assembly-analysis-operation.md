@@ -514,10 +514,12 @@ exact method-analysis producer for safety-only IL-coordinate preparation.
 Direct CLI and host-neutral Library Address execution borrow the already-open
 prefetched image and issue one exact MethodDef request for the deduplicated
 coordinate methods. Allocation-only coordinate preparation independently
-plans `ExactMethodAllocationProducer` over that same bounded population. The
-two focused inputs retain exact source and work receipts; neither path opens
-`LibraryBodyAnalysisService`. Cost-only and combined semantic coordinate
-requests remain on the service until their complete result ownership moves.
+plans `ExactMethodAllocationProducer` over that same bounded population.
+Cost-only preparation plans `FocusedMethodCallProducer` and retains only the
+direct-call rows needed by coordinate projection. The three focused inputs
+retain exact source and work receipts; none opens
+`LibraryBodyAnalysisService`. Combined semantic coordinate requests remain on
+the service until their complete result ownership moves.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first
