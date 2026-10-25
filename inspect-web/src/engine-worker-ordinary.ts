@@ -176,6 +176,9 @@ type CatalogOperationName =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "explainVocabularies"
+  | "explainResources"
+  | "describeWorkspaceComponents"
+  | "explainWorkspaceComponent"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "prepareHomeDemoWorkspaceDefinition"
@@ -2199,6 +2202,24 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.describeWorkspacePackageSources(...args),
     ),
+    explainResources: valueOperation(
+      "ordinary-catalog-explain-resources",
+      2,
+      (facades, ...args: Parameters<CatalogFacade["explainResources"]>) =>
+        facades.catalog.explainResources(...args),
+    ),
+    describeWorkspaceComponents: valueOperation(
+      "ordinary-catalog-describe-workspace-components",
+      1,
+      (facades, ...args: Parameters<CatalogFacade["describeWorkspaceComponents"]>) =>
+        facades.catalog.describeWorkspaceComponents(...args),
+    ),
+    explainWorkspaceComponent: valueOperation(
+      "ordinary-catalog-explain-workspace-component",
+      3,
+      (facades, ...args: Parameters<CatalogFacade["explainWorkspaceComponent"]>) =>
+        facades.catalog.explainWorkspaceComponent(...args),
+    ),
     explainVocabularies: valueOperation(
       "ordinary-catalog-explain-vocabularies",
       3,
@@ -2901,6 +2922,15 @@ export function bindEngineWorkerOrdinaryClient(
       describeWorkspacePackageSources: bind(
         engineWorkerOrdinaryOperations.catalog
           .describeWorkspacePackageSources,
+      ),
+      explainResources: bind(
+        engineWorkerOrdinaryOperations.catalog.explainResources,
+      ),
+      describeWorkspaceComponents: bind(
+        engineWorkerOrdinaryOperations.catalog.describeWorkspaceComponents,
+      ),
+      explainWorkspaceComponent: bind(
+        engineWorkerOrdinaryOperations.catalog.explainWorkspaceComponent,
       ),
       explainVocabularies: bind(
         engineWorkerOrdinaryOperations.catalog.explainVocabularies,

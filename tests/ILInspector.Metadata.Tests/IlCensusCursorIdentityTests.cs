@@ -124,7 +124,7 @@ public sealed class IlCensusCursorIdentityTests
                 }
                 catch (BadImageFormatException)
                 {
-                    // A compiler-controlled member or a duplicate Type row, which the walk refuses to name.
+                    // A compiler-controlled member or a duplicate Type row, which the walk and the cursor both refuse to name.
                     continue;
                 }
                 expansion.Reset();

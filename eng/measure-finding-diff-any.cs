@@ -7,6 +7,7 @@
 // Also reports the API axis alone and bounded steps over retained readers.
 
 using System.Diagnostics;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.ILDiff;
 using ILInspector.Metadata;
@@ -75,6 +76,47 @@ long retainedBytes;
     GC.KeepAlive(retained);
 }
 Console.WriteLine($"alloc\tmedianBytes={allocatedMedian}\tretainedBytes={retainedBytes}");
+
+// The whole comparison with lockstep over two IL cursors in place of the walk
+// for every paired method, through the Body provision seam
+// (docs/design/finding-census.md#provisions, step 2b): the same pairing,
+// censuses, and folds, so the two legs differ in the body reader alone. The
+// cursor sides are created per run, as the walk's sides are.
+FindingDiffAnyResult RunLockstep()
+{
+    using var before = new PEReader(new MemoryStream(beforeBytes, writable: false));
+    using var after = new PEReader(new MemoryStream(afterBytes, writable: false));
+    IlCensusSide beforeSide = IlCensusSide.Create(before.GetMetadataReader(), IlBodyDiffPolicy.Body);
+    IlCensusSide afterSide = IlCensusSide.Create(after.GetMetadataReader(), IlBodyDiffPolicy.Body);
+    return FindingDiffAny.Compare(
+        before,
+        after,
+        (beforePe, beforeMethod, afterPe, afterMethod) =>
+            IlFindings.Exists(beforeSide, beforePe, beforeMethod, afterSide, afterPe, afterMethod).Decision);
+}
+{
+    FindingDiffAnyResult lockstepResult = RunLockstep();
+    bool agree = lockstepResult.Types.SequenceEqual(result.Types);
+    for (int i = 0; i < 3; i++)
+        RunLockstep();
+    var lockstepSamples = new List<double>(iterations);
+    var lockstepAllocations = new List<long>(iterations);
+    for (int i = 0; i < iterations; i++)
+    {
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        long start = Stopwatch.GetTimestamp();
+        RunLockstep();
+        lockstepSamples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        lockstepAllocations.Add(GC.GetAllocatedBytesForCurrentThread() - allocated);
+    }
+    lockstepSamples.Sort();
+    lockstepAllocations.Sort();
+    int p95Index = Math.Max(0, (int)Math.Ceiling(lockstepSamples.Count * 0.95) - 1);
+    Console.WriteLine(
+        $"lockstep\tmedian={lockstepSamples[lockstepSamples.Count / 2]:F2}\tp95={lockstepSamples[p95Index]:F2}"
+            + $"\tmin={lockstepSamples[0]:F2}\tmedianBytes={lockstepAllocations[lockstepAllocations.Count / 2]}\tagree={agree}");
+    Console.WriteLine($"  samples-ms\tlockstep\t{string.Join(",", lockstepSamples.Select(t => t.ToString("F2")))}");
+}
 
 // The API axis alone, and the whole comparison advanced in bounded steps over
 // retained readers, as a single-threaded host runs it.
