@@ -540,6 +540,15 @@ internal interface IInstructionBoundaries
     bool Contains(int offset);
 }
 
+/// <summary>
+/// The clause table alone, as a reader below the exception-flow facts reads
+/// it: the validated region models, or the reason the block graph would
+/// report for the table. Nothing of the facts' transfers is represented.
+/// </summary>
+internal readonly record struct ExceptionClauseTable(
+    ImmutableArray<ExceptionRegionModel> Models,
+    string? IncompleteReason);
+
 internal sealed class ExceptionFlowTopology
 {
     sealed class SetBoundaries(HashSet<int> offsets) : IInstructionBoundaries
@@ -592,11 +601,14 @@ internal sealed class ExceptionFlowTopology
     /// and the <see cref="Models"/>, without the normal-transfer validation the
     /// exception-flow facts add, which <see cref="BlockGraph"/> never consulted.
     /// </summary>
-    internal static ExceptionFlowTopology CreateTable(
+    internal static ExceptionClauseTable CreateTable(
         int ilLength,
         IInstructionBoundaries boundaries,
         IReadOnlyCollection<ExceptionRegion> regions)
-        => Create(ilLength, boundaries, regions, transferInstructions: null, transferBoundaries: null);
+    {
+        ExceptionFlowTopology topology = Create(ilLength, boundaries, regions, transferInstructions: null, transferBoundaries: null);
+        return new ExceptionClauseTable(topology.Models, topology.BlockGraphIncompleteReason);
+    }
 
     static ExceptionFlowTopology Create(
         int ilLength,

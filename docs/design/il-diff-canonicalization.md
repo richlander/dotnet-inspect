@@ -170,17 +170,19 @@ starts one that follows a prefix, or lies at or past the body's end is carried
 as `UndecidedTarget`, and a stream that completes with one ends `Failed` by the
 decoder's own rule rather than `Complete`. Once every instruction is read, the
 clause stage, a second non-lazy step, applies the decoder's exception-clause
-rules, its exception-flow topology over the retained instructions, without
-building its blocks, so a clause-table failure reports the decode's reason and
-a clause atom never carries a boundary the alignment cannot place; a body that
-declares no exception regions has no clause stage and retains no instruction; a
-pre-scan fault reports the shallow reader's reason, and a misaligned branch
-target the cursor's own, each of which can differ in wording from the full
-decoder's for the same body. Over an already decoded body the pre-scan is that
-decode; an incomplete decode retains no prefix, so the cursor fails at position
-zero with the decode's reason. Failing to read a present body, one whose RVA is
-non-zero, is a `Reading` failure at position zero; only a definition row the
-image cannot read is an `Identity` failure.
+rules, the region rules of its exception-flow topology, over the cursor's own
+instruction map, retaining no instruction and building no block, so a
+clause-table failure reports the decode's reason and a clause atom never
+carries a boundary the alignment cannot place; a body that declares no
+exception regions has no clause stage; an undecided target, inside the body or
+at or past its end, fails the stream before the clause stage, as the decoder's
+rules order it, in the cursor's words; a pre-scan fault reports the shallow
+reader's reason; each of these can differ in wording from the full decoder's
+for the same body. Over an already decoded body the pre-scan is that decode; an
+incomplete decode retains no prefix, so the cursor fails at position zero with
+the decode's reason. Failing to read a present body, one whose RVA is non-zero,
+is a `Reading` failure at position zero; only a definition row the image cannot
+read is an `Identity` failure.
 
 An `IlCensusSide` is one side of a comparison: an image's reader and the
 operand identities its cursors yield under one policy, memoized for the

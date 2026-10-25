@@ -354,13 +354,13 @@ band). The hypothesis for the gap, since isolated by the
 a decoded instruction record, an operation record with its target arrays, a
 family string, and a cursor per method, none of which the walk materializes,
 together with the work lockstep does that the walk skips: it resolves a whole
-atom before comparing and validates clause tables. That is the gap step 2b's
-allocation-free atoms would have to close before lockstep could replace the
-walk inside Finding Diff Any; until it does, the walk stays as the provision,
-and lockstep over the cursors serves the scenarios the walk does not reach
-(member, bisect), where the cost is per member rather than per assembly. The
-seam reaches the comparison's Body decisions; `Explain` and the per-method gate
-hooks still read through the walk.
+atom before comparing and validates clause tables. That gap the
+[ablation](#ablation-of-the-gap) has since attributed mostly to the cursor's
+clause stage, now repaired, with the atoms a small part; until what remains
+closes, the walk stays as the provision, and lockstep over the cursors serves
+the scenarios the walk does not reach (member, bisect), where the cost is per
+member rather than per assembly. The seam reaches the comparison's Body
+decisions; `Explain` and the per-method gate hooks still read through the walk.
 
 Two readings follow that reach past this pair of readers. An Exists terminal
 at the source can deliver outsize wins: the walk is one, a reader that
@@ -461,26 +461,29 @@ on the self-pairs. Raw outputs in the
 Milliseconds removed by each component and its share of the gap, lockstep less
 walk, round 1. The hypothesis had the main term wrong. The per-atom records it
 blamed, a decoded instruction and an operation per advance, are the residue, 2%
-to 7% of the gap. The clause stage is 71% to 80% of it and, with 87% of
-lockstep's allocation, nearly all of the allocation gap: for every body, with
-or without exception regions, the cursor retained every instruction and built
-the decoder's whole block graph, whose first act is a hash set of every
-instruction offset, to validate a clause table that most bodies do not have.
-Token operand resolution through the side is 9% to 12%, and the family strings,
-three per instruction, 5% to 12%. Two further runs placed the clause cost:
-skipping the stage only for bodies with no exception regions recovered 26%
-(Aspire, whose async state machines carry regions) to 85% (System.Text.Json) of
-it, and applying the topology without building blocks recovered only 20% to
-26%, because the topology built the same hash set.
+to 7% of the gap. The clause stage is 71% to 80% of it and, with 83% to 87% of
+the allocation gap: for every body, with or without exception regions, the
+cursor retained every instruction and built the decoder's whole block graph,
+whose first act is a hash set of every instruction offset, to validate a clause
+table that most bodies do not have. Token operand resolution through the side
+is 9% to 12%, and the family strings, three per instruction, 5% to 12%. Two
+further runs placed the clause cost: skipping the stage only for bodies with no
+exception regions recovered 31% (Aspire, whose async state machines carry
+regions) to 84% (System.Text.Json) of it, family table against family table
+with the skip, and applying the topology without building blocks recovered only
+20% to 26%, because the topology built the same hash set and then ran the
+exception-flow facts' transfer validation over every instruction, which the
+block graph never consulted.
 
 The stage now applies the decoder's clause-table rules over the cursor's own
 instruction map, which answers each boundary by binary search, retains no
 instruction, and is skipped by a body with no regions; the family is spelled
-once per policy. Both change no reported outcome: the suites that pin
-clause-table failures, the agreement gate, and the Library and Type records'
-readers all pass unchanged. The cost gate's measurement of this change, base
-against head on the six pairs through both legs, is pending the run and is
-recorded here when it completes.
+once per policy. Neither changes a terminal kind or position; an undecided
+target, including one at or past the end, reports the cursor's wording where
+the block graph reported its own, and the clause-table suite, the agreement
+gate, and the Library and Type readers pass unchanged. The cost gate's
+measurement of this change, base against head on the six pairs through both
+legs, is pending the run and is recorded here when it completes.
 
 ## Exhaustive
 

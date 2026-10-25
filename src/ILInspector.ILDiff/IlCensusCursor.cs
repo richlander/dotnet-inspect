@@ -296,17 +296,18 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
 
         if (!_clausesReady)
         {
-            // The stream is read to its end: the pre-scan's fault, then the
-            // decoder's own rules over the whole body (a target that starts no
-            // admitted instruction or leaves the body, and the clause table),
-            // whose reasons are the ones an incomplete decode reports.
+            // The stream is read to its end: the pre-scan's fault, then a
+            // target that starts no admitted instruction or leaves the body,
+            // which the decoder rejects before any clause and the cursor
+            // reports in its own words, then the clause table by the
+            // decoder's rules, whose reason is the one an incomplete decode
+            // reports.
             if (_faultOffset >= 0)
                 return Fail(_faultOffset, _faultReason ?? "body decode failed");
-            int undecided = _firstUndecidedOffset >= 0 ? _firstUndecidedOffset : _map.IlLength;
-            if (!TryValidateClauses(out string? clauseFailure))
-                return Fail(undecided, clauseFailure);
             if (_firstUndecidedOffset >= 0)
-                return Fail(undecided, $"Branch target of the instruction at IL_{undecided:X4} does not align with an instruction.");
+                return Fail(_firstUndecidedOffset, $"Branch target of the instruction at IL_{_firstUndecidedOffset:X4} does not align with an instruction.");
+            if (!TryValidateClauses(out string? clauseFailure))
+                return Fail(_map.IlLength, clauseFailure);
             _clausesReady = true;
         }
 
@@ -408,8 +409,7 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
         if (_rawRegions!.Count == 0)
         {
             // No exception regions: no clause table to validate and no clause
-            // atoms to yield. A misaligned branch target is still the stream's
-            // own failure below.
+            // atoms to yield.
             _clauses = [];
             failure = null;
             return true;
@@ -422,14 +422,14 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
             // exception-flow facts' transfer validation, which the block graph
             // never consulted, are not needed to apply them, and the map
             // answers the boundaries its instruction list would.
-            ExceptionFlowTopology topology = ExceptionFlowTopology.CreateTable(_map.IlLength, _map, _rawRegions);
-            if (topology.BlockGraphIncompleteReason is not null)
+            ExceptionClauseTable table = ExceptionFlowTopology.CreateTable(_map.IlLength, _map, _rawRegions);
+            if (table.IncompleteReason is not null)
             {
-                failure = topology.BlockGraphIncompleteReason;
+                failure = table.IncompleteReason;
                 return false;
             }
 
-            _clauses = topology.Models;
+            _clauses = table.Models;
             failure = null;
             return true;
         }
