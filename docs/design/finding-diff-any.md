@@ -723,6 +723,32 @@ surface does not admit it, it owns a method with a body, or it is the residual.
 `eng/measure-finding-diff-any.cs` reports NativeAOT time per Type for the
 largest changed Types of each measured pair.
 
+**Type inventory.** Before the Member fold exists, one paired Type's rows are
+readable as the Library level compares them: `FindingDiffAnyTypePairing` pairs
+the Types of two images once, by the Type identity above, and its `Inventory`
+returns, for one paired Type, every census fact present on one side only, on
+the axis the census gives it and spelled from its expansion, every `Ref`
+replaced by the key it names so that neither the spelling nor the rows' order
+carries an interning id, and every method the Body census pairs with its Body
+state through the pairing's body reader, the walk unless a
+`FindingDiffAnyBodyReader` is supplied. The inventory's fold is the Library
+level's state for the Type, which the gates check for every paired Type of the
+fixture pair: API `Changed` exactly when an API fact is present on one side
+only, Body `Changed` when a Body fact is, and otherwise the state of the first
+paired method, in the Body census's method order, whose body is not
+`Unchanged`, so an `Indeterminate` row after a `Changed` one folds to `Changed`
+as the Library level reads it, and every row keeps its own state. One name the
+pairing withholds: two paired Type rows that spell one display name, which the
+Library level decides each by key, are `Indeterminate` under that name, since
+the name selects neither row. Types present on one side only are not paired;
+their one-sided form is this level's. Step 7 folds these rows into Member
+states under the ownership rules above, reading each fact's owner from its key
+parts, and the inventory is the closed set it folds: the rows are fixed by the
+two censuses before any body is read. The Type scenario of [Diff
+system](diff-system.md#scenarios) enters here, and [Finding
+census](finding-census.md#cost-at-type-scope) records what one Type costs
+through each reader.
+
 ### Member
 
 The Member level is the complete API and body diff of one Member, which

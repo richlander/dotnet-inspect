@@ -380,6 +380,62 @@ each member row decided by Exists through both readers: the scope the
 per-member scenarios are built from, and the one this record does not
 reach.
 
+### Cost at Type scope
+
+The second measurement of step 2b, one paired Type at a time through
+`FindingDiffAnyTypePairing`, with the `type` leg of
+`eng/measure-finding-diff-any.cs`: NativeAOT linux-x64 on a quiet host, binary
+`eb1890da` built from the product sources this record describes, six pairs, two
+rounds. Two phases read every paired Type through the walk and through lockstep
+over two IL cursors supplied as the body reader. **First request** builds fresh
+pairings every pass and reads each Type once per pairing in before-image row
+order, which is what a host that opened the pair and asks Type by Type pays,
+the readers alternating which goes first per Type. **Repeat** reads the same
+Types again on pairings every cache has warmed. Twenty passes, each Type's own
+median, lower is better; allocation is the first pass's, per Type. On every one
+of the 5,725 paired Types the fold equals the Library result and the rows are
+identical between the readers. Raw outputs in the
+[gist](https://gist.github.com/richlander/47fbbf26d4cc2240ee526442375d474d).
+
+| Pair | Types paired | First request, median µs, walk → lockstep (r1 / r2) | First request, p95 µs | First request, allocation per Type, median KB | Repeat, median µs (r1 / r2) | Largest Type, first request ms (paired bodies) | Pairing ms, walk / lockstep |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 1144 | 26 → 71 / 26 → 70 | 252 → 1667 | 17 → 179 | 24 → 66 / 24 → 66 | 2.9 → 13.5 (314) | 2.1 / 2.9 |
+| System.Text.Json 9.0.0 to 10.0.0 | 284 | 18 → 59 / 18 → 58 | 271 → 1006 | 12 → 169 | 15 → 52 / 15 → 52 | 1.7 → 13.2 (378) | 0.5 / 0.8 |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 294 | 20 → 58 / 20 → 58 | 309 → 1819 | 14 → 162 | 18 → 50 / 18 → 49 | 1.0 → 8.4 (228) | 0.5 / 0.4 |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 280 | 32 → 60 / 32 → 62 | 491 → 1150 | 38 → 140 | 31 → 54 / 31 → 56 | 0.9 → 4.1 (215) | 0.5 / 0.4 |
+| System.Private.Xml 10 to 11 | 1281 | 16 → 61 / 15 → 60 | 217 → 1466 | 9 → 178 | 14 → 57 / 14 → 56 | 1.8 → 5.5 (1079) | 2.1 / 2.0 |
+| System.Private.CoreLib 10 to 11 | 2442 | 19 → 42 / 19 → 42 | 296 → 1190 | 12 → 93 | 18 → 39 / 18 → 40 | 6.1 → 9.8 (1772) | 5.7 / 4.1 |
+
+The walk is the faster reader at Type scope too, by about its assembly-scope
+margin: 1.9× to 3.9× on the median Type's first request, 2.3× to 6.8× at the
+95th percentile, and 3.7× to 20× in allocation, with the cost where the bodies
+are. The Type with the most paired bodies costs the walk 0.9 to 6.1 ms and
+lockstep 4.1 to 13.5 ms on first request, and the slowest Type of a pair costs
+lockstep 9 to 22 ms where the walk is at most about 7;
+`Newtonsoft.Json.JsonTextReader`, 210 paired bodies, costs 1.5 ms and 0.8 MB
+through the walk against 19.4 ms and 69 MB through lockstep, per body 7 µs
+against 92 µs. Warm caches change little: a repeat request is 4% to 19% cheaper
+than the first for either reader, on each pass's sum over all Types, so the
+first-request cost is the work, not the caches. The pairing itself, both unit
+tables read once, costs 0.4 to 5.7 ms per image pair, one timed construction
+per process rather than a median. The sum of every Type's first request through
+the walk is 1.02× (Aspire, two changed Types) to 2.6× (Newtonsoft 11.0.2 to
+13.0.4, 255 changed Types) the Library comparison's median, because the
+inventory reads every paired body where the Library level stops at a Type's
+first difference, and spells every one-sided fact.
+
+Two readings. Both readers answer a typical Type in under 0.1 ms, so the
+cursors can serve a Type-scoped request today, at the Type scenario's scale as
+at the assembly's; the slowest Types cost lockstep 9 to 22 ms where the walk is
+at most about 7. What the cursors cannot yet do is serve it as cheaply: the gap
+is the one the assembly record's hypothesis, still not isolated by an ablation,
+puts on per-advance materialization and on the work lockstep does that the walk
+skips, so the allocation-free atoms step 2b names remain the condition for
+lockstep inside Finding Diff Any at any scope, and the walk stays as the
+provision. For the per-member scenarios the per-body figure is the one that
+carries: 2 to 9 µs through the walk and 5 to 43 µs through lockstep across the
+six pairs' largest Types, both below the pairing's own 0.4 to 5.7 ms.
+
 ## Exhaustive
 
 Exhaustive drains each cursor to its `FindingInspection<T>`, seals a `Complete`
@@ -612,11 +668,12 @@ test class gates its cursor:
      `lockstep` leg of `eng/measure-finding-diff-any.cs` measures it
      Library-wide on the perf hosts under NativeAOT, with the two readers'
      Type states asserted equal ([cost record](#cost-beside-the-walk): the
-     walk is kept, 1.4× to 6.8× faster at assembly scope); then the Type
-     scope measurement, the inventory of member differences for one Type
-     pair decided by Exists through both readers, atoms without per-advance
-     allocation, the Browser/Wasm measurement, and the walk deleted or kept
-     by the cost gate's answer.
+     walk is kept, 1.4× to 6.8× faster at assembly scope); the Type scope
+     measurement through `FindingDiffAnyTypePairing`, one paired Type's rows
+     decided by Exists through both readers, timed per Type by the `type`
+     leg of the same script ([cost record](#cost-at-type-scope)); then atoms
+     without per-advance allocation, the Browser/Wasm measurement, and the
+     walk deleted or kept by the cost gate's answer.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Finding Diff Any's declaration census, which is the view's
    adoption step DV1 taken through this owner; gated as step 1 is.

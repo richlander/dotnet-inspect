@@ -401,7 +401,8 @@ public sealed class FindingDiffAnyIdentityTests
         bool Public = true,
         AttributeTarget? FieldLikeEventAttribute = null,
         int? VarargRequired = null,
-        bool PrivateScope = false);
+        bool PrivateScope = false,
+        byte[][]? MethodBodies = null);
 
     static FindingDiffAnyResult Compare(TypeSpec[] before, TypeSpec[] after)
         => CompareImages(Image(before), Image(after));
@@ -546,7 +547,7 @@ public sealed class FindingDiffAnyIdentityTests
             for (int i = 0; i < methods.Length; i++)
             {
                 var code = new InstructionEncoder(new BlobBuilder());
-                code.CodeBuilder.WriteBytes(i == 0 ? type.Body : ReturnOne);
+                code.CodeBuilder.WriteBytes(type.MethodBodies?[i] ?? (i == 0 ? type.Body : ReturnOne));
                 metadata.AddMethodDefinition(
                     (type.PrivateScope ? MethodAttributes.PrivateScope : MethodAttributes.Public)
                         | MethodAttributes.Static | MethodAttributes.HideBySig,
