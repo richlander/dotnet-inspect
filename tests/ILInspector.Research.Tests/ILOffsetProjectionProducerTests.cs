@@ -419,7 +419,11 @@ public class ILOffsetProjectionProducerTests
         Assert.Equal(1, safety.SourceReceipt.DefinitionsVisited);
         Assert.Equal(1, safety.SourceReceipt.BodiesAcquired);
         Assert.Equal(0, safety.SourceReceipt.ModuleLookups);
-        Assert.Single(safety.WorkReceipt.Producers);
+        Assert.Equal(
+            1,
+            safety.WorkReceipt.For(
+                ExactMethodAnalysisProducer.Instance)
+                .UnitsCompleted);
     }
 
     [Fact]
