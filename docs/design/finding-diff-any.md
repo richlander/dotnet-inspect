@@ -139,27 +139,30 @@ settles each kind in its adoption step 2. `beforefieldinit` is a Body fact;
 the implementation flags and compiler-emitted attributes of a Member the
 surface admits are uncertain API facts until that step moves them to Body.
 
-Under that policy, `ldc.i4` forms and short branches fold to one family,
-branch and switch targets compare by aligned instruction, metadata tokens
-compare by symbolic name, and user strings by value. Other opcodes keep their
-encoding and slot operands, so `ldloc.s` and `ldloc`, or `ldloc.0` and
-`ldloc.s 0`, differ, as the IL view shows them. Exception clauses compare as
-canonical comparison's clause atoms compare: clause by clause in declaration
-order, by kind, by catch Type as a symbolic name, and by each extent boundary
-as the instruction it starts, so a changed catch Type or a moved `try`
-boundary is a Body difference and a re-encoded branch before the `try` is not.
-As in canonical comparison, body size, the local signature, stack size, and
-`init locals` are not compared, and stand-alone signatures compare as
-canonical comparison compares them. The walk is allocation-free in lockstep
-and stops at the first difference; a retargeted branch or a moved clause
-extent is found once the body's instruction map is complete. The walk is a
-provision behind one seam: a caller may supply a `FindingDiffAnyBodyReader`,
-which receives the two images and the two method rows the comparison paired
-and answers as Exists answers, and the comparison then folds its answer as it
-folds the walk's, an undecided pair as a body it could not read. Finding
-census step 2b runs lockstep over two IL cursors through that seam, beside
-the walk, to decide whether the walk is kept
-([Finding census](finding-census.md#provisions)).
+Under that policy, `ldc.i4` forms and short branches fold to one family, branch
+and switch targets compare by aligned instruction, metadata tokens compare by
+symbolic name, and user strings by value. Other opcodes keep their encoding and
+slot operands, so `ldloc.s` and `ldloc`, or `ldloc.0` and `ldloc.s 0`, differ,
+as the IL view shows them. Exception clauses compare as canonical comparison's
+clause atoms compare: clause by clause in declaration order, by kind, by catch
+Type as a symbolic name, and by each extent boundary as the instruction it
+starts, so a changed catch Type or a moved `try` boundary is a Body difference
+and a re-encoded branch before the `try` is not. As in canonical comparison,
+body size, the local signature, stack size, and `init locals` are not compared,
+and stand-alone signatures compare as canonical comparison compares them. The
+walk is allocation-free in lockstep and stops at the first difference; a
+retargeted branch or a moved clause extent is found once the body's instruction
+map is complete. It reads IL through the shared IL byte layer, `ILReader` and
+the opcode tables in `ILInspector.MetadataPrimitives` ([Instruction
+substrate](instruction-substrate.md#layering)), building no instruction, so the
+walk and the decoder behind the census cursor read one opcode table and differ
+only in what each builds above it. The walk is a provision behind one seam: a
+caller may supply a `FindingDiffAnyBodyReader`, which receives the two images
+and the two method rows the comparison paired and answers as Exists answers,
+and the comparison then folds its answer as it folds the walk's, an undecided
+pair as a body it could not read. Finding census step 2b runs lockstep over two
+IL cursors through that seam, beside the walk, to decide whether the walk is
+kept ([Finding census](finding-census.md#provisions)).
 
 A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,
