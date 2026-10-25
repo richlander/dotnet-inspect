@@ -74,10 +74,14 @@ high-value section.
 
 ## Modern infrastructure and legacy adoption
 
-Use the current owner-issued infrastructure where the scenario needs it, not
-the first legacy precedent found. Choose the smallest sufficient composition;
+These approaches are as-appropriate choices, not a mandatory stack or
+checklist: some features need none, others need all, and many need a subset.
+Use an approach only when it fits the scenario and offers a clear benefit.
+Applying architecture where it does not fit or offers no clear benefit is an
+anti-pattern. Choose the smallest sufficient composition, using current
+owner-issued infrastructure rather than the first legacy precedent found.
 [Building shared inspections](building-shared-inspections.md#choose-only-the-infrastructure-the-question-needs)
-guides applicability without requiring every layer for every capability.
+guides those choices without requiring every layer for every capability.
 
 - **Houses.** Use the owning House architecture, such as
   [PackageHouse](design/package-house.md), PlatformHouse, SourceHouse, or
@@ -117,10 +121,11 @@ guides applicability without requiring every layer for every capability.
   Markdown is often opt-in, not the assumed default. Preserve explicit output
   intent and the Document composition needed for heterogeneous selections.
 
-The repository still contains legacy architectures; their presence is not
-permission to extend them. When a relevant path uses legacy infrastructure,
-migrate that path as a prerequisite or as a focused part of the requested
-work. Keep migration within the
+The repository still contains legacy architectures. Where modern adoption
+fits the requested work and offers a clear benefit, migrate the relevant
+legacy path as a prerequisite or as a focused part of that work rather than
+extending it. Legacy infrastructure alone does not justify migration or
+adding layers. Keep migration within the
 [owning design's scope](design-scope.md): independently owned prerequisites
 land as separate focused efforts or stack slices. Do not turn a local change
 into an unrelated repository-wide migration.
