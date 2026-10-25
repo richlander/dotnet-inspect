@@ -14,6 +14,8 @@ export type BrowserVocabularyScalarKind = "Text" | "Integer" | "Boolean" | numbe
 
 export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
 
+export type JsonValueKind = number;
+
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
   readonly label: string;
