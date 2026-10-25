@@ -3707,6 +3707,9 @@ async function deleteManagedRetainedWorkspace(
   const controller = requireRetainedWorkspaceActivation();
   const wasActive =
     controller.state.activeDefinitionId === retainedDefinitionId;
+  const incumbentRealizationId = wasActive
+    ? retainedWorkspacePostings.get(retainedDefinitionId)?.realizationId ?? null
+    : null;
   const definitionIndex = controller.state.definitions.findIndex(
     definition => definition.id === retainedDefinitionId);
   const successor = definitionIndex < 0
@@ -3818,7 +3821,11 @@ async function deleteManagedRetainedWorkspace(
     );
   } catch (error) {
     const incumbentPreserved =
-      controller.state.activeDefinitionId === retainedDefinitionId
+      wasActive
+      && incumbentRealizationId !== null
+      && controller.state.activeDefinitionId === retainedDefinitionId
+      && retainedWorkspacePostings.get(retainedDefinitionId)?.realizationId
+        === incumbentRealizationId
       && controller.state.definitions.some(
         definition => definition.id === retainedDefinitionId,
       );

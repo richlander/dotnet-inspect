@@ -767,6 +767,11 @@ Deleting the active definition follows one of two paths:
   selection after managed authority has been removed. A rejection before
   deactivation begins preserves the incumbent.
 
+The Browser may suppress a displaced active-deletion failure only while the
+exact definition and realization that deletion started from remain current.
+Selecting away and then reselecting the same retained definition creates a
+fresh realization, so the displaced deletion failure remains visible.
+
 Deletion never revives a predecessor or searches for a compatible retained
 scope.
 

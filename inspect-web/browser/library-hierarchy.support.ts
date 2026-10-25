@@ -3346,6 +3346,8 @@ async function installFacades(
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
       let preparedRetainedWorkspace = null;
+      const retainedWorkspacePreparations = new Map();
+      const retainedWorkspacesByRealization = new Map();
       let nextRetainedPublicationOrdinal = 0;
       let ecosystemPackageAdmissionCount = 0;
       let ecosystemPackageAcknowledgementCount = 0;
@@ -3684,16 +3686,15 @@ async function installFacades(
           member => member.kind === "package");
         const platformMembers = demo.workspaceMembers.filter(
           member => member.kind === "platform");
-        const tabs = demo.tabs.map(tab => ({
+        const tabs = demo.workspace.tabs.map(tab => ({
           id: tab.id,
-          kind: tab.member.kind,
-          source: tab.member.id,
-          version: tab.member.version,
-          framework: tab.member.framework,
-          runtimeIdentifier: null,
+          kind: tab.kind,
+          source: tab.source,
+          version: tab.version,
+          framework: tab.framework,
+          runtimeIdentifier: tab.runtimeIdentifier,
         }));
-        const activeTabId =
-          focus?.member.kind === "package" ? focus.id : null;
+        const activeTabId = demo.workspace.activeTabId;
         const packageSurfaces = Object.fromEntries(
           packageMembers.map((member, index) => [
             demo.tabs.find(tab =>
@@ -4186,24 +4187,27 @@ async function installFacades(
         canonicalLocation,
         canonicalPacket,
       ) {
-        preparedRetainedWorkspace = retainedWorkspacePosting(
+        const posting = retainedWorkspacePosting(
           retainedDefinitionId,
           label,
           canonicalLocation,
           canonicalPacket,
         );
+        const receipt = "source-receipt-" + posting.realizationId;
+        retainedWorkspacePreparations.set(receipt, posting);
+        retainedWorkspacesByRealization.set(posting.realizationId, posting);
         return {
           status: "prepared",
-          receipt: "source-receipt",
+          receipt,
           preparation: {
-            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
-            label: preparedRetainedWorkspace.label,
-            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
-            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
-            definition: preparedRetainedWorkspace.definition,
-            navigation: preparedRetainedWorkspace.navigation,
-            packages: preparedRetainedWorkspace.packages,
-            platforms: preparedRetainedWorkspace.platforms,
+            retainedDefinitionId: posting.retainedDefinitionId,
+            label: posting.label,
+            canonicalLocation: posting.canonicalLocation,
+            canonicalPacket: posting.canonicalPacket,
+            definition: posting.definition,
+            navigation: posting.navigation,
+            packages: posting.packages,
+            platforms: posting.platforms,
           },
           posting: null,
           failure: null,
@@ -4219,26 +4223,26 @@ async function installFacades(
         document.documentElement.dataset.homeDemoPrepare = scenarioId;
         document.documentElement.dataset.homeDemoDefinitionRecordCount =
           String(definitionRecords.length);
-        homeDemoPreparationOrdinal++;
-        if (homeDemoPreparationOrdinal
-            === homeDemoPreparationPendingOrdinal) {
+        const preparationOrdinal = ++homeDemoPreparationOrdinal;
+        document.documentElement.dataset.homeDemoPreparationCount =
+          String(homeDemoPreparationOrdinal);
+        if (preparationOrdinal === homeDemoPreparationPendingOrdinal) {
           document.documentElement.dataset.homeDemoPreparationPending = "true";
           await new Promise(resolve => document.addEventListener(
             "finish-home-demo-preparation", resolve, { once: true }));
           document.documentElement.dataset.homeDemoPreparationPending = "false";
         }
-        if (homeDemoPreparationOrdinal
-            === homeDemoPreparationFailureOrdinal) {
+        if (preparationOrdinal === homeDemoPreparationFailureOrdinal) {
           throw new Error("Fixture product demo preparation failed.");
         }
-        preparedRetainedWorkspace = homeDemoWorkspacePosting(
+        const posting = homeDemoWorkspacePosting(
           retainedDefinitionId,
           label,
           canonicalLocation,
           scenarioId,
           null,
         );
-        if (preparedRetainedWorkspace === null) {
+        if (posting === null) {
           return {
             status: "failed",
             receipt: null,
@@ -4252,23 +4256,26 @@ async function installFacades(
         }
         document.documentElement.dataset.homeDemoPreparedSubjects =
           JSON.stringify([
-            ...preparedRetainedWorkspace.packages.map(
+            ...posting.packages.map(
               candidate => candidate.navigationId),
-            ...preparedRetainedWorkspace.platforms.map(
+            ...posting.platforms.map(
               candidate => candidate.navigationId),
           ]);
+        const receipt = "home-demo-receipt-" + posting.realizationId;
+        retainedWorkspacePreparations.set(receipt, posting);
+        retainedWorkspacesByRealization.set(posting.realizationId, posting);
         return {
           status: "prepared",
-          receipt: "home-demo-receipt",
+          receipt,
           preparation: {
-            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
-            label: preparedRetainedWorkspace.label,
-            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
-            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
-            definition: preparedRetainedWorkspace.definition,
-            navigation: preparedRetainedWorkspace.navigation,
-            packages: preparedRetainedWorkspace.packages,
-            platforms: preparedRetainedWorkspace.platforms,
+            retainedDefinitionId: posting.retainedDefinitionId,
+            label: posting.label,
+            canonicalLocation: posting.canonicalLocation,
+            canonicalPacket: posting.canonicalPacket,
+            definition: posting.definition,
+            navigation: posting.navigation,
+            packages: posting.packages,
+            platforms: posting.platforms,
           },
           posting: null,
           failure: null,
@@ -4280,24 +4287,27 @@ async function installFacades(
         canonicalLocation,
         ecosystemId,
       ) {
-        preparedRetainedWorkspace = ecosystemWorkspacePosting(
+        const posting = ecosystemWorkspacePosting(
           retainedDefinitionId,
           label,
           canonicalLocation,
           ecosystemId,
         );
+        const receipt = "ecosystem-receipt-" + posting.realizationId;
+        retainedWorkspacePreparations.set(receipt, posting);
+        retainedWorkspacesByRealization.set(posting.realizationId, posting);
         return {
           status: "prepared",
-          receipt: "ecosystem-receipt",
+          receipt,
           preparation: {
-            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
-            label: preparedRetainedWorkspace.label,
-            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
-            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
-            definition: preparedRetainedWorkspace.definition,
-            navigation: preparedRetainedWorkspace.navigation,
-            packages: preparedRetainedWorkspace.packages,
-            platforms: preparedRetainedWorkspace.platforms,
+            retainedDefinitionId: posting.retainedDefinitionId,
+            label: posting.label,
+            canonicalLocation: posting.canonicalLocation,
+            canonicalPacket: posting.canonicalPacket,
+            definition: posting.definition,
+            navigation: posting.navigation,
+            packages: posting.packages,
+            platforms: posting.platforms,
           },
           posting: null,
           failure: null,
@@ -4418,6 +4428,10 @@ async function installFacades(
             packageInventory,
           ],
         };
+        retainedWorkspacesByRealization.set(
+          preparedRetainedWorkspace.realizationId,
+          preparedRetainedWorkspace,
+        );
         document.documentElement.dataset.ecosystemPackageAdmissions =
           JSON.stringify([
             packageId,
@@ -4433,18 +4447,41 @@ async function installFacades(
           message: null,
         };
       }
-      export async function commitRetainedWorkspaceActivation() {
+      export async function commitRetainedWorkspaceActivation(receipt) {
+        const posting = retainedWorkspacePreparations.get(receipt);
+        if (posting === undefined) {
+          throw new Error("Fixture retained Workspace receipt is unavailable.");
+        }
+        preparedRetainedWorkspace = posting;
         return {
           status: "activated",
-          posting: preparedRetainedWorkspace,
+          posting,
+          failure: null,
+        };
+      }
+      export async function cancelRetainedWorkspaceActivation(receipt) {
+        const posting = retainedWorkspacePreparations.get(receipt);
+        retainedWorkspacePreparations.delete(receipt);
+        if (posting !== undefined) {
+          retainedWorkspacesByRealization.delete(posting.realizationId);
+        }
+        if (posting !== undefined
+          && preparedRetainedWorkspace?.realizationId
+            === posting.realizationId) {
+          preparedRetainedWorkspace = null;
+        }
+        return {
+          status: "superseded",
+          posting: null,
           failure: null,
         };
       }
       export function completeRetainedWorkspaceActivation(
-        _receipt,
+        receipt,
         succeeded,
         failure,
       ) {
+        retainedWorkspacePreparations.delete(receipt);
         return {
           status: "completed",
           succeeded,
@@ -4510,10 +4547,13 @@ async function installFacades(
         navigationId,
       ) {
         await holdHomeDemoSurfaceAdmission();
+        const retainedWorkspace =
+          retainedWorkspacesByRealization.get(_realizationId)
+          ?? preparedRetainedWorkspace;
         const surface =
-          preparedRetainedWorkspace?.fixturePackageSurfaces?.[navigationId]
+          retainedWorkspace?.fixturePackageSurfaces?.[navigationId]
           ?? retainedWorkspaceSurface;
-        const inventory = preparedRetainedWorkspace?.packages.find(
+        const inventory = retainedWorkspace?.packages.find(
           item => item.navigationId === navigationId);
         return {
           status: "admitted",
@@ -4538,10 +4578,13 @@ async function installFacades(
         navigationId,
       ) {
         await holdHomeDemoSurfaceAdmission();
+        const retainedWorkspace =
+          retainedWorkspacesByRealization.get(_realizationId)
+          ?? preparedRetainedWorkspace;
         const surface =
-          preparedRetainedWorkspace?.fixturePlatformSurface
+          retainedWorkspace?.fixturePlatformSurface
           ?? platformFocusSurface;
-        const inventory = preparedRetainedWorkspace?.platforms.find(
+        const inventory = retainedWorkspace?.platforms.find(
           item => item.navigationId === navigationId);
         return {
           status: "admitted",

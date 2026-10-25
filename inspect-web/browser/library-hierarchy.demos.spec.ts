@@ -1133,6 +1133,55 @@ for (const staleOperation of ["selection", "deletion"] as const) {
   });
 }
 
+test("retained Methods deletion failure remains visible after reactivation", async ({
+  page,
+}) => {
+  const { packageId, platformId } =
+    await installMethodsHomeDemos(page, {
+      preparationPendingOrdinal: 3,
+      preparationFailureOrdinal: 3,
+    });
+  await page.goto("/demos");
+  await page.locator(`[data-workspace-demo="${packageId}"]`).click();
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await page.locator(`[data-workspace-demo="${platformId}"]`).click();
+  await openProductDestination(page, "workspace");
+
+  const packageRow = page.locator(".workspace-row").filter({
+    hasText: "package Methods",
+  });
+  const platformRow = page.locator(".workspace-row").filter({
+    hasText: "platform Methods",
+  });
+  await platformRow.locator("[data-workspace-delete]").click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "true",
+  );
+
+  await packageRow.locator("[data-workspace-switch]").click();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await openProductDestination(page, "workspace");
+  await platformRow.locator("[data-workspace-switch]").click();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("System.Text.Json");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-preparation-count", "5");
+
+  await releaseFacade(page, "finish-home-demo-preparation");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "false",
+  );
+  await expect(page.locator(".inspected-target"))
+    .toContainText("System.Text.Json");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".query-notice-text")).toContainText(
+    "Deleting retained Workspace failed: Fixture product demo preparation failed.",
+  );
+});
+
 test("Methods demo definition capacity failure restores the catalog", async ({
   page,
 }) => {
