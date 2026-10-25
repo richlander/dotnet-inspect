@@ -37,12 +37,13 @@ public readonly record struct FindingDiffAnyBodyRow(
 
 /// <summary>
 /// One paired Type as the rows the Library level compares, with the fold the
-/// Library level reports for it.
+/// Library level reports for it. Record equality compares the row arrays by
+/// reference; compare <see cref="Facts"/> and <see cref="Bodies"/> as sequences.
 /// </summary>
 /// <param name="Api">The Library level's API state of the Type: <see cref="FindingDiffAnyState.Changed"/> exactly when an API fact is present on one side only.</param>
-/// <param name="Body">The Library level's Body state of the Type: <see cref="FindingDiffAnyState.Changed"/> when a Body fact is present on one side only, otherwise the state of the first paired method in census order whose body is not <see cref="FindingDiffAnyState.Unchanged"/>.</param>
+/// <param name="Body">The Library level's Body state of the Type: <see cref="FindingDiffAnyState.Changed"/> when a Body fact is present on one side only, otherwise the state of the first paired method, in the Body census's method order, whose body is not <see cref="FindingDiffAnyState.Unchanged"/>, which is where the Library level stops.</param>
 /// <param name="Facts">Every census fact present on one side only, API facts first, each axis ordered by spelling and then side, an order that does not depend on the pairing's interning table.</param>
-/// <param name="Bodies">Every method paired by the Body census, in census order, with its Body state through the body reader; a method present on one side only is a fact, not a body row.</param>
+/// <param name="Bodies">Every method paired by the Body census, in its method order, with its Body state through the body reader; a method present on one side only is a fact, not a body row.</param>
 /// <param name="ApiFactsBefore">The API census size on the before side; with the other three counts, the closed inventory the rows were read from.</param>
 public sealed record FindingDiffAnyTypeInventory(
     string FullName,
@@ -88,8 +89,9 @@ public sealed class FindingDiffAnyTypePairing
         {
             if (!unitsB.TryGetValue(key, out FindingDiffAny.Unit? unitB))
                 continue;
-            // Two Type rows that spell one display name cannot be told apart by
-            // that name; the Library level reports each as Indeterminate.
+            // The Library level pairs rows by key and decides each; a display
+            // name two paired rows share selects neither, so the pairing
+            // withholds a decision for that name rather than guess a row.
             if (_paired.TryAdd(unitA.FullName, (unitA, unitB)))
                 names.Add(unitA.FullName);
             else
@@ -147,8 +149,9 @@ public sealed class FindingDiffAnyTypePairing
             Differences(bodyCensusA, bodyCensusB, FindingDiffAnyAxis.Body, facts);
             bool bodyFactsDiffer = facts.Count > apiFacts;
 
-            // Every paired method is read, where the Library level stops at
-            // the first difference; the fold below is the Library level's reading.
+            // Every paired method is read, in the order the Body census lists
+            // them, where the Library level stops at the first difference; the
+            // fold below is the Library level's reading.
             FindingDiffAnyState? first = null;
             foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
             {

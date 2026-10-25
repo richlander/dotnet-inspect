@@ -210,8 +210,42 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
         $"type-pairing\twalk-ms={walkPairingMs:F2}\tlockstep-ms={lockstepPairingMs:F2}\ttypes={count}"
             + $"\tfoldMismatch={foldMismatch}\trowMismatch={rowMismatch}");
 
-    // Per-Type microseconds: the median over the passes of each Type's own time,
-    // the two readers alternating per Type so neither owns a warmer cache.
+    // Each Type's first request, as a host that opened the pair and asks Type
+    // by Type pays it: fresh pairings every pass (so no cache from a previous
+    // pass survives), each Type read once per pairing, the median over the
+    // passes, and the allocation of the first pass. Within a pass, Types read
+    // earlier leave their shared keys memoized for Types read later, which is
+    // the sequence such a host produces.
+    var firstWalkUs = new double[count, iterations];
+    var firstLockstepUs = new double[count, iterations];
+    var firstWalkBytes = new long[count];
+    var firstLockstepBytes = new long[count];
+    for (int pass = 0; pass < iterations; pass++)
+    {
+        var freshWalk = new FindingDiffAnyTypePairing(before, after);
+        IlCensusSide freshSideA = IlCensusSide.Create(before.GetMetadataReader(), IlBodyDiffPolicy.Body);
+        IlCensusSide freshSideB = IlCensusSide.Create(after.GetMetadataReader(), IlBodyDiffPolicy.Body);
+        var freshLockstep = new FindingDiffAnyTypePairing(before, after, (beforePe, beforeMethod, afterPe, afterMethod) =>
+            IlFindings.Exists(freshSideA, beforePe, beforeMethod, freshSideB, afterPe, afterMethod).Decision);
+        for (int i = 0; i < count; i++)
+        {
+            string name = names[i];
+            long allocated = GC.GetAllocatedBytesForCurrentThread();
+            firstWalkUs[i, pass] = Timed(() => freshWalk.Inventory(name)) * 1000;
+            if (pass == 0)
+                firstWalkBytes[i] = GC.GetAllocatedBytesForCurrentThread() - allocated;
+            allocated = GC.GetAllocatedBytesForCurrentThread();
+            firstLockstepUs[i, pass] = Timed(() => freshLockstep.Inventory(name)) * 1000;
+            if (pass == 0)
+                firstLockstepBytes[i] = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        }
+        freshWalk.Release();
+        freshLockstep.Release();
+    }
+
+    // Each Type's repeat request on the pairings the correctness loop warmed:
+    // the median over the passes of each Type's own time, the two readers
+    // alternating per Type so neither owns a warmer cache.
     var walkUs = new double[count, iterations];
     var lockstepUs = new double[count, iterations];
     for (int pass = 0; pass < iterations; pass++)
@@ -242,14 +276,21 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
         lockstepPairing.Inventory(names[i]);
         lockstepBytes[i] = GC.GetAllocatedBytesForCurrentThread() - allocated;
     }
-    double[] walkMedian = PerTypeMedian(walkUs, count, iterations);
-    double[] lockstepMedian = PerTypeMedian(lockstepUs, count, iterations);
-    ReportTypeScope("walk", walkMedian, walkBytes);
-    ReportTypeScope("lockstep", lockstepMedian, lockstepBytes);
-    foreach (int i in Enumerable.Range(0, count).OrderByDescending(i => bodiesPerType[i]).Take(5))
-        ReportType("type-largest", names[i], bodiesPerType[i], walkMedian[i], lockstepMedian[i], walkBytes[i], lockstepBytes[i]);
-    foreach (int i in Enumerable.Range(0, count).Where(i => changedType[i]).OrderByDescending(i => bodiesPerType[i]).Take(5))
-        ReportType("type-changed", names[i], bodiesPerType[i], walkMedian[i], lockstepMedian[i], walkBytes[i], lockstepBytes[i]);
+    if (count > 0)
+    {
+        double[] firstWalkMedian = PerTypeMedian(firstWalkUs, count, iterations);
+        double[] firstLockstepMedian = PerTypeMedian(firstLockstepUs, count, iterations);
+        double[] walkMedian = PerTypeMedian(walkUs, count, iterations);
+        double[] lockstepMedian = PerTypeMedian(lockstepUs, count, iterations);
+        ReportTypeScope("type-first", "walk", firstWalkMedian, firstWalkBytes);
+        ReportTypeScope("type-first", "lockstep", firstLockstepMedian, firstLockstepBytes);
+        ReportTypeScope("type-repeat", "walk", walkMedian, walkBytes);
+        ReportTypeScope("type-repeat", "lockstep", lockstepMedian, lockstepBytes);
+        foreach (int i in Enumerable.Range(0, count).OrderByDescending(i => bodiesPerType[i]).Take(5))
+            ReportType("type-largest", names[i], bodiesPerType[i], firstWalkMedian[i], firstLockstepMedian[i], walkMedian[i], lockstepMedian[i], firstWalkBytes[i], firstLockstepBytes[i]);
+        foreach (int i in Enumerable.Range(0, count).Where(i => changedType[i]).OrderByDescending(i => bodiesPerType[i]).Take(5))
+            ReportType("type-changed", names[i], bodiesPerType[i], firstWalkMedian[i], firstLockstepMedian[i], walkMedian[i], lockstepMedian[i], firstWalkBytes[i], firstLockstepBytes[i]);
+    }
     walkPairing.Release();
     lockstepPairing.Release();
 }
@@ -303,125 +344,25 @@ static double[] PerTypeMedian(double[,] samples, int count, int passes)
     return medians;
 }
 
-static void ReportTypeScope(string reader, double[] medianUs, long[] bytes)
+static void ReportTypeScope(string label, string reader, double[] medianUs, long[] bytes)
 {
     double[] sorted = medianUs.Order().ToArray();
     long[] sortedBytes = bytes.Order().ToArray();
     int p95 = Math.Max(0, (int)Math.Ceiling(sorted.Length * 0.95) - 1);
     Console.WriteLine(
-        $"type\treader={reader}\tsum-ms={sorted.Sum() / 1000:F2}\tmedian-us={sorted[sorted.Length / 2]:F1}"
+        $"{label}\treader={reader}\tsum-ms={sorted.Sum() / 1000:F2}\tmedian-us={sorted[sorted.Length / 2]:F1}"
             + $"\tp95-us={sorted[p95]:F1}\tmax-us={sorted[^1]:F1}\tsumBytes={sortedBytes.Sum()}"
             + $"\tmedianBytes={sortedBytes[sortedBytes.Length / 2]}\tmaxBytes={sortedBytes[^1]}");
 }
 
-static void ReportType(string label, string name, int bodies, double walkUs, double lockstepUs, long walkBytes, long lockstepBytes)
+static void ReportType(
+    string label, string name, int bodies,
+    double firstWalkUs, double firstLockstepUs, double repeatWalkUs, double repeatLockstepUs,
+    long firstWalkBytes, long firstLockstepBytes)
     => Console.WriteLine(
-        $"  {label}\t{name}\tbodies={bodies}\twalk-us={walkUs:F1}\tlockstep-us={lockstepUs:F1}"
-            + $"\twalkBytes={walkBytes}\tlockstepBytes={lockstepBytes}");
-
-// Complete Public API comparison, signatures and attributes.
-const ApiSurfaceExtractionScope surfaceScope = ApiSurfaceExtractionScope.Public;
-ApiSurface Surface(byte[] bytes)
-{
-    using var reader = new PEReader(new MemoryStream(bytes, writable: false));
-    return ApiSurfaceExtractor.Extract(reader, surfaceScope);
-}
-ApiFindingComparison complete = MetadataFindings.CompareApi(
-    Surface(beforeBytes), Surface(afterBytes), new FindingSubject("api", "API"),
-    new ApiDiffOptions(ApiDiffScope.All));
-var apiChanged = new HashSet<string>(StringComparer.Ordinal);
-foreach (TypeDiff type in complete.ApiDiff.TypeDiffs)
-    apiChanged.Add(type.TypeFullName);
-if (complete.Types.Value is FindingComparison<ApiTypeHandle>.Complete types)
-{
-    foreach (PairFinding<ApiTypeHandle> pair in types.Pairs)
-    {
-        if (pair.Kind != PairKind.Present)
-            apiChanged.Add(Payload<ApiTypeHandle>(pair).TypeFullName);
-    }
-}
-if (complete.Members.Value is FindingComparison<ApiMemberHandle>.Complete members)
-{
-    foreach (PairFinding<ApiMemberHandle> pair in members.Pairs)
-    {
-        if (pair.Kind != PairKind.Present)
-            apiChanged.Add(Payload<ApiMemberHandle>(pair).TypeFullName);
-    }
-}
-
-// Canonical IL comparison: the declared owners of changed bodies.
-IlAssemblyDiffResult il = IlAssemblyDiff.CompareStreams(
-    new MemoryStream(beforeBytes, writable: false), beforePath,
-    new MemoryStream(afterBytes, writable: false), afterPath,
-    maxExamples: int.MaxValue,
-    normalization: IlBodyDiffPolicy.Body).Diff;
-var bodyChanged = new HashSet<string>(StringComparer.Ordinal);
-foreach (IlAssemblyDiffExample example in il.Examples)
-    bodyChanged.Add(DeclaredOwner(example.Method));
-
-Dictionary<string, FindingDiffAnyTypeState> byName = [];
-foreach (FindingDiffAnyTypeState state in result.Types)
-    byName[state.FullName] = state;
-
-int apiMissed = apiChanged.Count(name => byName.TryGetValue(name, out var s) && s.Api == FindingDiffAnyState.Unchanged);
-int apiUnmatched = apiChanged.Count(name => !byName.ContainsKey(name));
-int apiOverReported = result.Types.Count(s => s.Api == FindingDiffAnyState.Changed && !apiChanged.Contains(s.FullName));
-int bodyMissed = bodyChanged.Count(name => byName.TryGetValue(name, out var s) && s.Body == FindingDiffAnyState.Unchanged);
-int bodyUnmatched = bodyChanged.Count(name => !byName.ContainsKey(name));
-// A Body Changed with no changed IL owner is decided by a declaration fact,
-// which canonical IL comparison does not show; EXPLAIN=1 names the fact.
-int bodyOverReported = result.Types.Count(s => s.Body == FindingDiffAnyState.Changed && !bodyChanged.Contains(s.FullName));
-
-Console.WriteLine($"pair\t{Path.GetFileName(beforePath)}");
-Console.WriteLine(
-    $"types\t{result.Types.Length}\tapiChanged={result.Types.Count(s => s.Api == FindingDiffAnyState.Changed)}"
-        + $"\tbodyChanged={result.Types.Count(s => s.Body == FindingDiffAnyState.Changed)}"
-        + $"\tanyChanged={result.Types.Count(s => s.Api == FindingDiffAnyState.Changed || s.Body == FindingDiffAnyState.Changed)}"
-        + $"\tindeterminate={result.Types.Count(s => s.Api == FindingDiffAnyState.Indeterminate || s.Body == FindingDiffAnyState.Indeterminate)}");
-Console.WriteLine($"work\tbodies={result.Receipt.BodiesCompared}\tilBytes={result.Receipt.IlBytesCompared}");
-Console.WriteLine(
-    $"ms\tmedian={samples[samples.Count / 2]:F2}\tp95={samples[(int)(samples.Count * 0.95)]:F2}"
-        + $"\tmin={samples[0]:F2}\tsamples={samples.Count}");
-Console.WriteLine(
-    $"api-oracle\tchanged={apiChanged.Count}\tmissed={apiMissed}\tunmatched={apiUnmatched}\tover-reported={apiOverReported}");
-Console.WriteLine(
-    $"body-oracle\tchangedOwners={bodyChanged.Count}\tmissed={bodyMissed}\tunmatched={bodyUnmatched}"
-        + $"\tdeclarationOnly={bodyOverReported}\tilFailures={il.FailureCount}");
-foreach (string name in apiChanged.Where(n => byName.TryGetValue(n, out var s) && s.Api == FindingDiffAnyState.Unchanged).Take(20))
-    Console.WriteLine($"  api-missed\t{name}");
-foreach (string name in bodyChanged.Where(n => byName.TryGetValue(n, out var s) && s.Body == FindingDiffAnyState.Unchanged).Take(20))
-{
-    Console.WriteLine($"  body-missed\t{name}");
-    IlAssemblyDiffExample example = il.Examples.First(e => DeclaredOwner(e.Method) == name);
-    Console.WriteLine($"    {example.Method}");
-    foreach (IlDiffRow row in example.Diff.Rows.Take(3))
-        Console.WriteLine($"    {row.Kind} {row.Message}");
-}
-if (Environment.GetEnvironmentVariable("LIST") == "1")
-{
-    foreach (FindingDiffAnyTypeState state in result.Types.Where(s => s.Api != FindingDiffAnyState.Unchanged || s.Body != FindingDiffAnyState.Unchanged))
-        Console.WriteLine($"  changed\t{state.FullName}\tapi={state.Api}\tbody={state.Body}");
-}
-if (Environment.GetEnvironmentVariable("EXPLAIN") == "1")
-{
-    using var explainBefore = new PEReader(new MemoryStream(beforeBytes, writable: false));
-    using var explainAfter = new PEReader(new MemoryStream(afterBytes, writable: false));
-    foreach (FindingDiffAnyTypeState state in result.Types.Where(s => s.Api == FindingDiffAnyState.Changed && !apiChanged.Contains(s.FullName)).Take(40))
-    {
-        var (api, _) = FindingDiffAny.Explain(explainBefore, explainAfter, state.FullName);
-        Console.WriteLine($"  api-over\t{state.FullName}\n{api}");
-    }
-    foreach (FindingDiffAnyTypeState state in result.Types.Where(s => s.Body == FindingDiffAnyState.Changed && !bodyChanged.Contains(s.FullName)).Take(40))
-    {
-        var (_, body) = FindingDiffAny.Explain(explainBefore, explainAfter, state.FullName);
-        Console.WriteLine($"  body-over\t{state.FullName}\n{body}");
-    }
-}
-foreach (string name in apiChanged.Where(n => !byName.ContainsKey(n)).Take(10))
-    Console.WriteLine($"  api-unmatched\t{name}");
-foreach (string name in bodyChanged.Where(n => !byName.ContainsKey(n)).Take(10))
-    Console.WriteLine($"  body-unmatched\t{name}");
-return apiMissed == 0 && bodyMissed == 0 ? 0 : 1;
+        $"  {label}\t{name}\tbodies={bodies}\tfirst-walk-us={firstWalkUs:F1}\tfirst-lockstep-us={firstLockstepUs:F1}"
+            + $"\trepeat-walk-us={repeatWalkUs:F1}\trepeat-lockstep-us={repeatLockstepUs:F1}"
+            + $"\tfirstWalkBytes={firstWalkBytes}\tfirstLockstepBytes={firstLockstepBytes}");
 
 static T Payload<T>(PairFinding<T> pair) where T : notnull
     => (((IPairFinding)pair).New as Finding<T> ?? (Finding<T>)((IPairFinding)pair).Old!).Payload;

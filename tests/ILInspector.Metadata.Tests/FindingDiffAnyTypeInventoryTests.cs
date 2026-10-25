@@ -152,6 +152,31 @@ public sealed class FindingDiffAnyTypeInventoryTests
     }
 
     [Fact]
+    public void TheFoldIsTheFirstBodyNotUnchanged_InTheBodyCensusOrder()
+    {
+        // Two paired methods: M changed and N undecodable, then the reverse.
+        // Every row keeps its own state; the fold is where the Library level
+        // stops, so Changed then Indeterminate folds to Changed and
+        // Indeterminate then Changed folds to Indeterminate.
+        byte[] undefined = [0x24, 0x2A];
+        FindingDiffAnyTypeInventory changedFirst = Inventory(
+            [new("N", "C", null, ReturnOne, Methods: ["M", "N"], MethodBodies: [ReturnOne, undefined])],
+            [new("N", "C", null, ReturnOne, Methods: ["M", "N"], MethodBodies: [ReturnTwo, undefined])]);
+        Assert.Equal(FindingDiffAnyState.Changed, changedFirst.Body);
+        Assert.Equal(
+            [FindingDiffAnyState.Changed, FindingDiffAnyState.Indeterminate],
+            changedFirst.Bodies.Select(row => row.Body));
+
+        FindingDiffAnyTypeInventory indeterminateFirst = Inventory(
+            [new("N", "C", null, ReturnOne, Methods: ["M", "N"], MethodBodies: [undefined, ReturnOne])],
+            [new("N", "C", null, ReturnOne, Methods: ["M", "N"], MethodBodies: [undefined, ReturnTwo])]);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, indeterminateFirst.Body);
+        Assert.Equal(
+            [FindingDiffAnyState.Indeterminate, FindingDiffAnyState.Changed],
+            indeterminateFirst.Bodies.Select(row => row.Body));
+    }
+
+    [Fact]
     public void OneSidedTypeIsNotPaired_AndAnUnknownNameThrows()
     {
         using var before = new PEReader(new MemoryStream(FindingDiffAnyIdentityTests.Image([new("N", "C", null, ReturnOne)]), writable: false));
