@@ -277,6 +277,22 @@ public sealed class SymbolKeyBuilder<TDomain>
 
     public SymbolKeyBuilder<TDomain> Blob(ReadOnlySpan<byte> bytes) => Framed(SymbolKeyTag.Blob, bytes);
 
+    /// <summary>
+    /// Embeds a key by the id a <see cref="SymbolKeyInterner{TDomain}"/> gave
+    /// it, in place of its bytes. The key being built is then bound to that
+    /// table: it compares only against keys that embed through the same table,
+    /// and it expands through it.
+    /// </summary>
+    public SymbolKeyBuilder<TDomain> Ref(int id)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(id);
+        RequireOpen();
+        Ensure(6);
+        _scratch[_length++] = (byte)SymbolKeyTag.Ref;
+        WriteVarint((uint)id);
+        return this;
+    }
+
     /// <summary>Embeds a staged key, of this or another builder, as a nested Key part.</summary>
     public SymbolKeyBuilder<TDomain> Key(StagedSymbolKey<TDomain> key)
     {
@@ -501,6 +517,19 @@ public sealed class SymbolKeyBuilder<TDomain>
         WriteVarint((uint)payload.Length);
         payload.CopyTo(_scratch.AsSpan(_length));
         _length += payload.Length;
+        return this;
+    }
+
+    /// <summary>A framed part whose payload is a range the expansion read from another key.</summary>
+    internal SymbolKeyBuilder<TDomain> FramedRange(SymbolKeyTag tag, OpaqueByteRange payload)
+    {
+        RequireOpen();
+        int length = payload.Length;
+        Ensure(1 + 10 + length);
+        _scratch[_length++] = (byte)tag;
+        WriteVarint((uint)length);
+        OpaqueByteRangeEncoder.Encode(payload, _scratch.AsSpan(_length, length));
+        _length += length;
         return this;
     }
 

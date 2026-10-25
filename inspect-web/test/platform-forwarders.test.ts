@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { typeLensesFor } from "../src/data.ts";
+import {
+  setTypeViewFacetCatalog,
+  typeLensesFor,
+} from "../src/data.ts";
 import {
   filterForwardedTypes,
   isForwardedType,
@@ -18,6 +21,13 @@ const xmlReader = {
 const escapeHtml = (value: unknown) => String(value)
   .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
   .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+
+setTypeViewFacetCatalog([
+  { id: "type.api", kind: "Type", title: "API", order: 100 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
+  { id: "type.source", kind: "Type", title: "Source", order: 300 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+]);
 
 // PR-fast: presentation of the real XML forwarding declaration.
 test("forwarded Type rows have no invented kind or member cardinality", () => {

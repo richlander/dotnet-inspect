@@ -152,7 +152,14 @@ As in canonical comparison, body size, the local signature, stack size, and
 `init locals` are not compared, and stand-alone signatures compare as
 canonical comparison compares them. The walk is allocation-free in lockstep
 and stops at the first difference; a retargeted branch or a moved clause
-extent is found once the body's instruction map is complete.
+extent is found once the body's instruction map is complete. The walk is a
+provision behind one seam: a caller may supply a `FindingDiffAnyBodyReader`,
+which receives the two images and the two method rows the comparison paired
+and answers as Exists answers, and the comparison then folds its answer as it
+folds the walk's, an undecided pair as a body it could not read. Finding
+census step 2b runs lockstep over two IL cursors through that seam, beside
+the walk, to decide whether the walk is kept
+([Finding census](finding-census.md#provisions)).
 
 A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,
@@ -200,10 +207,15 @@ is observed at the same boundaries.
 ### Identity
 
 Metadata tokens, in IL operands and in signatures, compare by symbolic name.
-A Type-level row's name is resolved once per side and memoized for the
-comparison; a member row's is resolved once per unit that refers to it, and a
-pair of operand rows once proven equal is remembered for the comparison, so
-the comparison retains the pairing rather than member spellings. They never
+A Type-level row's name is resolved once per side, memoized for the
+comparison, and interned in the one table both sides share, so a member
+spelling, fact, or composite names a Type definition, reference, or primitive
+by the `Ref` of its shared id rather than by its bytes, while a Type
+specification's composite embeds as the same `Key` part an inline composite
+does ([Symbol Key interning](symbol-key.md#interning)); a member row's is
+resolved once per unit that refers to it, and a pair of operand rows once
+proven equal is remembered for the comparison, so the comparison retains the
+pairing rather than member spellings. They never
 compare by token number or
 by defining or referenced assembly identity, as the [Body policy](#axes)
 states, so a renumbered or retargeted reference, or a dependency's version

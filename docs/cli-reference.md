@@ -570,6 +570,40 @@ dotnet-inspect library System.Text.Json -S "Performance: Sync Calls in Async"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
+### Annotated Type Relations
+
+Use `type --relations` to request a machine-readable, Type-focused inventory
+of logical relations, physical occurrences, selected annotations, and
+producer completion. The request is explicit: an ordinary `type` command does
+not acquire relation evidence.
+
+```bash
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.13 \
+  --relations all \
+  --relation-color member.requires-unreferenced-code \
+  --relation-color member.requires-dynamic-code \
+  --relation-color member.requires-assembly-files \
+  --json
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.13 \
+  --relations call --count --json
+```
+
+`--relations` accepts `all` or one or more canonical family ids. Values may be
+repeated or comma-separated; `all` cannot be combined with explicit ids. The
+current relationship family id is `call`. `--relation-color` selects an
+annotation family, while `--require-relation-color` also filters relations to
+targets carrying that selected color.
+
+The initial host gesture supports outgoing relations and `--json` or
+`--envelope`. `--count` selects the Count terminal; otherwise the request
+selects Rows. Share, section/discovery gestures, Tree, Mermaid, and implicit
+host defaults are not part of this route. Semantic-row and rendered-line
+selection gestures are also rejected rather than silently applied after the
+canonical document is generated.
+
 ### Decompiler
 
 Use `member -S @Source` for the authored-first source view, forced PDB and
@@ -772,8 +806,8 @@ top-level catalog, or report one exact category or section in detail:
 `Formats`, and, where the owner declares them, `Shape` (`table`, `hierarchy`,
 or `text`, per [Section shapes](design/section-shapes.md)), `Cardinality`
 (`scalar` or `inventory`), and `Terminals`. Every owner declares all of them;
-`Call Graph` and Library `Dependency Structure` are graphs and declare no
-shape. A category reports the formats supported by its
+`Call Graph` is a graph and declares no shape. Library `Dependency Structure`
+is a Table of namespace edges. A category reports the formats supported by its
 complete expansion plus the formats of each member; it never selects or drops
 members to satisfy a format. Use the result to choose an exact section before
 requesting a single-result projection such as `--tree` or `--mermaid`.
@@ -800,8 +834,8 @@ shape's native format when no format is named, per
 (`library MyLib.dll -S References`, the `Library Info` record as field/value
 TSV, each metadata table, and each `Context:` section on `library address`)
 and `Reference Hierarchy` renders its tree; `--markdown` or `--mermaid` names
-another of its formats. `Dependency Structure` is a graph and keeps its
-current rendering. An explicit format, an environment default, `--print`,
+another of its formats. `Dependency Structure` streams its namespace-edge
+rows; `--markdown` names its Document. An explicit format, an environment default, `--print`,
 `--row`, `--value`, `--urls`, `--paths`, `--tree`, `--count`, a projection,
 an envelope, or discovery keeps its existing behavior, and selecting several
 sections composes Markdown as before, including a mixed selection whose
@@ -916,10 +950,12 @@ dotnet-inspect package System.Text.Json@10.0.0 \
 
 For a direct NuGet.org Package query with one `Dependency Hierarchy` section,
 append `--share url` to keep the hierarchy on stdout and print its Inspect Web
-URL on stderr. The URL preserves the resolved exact Package version and target
-framework; the Browser reacquires that Package and runs the rooted dependency
-traversal. `--share packet` emits the packet instead. Local archives, other
-source selections, and hierarchy row or depth selections cannot currently be
+URL on stderr. The URL preserves the resolved exact Package version, root
+framework, governing traversal target, and Runtime ecosystem selection in a
+committed Workspace packet. The Browser restores that context, reacquires the
+Package, and runs the rooted dependency traversal. `--share packet` emits the
+packet instead. Local archives, other source selections, and hierarchy row or
+depth selections cannot currently be
 reproduced in the Browser and fail visibly.
 
 For one package with exactly `Files` selected, `-n`, `--tail`, and
@@ -1997,14 +2033,39 @@ currently `nonProjectable`.
 
 Exact `library ... -S "Dependency Structure"` reports internal namespace
 dependencies derived from whole-library method evidence. Namespace edges are
-the section's QuerySpace rows. Nodes show Type count and topological level;
-cycle members are emphasized and carry their exact cycle index. Isolated
-namespaces remain visible in an unwindowed graph:
+the section's QuerySpace rows. On one exact library, with no format named, the
+section streams them as TSV, one row per edge:
+
+| Column | Meaning |
+| --- | --- |
+| `from`, `to` | The source and target namespaces |
+| `calls`, `function_references` | The relationship counts |
+| `from_level`, `to_level` | Each namespace's topological level |
+| `from_cycle`, `to_cycle` | Each namespace's 1-based cycle number, empty outside any cycle |
+
+Rows sharing a cycle number belong to one cycle. A qualified document, one
+with unresolved calls or incomplete bodies, adds a warning on stderr.
+`library <package>@<version> -S "Dependency Structure"` renders the Document
+by default, like every section on that route. With `--tsv` or `--jsonl`, it
+prefixes each row with `package`, `version`, `library`, and `tfm`. Each
+library numbers its own cycles and applies row selection on its own. Group by
+`library` and `tfm` before counting cycles. Qualified warnings name their
+library, and `--count` sums the Table rows across libraries.
+
+`--markdown` and `--plaintext` render the Document. It states the cycle count
+(`Cycles`) and, under `Cycle Members`, each cycle's namespaces; edge selection
+never narrows either. The edge graph follows, with Type count and topological
+level on each node. Cycle members are emphasized and tagged with their cycle's
+1-based position, such as `cycle 1 of 1`. Isolated namespaces remain visible
+in an unwindowed graph:
 
 ```bash
 dotnet-inspect library FluentValidation.dll \
   --package FluentValidation@12.1.1 --tfm net8.0 \
   -S "Dependency Structure"
+dotnet-inspect library FluentValidation.dll \
+  --package FluentValidation@12.1.1 --tfm net8.0 \
+  -S "Dependency Structure" --markdown
 dotnet-inspect library FluentValidation.dll \
   --package FluentValidation@12.1.1 --tfm net8.0 \
   -S "Dependency Structure" --mermaid
@@ -2013,12 +2074,11 @@ dotnet-inspect library FluentValidation.dll \
   -S "Dependency Structure" -n 10 --head
 ```
 
-`-n`, `--head`, `--tail`, and `--rows` select namespace edges before graph
-rendering; a selected graph retains only edge endpoints. `--count` executes the
-namespace-edge QuerySpace Count terminal. The section is explicit-only and is
-not added by verbosity or category selection. Markdown and tabular formats
-lower the Markout graph as an edge table; `--mermaid` lowers the same graph as
-a diagram.
+`-n`, `--head`, `--tail`, and `--rows` select namespace edges before
+rendering. A selected graph retains only edge endpoints. `--count` executes the
+namespace-edge QuerySpace Count terminal, which equals the Table's row count.
+The section is explicit-only and is not added by verbosity or category
+selection. `--mermaid` lowers the same graph as a diagram.
 
 Exact `-S "Dependency Structure" --json` emits the complete Research document:
 Analysis and population receipts, Type and namespace nodes, internal and
@@ -2324,6 +2384,15 @@ surface `api` shows its `api.type` rows and then its `api.member` rows.
 `Changes` requires `api`. `Transitions` requires a selected analysis that
 declares it at the request surface: Type and Member analyses do so at their
 surfaces, while `string-literals` declares Library Transitions.
+
+A lone `Summary` or `Transitions` section defaults to TSV rows. Explicit
+`--table`, `--tsv`, and `--jsonl` emit only that section's rows, without
+Versions or status context; Transitions includes stable `old_inspection` and
+`new_inspection` columns, empty when absent. Use `--markdown` for the contextual
+Document. `--json` retains the structured Document and native numeric counts;
+`--envelope` additionally retains Share and diagnostics. Mixed section
+selections remain Documents. These two sections do not offer `--tree`.
+
 `--breaking`, `--additive`, `--changed`, and `--name-only` refine `Changes`
 only. Unknown, duplicate, empty, surface-unsupported, and wrong-cardinality
 entries are all reported before acquisition.
@@ -2914,6 +2983,51 @@ dotnet-inspect explain operations --jsonl
 dotnet-inspect explain --markdown
 dotnet-inspect explain operations/package-query
 ```
+
+Use `.hal --json` for the root's HAL reading. It embeds routing entries while
+linking their destination definitions. The reference collection
+`component-contracts` currently describes the Workspace Package contribution:
+
+```bash
+dotnet-inspect explain .hal --json > explain-root.json
+dotnet-inspect explain component-contracts .hal --json > contracts.json
+contract=$(jq -r '._links["collection-component-contract"][0].href' contracts.json)
+dotnet-inspect explain "$contract" .hal --json > package-contract.json
+jq '._embedded.data.facts.fields[] | select(.id == "framework") |
+  {name, meaning, shape, cardinality}' package-contract.json
+```
+
+The contract leaf projects Workspace-owned field meanings and limits. Root
+reading includes only routing summaries. A reader that knows the leaf may
+request `workspace/components/package` directly. `.data --json` exposes the
+same facts in the direct representation. Both preserve observation and
+traversal outcomes, and these links omit projection parameters.
+
+For these readings, `_embedded.data` contains native resource data and
+`_embedded.resources` contains already expanded resources. A detached component
+explanation has no instance `self`; its `describedby` relation identifies this
+installed kind contract. Explicit `--component FILE` selects owner-validated
+component input; `--component -` reads redirected UTF-8 stdin:
+
+```bash
+dotnet-inspect explain --component component.json .hal --json > declaration.json
+jq '._embedded.data | {declared: .facts, unavailable: .fact_states}' declaration.json
+
+# Supply the actual encoded parent only when the question needs parent facts.
+dotnet-inspect explain --component component.json --parent-packet "$w" .hal --json
+```
+
+A filename or JSON value in the ordinary positional operand does not select
+this mode. Component input cannot accompany a resource/search operand. Unknown
+contract/version or invalid declarations fail without searching. Without a
+parent packet, copied path/context/focus claims remain unavailable. With one,
+Workspace validates correspondence without restoration or acquisition.
+`.data --json` and ordinary JSON expose direct facts; `.contract --json`
+exposes the typed Document. Markdown/plain text use the existing presentation.
+`-n`, `-Q`, `--envelope`, `--no-headers` / `--nh` and table/row formats do not
+apply to components.
+The [worked reading](../tools/ExplainReadingScenarios/continuous-components/README.md)
+includes captured JSON files and standalone versus parent-qualified examples.
 
 ## Exact explanation JSON
 

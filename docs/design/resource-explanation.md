@@ -129,11 +129,12 @@ subject-oriented role.
 
 ## Continuous discovery and declarative components
 
-Status: **proposed, not implemented**, first slice
+Status: **partially implemented**, beginning with the proposal in
 [#10133](https://github.com/richlander/dotnet-inspect/issues/10133) of
 [#10132](https://github.com/richlander/dotnet-inspect/issues/10132).
 This section extends Resource Explanation's navigation and detached-input
-contract. It does not change current CLI admission or the Workspace wire format.
+contract. It uses the existing CLI resource-path and projection gestures and
+does not change the Workspace wire format.
 
 ### Root reachability and routing knowledge
 
@@ -242,10 +243,11 @@ The CLI's root over its complete catalog satisfies the reachability
 invariant, and the CLI publishes it as bare `explain`
 ([#10139](https://github.com/richlander/dotnet-inspect/issues/10139); see
 [Explain root admission](../cli-architecture.md#explain-root-admission)).
-Two parts arrive later:
-
-- collection-level member hints; and
-- the HAL reading of the root.
+The shared discovery reading now supplies direct JSON (`.data`) and HAL
+(`.hal`) over the same root, role collections and entries. Root reading closes
+at the entries; destination definitions are linked rather than expanded.
+Collection-level member hints beyond those declared routing entries remain
+staged work.
 
 The shared projection places the role collections at the top-level paths
 `subject-kinds`, `operations`, and `references`, and each entry at
@@ -401,6 +403,70 @@ that input must be supplied or the request visibly qualified/refused under the
 existing observation and failure contracts. A consumer cannot repair the gap
 by inventing a packet identity or serializing process-local authority.
 
+#### Registered Package contribution contract and reading
+
+Workspace Definitions' implemented typed handoff is
+`WorkspacePackageComponentExplanationInput`. Resource Explanation consumes it
+after owner admission and uses the existing detached Document operation; it
+does not parse or repair submitted JSON. Standalone local values and
+supplied/defaulted field distinctions become native observations. Parent path,
+context membership and focus are unavailable until the input contains a
+parent-qualified occurrence. The component path remains a fact, never a global
+ResourcePath or an instance `self` link.
+
+The detached join key identifies the submitted explanation input, including a
+digest of the supplied canonical packet when present. It is bounded output
+metadata, not public packet identity or realization authority. It separates
+equal coordinate/path text qualified by different packet contents, and carries
+no parent basis when the input is standalone.
+
+The installed reference collection `component-contracts` routes to
+`workspace/components/package`. Resource Explanation issues this meta-contract
+collection and its routing declaration; the leaf's name, purpose, field
+identities, meanings, value shapes, cardinalities, admitted states and finite
+population limits are projected from the Workspace-owned schema. Field limits
+are a sparse separate table, so unbounded/one-valued fields do not repeat null
+limits. These are schema descriptions, not a second Package validity manual.
+The leaf is the same contract referenced by detached Package explanation.
+
+Hosts compose this catalog and its reference declaration with their installed
+catalog. The existing completed-catalog reachability check applies; it is not a
+separate list of expected component paths. The CLI composition is the first
+production consumer. Component-file admission belongs to Contextual Resource
+Explanation, with the Browser consuming the same operation in
+its counted host slice.
+
+Generic HAL reading puts `_links` first. Native facts, observation outcomes and
+traversal bounds live under `_embedded.data`; already expanded resources live
+under `_embedded.resources`. Canonical links identify installed resources and
+complete addressable relationship targets, without repeating their typed keys
+and address arrays. Complete empty relationships are a sparse `empty_relations`
+set. Exceptional relationship outcomes, incomplete targets and targets without
+canonical addresses retain their full typed observations under `relationships`.
+Detached input keys and noncanonical address kinds remain explicit. Both direct
+and HAL lower the same completed Document with the same scalar and observation
+projection. Available false, optional absence, unavailable parent facts, and
+traversal completeness retain distinct meanings. A detached input
+has no `self`; `describedby` links to its registered kind contract when further
+field interpretation is needed. These discovery/contract links identify
+resources without projection parameters. Existing specialized query and
+vocabulary reading profiles retain their own contracts.
+
+The real motivating input is the captured System.Text.Json 10.0.0/net10.0
+[component descriptor](../examples/workspace-package-component.json), whose
+canonical parent can qualify the same declaration. Durable gates are
+`WorkspaceComponentExplanationTests` for owner-field preservation, direct/HAL
+equivalence, unavailable context, native false, distinct parent inputs and
+root-to-leaf reachability; and `ResourceExplanationCommandTests` for the
+production root/collection/contract route and rejected value narrowing. The
+operation's only inputs are validated declaration data and bounded explanation
+options; it performs no Workspace restoration or content inspection.
+
+The [worked reading](../../tools/ExplainReadingScenarios/continuous-components/README.md)
+retains real root/contract requests, jq selections, standalone and qualified
+component output, and serialized-byte counts. Those captures demonstrate the
+implemented shape; they do not claim agent usability or latency results.
+
 ### Evidence, consumers and staged adoption
 
 The motivating real asset is `System.Text.Json` **10.0.0** for **net10.0**.
@@ -408,9 +474,10 @@ The pinned repository witness
 [`WorkspaceComponentEditing.cs` at bdba62c](https://github.com/richlander/dotnet-inspect/blob/bdba62c74c77f98ad5fb4937f022681c5c42241e/src/DotnetInspector.Queries/Definitions/WorkspaceComponentEditing.cs)
 and Workspace Definitions'
 [component example](workspace-definitions.md#component-identity-and-immutable-packet-editing)
-expose the source shape and its packet-local path. Current owner-issued
-component inventory lacks an explicit explain-kind handoff; that is a staged
-Workspace adoption, not an invitation to guess from `package_id`.
+expose the source shape and its packet-local path. PR #10539 (issue #10137)
+adds the explicit contract/schema handoff; the shared registered
+contract and detached projection consume that handoff without guessing from
+`package_id`.
 The [worked proposal](../../tools/ExplainReadingScenarios/continuous-resources/README.md)
 shows root routing, extraction, local questions, missing parent context and a
 scoped wormhole. Its JSON is a mockup, not product output or measured evidence.
@@ -422,8 +489,8 @@ Supporting boundaries remain independently owned:
   new owner-issued explanation input. Its packet schema and codec are unchanged
   by this proposal.
 - [Contextual Resource Explanation](contextual-resource-explanation.md#explain-facade-dispatch)
-  owns input admission and direct typed handoff. Its present three operand
-  families are unchanged until its focused adoption adds a component entrance.
+  owns input admission and direct typed handoff, including its explicit
+  component entrance alongside the three ordinary operand families.
 - [CLI host architecture](../cli-architecture.md) owns bare-root and `--help`
   admission; [Find Workspace scope](find-workspace-scope.md) and query owners
   supply the bindings and grains of the intended unified `find` route. This
@@ -432,7 +499,7 @@ Supporting boundaries remain independently owned:
   owns realization and authority; Browser host adoption consumes the same
   shared explanation result without importing that authority into a packet.
 
-The fifteen-step composition plan is tracked in #10132: this proposal; the
+The counted composition plan is tracked in #10132: this proposal; the
 Workspace-owned command-placement proposal (#10183), ecosystem authoring
 (#10210), Package add-and-activate (#10211), Member context adoption,
 exact Root inspection admission and CLI
@@ -461,8 +528,8 @@ gates exercise its real facade and equivalent content. A no-acquisition probe
 must cover component explanation. Agent trials then measure correct root-to-goal
 routing, known-resource shortcuts and sufficient extracted-component answers,
 with request/presented-content accounting and an unchanged retrospective after
-answers/logs are frozen. All new behavior in this section remains unverified
-until those named adoption gates exist.
+answers/logs are frozen. Unadopted facade, Browser, shortcut and usability claims
+remain unverified until their named gates exist.
 
 ## Terminology and owner map
 

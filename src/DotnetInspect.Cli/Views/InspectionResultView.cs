@@ -1503,6 +1503,8 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(PackageSourceAvailabilitySection))]
 [MarkoutContext(typeof(PackageSourceIntegritySection))]
 [MarkoutContext(typeof(ILOffsetSection))]
+[MarkoutContext(typeof(LibraryDependencyStructureSection))]
+[MarkoutContext(typeof(LibraryDependencyCycleRow))]
 [MarkoutContext(typeof(ILOffsetMemberContextSection))]
 [MarkoutContext(typeof(ILOffsetInstructionContextSection))]
 [MarkoutContext(typeof(ILOffsetExceptionContextRow))]

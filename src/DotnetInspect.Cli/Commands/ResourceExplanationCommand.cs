@@ -4,12 +4,13 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using Markout;
 
 namespace DotnetInspect.Cli.Commands;
 
-public static class ResourceExplanationCommand
+public static partial class ResourceExplanationCommand
 {
     public const string Name = "explain";
 
@@ -152,6 +153,10 @@ public static class ResourceExplanationCommand
 
             ResourceExplanationCatalog? exactCatalog = root switch
             {
+                ResourceExplanationCatalog.ComponentContractsCollectionSegment =>
+                    ResourceExplanationCatalog.CreateWorkspaceComponents(),
+                "workspace" when canonicalPath.Value == WorkspacePackageComponentExplanation.Contract =>
+                    ResourceExplanationCatalog.CreateWorkspaceComponents(),
                 "package-query" => CreatePackageQueryExplanation(),
                 "package-files" => CreatePackageFilesExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
@@ -412,6 +417,7 @@ public static class ResourceExplanationCommand
                     .. StructuralRoutingDeclarations.Create(),
                     .. CapabilityRoutingDeclarations.Create(),
                     .. VocabularyRoutingDeclarations.Create(),
+                    ResourceExplanationCatalog.ComponentContractsRoutingDeclaration,
                 ])
             : null;
 
@@ -480,6 +486,7 @@ public static class ResourceExplanationCommand
                 analyses,
                 ResourceExplanationCatalog.CreateVocabularies(
                     CliVocabularyComposition.Snapshot),
+                ResourceExplanationCatalog.CreateWorkspaceComponents(),
             ]);
     }
 
@@ -600,6 +607,16 @@ public static class ResourceExplanationCommand
                 resolution,
                 ResourceExplanationRequest.ForHost(depth));
         ResourceExplanationDocument document = explanation.Content;
+        return WriteExplanation(document, format, outputPath, contract);
+    }
+
+    private static int WriteExplanation(
+        ResourceExplanationDocument document,
+        OutputFormat format,
+        string? outputPath,
+        bool contract,
+        bool hal = false)
+    {
         OutputDestination.Write(
             outputPath,
             rowWindow: null,
@@ -611,8 +628,11 @@ public static class ResourceExplanationCommand
                         contract
                             ? JsonSerializer.Serialize(document,
                                 ResourceExplanationJsonContext.Default.ResourceExplanationDocument)
-                            : ResourceExplanationDataProjection.Create(document,
-                                static path => "inspect-resource:/" + path.Value).GetRawText());
+                            : hal
+                                ? ResourceExplanationDataProjection.CreateHal(document,
+                                    static path => "inspect-resource:/" + path.Value).GetRawText()
+                                : ResourceExplanationDataProjection.Create(document,
+                                    static path => "inspect-resource:/" + path.Value).GetRawText());
                     return;
                 }
 

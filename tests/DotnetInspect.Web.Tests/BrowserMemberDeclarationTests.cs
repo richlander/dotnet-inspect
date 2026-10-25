@@ -1173,9 +1173,32 @@ public sealed class BrowserMemberDeclarationTests
             ZipArchiveMode.Create,
             leaveOpen: true))
         {
-            using Stream entry = archive.CreateEntry(
-                $"runtimes/linux-x64/lib/net11.0/{assemblyFileName}").Open();
-            entry.Write(image);
+            const string prefix = "runtimes/linux-x64/lib/net11.0/";
+            using (Stream runtimeConfigEntry = archive.CreateEntry(
+                prefix + "Microsoft.NETCore.App.runtimeconfig.json").Open())
+            {
+                runtimeConfigEntry.Write("""{"runtimeOptions":{}}"""u8);
+            }
+            using (Stream dependenciesEntry = archive.CreateEntry(
+                prefix + "Microsoft.NETCore.App.deps.json").Open())
+            {
+                dependenciesEntry.Write(
+                    """
+                    {
+                      "runtimeTarget":{"name":".NETCoreApp,Version=v11.0/linux-x64"},
+                      "targets":{
+                        ".NETCoreApp,Version=v11.0/linux-x64":{
+                          "Fixture/1.0.0":{
+                            "runtime":{"System.Text.Json.dll":{}}
+                          }
+                        }
+                      }
+                    }
+                    """u8);
+            }
+            using Stream assemblyEntry =
+                archive.CreateEntry(prefix + assemblyFileName).Open();
+            assemblyEntry.Write(image);
         }
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
