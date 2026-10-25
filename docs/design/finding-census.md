@@ -509,8 +509,54 @@ and rows are identical between the readers on every Type, and Type states are
 identical on every pair. The walk stays as the provision: lockstep matches it
 on no reported number. What remains of the gap is what the ablation measured
 outside the clause stage, token resolution at 9% to 12% and the per-atom
-records at 2% to 7% of the old gap, which are the next targets if lockstep is
-to replace the walk.
+records at 2% to 7% of the old gap, which the next record attributes.
+
+### What remains of the gap
+
+The repaired cursor ablated the same way, on the experiment branch
+`exp/exists-gap-ablation-2`, against the walk on the five self-pairs, NativeAOT
+on a quiet host, ten iterations, two rounds; raw outputs in gists ([components
+and the comparison
+split](https://gist.github.com/richlander/503fe7d6bb88d48f2aada7e21c92da0e),
+[the resolution
+split](https://gist.github.com/richlander/dbb78991ba6995fe820a1d7ab627ff9c)).
+Every configuration agreed with the walk. Round 1, milliseconds removed and the
+share of lockstep less walk:
+
+| Image against itself | Walk ms | Lockstep ms | Token operands | Value operands | Target arrays | Residue: atom records and cursors |
+| --- | --- | --- | --- | --- | --- | --- |
+| Aspire.Hosting 13.6.0 | 77.8 | 150.4 | 54.6 (75%) | 5.3 (7%) | 2.3 (3%) | 10.4 (14%) |
+| System.Text.Json 10.0.0 | 16.2 | 31.4 | 8.7 (58%) | 2.1 (14%) | 0.6 (4%) | 3.6 (24%) |
+| Newtonsoft.Json 13.0.4 | 18.9 | 36.6 | 11.4 (64%) | 2.0 (11%) | −0.1 (−1%) | 4.5 (26%) |
+| System.Private.Xml 11 | 60.2 | 135.9 | 39.6 (52%) | 3.7 (5%) | 4.7 (6%) | 27.7 (37%) |
+| System.Private.CoreLib 11 | 189.9 | 318.9 | 69.0 (54%) | 16.3 (13%) | 8.9 (7%) | 34.7 (27%) |
+
+Token operands are now 52% to 78% of the time gap, and the residue, the
+per-atom records and a cursor per method, 54% to 72% of the allocation gap.
+Splitting the token cost: comparing two resolved operands is 0% to 9% of it,
+and first-time resolution of each distinct token the rest. Within resolution,
+spelling the row's Symbol Key is 43% to 71% of the token cost and nearly all of
+its allocation (9 to 66 MB), the per-token memo and identity bookkeeping 27% to
+46%, formatting a user string's text at most 14%, and the admission checks
+within noise.
+
+The spelling share is what Ref parts saved Finding Diff Any's own side ([Symbol
+Key](symbol-key.md#interning)). It is not taken here. A Ref-form key means
+something only relative to its table, so two sides compare only when they share
+one, while census sides are context-free by design: a host holds one per image
+and pairs them freely (the member endpoint diff, the Research session), and the
+scenarios lockstep serves are one image against many. A bisect or a batch
+compares each version with several others, so its identities must not depend on
+the comparison that spelled them, which is also why a persisted key never
+contains a Ref part. Ref interning is a two-way optimization; it suits Finding
+Diff Any, which owns both of its sides inside one comparison, and not the
+census side.
+
+The pursuit of parity stops at this record. Lockstep matches the walk on no
+reported number, so the walk stays as the provision, and what lockstep is for
+is already cheap: a Type's first request costs 23 to 40 µs at the median, a
+member less. The remaining gap is recorded here as the cursor's state, not as
+work owed.
 
 ## Exhaustive
 
@@ -747,9 +793,12 @@ test class gates its cursor:
      walk is kept, 1.4× to 6.8× faster at assembly scope); the Type scope
      measurement through `FindingDiffAnyTypePairing`, one paired Type's rows
      decided by Exists through both readers, timed per Type by the `type`
-     leg of the same script ([cost record](#cost-at-type-scope)); then atoms
-     without per-advance allocation, the Browser/Wasm measurement, and the
-     walk deleted or kept by the cost gate's answer.
+     leg of the same script ([cost record](#cost-at-type-scope)); the
+     [ablation](#ablation-of-the-gap) that repaired the clause stage; and the
+     cost gate's answer, the walk kept, with
+     [what remains of the gap](#what-remains-of-the-gap) recorded and no
+     further parity work owed. The Browser/Wasm measurement remains for any
+     later change that would delete the walk.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Finding Diff Any's declaration census, which is the view's
    adoption step DV1 taken through this owner; gated as step 1 is.
