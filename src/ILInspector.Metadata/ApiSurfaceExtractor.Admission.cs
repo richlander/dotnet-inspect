@@ -40,11 +40,14 @@ public static partial class ApiSurfaceExtractor
     /// A public nested Type of a non-public Type is not admitted: no other
     /// assembly can reach it. Nor is one nested in a protected Type, which only a
     /// derived Type can reach.
-    /// Type discovery's public surface applies the same rule. A malformed
-    /// nesting graph is admitted here so the Type identity read that follows
-    /// rejects the row with its typed relationship failure.
+    /// Type discovery's public surface applies the same rule, and every other
+    /// reader that means "public Type" calls this one (Type counts and lookups,
+    /// the integration, hierarchy, and dependency scanners, and the extension
+    /// scan's declaring Type). A malformed nesting graph is admitted here so
+    /// the Type identity read that follows rejects the row with its typed
+    /// relationship failure.
     /// </summary>
-    internal static bool AdmitsPublicScopeType(
+    public static bool AdmitsPublicScopeType(
         MetadataReader reader,
         TypeDefinitionHandle handle,
         TypeDefinition typeDef)
