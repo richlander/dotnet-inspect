@@ -1997,18 +1997,19 @@ test("background bindings are not Worker activity", async () => {
     metadata: {
       queryLibraryFindingDiffAny: async () => {
         await findingDiffAny.promise;
-        return contractViolation({ schemaVersion: 2, kind: "Canceled" });
+        return contractViolation({ schemaVersion: 3, kind: "Canceled" });
       },
     },
   });
   const background = state.client.metadata.queryLibraryFindingDiffAny(
     "finding-diff-any-1",
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       packageId: "Fixture",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
       targetFramework: "net10.0",
+      runtimeIdentifier: "win-x64",
       compileAssetId: "compile:lib/net10.0/Fixture.dll",
       axes: "ApiAndBody",
     },

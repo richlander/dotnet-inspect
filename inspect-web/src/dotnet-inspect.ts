@@ -677,6 +677,7 @@ import {
   bindDiffContent,
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
+  implementationComparisonRuntimeIdentifier,
   isCompareMode,
   renderPackageComparisonTargets,
   resolveEffectiveDiffTarget,
@@ -8373,7 +8374,9 @@ function currentMemberBodyDiffContext(): MemberBodyDiffContext | null {
     packageModel: subject.pkg,
     request: {
       packageId: subject.pkg.id, beforeVersion: target.version, afterVersion: subject.pkg.version,
-      framework: subject.pkg.activeFramework, compileAssetId: subject.library.id,
+      framework: subject.pkg.activeFramework,
+      runtimeIdentifier: implementationComparisonRuntimeIdentifier(subject.pkg),
+      compileAssetId: subject.library.id,
       generation: typeAnalysisWorkspaceGeneration(subject.pkg), inventoryId: null, memberId: null,
     },
     subject: subject.kind, subjectLabel: compareSubjectLabel(subject),
@@ -8659,6 +8662,7 @@ function currentLibraryFindingDiffAnyBaseline(): LibraryFindingDiffAnyBaseline |
     currentVersion: pkg.version,
     targetVersion: target.version,
     targetFramework: pkg.activeFramework,
+    runtimeIdentifier: implementationComparisonRuntimeIdentifier(pkg),
     compileAssetId: library.id,
     axes: "ApiAndBody",
   };
