@@ -3739,6 +3739,7 @@ async function installFacades(
             navigationId: item.navigationId,
             contextIndex: 0,
             consumerPackageSubjectId: item.subject.id,
+            runtimeIdentifier: packageResult?.runtimeIdentifier ?? null,
             implementationComparisonRuntimeIdentifier:
               packageResult?.implementationComparisonRuntimeIdentifier ?? "",
             summary: {

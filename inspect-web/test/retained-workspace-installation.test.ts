@@ -19,12 +19,14 @@ interface TestPackage {
   isRuntimePack: boolean;
   source: { kind: "package" | "platform" };
   selectedDefaultLibraryId?: string | null;
+  runtimeIdentifier?: string | null;
   implementationComparisonRuntimeIdentifier?: string;
 }
 
 interface TestPresentationItem {
   navigationId: string;
   consumerPackageSubjectId?: string;
+  runtimeIdentifier?: string | null;
   implementationComparisonRuntimeIdentifier?: string;
   detailFailure: string | null;
   defaultLibrary?: {
@@ -62,6 +64,7 @@ function retainedWorkspaceInstallationHarness(options: {
     ...(options.activeKind === "package"
       ? {
         consumerPackageSubjectId: `${navigationId}-subject`,
+        runtimeIdentifier: `${navigationId}-rid`,
         implementationComparisonRuntimeIdentifier:
           `${navigationId}-comparison-rid`,
         defaultLibrary: {
@@ -208,8 +211,10 @@ function retainedWorkspaceInstallationHarness(options: {
       surface: TestPackage,
       defaultLibrary: TestPresentationItem["defaultLibrary"],
       implementationComparisonRuntimeIdentifier: string,
+      runtimeIdentifier: string | null,
     ) => {
       surface.selectedDefaultLibraryId = defaultLibrary?.assetId ?? null;
+      surface.runtimeIdentifier = runtimeIdentifier;
       surface.implementationComparisonRuntimeIdentifier =
         implementationComparisonRuntimeIdentifier;
       return surface;
@@ -409,6 +414,10 @@ test("exact canonical completion renders and focuses once", async () => {
     harness.state.package?.implementationComparisonRuntimeIdentifier,
     `${harness.activeNavigationId}-comparison-rid`,
   );
+  assert.equal(
+    harness.state.package?.runtimeIdentifier,
+    `${harness.activeNavigationId}-rid`,
+  );
   const rendersBeforeCompletion = harness.renders();
   harness.completePresentation();
   assert.equal(harness.renders(), rendersBeforeCompletion + 1);
@@ -470,6 +479,10 @@ test("stale initial Package detail cannot replace a newer row selection", async 
   assert.equal(
     harness.state.package.implementationComparisonRuntimeIdentifier,
     `${harness.newerNavigationId}-comparison-rid`,
+  );
+  assert.equal(
+    harness.state.package.runtimeIdentifier,
+    `${harness.newerNavigationId}-rid`,
   );
   assert.equal(harness.state.workspaceSubjectOpen, false);
   assert.equal(harness.state.packages.length, 1);

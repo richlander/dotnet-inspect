@@ -804,11 +804,16 @@ export function createNuGetPackageModelWithDefaultLibrary(
   result: InspectedPackageSurface,
   defaultLibrary: PackageDefaultLibraryIdentity | null,
   implementationComparisonRuntimeIdentifier: string,
+  runtimeIdentifier: string | null = null,
 ): AppPackage {
   const model = defaultLibrary === null
     ? createNuGetPackageModel(result)
     : createNuGetPackageModel(result, defaultLibrary);
-  return { ...model, implementationComparisonRuntimeIdentifier };
+  return {
+    ...model,
+    ...(runtimeIdentifier ? { runtimeIdentifier } : {}),
+    implementationComparisonRuntimeIdentifier,
+  };
 }
 
 export function createWorkspaceOccurrencePackageModel(

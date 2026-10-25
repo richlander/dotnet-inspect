@@ -551,11 +551,12 @@ public sealed record BrowserHomeDemoRunActivation(
     string? PlatformContextId = null);
 
 /// <summary>
-/// One product home-demo surface and the Package-owned implementation-comparison
-/// RID for that exact coordinate. Platform surfaces carry no comparison RID.
+/// One product home-demo surface, its exact Package coordinate RID, and the
+/// Package-owned implementation-comparison RID. Platform surfaces carry neither.
 /// </summary>
 public sealed record BrowserHomeDemoRunPackage(
     BrowserPackageSurface Surface,
+    string? RuntimeIdentifier,
     string? ImplementationComparisonRuntimeIdentifier);
 
 /// <summary>
@@ -879,6 +880,7 @@ public sealed record BrowserRetainedWorkspacePackageInventory(
     string NavigationId,
     int ContextIndex,
     string ConsumerPackageSubjectId,
+    string? RuntimeIdentifier,
     string ImplementationComparisonRuntimeIdentifier,
     BrowserRetainedWorkspaceSurfaceSummary Summary,
     BrowserRetainedWorkspacePackageLibraryIdentity? DefaultLibrary);

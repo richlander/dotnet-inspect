@@ -297,6 +297,7 @@ public static partial class CatalogExports
             .. projections.Select((projection, index) =>
                 new BrowserHomeDemoRunPackage(
                     BrowserCatalogWireProjection.Project(projection.Surface),
+                    coordinates[index].RuntimeIdentifier,
                     coordinates[index]
                         .ImplementationComparisonRuntimeIdentifier)),
         ];
@@ -486,6 +487,7 @@ public static partial class CatalogExports
             .. projections.Select(projection =>
                 new BrowserHomeDemoRunPackage(
                     BrowserCatalogWireProjection.Project(projection.Surface),
+                    RuntimeIdentifier: null,
                     ImplementationComparisonRuntimeIdentifier: null)),
         ];
         BrowserPlatformProjectionInfo focusProjection =

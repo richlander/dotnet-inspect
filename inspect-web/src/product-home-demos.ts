@@ -111,7 +111,8 @@ export function prepareProductHomeDemoSource(
       return createNuGetPackageModelWithDefaultLibrary(
         entry.surface,
         null,
-        entry.implementationComparisonRuntimeIdentifier);
+        entry.implementationComparisonRuntimeIdentifier,
+        entry.runtimeIdentifier);
     });
     const matches = packages.filter(item =>
       item.id === activation.focusId

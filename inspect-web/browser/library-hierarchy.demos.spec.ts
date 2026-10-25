@@ -152,10 +152,12 @@ function homeDemoResult(
     packages: platform
       ? [platformPeerSurface, platformFocusSurface].map(packageSurface => ({
         surface: packageSurface,
+        runtimeIdentifier: null,
         implementationComparisonRuntimeIdentifier: null,
       }))
       : [peerSurface, surface].map(packageSurface => ({
         surface: packageSurface,
+        runtimeIdentifier: "linux-x64",
         implementationComparisonRuntimeIdentifier: "linux-x64",
       })),
     activation: {

@@ -324,12 +324,13 @@ The Compare Release gates cover:
 `BrowserRetainedWorkspaceActivationTests.Presentation`,
 `package-acquisition.test.ts`, `retained-workspace-installation.test.ts`,
 `workspace-feed-activation.test.ts`, `product-home-demos.test.ts`, and
-`package-comparison-targets.test.ts` also prove that Package projects the
-retained RID or shared product default into the Browser model, Workspace
-occurrence activation, Workspace sharing and restore, retained Workspace
-Package inventory, and Package product home demos preserve it, every
-Compare-capable model construction consumes the owner-issued value, and
-implementation Compare has no browser-local default.
+`package-comparison-targets.test.ts` also prove that the exact retained RID
+remains Browser Workspace coordinate identity while Package separately projects
+the retained RID or shared product default as its comparison currency.
+Workspace occurrence activation, sharing and restore, retained Workspace
+Package inventory, and Package product home demos preserve both identities,
+every Compare-capable model construction consumes the owner-issued comparison
+value, and implementation Compare has no browser-local default.
 
 The step 5 audit found no remaining archive-order search or executing-host RID
 authority in the adopted Package Source or Browser implementation Compare

@@ -214,6 +214,7 @@ export interface BrowserHomeDemoRunActivation {
 
 export interface BrowserHomeDemoRunPackage {
   readonly surface: BrowserPackageSurface;
+  readonly runtimeIdentifier: string | null;
   readonly implementationComparisonRuntimeIdentifier: string | null;
 }
 
@@ -588,6 +589,7 @@ export interface BrowserRetainedWorkspacePackageInventory {
   readonly navigationId: string;
   readonly contextIndex: number;
   readonly consumerPackageSubjectId: string;
+  readonly runtimeIdentifier: string | null;
   readonly implementationComparisonRuntimeIdentifier: string;
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
   readonly defaultLibrary: BrowserRetainedWorkspacePackageLibraryIdentity | null;

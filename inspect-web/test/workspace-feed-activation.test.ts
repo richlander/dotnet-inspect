@@ -211,6 +211,7 @@ function posting(
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "subject",
+      runtimeIdentifier: "win-x64",
       implementationComparisonRuntimeIdentifier: "osx-arm64",
       defaultLibrary: {
         assetId: "Example",
@@ -1243,6 +1244,10 @@ test("retained package admission joins all Type pages", async () => {
     models.packages[0]?.packageModel
       .implementationComparisonRuntimeIdentifier,
     "osx-arm64",
+  );
+  assert.equal(
+    models.packages[0]?.packageModel.runtimeIdentifier,
+    "win-x64",
   );
 });
 

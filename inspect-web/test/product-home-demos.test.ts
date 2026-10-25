@@ -162,11 +162,16 @@ function result(
   focusAssembly: string | null,
   packages: readonly BrowserPackageSurface[],
   comparisonRuntimeIdentifier = "osx-arm64",
+  runtimeIdentifier: string | null = "win-x64",
 ): BrowserHomeDemoRunResult {
   return {
     found: true,
     packages: packages.map(packageSurface => ({
       surface: packageSurface,
+      runtimeIdentifier:
+        focusKind === "package"
+          ? runtimeIdentifier
+          : null,
       implementationComparisonRuntimeIdentifier:
         focusKind === "package"
           ? comparisonRuntimeIdentifier
@@ -244,6 +249,9 @@ test("package activation retains a non-first exact focus", () => {
     prepared.packages.map(packageModel =>
       packageModel.implementationComparisonRuntimeIdentifier),
     ["osx-arm64", "osx-arm64"]);
+  assert.deepEqual(
+    prepared.packages.map(packageModel => packageModel.runtimeIdentifier),
+    ["win-x64", "win-x64"]);
   assert.equal(prepared.focusPackage.id, "Focus.Package");
   assert.equal(
     implementationComparisonRuntimeIdentifier(prepared.focusPackage),

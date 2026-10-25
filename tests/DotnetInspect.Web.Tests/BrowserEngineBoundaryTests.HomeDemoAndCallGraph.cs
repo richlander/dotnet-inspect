@@ -115,10 +115,12 @@ public sealed partial class BrowserEngineBoundaryTests
 
             Assert.True(result.Found);
             Assert.Equal(2, result.Packages.Length);
+            Assert.Null(result.Packages[0].RuntimeIdentifier);
             Assert.Equal(
                 PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
                 result.Packages[0]
                     .ImplementationComparisonRuntimeIdentifier);
+            Assert.Equal("win-x64", result.Packages[1].RuntimeIdentifier);
             Assert.Equal(
                 "win-x64",
                 result.Packages[1]
@@ -670,8 +672,12 @@ public sealed partial class BrowserEngineBoundaryTests
                     == typeof(BrowserEngineBoundaryTests).FullName));
         Assert.All(
             result.Packages,
-            package => Assert.Null(
-                package.ImplementationComparisonRuntimeIdentifier));
+            package =>
+            {
+                Assert.Null(package.RuntimeIdentifier);
+                Assert.Null(
+                    package.ImplementationComparisonRuntimeIdentifier);
+            });
         Assert.Equal(
             BrowserPlatformIdentity.PackageName,
             surface.Surface.Package);
