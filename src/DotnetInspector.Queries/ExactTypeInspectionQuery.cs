@@ -392,6 +392,10 @@ internal sealed record ExactTypeInspectionExecution(
     ImmutableArray<ExactTypeDefiningSource> DefiningSources,
     ExactTypeInspectionTarget? Target);
 
+internal sealed record FirstAvailableExactTypeInspectionExecution(
+    ExactTypeInspectionRequest Request,
+    ExactTypeInspectionExecution Execution);
+
 /// <summary>
 /// Resolves and projects one exact Type through an admitted Workspace
 /// realization operation.
@@ -411,6 +415,14 @@ internal static class ExactTypeInspectionQuery
         int Order,
         AssemblyContextParticipant Participant,
         AssemblyContextEntry<AssemblyApiSurface> Entry);
+
+    sealed record ProjectionSet(
+        ImmutableArray<Projection> Projections,
+        ApiSurfaceProjectionTruncation? Truncation);
+
+    sealed record PreparedPackageContext(
+        ProjectionSet Projection,
+        DeclarationScan? DeclarationScan);
 
     sealed record ResolvedCandidate(
         Candidate Candidate,
@@ -484,10 +496,23 @@ internal static class ExactTypeInspectionQuery
             projectionLimits);
     }
 
-    static ExactTypeInspectionExecution ExecutePackageContext(
+    internal static ExactTypeInspectionExecution ExecutePackageContext(
         InspectionWorkspaceIdentity realization,
         ExactTypeInspectionContext context,
         ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits)
+        => ExecutePackageContext(
+            realization,
+            context,
+            request,
+            ApiSurfaceScope.PublicWithNonPublicTypes,
+            projectionLimits);
+
+    internal static ExactTypeInspectionExecution ExecutePackageContext(
+        InspectionWorkspaceIdentity realization,
+        ExactTypeInspectionContext context,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits? projectionLimits)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -515,7 +540,7 @@ internal static class ExactTypeInspectionQuery
             definingSource: null,
             definingSources: null,
             selected => target = selected,
-            ApiSurfaceScope.PublicWithNonPublicTypes,
+            scope,
             projectionLimits);
         return new(
             result,
@@ -526,6 +551,118 @@ internal static class ExactTypeInspectionQuery
                         "An available exact Type result requires one live "
                             + "inspection target.")
                 : null);
+    }
+
+    internal static FirstAvailableExactTypeInspectionExecution
+        ExecuteFirstAvailablePackageContext(
+            InspectionWorkspaceIdentity realization,
+            ExactTypeInspectionContext context,
+            IReadOnlyList<ExactTypeInspectionRequest> requests,
+            ApiSurfaceScope scope,
+            ApiSurfaceProjectionLimits? projectionLimits)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(requests);
+        if (requests.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one exact Type request is required.",
+                nameof(requests));
+        }
+
+        ExactTypeInspectionRequest first = requests[0];
+        WorkspaceContextLoadOutcome.Loaded loaded = context.Context;
+        ImmutableArray<AssemblyContextParticipant> participants =
+            PackageParticipants(loaded, first);
+        if (participants.IsEmpty)
+        {
+            return new(
+                first,
+                new(
+                    ExactTypeInspectionResult.RuntimeUnavailable(
+                        first,
+                        "The admitted realization does not contain the requested package coordinate."),
+                    [],
+                    Target: null));
+        }
+
+        DeclarationScan? declarationScan =
+            projectionLimits is null
+            && participants.Length > 1
+            && scope is not ApiSurfaceScope.ApiAxis
+                ? ScanDeclarations(
+                    loaded.Group,
+                    participants,
+                    scope)
+                : null;
+        ImmutableArray<AssemblyContextParticipant>
+            projectionParticipants = participants;
+        if (declarationScan is not null)
+        {
+            var selected =
+                new HashSet<AssemblyContextParticipant>(
+                    ReferenceEqualityComparer.Instance);
+            foreach (ExactTypeInspectionRequest request in requests)
+            {
+                foreach (AssemblyContextParticipant participant
+                    in ProjectionParticipants(
+                        loaded.Group,
+                        participants,
+                        declarationScan,
+                        request.Type,
+                        request.SelectionKind))
+                {
+                    selected.Add(participant);
+                }
+            }
+            projectionParticipants =
+            [
+                .. participants.Where(selected.Contains),
+            ];
+        }
+        var preparedContext = new PreparedPackageContext(
+            Project(
+                loaded,
+                projectionParticipants,
+                scope,
+                projectionLimits),
+            declarationScan);
+        FirstAvailableExactTypeInspectionExecution? firstExecution = null;
+        foreach (ExactTypeInspectionRequest request in requests)
+        {
+            ExactTypeInspectionTarget? target = null;
+            ExactTypeInspectionResult result = ExecuteCore(
+                realization,
+                context,
+                request.Type,
+                request.SelectionKind,
+                participants,
+                definingSource: null,
+                definingSources: null,
+                selected => target = selected,
+                scope,
+                projectionLimits,
+                selectedDefinition: null,
+                preparedContext: preparedContext);
+            var execution = new FirstAvailableExactTypeInspectionExecution(
+                request,
+                new(
+                    result,
+                    [],
+                    result.IsAvailable
+                        ? target
+                            ?? throw new InvalidOperationException(
+                                "An available exact Type result requires one "
+                                    + "live inspection target.")
+                        : null));
+            firstExecution ??= execution;
+            if (result.Outcome != ExactTypeInspectionOutcome.NotFound)
+                return execution;
+        }
+
+        return firstExecution
+            ?? throw new InvalidOperationException(
+                "At least one exact Type execution was expected.");
     }
 
     internal static ExactTypeInspectionExecution ExecuteSelectedContext(
@@ -710,7 +847,8 @@ internal static class ExactTypeInspectionQuery
         Action<ExactTypeInspectionTarget>? selectedTarget,
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits? projectionLimits,
-        MetadataTypeDefinitionName? selectedDefinition = null)
+        MetadataTypeDefinitionName? selectedDefinition = null,
+        PreparedPackageContext? preparedContext = null)
     {
         ArgumentNullException.ThrowIfNull(realization);
         ArgumentNullException.ThrowIfNull(context);
@@ -724,57 +862,45 @@ internal static class ExactTypeInspectionQuery
 
         WorkspaceContextLoadOutcome.Loaded loaded = context.Context;
         DeclarationScan? declarationScan =
-            projectionLimits is null
-            && selectedDefinition is null
-            && participants.Length > 1
-            && scope is not ApiSurfaceScope.ApiAxis
-                ? ScanDeclarations(
-                    loaded.Group,
-                    participants,
-                    scope)
-                : null;
-        ImmutableArray<AssemblyContextParticipant>
-            projectionParticipants =
-                declarationScan is null
-                    ? participants
-                    : ProjectionParticipants(
+            preparedContext?.DeclarationScan;
+        ProjectionSet projectionSet;
+        if (preparedContext is not null)
+        {
+            projectionSet = preparedContext.Projection;
+        }
+        else
+        {
+            declarationScan =
+                projectionLimits is null
+                && selectedDefinition is null
+                && participants.Length > 1
+                && scope is not ApiSurfaceScope.ApiAxis
+                    ? ScanDeclarations(
                         loaded.Group,
                         participants,
-                        declarationScan,
-                        requestedType,
-                        selectionKind);
-
-        AssemblyContextApiSurfaceResult? boundedProjection =
-            projectionLimits is null
-                ? null
-                : AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved(
-                    loaded.Group,
-                    scope,
-                    projectionLimits,
-                    projectionParticipants);
+                        scope)
+                    : null;
+            ImmutableArray<AssemblyContextParticipant>
+                projectionParticipants =
+                    declarationScan is null
+                        ? participants
+                        : ProjectionParticipants(
+                            loaded.Group,
+                            participants,
+                            declarationScan,
+                            requestedType,
+                            selectionKind);
+            projectionSet = Project(
+                loaded,
+                projectionParticipants,
+                scope,
+                projectionLimits);
+        }
         ImmutableArray<Projection> projections =
-            boundedProjection is null
-                ? [
-                    .. projectionParticipants.Select(
-                        (participant, order) => new Projection(
-                            order,
-                            participant,
-                            AssemblyContextApiSurfaceQuery
-                                .ExecuteParticipantResolved(
-                                loaded.Group,
-                                participant,
-                                scope))),
-                ]
-                : [
-                    .. boundedProjection.Assemblies.Assemblies.Select(
-                        (entry, order) => new Projection(
-                            order,
-                            projectionParticipants[order],
-                            entry)),
-                ];
+            projectionSet.Projections;
         ImmutableArray<ExactTypeInspectionFailure> participantFailures =
             ParticipantFailures(projections);
-        if (boundedProjection?.Truncation is { } truncation)
+        if (projectionSet.Truncation is { } truncation)
         {
             participantFailures =
                 participantFailures.Add(
@@ -1177,6 +1303,45 @@ internal static class ExactTypeInspectionQuery
             if (source is not null && definingSources is not null)
                 definingSources.Add(new(type, source));
         }
+    }
+
+    static ProjectionSet Project(
+        WorkspaceContextLoadOutcome.Loaded loaded,
+        ImmutableArray<AssemblyContextParticipant> participants,
+        ApiSurfaceScope scope,
+        ApiSurfaceProjectionLimits? projectionLimits)
+    {
+        AssemblyContextApiSurfaceResult? boundedProjection =
+            projectionLimits is null
+                ? null
+                : AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved(
+                    loaded.Group,
+                    scope,
+                    projectionLimits,
+                    participants);
+        return boundedProjection is null
+            ? new(
+                [
+                    .. participants.Select(
+                        (participant, order) => new Projection(
+                            order,
+                            participant,
+                            AssemblyContextApiSurfaceQuery
+                                .ExecuteParticipantResolved(
+                                    loaded.Group,
+                                    participant,
+                                    scope))),
+                ],
+                Truncation: null)
+            : new(
+                [
+                    .. boundedProjection.Assemblies.Assemblies.Select(
+                        (entry, order) => new Projection(
+                            order,
+                            participants[order],
+                            entry)),
+                ],
+                boundedProjection.Truncation);
     }
 
     static (
