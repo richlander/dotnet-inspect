@@ -395,6 +395,7 @@ function packageLoadResult(
       diagnostics: [],
     },
     runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: "linux-x64",
     documents: surface.documents,
     surface,
     defaultLibraryId: surface.defaultAssemblyId,
@@ -1810,6 +1811,7 @@ test("RID-distinct package tabs retain exact active identity through capture and
       selectedRuntimeIdentifier: runtimeIdentifier,
       availableRuntimeIdentifiers: ["linux-x64", "win-x64"],
     },
+    implementationComparisonRuntimeIdentifier: runtimeIdentifier,
   });
 
   const loc = await parseWorkspaceLocationAsync(

@@ -542,6 +542,9 @@ public sealed partial class BrowserEngineBoundaryTests
             JsonSerializer.Deserialize(await PackageExports.QueryPackageSummary(id, "1.0.0", "net11.0"),
                 BrowserPackageJsonContext.Default.BrowserPackageLoadResult));
         Assert.Null(summary.Surface);
+        Assert.Equal(
+            PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
+            summary.ImplementationComparisonRuntimeIdentifier);
         Assert.Equal($"compile:lib/net11.0/{id}.dll", summary.DefaultLibraryId);
         Assert.Equal(2, summary.PackageChildren!.Content.Libraries.Length);
         Assert.Equal("AAA.dll", summary.PackageChildren.Content.Libraries[0].AssemblyName);
@@ -554,6 +557,9 @@ public sealed partial class BrowserEngineBoundaryTests
             JsonSerializer.Deserialize(await PackageExports.QueryPackageRoot(rootRequest),
                 BrowserPackageJsonContext.Default.BrowserPackageRootLoadResult));
         Assert.Equal(summary.DefaultLibraryId, root.DefaultLibraryId);
+        Assert.Equal(
+            PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
+            root.ImplementationComparisonRuntimeIdentifier);
         Assert.Equal("AAA.dll", root.PackageChildren.Content.Libraries[0].AssemblyName);
     }
 
@@ -593,6 +599,9 @@ public sealed partial class BrowserEngineBoundaryTests
             "linux-x64",
             summary.RuntimePopulation.SelectedRuntimeIdentifier);
         Assert.Equal(
+            "linux-x64",
+            summary.ImplementationComparisonRuntimeIdentifier);
+        Assert.Equal(
             ["linux-x64", "win-x64"],
             summary.RuntimePopulation.AvailableRuntimeIdentifiers);
 
@@ -627,6 +636,23 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             summary.RuntimePopulation.AvailableRuntimeIdentifiers,
             root.RuntimePopulation.AvailableRuntimeIdentifiers);
+        Assert.Equal(
+            summary.ImplementationComparisonRuntimeIdentifier,
+            root.ImplementationComparisonRuntimeIdentifier);
+
+        BrowserPackageLoadResult retained =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0",
+                        "win-x64"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            "win-x64",
+            retained.ImplementationComparisonRuntimeIdentifier);
     }
 
     [Fact]
@@ -662,6 +688,9 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserPackageRuntimePopulationChoiceStatus.Ambiguous,
             summary.RuntimePopulation!.Status);
+        Assert.Equal(
+            PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
+            summary.ImplementationComparisonRuntimeIdentifier);
         Assert.Equal(
             ["net11.0", "net9.0"],
             Assert.IsType<string[]>(

@@ -6955,10 +6955,16 @@ async function activateWorkspacePackageOccurrence(action: string) {
     );
     return;
   }
+  if (!result.implementationComparisonRuntimeIdentifier) {
+    throw new Error(
+      "The activated Package did not supply an implementation comparison runtime identifier.",
+    );
+  }
 
   const packageModel = createWorkspaceOccurrencePackageModel(
     result.package,
     result.runtimeIdentifier,
+    result.implementationComparisonRuntimeIdentifier,
     state.package,
     state.packages);
   retainPackageModel(packageModel);
