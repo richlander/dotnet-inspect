@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
@@ -131,6 +132,8 @@ public sealed class DeclarationCensusSide : IDisposable
     /// Diff Any's comparison does, so a Type a spelling names once is one id
     /// on both sides. Lockstep compares expanded keys and does not need the
     /// sharing; it saves the table's size for a comparison that reads many Types.
+    /// The table is not thread-safe, so a pair is driven from one thread, as
+    /// Finding Diff Any's comparison drives its two sides.
     /// </summary>
     public static (DeclarationCensusSide Before, DeclarationCensusSide After) CreatePair(PEReader before, PEReader after)
     {
@@ -322,16 +325,19 @@ public sealed class DeclarationCensusCursor : IFindingCursor<DeclarationFact>
         return new DeclarationFact(KindOf(staged), axis, expanded.Detach(), text);
     }
 
+    // A fact the walk stages always leads with a kind marker this table names;
+    // a marker it does not is a defect of this cursor, not of the image, and
+    // surfaces rather than ending the unit Failed.
     static DeclarationFactKind KindOf(SymbolKey<FindingDiffAnyPart> key)
     {
         SymbolKeyPartReader<FindingDiffAnyPart> parts = key.Parts;
         if (!parts.Read() || parts.Kind != SymbolKeyPartKind.Marker)
-            throw new InvalidOperationException("A census fact begins with its kind marker.");
+            throw new UnreachableException("A census fact begins with its kind marker.");
         FindingDiffAnyPart marker = parts.Marker;
         if (marker == FindingDiffAnyPart.NonApi)
         {
             if (!parts.Read() || parts.Kind != SymbolKeyPartKind.Marker)
-                throw new InvalidOperationException("A non-API fact carries its kind marker after the NonApi marker.");
+                throw new UnreachableException("A non-API fact carries its kind marker after the NonApi marker.");
             marker = parts.Marker;
         }
         return marker switch
@@ -352,7 +358,7 @@ public sealed class DeclarationCensusCursor : IFindingCursor<DeclarationFact>
             FindingDiffAnyPart.GenericParameterFact => DeclarationFactKind.GenericParameter,
             FindingDiffAnyPart.Constraint => DeclarationFactKind.Constraint,
             FindingDiffAnyPart.Attribute => DeclarationFactKind.Attribute,
-            _ => throw new InvalidOperationException($"Unknown census fact marker {marker}."),
+            _ => throw new UnreachableException($"Unknown census fact marker {marker}."),
         };
     }
 
@@ -465,8 +471,13 @@ public static class DeclarationFindings
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
         bool? ownerVisible = null;
-        if (axis == DeclarationAxis.Body)
+        if (axis == DeclarationAxis.Body
+            && before.TryFindUnit(beforeType, out FindingDiffAny.Unit? beforeUnit) && !beforeUnit.Malformed
+            && after.TryFindUnit(afterType, out FindingDiffAny.Unit? afterUnit) && !afterUnit.Malformed)
         {
+            // The partition is read only for two well-formed units; a Type
+            // that is not a unit, or one whose row is malformed, ends at its
+            // cursor's terminal on this axis as on the API axis.
             try
             {
                 ownerVisible = before.IsVisible(beforeType) || after.IsVisible(afterType);

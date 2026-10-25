@@ -629,14 +629,22 @@ test class gates its cursor:
    because its canonical order is a sort over them, and lockstep then stops at
    the first differing position. The walk keeps comparing staged slots per
    unit, which is the same multiset equality without the expansion, under the
-   gates: per Type over the fixture pair, Exists on the API axis equals the
-   walk's API state and Exists on the Body declaration facts implies the
-   walk's Body state; the identity-set comparison of two drained censuses has
-   a non-Present pair exactly when Exists is Changed; a real image against
-   itself is Unchanged on every Type with equal atom counts. The row-tier
-   soft key that pairs a changed slot as `Changed` is DV1's remaining step;
-   the per-fact expansion and detachment is this kind's allocation debt, as
-   step 2b is the IL kind's.
+   gates: per Type over the fixture pair, through a shared interning table
+   and through two independent ones, Exists on the API axis equals the
+   walk's API state and Exists on the Body declaration facts equals the
+   walk's declaration census equality (a Body `Changed` whose first
+   difference `Explain` names is a declaration fact, not a method's IL); the
+   identity-set comparison of two drained censuses has a non-Present pair
+   exactly when Exists is Changed; a real image against itself is Unchanged
+   on every Type with equal atom counts; and fault order over the
+   `FindingDiffAnyMetadataSafetyTests` and `FindingDiffAnyIdentityTests`
+   images read through the cursor: a Type the walk decides Indeterminate ends
+   its cursor `Failed` and is Indeterminate on both axes against any row of
+   the other side, and a well-formed Type read next from the same side is
+   Unchanged with a Complete census. The row-tier soft key that pairs a
+   changed slot as `Changed` is DV1's remaining step; the per-fact expansion
+   and detachment is this kind's allocation debt, as step 2b is the IL
+   kind's.
 4. **Exists owner.** Finding Diff Any's document becomes the owner of Exists at
    Library, Type, and Member scope over the census, keeping its axes,
    partition, folds, and gates, with the paired walk recorded as a retired

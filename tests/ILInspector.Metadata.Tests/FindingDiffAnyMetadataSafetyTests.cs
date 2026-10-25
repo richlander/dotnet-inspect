@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -88,8 +89,62 @@ public sealed class FindingDiffAnyMetadataSafetyTests
             complete = stepped.Step(stepBefore, stepAfter, TimeSpan.Zero);
         }
         Assert.Equal(whole.Types, stepped.Result!.Types);
+        AssertDeclarationCursorAgrees(image, whole);
         return whole;
     }
+
+    // The declaration cursor's fault order (finding-census.md#gates, step 3):
+    // read through two sides of the same image, every Type the walk decides
+    // Indeterminate ends its API cursor Failed and is Indeterminate on both
+    // axes, and every Type the walk decides Unchanged is Unchanged with a
+    // Complete census, read after the failures from the same two sides.
+    static void AssertDeclarationCursorAgrees(byte[] image, FindingDiffAnyResult walk)
+    {
+        using var before = new PEReader(new MemoryStream(image, writable: false));
+        using var after = new PEReader(new MemoryStream(image, writable: false));
+        (DeclarationCensusSide oldSide, DeclarationCensusSide newSide) = DeclarationCensusSide.CreatePair(before, after);
+        using (oldSide)
+        using (newSide)
+        {
+            Dictionary<string, FindingDiffAnyTypeState> states = walk.Types.ToDictionary(type => type.Identifier, StringComparer.Ordinal);
+            List<DeclarationCensusType> types = oldSide.Types.ToList();
+            Assert.Equal(states.Count, types.Count);
+            int failed = 0;
+            int healthyAfterFailure = 0;
+            foreach (DeclarationCensusType type in types.OrderBy(type => states[type.Identifier].Api == FindingDiffAnyState.Indeterminate ? 0 : 1))
+            {
+                FindingDiffAnyTypeState state = states[type.Identifier];
+                FindingExistsResult api = DeclarationFindings.Exists(oldSide, type.Type, newSide, type.Type, DeclarationAxis.Api);
+                FindingExistsResult body = DeclarationFindings.Exists(oldSide, type.Type, newSide, type.Type, DeclarationAxis.Body);
+                Assert.Equal(Decision(state.Api), api.Decision);
+                Assert.Equal(Decision(state.Body), body.Decision);
+                if (state.Api == FindingDiffAnyState.Indeterminate)
+                {
+                    DeclarationCensusCursor cursor = DeclarationCensusCursor.Create(oldSide, type.Type, DeclarationAxis.Api);
+                    Assert.False(cursor.Advance());
+                    Assert.Equal(FindingCursorTerminalKind.Failed, cursor.Terminal!.Kind);
+                    failed++;
+                }
+                else
+                {
+                    var subject = new FindingSubject(type.Identifier, type.FullName);
+                    Assert.IsType<FindingInspection<DeclarationFact>.Complete>(
+                        DeclarationFindings.Inspect(oldSide, type.Type, DeclarationAxis.Api, subject).Value);
+                    if (failed > 0)
+                        healthyAfterFailure++;
+                }
+            }
+            if (failed > 0 && failed < types.Count)
+                Assert.True(healthyAfterFailure > 0, "a healthy Type is read after a failure on the same side");
+        }
+    }
+
+    static FindingExistsDecision Decision(FindingDiffAnyState state) => state switch
+    {
+        FindingDiffAnyState.Unchanged => FindingExistsDecision.Unchanged,
+        FindingDiffAnyState.Indeterminate => FindingExistsDecision.Indeterminate,
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "An image compared with itself is Unchanged or Indeterminate."),
+    };
 
     static void RunWorker(string workerMethod)
     {
