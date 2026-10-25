@@ -549,9 +549,9 @@ something only relative to its table, so every side that may be compared must
 share one. Finding Diff Any's table serves one comparison, which owns both of
 its sides. A census side has no table: a host holds one per image and pairs it
 freely (the member endpoint diff, the Research session), and the scenarios
-lockstep serves are member, bisect, and batch, and bisect and batch compare
-each version with several others. Ref parts could reach them only through a
-table scoped to the batch, which #10533 and [Diff
+lockstep serves are member, bisect, and batch, and in bisect and batch one
+version's side is compared with several others. Ref parts could reach them only
+through a table scoped to the batch, which #10533 and [Diff
 system](diff-system.md#scenarios) plan for the batch scenario's census sides
 and which a persisted key cannot use, since it never contains a Ref part.
 Adopting one would make every host that holds sides scope a table for the
