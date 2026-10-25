@@ -120,6 +120,7 @@ function posting(
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "package-subject",
+      implementationComparisonRuntimeIdentifier: "linux-x64",
       defaultLibrary: null,
       summary: {
         selectedCompileFramework: null,

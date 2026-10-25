@@ -2804,7 +2804,8 @@ async function installRetainedWorkspacePosting(
       packageModel = admittedPackage && packageInventory
         ? createNuGetPackageModelWithDefaultLibrary(
           admittedPackage.surface,
-          packageInventory.defaultLibrary)
+          packageInventory.defaultLibrary,
+          packageInventory.implementationComparisonRuntimeIdentifier)
         : null;
       platformModel = admittedPlatform
         ? createRuntimePackageModel(admittedPlatform.surface)
@@ -2952,7 +2953,8 @@ async function activateRetainedPackageAction(
     const admitted = await admitRetainedPackage(posting, inventory);
     packageModel = createNuGetPackageModelWithDefaultLibrary(
       admitted.surface,
-      inventory.defaultLibrary);
+      inventory.defaultLibrary,
+      inventory.implementationComparisonRuntimeIdentifier);
   } catch (error) {
     const currentPresentation = retainedWorkspacePresentation;
     const currentPosting = activeRetainedWorkspacePosting;
@@ -18191,7 +18193,8 @@ async function projectManagedNavigationType(
   const admitted = await admitRetainedPackage(updatedPosting, inventory);
   const pkg = createNuGetPackageModelWithDefaultLibrary(
     admitted.surface,
-    inventory.defaultLibrary);
+    inventory.defaultLibrary,
+    inventory.implementationComparisonRuntimeIdentifier);
   const matches = pkg.types.filter(type =>
     type.definitionId === selection.definitionId
     && type.assemblyName.toLowerCase()

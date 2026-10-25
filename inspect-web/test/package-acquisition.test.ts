@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createAppMemberSurface,
   createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   packageQueryAssemblyId,
   createPackageAcquisition,
   createRuntimePackageModel,
@@ -887,6 +888,19 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     activated.assemblies[0]?.publicTypes,
     retained.assemblies[0]?.publicTypes);
   assert.equal(activated.totalTypes, retained.totalTypes);
+});
+
+test("retained Workspace Package models preserve the owner-issued comparison RID", () => {
+  const model = createNuGetPackageModelWithDefaultLibrary(
+    packageSurface(),
+    null,
+    "osx-arm64",
+  );
+
+  assert.equal(
+    model.implementationComparisonRuntimeIdentifier,
+    "osx-arm64",
+  );
 });
 
 test("Workspace occurrence activation does not copy envelopes across TFMs", () => {

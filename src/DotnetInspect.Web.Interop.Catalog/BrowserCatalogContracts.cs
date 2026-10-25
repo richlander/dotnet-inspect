@@ -871,6 +871,7 @@ public sealed record BrowserRetainedWorkspacePackageInventory(
     string NavigationId,
     int ContextIndex,
     string ConsumerPackageSubjectId,
+    string ImplementationComparisonRuntimeIdentifier,
     BrowserRetainedWorkspaceSurfaceSummary Summary,
     BrowserRetainedWorkspacePackageLibraryIdentity? DefaultLibrary);
 

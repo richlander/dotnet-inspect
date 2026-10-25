@@ -583,6 +583,7 @@ export interface BrowserRetainedWorkspacePackageInventory {
   readonly navigationId: string;
   readonly contextIndex: number;
   readonly consumerPackageSubjectId: string;
+  readonly implementationComparisonRuntimeIdentifier: string;
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
   readonly defaultLibrary: BrowserRetainedWorkspacePackageLibraryIdentity | null;
 }

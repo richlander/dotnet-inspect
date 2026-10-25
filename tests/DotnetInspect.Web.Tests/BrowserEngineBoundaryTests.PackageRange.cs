@@ -549,6 +549,20 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(2, summary.PackageChildren!.Content.Libraries.Length);
         Assert.Equal("AAA.dll", summary.PackageChildren.Content.Libraries[0].AssemblyName);
         Assert.Contains(summary.PackageChildren.Content.Libraries, library => library.AssetId == summary.DefaultLibraryId);
+        BrowserPackageLoadResult retained =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0",
+                        "win-x64"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Null(retained.RuntimePopulation);
+        Assert.Equal(
+            "win-x64",
+            retained.ImplementationComparisonRuntimeIdentifier);
         BrowserPackageRealization realization = Assert.IsType<BrowserPackageRealizationResult.Realized>(
             await BrowserPackageWorkspace.RealizeWithSettlementAsync(id, "1.0.0", "net11.0",
                 cancellationToken: TestContext.Current.CancellationToken)).Realization;

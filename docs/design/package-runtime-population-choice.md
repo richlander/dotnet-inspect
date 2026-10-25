@@ -320,10 +320,13 @@ The Compare Release gates cover:
 - compile/API comparison bypassing runtime choice.
 
 `BrowserEngineBoundaryTests.PackageRange`,
-`package-acquisition.test.ts`, and `package-comparison-targets.test.ts` also
-prove that Package projects the retained RID or shared product default into
-the Browser model, Workspace occurrence activation preserves it, and
-implementation Compare has no browser-local default.
+`BrowserRetainedWorkspaceActivationTests.Presentation`,
+`package-acquisition.test.ts`, `retained-workspace-installation.test.ts`,
+`workspace-feed-activation.test.ts`, and `package-comparison-targets.test.ts`
+also prove that Package projects the retained RID or shared product default
+into the Browser model, Workspace occurrence activation and retained Workspace
+Package inventory preserve it, every retained model construction consumes the
+owner-issued value, and implementation Compare has no browser-local default.
 
 The step 5 audit found no remaining archive-order search or executing-host RID
 authority in the adopted Package Source or Browser implementation Compare

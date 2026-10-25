@@ -902,6 +902,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "package-subject",
+      implementationComparisonRuntimeIdentifier: "osx-arm64",
       defaultLibrary: null,
       summary: {
         selectedCompileFramework: null,

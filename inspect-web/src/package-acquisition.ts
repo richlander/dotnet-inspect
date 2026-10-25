@@ -803,10 +803,12 @@ export function createNuGetPackageModel(
 export function createNuGetPackageModelWithDefaultLibrary(
   result: InspectedPackageSurface,
   defaultLibrary: PackageDefaultLibraryIdentity | null,
+  implementationComparisonRuntimeIdentifier: string,
 ): AppPackage {
-  return defaultLibrary === null
+  const model = defaultLibrary === null
     ? createNuGetPackageModel(result)
     : createNuGetPackageModel(result, defaultLibrary);
+  return { ...model, implementationComparisonRuntimeIdentifier };
 }
 
 export function createWorkspaceOccurrencePackageModel(

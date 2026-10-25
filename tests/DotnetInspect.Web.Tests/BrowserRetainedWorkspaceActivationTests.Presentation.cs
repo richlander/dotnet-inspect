@@ -1018,6 +1018,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.True(package.Summary.TypeCount > 0);
             Assert.True(package.Summary.DocumentCount > 0);
             Assert.Equal("net9.0", package.Summary.SelectedCompileFramework);
+            Assert.Equal(
+                PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
+                package.ImplementationComparisonRuntimeIdentifier);
             Catalog.BrowserRetainedWorkspacePackageLibraryIdentity defaultLibrary =
                 Assert.IsType<Catalog.BrowserRetainedWorkspacePackageLibraryIdentity>(
                     package.DefaultLibrary);
