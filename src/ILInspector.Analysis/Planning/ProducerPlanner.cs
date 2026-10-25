@@ -138,6 +138,9 @@ public sealed class WorkDescription
             rowLimits is null ? null : new int?[producers.Length];
         var dependencies = new ImmutableArray<int>[producers.Length];
         var unitFactRetention = new UnitFactRetention[producers.Length];
+        var resultRetention = new bool[producers.Length];
+        for (int i = 0; i < producers.Length; i++)
+            resultRetention[i] = requested.Contains(producers[i]);
         for (int i = 0; i < producers.Length; i++)
         {
             ProducerDeclaration producer = producers[i];
@@ -163,6 +166,10 @@ public sealed class WorkDescription
                             : UnitFactRetention.AllUnits;
                     if (needed > unitFactRetention[target])
                         unitFactRetention[target] = needed;
+                }
+                else
+                {
+                    resultRetention[target] = true;
                 }
             }
 
@@ -203,6 +210,7 @@ public sealed class WorkDescription
             : ImmutableArray.Create(rowLimitsByIndex);
         DependencyIndices = ImmutableArray.Create(dependencies);
         FactRetention = ImmutableArray.Create(unitFactRetention);
+        ResultRetention = ImmutableArray.Create(resultRetention);
         CompletionIndices = completionIndices.ToImmutable();
         Passes = passes.ToImmutable();
     }
@@ -233,6 +241,12 @@ public sealed class WorkDescription
     /// the planned producers that read them.
     /// </summary>
     internal ImmutableArray<UnitFactRetention> FactRetention { get; }
+
+    /// <summary>
+    /// Whether each producer publishes a result because it was requested or a
+    /// dependency reads that result.
+    /// </summary>
+    internal ImmutableArray<bool> ResultRetention { get; }
 
     /// <summary>The completion order, by index.</summary>
     internal ImmutableArray<int> CompletionIndices { get; }

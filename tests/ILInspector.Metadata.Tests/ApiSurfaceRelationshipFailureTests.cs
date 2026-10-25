@@ -256,7 +256,7 @@ public class ApiSurfaceRelationshipFailureTests
 
         Assert.NotNull(oldSurface);
         Assert.NotNull(newSurface);
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+        var diff = ProductionApiDiff.Compare(oldSurface, newSurface);
 
         Assert.DoesNotContain(
             diff.TypeDiffs,
