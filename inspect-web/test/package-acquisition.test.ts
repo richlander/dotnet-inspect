@@ -1123,6 +1123,45 @@ function contractViolation<T>(value: unknown): T {
   return value as T;
 }
 
+test("neutral Package acquisition retains an explicit RID as Workspace identity", async () => {
+  const baseline = acquisitionDependencies();
+  const queried: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageSummary: async (
+      packageId,
+      version,
+      framework,
+      runtimeIdentifier,
+    ) => {
+      queried.push(runtimeIdentifier);
+      return {
+        ...await baseline.queryPackageSummary(
+          packageId,
+          version,
+          framework,
+          runtimeIdentifier),
+        runtimePopulation: null,
+        implementationComparisonRuntimeIdentifier: runtimeIdentifier,
+      };
+    },
+  }));
+
+  const result = await acquisition.loadPackage({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    runtimeIdentifier: "win-x64",
+  });
+
+  assert.deepEqual(queried, ["win-x64"]);
+  assert.equal(result?.runtimeIdentifier, "win-x64");
+  assert.deepEqual(result?.runtimeIdentifiers, []);
+  assert.equal(
+    result?.implementationComparisonRuntimeIdentifier,
+    "win-x64",
+  );
+});
+
 test("query results open through the exact opaque Root request", async () => {
   const rootRequest = "owner-issued-root-request";
   const opened: string[] = [];

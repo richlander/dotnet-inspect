@@ -1835,6 +1835,70 @@ test("RID-distinct package tabs retain exact active identity through capture and
   );
 });
 
+test("neutral Package explicit RID survives Workspace restore and recapture", async () => {
+  const packageId = "Neutral.Package";
+  const version = "1.0.0";
+  const framework = "net11.0";
+  const runtimeIdentifier = "win-x64";
+  const h = harness();
+  h.controls.share = {
+    tabs: [{
+      id: "neutral",
+      kind: "package",
+      source: packageId,
+      version,
+      framework,
+      runtimeIdentifier,
+    }],
+    contexts: [{ id: "neutral-context", tabIds: ["neutral"] }],
+    activeTabId: "neutral",
+    selectedContextId: "neutral-context",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+      sourceView: null,
+      comparison: null,
+    },
+  };
+  h.controls.queryPackage = async (
+    id,
+    requestedVersion,
+    requestedFramework,
+    requestedRuntimeIdentifier,
+  ) => ({
+    ...packageLoadResult(
+      packageSurface(id, requestedVersion, requestedFramework)),
+    runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: requestedRuntimeIdentifier,
+  });
+
+  const loc = await parseWorkspaceLocationAsync(
+    new URL("https://inspect.test/?w=neutral-rid-packet#workspace"),
+    async () => ({
+      succeeded: true,
+      state: h.controls.share,
+      failure: null,
+    }),
+  );
+  await h.restoreWithProductionLoad(loc);
+
+  assert.deepEqual(
+    h.queries.map(query => query[3]),
+    [runtimeIdentifier],
+  );
+  assert.equal(h.state.package?.runtimeIdentifier, runtimeIdentifier);
+  assert.deepEqual(
+    h.captureUrlState().tabs.map(tab => tab.runtimeIdentifier),
+    [runtimeIdentifier],
+  );
+});
+
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
   const h = harness();
   h.location.href = "https://inspect.test/demos?keep=1#workspace";

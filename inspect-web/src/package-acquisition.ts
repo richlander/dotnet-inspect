@@ -1338,7 +1338,9 @@ export function createPackageAcquisition(
         ? [...runtimePopulation.availableRuntimeIdentifiers]
         : [];
       packageModel.runtimeIdentifier =
-        runtimePopulation?.selectedRuntimeIdentifier ?? null;
+        request.runtimeIdentifier
+        || runtimePopulation?.selectedRuntimeIdentifier
+        || null;
       packageModel.implementationComparisonRuntimeIdentifier =
         implementationComparisonRuntimeIdentifier;
       dependencies.retainPackage(packageModel, request.replacePackage);
