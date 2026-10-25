@@ -21,6 +21,15 @@ internal static class IlAblation
     /// <summary>Resolve token operands but treat any two as equal, so their comparison is not paid.</summary>
     public static readonly bool NoTokenCompare = Has("no-token-compare");
 
+    /// <summary>Identify a user string by a shared placeholder instead of its formatted text.</summary>
+    public static readonly bool NoUserStringText = Has("no-ustring");
+
+    /// <summary>Skip the per-token admission checks (operand kind, compiler-controlled, duplicate Type row).</summary>
+    public static readonly bool NoTokenChecks = Has("no-checks");
+
+    /// <summary>Skip spelling the token's Symbol Key; identify it by a shared placeholder.</summary>
+    public static readonly bool NoTokenSpelling = Has("no-spell");
+
     static bool Has(string name)
     {
         foreach (string part in Env.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))

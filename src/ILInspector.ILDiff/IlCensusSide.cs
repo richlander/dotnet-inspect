@@ -201,11 +201,16 @@ public sealed class IlCensusSide
     {
         // A user string is a value: its text is its identity, with no fallback.
         if (kind == OperandKind.InlineString)
-            return new IlOperandIdentity(IlOperandIdentityKind.Token, Text.Format(kind, token));
+            return new IlOperandIdentity(IlOperandIdentityKind.Token, IlAblation.NoUserStringText ? "ustring" : Text.Format(kind, token));
         EntityHandle row = MetadataTokens.EntityHandle(token);
-        Expect(kind, row);
-        RequireNotCompilerControlled(row);
-        RequireNotDuplicateTypeRow(row);
+        if (!IlAblation.NoTokenChecks)
+        {
+            Expect(kind, row);
+            RequireNotCompilerControlled(row);
+            RequireNotDuplicateTypeRow(row);
+        }
+        if (IlAblation.NoTokenSpelling)
+            return new IlOperandIdentity(IlOperandIdentityKind.Token, "row");
         StagedSymbolKey<IlOperandPart> key = kind == OperandKind.InlineSig
             ? CalliSignature((StandaloneSignatureHandle)row)
             : Row(row, rewrite: true);
