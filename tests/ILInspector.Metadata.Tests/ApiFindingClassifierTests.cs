@@ -8,13 +8,12 @@ using ILInspector.Metadata;
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Validates <see cref="ApiFindingClassifier"/> -- the Finding-pair-driven classifier
-/// intended to replace <see cref="ApiDiffAnalyzer"/>'s own type/member matching walk
-/// (issue #2893 follow-up). Type-level classification must stay byte-identical to the
-/// legacy analyzer. Member-level classification intentionally diverges for fuzzy/soft-key
-/// matches: strict (default) reports them as an unrelated removal+addition just like the
-/// legacy analyzer would, while <see cref="ApiDiffNormalization.NormalizeMemberProjection"/>
-/// treats them as the same member observed under two projections.
+/// Validates <see cref="ApiFindingClassifier"/> -- the Finding-pair-driven classifier that
+/// produces every production <see cref="ApiDiff"/>, reusing <see cref="ApiDiffAnalyzer"/>'s
+/// fact helpers over the Finding lane's type and member correspondence. Fuzzy/soft-key
+/// member matches are, by default, an unrelated removal and addition, while
+/// <see cref="ApiDiffNormalization.NormalizeMemberProjection"/> treats them as the same
+/// member observed under two projections.
 /// </summary>
 public class ApiFindingClassifierTests
 {
@@ -37,11 +36,6 @@ public class ApiFindingClassifierTests
         var newSurface = Surface(Type("Added"));
         var options = new ApiDiffOptions(ApiDiffScope.All);
 
-        ApiDiff legacy =
-            ApiDiffAnalyzer.Compare(
-                oldSurface,
-                newSurface,
-                options);
         ApiDiff classified =
             ClassifyFor(
                 oldSurface,
@@ -49,19 +43,10 @@ public class ApiFindingClassifierTests
                 options);
 
         Assert.Contains(
-            legacy.TypeDiffs.SelectMany(
-                static type => type.Changes),
-            static change => change.Kind == ChangeKind.TypeAdded);
-        Assert.Contains(
             classified.TypeDiffs.SelectMany(
                 static type => type.Changes),
             static change => change.Kind == ChangeKind.TypeAdded);
-        Assert.Single(legacy.InspectionFailures);
         Assert.Single(classified.InspectionFailures);
-        Assert.Equal(
-            "/inputs/Old.dll",
-            Assert.Single(legacy.InspectionFailures)
-                .SourceAssemblyPath);
         Assert.Equal(
             "/inputs/Old.dll",
             Assert.Single(classified.InspectionFailures)
@@ -69,7 +54,7 @@ public class ApiFindingClassifierTests
     }
 
     [Fact]
-    public void TypeFacetChanges_MatchLegacyAnalyzerExactly()
+    public void TypeChanges_AreClassifiedFromTypeCorrespondence()
     {
         var oldSurface = Surface(
             Type("Widget", isByRefLike: false, members: [Method("Run", "void Run()")]),
@@ -79,31 +64,29 @@ public class ApiFindingClassifierTests
             Type("Added"));
 
         var options = new ApiDiffOptions(ApiDiffScope.All);
-        var legacy = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
         var classified = ClassifyFor(oldSurface, newSurface, options);
 
-        // Type-level changes must match exactly: same type names, same change kinds.
+        // Only the whole-type addition and removal are classified; byref-like is not a
+        // classified type facet, so the corresponding Widget has no row.
         Assert.Equal(
-            legacy.TypeDiffs.Select(t => t.TypeFullName).Order(StringComparer.Ordinal),
-            classified.TypeDiffs.Select(t => t.TypeFullName).Order(StringComparer.Ordinal));
-
-        foreach (var legacyTypeDiff in legacy.TypeDiffs)
-        {
-            var classifiedTypeDiff = classified.TypeDiffs.Single(t => t.TypeFullName == legacyTypeDiff.TypeFullName);
-            var legacyTypeKinds = legacyTypeDiff.Changes
-                .Where(c => c.Category == ApiChangeCategory.Signature && c.Subject?.Kind == ApiChangeSubjectKind.Type)
-                .Select(c => c.Kind)
-                .Order();
-            var classifiedTypeKinds = classifiedTypeDiff.Changes
-                .Where(c => c.Category == ApiChangeCategory.Signature && c.Subject?.Kind == ApiChangeSubjectKind.Type)
-                .Select(c => c.Kind)
-                .Order();
-            Assert.Equal(legacyTypeKinds, classifiedTypeKinds);
-        }
+            [
+                ("TestNamespace.Added", ChangeKind.TypeAdded, ChangeClassification.Additive),
+                ("TestNamespace.Removed", ChangeKind.TypeRemoved, ChangeClassification.Breaking),
+            ],
+            classified.TypeDiffs
+                .SelectMany(t => t.Changes.Select(c => (t.TypeFullName, c.Kind, c.Classification)))
+                .Order());
+        Assert.All(
+            classified.TypeDiffs.SelectMany(t => t.Changes),
+            c =>
+            {
+                Assert.Equal(ApiChangeCategory.Signature, c.Category);
+                Assert.Equal(ApiChangeSubjectKind.Type, c.Subject?.Kind);
+            });
     }
 
     [Fact]
-    public void HardMatchedMemberChanges_MatchLegacyAnalyzerExactly()
+    public void HardMatchedMemberChanges_AreClassifiedFromMemberCorrespondence()
     {
         var oldSurface = Surface(Type("Widget", members:
         [
@@ -119,22 +102,20 @@ public class ApiFindingClassifierTests
         ]));
 
         var options = new ApiDiffOptions(ApiDiffScope.All);
-        var legacy = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
         var classified = ClassifyFor(oldSurface, newSurface, options);
 
-        var legacyKinds = legacy.TypeDiffs.SelectMany(t => t.Changes)
-            .Where(c => c.Subject?.Kind == ApiChangeSubjectKind.Member)
-            .Select(c => c.Kind)
-            .Order();
-        var classifiedKinds = classified.TypeDiffs.SelectMany(t => t.Changes)
-            .Where(c => c.Subject?.Kind == ApiChangeSubjectKind.Member)
-            .Select(c => c.Kind)
-            .Order();
-
-        Assert.Equal(legacyKinds, classifiedKinds);
-        Assert.Contains(ChangeKind.MemberAdded, classifiedKinds);
-        Assert.Contains(ChangeKind.MemberRemoved, classifiedKinds);
-        Assert.Contains(ChangeKind.VirtualRemoved, classifiedKinds);
+        var widget = Assert.Single(classified.TypeDiffs);
+        Assert.Equal("TestNamespace.Widget", widget.TypeFullName);
+        Assert.Equal(
+            [
+                ("Added", ChangeKind.MemberAdded, ChangeClassification.Additive),
+                ("Removed", ChangeKind.MemberRemoved, ChangeClassification.Breaking),
+                ("WasVirtual", ChangeKind.VirtualRemoved, ChangeClassification.Breaking),
+            ],
+            widget.Changes
+                .Select(c => (c.Subject!.MemberName!, c.Kind, c.Classification))
+                .Order());
+        Assert.All(widget.Changes, c => Assert.Equal(ApiChangeSubjectKind.Member, c.Subject?.Kind));
     }
 
     [Fact]
@@ -143,29 +124,18 @@ public class ApiFindingClassifierTests
         var oldSurface = ExtractSurface(typeof(extensionold::ExtensionInstanceFixture.Widget).Assembly.Location);
         var newSurface = ExtractSurface(typeof(extensionnew::ExtensionInstanceFixture.Widget).Assembly.Location);
 
-        // Legacy analyzer's own per-type walk never recognizes the extension method's static
-        // -> instance projection as the same member either: WidgetExtensions disappears as a
-        // whole type (TypeRemoved), and Widget's new instance method is a plain MemberAdded.
-        var legacy = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
         var classified = ClassifyFor(oldSurface, newSurface, ApiDiffOptions.Default);
 
-        Assert.Contains(
-            legacy.TypeDiffs.SelectMany(t => t.Changes),
-            c => c.Kind == ChangeKind.TypeRemoved
-                && c.Subject!.TypeFullName == "ExtensionInstanceFixture.WidgetExtensions");
-        Assert.Contains(
-            legacy.TypeDiffs.SelectMany(t => t.Changes),
-            c => c.Kind == ChangeKind.MemberAdded && c.Subject!.NewIdentity is not null);
-
-        // Classifier: whole-type removal for WidgetExtensions (member-level suppressed
-        // because the type itself is gone), plus a plain MemberAdded for Widget.Measure --
-        // matching legacy's total shape for this scenario.
+        // Strict default: whole-type removal for WidgetExtensions (member-level suppressed
+        // because the type itself is gone), plus a plain MemberAdded for Widget.Measure.
         Assert.Contains(
             classified.TypeDiffs.SelectMany(t => t.Changes),
             c => c.Kind == ChangeKind.TypeRemoved
                 && c.Subject!.TypeFullName == "ExtensionInstanceFixture.WidgetExtensions");
         var widgetDiff = classified.TypeDiffs.Single(t => t.TypeFullName == "ExtensionInstanceFixture.Widget");
-        Assert.Single(widgetDiff.Changes, c => c.Kind == ChangeKind.MemberAdded);
+        var measure = Assert.Single(widgetDiff.Changes, c => c.Kind == ChangeKind.MemberAdded);
+        Assert.Equal(ChangeClassification.Additive, measure.Classification);
+        Assert.NotNull(measure.Subject?.NewIdentity);
         Assert.DoesNotContain(widgetDiff.Changes, c => c.Kind == ChangeKind.MemberRemoved);
 
         // No leftover member-level removal for the vanished extension method: it is fully
@@ -202,14 +172,10 @@ public class ApiFindingClassifierTests
         var newSurface = Surface(Type("IWidget", kind: "interface", members: [Method("Run", "void Run()")]));
 
         var options = new ApiDiffOptions(ApiDiffScope.All);
-        var legacy = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
         var classified = ClassifyFor(oldSurface, newSurface, options);
 
-        // Legacy: adding a member to an interface is PotentiallyBreaking (existing
-        // implementers must add it too), not Additive.
-        var legacyChange = Assert.Single(legacy.TypeDiffs.SelectMany(t => t.Changes), c => c.Kind == ChangeKind.MemberAdded);
-        Assert.Equal(ChangeClassification.PotentiallyBreaking, legacyChange.Classification);
-
+        // Adding a member to an interface is PotentiallyBreaking (existing implementers
+        // must add it too), not Additive.
         var classifiedChange = Assert.Single(classified.TypeDiffs.SelectMany(t => t.Changes), c => c.Kind == ChangeKind.MemberAdded);
         Assert.Equal(ChangeClassification.PotentiallyBreaking, classifiedChange.Classification);
     }
@@ -233,15 +199,13 @@ public class ApiFindingClassifierTests
         // "__BackingField" heuristic) that only exists on the new side. The Finding lane's
         // raw member census intentionally does not filter it (see
         // MetadataFindingsTests.ApiSurfaceMembersAreNotFilteredByNameHeuristics), so
-        // classification -- not the producer -- must apply the legacy analyzer's own
-        // FilterMembers policy.
+        // classification -- not the producer -- must apply MemberFilters.IsCompilerGenerated.
         var oldSurface = Surface(Type("Widget"));
         var newSurface = Surface(Type("Widget", members: [Method("<Name>k__BackingField", "string <Name>k__BackingField")]));
 
-        var legacy = ApiDiffAnalyzer.Compare(oldSurface, newSurface, new ApiDiffOptions(ApiDiffScope.All));
         var classified = ClassifyFor(oldSurface, newSurface, new ApiDiffOptions(ApiDiffScope.All));
 
-        Assert.DoesNotContain(legacy.TypeDiffs.SelectMany(t => t.Changes), c => c.Kind == ChangeKind.MemberAdded);
+        Assert.True(classified.IsEmpty);
         Assert.DoesNotContain(classified.TypeDiffs.SelectMany(t => t.Changes), c => c.Kind == ChangeKind.MemberAdded);
     }
 
