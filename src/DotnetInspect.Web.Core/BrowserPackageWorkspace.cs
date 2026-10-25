@@ -2961,44 +2961,41 @@ internal static class BrowserPackageWorkspace
                 package.Content,
                 targetFramework,
                 runtimeIdentifier);
-        string[] availableRuntimeIdentifiers =
-        [
-            .. runtimeSelection.AvailableRuntimePopulations
-                .Select(static population =>
-                    population.RuntimeIdentifier),
-        ];
-        bool requestedRuntimeIsMissing =
-            runtimeSelection.Selection is PackageAssetSelection.NoMatch
-            && availableRuntimeIdentifiers.Length > 0
-            && !availableRuntimeIdentifiers.Contains(
-                runtimeIdentifier,
-                StringComparer.Ordinal);
         IReadOnlyList<PackageCompileAsset> libraryAssets =
             librarySelector.Select(selection);
-        bool libraryHasImplementation =
-            libraryAssets.Count == 1
-            && selection.FindImplementationAsset(libraryAssets[0]) is not null;
-        if (requestedRuntimeIsMissing
-            && libraryAssets.Count == 1
-            && !libraryHasImplementation)
+        if (libraryAssets.Count == 1
+            && selection.FindImplementationAsset(libraryAssets[0]) is null)
         {
-            return new BrowserPackageImplementationComparisonScopeResult
-                .MissingRuntimePopulation(
-                    runtimeIdentifier,
-                    [
-                        .. availableRuntimeIdentifiers
-                            .OrderBy(
-                                candidate =>
-                                    candidate.Equals(
-                                        PackageRuntimePopulationChoice
-                                            .ProductDefaultRuntimeIdentifier,
-                                        StringComparison.Ordinal)
-                                            ? 0
-                                            : 1)
-                            .ThenBy(
-                                static candidate => candidate,
-                                StringComparer.Ordinal),
-                    ]);
+            string[] availableRuntimeIdentifiers =
+            [
+                .. runtimeSelection.AvailableRuntimePopulations
+                    .Where(population =>
+                        selection.FindImplementationAsset(
+                            libraryAssets[0],
+                            population) is not null)
+                    .Select(static population =>
+                        population.RuntimeIdentifier),
+            ];
+            if (availableRuntimeIdentifiers.Length > 0)
+            {
+                return new BrowserPackageImplementationComparisonScopeResult
+                    .MissingRuntimePopulation(
+                        runtimeIdentifier,
+                        [
+                            .. availableRuntimeIdentifiers
+                                .OrderBy(
+                                    candidate =>
+                                        candidate.Equals(
+                                            PackageRuntimePopulationChoice
+                                                .ProductDefaultRuntimeIdentifier,
+                                            StringComparison.Ordinal)
+                                                ? 0
+                                                : 1)
+                                .ThenBy(
+                                    static candidate => candidate,
+                                    StringComparer.Ordinal),
+                        ]);
+            }
         }
 
         return new BrowserPackageImplementationComparisonScopeResult.Opened(

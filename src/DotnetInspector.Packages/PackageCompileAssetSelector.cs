@@ -168,12 +168,7 @@ public sealed record PackageCompileAssetSelection(
     public PackageCompileAsset? FindImplementationAsset(PackageCompileAsset compileAsset)
     {
         ArgumentNullException.ThrowIfNull(compileAsset);
-        if (!Assets.Any(asset => asset.Id.Equals(compileAsset.Id, StringComparison.Ordinal)))
-        {
-            throw new ArgumentException(
-                "The compile asset is not part of this selected set.",
-                nameof(compileAsset));
-        }
+        RequireSelectedCompileAsset(compileAsset);
 
         PackageCompileAsset? exact =
             ImplementationAssets.FirstOrDefault(asset =>
@@ -189,6 +184,39 @@ public sealed record PackageCompileAssetSelection(
                     relativePath,
                     StringComparison.OrdinalIgnoreCase)
                 is true);
+    }
+
+    /// <summary>
+    /// Finds the runtime-population counterpart of one selected compile asset.
+    /// </summary>
+    public PackageAssetEntry? FindImplementationAsset(
+        PackageCompileAsset compileAsset,
+        PackageRuntimeAssetPopulation population)
+    {
+        ArgumentNullException.ThrowIfNull(compileAsset);
+        ArgumentNullException.ThrowIfNull(population);
+        RequireSelectedCompileAsset(compileAsset);
+
+        string? relativePath = TryGetRelativePath(compileAsset);
+        return relativePath is null
+            ? null
+            : population.Assets.FirstOrDefault(asset =>
+                TryGetRelativePath(asset, population)?.Equals(
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase)
+                is true);
+    }
+
+    void RequireSelectedCompileAsset(PackageCompileAsset compileAsset)
+    {
+        if (!Assets.Any(asset => asset.Id.Equals(
+                compileAsset.Id,
+                StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "The compile asset is not part of this selected set.",
+                nameof(compileAsset));
+        }
     }
 
     static string? TryGetRelativePath(PackageCompileAsset asset)
@@ -219,6 +247,19 @@ public sealed record PackageCompileAssetSelection(
                 asset.TargetFramework,
                 StringComparison.OrdinalIgnoreCase)
                 ? string.Join('/', segments[4..])
+                : null;
+    }
+
+    static string? TryGetRelativePath(
+        PackageAssetEntry asset,
+        PackageRuntimeAssetPopulation population)
+    {
+        string prefix = population.PopulationPath;
+        return asset.EntryPath.Length > prefix.Length
+            && asset.EntryPath.AsSpan(0, prefix.Length).Equals(
+                prefix,
+                StringComparison.OrdinalIgnoreCase)
+                ? asset.EntryPath[prefix.Length..]
                 : null;
     }
 }
