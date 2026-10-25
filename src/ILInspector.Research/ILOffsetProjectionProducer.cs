@@ -16,7 +16,9 @@ public static class ILOffsetProjectionProducer
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Source);
         if ((request.Analysis is not null
-                || request.SafetyAnalysis is not null)
+                || request.SafetyAnalysis is not null
+                || request.AllocationAnalysis is not null
+                || request.CostAnalysis is not null)
             && request.AnalysisFailure is not null)
         {
             throw new ArgumentException(
@@ -225,22 +227,35 @@ public static class ILOffsetProjectionProducer
             }
             if (wantsCost)
             {
-                if (RequireLegacyAnalysis(
-                        request,
-                        sourceModuleVersionId,
-                        ILOffsetProjectionFailureKind
-                            .CostAnalysisUnavailable)
-                    is { } failure)
+                if (request.CostAnalysis is { } focusedCost)
                 {
-                    return failure;
+                    if (sourceModuleVersionId
+                        != focusedCost.ModuleVersionId)
+                    {
+                        return GenerationMismatch(
+                            ILOffsetProjectionFailureKind
+                                .CostAnalysisUnavailable);
+                    }
                 }
-                if (!request.Analysis!.CallGraph.WasRequested)
+                else
                 {
-                    return ILOffsetProjectionOutcome.Failed(
-                        ILOffsetProjectionFailureKind
-                            .CostAnalysisUnavailable,
-                        "IL-offset cost analysis was not requested "
-                            + "by the supplied execution.");
+                    if (RequireLegacyAnalysis(
+                            request,
+                            sourceModuleVersionId,
+                            ILOffsetProjectionFailureKind
+                                .CostAnalysisUnavailable)
+                        is { } failure)
+                    {
+                        return failure;
+                    }
+                    if (!request.Analysis!.CallGraph.WasRequested)
+                    {
+                        return ILOffsetProjectionOutcome.Failed(
+                            ILOffsetProjectionFailureKind
+                                .CostAnalysisUnavailable,
+                            "IL-offset cost analysis was not requested "
+                                + "by the supplied execution.");
+                    }
                 }
             }
             if (wantsAllocation)
@@ -271,10 +286,15 @@ public static class ILOffsetProjectionProducer
             }
             if (wantsCost)
             {
-                costContext = BuildCostContext(
-                    request.Analysis!,
-                    request.MethodToken,
-                    request.ILOffset);
+                costContext = request.CostAnalysis is { } focusedCost
+                    ? BuildCostContext(
+                        focusedCost,
+                        request.MethodToken,
+                        request.ILOffset)
+                    : BuildCostContext(
+                        request.Analysis!,
+                        request.MethodToken,
+                        request.ILOffset);
             }
         }
 
@@ -497,6 +517,19 @@ public static class ILOffsetProjectionProducer
     {
         analysis.CallsByEvidenceMethod
             .TryGetValue(methodToken, out var calls);
+        return Analysis.SemanticFactProjection.CostFacts(
+                calls.IsDefault ? [] : calls,
+                ilOffset: ilOffset)
+            .Select(ToILOffsetCostContext)
+            .ToList();
+    }
+
+    static List<ILOffsetCostContext> BuildCostContext(
+        ILOffsetCostAnalysisInput analysis,
+        int methodToken,
+        int ilOffset)
+    {
+        analysis.Calls.TryGetValue(methodToken, out var calls);
         return Analysis.SemanticFactProjection.CostFacts(
                 calls.IsDefault ? [] : calls,
                 ilOffset: ilOffset)

@@ -796,13 +796,14 @@ public static class LibraryAddressInspectionOperation
                     AssemblyInspectionSession.Borrow(context);
                 return new(
                     Input: null,
-                    ILOffsetAllocationAnalysis.Execute(
+                    AllocationInput: ILOffsetAllocationAnalysis.Execute(
                         session,
                         "Library Address implementation",
                         context.ModuleVersionId(),
                         bodyScope,
                         cancellationToken),
                     SafetyInput: null,
+                    CostInput: null,
                     Failure: null);
             }
 
@@ -813,7 +814,25 @@ public static class LibraryAddressInspectionOperation
                 return new(
                     Input: null,
                     AllocationInput: null,
-                    ILOffsetSafetyAnalysis.Execute(
+                    SafetyInput: ILOffsetSafetyAnalysis.Execute(
+                        session,
+                        "Library Address implementation",
+                        context.ModuleVersionId(),
+                        bodyScope,
+                        cancellationToken),
+                    CostInput: null,
+                    Failure: null);
+            }
+
+            if (RequiresOnlyCost(capabilities))
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Borrow(context);
+                return new(
+                    Input: null,
+                    AllocationInput: null,
+                    SafetyInput: null,
+                    CostInput: ILOffsetCostAnalysis.Execute(
                         session,
                         "Library Address implementation",
                         context.ModuleVersionId(),
@@ -839,6 +858,7 @@ public static class LibraryAddressInspectionOperation
                     execution.CallGraph),
                 AllocationInput: null,
                 SafetyInput: null,
+                CostInput: null,
                 Failure: null);
         }
         catch (Exception exception) when (
@@ -852,7 +872,8 @@ public static class LibraryAddressInspectionOperation
                 Input: null,
                 AllocationInput: null,
                 SafetyInput: null,
-                $"IL-offset semantic analysis unavailable: "
+                CostInput: null,
+                Failure: $"IL-offset semantic analysis unavailable: "
                     + $"{exception.GetType().Name}: {exception.Message}");
         }
     }
@@ -881,7 +902,8 @@ public static class LibraryAddressInspectionOperation
                     AllowNonBoundaryContextAbsence:
                         allowNonBoundaryContextAbsence,
                     SafetyAnalysis: analysis.SafetyInput,
-                    AllocationAnalysis: analysis.AllocationInput));
+                    AllocationAnalysis: analysis.AllocationInput,
+                    CostAnalysis: analysis.CostInput));
         cancellationToken.ThrowIfCancellationRequested();
         return outcome;
     }
@@ -922,6 +944,14 @@ public static class LibraryAddressInspectionOperation
         && (capabilities
             & (ILOffsetProjectionCapabilities.SafetyContext
                 | ILOffsetProjectionCapabilities.CostContext)) == 0;
+
+    private static bool RequiresOnlyCost(
+        ILOffsetProjectionCapabilities capabilities) =>
+        (capabilities
+            & ILOffsetProjectionCapabilities.CostContext) != 0
+        && (capabilities
+            & (ILOffsetProjectionCapabilities.AllocationContext
+                | ILOffsetProjectionCapabilities.SafetyContext)) == 0;
 
     internal static bool RequiresSource(
         LibraryAddressIntent intent) =>
@@ -1262,10 +1292,11 @@ public static class LibraryAddressInspectionOperation
         ILOffsetAnalysisInput? Input,
         ILOffsetAllocationAnalysisInput? AllocationInput,
         ILOffsetSafetyAnalysisInput? SafetyInput,
+        ILOffsetCostAnalysisInput? CostInput,
         string? Failure)
     {
         internal static AnalysisPreparation None { get; } =
-            new(null, null, null, null);
+            new(null, null, null, null, null);
     }
 
     private abstract record SnapshotOutcome
