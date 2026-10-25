@@ -1,3 +1,6 @@
+using System.IO.Compression;
+using System.Text;
+
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Presentation;
@@ -288,6 +291,82 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Library_LocalToolShell_WarningNamesSiblingPayload()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string shell = Path.Combine(tempDir, "Test.Shell.1.0.0.nupkg");
+            string payload = Path.Combine(tempDir, "Test.Shell.any.1.0.0.nupkg");
+            WriteToolFixturePackage(
+                shell,
+                "Test.Shell",
+                ("tools/any/any/DotnetToolSettings.xml", Encoding.UTF8.GetBytes("""
+                    <DotNetCliTool Version="2">
+                      <Commands><Command Name="test-shell" /></Commands>
+                      <RuntimeIdentifierPackages>
+                        <RuntimeIdentifierPackage RuntimeIdentifier="any" Id="Test.Shell.any" />
+                      </RuntimeIdentifierPackages>
+                    </DotNetCliTool>
+                    """)));
+            byte[] assembly = File.ReadAllBytes(TestAssemblyPath);
+            WriteToolFixturePackage(
+                payload,
+                "Test.Shell.any",
+                ("tools/net10.0/any/DotnetToolSettings.xml", Encoding.UTF8.GetBytes("""
+                    <DotNetCliTool Version="1">
+                      <Commands><Command Name="test-shell" EntryPoint="One.dll" Runner="dotnet" /></Commands>
+                    </DotNetCliTool>
+                    """)),
+                ("tools/net10.0/any/One.dll", assembly),
+                ("tools/net10.0/any/Two.dll", assembly));
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--package",
+                shell);
+
+            Assert.True(exit == 0, error);
+            Assert.NotEmpty(output);
+            Assert.Equal(
+                $"Warning: {payload} has 2 libraries; one is shown. "
+                    + $"Use `dotnet-inspect package {payload}` to list them.",
+                error.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private static void WriteToolFixturePackage(
+        string path,
+        string id,
+        params (string Path, byte[] Content)[] entries)
+    {
+        using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        using (var writer = new StreamWriter(
+            archive.CreateEntry($"{id}.nuspec").Open()))
+        {
+            writer.Write($"""
+                <package><metadata>
+                  <id>{id}</id><version>1.0.0</version>
+                  <authors>Fixture</authors><description>Tool shell fixture</description>
+                  <packageTypes><packageType name="DotnetTool" /></packageTypes>
+                </metadata></package>
+                """);
+        }
+        foreach ((string entryPath, byte[] content) in entries)
+        {
+            using Stream stream = archive.CreateEntry(entryPath).Open();
+            stream.Write(content);
         }
     }
 

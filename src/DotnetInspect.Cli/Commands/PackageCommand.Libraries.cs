@@ -237,7 +237,19 @@ public partial class PackageCommand
             version,
             extraction,
             options,
-            retainedToolSelection);
+            retainedToolSelection,
+            localPackageFile:
+                !isLocalFile
+                    ? null
+                    : !resolvedPayload
+                        ? packageArg
+                        // A local shell's payload is a sibling file when one
+                        // was found; otherwise it was acquired by coordinate.
+                        : LibraryCommand.TryFindLocalSiblingPackage(
+                            packageArg,
+                            PackageExtractor.ParsePackageReference(
+                                packageName).name,
+                            version));
         if (selected == null)
         {
             if (resolvedPayload)
@@ -1113,7 +1125,8 @@ public partial class PackageCommand
         string version,
         PackageExtractionResult extraction,
         InspectionOptions options,
-        PackageToolSliceSelection? retainedToolSelection)
+        PackageToolSliceSelection? retainedToolSelection,
+        string? localPackageFile = null)
     {
         var requestedLibrary = options.PackageLibrary;
         if (requestedLibrary == null)
@@ -1177,6 +1190,7 @@ public partial class PackageCommand
             {
                 WriteUnnamedLibrarySelection(
                     options,
+                    localPackageFile,
                     packageId,
                     version,
                     candidates.Paths.Count,
@@ -2614,18 +2628,19 @@ public partial class PackageCommand
     /// </param>
     static void WriteUnnamedLibrarySelection(
         InspectionOptions options,
+        string? localPackageFile,
         string packageId,
         string version,
         int libraryCount,
         bool listable)
     {
-        string? packageArgument = options.PackageArgs.FirstOrDefault();
+        // A local file names the population only when its Libraries were
+        // counted; a tool shell's payload is named by its own coordinate.
         string package =
-            packageArgument is not null && File.Exists(packageArgument)
-                ? packageArgument
-                : string.IsNullOrWhiteSpace(version)
+            localPackageFile
+                ?? (string.IsNullOrWhiteSpace(version)
                     ? packageId
-                    : $"{packageId}@{version}";
+                    : $"{packageId}@{version}");
         string summary =
             $"{package} has {libraryCount} libraries; one is shown.";
         if (!listable)
