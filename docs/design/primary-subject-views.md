@@ -8,6 +8,9 @@ only that pattern. Each command's owner adopts it in its own slice and owns the
 command-specific choices; [Adopter proposals](#adopter-proposals) records
 proposed choices for those owners without deciding them. Until a slice lands,
 current product behavior remains governed by its existing owner.
+The Name-versus-Signature demand boundary tracked by
+[#10579](https://github.com/richlander/dotnet-inspect/issues/10579) is part of
+this pattern.
 
 ## Authority and exact claim
 
@@ -22,6 +25,47 @@ This document owns one claim:
 An exact Member selected by ordinal or digest is the leaf case. It owns no
 child population, so its default remains the singular Signature view rather
 than an empty Tree or its MemberGroup's sibling population.
+
+### Demand selected by the command
+
+Subject cardinality and child detail are independent. The command selects its
+scalar subject, child population, and required detail from the normalized
+gesture before acquiring or inspecting that subject. A renderer may shape the
+completed content, but it does not discover that a child needs richer content
+and restart inspection.
+
+| Command subject | Default child demand | Explicit subject facts |
+| --- | --- | --- |
+| one Package at one selected target | Library Name rows | `Package Info` |
+| one exact Library | Type Name rows | `Library Info` |
+| one exact Type | MemberGroup Name rows | `Type Info`, requiring complete Type Signature |
+| one MemberGroup | exact Member Signature rows | future `Member Info` |
+| one exact Member | no child population; default to Signature | Signature |
+
+`Name` is the child population owner's name-level row contract. It includes
+the owner-issued identity, structured display name, and any row role or
+classification that contract requires. It is not merely display text, but it
+does not include the child's declaration Signature or facts computed from the
+child's own population. Package, Library, and Type defaults therefore do not
+open or decode each child solely to obtain its Signature.
+
+The MemberGroup default is deliberately different. Every exact Member child
+has the same MemberGroup name, so its owner-issued Signature distinguishes the
+overloads and is the row content the Member Tree presents. An exact Member is
+the leaf case and likewise requires its own Signature.
+
+`Info` requests facts about the selected scalar subject, not richer rows for
+its children. For declaration subjects, `Signature` is the declaration
+owner's complete subject contract rather than a universal cross-domain schema.
+In particular, `Type Info` always requests complete Type Signature. A Type
+with no generic constraint Types or with a trivial base does not downgrade
+that request, and a host does not inspect a narrower result before deciding
+whether to discard it and rerun a richer path.
+
+Output format, Tree lowering, and verbosity do not by themselves convert every
+child Name row into Signature. When Progressive disclosure composes a
+subject-facts section with the default Tree, the plan contains the selected
+subject facts and the same child demand as separate requirements.
 
 The pattern has five obligations. An adopting command meets all of them:
 
@@ -157,6 +201,12 @@ edge, that adoption must not present its rows as copyable arguments.
   one selected overload. This pattern consumes them unchanged by name. No
   facts section exists yet for an exact member name, so `member` adoption
   requests one.
+- **Demand planning:**
+  [Query Space producer capabilities](query-space-producer-capabilities.md)
+  owns complete requirement sets, resource-free provision planning, and
+  owner-certified coverage. This pattern fixes which Name or Signature
+  requirement each command gesture contributes; it does not define the
+  producer's strategy or capability representation.
 - **Native Tree renderer:**
   [Rendering model](rendering-model.md#native-type-and-source-defaults) owns
   native default presentation, and [Output shapes](output-shapes.md) owns
@@ -208,7 +258,9 @@ This document does not own and does not decide:
 - collapse thresholds;
 - type or member name resolution rules or overload addressing; or
 - Info content or section names, including the proposed exact-member-name
-  facts section.
+  facts section; or
+- the domain-specific fields in a Name row, Info view, or Signature beyond the
+  demand boundary above.
 
 Those remain with the owners named in the basis. The next section records
 proposals for them.
@@ -504,6 +556,11 @@ against that adoption's motivating assets:
   binary opened by `package`, no Member Count on `library` rows, and no
   exact-Member Count on `type` MemberGroup rows; NativeAOT timing at the
   command adoption measures the end-to-end effect;
+- command demand: Package, Library, and Type defaults request child Name rows
+  without child Signatures; a MemberGroup default requests exact Member
+  Signatures; and `Type Info` requests complete Type Signature before
+  inspection for Types with and without generic constraint Types, without a
+  post-inspection discard-and-rerun decision;
 - obligation 4: at `-v:m`, a tree's grouped or collapsed counts sum to the
   population Count, forwarders included; at `-v:n` and `-v:d`, every format
   lists every child, for System.Text.Json and System.Private.CoreLib;
