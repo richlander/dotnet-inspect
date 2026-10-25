@@ -407,31 +407,34 @@ identical between the readers. Raw outputs in the
 | System.Private.CoreLib 10 to 11 | 2442 | 19 → 42 / 19 → 42 | 296 → 1190 | 12 → 93 | 18 → 39 / 18 → 40 | 6.1 → 9.8 (1772) | 5.7 / 4.1 |
 
 The walk is the faster reader at Type scope too, by about its assembly-scope
-margin: 1.9× to 3.8× on the median Type's first request, 2.3× to 6.8× at the
+margin: 1.9× to 3.9× on the median Type's first request, 2.3× to 6.8× at the
 95th percentile, and 3.7× to 20× in allocation, with the cost where the bodies
-are. A Type of two to four hundred paired methods costs the walk 1 to 6 ms and
-lockstep 4 to 22 ms on first request, and lockstep allocates tens of megabytes
-for one such Type (`Newtonsoft.Json.JsonTextReader`, 210 paired bodies: 7 µs
-and 0.8 MB per Type through the walk against 92 µs and 70 MB through lockstep,
-per body 7 µs against 92 µs). Warm caches change little: a repeat request is 6%
-to 19% cheaper than the first for either reader, so the first-request cost is
-the work, not the caches. The pairing itself, both unit tables read once, costs
-0.4 to 5.7 ms per image pair. The sum of every Type's first request through the
-walk is 1.02× (Aspire, two changed Types) to 2.6× (Newtonsoft 11.0.2 to 13.0.4,
-255 changed Types) the Library comparison's median, because the inventory reads
-every paired body where the Library level stops at a Type's first difference,
-and spells every one-sided fact.
+are. The Type with the most paired bodies costs the walk 0.9 to 6.1 ms and
+lockstep 4.1 to 13.5 ms on first request, and the slowest Type of a pair costs
+lockstep 9 to 22 ms where the walk is at most 7;
+`Newtonsoft.Json.JsonTextReader`, 210 paired bodies, costs 1.5 ms and 0.8 MB
+through the walk against 19.4 ms and 69 MB through lockstep, per body 7 µs
+against 92 µs. Warm caches change little: a repeat request is 5% to 19% cheaper
+than the first for either reader, so the first-request cost is the work, not
+the caches. The pairing itself, both unit tables read once, costs 0.4 to 5.7 ms
+per image pair, one timed construction per process rather than a median. The
+sum of every Type's first request through the walk is 1.02× (Aspire, two
+changed Types) to 2.6× (Newtonsoft 11.0.2 to 13.0.4, 255 changed Types) the
+Library comparison's median, because the inventory reads every paired body
+where the Library level stops at a Type's first difference, and spells every
+one-sided fact.
 
 Two readings. Both readers answer a typical Type in under 0.1 ms, so the
 cursors can serve a Type-scoped request today, at the Type scenario's scale as
-at the assembly's; the largest Types cost lockstep 10 to 22 ms where the walk
-stays under 7. What the cursors cannot yet do is serve it as cheaply: the
-per-advance allocation the assembly record names is the whole gap here too, so
-the allocation-free atoms step 2b names remain the condition for lockstep
-inside Finding Diff Any at any scope, and the walk stays as the provision. For
-the per-member scenarios the per-body figure is the one that carries: a few
-microseconds through the walk and tens through lockstep, both far below the
-cost of locating the member.
+at the assembly's; the slowest Types cost lockstep 9 to 22 ms where the walk is
+at most 7. What the cursors cannot yet do is serve it as cheaply: the gap is
+the one the assembly record's hypothesis, still not isolated by an ablation,
+puts on per-advance materialization and on the work lockstep does that the walk
+skips, so the allocation-free atoms step 2b names remain the condition for
+lockstep inside Finding Diff Any at any scope, and the walk stays as the
+provision. For the per-member scenarios the per-body figure is the one that
+carries: a few microseconds through the walk and tens through lockstep, both
+below the pairing's own 0.4 to 5.7 ms.
 
 ## Exhaustive
 

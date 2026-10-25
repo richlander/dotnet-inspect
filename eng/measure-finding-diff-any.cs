@@ -166,8 +166,9 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
 }
 
 // Type scope: every paired Type's inventory, through the walk and through
-// lockstep over two IL cursors, timed per Type with each pairing built once,
-// as a host that opened the pair and asks Type by Type pays it
+// lockstep over two IL cursors, timed per Type in two phases: each Type's
+// first request on fresh pairings, as a host that opened the pair and asks
+// Type by Type pays it, and the repeat on warmed pairings
 // (docs/design/finding-census.md, Exists, cost at Type scope).
 using (var before = new PEReader(new MemoryStream(beforeBytes, writable: false)))
 using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
