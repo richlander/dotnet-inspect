@@ -361,9 +361,9 @@ atom before comparing and validates clause tables. That gap the
 clause stage, now repaired; [what remains](#what-remains-of-the-gap) is mostly
 token resolution and the atom records, and the walk stays as the provision, and
 lockstep over the cursors serves the scenarios the walk does not reach (member,
-bisect, batch), where the cost is per member rather than per assembly. The seam
-reaches the comparison's Body decisions; `Explain` and the per-method gate
-hooks still read through the walk.
+bisect, batch), member and bisect at a cost per member rather than per
+assembly. The seam reaches the comparison's Body decisions; `Explain` and the
+per-method gate hooks still read through the walk.
 
 Two readings follow that reach past this pair of readers. An Exists terminal
 at the source can deliver outsize wins: the walk is one, a reader that
@@ -549,13 +549,14 @@ something only relative to its table, so every side that may be compared must
 share one. Finding Diff Any's table serves one comparison, which owns both of
 its sides. A census side has no table: a host holds one per image and pairs it
 freely (the member endpoint diff, the Research session), and the scenarios
-lockstep serves, member, bisect, and batch, compare each version with several
-others. Ref parts could reach them only through a table scoped to the batch,
-which #10533 and [Diff system](diff-system.md#scenarios) plan for Finding Diff
-Any's batch scenario and which a persisted key cannot use, since it never
-contains a Ref part. Adopting one would make every host that holds sides scope
-a table for the saving, and the saving is not needed: the decision rests on
-cost, below, not on the encoding.
+lockstep serves are member, bisect, and batch, and bisect and batch compare
+each version with several others. Ref parts could reach them only through a
+table scoped to the batch, which #10533 and [Diff
+system](diff-system.md#scenarios) plan for the batch scenario's census sides
+and which a persisted key cannot use, since it never contains a Ref part.
+Adopting one would make every host that holds sides scope a table for the
+saving, and the saving is not needed: the decision rests on cost, below, not on
+the encoding.
 
 The pursuit of parity stops at this record. Lockstep matches the walk on no
 reported number, so the walk stays as the provision, and what lockstep is for
