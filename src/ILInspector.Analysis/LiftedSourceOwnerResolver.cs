@@ -516,11 +516,12 @@ internal sealed class LiftedSourceOwnerResolver
         {
             return evidence;
         }
-        if (liftedMethods.Length
-            > MetadataSafetyPolicy.MaxRelationshipNodes)
+        if (_generatedExpansionWork is null
+            && liftedMethods.Length
+                > MetadataSafetyPolicy.MaxRelationshipNodes)
         {
             throw new BadImageFormatException(
-                "Lifted-method ownership exceeds the metadata "
+                "Lifted-method ownership group exceeds the metadata "
                 + "relationship node budget.");
         }
 
@@ -609,11 +610,12 @@ internal sealed class LiftedSourceOwnerResolver
                     MethodDefinitionHandle Body,
                     MethodDefinitionHandle Owner) current))
             {
-                if (++visited > MetadataSafetyPolicy.MaxRelationshipNodes)
+                if (++visited > MetadataSafetyPolicy.MaxRelationshipNodes
+                    && _generatedExpansionWork is null)
                 {
                     throw new BadImageFormatException(
-                        "Lifted-method ownership exceeds the metadata "
-                        + "relationship node budget.");
+                        "Lifted-method ownership traversal exceeds the "
+                        + "metadata relationship node budget.");
                 }
 
                 AddReachableLiftedMethods(
@@ -835,11 +837,12 @@ internal sealed class LiftedSourceOwnerResolver
             }
             if (bodyOwners.Contains(owner))
                 continue;
-            if (relationshipCount >= MaxLiftedOwnerRelationships)
+            if (_generatedExpansionWork is null
+                && relationshipCount >= MaxLiftedOwnerRelationships)
             {
                 throw new BadImageFormatException(
-                    "Lifted-method ownership exceeds the metadata "
-                    + "relationship node budget.");
+                    "Lifted-method ownership relationships exceed the "
+                    + "metadata relationship node budget.");
             }
             bodyOwners.Add(owner);
             relationshipCount++;

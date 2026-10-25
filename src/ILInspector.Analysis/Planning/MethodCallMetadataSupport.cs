@@ -160,6 +160,13 @@ internal readonly record struct MethodCallOperandSites(
 /// </summary>
 internal sealed class MethodCallMetadataLookup(MetadataReader reader)
 {
+    readonly Dictionary<MethodDefinitionHandle, MemberRef>
+        _methodDefinitions = [];
+    readonly Dictionary<MemberReferenceHandle, MemberRef>
+        _scopeIndependentMemberReferences = [];
+    readonly Dictionary<
+        (EntityHandle Handle, GenericScopeIdentity Scope),
+        MemberRef> _scopeDependentMethods = [];
     int _callSites;
     int _methodOperands;
     int _fieldOperands;
@@ -228,10 +235,7 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
                     }
                     RecordMethodOperand(handle);
                     ValidateMethodOperand(handle);
-                    callee = MemberResolver.ResolveMethod(
-                        reader,
-                        handle,
-                        scope);
+                    callee = ResolveMethod(handle, scope);
                 }
 
                 _callSites = checked(_callSites + 1);
@@ -305,10 +309,74 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
         }
         RecordMethodOperand(handle);
         ValidateMethodOperand(handle);
-        return MemberResolver.ResolveMethod(
+        return ResolveMethod(handle, scope);
+    }
+
+    MemberRef ResolveMethod(
+        EntityHandle handle,
+        GenericScope scope)
+    {
+        if (handle.Kind == HandleKind.MethodDefinition)
+        {
+            MethodDefinitionHandle method =
+                (MethodDefinitionHandle)handle;
+            if (_methodDefinitions.TryGetValue(
+                    method,
+                    out MemberRef? resolved))
+            {
+                return resolved;
+            }
+
+            resolved = MemberResolver.ResolveMethod(
+                reader,
+                method,
+                scope);
+            _methodDefinitions.Add(method, resolved);
+            return resolved;
+        }
+
+        if (handle.Kind == HandleKind.MemberReference)
+        {
+            MemberReferenceHandle member =
+                (MemberReferenceHandle)handle;
+            EntityHandle parent =
+                reader.GetMemberReference(member).Parent;
+            if (parent.Kind != HandleKind.TypeSpecification)
+            {
+                if (_scopeIndependentMemberReferences.TryGetValue(
+                        member,
+                        out MemberRef? resolved))
+                {
+                    return resolved;
+                }
+
+                resolved = MemberResolver.ResolveMethod(
+                    reader,
+                    member,
+                    scope);
+                _scopeIndependentMemberReferences.Add(
+                    member,
+                    resolved);
+                return resolved;
+            }
+        }
+
+        var key = (
+            Handle: handle,
+            Scope: new GenericScopeIdentity(scope));
+        if (_scopeDependentMethods.TryGetValue(
+                key,
+                out MemberRef? scopeDependent))
+        {
+            return scopeDependent;
+        }
+
+        scopeDependent = MemberResolver.ResolveMethod(
             reader,
             handle,
             scope);
+        _scopeDependentMethods.Add(key, scopeDependent);
+        return scopeDependent;
     }
 
     public MethodFieldOperand ResolveField(
