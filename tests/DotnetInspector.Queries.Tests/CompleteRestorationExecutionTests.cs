@@ -241,6 +241,16 @@ public sealed partial class CompleteRestorationExecutionTests
         Assert.Equal(
             StructuralSubjectKind.Type,
             snapshot.LensOutcome.EffectiveLens!.Subject.Kind);
+        Assert.True(
+            activated.Workspace.HasPreparedPackageType(library, type));
+        Assert.False(
+            activated.Workspace.HasPreparedPackageType(
+                library,
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Microsoft.Extensions.Hosting",
+                        ["OtherAspireRedisExtensions"]))
+                    .Name));
         var selected = Assert.IsType<
             CompleteRestorationSubjectResult<MetadataTypeDefinitionName>
                 .Completed>(

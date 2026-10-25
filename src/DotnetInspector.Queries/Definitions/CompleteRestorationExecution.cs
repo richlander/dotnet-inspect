@@ -497,6 +497,33 @@ public sealed record CompleteWorkspaceActivation
 
     public CompleteRestorationProjection Projection { get; }
 
+    /// <summary>
+    /// Reports whether private construction prepared the exact requested
+    /// package-backed Type.
+    /// </summary>
+    public bool HasPreparedPackageType(
+        ExactLibrarySourceCoordinate.Package library,
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentNullException.ThrowIfNull(type);
+        return SelectedSubject
+                is CompleteRestorationSubjectPreparation.Ready
+        {
+            Target: CompleteRestorationSelectedSubject.Type prepared,
+        }
+            && prepared.Root.Coordinate.PackageId.Equals(
+                library.PackageCoordinate.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            && prepared.Root.Coordinate.Version.Equals(
+                library.PackageCoordinate.Version,
+                StringComparison.OrdinalIgnoreCase)
+            && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                prepared.Subject.Library.Identity.Assembly,
+                library.LibraryIdentity.Identity)
+            && prepared.Subject.Identity.Type == type;
+    }
+
     internal CompleteRestorationSubjectPreparation? SelectedSubject { get; }
 }
 
