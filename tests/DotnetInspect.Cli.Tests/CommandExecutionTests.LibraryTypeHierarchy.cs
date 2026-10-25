@@ -265,6 +265,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Library_MultiLibraryPackage_WarningGestureCarriesTfm()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0");
+
+            Assert.Equal(0, exit);
+            Assert.NotEmpty(output);
+            Assert.Equal(
+                $"Warning: {packagePath} has 2 libraries; one is shown. "
+                    + $"Use `dotnet-inspect package {packagePath} --tfm net10.0` "
+                    + "to list them.",
+                error.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Library_MultiLibraryPackage_ExplicitSectionsKeepAggregate()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();

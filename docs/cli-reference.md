@@ -242,6 +242,11 @@ them:
 Warning: Microsoft.Azure.SignalR@1.33.1 has 2 libraries; one is shown. Use `dotnet-inspect package Microsoft.Azure.SignalR@1.33.1` to list them.
 ```
 
+The suggested `package` command repeats `--tfm` and the NuGet source options
+that selected the Libraries. A package whose Libraries come only from a
+runtime-specific folder, which `package` does not list, gets the count
+without a suggestion.
+
 Sectioned views such as `-S "Library Info"` keep the multi-Library aggregate.
 Package-scoped Type lookup is also aggregate by default: it searches every
 Library in the selected Package population. Its supported exact `--library`

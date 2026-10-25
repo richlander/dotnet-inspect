@@ -1176,10 +1176,11 @@ public partial class PackageCommand
                 && candidates.Paths.Count > 1)
             {
                 WriteUnnamedLibrarySelection(
-                    options.PackageArgs.FirstOrDefault(),
+                    options,
                     packageId,
                     version,
-                    candidates.Paths.Count);
+                    candidates.Paths.Count,
+                    listable: population.RuntimeIdentifier is null);
             }
             return new PackageLibrarySelection(
                 resolution.Paths[0],
@@ -2602,22 +2603,61 @@ public partial class PackageCommand
     /// </remarks>
     private static string CodeCell(string value) => MarkoutInline.Code(value);
 
+    /// <summary>
+    /// Reports that an unnamed Library selection shows one of several
+    /// Libraries, naming the <c>package</c> gesture that lists the same
+    /// population: the selected coordinate plus every option that chose it.
+    /// </summary>
+    /// <param name="listable">
+    /// <c>false</c> for a RID-specific population, which no <c>package</c>
+    /// gesture lists, so the warning names no gesture.
+    /// </param>
     static void WriteUnnamedLibrarySelection(
-        string? packageArgument,
+        InspectionOptions options,
         string packageId,
         string version,
-        int libraryCount)
+        int libraryCount,
+        bool listable)
     {
+        string? packageArgument = options.PackageArgs.FirstOrDefault();
         string package =
             packageArgument is not null && File.Exists(packageArgument)
                 ? packageArgument
                 : string.IsNullOrWhiteSpace(version)
                     ? packageId
                     : $"{packageId}@{version}";
+        string summary =
+            $"{package} has {libraryCount} libraries; one is shown.";
+        if (!listable)
+        {
+            CommandError.WriteWarning(summary);
+            return;
+        }
+
+        var gesture = new List<string> { "dotnet-inspect", "package", package };
+        if (!string.IsNullOrWhiteSpace(options.Tfm))
+            gesture.AddRange(["--tfm", options.Tfm]);
+        if (options.SourceOptions is { } sources)
+        {
+            foreach (string source in sources.Sources)
+                gesture.AddRange(["--source", source]);
+            foreach (string source in sources.AdditionalSources)
+                gesture.AddRange(["--add-source", source]);
+            if (!string.IsNullOrWhiteSpace(sources.ConfigFile))
+                gesture.AddRange(["--nugetconfig", sources.ConfigFile]);
+            if (!string.IsNullOrWhiteSpace(sources.ConfigDirectory))
+            {
+                gesture.AddRange(
+                    ["--nugetconfig-directory", sources.ConfigDirectory]);
+            }
+        }
         CommandError.WriteWarning(
-            $"{package} has {libraryCount} libraries; one is shown. Use "
-                + $"`dotnet-inspect package {package}` to list them.");
+            $"{summary} Use `{string.Join(' ', gesture.Select(QuoteArgument))}` "
+                + "to list them.");
     }
+
+    static string QuoteArgument(string argument) =>
+        argument.Any(char.IsWhiteSpace) ? $"\"{argument}\"" : argument;
 
     private static void WritePackageLibraryCandidates(
         string extractPath,

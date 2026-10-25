@@ -33,7 +33,10 @@ The pattern has five obligations. An adopting command meets all of them:
    defined default: it resolves the
    [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
    and writes a one-line warning that names the Library count and the
-   `package` gesture that lists them, so the choice is never silent.
+   `package` gesture that lists them, so the choice is never silent. The
+   gesture repeats the options that selected the population (target
+   framework and package sources); a RID-specific population, which no
+   `package` gesture lists, gets the count without a gesture.
    In particular, `type <Library>` and `member <Type>` fail and identify
    `library <Library>` and `type <Type>` as the corresponding subject
    inspections.
