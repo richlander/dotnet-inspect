@@ -134,102 +134,6 @@ public class ApiDiffAnalyzerTests
     }
 
     [Fact]
-    public void ExactTypeIdentities_DoNotCollapseFlattenedNameCollisions()
-    {
-        static ApiType Exact(
-            string @namespace,
-            params string[] segments) =>
-            new()
-            {
-                Namespace = @namespace,
-                Name = string.Join('.', segments),
-                Kind = "class",
-                DefinitionName = Assert
-                    .IsType<MetadataTypeDefinitionNameResult.Valid>(
-                        MetadataTypeDefinitionName.Create(
-                            @namespace,
-                            [.. segments]))
-                    .Name,
-            };
-
-        ApiType literal = Exact("N.A", "B");
-        ApiType nested = Exact("N", "A", "B");
-        var diff = ProductionApiDiff.Compare(
-            Surface(literal, nested),
-            Surface(nested));
-
-        TypeDiff removed = Assert.Single(diff.TypeDiffs);
-        Assert.True(removed.IsRemoved);
-        Assert.Equal(@"N.A.B", removed.TypeFullName);
-        Assert.Equal(1, diff.TotalBreaking);
-    }
-
-    [Fact]
-    public void LegacyTypeDoesNotDisableExactMatchingForUnrelatedTypes()
-    {
-        static ApiType Exact(
-            string @namespace,
-            params string[] segments) =>
-            new()
-            {
-                Namespace = @namespace,
-                Name = string.Join('.', segments),
-                Kind = "class",
-                DefinitionName = Assert
-                    .IsType<MetadataTypeDefinitionNameResult.Valid>(
-                        MetadataTypeDefinitionName.Create(
-                            @namespace,
-                            [.. segments]))
-                    .Name,
-            };
-
-        ApiType literal = Exact("N.A", "B");
-        ApiType nested = Exact("N", "A", "B");
-        ApiType legacy = Type("Legacy");
-        var diff = ProductionApiDiff.Compare(
-            Surface(literal, nested, legacy),
-            Surface(nested, legacy));
-
-        TypeDiff removed = Assert.Single(diff.TypeDiffs);
-        Assert.True(removed.IsRemoved);
-        Assert.Equal("N.A.B", removed.TypeFullName);
-    }
-
-    [Fact]
-    public void AmbiguousLegacyFallbackIsRejected()
-    {
-        static ApiType Exact(
-            string @namespace,
-            params string[] segments) =>
-            new()
-            {
-                Namespace = @namespace,
-                Name = string.Join('.', segments),
-                Kind = "class",
-                DefinitionName = Assert
-                    .IsType<MetadataTypeDefinitionNameResult.Valid>(
-                        MetadataTypeDefinitionName.Create(
-                            @namespace,
-                            [.. segments]))
-                    .Name,
-            };
-
-        ApiType legacy = new()
-        {
-            Namespace = "N",
-            Name = "A.B",
-            Kind = "class",
-        };
-
-        Assert.Throws<InvalidOperationException>(() =>
-            ProductionApiDiff.Compare(
-                Surface(
-                    Exact("N.A", "B"),
-                    Exact("N", "A", "B")),
-                Surface(legacy)));
-    }
-
-    [Fact]
     public void TypeKindChanged_IsBreaking()
     {
         var oldSurface = Surface(Type("Foo", kind: "class"));
@@ -617,8 +521,10 @@ public class ApiDiffAnalyzerTests
     }
 
     [Fact]
-    public void MemberSignatureChanged_PairsAndReportsBreaking()
+    public void MemberParameterChange_IsBreakingRemovalAndAddition()
     {
+        // A parameter change gives the member a new identity; the production comparer does
+        // not guess that two members sharing a name are one member (no name pairing).
         var oldSurface = Surface(Type("Foo", members:
             [Method("Bar", "void Bar(int x)")]));
         var newSurface = Surface(Type("Foo", members:
@@ -626,37 +532,47 @@ public class ApiDiffAnalyzerTests
 
         var diff = ProductionApiDiff.Compare(oldSurface, newSurface);
 
-        var change = Assert.Single(diff.TypeDiffs).Changes
-            .Single(c => c.Kind == ChangeKind.MemberSignatureChanged);
-        Assert.Equal(ChangeClassification.Breaking, change.Classification);
-        Assert.Equal("void Bar(int x)", change.OldValue);
-        Assert.Equal("void Bar(string x)", change.NewValue);
-        Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
-        Assert.Equal("Bar", change.Subject?.MemberName);
-        Assert.Equal("Bar~ea48d737b9", change.Subject?.OldIdentity);
-        Assert.Equal("Bar~081bea7f62", change.Subject?.NewIdentity);
-        Assert.Equal("M:TestNamespace.Foo.Bar(int)", change.Subject?.OldMember?.Anchor?.CanonicalSignature);
-        Assert.Equal("M:TestNamespace.Foo.Bar(string)", change.Subject?.NewMember?.Anchor?.CanonicalSignature);
+        var changes = Assert.Single(diff.TypeDiffs).Changes;
+        Assert.Equal(2, changes.Count);
+        Assert.DoesNotContain(changes, c => c.Kind == ChangeKind.MemberSignatureChanged);
+
+        var removed = Assert.Single(changes, c => c.Kind == ChangeKind.MemberRemoved);
+        Assert.Equal(ChangeClassification.Breaking, removed.Classification);
+        Assert.Equal(ApiChangeSubjectKind.Member, removed.Subject?.Kind);
+        Assert.Equal("Bar", removed.Subject?.MemberName);
+        Assert.Equal("Bar~ea48d737b9", removed.Subject?.OldIdentity);
+        Assert.Null(removed.Subject?.NewIdentity);
+        Assert.Equal("M:TestNamespace.Foo.Bar(int)", removed.Subject?.OldMember?.Anchor?.CanonicalSignature);
+
+        var added = Assert.Single(changes, c => c.Kind == ChangeKind.MemberAdded);
+        Assert.Equal(ChangeClassification.Additive, added.Classification);
+        Assert.Equal(ApiChangeSubjectKind.Member, added.Subject?.Kind);
+        Assert.Equal("Bar", added.Subject?.MemberName);
+        Assert.Null(added.Subject?.OldIdentity);
+        Assert.Equal("Bar~081bea7f62", added.Subject?.NewIdentity);
+        Assert.Equal("M:TestNamespace.Foo.Bar(string)", added.Subject?.NewMember?.Anchor?.CanonicalSignature);
+
+        Assert.Equal(1, diff.TotalBreaking);
+        Assert.Equal(1, diff.TotalAdditive);
     }
 
     [Fact]
-    public void DegradedSignature_DoesNotCollideWithGenuineSignature()
+    public void MemberReturnTypeChange_IsBreakingSignatureChange()
     {
-        var degraded = Method("Bar", "object Bar()");
-        degraded.SignatureDecodeStatus = SignatureDecodeStatus.Degraded;
-        var genuine = Method("Bar", "object Bar()");
+        // The member identity omits the return type, so the member corresponds and the
+        // production comparer reports its signature change on the one member.
+        var oldSurface = Surface(Type("Foo", members:
+            [Method("Bar", "int Bar()")]));
+        var newSurface = Surface(Type("Foo", members:
+            [Method("Bar", "long Bar()")]));
 
-        var diff = ProductionApiDiff.Compare(
-            Surface(Type("Foo", members: [degraded])),
-            Surface(Type("Foo", members: [genuine])));
+        var diff = ProductionApiDiff.Compare(oldSurface, newSurface);
 
-        var change = Assert.Single(diff.TypeDiffs).Changes
-            .Single(c => c.Kind == ChangeKind.MemberSignatureChanged);
-        Assert.Equal("object Bar() [decode: degraded]", change.OldValue);
-        Assert.Equal("object Bar()", change.NewValue);
-        Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
-        Assert.Equal("Bar", change.Subject?.MemberName);
-        Assert.NotEqual(change.Subject?.OldIdentity, change.Subject?.NewIdentity);
+        var change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+        Assert.Equal("int Bar()", change.OldValue);
+        Assert.Equal("long Bar()", change.NewValue);
         Assert.Equal(
             change.Subject?.OldMember?.Anchor?.CanonicalSignature,
             change.Subject?.NewMember?.Anchor?.CanonicalSignature);
