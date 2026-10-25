@@ -118,6 +118,110 @@ FindingDiffAnyResult RunLockstep()
     Console.WriteLine($"  samples-ms\tlockstep\t{string.Join(",", lockstepSamples.Select(t => t.ToString("F2")))}");
 }
 
+// The declaration census cursor (docs/design/finding-census.md step 3): for
+// every Type paired by identifier, Exists over two cursors on the API axis and
+// on the Body declaration facts, agreeing with the walk's states; and the
+// sealed, spelled census of every paired Type on both axes, which is the
+// declaration view's cost of one census per side.
+{
+    static Dictionary<string, DeclarationCensusType> Units(DeclarationCensusSide side)
+        => side.Types.Where(t => !t.IsMalformed).ToDictionary(t => t.Identifier, StringComparer.Ordinal);
+
+    (int Pairs, bool Agree) RunDeclarationExists()
+    {
+        using var before = new PEReader(new MemoryStream(beforeBytes, writable: false));
+        using var after = new PEReader(new MemoryStream(afterBytes, writable: false));
+        (DeclarationCensusSide oldSide, DeclarationCensusSide newSide) = DeclarationCensusSide.CreatePair(before, after);
+        using (oldSide)
+        using (newSide)
+        {
+            Dictionary<string, DeclarationCensusType> newUnits = Units(newSide);
+            Dictionary<string, FindingDiffAnyTypeState> walk = result.Types.ToDictionary(t => t.Identifier, StringComparer.Ordinal);
+            int pairs = 0;
+            bool agree = true;
+            foreach (DeclarationCensusType oldType in oldSide.Types.Where(t => !t.IsMalformed))
+            {
+                if (!newUnits.TryGetValue(oldType.Identifier, out DeclarationCensusType? newType))
+                    continue;
+                FindingExistsResult api = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, DeclarationAxis.Api);
+                FindingExistsResult body = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, DeclarationAxis.Body);
+                pairs++;
+                if (walk.TryGetValue(oldType.Identifier, out FindingDiffAnyTypeState? state))
+                {
+                    agree &= (state.Api == FindingDiffAnyState.Changed) == (api.Decision == FindingExistsDecision.Changed);
+                    agree &= state.Body != FindingDiffAnyState.Unchanged || body.Decision == FindingExistsDecision.Unchanged;
+                    agree &= body.Decision != FindingExistsDecision.Changed || state.Body == FindingDiffAnyState.Changed;
+                }
+            }
+            return (pairs, agree);
+        }
+    }
+
+    int RunDeclarationDrain()
+    {
+        using var before = new PEReader(new MemoryStream(beforeBytes, writable: false));
+        using var after = new PEReader(new MemoryStream(afterBytes, writable: false));
+        (DeclarationCensusSide oldSide, DeclarationCensusSide newSide) = DeclarationCensusSide.CreatePair(before, after);
+        using (oldSide)
+        using (newSide)
+        {
+            Dictionary<string, DeclarationCensusType> newUnits = Units(newSide);
+            int facts = 0;
+            foreach (DeclarationCensusType oldType in oldSide.Types.Where(t => !t.IsMalformed))
+            {
+                if (!newUnits.TryGetValue(oldType.Identifier, out DeclarationCensusType? newType))
+                    continue;
+                var subject = new FindingSubject(oldType.Identifier, oldType.FullName);
+                foreach (DeclarationAxis axis in new[] { DeclarationAxis.Api, DeclarationAxis.Body })
+                {
+                    bool? ownerVisible = axis == DeclarationAxis.Body ? oldSide.IsVisible(oldType.Type) || newSide.IsVisible(newType.Type) : null;
+                    FindingInspection<DeclarationFact> oldInspection = DeclarationFindings.Inspect(oldSide, oldType.Type, axis, subject, ownerVisible);
+                    FindingInspection<DeclarationFact> newInspection = DeclarationFindings.Inspect(newSide, newType.Type, axis, subject, ownerVisible);
+                    if (DeclarationFindings.Compare(oldInspection, newInspection).Value is FindingComparison<DeclarationFact>.Complete complete)
+                        facts += complete.Pairs.Length;
+                }
+            }
+            return facts;
+        }
+    }
+
+    (int pairs, bool agree) = RunDeclarationExists();
+    int facts = RunDeclarationDrain();
+    for (int i = 0; i < 3; i++)
+    {
+        RunDeclarationExists();
+        RunDeclarationDrain();
+    }
+    var existsSamples = new List<double>(iterations);
+    var existsAllocations = new List<long>(iterations);
+    var drainSamples = new List<double>(iterations);
+    var drainAllocations = new List<long>(iterations);
+    for (int i = 0; i < iterations; i++)
+    {
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        long start = Stopwatch.GetTimestamp();
+        RunDeclarationExists();
+        existsSamples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        existsAllocations.Add(GC.GetAllocatedBytesForCurrentThread() - allocated);
+        allocated = GC.GetAllocatedBytesForCurrentThread();
+        start = Stopwatch.GetTimestamp();
+        RunDeclarationDrain();
+        drainSamples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        drainAllocations.Add(GC.GetAllocatedBytesForCurrentThread() - allocated);
+    }
+    existsSamples.Sort();
+    existsAllocations.Sort();
+    drainSamples.Sort();
+    drainAllocations.Sort();
+    int p95 = Math.Max(0, (int)Math.Ceiling(iterations * 0.95) - 1);
+    Console.WriteLine(
+        $"declaration-exists\tmedian={existsSamples[iterations / 2]:F2}\tp95={existsSamples[p95]:F2}\tmin={existsSamples[0]:F2}"
+            + $"\tmedianBytes={existsAllocations[iterations / 2]}\tpairs={pairs}\tagree={agree}");
+    Console.WriteLine(
+        $"declaration-drain\tmedian={drainSamples[iterations / 2]:F2}\tp95={drainSamples[p95]:F2}\tmin={drainSamples[0]:F2}"
+            + $"\tmedianBytes={drainAllocations[iterations / 2]}\tpairFacts={facts}");
+}
+
 // The API axis alone, and the whole comparison advanced in bounded steps over
 // retained readers, as a single-threaded host runs it.
 double Median(Func<double> sample)
