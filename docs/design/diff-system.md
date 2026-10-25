@@ -288,7 +288,7 @@ today, across about thirty payloads, while the other rungs serve narrow domains:
 covers History's six payloads, and exact-identity Correlate is API members only.
 The designed `ComparisonDocument<AnalysisDiff<TItem>>` and
 `ComparisonDocument<MappedTextDiff>` forms have no production instantiation.
-Finding Diff Any's `FindingDiffAnyState`, `ApiDiffAnalyzer`'s `ApiChange`, and
+Finding Diff Any's `FindingDiffAnyState`, `ApiFindingClassifier`'s `ApiChange`, and
 the IL and C# body rows have no `T` at all; they are the producers that the next
 table marks as off the ladder.
 
@@ -302,7 +302,7 @@ table marks as off the ladder.
 | **Text characterization** | `TextDiffCharacterization` (`TextRegion`, `TextChange`, `TextMove`) over an `AnalysisDiff<string>` | Lines, with whitespace-only and moved changes | Facts over an `AnalysisDiff<string>` | [Text whitespace](text-whitespace-characterization.md), [text moves](text-move-characterization.md) |
 | **Canonical IL comparison** | `IlBodyDiff` rows over `CanonicalIlOperation` | One method body | No: native rows; IL Findings take the ladder separately | [IL diff canonicalization](il-diff-canonicalization.md) |
 | **C# body comparison** | `CSharpBodyDiff` line rows; `CSharpStructuralComparison` node matches within one body | One method body | No: native rows; C# Findings take the ladder separately | [Implementation diff](implementation-diff.md#structural-body-comparison) |
-| **API surface comparison** | `ApiDiffAnalyzer` `ApiChange` with `ChangeKind` and `ChangeClassification` | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
+| **API surface comparison** | `ApiFindingClassifier` `ApiChange` with `ChangeKind` and `ChangeClassification`, from `ApiDiffAnalyzer`'s change facts over the API Finding correspondence | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
 | **Axis summary** | `FindingDiffAnyState` per Type and axis | Type, with Member and residual partitions designed | No: per-pair states | [Finding Diff Any](finding-diff-any.md#levels) |
 | **Subject composition** | `ComparisonSubjectChange`: Diff, Addition, Deletion, Rename, Move, RenameAndMove | A root or subject in a composed comparison | Composition, not a rung | [Comparison document](comparison-document.md#subject-changes) |
 
@@ -350,7 +350,7 @@ way for every producer.
 - **Moves inside IL and C# line diffs.** Only Findings, text and C# structure
   detect moves.
 - **Correlation for non-Finding producers.** Finding Diff Any,
-  `ApiDiffAnalyzer`, and the IL and C# body diffs return native rows rather than
+  `ApiFindingClassifier`, and the IL and C# body diffs return native rows rather than
   Findings, so their results cannot be correlated across versions; only their
   Finding projections can.
 - **One alignment kernel.** Three product LCS implementations exist:
