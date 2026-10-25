@@ -66,6 +66,10 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.PublicTypeToInternal", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.PropertyPublicToProtected", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.PropertyWithPrivateSetterPublicToProtected", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.MixedAccessorPropertyPublicToProtected", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.MixedAccessorPropertyProtectedToPublic", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    // The Body axis compares non-public declaration facts, and the setter becomes private.
+    [InlineData("FindingDiffAnyFixture.MixedAccessorPropertyNarrowerAccessorMoves", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.PrivateMemberRemoved", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.PrivateMemberChanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.InternalTypeRemoved", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
@@ -405,6 +409,65 @@ public sealed class FindingDiffAnyTests
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
         Assert.Equal("int Value { get; set; }", change.OldValue);
         Assert.Equal("int Value { get; protected set; }", change.NewValue);
+    }
+
+    // A property's accessibility is the widest of its accessors'
+    // (docs/design/api-population-scope.md). Moving the widest accessor reports the
+    // signature change and the property's accessibility move by external reach.
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "FindingDiffAnyFixture.MixedAccessorPropertyPublicToProtected", "int Value { get; protected set; }", "int Value { get; set; }", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "FindingDiffAnyFixture.MixedAccessorPropertyProtectedToPublic", "int Value { get; set; }", "int Value { get; protected set; }", "protected", "public", ChangeClassification.Additive)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "FindingDiffAnyFixture.MixedAccessorPropertyPublicToProtected", "int Value { get; protected set; }", "int Value { get; set; }", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "FindingDiffAnyFixture.MixedAccessorPropertyProtectedToPublic", "int Value { get; set; }", "int Value { get; protected set; }", "protected", "public", ChangeClassification.Additive)]
+    public void MixedAccessorPropertyMove_ReportsTheSignatureAndTheAccessibilityMove(
+        ApiSurfaceExtractionScope scope,
+        string typeName,
+        string oldSignature,
+        string newSignature,
+        string oldAccessibility,
+        string newAccessibility,
+        ChangeClassification classification)
+    {
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(scope);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        Assert.Equal(2, type.Changes.Count);
+        ApiChange signature = Assert.Single(
+            type.Changes,
+            change => change.Kind == ChangeKind.MemberSignatureChanged);
+        Assert.Equal(ChangeClassification.Breaking, signature.Classification);
+        Assert.Equal(oldSignature, signature.OldValue);
+        Assert.Equal(newSignature, signature.NewValue);
+        ApiChange move = Assert.Single(
+            type.Changes,
+            change => change.Kind == ChangeKind.MemberAccessibilityChanged);
+        Assert.Equal(classification, move.Classification);
+        Assert.Equal(oldAccessibility, move.OldValue);
+        Assert.Equal(newAccessibility, move.NewValue);
+        Assert.Equal("Value", move.Subject?.NewMember?.Member.Name);
+
+    }
+
+    // Only the narrower accessor moves; the widest, and so the property's accessibility,
+    // stays public, and the signature row alone reports the move.
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    public void MixedAccessorProperty_NarrowerAccessorMove_IsOnlyASignatureChange(
+        ApiSurfaceExtractionScope scope)
+    {
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(scope);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == "FindingDiffAnyFixture.MixedAccessorPropertyNarrowerAccessorMoves");
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+        Assert.Equal("int Value { get; protected set; }", change.OldValue);
+        Assert.Equal("int Value { get; private set; }", change.NewValue);
     }
 
     [Fact]
