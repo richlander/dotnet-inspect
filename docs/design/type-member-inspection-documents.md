@@ -16,9 +16,6 @@ The Type-side producers now have role-specific names:
 optional Member-group population used by compact projections and direct
 discovery. Remaining transitional Member content shapes and host-local
 composition must not be presented as the target contract.
-The exact-Type declaration capability contract is specified below. Its
-producer-plan and demand-shaped signature adoption remain pending under
-[#10169](https://github.com/richlander/dotnet-inspect/issues/10169).
 The transitional exact-Member producer remains C#-spelling-only and rejects
 Metadata spelling until a later producer slice can emit true Metadata
 declarations.
@@ -47,20 +44,16 @@ authority.
 > Given one owner-resolved exact Type, MemberGroup, or exact Member, produce
 > the requested compact overview, complete declaration document, overload-set
 > overview, or exact-Member document while preserving one owner-issued subject
-> and population correspondence across every returned declaration. For an
-> exact Type, choose one resource-free provision plan for the complete
-> declaration requirement before inspection. When an explicit documentation
-> attachment request accompanies final Member resolution, preserve that
-> resolution and correlate one independently settled outcome to each exact
-> subject it carries.
+> and population correspondence across every returned declaration; when an
+> explicit documentation attachment request accompanies final Member
+> resolution, preserve that resolution and correlate one independently settled
+> outcome to each exact subject it carries.
 
 This owner defines:
 
 - `TypeOverviewDocument`, `TypeDocument`, `MemberOverviewDocument`, and
   `MemberDocument`;
 - the declaration completeness boundary between those documents;
-- the exact-Type identity-name, declaration-signature, and full-signature
-  capabilities and their coverage;
 - the subject and population correspondence shared by overview and complete
   documents;
 - the Type MemberGroup and exact-Member population bindings exposed by those
@@ -78,7 +71,6 @@ It does not define:
 - Library acquisition, ownership, borrowing, or retirement;
 - QuerySpace filtering, ordering, terminal, or continuation semantics;
 - documentation, source, metrics, or Analysis attachment evidence semantics;
-- generic capability planning, requirement grouping, or plan validation;
 - CLI sections, defaults, command syntax, or rendering;
 - Browser interaction, navigation presentation, or transport;
 - reusable-reference wire syntax; or
@@ -123,81 +115,6 @@ exact Member
 Package, Platform, project, Workspace, and direct-Library routes resolve their
 source-specific gestures before invoking this owner. Source kind and host do
 not select another document schema.
-
-## Exact-Type declaration capabilities
-
-This owner applies
-[Query Space producer capabilities](query-space-producer-capabilities.md) to
-one owner-resolved exact Type. Query Space owns requirement grouping, generic
-plan validation, and result association. This owner defines the Type
-capabilities, their coverage, and the producer strategies that may satisfy
-them.
-
-The capabilities are document completeness, not host, format, cost, or
-decoder choices:
-
-| Capability | Required content |
-| --- | --- |
-| Identity name | The owner-resolved exact Type identity and its structured byte-native name. It contains no declaration-category, generic-parameter, base, interface, or constraint claim. |
-| Declaration signature | Identity name plus the declaration category, attributes, modifiers, base classification, interface Count, and introduced generic-parameter declarations. Each parameter includes its owner position, exact name, flags, compiler annotations, and constraint-row Count, but no referenced constraint-Type identity. |
-| Full signature | Declaration signature plus the owner-issued referenced Type identities selected by its immutable signature facets, such as base, interface, or generic-constraint Types. |
-
-`Full signature` covers `Declaration signature`, and `Declaration signature`
-covers `Identity name`, for the same exact Type and completion. Coverage in
-the opposite direction is not inferred from equal display text, an observed
-empty collection, or a host predicate.
-
-A full-signature requirement names the referenced-Type facets its consumer
-needs. A provision for a declared superset may cover a subset only through an
-owner-certified projection that preserves completion. The complete
-`TypeDocument` may require every declaration facet; exact `Type Info` requires
-base and generic-constraint Type identities but only the interface Count.
-
-A full-signature provision may depend on the declaration-signature provision.
-During that already selected execution, zero constraint rows or a trivial base
-may let the full provision settle without additional Type-identity decoding.
-That is demand-shaped execution within the full provision. It does not let
-planning inspect the Type, make declaration signature cover full signature, or
-authorize an unplanned fallback.
-
-Exact `Type Info` requires `Full signature` with the base and
-generic-constraint facets: its established output must retain those spellings
-whenever the facts exist. The consumer states that requirement before
-inspection even when the selected Type happens not to need the additional
-identities. A compact identity-only projection or another consumer that
-deliberately excludes constraint-Type spelling may request a narrower
-capability.
-
-The producer chooses one resource-free strategy from the complete requirement
-set and host-known structural inputs before opening the assembly. A
-source-native and an established rich strategy may both provide full
-signature, but subject contents cannot decide between them during planning.
-Shape-dependent work belongs inside the selected strategy. Unsupported
-metadata remains typed non-success from that execution; it does not cause the
-host to discard a completed narrower result and rerun an undeclared richer
-path.
-
-Presentation may choose a UTF-8-capable or rich sink from the requested output
-shape and the completed document. That choice does not weaken the declaration
-requirement, authorize source work, or reconstruct missing facts.
-
-The current exact-Type CLI route is transitional: it first acquires a
-declaration signature, then `CanWriteDirectTypeInfo` and
-`CanWriteDirectTypeParameters` decide from the result whether to emit it or
-rerun the established rich path. Those host predicates are not capability
-coverage and are not the target contract. This design does not change that
-behavior; the implementation adoption replaces it only after one selected
-full-signature strategy can preserve the established result.
-
-.NET 11 RC1 CoreLib supplies the neighboring production witnesses.
-`System.Collections.Generic.List<T>` needs no referenced constraint Type and
-currently uses the source-native route, while `System.Nullable<T>` has a
-value-type constraint row and retains the rich route. The same exact
-`Type Info` question must be complete for both; the selected Type's contents
-cannot change the requirement after inspection. The pinned CoreLib hash and
-accepted direct/fallback measurements are recorded in this document's
-adoption evidence below. Focused fixtures preserve zero-constraint,
-constraint-Type, nontrivial-base, and nested-generic boundaries.
 
 ## Motivating asset
 
@@ -587,52 +504,10 @@ NativeAOT samples. Exact output remained byte-identical:
 The inspected CoreLib SHA-256 is
 `9573ebabb9af0671f76f4aa958223b8a0b50c299affcb1a2f75c9ee717305fc8`.
 
-### Exact-Type declaration capability stack
-
-[#10169](https://github.com/richlander/dotnet-inspect/issues/10169) tracks the
-focused exact-Type adoption:
-
-1. **Capability contract.** Define the three declaration capabilities,
-   coverage, planning boundary, and exact `Type Info` requirement in this
-   owner. This documentation slice completes that step.
-2. **Full-signature producer.** Add the owner-issued requirements, provisions,
-   and resource-free strategy. Extend the exact-Type producer to acquire
-   referenced base and generic-constraint Type identities only when the
-   selected full-signature provision needs them. Preserve one typed outcome;
-   do not route through a host fallback.
-3. **Exact `Type Info` adoption.** Request full signature through that plan,
-   project the completed result to the existing Presentation document, remove
-   the post-inspection CLI coverage predicates, and retire the discard-and-rerun
-   path. Compare exact source-native and established output and publish exact
-   NativeAOT base/head evidence for Types that need no additional identities
-   and Types that do.
-4. **Browser/Wasm producer adoption.** Express existing exact-Type document
-   requirements through the same host-neutral capabilities and plan before
-   producer work. Preserve the established Browser contract and interaction;
-   this step adds no Browser gesture or presentation mode.
-
-Type population Count and Name, filtered listings, Platform prefix browse, and
-new Browser presentation are separate adopters under
-[#10569](https://github.com/richlander/dotnet-inspect/issues/10569). They do
-not broaden this exact-Type stack.
-
 ## Required evidence
 
 Implementation slices must add Release gates proving:
 
-- an exact-Type capability plan is resource-free, preserves every requirement,
-  and selects its full-signature strategy before opening the assembly;
-- full signature covers declaration signature and identity name only through
-  the owner-declared paths for the same exact Type and completion;
-- a full-signature execution skips absent referenced Type identities but
-  acquires every required base and generic-constraint identity without a host
-  retry when they are present;
-- exact `Type Info` requests full signature, produces byte-identical output
-  and exit status against the established path, and executes one selected
-  producer strategy;
-- CLI and Browser/Wasm exact-Type consumers express equivalent declaration
-  needs through the same host-neutral capabilities without reconstructing
-  coverage in either host;
 - `TypeOverviewDocument` returns Member names without complete exact-Member
   signatures, with an exact-Member Count on every row when the plan's
   `TypeMemberGroupRowsRequest` sets `IncludeExactMemberCount` and on none when
