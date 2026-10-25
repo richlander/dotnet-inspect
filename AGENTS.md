@@ -20,6 +20,9 @@ the launch constitution and router.
   in [Repository workflow](docs/repository-workflow.md). Never develop in the
   primary checkout, amend, or rewrite published history except while restacking
   your own stack under [Stacked PRs](docs/stacked-prs.md).
+- Use [modern infrastructure](docs/repository-workflow.md#modern-infrastructure-and-legacy-adoption)
+  where applicable; migrate relevant legacy paths before or with the work,
+  rather than extending them.
 - Use the SDK, Release build, and focused `dotnet run` test commands in
   [Local development](docs/dev-environment.md); `dotnet test` runs no tests
   here. Match claims to gates using
