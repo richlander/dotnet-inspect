@@ -782,11 +782,23 @@ public static partial class IlBodyDiff
         return true;
     }
 
+    static readonly string?[] s_familyPlain = new string?[0x200];
+    static readonly string?[] s_familyVariableLayout = new string?[0x200];
+
     static string OpcodeFamily(
         DecodedInstruction instruction,
         IlBodyDiffNormalization normalization)
     {
-        var opcode = instruction.OpCode;
+        if (!IlAblation.FamilyTable)
+            return ComputeOpcodeFamily(instruction.OpCode, normalization);
+        int value = (int)instruction.OpCode;
+        int index = value <= 0xFF ? value : 0x100 + (value & 0xFF);
+        string?[] table = (normalization & IlBodyDiffNormalization.NormalizeVariableLayout) != 0 ? s_familyVariableLayout : s_familyPlain;
+        return table[index] ??= ComputeOpcodeFamily(instruction.OpCode, normalization);
+    }
+
+    static string ComputeOpcodeFamily(ILOpCode opcode, IlBodyDiffNormalization normalization)
+    {
         if ((normalization & IlBodyDiffNormalization.NormalizeVariableLayout) != 0)
         {
             if (opcode is ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2
@@ -841,11 +853,18 @@ public static partial class IlBodyDiff
                 return false;
             }
 
+            if (IlAblation.NoTokens)
+            {
+                operand = null;
+                failure = null;
+                return true;
+            }
             return side.TryResolve(instruction, out operand, out failure);
         }
 
-        operand = ImmediateOperandIdentity(instruction)
-            ?? OperandIdentityByKind(instruction, normalization);
+        operand = IlAblation.NoImmediates
+            ? null
+            : ImmediateOperandIdentity(instruction) ?? OperandIdentityByKind(instruction, normalization);
         failure = null;
         return true;
     }
