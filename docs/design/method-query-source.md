@@ -35,19 +35,20 @@ path decodes call opcodes without module lookup, target resolution, signature
 enrichment, canonical method context, or `DirectCall` row construction. The
 two superseded `LibraryBodyAnalysis` Count request branches are deleted.
 
-Compatible all-definition request sets now partition into physical
-instruction-source cost classes, then execute one MethodDef traversal per
-class with independent terminal-specialized lanes. Forward-only shallow lanes
-share one no-retention stream; retained or selective-detail lanes share one
-lazy retained sequence. Each lane retains its own gate, optional module lookup,
-traversal ordinal, Producer Planning work, completion, exact source coverage,
-and terminal body and encoded-IL bounds.
+Compatible all-definition and identical exact-Method request sets now
+partition into physical instruction-source cost classes, then execute one
+MethodDef traversal per class with independent terminal-specialized lanes.
+Forward-only shallow lanes share one no-retention stream; retained or
+selective-detail lanes share one lazy retained sequence. Each lane retains its
+own gate, optional module lookup, traversal ordinal, Producer Planning work,
+completion, exact source coverage, and terminal body and encoded-IL bounds.
 Bound exhaustion is source-incomplete for that lane and its receipt preserves
 the admitted work; another shared lane continues under its own limits. A
 settled lane keeps its result when a later lane aborts or encounters source
 failure, and source failure reaches only active lanes whose type scope required
-the failed enumeration. Sparse breadth and incompatible requests remain
-separate groups. Exact-method and exact-type requests may opt into bounded
+the failed enumeration. Distinct sparse breadth, exact-type breadth, and
+incompatible requests remain separate groups. Exact-method and exact-type
+requests may opt into bounded
 generated execution-body expansion, and an all-definition request may declare
 the [declared-source relation](#declared-source-relation), which settles at
 source completion in its own lane. The source uses targeted nested metadata
@@ -57,8 +58,13 @@ probe bodies and bytes, relationship nodes, and
 authenticated origins from terminal work. Declaring producers read the
 subject's public MethodDef roots and reference-assembly status at completion
 through [image exposure support](#image-exposure-support), receipted apart from
-breadth. Metadata-predicate breadth, body
-packets, and collapsed sparse request groups remain **unverified**.
+breadth. Metadata-predicate breadth, body packets, and collapsed exact-type
+request groups remain **unverified**.
+
+IL-offset semantic preparation is the first identical exact-Method request-set
+adopter. Allocation, safety, and cost remain independent Rows associations,
+while their selected combination shares one physical body and instruction
+source for each deduplicated coordinate MethodDef.
 
 ## Demo and pathological case
 

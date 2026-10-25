@@ -185,6 +185,75 @@ public class ILOffsetProjectionProducerTests
 
     [Fact]
     public void
+        ILOffsetSemanticAnalysis_MixedProductsShareOneExactMethodGroup()
+    {
+        MethodInfo method =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(Allocate),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        using var source = SourceLinkService.OpenPrefetched(
+            typeof(ILOffsetProjectionProducerTests)
+                .Assembly.Location);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(source.Context);
+
+        ILOffsetSemanticAnalysisResult semantic =
+            ILOffsetSemanticAnalysis.Execute(
+                session,
+                "IL-offset mixed semantic test",
+                source.Context.ModuleVersionId(),
+                [method.MetadataToken, method.MetadataToken],
+                ILOffsetProjectionCapabilities.AllocationContext
+                    | ILOffsetProjectionCapabilities.SafetyContext
+                    | ILOffsetProjectionCapabilities.CostContext,
+                TestContext.Current.CancellationToken);
+
+        ILOffsetAllocationAnalysisInput allocation =
+            Assert.IsType<ILOffsetAllocationAnalysisInput>(
+                semantic.Allocation);
+        ILOffsetSafetyAnalysisInput safety =
+            Assert.IsType<ILOffsetSafetyAnalysisInput>(
+                semantic.Safety);
+        ILOffsetCostAnalysisInput cost =
+            Assert.IsType<ILOffsetCostAnalysisInput>(
+                semantic.Cost);
+        Assert.Equal(3, semantic.SourceGroupReceipt.LaneReceipts.Length);
+        Assert.Single(
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.MethodsSelected.Ranges);
+        Assert.Equal(
+            1,
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.MethodsSelected.Count);
+        Assert.Equal(
+            1,
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.BodiesAcquired.Count);
+        Assert.Equal(
+            1,
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.InstructionWork
+                .LazyRetainedSourcesOpened);
+        Assert.All(
+            new[]
+            {
+                allocation.SourceReceipt,
+                safety.SourceReceipt,
+                cost.SourceReceipt,
+            },
+            receipt =>
+            {
+                Assert.Equal(
+                    MethodDefinitionSourceBreadthKind.ExactMethods,
+                    receipt.Breadth.Kind);
+                Assert.Single(receipt.Breadth.Methods);
+                Assert.Equal(1, receipt.DefinitionsVisited);
+                Assert.Equal(1, receipt.BodiesAcquired);
+            });
+    }
+
+    [Fact]
+    public void
         ProjectILOffset_DescriptorSemanticEvidenceDoesNotReopenPath()
     {
         MethodInfo sourceMethod =

@@ -495,6 +495,7 @@ public sealed class MethodDefinitionExecution
         IReadOnlyList<WorkDescription> descriptions,
         IReadOnlyList<MethodDefinitionTerminalWorkLimits>
             terminalWorkLimits,
+        MethodDefinitionSourceBreadth breadth,
         MethodBodyAnalyzerPlan? instructionPlan,
         string sourceName,
         PEReader peReader,
@@ -502,6 +503,7 @@ public sealed class MethodDefinitionExecution
     {
         ArgumentNullException.ThrowIfNull(descriptions);
         ArgumentNullException.ThrowIfNull(terminalWorkLimits);
+        ArgumentNullException.ThrowIfNull(breadth);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         ArgumentNullException.ThrowIfNull(peReader);
         if (descriptions.Count < 2)
@@ -516,6 +518,16 @@ public sealed class MethodDefinitionExecution
                 "Shared Method-source execution requires one terminal-work "
                 + "limit set per lane.",
                 nameof(terminalWorkLimits));
+        }
+        if (breadth.Kind
+            is not (
+                MethodDefinitionSourceBreadthKind.AllDefinitions
+                or MethodDefinitionSourceBreadthKind.ExactMethods)
+            || breadth.Expansion != MethodDefinitionSourceExpansion.None)
+        {
+            throw new ProducerContractException(
+                "Shared Method-source execution accepts all-definition or "
+                    + "exact-MethodDef breadth without expansion.");
         }
 
         var executions =
@@ -536,7 +548,7 @@ public sealed class MethodDefinitionExecution
             executions.Add(
                 CreateExecution(
                     description,
-                    MethodDefinitionSourceBreadth.AllDefinitions,
+                    breadth,
                     terminalWorkLimits[i],
                     tracksSourceCoverage: true,
                     instructionPlan));
@@ -715,137 +727,102 @@ public sealed class MethodDefinitionExecution
                     ? new bool[lanes.Length]
                     : [];
 
-            foreach (TypeDefinitionHandle typeHandle
-                in reader.TypeDefinitions)
+            if (breadth.Kind
+                == MethodDefinitionSourceBreadthKind.ExactMethods)
             {
-                TypeDefinition typeDefinition;
-                try
+                VisitSharedExactMethods(
+                    breadth.Methods,
+                    lanes,
+                    visiting,
+                    reader,
+                    ref unit,
+                    physicalCoverage,
+                    laneInScope,
+                    fusedInstructionVisits,
+                    laneInstructionVisits,
+                    laneVisitedInstructions);
+            }
+            else
+            {
+                foreach (TypeDefinitionHandle typeHandle
+                    in reader.TypeDefinitions)
                 {
-                    typeDefinition =
-                        reader.GetTypeDefinition(typeHandle);
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner
-                        .IsRecoverableMethodFailure(ex))
-                {
-                    foreach (MethodDefinitionExecution lane in lanes)
+                    TypeDefinition typeDefinition;
+                    try
                     {
-                        lane.FailActiveSource(
-                            MetadataTokens.GetToken(typeHandle),
-                            "(type source)",
-                            ex);
+                        typeDefinition =
+                            reader.GetTypeDefinition(typeHandle);
                     }
-                    continue;
-                }
-
-                bool anyLaneInScope = false;
-                for (int laneIndex = 0;
-                    laneIndex < lanes.Length;
-                    laneIndex++)
-                {
-                    MethodDefinitionExecution lane = lanes[laneIndex];
-                    bool laneActive = lane.PrepareType(
-                        reader,
-                        lane.Gate,
-                        visiting[laneIndex],
-                        typeHandle,
-                        typeDefinition,
-                        out bool anyInScope);
-                    laneInScope[laneIndex] =
-                        laneActive && anyInScope;
-                    anyLaneInScope |= laneInScope[laneIndex];
-                }
-
-                if (!anyLaneInScope)
-                {
-                    if (!AnyLaneActive(visiting))
-                        break;
-                    continue;
-                }
-
-                try
-                {
-                    foreach (MethodDefinitionHandle methodHandle
-                        in typeDefinition.GetMethods())
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
                     {
-                        unit.MoveTo(
-                            typeHandle,
-                            typeDefinition,
-                            methodHandle);
-                        int fusedInstructionVisitCount = 0;
-
-                        for (int laneIndex = 0;
-                            laneIndex < lanes.Length;
-                            laneIndex++)
+                        foreach (MethodDefinitionExecution lane in lanes)
                         {
-                            if (!laneInScope[laneIndex]
-                                || !AnyActive(visiting[laneIndex]))
-                            {
-                                continue;
-                            }
-
-                            MethodDefinitionExecution lane = lanes[laneIndex];
-                            lane.SelectRequest(
-                                ref unit,
-                                methodHandle);
-                            lane.PassUnitsVisited =
-                                lane.CurrentOrdinal + 1;
-                            if (fusedInstructionVisits is null)
-                            {
-                                lane.VisitPreparedUnit(
-                                    visiting[laneIndex],
-                                    ref unit,
-                                    methodHandle);
-                            }
-                            else
-                            {
-                                lane.VisitPreparedUnit(
-                                    visiting[laneIndex],
-                                    ref unit,
-                                    methodHandle,
-                                    laneIndex,
-                                    fusedInstructionVisits,
-                                    ref fusedInstructionVisitCount);
-                            }
-                        }
-
-                        if (fusedInstructionVisitCount != 0)
-                        {
-                            VisitFusedInstructionShapes(
-                                lanes,
-                                ref unit,
-                                fusedInstructionVisits!,
-                                fusedInstructionVisitCount,
-                                laneInstructionVisits,
-                                laneVisitedInstructions);
-                        }
-
-                        if (!AnyLaneActiveInScope(
-                                visiting,
-                                laneInScope))
-                            break;
-                    }
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner
-                        .IsRecoverableMethodFailure(ex))
-                {
-                    for (int laneIndex = 0;
-                        laneIndex < lanes.Length;
-                        laneIndex++)
-                    {
-                        if (laneInScope[laneIndex])
-                        {
-                            lanes[laneIndex].FailActiveSource(
+                            lane.FailActiveSource(
                                 MetadataTokens.GetToken(typeHandle),
-                                "(method source)",
+                                "(type source)",
                                 ex);
                         }
+                        continue;
                     }
-                }
 
-                if (!AnyLaneActive(visiting))
-                    break;
+                    bool anyLaneInScope = PrepareSharedType(
+                        lanes,
+                        visiting,
+                        reader,
+                        typeHandle,
+                        typeDefinition,
+                        laneInScope);
+                    if (!anyLaneInScope)
+                    {
+                        if (!AnyLaneActive(visiting))
+                            break;
+                        continue;
+                    }
+
+                    try
+                    {
+                        foreach (MethodDefinitionHandle methodHandle
+                            in typeDefinition.GetMethods())
+                        {
+                            unit.MoveTo(
+                                typeHandle,
+                                typeDefinition,
+                                methodHandle);
+                            VisitSharedPreparedMethod(
+                                lanes,
+                                visiting,
+                                ref unit,
+                                methodHandle,
+                                laneInScope,
+                                fusedInstructionVisits,
+                                laneInstructionVisits,
+                                laneVisitedInstructions);
+
+                            if (!AnyLaneActiveInScope(
+                                    visiting,
+                                    laneInScope))
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        FailSharedSource(
+                            lanes,
+                            laneInScope,
+                            MetadataTokens.GetToken(typeHandle),
+                            "(method source)",
+                            ex);
+                    }
+
+                    if (!AnyLaneActive(visiting))
+                        break;
+                }
             }
 
             foreach (MethodDefinitionExecution lane in lanes)
@@ -869,6 +846,206 @@ public sealed class MethodDefinitionExecution
         {
             foreach (LibraryBodyAnalysisBuilder? builder in builders)
                 builder?.Dispose();
+        }
+    }
+
+    static void VisitSharedExactMethods(
+        ImmutableArray<MethodDefinitionHandle> methods,
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        ProducerState[][] visiting,
+        MetadataReader reader,
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionSourceCoverageBuilder physicalCoverage,
+        bool[] laneInScope,
+        FusedInstructionShapeVisit[]? fusedInstructionVisits,
+        int[] laneInstructionVisits,
+        bool[] laneVisitedInstructions)
+    {
+        TypeDefinitionHandle currentTypeHandle = default;
+        TypeDefinition currentTypeDefinition = default;
+        foreach (MethodDefinitionHandle methodHandle in methods)
+        {
+            if (!AnyLaneActive(visiting))
+                return;
+
+            physicalCoverage.RecordDefinitionExamined(methodHandle);
+            MethodDefinition methodDefinition;
+            try
+            {
+                methodDefinition =
+                    reader.GetMethodDefinition(methodHandle);
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                FailSharedSource(
+                    lanes,
+                    laneInScope: null,
+                    MetadataTokens.GetToken(methodHandle),
+                    "(method source)",
+                    ex);
+                continue;
+            }
+
+            TypeDefinitionHandle typeHandle =
+                methodDefinition.GetDeclaringType();
+            if (typeHandle != currentTypeHandle)
+            {
+                try
+                {
+                    currentTypeDefinition =
+                        reader.GetTypeDefinition(typeHandle);
+                }
+                catch (Exception ex)
+                    when (LibraryMethodAnalysisRunner
+                        .IsRecoverableMethodFailure(ex))
+                {
+                    FailSharedSource(
+                        lanes,
+                        laneInScope: null,
+                        MetadataTokens.GetToken(typeHandle),
+                        "(type source)",
+                        ex);
+                    continue;
+                }
+                currentTypeHandle = typeHandle;
+
+                if (!PrepareSharedType(
+                        lanes,
+                        visiting,
+                        reader,
+                        typeHandle,
+                        currentTypeDefinition,
+                        laneInScope))
+                {
+                    continue;
+                }
+            }
+
+            unit.MoveToPreviouslyRead(
+                typeHandle,
+                currentTypeDefinition,
+                methodHandle,
+                methodDefinition);
+            VisitSharedPreparedMethod(
+                lanes,
+                visiting,
+                ref unit,
+                methodHandle,
+                laneInScope,
+                fusedInstructionVisits,
+                laneInstructionVisits,
+                laneVisitedInstructions);
+        }
+    }
+
+    static bool PrepareSharedType(
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        ProducerState[][] visiting,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition,
+        bool[] laneInScope)
+    {
+        bool anyLaneInScope = false;
+        for (int laneIndex = 0;
+            laneIndex < lanes.Length;
+            laneIndex++)
+        {
+            MethodDefinitionExecution lane = lanes[laneIndex];
+            bool laneActive = lane.PrepareType(
+                reader,
+                lane.Gate,
+                visiting[laneIndex],
+                typeHandle,
+                typeDefinition,
+                out bool anyInScope);
+            laneInScope[laneIndex] =
+                laneActive && anyInScope;
+            anyLaneInScope |= laneInScope[laneIndex];
+        }
+
+        return anyLaneInScope;
+    }
+
+    static void VisitSharedPreparedMethod(
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        ProducerState[][] visiting,
+        ref MethodDefinitionUnit unit,
+        MethodDefinitionHandle methodHandle,
+        bool[] laneInScope,
+        FusedInstructionShapeVisit[]? fusedInstructionVisits,
+        int[] laneInstructionVisits,
+        bool[] laneVisitedInstructions)
+    {
+        int fusedInstructionVisitCount = 0;
+        for (int laneIndex = 0;
+            laneIndex < lanes.Length;
+            laneIndex++)
+        {
+            if (!laneInScope[laneIndex]
+                || !AnyActive(visiting[laneIndex]))
+            {
+                continue;
+            }
+
+            MethodDefinitionExecution lane = lanes[laneIndex];
+            lane.SelectRequest(
+                ref unit,
+                methodHandle);
+            lane.PassUnitsVisited =
+                lane.CurrentOrdinal + 1;
+            if (fusedInstructionVisits is null)
+            {
+                lane.VisitPreparedUnit(
+                    visiting[laneIndex],
+                    ref unit,
+                    methodHandle);
+            }
+            else
+            {
+                lane.VisitPreparedUnit(
+                    visiting[laneIndex],
+                    ref unit,
+                    methodHandle,
+                    laneIndex,
+                    fusedInstructionVisits,
+                    ref fusedInstructionVisitCount);
+            }
+        }
+
+        if (fusedInstructionVisitCount != 0)
+        {
+            VisitFusedInstructionShapes(
+                lanes,
+                ref unit,
+                fusedInstructionVisits!,
+                fusedInstructionVisitCount,
+                laneInstructionVisits,
+                laneVisitedInstructions);
+        }
+    }
+
+    static void FailSharedSource(
+        ImmutableArray<MethodDefinitionExecution> lanes,
+        bool[]? laneInScope,
+        int token,
+        string unit,
+        Exception exception)
+    {
+        for (int laneIndex = 0;
+            laneIndex < lanes.Length;
+            laneIndex++)
+        {
+            if (laneInScope is null
+                || laneInScope[laneIndex])
+            {
+                lanes[laneIndex].FailActiveSource(
+                    token,
+                    unit,
+                    exception);
+            }
         }
     }
 

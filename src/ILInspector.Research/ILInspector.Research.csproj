@@ -30,6 +30,7 @@
     <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\Inspector.Graph\Inspector.Graph.csproj" />
     <ProjectReference Include="..\Inspector.Text\Inspector.Text.csproj" />
+    <ProjectReference Include="..\QuerySpace\QuerySpace.csproj" />
   </ItemGroup>
 
 </Project>

@@ -534,10 +534,12 @@ prefetched image and issue one exact MethodDef request for the deduplicated
 coordinate methods. Allocation-only coordinate preparation independently
 plans `ExactMethodAllocationProducer` over that same bounded population.
 Cost-only preparation plans `FocusedMethodCallProducer` and retains only the
-direct-call rows needed by coordinate projection. The three focused inputs
-retain exact source and work receipts; none opens
-`LibraryBodyAnalysisService`. Combined semantic coordinate requests remain on
-the service until their complete result ownership moves.
+direct-call rows needed by coordinate projection. QuerySpace selects any
+requested combination of allocation, safety, and cost associations over one
+deduplicated exact MethodDef population. Each focused input retains its own
+exact source and work receipt, while the request set records the shared
+physical group; no semantic coordinate request opens
+`LibraryBodyAnalysisService`.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first
