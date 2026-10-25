@@ -152,7 +152,7 @@ internal abstract record BrowserSpotlightPackageFocusRequest<
         }
 
         internal BrowserSpotlightPackageRequest<TPackageRequest> Package
-            { get; }
+        { get; }
 
         internal PackageRootBinding Binding { get; }
 
@@ -180,9 +180,96 @@ internal abstract record BrowserSpotlightPackageFocusRequest<
         }
 
         internal BrowserSpotlightPackageRequest<TPackageRequest> Package
-            { get; }
+        { get; }
 
         internal TLibraryIntent Intent { get; }
+    }
+
+    internal sealed record AfterScopeType :
+        BrowserSpotlightPackageFocusRequest<
+            TPackageRequest,
+            TLibraryIntent>
+    {
+        internal AfterScopeType(
+            WorkspaceScopeSnapshot scope,
+            WorkspacePackageOccurrence occurrence,
+            BrowserSpotlightPackageRequest<TPackageRequest> package,
+            PackageRootBinding binding,
+            WorkspaceScopeOperationResult scopeResult,
+            BrowserSpotlightPackageTypeIntent intent)
+            : base(scope, occurrence)
+        {
+            ArgumentNullException.ThrowIfNull(package);
+            ArgumentNullException.ThrowIfNull(binding);
+            ArgumentNullException.ThrowIfNull(scopeResult);
+            ArgumentNullException.ThrowIfNull(intent);
+            if (scopeResult is not WorkspaceScopeOperationResult.Committed
+                and not WorkspaceScopeOperationResult.NoEffect)
+            {
+                throw new ArgumentException(
+                    "Package Type focus requires a committed or no-effect Scope result.",
+                    nameof(scopeResult));
+            }
+            if (!ReferenceEquals(
+                    scope.FindPackageOccurrence(binding)?.Occurrence,
+                    occurrence))
+            {
+                throw new ArgumentException(
+                    "The Package binding must identify the exact focus occurrence.",
+                    nameof(binding));
+            }
+            if (intent.Package != package.Coordinate)
+            {
+                throw new ArgumentException(
+                    "The Type intent must identify the admitted Package.",
+                    nameof(intent));
+            }
+
+            Package = package;
+            Binding = binding;
+            ScopeResult = scopeResult;
+            Intent = intent;
+        }
+
+        internal BrowserSpotlightPackageRequest<TPackageRequest> Package
+        { get; }
+
+        internal PackageRootBinding Binding { get; }
+
+        internal WorkspaceScopeOperationResult ScopeResult { get; }
+
+        internal BrowserSpotlightPackageTypeIntent Intent { get; }
+    }
+
+    internal sealed record CurrentPackageType :
+        BrowserSpotlightPackageFocusRequest<
+            TPackageRequest,
+            TLibraryIntent>
+    {
+        internal CurrentPackageType(
+            WorkspaceScopeSnapshot scope,
+            WorkspacePackageOccurrence occurrence,
+            BrowserSpotlightPackageRequest<TPackageRequest> package,
+            BrowserSpotlightPackageTypeIntent intent)
+            : base(scope, occurrence)
+        {
+            ArgumentNullException.ThrowIfNull(package);
+            ArgumentNullException.ThrowIfNull(intent);
+            if (intent.Package != package.Coordinate)
+            {
+                throw new ArgumentException(
+                    "The Type intent must identify the current Package.",
+                    nameof(intent));
+            }
+
+            Package = package;
+            Intent = intent;
+        }
+
+        internal BrowserSpotlightPackageRequest<TPackageRequest> Package
+        { get; }
+
+        internal BrowserSpotlightPackageTypeIntent Intent { get; }
     }
 }
 
@@ -275,7 +362,8 @@ internal abstract record BrowserSpotlightCurrentPackageActivationResult<
         TPackageRequest,
         TNavigationAction,
         TPlatformAction,
-        TLibraryIntent> Descriptor { get; }
+        TLibraryIntent> Descriptor
+    { get; }
 
     internal sealed record Blocked :
         BrowserSpotlightCurrentPackageActivationResult<
@@ -379,7 +467,7 @@ internal abstract record BrowserSpotlightCurrentPackageActivationResult<
         }
 
         internal BrowserSpotlightPackageMembershipResult Membership
-            { get; }
+        { get; }
 
         internal BrowserSpotlightPackageFocusResult Focus { get; }
     }
@@ -435,7 +523,17 @@ internal static class BrowserSpotlightCurrentPackageActivation
                 TPackageRequest,
                 TNavigationAction,
                 TPlatformAction,
-                TLibraryIntent>.ActivateCurrentPackageLibrary;
+                TLibraryIntent>.AddCurrentPackageType
+            or BrowserSpotlightDestinationActivationPlan<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent>.ActivateCurrentPackageLibrary
+            or BrowserSpotlightDestinationActivationPlan<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent>.ActivateCurrentPackageType;
         if (!supported)
         {
             throw new ArgumentException(
@@ -486,7 +584,42 @@ internal static class BrowserSpotlightCurrentPackageActivation
                 await AddAndFocusAsync(
                     workspace,
                     descriptor,
-                    add,
+                    add.Package,
+                    add.LibraryIntent,
+                    typeIntent: null,
+                    acquire,
+                    focus,
+                    deadline,
+                    cancellationToken).ConfigureAwait(false),
+
+            BrowserSpotlightDestinationActivationPlan<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent>.ActivateCurrentPackageType current =>
+                await FocusCurrentTypeAsync<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent,
+                    TPackageFailure>(
+                    descriptor,
+                    current,
+                    initial.Scope!,
+                    focus,
+                    cancellationToken).ConfigureAwait(false),
+
+            BrowserSpotlightDestinationActivationPlan<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent>.AddCurrentPackageType add =>
+                await AddAndFocusAsync(
+                    workspace,
+                    descriptor,
+                    add.Package,
+                    libraryIntent: null,
+                    add.Intent,
                     acquire,
                     focus,
                     deadline,
@@ -590,6 +723,92 @@ internal static class BrowserSpotlightCurrentPackageActivation
             TPlatformAction,
             TLibraryIntent,
             TPackageFailure>>
+        FocusCurrentTypeAsync<
+            TPackageRequest,
+            TNavigationAction,
+            TPlatformAction,
+            TLibraryIntent,
+            TPackageFailure>(
+            BrowserSpotlightDestinationDescriptor<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent> descriptor,
+            BrowserSpotlightDestinationActivationPlan<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent>.ActivateCurrentPackageType plan,
+            WorkspaceScopeSnapshot currentScope,
+            BrowserSpotlightPackageFocusOperation<
+                TPackageRequest,
+                TLibraryIntent> focus,
+            CancellationToken cancellationToken)
+        where TPackageRequest : class
+        where TNavigationAction : class
+        where TPlatformAction : class
+        where TLibraryIntent : class
+        where TPackageFailure : class
+    {
+        if (!currentScope.Packages.Any(package =>
+                ReferenceEquals(package.Occurrence, plan.Package)))
+        {
+            return new BrowserSpotlightCurrentPackageActivationResult<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent,
+                TPackageFailure>.Blocked(
+                    descriptor,
+                    new BrowserSpotlightActivationBlock.Stale(
+                        BrowserSpotlightActivationStaleReason
+                            .PackageOccurrence,
+                        currentScope,
+                        descriptor.Basis.Registrations));
+        }
+        if (descriptor.Destination
+            is not BrowserSpotlightDestination<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent>.CurrentPackageType destination)
+        {
+            throw new InvalidOperationException(
+                "A current Package Type plan requires its exact projected destination.");
+        }
+
+        var membership =
+            new BrowserSpotlightPackageMembershipResult.AlreadyCurrent(
+                currentScope,
+                plan.Package);
+        NavigationOperationResult navigation = await focus(
+            new BrowserSpotlightPackageFocusRequest<
+                TPackageRequest,
+                TLibraryIntent>.CurrentPackageType(
+                    currentScope,
+                    plan.Package,
+                    destination.PackageRequest,
+                    plan.Intent),
+            cancellationToken).ConfigureAwait(false);
+        return new BrowserSpotlightCurrentPackageActivationResult<
+            TPackageRequest,
+            TNavigationAction,
+            TPlatformAction,
+            TLibraryIntent,
+            TPackageFailure>.Settled(
+                descriptor,
+                membership,
+                new BrowserSpotlightPackageFocusResult.Completed(
+                    navigation));
+    }
+
+    private static async ValueTask<
+        BrowserSpotlightCurrentPackageActivationResult<
+            TPackageRequest,
+            TNavigationAction,
+            TPlatformAction,
+            TLibraryIntent,
+            TPackageFailure>>
         AddAndFocusAsync<
             TPackageRequest,
             TNavigationAction,
@@ -602,11 +821,9 @@ internal static class BrowserSpotlightCurrentPackageActivation
                 TNavigationAction,
                 TPlatformAction,
                 TLibraryIntent> descriptor,
-            BrowserSpotlightDestinationActivationPlan<
-                TPackageRequest,
-                TNavigationAction,
-                TPlatformAction,
-                TLibraryIntent>.AddCurrentPackage plan,
+            BrowserSpotlightPackageRequest<TPackageRequest> package,
+            TLibraryIntent? libraryIntent,
+            BrowserSpotlightPackageTypeIntent? typeIntent,
             BrowserSpotlightPackageAcquisitionOperation<
                 TPackageRequest,
                 TPackageFailure> acquire,
@@ -623,7 +840,7 @@ internal static class BrowserSpotlightCurrentPackageActivation
     {
         BrowserSpotlightPackageAcquisitionResult<TPackageFailure>
             acquisition = await acquire(
-                plan.Package,
+                package,
                 cancellationToken).ConfigureAwait(false);
         if (acquisition
             is BrowserSpotlightPackageAcquisitionResult<
@@ -642,7 +859,7 @@ internal static class BrowserSpotlightCurrentPackageActivation
         PackageRootBinding binding =
             ((BrowserSpotlightPackageAcquisitionResult<
                 TPackageFailure>.Acquired)acquisition).Binding;
-        ValidateBinding(plan.Package, binding);
+        ValidateBinding(package, binding);
 
         BrowserSpotlightActivationBasisRead beforeScope =
             await BrowserSpotlightActivationAuthority.ReadAsync(
@@ -733,16 +950,30 @@ internal static class BrowserSpotlightCurrentPackageActivation
                         beforeFocusBlock));
         }
 
+        BrowserSpotlightPackageFocusRequest<
+            TPackageRequest,
+            TLibraryIntent> focusRequest =
+            typeIntent is null
+                ? new BrowserSpotlightPackageFocusRequest<
+                    TPackageRequest,
+                    TLibraryIntent>.AfterScope(
+                        scope,
+                        occurrence,
+                        package,
+                        binding,
+                        scopeResult,
+                        libraryIntent)
+                : new BrowserSpotlightPackageFocusRequest<
+                    TPackageRequest,
+                    TLibraryIntent>.AfterScopeType(
+                        scope,
+                        occurrence,
+                        package,
+                        binding,
+                        scopeResult,
+                        typeIntent);
         NavigationOperationResult navigation = await focus(
-            new BrowserSpotlightPackageFocusRequest<
-                TPackageRequest,
-                TLibraryIntent>.AfterScope(
-                    scope,
-                    occurrence,
-                    plan.Package,
-                    binding,
-                    scopeResult,
-                    plan.LibraryIntent),
+            focusRequest,
             cancellationToken).ConfigureAwait(false);
         return new BrowserSpotlightCurrentPackageActivationResult<
             TPackageRequest,
