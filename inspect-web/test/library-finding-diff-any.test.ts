@@ -8,6 +8,7 @@ import type {
 import {
   createLibraryFindingDiffAny,
   libraryFindingDiffAnyAchievement,
+  libraryFindingDiffAnyKey,
   renderLibraryFindingDiffAnyStatus,
   type LibraryFindingDiffAnyBaseline,
 } from "../src/library-finding-diff-any.ts";
@@ -18,6 +19,7 @@ const baseline: LibraryFindingDiffAnyBaseline = {
   currentVersion: "2.0.1",
   targetVersion: "2.0.0",
   targetFramework: "net10.0",
+  runtimeIdentifier: "win-x64",
   compileAssetId: "compile:lib/net10.0/Fixture.dll",
   axes: "ApiAndBody",
 };
@@ -35,7 +37,7 @@ function type(
 
 function succeeded(request: BrowserLibraryFindingDiffAnyRequest, types: BrowserFindingDiffAnyType[]) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     request,
     kind: "Succeeded",
     value: {
@@ -110,7 +112,7 @@ test("a baseline result is held per exact request and keyed by identifier", asyn
   await settle();
 
   assert.equal(state.requests.length, 1);
-  assert.deepEqual(state.requests[0], { schemaVersion: 2, ...baseline });
+  assert.deepEqual(state.requests[0], { schemaVersion: 3, ...baseline });
   const entry = state.findingDiffAny.entry(baseline);
   assert.equal(entry?.status, "ready");
   assert.equal(
@@ -119,13 +121,20 @@ test("a baseline result is held per exact request and keyed by identifier", asyn
   assert.equal(state.findingDiffAny.entry({ ...baseline, axes: "Api" }), null);
   assert.ok(state.renders() > 0);
   assert.deepEqual(state.diagnostics, []);
+  assert.notEqual(
+    libraryFindingDiffAnyKey(baseline),
+    libraryFindingDiffAnyKey({
+      ...baseline,
+      runtimeIdentifier: "linux-x64",
+    }),
+  );
 });
 
 test("a rejected baseline is a visible failure that retry queues again", async () => {
   let reject = true;
   const state = fixture(request => reject
     ? {
-        schemaVersion: 2,
+        schemaVersion: 3,
         request,
         kind: "Rejected",
         value: null,
@@ -159,7 +168,7 @@ test("a rejected baseline is a visible failure that retry queues again", async (
 
 test("a canceled baseline is not held", async () => {
   const state = fixture(request => ({
-    schemaVersion: 2,
+    schemaVersion: 3,
     request,
     kind: "Canceled",
     value: null,
@@ -172,6 +181,38 @@ test("a canceled baseline is not held", async () => {
   await settle();
 
   assert.equal(state.findingDiffAny.entry(baseline), null);
+});
+
+test("a missing runtime counterpart is a visible typed failure", async () => {
+  const state = fixture(request => ({
+    schemaVersion: 3,
+    request,
+    kind: "MissingCounterpart",
+    value: null,
+    error: "The target endpoint cannot issue runtime population 'win-x64'.",
+    diagnostic: null,
+    reason: null,
+    missingCounterpart: {
+      endpoint: "Target",
+      version: request.targetVersion,
+      runtimeIdentifier: "win-x64",
+      availableRuntimeIdentifiers: ["linux-x64"],
+    },
+  }));
+
+  state.findingDiffAny.ensure(baseline, () => true);
+  await settle();
+
+  const entry = state.findingDiffAny.entry(baseline);
+  assert.equal(entry?.status, "failed");
+  assert.match(
+    renderLibraryFindingDiffAnyStatus(
+      entry,
+      baseline.targetVersion,
+      escape,
+    ),
+    /cannot issue runtime population 'win-x64'/,
+  );
 });
 
 test("a malformed result is a visible failure", async () => {

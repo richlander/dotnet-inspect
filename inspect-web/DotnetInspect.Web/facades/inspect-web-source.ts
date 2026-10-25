@@ -30,6 +30,8 @@ export type BrowserCalleeEvidenceState = "Instruction" | "Method" | "Instruction
 
 export type BrowserCostCalleeEvidenceInputKind = "AllocationInLoop" | "Reflection" | "CallInLoop" | "RootReach" | "DirectCallers" | "LoopCalls" | number;
 
+export type BrowserMemberBodyDiffEndpoint = "Before" | "After" | number;
+
 export type BrowserMemberSourcePartKind = "Declaration" | "Member" | "XmlDocumentation" | "Attributes" | "Signature" | "Body" | number;
 
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
@@ -348,11 +350,19 @@ export interface BrowserMemberBodyDiffInventory {
   readonly destinations: ReadonlyArray<BrowserMemberBodyMember>;
 }
 
+export interface BrowserMemberBodyDiffMissingCounterpart {
+  readonly endpoint: BrowserMemberBodyDiffEndpoint;
+  readonly version: string;
+  readonly runtimeIdentifier: string;
+  readonly availableRuntimeIdentifiers: ReadonlyArray<string>;
+}
+
 export interface BrowserMemberBodyDiffRequest {
   readonly packageId: string;
   readonly beforeVersion: string;
   readonly afterVersion: string;
   readonly framework: string;
+  readonly runtimeIdentifier: string;
   readonly compileAssetId: string;
   readonly generation: string;
   readonly inventoryId: string | null;
@@ -365,6 +375,7 @@ export interface BrowserMemberBodyDiffResult {
   readonly document: BrowserMemberBodyDiffDocument | null;
   readonly detail: string | null;
   readonly inspection: InspectionEnvelope<unknown> | null;
+  readonly missingCounterpart: BrowserMemberBodyDiffMissingCounterpart | null;
 }
 
 export interface BrowserMemberBodyMedium {
