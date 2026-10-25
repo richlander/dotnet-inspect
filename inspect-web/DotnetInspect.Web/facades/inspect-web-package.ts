@@ -132,8 +132,6 @@ export type DocumentationQueryFieldEvidenceKind = "Selected" | "Corroborated" | 
 
 export type DocumentationQueryRequestRejectionReason = "LibraryReferenceMismatch" | "ApiContentMismatch" | "LeaseReferenceMismatch" | "AuthoredSourceBindingMismatch" | number;
 
-export type JsonValueKind = number;
-
 export interface AuthoredDocumentationObservation {
   readonly code?: string;
   readonly detail?: string;

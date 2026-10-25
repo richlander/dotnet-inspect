@@ -36,20 +36,36 @@ public static partial class CatalogExports
     }
 
     [JSExport]
-    public static async Task<string> PrepareHomeDemoWorkspaceDefinition(
+    public static async Task<string> PrepareRetainedWorkspaceDefinitionFromRecords(
         string retainedDefinitionId,
         string label,
         string canonicalLocation,
-        string scenarioId)
+        string scenarioId,
+        string definitionRecordsJson)
     {
-        BrowserRetainedWorkspacePreparationResult result =
-            await BrowserRetainedWorkspaceActivationService
-                .PrepareHomeDemoAsync(
+        BrowserRetainedWorkspacePreparationResult result;
+        try
+        {
+            string[] records = JsonSerializer.Deserialize(
+                    definitionRecordsJson,
+                    BrowserCatalogJsonContext.Default.StringArray)
+                ?? throw new JsonException();
+            result = await BrowserRetainedWorkspaceActivationService
+                .PrepareDefinitionRecordsAsync(
                     retainedDefinitionId,
                     label,
                     canonicalLocation,
-                    scenarioId)
+                    scenarioId,
+                    records)
                 .ConfigureAwait(false);
+        }
+        catch (JsonException)
+        {
+            result = BrowserRetainedWorkspaceActivationService
+                .FailedPreparation(
+                    "InvalidDefinition",
+                    "Serialized Workspace definition records must be a JSON array of strings.");
+        }
         return JsonSerializer.Serialize(
             result,
             BrowserCatalogJsonContext.Default
@@ -701,66 +717,33 @@ internal static class BrowserRetainedWorkspaceActivationService
                     StringComparer.Ordinal)).ConfigureAwait(false);
 
     internal static async Task<BrowserRetainedWorkspacePreparationResult>
-        PrepareHomeDemoAsync(
+        PrepareDefinitionRecordsAsync(
         string retainedDefinitionId,
         string label,
         string canonicalLocation,
-        string scenarioId)
+        string scenarioId,
+        IReadOnlyList<string> definitionRecords)
     {
-        if (string.IsNullOrWhiteSpace(scenarioId))
-        {
-            return FailedPreparation(
-                "InvalidRequest",
-                "A product home demo identity is required.");
-        }
-
-        EcosystemDemoSelectionResult selectionResult =
-            EcosystemPackCatalog.SelectDemo(scenarioId);
-        if (selectionResult is EcosystemDemoSelectionResult.Unknown)
-        {
-            return FailedPreparation(
-                "UnknownDemo",
-                $"Product home demo '{scenarioId}' is not in the catalog.");
-        }
-
-        EcosystemDemoSelection selection =
-            ((EcosystemDemoSelectionResult.Known)selectionResult).Selection;
-        BrowserHomeDemoRunPlan plan;
         try
         {
-            plan = BrowserProductHomeDemos.ToRunPlan(selection.Scenario);
-        }
-        catch (InspectionDefinitionException ex)
-        {
-            return FailedPreparation("InvalidDefinition", ex.Message);
-        }
-        if (!string.Equals(
-                plan.Section,
-                ProductDemoSections.Methods,
-                StringComparison.Ordinal))
-        {
-            return FailedPreparation(
-                "UnsupportedDemoSection",
-                $"Product home demo '{scenarioId}' requires section "
-                    + $"'{plan.Section}'; retained activation currently "
-                    + $"supports '{ProductDemoSections.Methods}'.");
-        }
-
-        BrowserRetainedWorkspaceActivationRequest request;
-        try
-        {
-            request = new(
+            InspectionDefinitionRecord[] records =
+            [
+                .. definitionRecords.Select(InspectionDefinitionJson.Parse),
+            ];
+            var request = new BrowserRetainedWorkspaceActivationRequest(
                 retainedDefinitionId,
                 label,
                 canonicalLocation,
-                selection.RestorationRequest);
+                new CompleteRestorationRequestBasis.DefinitionInput(
+                    scenarioId,
+                    records));
+            return await PrepareAsync(request).ConfigureAwait(false);
         }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (ex is ArgumentException
+            or InspectionDefinitionException)
         {
-            return FailedPreparation("InvalidRequest", ex.Message);
+            return FailedPreparation("InvalidDefinition", ex.Message);
         }
-
-        return await PrepareAsync(request).ConfigureAwait(false);
     }
 
     internal static async Task<BrowserRetainedWorkspacePreparationResult>
@@ -1905,7 +1888,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             settlement.Reason.ToString(),
             settlement.Failure?.Message);
 
-    static BrowserRetainedWorkspacePreparationResult FailedPreparation(
+    internal static BrowserRetainedWorkspacePreparationResult FailedPreparation(
         string kind,
         string message) =>
         new(

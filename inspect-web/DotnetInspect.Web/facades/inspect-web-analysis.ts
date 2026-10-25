@@ -36,8 +36,6 @@ export type BrowserPerformanceAnalysisOperationFailureKind = "Expected" | "Unexp
 
 export type BrowserPerformanceAnalysisResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
-export type JsonValueKind = number;
-
 export interface BrowserAllocationFact {
   readonly kind: string;
   readonly type: string | null;

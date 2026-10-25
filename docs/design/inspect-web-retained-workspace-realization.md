@@ -584,6 +584,15 @@ Demo, share, and initial-location restoration produce a retained definition
 before requesting activation. They do not receive a private alternate
 realization path.
 
+A demo resolves and serializes its complete resource-free Definitions request
+before retention. Its canonical location independently encodes the selected
+view; presentation focus is not part of the restoration definition. Demo
+identity selects catalog content but is neither the retained restoration
+definition nor an alternate history address. Projectable definitions may also
+publish a canonical packet; nonprojectable definitions, including exact
+Platform membership and scanner-bearing ecosystem registrations, retain their
+serialized Definitions request without manufacturing one.
+
 ## Browser history
 
 The retained-realization owner supplies resource-free selection intent to

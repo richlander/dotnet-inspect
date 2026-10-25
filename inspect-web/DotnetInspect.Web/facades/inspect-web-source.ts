@@ -70,8 +70,6 @@ export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | 
 
 export type InspectionDiagnosticSeverity = number;
 
-export type JsonValueKind = number;
-
 export type TypeApiDeclarationFailureKind = "ProjectionTruncated" | "ParticipantRejected" | "ParticipantFailed" | "InspectionIncomplete" | "AccessorMetadataUnavailable" | "PrinterNotRendered" | number;
 
 export type TypeApiDeclarationOutcome = "Available" | "NotFound" | "Unavailable" | number;

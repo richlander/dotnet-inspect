@@ -108,8 +108,6 @@ export type ExactTypeInspectionOutcome = number;
 
 export type InspectionDiagnosticSeverity = number;
 
-export type JsonValueKind = number;
-
 export type MetadataRootMalformedReason = number;
 
 export type MetadataTypeNameFailureMechanism = number;

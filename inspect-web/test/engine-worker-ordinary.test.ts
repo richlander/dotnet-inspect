@@ -323,12 +323,12 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("observeRetainedWorkspaceSettlement"),
     prepareEcosystemWorkspaceDefinition: () =>
       unexpected("prepareEcosystemWorkspaceDefinition"),
-    prepareHomeDemoWorkspaceDefinition: () =>
-      unexpected("prepareHomeDemoWorkspaceDefinition"),
     preparePackageQueryWorkspaceDefinition: () =>
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
       unexpected("prepareRetainedWorkspaceDefinition"),
+    prepareRetainedWorkspaceDefinitionFromRecords: () =>
+      unexpected("prepareRetainedWorkspaceDefinitionFromRecords"),
     prepareRetainedWorkspaceDefinitionWithCredentials: () =>
       unexpected("prepareRetainedWorkspaceDefinitionWithCredentials"),
     recordRetainedWorkspaceNavigationPosting: () =>
@@ -2160,6 +2160,47 @@ test("oversized prepared activation is cancelled before rejection", async () => 
   state.host.dispose();
 });
 
+test("serialized definition records cross ordinary transport", async () => {
+  const requests: unknown[][] = [];
+  const state = fixture({
+    catalog: {
+      prepareRetainedWorkspaceDefinitionFromRecords: async (...args) => {
+        requests.push(args);
+        return {
+          status: "failed",
+          receipt: null,
+          preparation: null,
+          posting: null,
+          failure: {
+            kind: "Fixture",
+            message: "Fixture definition-record preparation failed.",
+          },
+        };
+      },
+    },
+  });
+
+  const preparation =
+    state.client.catalog.prepareRetainedWorkspaceDefinitionFromRecords(
+      "definition",
+      "Definition",
+      "/?w=view#workspace",
+      "product.demo",
+      ["{\"kind\":\"scenario\"}"],
+    );
+  await state.environment.flushAsync();
+
+  assert.equal((await preparation).failure?.kind, "Fixture");
+  assert.deepEqual(requests, [[
+    "definition",
+    "Definition",
+    "/?w=view#workspace",
+    "product.demo",
+    ["{\"kind\":\"scenario\"}"],
+  ]]);
+  state.host.dispose();
+});
+
 test("retained Workspace Navigation lifecycle crosses ordinary transport", async () => {
   const calls: string[] = [];
   const state = fixture({
@@ -2626,9 +2667,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "explainVocabularies",
       "observeRetainedWorkspaceSettlement",
       "prepareEcosystemWorkspaceDefinition",
-      "prepareHomeDemoWorkspaceDefinition",
       "preparePackageQueryWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
+      "prepareRetainedWorkspaceDefinitionFromRecords",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
       "recordRetainedWorkspaceNavigationPosting",
       "resolveHomeDemo",

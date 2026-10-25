@@ -231,6 +231,41 @@ public sealed class BrowserProductHomeDemosTests
         Assert.Equal("System.Text.Json.JsonSerializer", view.GetProperty("type").GetString());
         Assert.Equal(ProductDemoSections.Methods, view.GetProperty("section").GetString());
         Assert.Equal(JsonValueKind.Null, view.GetProperty("memberAnchor").ValueKind);
+
+        JsonElement workspace = root.GetProperty("workspace");
+        JsonElement tab = Assert.Single(workspace.GetProperty("tabs").EnumerateArray());
+        Assert.Equal("group", tab.GetProperty("kind").GetString());
+        Assert.Equal(":Platform", tab.GetProperty("source").GetString());
+        Assert.Equal("stj", workspace.GetProperty("activeTabId").GetString());
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            workspace.GetProperty("view").GetProperty("type").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            workspace.GetProperty("view").GetProperty("section").ValueKind);
+
+        InspectionDefinitionRecord[] restorationDefinitions =
+        [
+            .. root.GetProperty("restorationDefinitions")
+                .EnumerateArray()
+                .Select(record => InspectionDefinitionJson.Parse(
+                    Assert.IsType<string>(record.GetString()))),
+        ];
+        Assert.Contains(
+            restorationDefinitions,
+            record => record is WorkspaceDefinition);
+        Assert.Contains(
+            restorationDefinitions,
+            record => record is CommittedNavigationDefinition
+            {
+                Focus: null,
+            });
+        Assert.Contains(
+            restorationDefinitions,
+            record => record is CommittedViewDefinition);
+        Assert.Contains(
+            restorationDefinitions,
+            record => record is ScenarioDefinition);
     }
 
     [Fact]
@@ -270,6 +305,12 @@ public sealed class BrowserProductHomeDemosTests
         Assert.Equal("74b6b4b321", view.GetProperty("memberAnchor").GetString());
         Assert.Equal("method:TryAddEnumerable", view.GetProperty("memberKey").GetString());
         Assert.Equal(ProductDemoSections.CallGraph, view.GetProperty("section").GetString());
+
+        JsonElement workspace = root.GetProperty("workspace");
+        Assert.Single(workspace.GetProperty("tabs").EnumerateArray());
+        Assert.Equal(
+            "call-graph",
+            workspace.GetProperty("view").GetProperty("section").GetString());
     }
 
     [Fact]

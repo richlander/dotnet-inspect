@@ -666,6 +666,100 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CatalogFacade_PreparesResolvedHomeDemoDefinitionRecords()
+    {
+        _ = await OptionsAsync();
+        await Catalog.BrowserRetainedWorkspaceActivationService
+            .ResetForTestsAsync();
+        try
+        {
+            using JsonDocument resolved = JsonDocument.Parse(
+                Catalog.CatalogExports.ResolveHomeDemo(
+                    ProductDemoIds.StjSerializer));
+            string[] records =
+            [
+                .. resolved.RootElement.GetProperty("demo")
+                    .GetProperty("restorationDefinitions")
+                    .EnumerateArray()
+                    .Select(record =>
+                        Assert.IsType<string>(record.GetString())),
+            ];
+
+            string preparationJson =
+                await Catalog.CatalogExports
+                    .PrepareRetainedWorkspaceDefinitionFromRecords(
+                        "facade-home-demo",
+                        "System.Text.Json",
+                        "/?w=view#workspace",
+                        ProductDemoIds.StjSerializer,
+                        JsonSerializer.Serialize(
+                            records,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .StringArray));
+            Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspacePreparationResult>(
+                        JsonSerializer.Deserialize(
+                            preparationJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspacePreparationResult));
+
+            Assert.Equal("prepared", preparation.Status);
+            Catalog.BrowserRetainedWorkspacePreparedPosting prepared =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspacePreparedPosting>(
+                        preparation.Preparation);
+            Assert.Null(prepared.CanonicalPacket);
+            Assert.Single(prepared.Platforms);
+
+            string receipt = Assert.IsType<string>(preparation.Receipt);
+            string cancellationJson =
+                await Catalog.CatalogExports
+                    .CancelRetainedWorkspaceActivation(receipt);
+            Catalog.BrowserRetainedWorkspaceActivationResult cancellation =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspaceActivationResult>(
+                        JsonSerializer.Deserialize(
+                            cancellationJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspaceActivationResult));
+            Assert.NotEqual("failed", cancellation.Status);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .ResetForTestsAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData("not-json")]
+    [InlineData("[\"{}\"]")]
+    public async Task CatalogFacade_RejectsInvalidDefinitionRecords(
+        string definitionRecordsJson)
+    {
+        string preparationJson =
+            await Catalog.CatalogExports
+                .PrepareRetainedWorkspaceDefinitionFromRecords(
+                    "invalid-records",
+                    "Invalid",
+                    "/?w=invalid#workspace",
+                    ProductDemoIds.StjSerializer,
+                    definitionRecordsJson);
+        Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+            Assert.IsType<
+                Catalog.BrowserRetainedWorkspacePreparationResult>(
+                    JsonSerializer.Deserialize(
+                        preparationJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspacePreparationResult));
+
+        Assert.Equal("failed", preparation.Status);
+        Assert.Equal("InvalidDefinition", preparation.Failure?.Kind);
+    }
+
+    [Fact]
     public async Task CatalogFacade_PackageQueryPreparesProductDefinition()
     {
         _ = await OptionsAsync();
@@ -717,95 +811,6 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             await Catalog.BrowserRetainedWorkspaceActivationService
                 .ResetForTestsAsync();
         }
-    }
-
-    [Fact]
-    public async Task CatalogFacade_HomeDemoPreparesMethodsDefinition()
-    {
-        _ = await OptionsAsync();
-        Catalog.BrowserProductWorkspacePlans.ConfigurePlatform();
-        await Catalog.BrowserRetainedWorkspaceActivationService
-            .ResetForTestsAsync();
-        try
-        {
-            string preparationJson =
-                await Catalog.CatalogExports
-                    .PrepareHomeDemoWorkspaceDefinition(
-                        "home-demo-stj",
-                        "System.Text.Json",
-                        $"/demos?demo={ProductDemoIds.StjSerializer}",
-                        ProductDemoIds.StjSerializer);
-            Catalog.BrowserRetainedWorkspacePreparationResult preparation =
-                Assert.IsType<
-                    Catalog.BrowserRetainedWorkspacePreparationResult>(
-                        JsonSerializer.Deserialize(
-                            preparationJson,
-                            Catalog.BrowserCatalogJsonContext.Default
-                                .BrowserRetainedWorkspacePreparationResult));
-
-            Assert.True(
-                preparation.Status == "prepared",
-                $"{preparation.Failure?.Kind}: {preparation.Failure?.Message}");
-            Catalog.BrowserRetainedWorkspacePreparedPosting prepared =
-                Assert.IsType<Catalog.BrowserRetainedWorkspacePreparedPosting>(
-                    preparation.Preparation);
-            Assert.Equal("home-demo-stj", prepared.RetainedDefinitionId);
-            Assert.Null(prepared.CanonicalPacket);
-            Catalog.BrowserWorkspaceShareTab tab =
-                Assert.Single(prepared.Definition.Tabs);
-            Assert.Equal("stj", tab.Id);
-            Assert.Equal("platform", tab.Kind);
-            Assert.Equal("runtime", tab.Source);
-            Assert.Equal("10.0.12", tab.Version);
-            Assert.Equal("net10.0", tab.Framework);
-            Catalog.BrowserRetainedWorkspacePlatformInventory platform =
-                Assert.Single(prepared.Platforms);
-            Assert.Equal("runtime", platform.Family);
-            Assert.Empty(prepared.Packages);
-            Assert.Equal(
-                "Workspace",
-                prepared.Navigation.Snapshot.ActiveSubject.Kind);
-
-            string cancellationJson =
-                await Catalog.CatalogExports.CancelRetainedWorkspaceActivation(
-                    Assert.IsType<string>(preparation.Receipt));
-            Catalog.BrowserRetainedWorkspaceActivationResult cancellation =
-                Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
-                    JsonSerializer.Deserialize(
-                        cancellationJson,
-                        Catalog.BrowserCatalogJsonContext.Default
-                            .BrowserRetainedWorkspaceActivationResult));
-            Assert.NotEqual("failed", cancellation.Status);
-        }
-        finally
-        {
-            await Catalog.BrowserRetainedWorkspaceActivationService
-                .ResetForTestsAsync();
-        }
-    }
-
-    [Theory]
-    [InlineData("not-a-demo", "UnknownDemo")]
-    [InlineData("stj-serialize-callgraph", "UnsupportedDemoSection")]
-    public async Task CatalogFacade_HomeDemoRejectsUnsupportedDefinition(
-        string scenarioId,
-        string expectedFailure)
-    {
-        string preparationJson =
-            await Catalog.CatalogExports.PrepareHomeDemoWorkspaceDefinition(
-                "home-demo-unsupported",
-                "Unsupported",
-                $"/demos?demo={scenarioId}",
-                scenarioId);
-        Catalog.BrowserRetainedWorkspacePreparationResult preparation =
-            Assert.IsType<Catalog.BrowserRetainedWorkspacePreparationResult>(
-                JsonSerializer.Deserialize(
-                    preparationJson,
-                    Catalog.BrowserCatalogJsonContext.Default
-                        .BrowserRetainedWorkspacePreparationResult));
-
-        Assert.Equal("failed", preparation.Status);
-        Assert.Equal(expectedFailure, preparation.Failure?.Kind);
     }
 
     [Theory]

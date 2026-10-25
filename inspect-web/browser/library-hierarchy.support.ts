@@ -3672,6 +3672,7 @@ async function installFacades(
         label,
         canonicalLocation,
         scenarioId,
+        canonicalPacket,
       ) {
         const demo = homeDemoResolutions[scenarioId];
         const result = homeDemoResults[scenarioId];
@@ -3777,7 +3778,7 @@ async function installFacades(
           retainedDefinitionId,
           label,
           canonicalLocation,
-          canonicalPacket: null,
+          canonicalPacket,
           realizationId: "home-demo-realization-" + publicationOrdinal,
           publicationOrdinal,
           definition: {
@@ -3914,6 +3915,8 @@ async function installFacades(
       export async function resolveHomeDemo(id) {
         document.documentElement.dataset.homeDemoResolve = id;
         homeDemoResolutionOrdinal++;
+        document.documentElement.dataset.homeDemoResolveCount =
+          String(homeDemoResolutionOrdinal);
         if (homeDemoResolutionOrdinal
             === homeDemoResolutionPendingOrdinal) {
           document.documentElement.dataset.homeDemoResolutionPending = "true";
@@ -4012,6 +4015,9 @@ async function installFacades(
           packet: btoa(JSON.stringify(state)),
           failure: null,
         };
+      }
+      export async function captureCompleteWorkspaceShareState(state) {
+        return encodeWorkspaceShareState(state);
       }
       export function decodeWorkspaceShareState(packet) {
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };
@@ -4125,42 +4131,16 @@ async function installFacades(
           failure: null,
         };
       }
-      export async function prepareEcosystemWorkspaceDefinition(
-        retainedDefinitionId,
-        label,
-        canonicalLocation,
-        ecosystemId,
-      ) {
-        preparedRetainedWorkspace = ecosystemWorkspacePosting(
-          retainedDefinitionId,
-          label,
-          canonicalLocation,
-          ecosystemId,
-        );
-        return {
-          status: "prepared",
-          receipt: "ecosystem-receipt",
-          preparation: {
-            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
-            label: preparedRetainedWorkspace.label,
-            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
-            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
-            definition: preparedRetainedWorkspace.definition,
-            navigation: preparedRetainedWorkspace.navigation,
-            packages: preparedRetainedWorkspace.packages,
-            platforms: preparedRetainedWorkspace.platforms,
-          },
-          posting: null,
-          failure: null,
-        };
-      }
-      export async function prepareHomeDemoWorkspaceDefinition(
+      export async function prepareRetainedWorkspaceDefinitionFromRecords(
         retainedDefinitionId,
         label,
         canonicalLocation,
         scenarioId,
+        definitionRecords,
       ) {
         document.documentElement.dataset.homeDemoPrepare = scenarioId;
+        document.documentElement.dataset.homeDemoDefinitionRecordCount =
+          String(definitionRecords.length);
         homeDemoPreparationOrdinal++;
         if (homeDemoPreparationOrdinal
             === homeDemoPreparationPendingOrdinal) {
@@ -4178,6 +4158,7 @@ async function installFacades(
           label,
           canonicalLocation,
           scenarioId,
+          null,
         );
         if (preparedRetainedWorkspace === null) {
           return {
@@ -4191,9 +4172,45 @@ async function installFacades(
             },
           };
         }
+        document.documentElement.dataset.homeDemoPreparedSubjects =
+          JSON.stringify([
+            ...preparedRetainedWorkspace.packages.map(
+              candidate => candidate.navigationId),
+            ...preparedRetainedWorkspace.platforms.map(
+              candidate => candidate.navigationId),
+          ]);
         return {
           status: "prepared",
           receipt: "home-demo-receipt",
+          preparation: {
+            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
+            label: preparedRetainedWorkspace.label,
+            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
+            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
+            definition: preparedRetainedWorkspace.definition,
+            navigation: preparedRetainedWorkspace.navigation,
+            packages: preparedRetainedWorkspace.packages,
+            platforms: preparedRetainedWorkspace.platforms,
+          },
+          posting: null,
+          failure: null,
+        };
+      }
+      export async function prepareEcosystemWorkspaceDefinition(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        ecosystemId,
+      ) {
+        preparedRetainedWorkspace = ecosystemWorkspacePosting(
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          ecosystemId,
+        );
+        return {
+          status: "prepared",
+          receipt: "ecosystem-receipt",
           preparation: {
             retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
             label: preparedRetainedWorkspace.label,
