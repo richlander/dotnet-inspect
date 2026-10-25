@@ -512,6 +512,54 @@ public class SourceLinkQueryServiceTests
     }
 
     [Fact]
+    public async Task Availability_RefillsBoundedWindowWhenAnyHeadCompletes()
+    {
+        const int MaximumConcurrentHeads = 16;
+        SourceDocumentObservation[] documents =
+        [
+            .. Enumerable.Range(0, MaximumConcurrentHeads + 1)
+                .Select(index => Document(
+                    $"/src/{index}.cs",
+                    url: $"https://example.test/src/{index}.cs")),
+        ];
+        var handler = new GatedHeadHandler(documents.Length);
+        using var client = new HttpClient(handler);
+
+        Task<SourceAvailabilitySummary> audit = SourceAvailabilityService.InspectAsync(
+            documents,
+            client,
+            cancellationToken: TestContext.Current.CancellationToken);
+        try
+        {
+            await handler.WaitUntilEnteredAsync(
+                Enumerable.Range(0, MaximumConcurrentHeads),
+                TestContext.Current.CancellationToken);
+            Assert.False(handler.HasEntered(MaximumConcurrentHeads));
+
+            handler.Complete(1);
+            await handler.WaitUntilEnteredAsync(
+                [MaximumConcurrentHeads],
+                TestContext.Current.CancellationToken);
+            Assert.False(handler.HasCompleted(0));
+
+            handler.CompleteAll();
+            SourceAvailabilitySummary result = await audit;
+
+            Assert.Equal(MaximumConcurrentHeads, handler.MaximumActive);
+            Assert.Equal(documents.Length, result.AccessibleSourceFiles);
+            Assert.True(result.AllSourcesAccessible);
+        }
+        finally
+        {
+            handler.CompleteAll();
+            Task settlement = audit;
+            await settlement.ConfigureAwait(
+                ConfigureAwaitOptions.SuppressThrowing
+                | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+    }
+
+    [Fact]
     public async Task Integrity_DoesNotAcceptMatchingBytesFromCrossOriginRedirect()
     {
         byte[] body = "exact source"u8.ToArray();
@@ -695,6 +743,80 @@ public class SourceLinkQueryServiceTests
             HttpResponseMessage response = respond(request);
             response.RequestMessage ??= request;
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class GatedHeadHandler(int count) : HttpMessageHandler
+    {
+        private readonly Gate[] _gates =
+            Enumerable.Range(0, count).Select(_ => new Gate()).ToArray();
+        private int _active;
+        private int _maximumActive;
+
+        public int MaximumActive => Volatile.Read(ref _maximumActive);
+
+        public bool HasEntered(int index) => _gates[index].Entered.Task.IsCompleted;
+
+        public bool HasCompleted(int index) => _gates[index].Completed.Task.IsCompleted;
+
+        public void Complete(int index) => _gates[index].Finish.TrySetResult();
+
+        public void CompleteAll()
+        {
+            foreach (Gate gate in _gates)
+                gate.Finish.TrySetResult();
+        }
+
+        public Task WaitUntilEnteredAsync(
+            IEnumerable<int> indexes,
+            CancellationToken cancellationToken) =>
+            Task.WhenAll(indexes.Select(index =>
+                _gates[index].Entered.Task.WaitAsync(cancellationToken)));
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            int index = int.Parse(
+                Path.GetFileNameWithoutExtension(request.RequestUri!.AbsolutePath));
+            Gate gate = _gates[index];
+            int active = Interlocked.Increment(ref _active);
+            int observed = Volatile.Read(ref _maximumActive);
+            while (active > observed)
+            {
+                int prior = Interlocked.CompareExchange(
+                    ref _maximumActive,
+                    active,
+                    observed);
+                if (prior == observed)
+                    break;
+                observed = prior;
+            }
+
+            gate.Entered.TrySetResult();
+            try
+            {
+                await gate.Finish.Task.WaitAsync(cancellationToken);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    RequestMessage = request,
+                };
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _active);
+                gate.Completed.TrySetResult();
+            }
+        }
+
+        private sealed class Gate
+        {
+            public TaskCompletionSource Entered { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public TaskCompletionSource Finish { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public TaskCompletionSource Completed { get; } =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
     }
 
