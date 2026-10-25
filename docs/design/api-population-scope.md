@@ -363,8 +363,9 @@ comparison classifies the signature change by each accessor's own external
 reach, as it classifies an accessibility move: Breaking when any accessor's
 reach narrows, including an accessor that leaves the externally reachable
 population, Additive when reach only widens, and NonBreaking when no
-accessor's reach changes. This holds in every comparison scope. The change
-stays one signature row, beside the property's own accessibility move when
+accessor's reach changes. Unlike the accessibility move above, this holds in
+every comparison scope, because every scope reports the signature row. The
+change stays one signature row, beside the property's own accessibility move when
 the widest accessor moves. Every other signature change, including an
 accessor added or removed, stays Breaking. An event's signature spells no
 accessor, so it never takes this rule.
@@ -380,8 +381,9 @@ widens `FlyoutBase.IsOpen` from `{ get; protected set; }` to
 `{ get; set; }` (Additive), and System.Text.Json 6.0.0 to 8.0.6 moves
 `JsonTypeInfo<T>.SerializeHandler` from `{ get; private protected set; }` to
 `{ get; internal set; }`, which neither side's setter lets another assembly
-reach (NonBreaking). The operator chose this rule on 2026-10-25 in
-[#10628](https://github.com/richlander/dotnet-inspect/issues/10628).
+reach (NonBreaking). The rule was adopted on 2026-10-25 in
+[#10628](https://github.com/richlander/dotnet-inspect/issues/10628), where
+the operator delegated the choice.
 `FindingDiffAnyTests` and `LibraryApiDiffCommandTests` gate it.
 
 The ordinary population, the `public` bucket without hidden declarations, is
