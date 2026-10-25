@@ -101,20 +101,22 @@ The rungs are [Diff capabilities](diff-capabilities.md)'.
 
 Finding Diff Any is the assembly scenario, hard-wired: assembly-wide pairing,
 Type-scope folds, and a private body reader, the walk, that decides a paired
-method's Body without a cursor. Product hosts reach the Type scenario by
-filtering its assembly result, and its one Type-scoped entry, `Explain`,
-returns first-difference text, not states. It reaches the member scenario
-only through internal gate hooks; the member Body diff lives in IL diff's
-endpoints, and a member's API today is read as a filter over the surface-wide
-API comparison. [Diff History](diff-history.md) composes the chain form, each
-consecutive pair of a version population, in two ways: Library-scope History
-over Finding Diff Any at explicit points, and Type- or Member-focused History
-over Finding producers, such as the API member and Analysis Findings, whose
-adaptive probing bisects one Type's or one Member's Findings by inspecting
-each point it probes, with no assumption that the focus changed once. Batch
-as a star,
-and bisect over Exists on Finding Diff Any's axes, are not composed. Finding
-Diff Any is therefore one composition, not the solution.
+method's Body without a cursor. Its Type-scoped entry,
+`FindingDiffAnyTypePairing`, pairs two images once and returns one paired
+Type's rows and states through either body reader ([Type
+inventory](finding-diff-any.md#type)); the Member fold over those rows is the
+Type level's, not yet composed, and `Explain` returns first-difference text. It
+reaches the member scenario only through internal gate hooks; the member Body
+diff lives in IL diff's endpoints, and a member's API today is read as a filter
+over the surface-wide API comparison. [Diff History](diff-history.md) composes
+the chain form, each consecutive pair of a version population, in two ways:
+Library-scope History over Finding Diff Any at explicit points, and Type- or
+Member-focused History over Finding producers, such as the API member and
+Analysis Findings, whose adaptive probing bisects one Type's or one Member's
+Findings by inspecting each point it probes, with no assumption that the focus
+changed once. Batch as a star, and bisect over Exists on Finding Diff Any's
+axes, are not composed. Finding Diff Any is therefore one composition, not the
+solution.
 
 What is foundational is what every row of the table uses: the cursors and
 `FindingExists` of [Finding census](finding-census.md), which owns the

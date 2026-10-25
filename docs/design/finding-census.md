@@ -380,6 +380,14 @@ each member row decided by Exists through both readers: the scope the
 per-member scenarios are built from, and the one this record does not
 reach.
 
+### Cost at Type scope
+
+The second measurement of step 2b, one paired Type at a time through
+`FindingDiffAnyTypePairing`: the pairing built once per reader, then every
+paired Type's inventory read through the walk and through lockstep over two
+IL cursors, timed per Type, with the `type` leg of
+`eng/measure-finding-diff-any.cs`. The record is pending the run.
+
 ## Exhaustive
 
 Exhaustive drains each cursor to its `FindingInspection<T>`, seals a `Complete`
@@ -612,11 +620,12 @@ test class gates its cursor:
      `lockstep` leg of `eng/measure-finding-diff-any.cs` measures it
      Library-wide on the perf hosts under NativeAOT, with the two readers'
      Type states asserted equal ([cost record](#cost-beside-the-walk): the
-     walk is kept, 1.4× to 6.8× faster at assembly scope); then the Type
-     scope measurement, the inventory of member differences for one Type
-     pair decided by Exists through both readers, atoms without per-advance
-     allocation, the Browser/Wasm measurement, and the walk deleted or kept
-     by the cost gate's answer.
+     walk is kept, 1.4× to 6.8× faster at assembly scope); the Type scope
+     measurement through `FindingDiffAnyTypePairing`, one paired Type's rows
+     decided by Exists through both readers, timed per Type by the `type`
+     leg of the same script ([cost record](#cost-at-type-scope)); then atoms
+     without per-advance allocation, the Browser/Wasm measurement, and the
+     walk deleted or kept by the cost gate's answer.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Finding Diff Any's declaration census, which is the view's
    adoption step DV1 taken through this owner; gated as step 1 is.
