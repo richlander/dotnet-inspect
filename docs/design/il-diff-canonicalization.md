@@ -164,17 +164,18 @@ through the decoder's shallow reader and resolves nothing, then decodes one
 instruction and resolves one operand per advance through its `IlCensusSide`,
 which memoizes by operand kind and token. An instruction the decoder rejects
 ends the pre-scan at its offset: the cursor yields every atom before that
-offset and ends
-`Failed` there, so a difference before the fault is visible in the atoms. A
-branch or switch target that starts no instruction of the body, starts one
-that follows a prefix, or lies at or past the body's end is carried as
-`UndecidedTarget`, and a stream that completes with one ends `Failed` by the
+offset and ends `Failed` there, so a difference before the fault is visible in
+the atoms. A branch or switch target that starts no instruction of the body,
+starts one that follows a prefix, or lies at or past the body's end is carried
+as `UndecidedTarget`, and a stream that completes with one ends `Failed` by the
 decoder's own rule rather than `Complete`. Once every instruction is read, the
-clause stage, a second non-lazy step, builds the decoder's block graph over the
-retained instructions to validate the exception-clause table by the decoder's
-rules, so a clause-table failure reports the decode's reason and a clause atom
-never carries a boundary the alignment cannot place; a pre-scan fault reports
-the shallow reader's reason, which can differ in wording from the full
+clause stage, a second non-lazy step, applies the decoder's exception-clause
+rules, its exception-flow topology over the retained instructions, without
+building its blocks, so a clause-table failure reports the decode's reason and
+a clause atom never carries a boundary the alignment cannot place; a body that
+declares no exception regions has no clause stage and retains no instruction; a
+pre-scan fault reports the shallow reader's reason, and a misaligned branch
+target the cursor's own, each of which can differ in wording from the full
 decoder's for the same body. Over an already decoded body the pre-scan is that
 decode; an incomplete decode retains no prefix, so the cursor fails at position
 zero with the decode's reason. Failing to read a present body, one whose RVA is

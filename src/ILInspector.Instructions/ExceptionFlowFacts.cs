@@ -529,8 +529,24 @@ internal sealed record ExceptionFlowClauseDescriptor(
     MethodExceptionClause? Clause,
     int CatchTypeToken = 0);
 
+/// <summary>
+/// The admitted boundaries of one body for the clause-table rules: an offset
+/// that starts an instruction not following a prefix, or the body's end. A
+/// decode supplies them as a set over its instructions; a reader that keeps
+/// its own instruction map answers from it and retains no instruction.
+/// </summary>
+internal interface IInstructionBoundaries
+{
+    bool Contains(int offset);
+}
+
 internal sealed class ExceptionFlowTopology
 {
+    sealed class SetBoundaries(HashSet<int> offsets) : IInstructionBoundaries
+    {
+        public bool Contains(int offset) => offsets.Contains(offset);
+    }
+
     ExceptionFlowTopology(
         ImmutableArray<ExceptionFlowClauseDescriptor> clauses,
         ImmutableArray<ExceptionRegionModel> models,
@@ -565,6 +581,29 @@ internal sealed class ExceptionFlowTopology
         int ilLength,
         ImmutableArray<DecodedInstruction> instructions,
         IReadOnlyCollection<ExceptionRegion> regions)
+    {
+        HashSet<int> boundaries = AdmittedBoundaries(instructions, ilLength);
+        return Create(ilLength, new SetBoundaries(boundaries), regions, instructions, boundaries);
+    }
+
+    /// <summary>
+    /// The clause table alone, over a reader's own boundaries and no instruction
+    /// list: the region rules that set <see cref="BlockGraphIncompleteReason"/>
+    /// and the <see cref="Models"/>, without the normal-transfer validation the
+    /// exception-flow facts add, which <see cref="BlockGraph"/> never consulted.
+    /// </summary>
+    internal static ExceptionFlowTopology CreateTable(
+        int ilLength,
+        IInstructionBoundaries boundaries,
+        IReadOnlyCollection<ExceptionRegion> regions)
+        => Create(ilLength, boundaries, regions, transferInstructions: null, transferBoundaries: null);
+
+    static ExceptionFlowTopology Create(
+        int ilLength,
+        IInstructionBoundaries boundaries,
+        IReadOnlyCollection<ExceptionRegion> regions,
+        ImmutableArray<DecodedInstruction>? transferInstructions,
+        IReadOnlySet<int>? transferBoundaries)
     {
         var descriptors = ImmutableArray.CreateBuilder<ExceptionFlowClauseDescriptor>();
         int ordinal = 0;
@@ -615,9 +654,11 @@ internal sealed class ExceptionFlowTopology
 
         return Build(
             ilLength,
-            instructions,
+            boundaries,
             descriptors.ToImmutable(),
-            body: null);
+            body: null,
+            transferInstructions,
+            transferBoundaries);
     }
 
     internal static ExceptionFlowTopology Create(
@@ -650,20 +691,24 @@ internal sealed class ExceptionFlowTopology
                 clause,
                 clause.CatchType?.MetadataToken ?? 0))];
 
+        HashSet<int> boundaries = AdmittedBoundaries(instructions, ilLength);
         return Build(
             ilLength,
-            instructions,
+            new SetBoundaries(boundaries),
             descriptors,
-            body.EvidenceId);
+            body.EvidenceId,
+            instructions,
+            boundaries);
     }
 
     static ExceptionFlowTopology Build(
         int ilLength,
-        ImmutableArray<DecodedInstruction> instructions,
+        IInstructionBoundaries boundaries,
         ImmutableArray<ExceptionFlowClauseDescriptor> clauses,
-        MethodBodyEvidenceId? body)
+        MethodBodyEvidenceId? body,
+        ImmutableArray<DecodedInstruction>? transferInstructions,
+        IReadOnlySet<int>? transferBoundaries)
     {
-        HashSet<int> boundaries = AdmittedBoundaries(instructions, ilLength);
         foreach (ExceptionFlowClauseDescriptor clause in clauses)
         {
             if (!IsSupportedKind(clause.Kind)
@@ -873,10 +918,11 @@ internal sealed class ExceptionFlowTopology
             incompleteReason: null,
             blockGraphIncompleteReason: null);
 
-        if (!result.TryValidateAllNormalTransfers(
+        if (transferInstructions is { } instructions
+            && !result.TryValidateAllNormalTransfers(
                 instructions,
                 ilLength,
-                boundaries,
+                transferBoundaries!,
                 out InstructionExceptionFlowUnavailableReason transferUnavailableReason,
                 out string transferReason))
         {
