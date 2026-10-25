@@ -213,7 +213,7 @@ public sealed record WorkspaceTopLevelPackageEntry(
     string? SelectedTargetFramework,
     string? EffectiveTargetFramework,
     string? RuntimeIdentifier,
-    PackageCompileAssetSelectionStatus AssetSelectionStatus,
+    PackageCompileAssetSelectionStatus? AssetSelectionStatus,
     WorkspaceTopLevelPackageState State)
     : WorkspaceTopLevelInventoryEntry(Key, SourceOrder)
 {
