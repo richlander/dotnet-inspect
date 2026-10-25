@@ -384,7 +384,8 @@ public static class ApiFindingClassifier
 
     /// <summary>
     /// Reports a <see cref="ChangeKind.MemberSignatureChanged"/> fact for a matched member pair
-    /// (hard-identity or normalized-projection) whose raw signature text differs.
+    /// (hard-identity or normalized-projection) whose raw signature text differs, classified
+    /// by <see cref="ApiDiffAnalyzer.ClassifySignatureChange"/>.
     /// </summary>
     static void AddSignatureChangeIfDifferent(ApiMemberHandle oldHandle, ApiMemberHandle newHandle, List<ApiChange> changes)
     {
@@ -393,7 +394,7 @@ public static class ApiFindingClassifier
 
         changes.Add(new ApiChange(
             ChangeKind.MemberSignatureChanged,
-            ChangeClassification.Breaking,
+            ApiDiffAnalyzer.ClassifySignatureChange(oldHandle.Member, newHandle.Member),
             $"Member '{oldHandle.MemberName}' signature changed from '{oldHandle.Member.Signature}' to '{newHandle.Member.Signature}'",
             oldHandle.Member.Signature,
             newHandle.Member.Signature,

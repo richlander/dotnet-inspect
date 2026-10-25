@@ -186,7 +186,9 @@ public sealed class LibraryApiDiffCommandTests
         JsonElement signature = Assert.Single(
             changes,
             change => change.GetProperty("kind").GetInt32() == (int)ChangeKind.MemberSignatureChanged);
-        Assert.Equal((int)ChangeClassification.Breaking, signature.GetProperty("classification").GetInt32());
+        // The signature differs only in its accessor spelling, so each accessor's own reach
+        // classifies it: the getter moves as the property does, and the setter stays protected.
+        Assert.Equal((int)classification, signature.GetProperty("classification").GetInt32());
         JsonElement move = Assert.Single(
             changes,
             change => change.GetProperty("kind").GetInt32() == (int)ChangeKind.MemberAccessibilityChanged);
@@ -205,12 +207,14 @@ public sealed class LibraryApiDiffCommandTests
         // PublicAttribute's obsolete message change among them
         // (docs/design/api-status-analysis.md). The ordinary presentation cases add two
         // breaking signature changes, one under a hidden Type and one on an obsolete Member.
-        // The mixed-accessor property cases add four breaking rows (three signature changes
-        // and one narrowing move) and one additive widening move.
-        Assert.Equal(35, summary.GetProperty("breakingCount").GetInt32());
-        Assert.Equal(17, summary.GetProperty("additiveCount").GetInt32());
+        // The mixed-accessor property cases add three breaking rows (two signature changes
+        // and one narrowing move) and two additive ones (the widening move and its signature
+        // change), and the accessor move between protected and protected internal adds one
+        // non-breaking signature change (docs/design/api-population-scope.md).
+        Assert.Equal(34, summary.GetProperty("breakingCount").GetInt32());
+        Assert.Equal(18, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
-        Assert.Equal(16, summary.GetProperty("nonBreakingCount").GetInt32());
+        Assert.Equal(17, summary.GetProperty("nonBreakingCount").GetInt32());
     }
 
     [Theory]
@@ -292,13 +296,18 @@ public sealed class LibraryApiDiffCommandTests
         "- Member 'Value' accessibility narrowed from 'public' to 'protected'")]
     // A mixed-accessor property's accessibility is its widest accessor's, so moving that
     // accessor reports a move alongside the signature change; either side being public
-    // keeps both rows visible.
+    // keeps both rows visible. The signature change is classified by each accessor's own
+    // reach, so a widening move and its signature change are both additive.
     [InlineData(
         "MixedAccessorPropertyPublicToProtected",
         "- Member 'Value' signature changed from 'int Value { get; protected set; }' to 'int Value { get; set; }': `int Value { get; protected set; }` -> `int Value { get; set; }`\n- Member 'Value' accessibility narrowed from 'public' to 'protected'")]
     [InlineData(
         "MixedAccessorPropertyProtectedToPublic",
-        "- Member 'Value' accessibility widened from 'protected' to 'public'")]
+        "- Member 'Value' signature changed from 'int Value { get; set; }' to 'int Value { get; protected set; }': `int Value { get; set; }` -> `int Value { get; protected set; }`\n- Member 'Value' accessibility widened from 'protected' to 'public'")]
+    // The setter keeps its external reach, so the signature change is non-breaking.
+    [InlineData(
+        "AccessorProtectedToProtectedInternal",
+        "- Member 'Value' signature changed from 'int Value { get; protected set; }' to 'int Value { get; protected internal set; }': `int Value { get; protected set; }` -> `int Value { get; protected internal set; }`")]
     [InlineData(
         "MixedAccessorPropertyNarrowerAccessorMoves",
         "- Member 'Value' signature changed from 'int Value { get; protected set; }' to 'int Value { get; private set; }': `int Value { get; protected set; }` -> `int Value { get; private set; }`")]
@@ -363,7 +372,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(OutsideNote, namesError.Trim());
         Assert.Equal(OutsideNote, tableError.Trim());
         // Summary counts describe the displayed rows.
-        Assert.Contains("29 breaking, 17 additive, 5 non-breaking across 38 types", output);
+        Assert.Contains("28 breaking, 18 additive, 6 non-breaking across 39 types", output);
 
         // The unprojected document keeps the complete API axis population.
         using JsonDocument document = await FindingDiffAnyJson();
@@ -394,9 +403,9 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(
             (int)DotnetInspector.Queries.ApiSurfaceScope.ApiAxis,
             root.GetProperty("after").GetProperty("scope").GetInt32());
-        // 38 displayed Types plus the eight whose one row is outside the ordinary
+        // 39 displayed Types plus the eight whose one row is outside the ordinary
         // population; the CLI JSON spells a nested Type with '+'.
-        Assert.Equal(46, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
+        Assert.Equal(47, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
         JsonElement nested = Subject(document, "FindingDiffAnyFixture.NestedPublicToProtected+Nested");
         JsonElement after = nested.GetProperty("comparison").GetProperty("after");
         Assert.False(after.GetProperty("status").GetProperty("isOrdinary").GetBoolean());

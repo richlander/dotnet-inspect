@@ -794,10 +794,13 @@ public static class ApiDiffAnalyzer
             return;
         }
 
-        (ChangeClassification classification, string verb) =
-            newReach < oldReach ? (ChangeClassification.Breaking, "narrowed")
-            : newReach > oldReach ? (ChangeClassification.Additive, "widened")
-            : (ChangeClassification.NonBreaking, "changed");
+        ChangeClassification classification = ClassifyReachMove(oldReach, newReach);
+        string verb = classification switch
+        {
+            ChangeClassification.Breaking => "narrowed",
+            ChangeClassification.Additive => "widened",
+            _ => "changed",
+        };
         changes.Add(new ApiChange(
             kind,
             classification,
@@ -805,6 +808,96 @@ public static class ApiDiffAnalyzer
             oldText,
             newText,
             Subject: subject));
+    }
+
+    /// <summary>
+    /// How a move between two external reaches classifies: Breaking when reach narrows,
+    /// Additive when it widens, and NonBreaking when it is unchanged.
+    /// </summary>
+    static ChangeClassification ClassifyReachMove(int oldReach, int newReach)
+        => newReach < oldReach ? ChangeClassification.Breaking
+            : newReach > oldReach ? ChangeClassification.Additive
+            : ChangeClassification.NonBreaking;
+
+    /// <summary>
+    /// Classifies a matched Member's signature change (docs/design/api-population-scope.md):
+    /// Breaking, unless the two signatures differ only in how they spell their accessors'
+    /// accessibility, which is relative to the property's own. Then each accessor's own
+    /// external reach decides, as it does for an accessibility move: Breaking when any
+    /// accessor's reach narrows, Additive when reach only widens, and NonBreaking when no
+    /// accessor's reach changes.
+    /// </summary>
+    internal static ChangeClassification ClassifySignatureChange(ApiMember oldMember, ApiMember newMember)
+        => ClassifyAccessorSpellingChange(oldMember, newMember) ?? ChangeClassification.Breaking;
+
+    /// <summary>
+    /// The accessor reach classification when the two signatures differ only in their
+    /// accessor accessibility spelling: the same accessors, in the same order, and the same
+    /// text before the accessor list, which each side's typed accessors reproduce. An
+    /// accessor's own accessibility is its spelled accessibility, or its property's when it
+    /// spells none. <see langword="null"/> for any other difference, including an added or
+    /// removed accessor, or when either side's typed accessors are unavailable.
+    /// </summary>
+    static ChangeClassification? ClassifyAccessorSpellingChange(ApiMember oldMember, ApiMember newMember)
+    {
+        if (oldMember.SignatureModel?.Accessors is not { Count: > 0 } oldAccessors
+            || newMember.SignatureModel?.Accessors is not { } newAccessors
+            || oldAccessors.Count != newAccessors.Count
+            || SignatureBeforeAccessors(oldMember.Signature, oldAccessors) is not { } oldDeclaration
+            || SignatureBeforeAccessors(newMember.Signature, newAccessors) is not { } newDeclaration
+            || !string.Equals(oldDeclaration, newDeclaration, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        ChangeClassification classification = ChangeClassification.NonBreaking;
+        for (int index = 0; index < oldAccessors.Count; index++)
+        {
+            ApiAccessor oldAccessor = oldAccessors[index];
+            ApiAccessor newAccessor = newAccessors[index];
+            if (!string.Equals(oldAccessor.Kind, newAccessor.Kind, StringComparison.Ordinal)
+                || ExternalReach(oldAccessor.Accessibility ?? oldMember.Accessibility) is not { } oldReach
+                || ExternalReach(newAccessor.Accessibility ?? newMember.Accessibility) is not { } newReach)
+            {
+                return null;
+            }
+
+            switch (ClassifyReachMove(oldReach, newReach))
+            {
+                case ChangeClassification.Breaking:
+                    classification = ChangeClassification.Breaking;
+                    break;
+                case ChangeClassification.Additive when classification == ChangeClassification.NonBreaking:
+                    classification = ChangeClassification.Additive;
+                    break;
+            }
+        }
+        return classification;
+    }
+
+    /// <summary>
+    /// The signature text before its accessor list, such as <c>int Value</c> for
+    /// <c>int Value { get; protected set; }</c>, when the signature ends with the list its
+    /// typed accessors spell; otherwise <see langword="null"/>.
+    /// </summary>
+    static string? SignatureBeforeAccessors(string? signature, List<ApiAccessor> accessors)
+    {
+        if (signature is null)
+            return null;
+
+        var list = new System.Text.StringBuilder(" {");
+        foreach (ApiAccessor accessor in accessors)
+        {
+            list.Append(' ');
+            if (accessor.Accessibility is { } accessibility)
+                list.Append(accessibility).Append(' ');
+            list.Append(accessor.Kind).Append(';');
+        }
+        list.Append(" }");
+        string spelled = list.ToString();
+        return signature.EndsWith(spelled, StringComparison.Ordinal)
+            ? signature[..^spelled.Length]
+            : null;
     }
 
     /// <summary>One subject's API status facts (docs/design/api-status-analysis.md#status-facts).</summary>

@@ -308,6 +308,13 @@ public class MixedAccessorPropertyNarrowerAccessorMoves
     public int Value { get; private set; }
 }
 
+// The setter moves between accessibilities with the same external reach: derived
+// Types in other assemblies.
+public class AccessorProtectedToProtectedInternal
+{
+    public int Value { get; protected internal set; }
+}
+
 // Changes wholly outside the API axis.
 public class PrivateMemberRemoved
 {

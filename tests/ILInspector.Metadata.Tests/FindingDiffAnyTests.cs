@@ -413,7 +413,9 @@ public sealed class FindingDiffAnyTests
 
     // A property's accessibility is the widest of its accessors'
     // (docs/design/api-population-scope.md). Moving the widest accessor reports the
-    // signature change and the property's accessibility move by external reach.
+    // signature change and the property's accessibility move. The signature differs only in
+    // its accessor spelling, so it is classified by each accessor's own external reach: the
+    // getter narrows or widens and the setter stays protected, as the move does.
     [Theory]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis, "FindingDiffAnyFixture.MixedAccessorPropertyPublicToProtected", "int Value { get; protected set; }", "int Value { get; set; }", "public", "protected", ChangeClassification.Breaking)]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis, "FindingDiffAnyFixture.MixedAccessorPropertyProtectedToPublic", "int Value { get; set; }", "int Value { get; protected set; }", "protected", "public", ChangeClassification.Additive)]
@@ -437,7 +439,7 @@ public sealed class FindingDiffAnyTests
         ApiChange signature = Assert.Single(
             type.Changes,
             change => change.Kind == ChangeKind.MemberSignatureChanged);
-        Assert.Equal(ChangeClassification.Breaking, signature.Classification);
+        Assert.Equal(classification, signature.Classification);
         Assert.Equal(oldSignature, signature.OldValue);
         Assert.Equal(newSignature, signature.NewValue);
         ApiChange move = Assert.Single(
@@ -451,7 +453,8 @@ public sealed class FindingDiffAnyTests
     }
 
     // Only the narrower accessor moves; the widest, and so the property's accessibility,
-    // stays public, and the signature row alone reports the move.
+    // stays public, and the signature row alone reports the move. The setter leaves the
+    // externally reachable population, so the row stays Breaking.
     [Theory]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
     [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
@@ -468,6 +471,69 @@ public sealed class FindingDiffAnyTests
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
         Assert.Equal("int Value { get; protected set; }", change.OldValue);
         Assert.Equal("int Value { get; private set; }", change.NewValue);
+    }
+
+    // The setter moves between accessibilities with the same external reach, so the
+    // signature change is NonBreaking in every scope.
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public, "FindingDiffAnyFixture.AccessorProtectedToProtectedInternal", "int Value { get; protected set; }", "int Value { get; protected internal set; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "FindingDiffAnyFixture.AccessorProtectedToProtectedInternal", "int Value { get; protected set; }", "int Value { get; protected internal set; }")]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "FindingDiffAnyFixture.AccessorProtectedToProtectedInternal", "int Value { get; protected set; }", "int Value { get; protected internal set; }")]
+    public void AccessorSpellingChange_WithTheSameReach_IsNonBreaking(
+        ApiSurfaceExtractionScope scope,
+        string typeName,
+        string oldSignature,
+        string newSignature)
+    {
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(scope);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+        Assert.Equal(oldSignature, change.OldValue);
+        Assert.Equal(newSignature, change.NewValue);
+    }
+
+    // A setter that moves from internal to private reaches no other assembly on either side,
+    // so the signature change is NonBreaking in every scope. Finding Diff Any's API census
+    // reports such a Type unchanged, so this shape is compiled here rather than added to its
+    // fixture pair, whose soundness gate would reject the comparison's row.
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public)]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    public void AccessorSpellingChange_OutsideExternalReach_IsNonBreaking(ApiSurfaceExtractionScope scope)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface("public class C { public int Value { get; internal set; } }", scope),
+            CompiledSurface("public class C { public int Value { get; private set; } }", scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(Assert.Single(comparison.ApiDiff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+        Assert.Equal("int Value { get; internal set; }", change.OldValue);
+        Assert.Equal("int Value { get; private set; }", change.NewValue);
+    }
+
+    static ApiSurface CompiledSurface(string source, ApiSurfaceExtractionScope scope)
+    {
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "AccessorSpelling",
+            [CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken)],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        Microsoft.CodeAnalysis.Emit.EmitResult result =
+            compilation.Emit(image, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
+        image.Position = 0;
+        using var reader = new PEReader(image);
+        return ApiSurfaceExtractor.Extract(reader, scope);
     }
 
     [Fact]
