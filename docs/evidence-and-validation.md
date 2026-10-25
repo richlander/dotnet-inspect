@@ -175,6 +175,44 @@ terminal. Attribute that share by measuring the candidate against a variant
 without the guard; the candidate without the guard's share still meets the
 bar above.
 
+## Terminal correctness and least-work execution
+
+For applicable QuerySpace adoption or changed terminal execution, assess two
+separate dimensions: whether `Exists`, `Count`, and `Rows` answer correctly,
+and whether each executes only the work its answer requires. Implementing the
+terminals does not establish high performance.
+
+For each affected terminal, state its required facts, stopping condition, and
+work avoided across acquisition, traversal, decoding, row materialization,
+allocation, and spelling. Assess work at the storage-component boundary, not
+merely at the final result type. For API queries, independently stored
+signature components can be queried without first spelling the whole
+signature; separating Name from Signature is not the end of specialization.
+Full signature spelling belongs only where a predicate or presentation
+requires it. Preserve required correctness, containment, completion, and
+failure evidence when reducing work.
+
+Compare the supported terminals over the same scope, population, and
+predicates, allowing each only its terminal-required projection and output
+consumption. Use representative early-match, late-match, no-match, and
+population-sensitive Count cases as applicable to expose whether execution
+actually specializes. Apply the
+[exact-base/head NativeAOT protocol](#nativeaot-beforeafter-for-modernization)
+and, for QuerySpace enablement, the
+[performance oracles](#performance-oracles-for-queryspace-enablement).
+Separate fixed startup and acquisition costs from query execution when they
+mask the difference. Work and allocation evidence explains that difference;
+it does not replace NativeAOT timing.
+
+`Exists` or `Count` costs approaching equivalent `Rows` costs are a diagnostic
+signal, not automatic proof of a defect or of acceptable performance.
+Investigate missed pushdown, eager decoding or spelling, and unnecessary row
+materialization or allocation before claiming readiness. Exact Count and
+unsuccessful Exists may require exhaustive traversal, and unavoidable shared
+work can dominate elapsed time; neither necessarily requires Rows' projection
+or spelling work. Explain unavoidable costs and demonstrate which work was
+avoided or remains necessary. Do not impose a universal speedup ratio.
+
 ## Performance oracles for QuerySpace enablement
 
 The end-to-end comparison above proves what a user sees. It does not show

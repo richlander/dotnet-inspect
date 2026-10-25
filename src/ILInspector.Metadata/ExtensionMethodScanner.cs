@@ -116,6 +116,11 @@ public static class ExtensionMethodScanner
             if (!includeAll && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
                 continue;
 
+            // Without includeAll the declaring type is public through every
+            // enclosing type, as the Public scope admits it.
+            if (!includeAll && !ApiSurfaceExtractor.AdmitsPublicScopeType(reader, typeDefHandle, typeDef))
+                continue;
+
             string classNs = reader.GetString(typeDef.Namespace);
             string fullClassName = TypeResolver.FormatDisplayName(reader.GetFullTypeName(typeDef));
 
@@ -237,6 +242,11 @@ public static class ExtensionMethodScanner
             if (!AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes())) continue;
 
             if (!includeAll && AttributeReader.HasHiddenAttribute(reader, typeDef.GetCustomAttributes()))
+                continue;
+
+            // Without includeAll the declaring type is public through every
+            // enclosing type, as the Public scope admits it.
+            if (!includeAll && !ApiSurfaceExtractor.AdmitsPublicScopeType(reader, typeDefHandle, typeDef))
                 continue;
 
             string classNs = reader.GetString(typeDef.Namespace);

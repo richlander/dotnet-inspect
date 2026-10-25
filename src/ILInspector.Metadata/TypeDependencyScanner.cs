@@ -634,7 +634,14 @@ public static class TypeDependencyScanner
         {
             TypeDefinition definition =
                 reader.GetTypeDefinition(handle);
-            if (!definition.IsPublic && exactRoot is null)
+            // The ordinary population is the Public scope's public Types:
+            // public through every enclosing Type.
+            bool isPublic =
+                ApiSurfaceExtractor.AdmitsPublicScopeType(
+                    reader,
+                    handle,
+                    definition);
+            if (!isPublic && exactRoot is null)
                 continue;
 
             string name = reader.GetString(definition.Name);
@@ -647,7 +654,7 @@ public static class TypeDependencyScanner
                 exactRoot,
                 StringComparison.Ordinal);
             if (!isSelectedRoot
-                && (!definition.IsPublic || isCompilerGenerated))
+                && (!isPublic || isCompilerGenerated))
             {
                 continue;
             }
