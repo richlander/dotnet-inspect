@@ -488,7 +488,7 @@ and `type` legs of `eng/measure-finding-diff-any.cs`, NativeAOT on a quiet
 host, twenty runs per process, two rounds, every process first try; raw outputs
 in the
 [gist](https://gist.github.com/richlander/0471783de62a7d064043b11d6240a4fa).
-Lower is better; the walk moves within ±1.7%, 0.2 ms at most, over both rounds,
+Lower is better; the walk moves within ±1.7%, 0.7 ms at most, over both rounds,
 so only lockstep's columns move.
 
 | Pair | Walk ms, base / head (r1) | Lockstep ms, base / head (r1, r2) | Lockstep ÷ walk, base / head | Lockstep MB, base / head | Type first request, lockstep median µs, base / head | Type first request, lockstep p95 µs, base / head | Type first request, lockstep allocation median KB, base / head | Agreement |
