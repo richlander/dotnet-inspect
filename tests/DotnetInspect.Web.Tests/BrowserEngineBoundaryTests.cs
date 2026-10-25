@@ -447,7 +447,7 @@ public sealed partial class BrowserEngineBoundaryTests
             id,
             package.Version,
             "net11.0");
-        Assert.True(assemblyContext.AssetSelection.IsSelected);
+        Assert.True(Assert.IsType<PackageCompileAssetSelection>(assemblyContext.AssetSelection).IsSelected);
         return new BrowserPackageCoordinate(package, assemblyContext);
     }
 

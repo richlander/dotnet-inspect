@@ -301,7 +301,7 @@ public sealed partial class BrowserEngineBoundaryTests
             realization.Coordinate.Root.RequestedTargetFramework);
         Assert.Equal(
             measurements.SelectedLibraryCount,
-            realization.Coordinate.Root.AssetSelection.Assets.Count);
+            Assert.IsType<PackageCompileAssetSelection>(realization.Coordinate.Root.AssetSelection).Assets.Count);
         Assert.All(handler.Requested, url => Assert.Equal(
             $"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg", url));
         if (archive.LongLength > PackageRangedRead.DefaultSizeCut)
