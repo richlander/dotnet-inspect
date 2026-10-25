@@ -510,9 +510,9 @@ the injectivity above requires. The table serves the comparison and is released
 with the builders when the sides complete. The IL census cursor writes
 Type-level keys in full; its operand keys are the expansions of Finding Diff
 Any's. A census side has no table, since a host holds one per image and pairs
-it freely; Ref parts would reach it only through a table scoped to a session or
-batch ([#10533](https://github.com/richlander/dotnet-inspect/issues/10533)),
-and Finding Census records why it does not take one now ([what remains of the
+it freely; Ref parts would reach it only through a table scoped to a batch
+([#10533](https://github.com/richlander/dotnet-inspect/issues/10533)), and
+Finding Census records why it does not take one now ([what remains of the
 gap](finding-census.md#what-remains-of-the-gap)).
 
 ### Cost of the Ref parts

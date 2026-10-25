@@ -174,14 +174,15 @@ distinct, as Finding Diff Any's [Identity](finding-diff-any.md#identity)
 requires. Finding Diff Any embeds the named Types inside that key as `Ref`
 parts of the table its comparison's two sides share; the cursor writes them in
 full, so its bytes are the expansion of the walk's key and mean the same thing
-in any pairing ([what remains of the gap](#what-remains-of-the-gap) records
-why) ([Symbol Key interning](symbol-key.md#interning)). The cursor yields the
-bytes, lockstep compares the bytes, and only sealing for Exhaustive builds the
-key string and projects the operand's text, since a sealed census is retained
-and may be shown after its side's reader is gone, and a side formats each
-distinct operand once. A cursor that yields a record with display text would
-pay for every operation what a view pays only for the operations it shows,
-which the measurement gate below catches.
+in any pairing; [what remains of the gap](#what-remains-of-the-gap) records
+why, and [Symbol Key interning](symbol-key.md#interning) the table Finding Diff
+Any's keys refer to. The cursor yields the bytes, lockstep compares the bytes,
+and only sealing for Exhaustive builds the key string and projects the
+operand's text, since a sealed census is retained and may be shown after its
+side's reader is gone, and a side formats each distinct operand once. A cursor
+that yields a record with display text would pay for every operation what a
+view pays only for the operations it shows, which the measurement gate below
+catches.
 
 **Terminals** are the inspection outcomes of Finding nomenclature, reached in
 sequence:
@@ -357,10 +358,10 @@ family string, and a cursor per method, none of which the walk materializes,
 together with the work lockstep does that the walk skips: it resolves a whole
 atom before comparing and validates clause tables. That gap the
 [ablation](#ablation-of-the-gap) has since attributed mostly to the cursor's
-clause stage, now repaired; [what remains](#what-remains-of-the-gap) is token
-spelling and the atom records, and the walk stays as the provision, and
+clause stage, now repaired; [what remains](#what-remains-of-the-gap) is mostly
+token resolution and the atom records, and the walk stays as the provision, and
 lockstep over the cursors serves the scenarios the walk does not reach (member,
-bisect), where the cost is per member rather than per assembly. The seam
+bisect, batch), where the cost is per member rather than per assembly. The seam
 reaches the comparison's Body decisions; `Explain` and the per-method gate
 hooks still read through the walk.
 
@@ -548,12 +549,13 @@ something only relative to its table, so every side that may be compared must
 share one. Finding Diff Any's table serves one comparison, which owns both of
 its sides. A census side has no table: a host holds one per image and pairs it
 freely (the member endpoint diff, the Research session), and the scenarios
-lockstep serves, bisect and batch, compare each version with several others.
-Ref parts could reach them only through a table scoped to the session or batch,
-which #10533 and [Diff system](diff-system.md#scenarios) plan and which a
-persisted key cannot use, since it never contains a Ref part. Adopting one
-would make every host that holds sides scope a table for the saving, and the
-saving is not needed: the decision rests on cost, below, not on the encoding.
+lockstep serves, member, bisect, and batch, compare each version with several
+others. Ref parts could reach them only through a table scoped to the batch,
+which #10533 and [Diff system](diff-system.md#scenarios) plan for Finding Diff
+Any's batch scenario and which a persisted key cannot use, since it never
+contains a Ref part. Adopting one would make every host that holds sides scope
+a table for the saving, and the saving is not needed: the decision rests on
+cost, below, not on the encoding.
 
 The pursuit of parity stops at this record. Lockstep matches the walk on no
 reported number, so the walk stays as the provision, and what lockstep is for
