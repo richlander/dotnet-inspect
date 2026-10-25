@@ -175,6 +175,67 @@ terminal. Attribute that share by measuring the candidate against a variant
 without the guard; the candidate without the guard's share still meets the
 bar above.
 
+## Demand-shaped execution
+
+For applicable inspection work, start with the narrow user question and assess
+five independent dimensions, not one universal capability ladder:
+
+- **Breadth:** which assemblies, Types, Members, or MethodDefs must be visited?
+- **Fact depth:** which stored facts, decoded detail, or semantic analysis does
+  the question require?
+- **Terminal:** does the consumer need Exists, Count, Head, a finite Window, or
+  complete Rows?
+- **Access and retention:** can execution stream forward, does it need a retained
+  prefix or indexed access, or must it materialize the complete result?
+- **Sharing and preparation:** which acquisition, admission, binding, traversal,
+  or decoded facts can compatible requests reuse?
+
+Give the matching source owner the complete known demand so it can select the
+cheapest sufficient physical plan under its existing contract. Keep result
+coverage, semantic-demand joining, and shared construction separate; an
+independently required stronger result may cover a weaker demand, but sharing
+must not widen a cheap request into a more expensive cost class. QuerySpace's
+[producer-capability contract](design/query-space-producer-capabilities.md)
+owns that planning seam where applicable; this guidance does not introduce a
+universal planner or transfer domain ownership.
+
+Assess prerequisites as well as terminal loops. Push exact, sparse, or bounded
+selection to its natural source instead of building a broad compatibility
+model and selecting afterward. Where repeated work establishes a property of
+one pinned immutable image, prepare or validate it once under that image's
+owner and lifetime; keep request-varying work in the operation. Preparation,
+reverse indices, and
+retained caches are not automatically beneficial: justify their construction
+and retention against the request breadth and reuse that amortize them.
+
+Preserve source-issued coordinates, typed identity, and the cheapest sufficient
+representation through host-neutral composition to the real consumer or sink.
+For byte-originated text, do not introduce UTF-16 or full spelling merely to
+match, transport, or immediately re-encode it. Preserve an established rich
+fallback for shapes outside a narrow route's supported contract, and exercise
+a neighboring case that actually selects that fallback. Correct output alone
+does not prove that the intended cheaper route executed.
+
+Judge the complete production operation, not only a specialized kernel.
+Account for latency, allocation, relevant retained or peak memory, and any
+NativeAOT generated-code or startup cost introduced by specialization.
+Distinguish the historical exact-base/head evidence establishing an
+optimization from recurring regression evidence, including same-build
+direct/fallback controls where applicable. A later probe or workflow change
+does not inherit the original optimization as a new speedup. Preserve neutral
+and negative results as applicability boundaries.
+
+These are applicability and evidence questions, not a mandate for new layers,
+indices, caches, one universal eager model, or one decoder per query. Existing
+[terminal-efficiency](#terminal-correctness-and-least-work-execution) and
+[NativeAOT evidence](#nativeaot-beforeafter-for-modernization) requirements
+continue to apply. [#9257](https://github.com/richlander/dotnet-inspect/issues/9257)
+is the supporting composition tracker, not a normative owner; its
+[replication guidance](https://github.com/richlander/dotnet-inspect/issues/9257#issuecomment-6344446827),
+[focused-acquisition result](https://github.com/richlander/dotnet-inspect/issues/9257#issuecomment-6332147398),
+and [image-invariant preparation result](https://github.com/richlander/dotnet-inspect/issues/9257#issuecomment-6370320518)
+record the concrete lessons behind these questions.
+
 ## Terminal correctness and least-work execution
 
 For applicable QuerySpace adoption or changed terminal execution, assess two
