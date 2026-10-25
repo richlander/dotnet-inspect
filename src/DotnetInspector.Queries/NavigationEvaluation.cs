@@ -129,19 +129,6 @@ internal static class NavigationEvaluation
                 new NavigationWorkspaceSnapshotRequest { Scope = facts.Scope, Package = facts.Package }, registry, facts.Availability);
             return new(request, selected, SnapshotOutcome(selected));
         }
-        if (target.Action.Kind == NavigationOperationKind.Subject
-            && target.Subject is StructuralSubjectIdentity.ProjectSubject)
-        {
-            NavigationWorkspaceSnapshot selected = NavigationWorkspaceSnapshotEvaluation.Evaluate(
-                new NavigationWorkspaceSnapshotRequest
-                {
-                    Scope = facts.Scope,
-                    ActiveSubject = target.Subject,
-                },
-                registry,
-                facts.Availability);
-            return new(request, selected, SnapshotOutcome(selected));
-        }
         NavigationWorkspaceRefreshResult refresh = NavigationWorkspaceSnapshotEvaluation.Refresh(
             basis,
             facts.Scope,

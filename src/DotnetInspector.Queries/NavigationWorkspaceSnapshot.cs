@@ -901,14 +901,19 @@ public static class NavigationWorkspaceSnapshotEvaluation
 
         if (subject is StructuralSubjectIdentity.ProjectSubject)
         {
-            return Evaluate(
-                new NavigationWorkspaceSnapshotRequest
-                {
-                    Scope = source.Scope,
-                    ActiveSubject = subject,
-                },
+            return Compose(
+                source.Scope,
+                source.Workspace,
+                source.Ecosystem,
+                activeOccurrence: null,
+                subject,
+                retainedContext: null,
+                source.Packages,
+                libraries: [],
+                inventory: null,
                 registry,
-                availability);
+                availability,
+                lensOutcome: null);
         }
 
         NavigationRetainedSubjectContext? context =

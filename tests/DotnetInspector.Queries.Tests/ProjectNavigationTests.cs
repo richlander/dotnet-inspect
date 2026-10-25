@@ -96,6 +96,65 @@ public sealed class ProjectNavigationTests
     }
 
     [Fact]
+    public async Task ProjectSelectionPreservesAPreparedEcosystemPeer()
+    {
+        var declaration = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.aspire"), ["Aspire"], [], []);
+        await using var workspace = new InspectionWorkspace(new WorkspacePlan(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            [new WorkspaceRegistration.Ecosystem(declaration)], [],
+            Input("authored-incomplete")));
+        WorkspaceScopeSnapshot scope = await Current(workspace);
+        var registrations = Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+            workspace.GetRegistrationSnapshot());
+        var ecosystem = new NavigationEcosystemEvaluation(
+            registrations.Revision,
+            Assert.Single(registrations.Revision.EcosystemContributions).Ecosystem);
+        var facts = new NavigationEvaluationFacts(scope, null, (_, _) => Available)
+        {
+            Ecosystem = ecosystem,
+        };
+        NavigationOperationInitialization initial = NavigationTransitions.Initialize(
+            workspace.Identity, facts, Registry,
+            new(StructuralSubjectIdentity.ForWorkspace(workspace.Identity)));
+        NavigationConsumerSubjectDescriptor originalEcosystem =
+            initial.Result.Consumer.Snapshot.Hierarchy
+                .Single(row => row.Kind == StructuralSubjectKind.Ecosystem);
+        NavigationConsumerSubjectDescriptor project =
+            initial.Result.Consumer.Snapshot.Hierarchy
+                .Single(row => row.Kind == StructuralSubjectKind.Project);
+        Assert.Equal(NavigationDescriptorState.Available, originalEcosystem.State);
+        Assert.NotNull(originalEcosystem.Action);
+        Assert.Equal(NavigationDescriptorState.Available, project.State);
+        Assert.NotNull(project.Action);
+
+        NavigationTransition selected = Execute(initial.State, project.Action, facts);
+
+        Assert.Equal(Project(scope), selected.State.CurrentSnapshot.ActiveSubject);
+        Assert.Equal(initial.State.CurrentSnapshot.Ecosystem, selected.State.CurrentSnapshot.Ecosystem);
+        Assert.Null(selected.State.CurrentSnapshot.ActiveOccurrence);
+        Assert.Null(selected.State.CurrentSnapshot.RetainedContext);
+        Assert.Empty(selected.State.CurrentSnapshot.Libraries);
+        Assert.Empty(selected.State.CurrentSnapshot.Types);
+        NavigationConsumerSubjectDescriptor retainedEcosystem =
+            selected.Result!.Consumer.Snapshot.Hierarchy
+                .Single(row => row.Kind == StructuralSubjectKind.Ecosystem);
+        Assert.Equal(NavigationDescriptorState.Available, retainedEcosystem.State);
+        Assert.Equal(originalEcosystem.Subject!.Id, retainedEcosystem.Subject!.Id);
+        Assert.NotNull(retainedEcosystem.Action);
+
+        NavigationTransition returned = Execute(selected.State, retainedEcosystem.Action, facts);
+
+        Assert.Equal(initial.State.CurrentSnapshot.Ecosystem, returned.State.CurrentSnapshot.ActiveSubject);
+        NavigationConsumerSubjectDescriptor retainedProject =
+            returned.Result!.Consumer.Snapshot.Hierarchy
+                .Single(row => row.Kind == StructuralSubjectKind.Project);
+        Assert.Equal(NavigationDescriptorState.Available, retainedProject.State);
+        Assert.Equal(project.Subject!.Id, retainedProject.Subject!.Id);
+        Assert.NotNull(retainedProject.Action);
+    }
+
+    [Fact]
     public async Task ExplicitPackageAdmissionDrillsDownAndProjectRemainsAWorkspacePeer()
     {
         await using var workspace = new InspectionWorkspace(Plan(Input("authored-incomplete")));

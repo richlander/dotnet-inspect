@@ -273,6 +273,7 @@ coordinates do not establish identity. Its presence does not change the
 Workspace default: a host explicitly selects Project when opening that input.
 Selecting Project clears Package descendant context; selecting an admitted
 Package uses the existing Package selection and initial-subject policy.
+Project selection preserves a prepared Ecosystem as a selectable Workspace peer.
 A Project action requires Scope evidence only, not preparation of the
 previously active Package.
 
