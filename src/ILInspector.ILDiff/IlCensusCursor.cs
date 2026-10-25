@@ -412,6 +412,20 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
 
         try
         {
+            if (IlAblation.TopologyOnly)
+            {
+                ExceptionFlowTopology topology = ExceptionFlowTopology.Create(_map.IlLength, _collected!.ToImmutable(), _rawRegions!);
+                if (topology.BlockGraphIncompleteReason is not null)
+                {
+                    failure = topology.BlockGraphIncompleteReason;
+                    return false;
+                }
+
+                _clauses = topology.Models;
+                failure = null;
+                return true;
+            }
+
             BlockGraph graph = BlockGraph.Build(_map.IlLength, _collected!.ToImmutable(), _rawRegions!);
             if (!graph.IsComplete)
             {

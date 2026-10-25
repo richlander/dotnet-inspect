@@ -20,6 +20,9 @@ internal static class IlAblation
     /// <summary>Skip clause validation and instruction retention only for a body with no exception regions.</summary>
     public static readonly bool SkipEmptyClauses = Has("skip-empty-clauses");
 
+    /// <summary>Validate clauses through the exception-flow topology alone, without building blocks and edges.</summary>
+    public static readonly bool TopologyOnly = Has("topology-only");
+
     /// <summary>Do not materialize value operand identities (immediates, slots, branch and switch targets).</summary>
     public static readonly bool NoImmediates = Has("no-immediates");
 
