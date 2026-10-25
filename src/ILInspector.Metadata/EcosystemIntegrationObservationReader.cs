@@ -13,7 +13,7 @@ internal static class EcosystemIntegrationObservationReader
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
             TypeDefinition definition = reader.GetTypeDefinition(handle);
-            if (!definition.IsPublic)
+            if (!ApiSurfaceExtractor.AdmitsPublicScopeType(reader, handle, definition))
                 continue;
 
             string typeName = reader.GetFullTypeName(definition);
