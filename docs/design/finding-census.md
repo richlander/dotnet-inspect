@@ -481,9 +481,36 @@ instruction, and is skipped by a body with no regions; the family is spelled
 once per policy. Neither changes a terminal kind or position; an undecided
 target, including one at or past the end, reports the cursor's wording where
 the block graph reported its own, and the clause-table suite, the agreement
-gate, and the Library and Type readers pass unchanged. The cost gate's
-measurement of this change, base against head on the six pairs through both
-legs, is pending the run and is recorded here when it completes.
+gate, and the Library and Type readers pass unchanged. The cost gate measured
+the repair, base 293a89be3 (binary `1aa2204d`) against head (binary `62c4aaa6`,
+the product sources of the commit that records this), six pairs, the `lockstep`
+and `type` legs of `eng/measure-finding-diff-any.cs`, NativeAOT on a quiet
+host, twenty runs per process, two rounds, every process first try; raw outputs
+in the
+[gist](https://gist.github.com/richlander/0471783de62a7d064043b11d6240a4fa).
+Lower is better; the walk is unchanged within ±0.7%, so only lockstep's columns
+move.
+
+| Pair | Walk ms, base / head | Lockstep ms, base / head (r1, r2) | Lockstep ÷ walk, base / head | Lockstep MB, base / head | Type first request, lockstep median µs, base / head | Type first request, lockstep p95 µs, base / head | Type first request, lockstep allocation median KB, base / head | Agreement |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 76.1 / 75.7 | 521.7 / 149.8 (522.2 / 149.6) | 6.9× / 2.0× | 1585 / 220 | 70 / 34 | 1652 / 425 | 176 / 36 | identical |
+| System.Text.Json 9.0.0 to 10.0.0 | 12.0 / 12.1 | 28.4 / 15.9 (28.9 / 15.7) | 2.4× / 1.3× | 69 / 20 | 58 / 25 | 1020 / 393 | 169 / 33 | identical |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 15.2 / 15.2 | 54.6 / 22.3 (54.4 / 22.3) | 3.6× / 1.5× | 152 / 30 | 59 / 28 | 1834 / 564 | 162 / 35 | identical |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 12.0 / 12.0 | 16.3 / 12.9 (16.2 / 12.8) | 1.4× / 1.1× | 24 / 13 | 60 / 40 | 1174 / 620 | 140 / 59 | identical |
+| System.Private.Xml 10 to 11 | 57.0 / 57.2 | 322.4 / 102.8 (323.6 / 104.3) | 5.7× / 1.8× | 1018 / 152 | 62 / 23 | 1457 / 388 | 176 / 31 | identical |
+| System.Private.CoreLib 10 to 11 | 165.6 / 165.8 | 409.1 / 215.7 (411.4 / 216.0) | 2.5× / 1.3× | 1044 / 246 | 41 / 24 | 1177 / 448 | 93 / 24 | identical |
+
+Lockstep's whole comparison falls from 1.4× to 6.9× the walk to 1.1× to 2.0×,
+its allocation from 24 to 1,585 MB to 13 to 246 MB, 14% to 52% of what it was,
+a Type's first request under lockstep from a median of 41 to 70 µs to 23 to 40
+µs and at the 95th percentile from 1.0 to 1.8 ms to 0.39 to 0.62 ms, with 24 to
+59 KB allocated per Type instead of 93 to 176. Folds equal the Library result
+and rows are identical between the readers on every Type, and Type states are
+identical on every pair. The walk stays as the provision: lockstep matches it
+on no reported number. What remains of the gap is what the ablation measured
+outside the clause stage, token resolution at 9% to 12% and the per-atom
+records at 2% to 7% of the old gap, which are the next targets if lockstep is
+to replace the walk.
 
 ## Exhaustive
 
