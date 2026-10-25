@@ -1,0 +1,17 @@
+Description:
+Update one exact Package component through a successor Workspace
+
+Usage:
+dotnet-inspect workspace package update <component> [options]
+
+Arguments:
+<component>  Canonical packages/ID@VERSION/TFM/RID component path
+
+Options:
+--packet <packet>    Canonical Base64URL Workspace packet string
+--version <version>  Exact destination Package version
+--tfm <tfm>          Destination target framework (singleton context only)
+--json               Emit structured JSON
+--envelope           Emit the complete update envelope; requires --json
+--share <share>      Emit the derived Workspace as a canonical packet or URL
+--pat-for <pat-for>  Bind an ephemeral Basic credential: HTTPS-ENDPOINT USERNAME env:NAME|stdin|file:PATH

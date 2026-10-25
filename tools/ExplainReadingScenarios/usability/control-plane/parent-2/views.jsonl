@@ -1,0 +1,8 @@
+{"source": "unchanged shipped dotnet-inspect skill at 267a582", "operation": "guide", "file": "view-01.txt", "bytes": 12489, "sha256": "df5f25fa3649dbd3e9b5c1380b61ec739d79ef595bf19d8b40cae3c25731fd88"}
+{"source": "component.json", "operation": "input", "file": "view-02.txt", "bytes": 301, "sha256": "fb7dbaedf43fc54d6e29362504dbe375d5262d2ce18041649a97651a02e36d2c"}
+{"source": "parent.packet", "operation": "input", "file": "view-03.txt", "bytes": 327, "sha256": "f650535c841bb4f09b15fb4fa33c38dd2a9fa0f32b2d830f3fa15d7bfce259b8"}
+{"source": "response-01.err", "operation": "text", "file": "view-04.txt", "bytes": 104, "sha256": "958861f8e5256291339211175618f3bd52becaeee4b019a60772956e0290e6a5"}
+{"source": "response-02.err", "operation": "text", "file": "view-05.txt", "bytes": 136, "sha256": "b66718e38d93e7c0a975a3ffd40bf316928b52d77233ddf3c2b7c9947c864c73"}
+{"source": "response-03.out", "operation": "text", "file": "view-06.txt", "bytes": 631, "sha256": "d793caa41d53e6627f4423c73008ea1965e1d44bb30ef76fdad3e7ac78a536b3"}
+{"source": "response-04.out", "operation": "text", "file": "view-07.txt", "bytes": 2526, "sha256": "97e806b816339e0c5444db51fcc7dba5663ea4372456d04e358e7646539bfebd"}
+{"source": "response-05.out", "operation": "text", "file": "view-08.txt", "bytes": 631, "sha256": "99de86b7bb67d5018d2c1020e54e6bbc6f2f1aa53dc7972af648cef3c22f3f82"}

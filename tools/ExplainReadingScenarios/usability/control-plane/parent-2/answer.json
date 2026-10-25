@@ -1,0 +1,46 @@
+{
+  "answer": {
+    "source": {
+      "package_id": "System.Text.Json",
+      "version": "10.0.0",
+      "framework": "net10.0",
+      "runtime_identifier": null,
+      "canonical_component_path": "packages/system.text.json@10.0.0/net10.0/~",
+      "contexts": ["contexts/g0"],
+      "context_selected": true,
+      "focused": true
+    },
+    "successor": {
+      "package_id": "System.Text.Json",
+      "version": "10.0.1",
+      "framework": "net10.0",
+      "runtime_identifier": null,
+      "canonical_component_path": "packages/system.text.json@10.0.1/net10.0/~",
+      "contexts": ["contexts/g0"],
+      "context_selected": true,
+      "focused": true,
+      "saved_landing_intent": "Package Libraries (package.libraries)",
+      "encoded_packet": "eyJmIjo1LCJzIjpbWyJodHRwczovL2FwaS5udWdldC5vcmcvdjMvaW5kZXguanNvbiJdXSwidCI6W1siU3lzdGVtLlRleHQuSnNvbiIsIjEwLjAuMSIsIm5ldDEwLjAiLG51bGxdXSwiZyI6W1swXV0sInIiOltdLCJhIjowLCJ4IjowLCJ2IjpbeyJ0IjpudWxsLCJ1Ijp7ImsiOiJ3b3Jrc3BhY2UifX0seyJ0IjowLCJyIjp7ImsiOiJwYWNrYWdlIn0sInUiOnsiayI6InBhY2thZ2UifSwiZiI6InBhY2thZ2UubGlicmFyaWVzIn1dfQ"
+    },
+    "change_evidence": "The update reported succeeded=true, source version 10.0.0, destination version 10.0.1, committed scope, ExactPath retention, Applied navigation, and an Applied package.libraries inspector. The component lists before and after show the same package ID, net10.0 framework, null RID, selected contexts/g0 membership, and focused status; only the version and its canonical path changed."
+  },
+  "provenance": [
+    {
+      "command": "workspace component list --packet <recorded parent.packet value>",
+      "response": "response-03.out",
+      "evidence": "Original context, canonical component, and focus"
+    },
+    {
+      "command": "workspace package update packages/system.text.json@10.0.0/net10.0/~ --packet <recorded parent.packet value> --version 10.0.1 --json --envelope",
+      "response": "response-04.out",
+      "evidence": "Successful update, retained landing, and tool-produced encoded packet"
+    },
+    {
+      "command": "workspace component list --packet <response-04.out share.packet>",
+      "response": "response-05.out",
+      "evidence": "Successor context, canonical component, and focus"
+    }
+  ],
+  "uncertainty": "No material uncertainty for the requested Workspace change. Package content was not inspected because the task concerns the portable declaration and cached content only.",
+  "discovery_navigation_friction": "workspace component list rejected --json and --envelope (response-01.err). It also rejected the parent.packet file path because --packet requires the Base64URL value itself (response-02.err), so I passed the value shown by the recorder."
+}

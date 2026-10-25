@@ -1,0 +1,44 @@
+[
+  {
+    "method": "AddHttpClient",
+    "class": "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+    "extended_type": "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "library": "Microsoft.Extensions.Http",
+    "signatures": [
+      "Microsoft.Extensions.DependencyInjection.IServiceCollection AddHttpClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name, System.Action\u003CSystem.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name, System.Action\u003CSystem.IServiceProvider, System.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, System.Action\u003CSystem.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, System.Action\u003CSystem.IServiceProvider, System.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, System.Action\u003CSystem.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, System.Action\u003CSystem.IServiceProvider, System.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name, System.Action\u003CSystem.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name, System.Action\u003CSystem.IServiceProvider, System.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name, System.Action\u003CSystem.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name, System.Action\u003CSystem.IServiceProvider, System.Net.Http.HttpClient\u003E configureClient)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, System.Func\u003CSystem.Net.Http.HttpClient, TImplementation\u003E factory)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name, System.Func\u003CSystem.Net.Http.HttpClient, TImplementation\u003E factory)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, System.Func\u003CSystem.Net.Http.HttpClient, System.IServiceProvider, TImplementation\u003E factory)",
+      "Microsoft.Extensions.DependencyInjection.IHttpClientBuilder AddHttpClient\u003CTClient, TImplementation\u003E(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, string name, System.Func\u003CSystem.Net.Http.HttpClient, System.IServiceProvider, TImplementation\u003E factory)"
+    ],
+    "overloads": 20,
+    "kind": "method",
+    "source": "Microsoft.Extensions.Http",
+    "source_version": "10.0.13"
+  },
+  {
+    "method": "ConfigureHttpClientDefaults",
+    "class": "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+    "extended_type": "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+    "library": "Microsoft.Extensions.Http",
+    "signature": "Microsoft.Extensions.DependencyInjection.IServiceCollection ConfigureHttpClientDefaults(this Microsoft.Extensions.DependencyInjection.IServiceCollection services, System.Action\u003CMicrosoft.Extensions.DependencyInjection.IHttpClientBuilder\u003E configure)",
+    "kind": "method",
+    "source": "Microsoft.Extensions.Http",
+    "source_version": "10.0.13"
+  }
+]

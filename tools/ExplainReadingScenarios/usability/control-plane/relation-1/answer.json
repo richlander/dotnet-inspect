@@ -1,0 +1,29 @@
+{
+  "answer": {
+    "declaring_type": "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+    "full_signature": "public static Microsoft.Extensions.DependencyInjection.IServiceCollection AddHttpClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection services)",
+    "stable_member_selector": "AddHttpClient~5c44566d15",
+    "canonical_signature": "M:Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions.AddHttpClient(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+    "scope": "Microsoft.Extensions.Http version 10.0.13, target framework net10.0",
+    "interpretation": "The scoped extensions search found this method as extending IServiceCollection; the selected member view marks it public and describes it as adding IHttpClientFactory and related services. The search establishes this one result in the specified cached package/version and framework. It does not search other packages or establish complete extension-method coverage across packages, frameworks, or all possible discovery routes."
+  },
+  "executed_command_response_provenance": [
+    {
+      "command": "extensions Microsoft.Extensions.DependencyInjection.IServiceCollection --package Microsoft.Extensions.Http@10.0.13 --tfm net10.0 --json",
+      "response": "response-02.out",
+      "evidence": "AddHttpClient is listed under Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions, extended_type IServiceCollection, library/source Microsoft.Extensions.Http, source_version 10.0.13; its parameterless signature includes this IServiceCollection services."
+    },
+    {
+      "command": "member Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions --package Microsoft.Extensions.Http@10.0.13 --tfm net10.0 -S 'Member Index'",
+      "response": "response-04.out",
+      "evidence": "The AddHttpClient(IServiceCollection) row maps to stable selector AddHttpClient~5c44566d15 and the canonical signature recorded above."
+    },
+    {
+      "command": "member Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions AddHttpClient~5c44566d15 --package Microsoft.Extensions.Http@10.0.13 --tfm net10.0",
+      "response": "response-05.out",
+      "evidence": "Signature is public extension IServiceCollection AddHttpClient(IServiceCollection services), digest 5c44566d15; documentation says it adds IHttpClientFactory and related services to IServiceCollection."
+    }
+  ],
+  "uncertainty": "The conventional C# signature combines the relationship output\u2019s this receiver with the selected member view\u2019s public extension marker; the member view renders extension as a modifier rather than spelling static/this. No claim is made about all extension methods or packages outside the selected search scope.",
+  "discovery_navigation_friction": "The Member Index request with --json (response-03.out) returned a type metadata object with an empty members array, so a plain-text Member Index request was needed to obtain the stable overload selector."
+}
