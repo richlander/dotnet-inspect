@@ -433,7 +433,7 @@ puts on per-advance materialization and on the work lockstep does that the walk
 skips, so the allocation-free atoms step 2b names remain the condition for
 lockstep inside Finding Diff Any at any scope, and the walk stays as the
 provision. For the per-member scenarios the per-body figure is the one that
-carries: 2 to 9 µs through the walk and 5 to 92 µs through lockstep across the
+carries: 2 to 9 µs through the walk and 5 to 43 µs through lockstep across the
 six pairs' largest Types, both below the pairing's own 0.4 to 5.7 ms.
 
 ## Exhaustive
