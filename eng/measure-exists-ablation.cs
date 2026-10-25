@@ -8,6 +8,7 @@
 // Usage: measure-exists-ablation <before.dll> <after.dll> [iterations]
 
 using System.Diagnostics;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.ILDiff;
 using ILInspector.Metadata;
