@@ -437,6 +437,18 @@ public sealed record BrowserVocabularyExplanationRejection(
     string Message,
     string[] Suggestions);
 
+/// <summary>A shared resource reading or a visible owner/host admission refusal.</summary>
+public sealed record BrowserResourceExplanationResult(
+    string Outcome,
+    BrowserVocabularyExplanation? Explanation,
+    string? Error);
+
+/// <summary>Owner-issued declaration JSON; the Browser passes it back without reconstruction.</summary>
+public sealed record BrowserWorkspaceComponentInput(string Path, string Name, string Declaration);
+
+public sealed record BrowserWorkspaceComponentInventory(
+    string Outcome, BrowserWorkspaceComponentInput[] Components, string? Error);
+
 /// <summary>
 /// One product home-demo catalog row from <c>EcosystemPackCatalog</c>.
 /// Browser-local so <c>ts-jsexport</c> emits a real TypeScript interface.
@@ -601,7 +613,8 @@ public sealed record BrowserWorkspaceShareState(
     string ActiveTabId,
     string SelectedContextId,
     BrowserWorkspaceShareView View,
-    string? TraversalTargetFramework = null);
+    string? TraversalTargetFramework = null,
+    string? HierarchyWorkspacePacket = null);
 
 /// <summary>Typed codec, transposition, or Browser-transport failure.</summary>
 public sealed record BrowserWorkspaceShareFailure(
@@ -1031,6 +1044,8 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyInspection))]
 [JsonSerializable(typeof(BrowserVocabularyExplanationResult))]
+[JsonSerializable(typeof(BrowserResourceExplanationResult))]
+[JsonSerializable(typeof(BrowserWorkspaceComponentInventory))]
 [JsonSerializable(typeof(BrowserViewFacetCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
 [JsonSerializable(typeof(BrowserEcosystemCatalog))]

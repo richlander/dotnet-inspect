@@ -24,16 +24,17 @@ internal static class WorkspaceTypeInspectionTarget
         {
             using WorkspaceTypeAssemblyPath assemblyPath =
                 WorkspaceTypeAssemblyPath.Create(target);
-            string renderedAssemblyPath =
+            string libraryAssetPath =
                 renderSource.SelectedLibraryPath
                 ?? assemblyPath.Value;
+            string operationalAssemblyPath = assemblyPath.Value;
             ApiSurface api = target.Surface;
             api.Name = renderSource.Name;
             api.Version = renderSource.Version;
             api.Source = renderSource.Source;
             api.Tfm = renderSource.TargetFramework;
             api.Library =
-                Path.GetFileName(renderedAssemblyPath);
+                Path.GetFileName(libraryAssetPath);
 
             var sourceAssemblies =
                 new Dictionary<ApiType, ResolvedAssemblyReference>(
@@ -52,16 +53,17 @@ internal static class WorkspaceTypeInspectionTarget
                 };
             var loaded = new ApiServices.LoadedApiSurface(
                 api,
-                renderedAssemblyPath,
+                operationalAssemblyPath,
                 assemblyPath.Value,
                 sourceAssemblies,
                 RootBindingContext: bindingContext,
-                BindingContexts: bindingContexts);
+                BindingContexts: bindingContexts,
+                LibraryAssetPath: renderSource.SelectedLibraryPath);
             var source = new ApiSourceResult(
-                SearchPath: renderedAssemblyPath,
+                SearchPath: operationalAssemblyPath,
                 RuntimeAssemblyPath:
                     renderSource.Source == SourceKind.Platform
-                        ? renderedAssemblyPath
+                        ? operationalAssemblyPath
                         : null,
                 PackageName: renderSource.PackageName,
                 PackageVersion: renderSource.PackageVersion,

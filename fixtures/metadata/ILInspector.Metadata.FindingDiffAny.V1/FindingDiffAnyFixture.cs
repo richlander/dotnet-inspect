@@ -275,6 +275,26 @@ public class PropertyWithPrivateSetterPublicToProtected
     public int Value { get; private set; }
 }
 
+// A mixed-accessor property whose widest accessor narrows: its accessibility,
+// the widest of its accessors', moves from public to protected.
+public class MixedAccessorPropertyPublicToProtected
+{
+    public int Value { get; protected set; }
+}
+
+// The reverse: its accessibility widens from protected to public.
+public class MixedAccessorPropertyProtectedToPublic
+{
+    protected int Value { get; set; }
+}
+
+// Only the narrower accessor moves; the widest stays public, so the property's
+// accessibility does not move.
+public class MixedAccessorPropertyNarrowerAccessorMoves
+{
+    public int Value { get; protected set; }
+}
+
 // Changes wholly outside the API axis.
 public class PrivateMemberRemoved
 {

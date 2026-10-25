@@ -3936,6 +3936,84 @@ async function installFacades(
       export function listEcosystems() {
         return { ecosystems: productEcosystems };
       }
+      export function listLibraryViewFacets() {
+        return {
+          facets: [
+            {
+              id: "library.types",
+              kind: "Library",
+              title: "Types",
+              summary: "",
+              order: 100,
+              role: null,
+            },
+            {
+              id: "library.info",
+              kind: "Library",
+              title: "Info",
+              summary: "",
+              order: 200,
+              role: null,
+            },
+            {
+              id: "library.references",
+              kind: "Library",
+              title: "Uses",
+              summary: "",
+              order: 300,
+              role: null,
+            },
+            {
+              id: "library.ecosystem-dependencies",
+              kind: "Library",
+              title: "Ecosystem dependencies",
+              summary: "",
+              order: 400,
+              role: null,
+            },
+            {
+              id: "library.reference-hierarchy",
+              kind: "Library",
+              title: "Reference hierarchy",
+              summary: "",
+              order: 500,
+              role: null,
+            },
+            {
+              id: "library.integrations",
+              kind: "Library",
+              title: "Integrations",
+              summary: "",
+              order: 600,
+              role: null,
+            },
+            {
+              id: "library.analysis",
+              kind: "Library",
+              title: "Analysis facts",
+              summary: "",
+              order: 700,
+              role: null,
+            },
+            {
+              id: "library.metadata",
+              kind: "Library",
+              title: "Metadata facts",
+              summary: "",
+              order: 800,
+              role: null,
+            },
+            {
+              id: "library.compare",
+              kind: "Library",
+              title: "Compare builds",
+              summary: "",
+              order: 900,
+              role: null,
+            },
+          ],
+        };
+      }
       export function listTypeViewFacets() {
         return {
           facets: [

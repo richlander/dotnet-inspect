@@ -70,6 +70,7 @@ const resolvedHomeDemo: BrowserHomeDemoResolved = {
       comparison: null,
     },
     traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
   },
   restorationDefinitions: ["{\"kind\":\"scenario\"}"],
 };

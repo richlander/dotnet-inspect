@@ -490,7 +490,8 @@ vocabularies:
 | CLI package documentation for one exact Library | `SurfaceAndImplementation`; one named implementation and a listed adjacent Portable PDB are added for authored source | directory-first, with complete acquisition at or below the cut |
 | Browser member documentation for one exact Library | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB | directory-first, with complete acquisition at or below the cut |
 | Package-scoped exact Type overview with one pinned version and explicit TFM | aggregate `Surface` across every owner-issued Library | directory-first exact Library entries, with complete acquisition at or below the cut |
-| Other `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
+| Default Package-scoped Member views with one pinned version and explicit TFM | aggregate `Surface` across every owner-issued Library; exact-Type-first positional `Type.Member` resolution shares that aggregate projection across its ordered candidates, and the defining Library remains live for the default Type inventory, member group, or exact Member view; default rendering does not request compiled documentation it cannot display, while an explicit documentation request remains on compatibility acquisition | directory-first exact Library entries, with complete acquisition at or below the cut |
+| Richer `type`, richer `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
 | `package ID@VERSION --content` of a root `README.md` or `skills/**/SKILL.md` | one exact file | directory-first, with complete acquisition at or below the cut |
@@ -537,6 +538,7 @@ All gates run in Release.
 | 27. Browser member documentation reads one implementation and its PDB from an archive above the cut | cold execution uses ranges and skips an unrelated 2 MiB implementation plus 2 MiB padding; after store recreation, the same authored documentation makes no package request | `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesRangeAndWarmEntryCache` |
 | 28. Package Library navigation has no compile population | one eligible runtime RID reads only its selected managed folder; compile assets retain precedence; several eligible RIDs settle ambiguous after directory planning and before entry-body transfer | `PackageRangedRealizationTests.LibraryPopulation_RuntimeOnlyReadsOneSelectedRuntimeFolder`, `LibraryPopulation_CompileSelectionPreventsRuntimeBodyReads`, and `LibraryPopulation_MultipleRuntimeIdentifiersStopBeforeBodyTransfer` |
 | 29. Package Library navigation reaches a declared tool package after compile and runtime miss | compile cache settlement requests no manifest; a ranged runtime miss authenticates the tool role only from the payload authority, then reads only managed Libraries from one selected tool TFM; the cold receipt composes both ranged stages, the warm entry-cache receipt has no package request, and undeclared shape, unavailable declaration, or another authority's declaration transfers no tool bodies | `PackageRangedRealizationTests.LibraryPopulation_CachedCompileSettlesWithoutManifestAcquisition`, `LibraryPopulation_DeclaredToolReadsOnlyTheSelectedToolLibraries`, `LibraryPopulation_ManifestCannotAuthorizeAnotherAuthorityPayload`, `LibraryPopulation_UndeclaredToolShapeStopsBeforeBodyTransfer`, and `LibraryPopulation_UnavailableToolDeclarationStopsBeforeBodyTransfer` |
+| 30. A default Member view targets a Type in a non-namesake compile Library | aggregate surface lookup finds a public Type, resolves a positional `Type.Member` selector exact-Type-first inside one admitted Package scope and one shared surface projection, merges a matching explicit member filter by the established selector rules, lends the defining occurrence only while that scope is alive, and renders without implementation or implicit documentation demand; a non-public Type remains unavailable, malformed implicit XML is not opened, and an explicit richer section or documentation request remains on complete acquisition | `ExactTypeWorkspaceRouteTests.DefaultMemberRouteFindsTypeInNonNamesakeLibrary`, `DefaultMemberRouteDoesNotReadImplicitCompiledDocumentation`, `DefaultMemberPositionalSelectorStaysOnPackageHouseRoute`, `DefaultMemberRoutePreservesPublicTypeBoundary`, and `DefaultMemberRicherViewsRemainOnCompatibilityPath`; real asset witness `Microsoft.Azure.SignalR` 1.33.1, `Microsoft.Azure.SignalR.AccessTokenAlgorithm` in `Microsoft.Azure.SignalR.Common.dll` |
 
 ## Adoption
 
@@ -553,10 +555,11 @@ All gates run in Release.
    handoff selection, and typed failure for CLI Address, CLI package
    documentation, and Browser member documentation. Documentation selects
    selection or implementation depth from its authored-source demand.
-5. Package-scoped exact Type overview adopts the semantic Libraries terminal,
-   preserving aggregate all-Library lookup while naming only owner-issued
-   assembly entries. `member`, richer `type`, and the remaining `library`
-   operations follow with their required implementation evidence.
+5. Package-scoped exact Type overview and default Member views adopt the
+   semantic Libraries terminal, preserving aggregate all-Library lookup while
+   naming only owner-issued assembly entries. Richer `member`, richer `type`,
+   and the remaining `library` operations follow with their required
+   implementation evidence.
 6. `graph` adopts ranged access with `SurfaceAndImplementation`.
 7. Runtime packs are realized with named implementation demand once the
    [package-backed platform source](package-backed-platform-realization.md)

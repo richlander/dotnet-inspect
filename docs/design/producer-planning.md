@@ -154,9 +154,10 @@ requires, scoped to exactly that body, and its own producer after them.
 > parameters and a subject scope, the planner produces one work description
 > without reading any subject content, or rejects the request as a whole. The
 > description names the closed set of producers the request needs, each
-> producer's resource requests and dependencies, and the typed results,
-> outcomes, and receipt it publishes. Every execution that honors the
-> description publishes the results that a serial execution of it would.
+> producer's resource requests and dependencies, which typed results it must
+> retain, and the outcomes and receipt it publishes. Every execution that
+> honors the description publishes the retained results that a serial
+> execution of it would.
 
 This owner defines:
 
@@ -204,13 +205,14 @@ level never merges them.
 A **unit** is what one visit covers; the first unit kind is one method
 definition. Its layers are its declaration metadata and, when it has a managed
 body, that body at the requested depth. Each visited unit's fact folds into the
-producer's accumulator as the unit is visited, so a producer retains only what
-its result needs: an Exists or Count producer keeps a flag or a number, never
-the rows. A producer may also declare a **completion**, which runs after every
-unit in its scope has been visited and turns the accumulator into the
-published result. Whole-library facts such as leverage or a local call graph
-are completions, and a completion may depend on other producers' completed
-results.
+producer's accumulator only when the producer was requested or a dependency
+reads its completed result. A producer used solely for same-unit facts keeps
+only the fact lifetime the plan requires and does not build an unobserved
+result. A producer may also declare a **completion**, which runs after every
+unit in its scope has been visited when its result is retained. A fact-only
+dependency does not run an unobserved completion. Whole-library facts such as
+leverage or a local call graph are completions, and a completion may depend on
+other producers' completed results.
 
 A **work description** is this level's output: the closed producer set, each
 producer's requests, the dependency edges among producers and completions, and
@@ -232,8 +234,8 @@ A producer's visits belong to the first pass that follows every completion
 they depend on. Visits that depend on no completion belong to the first pass.
 A work description with no dependency from a visit to a completion is
 therefore one pass: the fused loop. A dependency from a visit to a completion,
-such as a subject-scoped guard, starts a new pass. Every producer's result is
-what it published during that sequence.
+such as a subject-scoped guard, starts a new pass. Every retained producer
+result is what it published during that sequence.
 
 The passes define results; they do not prescribe execution. Level 2 may visit
 in another order, run units in parallel, answer a request from the source
@@ -311,13 +313,15 @@ structurally, but the source still builds every row before any predicate,
 Count, or limit runs. A second planner beside QuerySpace would repeat the
 optimizer for one consumer family. #8571 records today's drift.
 
-### Producers are read-only and communicate only through declared results
+### Producers are read-only and communicate only through declared dependencies
 
 **Rule.** A producer does not mutate what it reads, does not keep state that
-spans units, and observes another producer only through that producer's
-declared result. The only state that spans units is its accumulator, which the
-executor holds and the producer only folds into. Anything shared is a level 1 or level 2 input, never a
-producer's lazily initialized field.
+spans units, and observes another producer only through a declared same-unit
+fact or completed result dependency. The only state that spans units is an
+executor-owned accumulator for a retained result. A fact-only dependency does
+not accumulate; asking the completed execution for its unretained result fails
+visibly. Anything shared is a level 1 or level 2 input, never a producer's
+lazily initialized field.
 
 *Lets the lower levels:* run units in parallel, visit independent producers
 concurrently, and fuse producers into one traversal.

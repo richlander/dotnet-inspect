@@ -184,6 +184,90 @@ public sealed class ArtifactRootPublicationTests
     }
 
     [Fact]
+    public async Task AcquireOnlyPackageAdmission_QueriesContentWithoutSelectingLibraries()
+    {
+        using var bytes = new MemoryStream();
+        using (var archive = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (Stream document = archive.CreateEntry("Content.Sample.nuspec").Open())
+                document.Write("<package />"u8);
+            using Stream library = archive.CreateEntry("lib/net11.0/Content.Sample.dll").Open();
+            library.Write([1, 2, 3]);
+        }
+        int opens = 0;
+        int enumerations = 0;
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create("Content.Sample", "1.0.0"),
+            new CallbackPackageContent(
+                new InMemoryPackageContent(bytes.ToArray(), fromCache: false, producerKey: "tests"),
+                () => opens++,
+                () => enumerations++),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootBinding binding = PackageRootBinding.CreateForContentInspection(payload);
+
+        Assert.True(binding.Root.ContentOnly);
+        Assert.Null(binding.Root.AssetSelection);
+        Assert.Same(payload.Content.GenerationIdentity, binding.ContentGenerationIdentity);
+        Assert.Equal(payload.ProducerKey, binding.Coordinate.Producer);
+        Assert.Equal(payload.Coordinate.PackageId, binding.Coordinate.PackageId);
+        Assert.Equal(payload.Coordinate.Version, binding.Coordinate.Version);
+        Assert.Same(binding, binding.ForContentInspection());
+        Assert.Empty(binding.Root.RealizedSurfaceAssets);
+        Assert.Empty(binding.Root.RealizedImplementationAssets);
+
+        await using var workspace = new InspectionWorkspace();
+        var initial = Assert.IsType<WorkspaceScopeReadResult.Available>(
+            await workspace.GetScopeSnapshotAsync());
+        var committed = Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+            await workspace.AddPackagesAsync(
+                initial.Snapshot.Revision, [binding],
+                DateTimeOffset.UtcNow.AddMinutes(5),
+                TestContext.Current.CancellationToken));
+        WorkspacePackageOccurrenceDescriptor occurrence = Assert.Single(committed.Snapshot.Packages);
+        Assert.Null(occurrence.Occurrence.Package.SelectionStatus);
+        Assert.Null(occurrence.Occurrence.Package.SelectedTargetFramework);
+        Assert.Equal(0, enumerations);
+        Assert.Equal(0, opens);
+        var correspondence = Assert.IsType<PackageArtifactRootCorrespondence>(
+            occurrence.Occurrence.Correspondence);
+        var ready = Assert.IsType<ArtifactRootRealizationStatus.Ready>(
+            occurrence.Realization.Status);
+
+        ArtifactRootResult<byte[]> query = await workspace.ExecutePackageRootQueryAsync(
+            correspondence, ready.Generation,
+            (realization, _) =>
+            {
+                Assert.False(realization.HasAssemblyContexts);
+                Assert.Empty(realization.SurfaceParticipants);
+                Assert.Empty(realization.ImplementationParticipants);
+                byte[] content = binding.Root.UseContent(package =>
+                {
+                    Assert.Same(payload.Content, package);
+                    Assert.True(package.TryOpenEntry("Content.Sample.nuspec", out Stream? input));
+                    using (input)
+                    using (var output = new MemoryStream())
+                    {
+                        input.CopyTo(output);
+                        return output.ToArray();
+                    }
+                });
+                return ValueTask.FromResult(content);
+            }, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal("<package />"u8.ToArray(), Available(query));
+        Assert.Equal(1, opens);
+        Assert.Throws<InvalidOperationException>(() => binding.CreateReacquisitionRequest());
+
+        Assert.True((await workspace.CloseAsync()).Succeeded);
+        Assert.Equal(ArtifactRootFailure.WorkspaceClosed, Rejected(
+            await workspace.ExecutePackageRootQueryAsync(
+                correspondence, ready.Generation,
+                (_, _) => ValueTask.FromResult(0),
+                cancellationToken: TestContext.Current.CancellationToken)));
+    }
+
+    [Fact]
     public async Task ContentOnlyPackageAdmission_PreservesSelectionWithoutOpeningDlls()
     {
         await using var workspace = new InspectionWorkspace();
@@ -191,6 +275,8 @@ public sealed class ArtifactRootPublicationTests
         PackageRootBinding library = Binding(
             "Content.Only", malformed: true, onOpen: () => opens++);
         PackageRootBinding content = library.ForContentInspection();
+        Assert.NotNull(library.Root.AssetSelection);
+        Assert.NotNull(content.Root.AssetSelection);
         Assert.Same(library.ContentGenerationIdentity, content.ContentGenerationIdentity);
         Assert.Same(library.SelectionIdentity, content.SelectionIdentity);
         Assert.Equal(library.Root.AssetSelection.Status, content.Root.AssetSelection.Status);
@@ -242,6 +328,7 @@ public sealed class ArtifactRootPublicationTests
         PackageRootBinding binding = Binding(
             "Package.WrongTarget", entry: "lib/net10.0/Package.WrongTarget.dll")
             .ForContentInspection();
+        Assert.NotNull(binding.Root.AssetSelection);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
             binding.Root.AssetSelection.Status);

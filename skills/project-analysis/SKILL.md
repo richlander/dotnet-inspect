@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect-project-analysis
-version: 0.4.0
+version: 0.4.1
 description: Review a project, package, or library as a 30-second elevator pitch or an evidence-bounded deep dive — learn it, weigh dependency risk, map complexity and clustering, or pursue a topic such as performance, unsafe code, or ownership.
 ---
 
@@ -222,13 +222,19 @@ structure; and `Member Metrics` for outliers. Complexity is normal-flow
 cyclomatic complexity over compiled IL: not authored intent, and not a
 maintainability score.
 
-Read structure from the `Dependency Structure` JSON document, which needs one
-exact library (`--namesake-library` or a dll path). `cycles` lists each
-namespace cycle, and every entry in `namespaces` carries `level` and
-`cycleIndex` (`null` outside any cycle), so a Markdown `cycle 0` means cycle
-number 0. Each `namespaceEdges` entry names its strongest contributing type
-pairs in `explainingTypeEdges`, with `remainingContributorCount` for the rest;
-`typeEdges` holds every type pair:
+`library <package>@<version> -S "Dependency Structure" --tsv` streams one row
+per namespace edge. Each row gives both endpoints' `level` and 1-based
+`cycle`, which is empty outside any cycle. Cycles are numbered per library, so
+group rows by `library` and `tfm` first. Within one library, rows sharing a
+cycle number form one cycle, and the distinct numbers count the cycles. A
+stderr warning names any library whose result is qualified.
+
+For type-level detail, read the JSON document. It needs one exact library
+(`--namesake-library` or a dll path). `cycles` lists each namespace cycle, and
+every entry in `namespaces` carries `level` and a zero-based `cycleIndex`
+(`null` outside any cycle). Each `namespaceEdges` entry names its strongest
+contributing type pairs in `explainingTypeEdges`, with
+`remainingContributorCount` for the rest. `typeEdges` holds every type pair:
 
 ```bash
 jq '.namespaceEdges[]
@@ -257,9 +263,9 @@ Read these with care until their owners close the gaps:
 - The package-wide view (`library --package Id@v` without
   `--namesake-library`) silently drops `Dependency Structure` from `--json`
   output and drops `Clone Candidates` entirely (#10080); always select one
-  exact library for them. The installed
-  product does not yet explain the structure fields (#10077); read them as
-  described above.
+  exact library for them.
+  `explain library/sections/dependency-structure` states these fields'
+  meaning; individual columns do not yet carry their own (#10077).
 - `Member Metrics` has no ranking operators (#10083); rank its rows locally.
 - Architectural Families can include compiler-generated names such as `c`
   and `d` (#10082); set them aside.

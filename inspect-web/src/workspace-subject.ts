@@ -11,6 +11,10 @@ import {
 import { packageRemoveButton } from "./package-removal.ts";
 import type { SavedWorkspaceFocus } from "./saved-workspaces.ts";
 import {
+  renderWorkspaceExplanation,
+  type WorkspaceExplanationState,
+} from "./workspace-explanation.ts";
+import {
   captureSavedWorkspaceFocus,
   renderSavedWorkspaces,
   renderWorkspaceSaveButton,
@@ -45,6 +49,7 @@ export interface WorkspaceSubjectItem {
 }
 
 export interface WorkspaceViewRenderOptions {
+  explanation?: { state: WorkspaceExplanationState; available: boolean };
   canAddPackage?: boolean;
   savedWorkspaces?: SavedWorkspacesView;
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
@@ -276,6 +281,7 @@ export function renderWorkspaceView(
     ${options.savedWorkspaces ? renderWorkspaceSaveButton(options.savedWorkspaces) : ""}
   </header>
   <div class="workspace-overview">
+    ${options.explanation ? renderWorkspaceExplanation(options.explanation.state, options.explanation.available, escapeHtml) : ""}
     ${options.savedWorkspaces ? renderSavedWorkspaces(options.savedWorkspaces, escapeHtml) : ""}
     <section class="document-section workspace-section">
       <div class="section-title"><h2>Packages</h2><span>${packageCount} coordinate${packageCount === 1 ? "" : "s"}</span>${options.canAddPackage === undefined ? "" : `<button class="workspace-add-package" type="button" data-workspace-add-package${options.canAddPackage ? "" : " disabled"}>Add package</button>`}</div>

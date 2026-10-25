@@ -30,6 +30,8 @@ export type BrowserCalleeEvidenceState = "Instruction" | "Method" | "Instruction
 
 export type BrowserCostCalleeEvidenceInputKind = "AllocationInLoop" | "Reflection" | "CallInLoop" | "RootReach" | "DirectCallers" | "LoopCalls" | number;
 
+export type BrowserMemberBodyDiffEndpoint = "Before" | "After" | number;
+
 export type BrowserMemberSourcePartKind = "Declaration" | "Member" | "XmlDocumentation" | "Attributes" | "Signature" | "Body" | number;
 
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
@@ -346,11 +348,19 @@ export interface BrowserMemberBodyDiffInventory {
   readonly destinations: ReadonlyArray<BrowserMemberBodyMember>;
 }
 
+export interface BrowserMemberBodyDiffMissingCounterpart {
+  readonly endpoint: BrowserMemberBodyDiffEndpoint;
+  readonly version: string;
+  readonly runtimeIdentifier: string;
+  readonly availableRuntimeIdentifiers: ReadonlyArray<string>;
+}
+
 export interface BrowserMemberBodyDiffRequest {
   readonly packageId: string;
   readonly beforeVersion: string;
   readonly afterVersion: string;
   readonly framework: string;
+  readonly runtimeIdentifier: string;
   readonly compileAssetId: string;
   readonly generation: string;
   readonly inventoryId: string | null;
@@ -363,6 +373,7 @@ export interface BrowserMemberBodyDiffResult {
   readonly document: BrowserMemberBodyDiffDocument | null;
   readonly detail: string | null;
   readonly inspection: InspectionEnvelope<unknown> | null;
+  readonly missingCounterpart: BrowserMemberBodyDiffMissingCounterpart | null;
 }
 
 export interface BrowserMemberBodyMedium {
@@ -879,10 +890,10 @@ type $ManagedExports = {
             readonly "CancelSourceQuery.19325221": () => void;
             readonly "CancelTypeExplorerQuery.271973316": (operationId: string, reason: string) => string;
             readonly "CancelTypeSourceQuery.271973316": (operationId: string, reason: string) => string;
-            readonly "QueryMemberAnnotatedSource.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
+            readonly "QueryMemberAnnotatedSource.861956385": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, runtimeIdentifier: string | null) => Promise<string>;
             readonly "QueryMemberBodyDiff.451505237": (operationId: string, requestJson: string) => Promise<string>;
-            readonly "QueryMemberFindingCensus.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
-            readonly "QueryMemberSource.279098206": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string, view: string) => Promise<string>;
+            readonly "QueryMemberFindingCensus.861956385": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, runtimeIdentifier: string | null) => Promise<string>;
+            readonly "QueryMemberSource.2033029677": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string, runtimeIdentifier: string | null, view: string) => Promise<string>;
             readonly "QueryMemberSourceComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparison.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMethodBodyComparisonTargets.642387634": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
@@ -891,9 +902,9 @@ type $ManagedExports = {
             readonly "QueryPlatformTypeSource.65947390": (operationId: string, targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, styleOptionsJson: string, view: string, contextId: string | null) => Promise<string>;
             readonly "QueryRetainedMethodBodyComparison.1330709314": (operationId: string, retainedDefinitionId: string, realizationId: string, navigationId: string, requestJson: string) => Promise<string>;
             readonly "QueryRetainedMethodBodyComparisonTargets.232634149": (operationId: string, retainedDefinitionId: string, realizationId: string, navigationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
-            readonly "QueryTypeExplorer.335255791": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, requestJson: string) => Promise<string>;
-            readonly "QueryTypeMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
-            readonly "QueryTypeSource.335255791": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, view: string) => Promise<string>;
+            readonly "QueryTypeExplorer.65947390": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, runtimeIdentifier: string | null, requestJson: string) => Promise<string>;
+            readonly "QueryTypeMemberSource.1304044607": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, runtimeIdentifier: string | null) => Promise<string>;
+            readonly "QueryTypeSource.65947390": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, runtimeIdentifier: string | null, view: string) => Promise<string>;
           };
         };
       };
@@ -1022,9 +1033,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryMemberAnnotatedSource.1135530322");
+    value = $ownDataProperty(value, "QueryMemberAnnotatedSource.861956385");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberAnnotatedSource.1135530322\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberAnnotatedSource.861956385\u0027 is not callable.");
     }
   }
   {
@@ -1046,9 +1057,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryMemberFindingCensus.1135530322");
+    value = $ownDataProperty(value, "QueryMemberFindingCensus.861956385");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberFindingCensus.1135530322\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberFindingCensus.861956385\u0027 is not callable.");
     }
   }
   {
@@ -1058,9 +1069,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryMemberSource.279098206");
+    value = $ownDataProperty(value, "QueryMemberSource.2033029677");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberSource.279098206\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberSource.2033029677\u0027 is not callable.");
     }
   }
   {
@@ -1166,9 +1177,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryTypeExplorer.335255791");
+    value = $ownDataProperty(value, "QueryTypeExplorer.65947390");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeExplorer.335255791\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeExplorer.65947390\u0027 is not callable.");
     }
   }
   {
@@ -1178,9 +1189,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryTypeMemberSource.641907440");
+    value = $ownDataProperty(value, "QueryTypeMemberSource.1304044607");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeMemberSource.641907440\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeMemberSource.1304044607\u0027 is not callable.");
     }
   }
   {
@@ -1190,9 +1201,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Source");
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryTypeSource.335255791");
+    value = $ownDataProperty(value, "QueryTypeSource.65947390");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeSource.335255791\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeSource.65947390\u0027 is not callable.");
     }
   }
 }
@@ -1280,8 +1291,8 @@ export function cancelTypeSourceQuery(operationId: string, reason: string): Brow
   return $parsed as BrowserTypeSourceCancellation;
 }
 
-export async function queryMemberAnnotatedSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserAnnotatedSource> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberAnnotatedSource.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+export async function queryMemberAnnotatedSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, runtimeIdentifier: string | null): Promise<BrowserAnnotatedSource> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberAnnotatedSource.861956385"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserAnnotatedSource;
 }
@@ -1292,14 +1303,14 @@ export async function queryMemberBodyDiff(operationId: string, requestJson: Brow
   return $parsed as BrowserMemberBodyDiffResult;
 }
 
-export async function queryMemberFindingCensus(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberFindingCensus> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberFindingCensus.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
+export async function queryMemberFindingCensus(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, runtimeIdentifier: string | null): Promise<BrowserMemberFindingCensus> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberFindingCensus.861956385"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberFindingCensus;
 }
 
-export async function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string, view: string): Promise<BrowserMemberSourceResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSource.279098206"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson, view);
+export async function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, styleOptionsJson: string, runtimeIdentifier: string | null, view: string): Promise<BrowserMemberSourceResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSource.2033029677"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, documentBaselineOrdinal, styleOptionsJson, runtimeIdentifier, view);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberSourceResult;
 }
@@ -1351,20 +1362,20 @@ export async function queryRetainedMethodBodyComparisonTargets(operationId: stri
   return $parsed as BrowserMethodBodyTargetsResult;
 }
 
-export async function queryTypeExplorer(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, requestJson: BrowserTypeExplorerRequest): Promise<BrowserTypeExplorerResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryTypeExplorer.335255791"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeExplorer.335255791", "requestJson"));
+export async function queryTypeExplorer(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, runtimeIdentifier: string | null, requestJson: BrowserTypeExplorerRequest): Promise<BrowserTypeExplorerResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryTypeExplorer.65947390"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson, runtimeIdentifier, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Source.SourceExports.QueryTypeExplorer.65947390", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeExplorerResult;
 }
 
-export async function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryTypeMemberSource.641907440"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
+export async function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string, runtimeIdentifier: string | null): Promise<BrowserSource> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryTypeMemberSource.1304044607"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserSource;
 }
 
-export async function queryTypeSource(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, view: string): Promise<BrowserTypeSourceResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryTypeSource.335255791"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson, view);
+export async function queryTypeSource(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string, runtimeIdentifier: string | null, view: string): Promise<BrowserTypeSourceResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryTypeSource.65947390"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson, runtimeIdentifier, view);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }

@@ -213,6 +213,7 @@ public sealed partial class PackageRangedRealizationTests
             selected.Asset.Path,
             StringComparison.Ordinal);
         Assert.Empty(scope.ImplementationParticipants);
+        Assert.NotNull(scope.Root.Root.AssetSelection);
         Assert.Equal(11, scope.Root.Root.AssetSelection.Assets.Count);
         var content =
             Assert.IsType<RangedPackageContent>(scope.Payload.Content);

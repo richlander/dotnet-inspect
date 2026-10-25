@@ -228,7 +228,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync([.. request, "--verbose"]);
         Assert.True(result.Exit == 0, result.Error);
         Assert.Contains(
-            "| Summary | **Summary:** 521 breaking, 600 additive, 220 potentially breaking across 462 types |",
+            "| Summary | **Summary:** 505 breaking, 581 additive, 220 potentially breaking across 432 types |",
             result.Output,
             StringComparison.Ordinal);
         // Only overloads repeat a row. The legacy selector's doubled

@@ -193,6 +193,105 @@ public sealed class SectionPipelineSubstrateTests
     }
 
     [Fact]
+    public void ExactSelectionPreservesOrderedDemandWithoutAutomaticPeers()
+    {
+        var first = new InspectionQuery<int>("first", InspectionCost.NetworkFree);
+        var shared = new InspectionQuery<int>("shared", InspectionCost.NetworkFree);
+        var unbounded = new InspectionQuery<int>("unbounded", InspectionCost.Unbounded);
+        var pipeline = new SectionPipeline<TestModel>()
+            .UseCuratedCatalog()
+            .Add<PrimarySection>(first)
+            .Add<DetailedSection>(shared)
+            .Add<UnboundedSection>([shared, unbounded])
+            .AddBaseCategory("@Test", PrimarySection.Name, DetailedSection.Name)
+            .AddCategory("@Selected", DetailedSection.Name, UnboundedSection.Name);
+        SectionCatalog<TestModel> catalog = pipeline.Compile();
+        HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase)
+        {
+            UnboundedSection.Name,
+            DetailedSection.Name,
+        };
+
+        SectionQueryPlan plan = catalog.PlanSelectedQueries(selected);
+
+        Assert.Equal([shared, unbounded], plan.Queries);
+        Assert.Equal(
+            [
+                new SectionQueryDemand(DetailedSection.Name, shared),
+                new SectionQueryDemand(UnboundedSection.Name, shared),
+                new SectionQueryDemand(UnboundedSection.Name, unbounded),
+            ],
+            plan.Demands);
+        Assert.Same(plan, catalog.PlanSelectedQueries(selected));
+        SectionQueryPlan uncommon = catalog.PlanSelectedQueries(
+            new HashSet<string>(selected, StringComparer.OrdinalIgnoreCase) { "Unknown" });
+        Assert.Equal(plan.Queries, uncommon.Queries);
+        Assert.Equal(plan.Demands, uncommon.Demands);
+        foreach (SectionViewLevel view in Enum.GetValues<SectionViewLevel>())
+        {
+            Assert.Same(plan, catalog.PlanQueries(view, selected, fixedOverview: true));
+            SectionQueryPlan mutable = pipeline.PlanQueries(view, selected, true, false);
+            Assert.Equal(plan.Queries, mutable.Queries);
+            Assert.Equal(plan.Demands, mutable.Demands);
+        }
+
+        SectionQueryPlan bounded = catalog.PlanSelectedQueries(selected, excludeUnbounded: true);
+        Assert.Equal([shared], bounded.Queries);
+        Assert.Equal(
+            [new SectionQueryDemand(DetailedSection.Name, shared)],
+            bounded.Demands);
+    }
+
+    [Fact]
+    public void EmptyExactSelectionNeverFallsBackToAutomaticDemand()
+    {
+        var query = new InspectionQuery<int>("primary", InspectionCost.NetworkFree);
+        var pipeline = new SectionPipeline<TestModel>().Add<PrimarySection>(query);
+        SectionCatalog<TestModel> catalog = pipeline.Compile();
+
+        Assert.Empty(pipeline.PlanSelectedQueries([]).Queries);
+        Assert.Empty(catalog.PlanSelectedQueries([]).Queries);
+        Assert.Empty(catalog.PlanSelectedQueries([]).Demands);
+        Assert.Equal([query], catalog.PlanQueries(SectionViewLevel.Minimal).Queries);
+        Assert.Empty(catalog.PlanSelectedQueries(new HashSet<string> { "Unknown" }).Queries);
+        Assert.Equal(
+            [query],
+            catalog.PlanSelectedQueries(new HashSet<string> { PrimarySection.Name }).Queries);
+        Assert.Throws<ArgumentNullException>(() => pipeline.PlanSelectedQueries(null!));
+        Assert.Throws<ArgumentNullException>(() => catalog.PlanSelectedQueries(null!));
+    }
+
+    [Fact]
+    public void ExactLensSelectionExecutesOnlySelectedQueriesAndHostDemand()
+    {
+        var primary = new InspectionQuery<int>("primary", InspectionCost.NetworkFree);
+        var selected = new InspectionQuery<int>("selected", InspectionCost.NetworkFree);
+        var host = new InspectionQuery<int>("host", InspectionCost.NetworkFree);
+        var queries = new InspectionQueryRegistry<string>()
+            .Add(primary, static _ => throw new InvalidOperationException("Unselected query ran."))
+            .Add(selected, static context => context.Length)
+            .Add(host, static context => context.Length * 2)
+            .Compile();
+        var lens = new CompiledInspectionDomain<string>(queries)
+            .CompileLens<TestModel>(pipeline => pipeline
+                .Add<PrimarySection>(primary)
+                .Add<DetailedSection>(selected));
+        var hostDemand = new[] { new HostQueryDemand("Host requirement", host) };
+        var plan = lens.PlanSelected(
+            new HashSet<string> { DetailedSection.Name },
+            hostDemand: hostDemand);
+        var results = plan.Run("test");
+
+        Assert.Equal([selected, host], plan.RequestedQueries);
+        Assert.Equal([new SectionQueryDemand(DetailedSection.Name, selected)], plan.SectionDemand);
+        Assert.Equal(hostDemand, plan.HostDemand);
+        Assert.Equal(4, results.Get(selected));
+        Assert.Equal(8, results.Get(host));
+        Assert.False(results.TryGet(primary, out _));
+        Assert.Empty(lens.PlanSelected([]).RequestedQueries);
+    }
+
+    [Fact]
     public void WithoutQueriesReplansAndFiltersDemandAttribution()
     {
         var first = new InspectionQuery<int>(

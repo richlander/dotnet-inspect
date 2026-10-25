@@ -1143,7 +1143,7 @@ internal static class BrowserRetainedWorkspaceActivationService
                     new(
                         "UnsupportedDefinition",
                         "packet.view.active",
-                        "Source-free complete Workspace link activation currently supports only Workspace or default Package selections."));
+                        "Source-free complete Workspace link activation currently supports only Workspace, default Package, or Package Hierarchy selections."));
             }
             return new(
                 true,
@@ -1186,7 +1186,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             WorkspaceShareViewState state = packet.ViewStates[index + 1];
             if (packet.Tabs[index].SourceKind
                     == WorkspaceShareSourceKind.Package
-                ? !IsPackageDefault(state)
+                ? !IsPackageRoot(state)
                 : !IsDormantGroup(state))
             {
                 return false;
@@ -1203,12 +1203,13 @@ internal static class BrowserRetainedWorkspaceActivationService
         && state.Facet is null or "workspace.overview";
 
     // Package views recorded before package.libraries became the default
-    // name package.overview; both remain the default Package state.
-    private static bool IsPackageDefault(WorkspaceShareViewState state) =>
+    // name package.overview; preserve both beside the explicit Hierarchy inspector.
+    private static bool IsPackageRoot(WorkspaceShareViewState state) =>
         IsUnscoped(state)
         && state.Subject is PortableSubjectRequest.Package
         && state.Context is PortableRetainedSubjectContext.Package
-        && state.Facet is null or "package.libraries" or "package.overview";
+        && state.Facet is null or "package.libraries" or "package.overview"
+            or "package.dependency-hierarchy";
 
     private static bool IsDormantGroup(WorkspaceShareViewState state) =>
         IsUnscoped(state)

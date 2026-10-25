@@ -253,6 +253,7 @@ function homeDemoResolution(
         comparison: null,
       },
       traversalTargetFramework: null,
+      hierarchyWorkspacePacket: null,
     },
     restorationDefinitions: ["{}"],
   };

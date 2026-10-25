@@ -31,8 +31,8 @@ public sealed class WorkspacePackageRootAcquisitionTests
         Assert.Equal(Framework, acquired.Root.Coordinate.Framework);
         Assert.Equal(NuGetCache.GetSourceKey(Source.Url), acquired.Root.Coordinate.Producer);
         Assert.Equal(PackageCompileAssetSelectionStatus.Selected,
-            acquired.Root.Root.AssetSelection.Status);
-        Assert.Single(acquired.Root.Root.AssetSelection.Assets);
+            Assert.IsType<PackageCompileAssetSelection>(acquired.Root.Root.AssetSelection).Status);
+        Assert.Single(Assert.IsType<PackageCompileAssetSelection>(acquired.Root.Root.AssetSelection).Assets);
         Assert.Equal(0, handler.Requests);
     }
 
@@ -53,8 +53,8 @@ public sealed class WorkspacePackageRootAcquisitionTests
             await WorkspaceContextLoader.AcquirePackageRootAsync(
                 Input(), Options(client, store), TestContext.Current.CancellationToken));
 
-        Assert.Equal(expected, acquired.Root.Root.AssetSelection.Status);
-        Assert.Empty(acquired.Root.Root.AssetSelection.Assets);
+        Assert.Equal(expected, Assert.IsType<PackageCompileAssetSelection>(acquired.Root.Root.AssetSelection).Status);
+        Assert.Empty(Assert.IsType<PackageCompileAssetSelection>(acquired.Root.Root.AssetSelection).Assets);
         Assert.Equal(PackageId, acquired.Root.Coordinate.PackageId);
     }
 
@@ -69,10 +69,10 @@ public sealed class WorkspacePackageRootAcquisitionTests
                 Input(), Options(client, store), TestContext.Current.CancellationToken));
 
         Assert.Equal(Framework, acquired.Root.Coordinate.Framework);
-        Assert.Equal("net8.0", acquired.Root.Root.AssetSelection.TargetFramework);
+        Assert.Equal("net8.0", Assert.IsType<PackageCompileAssetSelection>(acquired.Root.Root.AssetSelection).TargetFramework);
         Assert.Equal(PackageCompileAssetSelectionStatus.Selected,
-            acquired.Root.Root.AssetSelection.Status);
-        Assert.Single(acquired.Root.Root.AssetSelection.Assets);
+            Assert.IsType<PackageCompileAssetSelection>(acquired.Root.Root.AssetSelection).Status);
+        Assert.Single(Assert.IsType<PackageCompileAssetSelection>(acquired.Root.Root.AssetSelection).Assets);
     }
 
     [Fact]
