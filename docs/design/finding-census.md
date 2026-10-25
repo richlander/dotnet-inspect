@@ -488,10 +488,10 @@ and `type` legs of `eng/measure-finding-diff-any.cs`, NativeAOT on a quiet
 host, twenty runs per process, two rounds, every process first try; raw outputs
 in the
 [gist](https://gist.github.com/richlander/0471783de62a7d064043b11d6240a4fa).
-Lower is better; the walk is unchanged within ±0.7%, so only lockstep's columns
-move.
+Lower is better; the walk moves within ±1.7%, 0.2 ms at most, over both rounds,
+so only lockstep's columns move.
 
-| Pair | Walk ms, base / head | Lockstep ms, base / head (r1, r2) | Lockstep ÷ walk, base / head | Lockstep MB, base / head | Type first request, lockstep median µs, base / head | Type first request, lockstep p95 µs, base / head | Type first request, lockstep allocation median KB, base / head | Agreement |
+| Pair | Walk ms, base / head (r1) | Lockstep ms, base / head (r1, r2) | Lockstep ÷ walk, base / head | Lockstep MB, base / head | Type first request, lockstep median µs, base / head | Type first request, lockstep p95 µs, base / head | Type first request, lockstep allocation median KB, base / head | Agreement |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Aspire.Hosting 13.6.0 to 13.6.1 | 76.1 / 75.7 | 521.7 / 149.8 (522.2 / 149.6) | 6.9× / 2.0× | 1585 / 220 | 70 / 34 | 1652 / 425 | 176 / 36 | identical |
 | System.Text.Json 9.0.0 to 10.0.0 | 12.0 / 12.1 | 28.4 / 15.9 (28.9 / 15.7) | 2.4× / 1.3× | 69 / 20 | 58 / 25 | 1020 / 393 | 169 / 33 | identical |
