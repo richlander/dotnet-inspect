@@ -289,7 +289,7 @@ public partial class PackageCommand
             string? requestedTargetFramework =
                 contextTargetFramework
                 ?? root.Root.RequestedTargetFramework
-                ?? root.Root.AssetSelection.TargetFramework;
+                ?? root.Root.AssetSelection?.TargetFramework;
             InspectionOptions ordinaryOptions = acquisition is not null
                 ? options
                 : options with
@@ -299,7 +299,7 @@ public partial class PackageCommand
                 Tfm = options.WorkspaceLibrarySelection is null
                     && !exactReference
                     ? requestedTargetFramework
-                    : root.Root.AssetSelection.TargetFramework
+                    : root.Root.AssetSelection?.TargetFramework
                         ?? requestedTargetFramework,
                 WorkspaceLibraryAssetPaths =
                     options.WorkspaceLibrarySelection is null
@@ -307,8 +307,8 @@ public partial class PackageCommand
                         ? null
                         :
                         [
-                            .. root.Root.AssetSelection.Assets.Select(
-                                static asset => asset.Path),
+                            .. root.Root.AssetSelection?.Assets.Select(
+                                static asset => asset.Path) ?? [],
                         ],
 #if DEBUG
                 EvidenceEnvelopePath = null,

@@ -997,7 +997,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
 
         SourcePackageBinding source = sources[0];
         IReadOnlyList<PackageCompileAsset> assets =
-            source.Binding.Root.AssetSelection.Assets;
+            source.Binding.Root.AssetSelection?.Assets ?? [];
         int assetIndex = -1;
         for (int index = 0; index < assets.Count; index++)
         {

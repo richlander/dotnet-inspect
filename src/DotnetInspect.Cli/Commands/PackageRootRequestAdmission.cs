@@ -45,7 +45,7 @@ internal static class PackageRootRequestAdmission
             + $"from producer '{binding.Root.ProducerKey}' ({origin}); "
             + $"compile {request.CompileTargetFramework ?? "(none)"}, "
             + $"implementation {request.SelectionTargetFramework ?? "(none)"} "
-            + $"resolved {binding.Root.AssetSelection.Status}.");
+            + $"resolved {binding.Root.AssetSelection?.Status.ToString() ?? "Library selection not requested"}.");
         return binding;
 
         PackageRootBinding? Failure(

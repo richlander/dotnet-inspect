@@ -1391,7 +1391,7 @@ internal static class ExactTypeInspectionQuery
         IPackageContent? content = root?.Root.Content;
         packageExtractPath = content?.RootPath;
         string? documentationAssetPath =
-            root?.Root.AssetSelection.Assets
+            root?.Root.AssetSelection?.Assets
                 .Concat(
                     root.Root.AssetSelection
                         .ImplementationAssets)
