@@ -77,7 +77,7 @@ public class IlCensusCursorClauseTableTests
         Assert.Equal(1, clauses);
     }
 
-    /// <summary>One image with <c>C::M()</c> whose body is <paramref name="il"/> under one unchecked finally region.</summary>
+    /// <summary>One image with <c>C::M()</c> whose body is <paramref name="il"/> under one finally region the encoder range-checks only.</summary>
     static byte[] Image(byte[] il, int tryOffset, int tryLength, int handlerOffset, int handlerLength)
     {
         var metadata = new MetadataBuilder();
