@@ -447,7 +447,7 @@ five images, with one component of the cursor's per-advance work removed at a
 time and the remainder measured. Removing a component makes lockstep wrong on
 some malformed input (the clause-table tests fail under `no-clauses`), so each
 configuration is a measurement, not a candidate; every one agreed with the walk
-on the self-pairs. Raw outputs in the
+on the self-pairs. Raw outputs of all three runs in the
 [gist](https://gist.github.com/richlander/5b517a347785e5026eb3afed3a09735f).
 
 | Image against itself | Bodies | Walk ms | Lockstep ms | Family strings | Clause stage | Value operands | Token operands | Residue over the walk |
@@ -469,11 +469,11 @@ table that most bodies do not have. Token operand resolution through the side
 is 9% to 12%, and the family strings, three per instruction, 5% to 12%. Two
 further runs placed the clause cost: skipping the stage only for bodies with no
 exception regions recovered 31% (Aspire, whose async state machines carry
-regions) to 84% (System.Text.Json) of it, family table against family table
-with the skip, and applying the topology without building blocks recovered only
-20% to 26%, because the topology built the same hash set and then ran the
-exception-flow facts' transfer validation over every instruction, which the
-block graph never consulted.
+regions) to 84% (System.Private.CoreLib) of it, family table against family
+table with the skip, and applying the topology without building blocks
+recovered only 20% to 26%, because the topology built the same hash set and
+then ran the exception-flow facts' transfer validation over every instruction,
+which the block graph never consulted.
 
 The stage now applies the decoder's clause-table rules over the cursor's own
 instruction map, which answers each boundary by binary search, retains no
