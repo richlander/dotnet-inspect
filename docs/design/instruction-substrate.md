@@ -40,6 +40,18 @@ agnostic at the bottom. Analysis and the decompiler depend on `Instructions`;
 neither owns it. The product path stays SRM-only, NativeAOT-friendly, Roslyn-free,
 and never loads inspected assemblies.
 
+The IL byte layer, `ILReader`, the opcode tables (`IsValid`,
+`GetInstructionSize`, `IsPrefix`, `IsBranch`, `GetOperandKind`), and
+`OperandKind`, lives in `ILInspector.MetadataPrimitives`, below both
+Instructions and `ILInspector.Metadata`, in the `ILInspector.Instructions`
+namespace it has always had. Two readers sit on it: the decoder, which builds
+instructions, and Finding Diff Any's paired Body walk, which builds none
+([Finding Diff Any](finding-diff-any.md#axes)). Metadata and Instructions still
+do not reference each other, which
+`LayeringTests.MetadataAndInstructions_DoNotReferenceEachOther` gates, and the
+primitives floor stays InertText-only
+([Metadata primitives](../metadata-primitives.md#current-boundary)).
+
 The implemented
 [instruction exception-flow facts](instruction-exception-flow-facts.md)
 compose this substrate with
@@ -269,9 +281,15 @@ identity (Layer 0) and let each consumer build its own Layer 1.
 
 The ported `ILReader` + size table are faithful — byte-level tiling and
 round-trip hold because the reader sizes every opcode correctly, prefixes
-included. The bugs adversarial review found were all in the *connective tissue we
-hand-roll above the reader* (`InstructionDecoder`, `MethodInstructions`, the
+included. The bugs adversarial review found were all in the *connective tissue
+we hand-roll above the reader* (`InstructionDecoder`, `MethodInstructions`, the
 gated `StackTypeInterpreter`), never in the ported files.
+`ILOpcodeExtensions.cs` does hold hand-written members beside the ported size
+table: `IsBranch`, `IsUnconditionalBranch`, `IsShortBranch`, `IsPrefix`, and
+`GetIndex`, the port's adaptations to SRM's `ILOpCode`, and `GetOperandKind`,
+the decoder's operand classification moved there so that the decoder and
+Finding Diff Any's walk consult one file. A diff against upstream should expect
+those and read the rest as the port.
 
 That is the deliberate boundary. The substrate guarantees **structural
 completeness** — the stream tiles `[0, ilLength)`, branch targets land on
