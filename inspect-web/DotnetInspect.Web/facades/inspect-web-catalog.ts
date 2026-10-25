@@ -212,9 +212,14 @@ export interface BrowserHomeDemoRunActivation {
   readonly platformContextId: string | null;
 }
 
+export interface BrowserHomeDemoRunPackage {
+  readonly surface: BrowserPackageSurface;
+  readonly implementationComparisonRuntimeIdentifier: string | null;
+}
+
 export interface BrowserHomeDemoRunResult {
   readonly found: boolean;
-  readonly packages: ReadonlyArray<BrowserPackageSurface>;
+  readonly packages: ReadonlyArray<BrowserHomeDemoRunPackage>;
   readonly activation: BrowserHomeDemoRunActivation | null;
   readonly callGraph: BrowserCallGraph | null;
 }

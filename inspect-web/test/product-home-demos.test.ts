@@ -26,6 +26,9 @@ import {
   productHomeDemosViewHtml,
   setProductHomeDemoCatalog,
 } from "../src/product-home-demos.ts";
+import {
+  implementationComparisonRuntimeIdentifier,
+} from "../src/package-comparison-targets.ts";
 
 test("Demos renders the ordered catalog separately from Workspace contents", () => {
   setProductHomeDemoCatalog([{
@@ -158,10 +161,17 @@ function result(
   focusFramework: string,
   focusAssembly: string | null,
   packages: readonly BrowserPackageSurface[],
+  comparisonRuntimeIdentifier = "osx-arm64",
 ): BrowserHomeDemoRunResult {
   return {
     found: true,
-    packages,
+    packages: packages.map(packageSurface => ({
+      surface: packageSurface,
+      implementationComparisonRuntimeIdentifier:
+        focusKind === "package"
+          ? comparisonRuntimeIdentifier
+          : null,
+    })),
     activation: {
       focusKind,
       focusId,
@@ -230,7 +240,35 @@ test("package activation retains a non-first exact focus", () => {
   assert.deepEqual(
     prepared.packages.map(packageModel => packageModel.packageInfo),
     [undefined, undefined]);
+  assert.deepEqual(
+    prepared.packages.map(packageModel =>
+      packageModel.implementationComparisonRuntimeIdentifier),
+    ["osx-arm64", "osx-arm64"]);
   assert.equal(prepared.focusPackage.id, "Focus.Package");
+  assert.equal(
+    implementationComparisonRuntimeIdentifier(prepared.focusPackage),
+    "osx-arm64",
+  );
+});
+
+test("Package activation rejects a missing owner-issued comparison RID", () => {
+  const demo = result(
+    "package",
+    "Focus.Package",
+    "2.0.0",
+    "net10.0",
+    null,
+    [surface("Focus.Package", "2.0.0", "net10.0", "Focus")],
+  );
+  assert.throws(
+    () => prepareProductHomeDemoSource({
+      ...demo,
+      packages: [{
+        ...demo.packages[0]!,
+        implementationComparisonRuntimeIdentifier: null,
+      }],
+    }),
+    /omitted its implementation comparison runtime identifier/);
 });
 
 test("Platform activation merges one exact target around its non-first focus", () => {

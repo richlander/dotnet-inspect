@@ -271,12 +271,16 @@ public static partial class CatalogExports
                         "A package home demo run contains a non-package request.")),
         ];
         BrowserInspectionScope scope = resolution.Scope;
+        BrowserPackageCoordinate[] coordinates =
+        [
+            .. resolution.RequestedCoordinates.Select(scope.Coordinate),
+        ];
         BrowserPackageProjectionInfo[] projections =
         [
-            .. resolution.RequestedCoordinates.Select(requested =>
+            .. coordinates.Select(coordinate =>
                 BrowserPackageSurfaceProjection.Project(
                     scope,
-                    scope.Coordinate(requested))),
+                    coordinate)),
         ];
         if (resolution.RequestedCoordinates.Length != requests.Length)
         {
@@ -288,10 +292,17 @@ public static partial class CatalogExports
             throw new InvalidOperationException(
                 "The product home demo focus is outside its resolved browser workspace.");
         }
+        BrowserHomeDemoRunPackage[] packages =
+        [
+            .. projections.Select((projection, index) =>
+                new BrowserHomeDemoRunPackage(
+                    BrowserCatalogWireProjection.Project(projection.Surface),
+                    coordinates[index]
+                        .ImplementationComparisonRuntimeIdentifier)),
+        ];
 
         BrowserPackageCoordinate focusCoordinate =
-            scope.Coordinate(
-                resolution.RequestedCoordinates[plan.FocusRequestIndex]);
+            coordinates[plan.FocusRequestIndex];
         BrowserPackageProjectionInfo focusProjection =
             projections[plan.FocusRequestIndex];
         BrowserPackageSurfaceInfo focusPackage = focusProjection.Surface;
@@ -316,10 +327,7 @@ public static partial class CatalogExports
         {
             return new BrowserHomeDemoRunResult(
                 true,
-                [
-                    .. projections.Select(projection =>
-                        BrowserCatalogWireProjection.Project(projection.Surface)),
-                ],
+                packages,
                 new BrowserHomeDemoRunActivation(
                     FocusKind: "package",
                     FocusId: focusCoordinate.PackageId,
@@ -352,10 +360,7 @@ public static partial class CatalogExports
 
         return new BrowserHomeDemoRunResult(
             true,
-            [
-                .. projections.Select(projection =>
-                    BrowserCatalogWireProjection.Project(projection.Surface)),
-            ],
+            packages,
             new BrowserHomeDemoRunActivation(
                 FocusKind: "package",
                 FocusId: focusCoordinate.PackageId,
@@ -476,6 +481,13 @@ public static partial class CatalogExports
                 "The product home demo Platform workspace collapsed distinct "
                 + "requests onto the same realized coordinate.");
         }
+        BrowserHomeDemoRunPackage[] packages =
+        [
+            .. projections.Select(projection =>
+                new BrowserHomeDemoRunPackage(
+                    BrowserCatalogWireProjection.Project(projection.Surface),
+                    ImplementationComparisonRuntimeIdentifier: null)),
+        ];
         BrowserPlatformProjectionInfo focusProjection =
             projections[plan.FocusRequestIndex];
         RealizedMemberCoordinate.Platform focusCoordinate =
@@ -506,10 +518,7 @@ public static partial class CatalogExports
             return new BrowserPlatformHomeDemoPreparation(
                 new BrowserHomeDemoRunResult(
                     true,
-                    [
-                        .. projections.Select(projection =>
-                            BrowserCatalogWireProjection.Project(projection.Surface)),
-                    ],
+                    packages,
                     new BrowserHomeDemoRunActivation(
                         FocusKind: "platform",
                         FocusId: focusCoordinate.Family,
@@ -537,10 +546,7 @@ public static partial class CatalogExports
         return new BrowserPlatformHomeDemoPreparation(
             new BrowserHomeDemoRunResult(
                 true,
-                [
-                    .. projections.Select(projection =>
-                        BrowserCatalogWireProjection.Project(projection.Surface)),
-                ],
+                packages,
                 new BrowserHomeDemoRunActivation(
                     FocusKind: "platform",
                     FocusId: focusCoordinate.Family,

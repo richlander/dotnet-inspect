@@ -16,12 +16,7 @@ internal static class BrowserPackageWireProjection
 {
     internal static string ImplementationComparisonRuntimeIdentifier(
         BrowserPackageCoordinate coordinate) =>
-        coordinate.RuntimeIdentifier
-            ?? (coordinate.RuntimePopulationChoice
-                is PackageRuntimePopulationChoiceResult.Selected selected
-                ? selected.RuntimeIdentifier
-                : PackageRuntimePopulationChoice
-                    .ProductDefaultRuntimeIdentifier);
+        coordinate.ImplementationComparisonRuntimeIdentifier;
 
     internal static BrowserExactLibraryApiInspection Project(
         InspectionEnvelope<ExactLibraryApiInspectionResult> inspection)

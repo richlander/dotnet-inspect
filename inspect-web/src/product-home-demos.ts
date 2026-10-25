@@ -4,7 +4,7 @@ import type {
   BrowserPackageSurface,
 } from "./facades/inspect-web-catalog.d.ts";
 import {
-  createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   createRuntimePackageModel,
   mergeRuntimePackageSurface,
   type AppPackage,
@@ -103,8 +103,16 @@ export function prepareProductHomeDemoSource(
   }
 
   if (activation.focusKind === "package") {
-    const packages = result.packages.map(surface =>
-      createNuGetPackageModel(surface));
+    const packages = result.packages.map(entry => {
+      if (!entry.implementationComparisonRuntimeIdentifier) {
+        throw new Error(
+          "The engine-run Package demo omitted its implementation comparison runtime identifier.");
+      }
+      return createNuGetPackageModelWithDefaultLibrary(
+        entry.surface,
+        null,
+        entry.implementationComparisonRuntimeIdentifier);
+    });
     const matches = packages.filter(item =>
       item.id === activation.focusId
       && item.version === activation.focusVersion
@@ -121,6 +129,7 @@ export function prepareProductHomeDemoSource(
   }
 
   if (activation.focusKind === "platform") {
+    const surfaces = result.packages.map(entry => entry.surface);
     if (!activation.platformContextId) {
       throw new Error("The engine-run Platform demo omitted its retained context.");
     }
@@ -128,7 +137,7 @@ export function prepareProductHomeDemoSource(
     if (!focusAssembly) {
       throw new Error("The engine-run Platform demo omitted its focus assembly.");
     }
-    for (const surface of result.packages) {
+    for (const surface of surfaces) {
       if (surface.version !== activation.focusVersion
         || surface.activeFramework !== activation.focusFramework) {
         throw new Error(
@@ -137,7 +146,7 @@ export function prepareProductHomeDemoSource(
     }
 
     const focusSurface = focusPlatformSurface(
-      result.packages,
+      surfaces,
       focusAssembly);
     const descriptors = focusSurface.assemblies.filter(assembly =>
       assembly.id === focusSurface.defaultAssemblyId
@@ -159,7 +168,7 @@ export function prepareProductHomeDemoSource(
 
     const ordered = [
       focusSurface,
-      ...result.packages.filter(surface => surface !== focusSurface),
+      ...surfaces.filter(surface => surface !== focusSurface),
     ];
     const packageModel = createRuntimePackageModel(ordered[0]!);
     for (const surface of ordered.slice(1))
