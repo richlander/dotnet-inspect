@@ -512,7 +512,11 @@ complete. The IL census cursor still writes Type-level keys in full; its
 operand keys are the expansions of Finding Diff Any's, and it joins the
 comparison's table when
 [Finding Census](finding-census.md#adoption-sequence) step 2 gives it Finding
-Diff Any's side.
+Diff Any's side. The declaration census cursor reads Finding Diff Any's staged
+facts and expands each to its full key through the side's table before the
+unit ends, so a declaration fact compares across images without a shared
+table and spells without one; the walk's own slot comparison keeps the `Ref`
+form.
 
 ### Cost of the Ref parts
 

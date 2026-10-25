@@ -868,7 +868,7 @@ public static class FindingDiffAny
 
     // A Symbol Key state error is the producer's, never the image's: it must
     // surface, not classify as a malformed Type.
-    static bool IsMalformed(Exception ex)
+    internal static bool IsMalformed(Exception ex)
         => ex is not SymbolKeyStateException
             && ex is BadImageFormatException
                 or InvalidOperationException
