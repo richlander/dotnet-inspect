@@ -275,6 +275,44 @@ public sealed class FindingDiffAnyBodyTests
         AssertUndecidable([0x2A], [0x2A, 0x24]);
     }
 
+    [Theory]
+    [InlineData(new byte[] { 0x00, 0xFE }, new byte[] { 0x00, 0x2A })] // nop; a two-byte escape cut short
+    [InlineData(new byte[] { 0x20, 0x01, 0x00 }, new byte[] { 0x20, 0x01, 0x00, 0x00, 0x00 })] // ldc.i4 cut short
+    [InlineData(new byte[] { 0x2B }, new byte[] { 0x2B, 0x00 })] // br.s with no displacement
+    public void BodyEndingInsideAnInstruction_IsIndeterminate(byte[] cut, byte[] whole)
+    {
+        // The reader reports a body whose IL length cuts an opcode or operand
+        // short as an invalid program; the walk reads it as a body it cannot
+        // decode, on one side and on both, before any difference is decided.
+        AssertUndecidable(cut, cut);
+        AssertUndecidable(cut, whole);
+        AssertUndecidable(whole, cut);
+    }
+
+    [Fact]
+    public void BodyEndingInsideAnInstructionAfterADifference_IsChanged()
+    {
+        // nop vs ret differ at the first opcode; the cut escape after it is
+        // never read. Canonical comparison decodes the whole body first and
+        // meets the cut, so it reads the pair as Indeterminate: the one
+        // designed departure, a difference decided before a fault
+        // (finding-diff-any.md, Axes; finding-census.md, Provisions).
+        byte[] before = [0x00, 0xFE];
+        byte[] after = [0x2A, 0xFE];
+        FindingDiffAnyResult result = CompareRaw(before, after);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Body);
+
+        using var beforeReader = new PEReader(new MemoryStream(RawImage(before), writable: false));
+        using var afterReader = new PEReader(new MemoryStream(RawImage(after), writable: false));
+        List<FindingDiffAny.BodyVerdict> changed = FindingDiffAny.BodyVerdicts(beforeReader, afterReader)
+            .Where(verdict => verdict.Body == FindingDiffAnyState.Changed)
+            .ToList();
+        Assert.NotEmpty(changed);
+        Assert.All(changed, verdict => Assert.Equal(
+            FindingDiffAnyState.Indeterminate,
+            FindingDiffAnyTests.CanonicalBodyVerdict(beforeReader, afterReader, verdict)));
+    }
+
     [Fact]
     public void TrailingInstruction_IsChanged()
     {
