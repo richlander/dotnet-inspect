@@ -2963,39 +2963,54 @@ internal static class BrowserPackageWorkspace
                 runtimeIdentifier);
         IReadOnlyList<PackageCompileAsset> libraryAssets =
             librarySelector.Select(selection);
-        if (libraryAssets.Count == 1
-            && selection.FindImplementationAsset(libraryAssets[0]) is null)
+        PackageRuntimeAssetPopulation[] availableLibraryPopulations = [];
+        if (libraryAssets.Count == 1)
         {
-            string[] availableRuntimeIdentifiers =
+            if (selection.FindImplementationAsset(libraryAssets[0]) is null)
+            {
+                availableLibraryPopulations =
+                [
+                    .. runtimeSelection.AvailableRuntimePopulations
+                        .Where(population =>
+                            selection.FindImplementationAsset(
+                                libraryAssets[0],
+                                population) is not null),
+                ];
+            }
+        }
+        else if (libraryAssets.Count == 0
+            && selection.Status is
+                PackageCompileAssetSelectionStatus.Selected
+                or PackageCompileAssetSelectionStatus.NoCompileAssets)
+        {
+            availableLibraryPopulations =
             [
                 .. runtimeSelection.AvailableRuntimePopulations
                     .Where(population =>
-                        selection.FindImplementationAsset(
-                            libraryAssets[0],
-                            population) is not null)
-                    .Select(static population =>
-                        population.RuntimeIdentifier),
+                        librarySelector.Select(population).Count == 1),
             ];
-            if (availableRuntimeIdentifiers.Length > 0)
-            {
-                return new BrowserPackageImplementationComparisonScopeResult
-                    .MissingRuntimePopulation(
-                        runtimeIdentifier,
-                        [
-                            .. availableRuntimeIdentifiers
-                                .OrderBy(
-                                    candidate =>
-                                        candidate.Equals(
-                                            PackageRuntimePopulationChoice
-                                                .ProductDefaultRuntimeIdentifier,
-                                            StringComparison.Ordinal)
-                                                ? 0
-                                                : 1)
-                                .ThenBy(
-                                    static candidate => candidate,
-                                    StringComparer.Ordinal),
-                        ]);
-            }
+        }
+        if (availableLibraryPopulations.Length > 0)
+        {
+            return new BrowserPackageImplementationComparisonScopeResult
+                .MissingRuntimePopulation(
+                    runtimeIdentifier,
+                    [
+                        .. availableLibraryPopulations
+                            .Select(static population =>
+                                population.RuntimeIdentifier)
+                            .OrderBy(
+                                candidate =>
+                                    candidate.Equals(
+                                        PackageRuntimePopulationChoice
+                                            .ProductDefaultRuntimeIdentifier,
+                                        StringComparison.Ordinal)
+                                            ? 0
+                                            : 1)
+                            .ThenBy(
+                                static candidate => candidate,
+                                StringComparer.Ordinal),
+                    ]);
         }
 
         return new BrowserPackageImplementationComparisonScopeResult.Opened(

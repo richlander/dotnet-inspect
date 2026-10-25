@@ -220,48 +220,16 @@ public sealed record PackageCompileAssetSelection(
     }
 
     static string? TryGetRelativePath(PackageCompileAsset asset)
-    {
-        string[] segments = asset.Path.Split('/');
-        if (segments.Length == 2
-            && segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase)
-            && PackageAssetSelector.IsFrameworkAgnostic(
-                asset.TargetFramework))
-        {
-            return segments[1];
-        }
-
-        if (segments.Length >= 3
-            && (segments[0].Equals("ref", StringComparison.OrdinalIgnoreCase)
-                || segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
-            && segments[1].Equals(
-                asset.TargetFramework,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return string.Join('/', segments[2..]);
-        }
-
-        return segments.Length >= 5
-            && segments[0].Equals("runtimes", StringComparison.OrdinalIgnoreCase)
-            && segments[2].Equals("lib", StringComparison.OrdinalIgnoreCase)
-            && segments[3].Equals(
-                asset.TargetFramework,
-                StringComparison.OrdinalIgnoreCase)
-                ? string.Join('/', segments[4..])
-                : null;
-    }
+        => PackageEntryPath.TryGetLibraryRelativePath(
+            asset.Path,
+            asset.TargetFramework);
 
     static string? TryGetRelativePath(
         PackageAssetEntry asset,
         PackageRuntimeAssetPopulation population)
-    {
-        string prefix = population.PopulationPath;
-        return asset.EntryPath.Length > prefix.Length
-            && asset.EntryPath.AsSpan(0, prefix.Length).Equals(
-                prefix,
-                StringComparison.OrdinalIgnoreCase)
-                ? asset.EntryPath[prefix.Length..]
-                : null;
-    }
+        => PackageEntryPath.TryGetLibraryRelativePath(
+            asset.EntryPath,
+            population.TargetFramework);
 }
 
 /// <summary>

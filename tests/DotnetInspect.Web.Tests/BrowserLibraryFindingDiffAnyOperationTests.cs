@@ -288,6 +288,80 @@ public sealed class BrowserLibraryFindingDiffAnyOperationTests
     }
 
     [Fact]
+    public async Task Export_ReportsMissingRuntimeForRuntimeOnlyEndpoint()
+    {
+        const string runtimeIdentifier = "win-x64";
+        string packageId =
+            "Fast.Diff.RuntimeOnlyMissing." + Guid.NewGuid().ToString("N");
+        await Register(
+            packageId,
+            TargetVersion,
+            ($"runtimes/linux-x64/lib/{Framework}/ILInspector.Metadata.FindingDiffAny.dll",
+                File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV1.AssemblyPath())));
+        await Register(
+            packageId,
+            CurrentVersion,
+            (ReferencePath,
+                File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV2.AssemblyPath())),
+            ($"runtimes/{runtimeIdentifier}/lib/{Framework}/ILInspector.Metadata.FindingDiffAny.dll",
+                File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV2.AssemblyPath())));
+
+        BrowserLibraryFindingDiffAnyResult result = await Query(
+            Request(packageId) with
+            {
+                CompileAssetId = ReferenceAssetId,
+                RuntimeIdentifier = runtimeIdentifier,
+            });
+
+        Assert.Equal(
+            BrowserLibraryFindingDiffAnyResultKind.MissingCounterpart,
+            result.Kind);
+        BrowserLibraryFindingDiffAnyMissingCounterpart missing =
+            Assert.IsType<BrowserLibraryFindingDiffAnyMissingCounterpart>(
+                result.MissingCounterpart);
+        Assert.Equal(
+            BrowserLibraryFindingDiffAnyEndpoint.Target,
+            missing.Endpoint);
+        Assert.Equal(["linux-x64"], missing.AvailableRuntimeIdentifiers);
+    }
+
+    [Fact]
+    public async Task Export_ReportsMissingRuntimeWhenRuntimeOnlyRequestedRidHasAnotherLibrary()
+    {
+        const string runtimeIdentifier = "win-x64";
+        string packageId =
+            "Fast.Diff.RuntimeOnlyUnrelated." + Guid.NewGuid().ToString("N");
+        await Register(
+            packageId,
+            TargetVersion,
+            ($"runtimes/linux-x64/lib/{Framework}/ILInspector.Metadata.FindingDiffAny.dll",
+                File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV1.AssemblyPath())),
+            ($"runtimes/{runtimeIdentifier}/lib/{Framework}/Unrelated.dll", [0x01]));
+        await Register(
+            packageId,
+            CurrentVersion,
+            (ReferencePath,
+                File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV2.AssemblyPath())),
+            ($"runtimes/{runtimeIdentifier}/lib/{Framework}/ILInspector.Metadata.FindingDiffAny.dll",
+                File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV2.AssemblyPath())));
+
+        BrowserLibraryFindingDiffAnyResult result = await Query(
+            Request(packageId) with
+            {
+                CompileAssetId = ReferenceAssetId,
+                RuntimeIdentifier = runtimeIdentifier,
+            });
+
+        Assert.Equal(
+            BrowserLibraryFindingDiffAnyResultKind.MissingCounterpart,
+            result.Kind);
+        BrowserLibraryFindingDiffAnyMissingCounterpart missing =
+            Assert.IsType<BrowserLibraryFindingDiffAnyMissingCounterpart>(
+                result.MissingCounterpart);
+        Assert.Equal(["linux-x64"], missing.AvailableRuntimeIdentifiers);
+    }
+
+    [Fact]
     public async Task Export_ApiAxisBypassesRuntimePopulationChoice()
     {
         string packageId =
