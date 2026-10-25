@@ -1,9 +1,16 @@
+using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
+
 using ILInspector.ILDiff;
+using ILInspector.Instructions;
+
+using Inspector.Findings;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -140,6 +147,9 @@ public sealed class FindingDiffAnyBodyTests
         { "TryBoundaryMoved", false },
         { "ShiftedClauseOffsets", true },
         { "NestedClausesIdentical", true },
+        { "FilterIdentical", true },
+        { "FaultIdentical", true },
+        { "FatClauseIdentical", true },
         { "FinallyVsCatchAll", false },
         { "ClauseRemoved", false },
     };
@@ -163,11 +173,144 @@ public sealed class FindingDiffAnyBodyTests
     }
 
     [Fact]
+    public void RawBodyView_MatchesMaterializedBodies()
+    {
+        (byte[] encodingBefore, byte[] encodingAfter) = EncodingImages.Value;
+        (byte[] clauseBefore, byte[] clauseAfter) = ClauseImages.Value;
+        foreach (byte[] image in new[] { encodingBefore, encodingAfter, clauseBefore, clauseAfter })
+        {
+            using var pe = new PEReader(new MemoryStream(image, writable: false));
+            AssertRawBodiesMatch(pe);
+        }
+
+        using var runtime = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
+        AssertRawBodiesMatch(runtime);
+    }
+
+    [Fact]
+    public void MalformedExceptionSectionBeforeAnIlDifference_IsIndeterminate()
+    {
+        byte[] before = ClauseImage(after: false);
+        byte[] after = (byte[])before.Clone();
+        using (var pe = new PEReader(new MemoryStream(after, writable: false)))
+        {
+            MetadataReader metadata = pe.GetMetadataReader();
+            TypeDefinitionHandle type = metadata.TypeDefinitions.Single(handle =>
+                metadata.StringComparer.Equals(
+                    metadata.GetTypeDefinition(handle).Name,
+                    "FilterIdentical"));
+            int rva = metadata.GetMethodDefinition(
+                metadata.GetTypeDefinition(type).GetMethods().Single())
+                .RelativeVirtualAddress;
+            int bodyOffset = RvaToFileOffset(pe.PEHeaders, rva);
+            ushort flagsAndSize = BinaryPrimitives.ReadUInt16LittleEndian(
+                after.AsSpan(bodyOffset, 2));
+            int headerSize = (flagsAndSize >> 12) * 4;
+            int codeSize = BinaryPrimitives.ReadInt32LittleEndian(
+                after.AsSpan(bodyOffset + 4, 4));
+            after[bodyOffset + headerSize] = (byte)ILOpCode.Nop;
+            after[bodyOffset + Align4(headerSize + codeSize)] = 0;
+        }
+
+        FindingDiffAnyTypeState state = Single(
+            CompareImages(before, after),
+            $"{Namespace}.FilterIdentical");
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, state.Body);
+    }
+
+    static void AssertRawBodiesMatch(PEReader pe)
+    {
+        MetadataReader metadata = pe.GetMetadataReader();
+        foreach (MethodDefinitionHandle handle in metadata.MethodDefinitions)
+        {
+            int rva = metadata.GetMethodDefinition(handle).RelativeVirtualAddress;
+            if (rva == 0)
+                continue;
+
+            MethodBodyBlock expected = pe.GetMethodBody(rva);
+            RawMethodBodyView actual = RawMethodBodyView.Read(pe, rva);
+            BlobReader expectedIL = expected.GetILReader();
+            BlobReader actualIL = actual.IL;
+            Assert.Equal(
+                expectedIL.ReadBytes(expectedIL.Length),
+                actualIL.ReadBytes(actualIL.Length));
+
+            var actualRegions = new List<RawExceptionRegion>();
+            RawExceptionRegionEnumerator regions = actual.ExceptionRegions;
+            while (regions.MoveNext(out RawExceptionRegion region))
+                actualRegions.Add(region);
+
+            Assert.Equal(expected.ExceptionRegions.Length, actualRegions.Count);
+            for (int i = 0; i < actualRegions.Count; i++)
+            {
+                ExceptionRegion x = expected.ExceptionRegions[i];
+                RawExceptionRegion y = actualRegions[i];
+                Assert.Equal(x.Kind, y.Kind);
+                Assert.Equal(x.TryOffset, y.TryOffset);
+                Assert.Equal(x.TryLength, y.TryLength);
+                Assert.Equal(x.HandlerOffset, y.HandlerOffset);
+                Assert.Equal(x.HandlerLength, y.HandlerLength);
+                Assert.Equal(x.CatchType, y.CatchType);
+                Assert.Equal(x.FilterOffset, y.FilterOffset);
+            }
+        }
+    }
+
+    static int RvaToFileOffset(PEHeaders headers, int rva)
+    {
+        int sectionIndex = headers.GetContainingSectionIndex(rva);
+        Assert.True(sectionIndex >= 0);
+        SectionHeader section = headers.SectionHeaders[sectionIndex];
+        return checked(rva - section.VirtualAddress + section.PointerToRawData);
+    }
+
+    static int Align4(int value) => checked((value + 3) & ~3);
+
+    [Fact]
     public void TrailingUndefinedOpcode_IsIndeterminate()
     {
         // The longer stream continues with an opcode that cannot be decoded,
         // so no difference is decided before the fault.
         AssertUndecidable([0x2A], [0x2A, 0x24]);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x00, 0xFE }, new byte[] { 0x00, 0x2A })] // nop; a two-byte escape cut short
+    [InlineData(new byte[] { 0x20, 0x01, 0x00 }, new byte[] { 0x20, 0x01, 0x00, 0x00, 0x00 })] // ldc.i4 cut short
+    [InlineData(new byte[] { 0x2B }, new byte[] { 0x2B, 0x00 })] // br.s with no displacement
+    public void BodyEndingInsideAnInstruction_IsIndeterminate(byte[] cut, byte[] whole)
+    {
+        // The reader reports a body whose IL length cuts an opcode or operand
+        // short as an invalid program; the walk reads it as a body it cannot
+        // decode, on one side and on both, before any difference is decided.
+        AssertUndecidable(cut, cut);
+        AssertUndecidable(cut, whole);
+        AssertUndecidable(whole, cut);
+    }
+
+    [Fact]
+    public void BodyEndingInsideAnInstructionAfterADifference_IsChanged()
+    {
+        // nop vs ret differ at the first opcode; the cut escape after it is
+        // never read. Canonical comparison decodes the whole body first and
+        // meets the cut, so it reads the pair as Indeterminate: the one
+        // designed departure, a difference decided before a fault
+        // (finding-diff-any.md, Axes; finding-census.md, Provisions).
+        byte[] before = [0x00, 0xFE];
+        byte[] after = [0x2A, 0xFE];
+        FindingDiffAnyResult result = CompareRaw(before, after);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Body);
+
+        using var beforeReader = new PEReader(new MemoryStream(RawImage(before), writable: false));
+        using var afterReader = new PEReader(new MemoryStream(RawImage(after), writable: false));
+        List<FindingDiffAny.BodyVerdict> changed = FindingDiffAny.BodyVerdicts(beforeReader, afterReader)
+            .Where(verdict => verdict.Body == FindingDiffAnyState.Changed)
+            .ToList();
+        Assert.NotEmpty(changed);
+        Assert.All(changed, verdict => Assert.Equal(
+            FindingDiffAnyState.Indeterminate,
+            FindingDiffAnyTests.CanonicalBodyVerdict(beforeReader, afterReader, verdict)));
     }
 
     [Fact]
@@ -286,6 +429,107 @@ public sealed class FindingDiffAnyBodyTests
             Assert.Contains(verdicts, verdict => verdict.Body == FindingDiffAnyState.Indeterminate);
     }
 
+    /// <summary>
+    /// The census cursor's completeness gate over the fixture pair: for every
+    /// method of both images, draining the cursor over the method's raw IL
+    /// yields the atoms and terminal the decoded body's census yields, and the
+    /// atoms are canonical comparison's operations.
+    /// </summary>
+    [Fact]
+    public void Cursor_DrainsEveryFixtureMethodAsCanonicalizationDoes()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        foreach (string path in new[] { pair.OldAssemblyPath(), pair.NewAssemblyPath() })
+        {
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            int complete = 0;
+            foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
+            {
+                var subject = new FindingSubject($"0x{MetadataTokens.GetToken(handle):X8}", reader.GetString(reader.GetMethodDefinition(handle).Name));
+                FindingInspection<CanonicalIlOperation> raw = IlCensusCursor.Create(pe, reader, handle, subject, IlBodyDiffPolicy.Body).Drain();
+                int rva = reader.GetMethodDefinition(handle).RelativeVirtualAddress;
+                MethodInstructions? body = rva == 0 ? null : MethodInstructions.Decode(pe.GetMethodBody(rva));
+                FindingInspection<CanonicalIlOperation> decoded = IlFindings.Inspect(body, reader, subject, IlBodyDiffPolicy.Body);
+
+                Assert.Equal(decoded, raw);
+                if (raw.Value is FindingInspection<CanonicalIlOperation>.Complete census)
+                {
+                    Assert.True(IlBodyDiff.TryCanonicalize(body!, reader, IlBodyDiffPolicy.Body, out var operations, out _));
+                    Assert.Equal<CanonicalIlOperation>(operations, census.Findings.Select(atom => atom.Payload));
+                    complete++;
+                }
+            }
+
+            Assert.True(complete > 10, $"{complete} complete censuses in {Path.GetFileName(path)}");
+        }
+    }
+
+    /// <summary>
+    /// The canonical order gate: for each encoding case, the two cursors'
+    /// atoms are equal in canonical bytes exactly when canonical comparison
+    /// equates the bodies, so the encodings it folds yield one atom sequence.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EncodingCases))]
+    public void Cursor_YieldsEqualAtoms_ForEncodingsCanonicalComparisonEquates(string name, bool equal)
+    {
+        (byte[] before, byte[] after) = EncodingImages.Value;
+        using var beforeReader = new PEReader(new MemoryStream(before, writable: false));
+        using var afterReader = new PEReader(new MemoryStream(after, writable: false));
+
+        Assert.Equal(equal, AtomsEqual(
+            DrainCase(beforeReader, name, IlBodyDiffPolicy.Body),
+            DrainCase(afterReader, name, IlBodyDiffPolicy.Body)));
+    }
+
+    /// <summary>
+    /// A pair that differs only in a non-platform dependency's version yields
+    /// equal atoms under the Body policy for every method, and not under the
+    /// default policy, which keeps the assembly.
+    /// </summary>
+    [Fact]
+    public void Cursor_YieldsEqualAtoms_AcrossADependencyVersionBump()
+    {
+        byte[] before = DependencyImage(new Version(8, 0, 0, 0));
+        byte[] after = DependencyImage(new Version(9, 0, 0, 0));
+        using var beforeReader = new PEReader(new MemoryStream(before, writable: false));
+        using var afterReader = new PEReader(new MemoryStream(after, writable: false));
+        MetadataReader a = beforeReader.GetMetadataReader();
+        MetadataReader b = afterReader.GetMetadataReader();
+        Assert.Equal(a.MethodDefinitions.Count, b.MethodDefinitions.Count);
+
+        bool anyDifferByAssembly = false;
+        foreach ((MethodDefinitionHandle x, MethodDefinitionHandle y) in a.MethodDefinitions.Zip(b.MethodDefinitions))
+        {
+            Assert.True(AtomsEqual(
+                Atoms(IlCensusCursor.Create(beforeReader, a, x, new FindingSubject("M", "M"), IlBodyDiffPolicy.Body).Drain()),
+                Atoms(IlCensusCursor.Create(afterReader, b, y, new FindingSubject("M", "M"), IlBodyDiffPolicy.Body).Drain())));
+            anyDifferByAssembly |= !AtomsEqual(
+                Atoms(IlCensusCursor.Create(beforeReader, a, x, new FindingSubject("M", "M")).Drain()),
+                Atoms(IlCensusCursor.Create(afterReader, b, y, new FindingSubject("M", "M")).Drain()));
+        }
+
+        Assert.True(anyDifferByAssembly);
+    }
+
+    static ImmutableArray<CanonicalIlOperation> DrainCase(PEReader pe, string name, IlBodyDiffNormalization policy)
+    {
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type = reader.TypeDefinitions.Single(handle =>
+            reader.StringComparer.Equals(reader.GetTypeDefinition(handle).Namespace, Namespace)
+            && reader.StringComparer.Equals(reader.GetTypeDefinition(handle).Name, name));
+        MethodDefinitionHandle method = reader.GetTypeDefinition(type).GetMethods().Single();
+        return Atoms(IlCensusCursor.Create(pe, reader, method, new FindingSubject($"{name}::M", "M"), policy).Drain());
+    }
+
+    static ImmutableArray<CanonicalIlOperation> Atoms(FindingInspection<CanonicalIlOperation> inspection)
+        => [.. Assert.IsType<FindingInspection<CanonicalIlOperation>.Complete>(inspection.Value).Findings.Select(atom => atom.Payload)];
+
+    static bool AtomsEqual(ImmutableArray<CanonicalIlOperation> a, ImmutableArray<CanonicalIlOperation> b)
+        => a.Length == b.Length && a.Zip(b).All(pair => IlBodyDiff.AtomsEqual(pair.First, pair.Second));
+
     static IlMemberEndpointComparison CompareMemberEndpoints(
         PEReader before,
         PEReader after,
@@ -395,6 +639,9 @@ public sealed class FindingDiffAnyBodyTests
         image.AddCase("TryBoundaryMoved", il => Catch(il, callee, invalidOperation, ILOpCode.Br_s, widerTry: after));
         image.AddCase("ShiftedClauseOffsets", il => Catch(il, callee, invalidOperation, after ? ILOpCode.Br : ILOpCode.Br_s, widerTry: false));
         image.AddCase("NestedClausesIdentical", il => NestedCatchInFinally(il, callee, invalidOperation));
+        image.AddCase("FilterIdentical", il => Filter(il, callee, invalidOperation));
+        image.AddCase("FaultIdentical", il => Fault(il, callee));
+        image.AddCase("FatClauseIdentical", il => FatFinally(il));
         image.AddCase("FinallyVsCatchAll", il =>
         {
             if (after)
@@ -481,6 +728,80 @@ public sealed class FindingDiffAnyBodyTests
         il.MarkLabel(tryEnd);
         il.MarkLabel(handlerStart);
         il.OpCode(ILOpCode.Nop);
+        il.OpCode(ILOpCode.Endfinally);
+        il.MarkLabel(handlerEnd);
+        il.MarkLabel(end);
+        il.OpCode(ILOpCode.Ret);
+        il.ControlFlowBuilder!.AddFinallyRegion(tryStart, tryEnd, handlerStart, handlerEnd);
+    }
+
+    static void Fault(InstructionEncoder il, MethodDefinitionHandle callee)
+    {
+        LabelHandle tryStart = il.DefineLabel();
+        LabelHandle tryEnd = il.DefineLabel();
+        LabelHandle handlerStart = il.DefineLabel();
+        LabelHandle handlerEnd = il.DefineLabel();
+        LabelHandle end = il.DefineLabel();
+        il.MarkLabel(tryStart);
+        il.Call(callee);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(tryEnd);
+        il.MarkLabel(handlerStart);
+        il.OpCode(ILOpCode.Endfinally);
+        il.MarkLabel(handlerEnd);
+        il.MarkLabel(end);
+        il.OpCode(ILOpCode.Ret);
+        il.ControlFlowBuilder!.AddFaultRegion(tryStart, tryEnd, handlerStart, handlerEnd);
+    }
+
+    static void Filter(
+        InstructionEncoder il,
+        MethodDefinitionHandle callee,
+        EntityHandle filterType)
+    {
+        LabelHandle tryStart = il.DefineLabel();
+        LabelHandle tryEnd = il.DefineLabel();
+        LabelHandle filterStart = il.DefineLabel();
+        LabelHandle handlerStart = il.DefineLabel();
+        LabelHandle handlerEnd = il.DefineLabel();
+        LabelHandle end = il.DefineLabel();
+        il.MarkLabel(tryStart);
+        il.Call(callee);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(tryEnd);
+        il.MarkLabel(filterStart);
+        il.OpCode(ILOpCode.Isinst);
+        il.Token(filterType);
+        il.OpCode(ILOpCode.Ldnull);
+        il.OpCode(ILOpCode.Cgt_un);
+        il.OpCode(ILOpCode.Endfilter);
+        il.MarkLabel(handlerStart);
+        il.OpCode(ILOpCode.Pop);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(handlerEnd);
+        il.MarkLabel(end);
+        il.OpCode(ILOpCode.Ret);
+        il.ControlFlowBuilder!.AddFilterRegion(
+            tryStart,
+            tryEnd,
+            handlerStart,
+            handlerEnd,
+            filterStart);
+    }
+
+    static void FatFinally(InstructionEncoder il)
+    {
+        LabelHandle tryStart = il.DefineLabel();
+        LabelHandle tryEnd = il.DefineLabel();
+        LabelHandle handlerStart = il.DefineLabel();
+        LabelHandle handlerEnd = il.DefineLabel();
+        LabelHandle end = il.DefineLabel();
+        il.MarkLabel(tryStart);
+        for (int i = 0; i < 300; i++)
+            il.OpCode(ILOpCode.Nop);
+        il.Branch(ILOpCode.Leave, end);
+        il.MarkLabel(tryEnd);
+        il.MarkLabel(handlerStart);
         il.OpCode(ILOpCode.Endfinally);
         il.MarkLabel(handlerEnd);
         il.MarkLabel(end);

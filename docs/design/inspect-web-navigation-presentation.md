@@ -725,8 +725,10 @@ arity.
 ## Package coordinate controls
 
 The old full-width `PACKAGE` row remains removed. The Package navigation pane
-lists the available TFMs for the selected package version, and the Package
-working surface renders the version control:
+lists the available TFMs for the selected package version, followed immediately
+by the complete product-ordered RID inventory when implementation selection
+requires runtime qualification. The Package working surface renders the version
+control:
 
 ```text
 dotnet-inspect  Workspace Package Type Member | Overview ...  ← → Search ☰
@@ -735,6 +737,10 @@ dotnet-inspect  Workspace Package Type Member | Overview ...  ← → Search ☰
 TARGET FRAMEWORKS        Overview
 net10.0                  Version 10.0.0
 net9.0
+
+RUNTIME IDENTIFIERS
+linux-x64
+win-x64
 ```
 
 The trailing Application menu occupies its own row-one Surface
@@ -749,6 +755,14 @@ surface across Package inspectors. Neither control appears in Workspace, Type,
 or Member, and Package Overview does not repeat a target-framework selector.
 Library Metadata does not repeat Package Version or Framework controls.
 
+The RID inventory follows the same Package-coordinate transition model. Its
+active row is the exact RID retained by the current coordinate. An ambiguous
+choice shows the complete inventory with no active row until the user selects
+one. Packages whose neutral implementation population answers the request show
+no RID inventory. Changing the RID replaces every derived Library, Type,
+Member, Source, and implementation-Compare result rather than mutating one of
+those descendants in place.
+
 The persistent subject path discloses that exact active framework after the
 Package name across Package, Library, Type, and Member. The qualifier is
 navigation rather than another selector: activating it opens Package with the
@@ -758,11 +772,11 @@ the separate trailing action region. When a narrow Type Source surface cannot
 fit both regions on one line, the inspected target takes the first line and the
 complete Source action region takes a second line below it.
 
-At a narrow viewport the content-navigation action is labelled `Frameworks`
-and opens the same complete TFM inventory. A pending TFM change retains the
-Package shell and moves focus to the content-loading status; success or failure
-returns focus to the initiating TFM row at wide widths and to the `Frameworks`
-action when the navigation pane is collapsed.
+At a narrow viewport the content-navigation action names frameworks, RIDs when
+present, and versions, and opens the same complete inventories. A pending TFM
+or RID change retains the Package shell and moves focus to the content-loading
+status; success or failure returns focus to the initiating row at wide widths
+and to the content-navigation action when the navigation pane is collapsed.
 
 Resolved assembly assets are Library details and do not enter the package
 coordinate or Package Overview.
@@ -1076,6 +1090,18 @@ parallel host catalog merely to observe the renderer.
 
 The descriptor/status, product-action, generation, effect-authority, and
 complete Navigation-result gates above remain pending with #5510 and #5511.
+As a bounded presentation-only contribution to #5510, the ordinary Type strip
+now consumes Registry-issued Type descriptor identity, labels, and order
+through `CatalogExports.ListTypeViewFacets`. Browser route bindings and current
+applicability filters remain local until subject-scoped Navigation descriptors,
+statuses, and actions replace them; this partial adoption does not claim the
+pending gates.
+The ordinary Library strip also consumes Registry-issued descriptor identity
+and labels for the exact `library.references`, `library.metadata`, and
+`library.compare` matches through `CatalogExports.ListLibraryViewFacets`.
+Browser Overview and Analysis remain local composites, and Browser route
+tokens, order, applicability, activation, and rendering remain local; this
+bounded adoption does not alias either composite to one Registry facet.
 Until those owners' migrations land, this implementation claims the adaptive
 Browser presentation and retirement contract, not full product Navigation
 descriptor or consumer conformance.

@@ -14,6 +14,7 @@ import {
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
   retainWorkspacePackage,
+  setTypeViewFacetCatalog,
   typeLensesFor,
 } from "../src/data.ts";
 import type {
@@ -32,6 +33,7 @@ import {
   invalidateMemberCallGraphWork,
   memberScopeIsActive,
 } from "../src/member-filtering.ts";
+
 import {
   createPackageAcquisition,
   type PackageAcquisitionDependencies,
@@ -99,7 +101,10 @@ const app = parseSync("dotnet-inspect.ts", appSource);
 assert.deepEqual(app.errors, []);
 
 interface CapturedWorkspaceUrlState {
+  activeTabId: string;
+  hierarchyWorkspacePacket: string | null;
   subject: unknown;
+  tabs: Array<{ runtimeIdentifier: string | null }>;
   view: {
     lens: unknown;
     type: unknown;
@@ -110,11 +115,30 @@ interface CapturedWorkspaceUrlState {
   };
 }
 
+function hasRuntimeIdentifier(
+  value: unknown,
+): value is { runtimeIdentifier: string | null } {
+  if (!value || typeof value !== "object"
+    || !("runtimeIdentifier" in value)) {
+    return false;
+  }
+  const runtimeIdentifier = value.runtimeIdentifier;
+  return runtimeIdentifier === null || typeof runtimeIdentifier === "string";
+}
+
 function isCapturedWorkspaceUrlState(
   value: unknown,
 ): value is CapturedWorkspaceUrlState {
   if (!value || typeof value !== "object"
+    || !("activeTabId" in value)
+    || typeof value.activeTabId !== "string"
+    || !("hierarchyWorkspacePacket" in value)
+    || (value.hierarchyWorkspacePacket !== null
+      && typeof value.hierarchyWorkspacePacket !== "string")
     || !("subject" in value)
+    || !("tabs" in value)
+    || !Array.isArray(value.tabs)
+    || !value.tabs.every(hasRuntimeIdentifier)
     || !("view" in value)
     || !value.view
     || typeof value.view !== "object") {
@@ -132,10 +156,13 @@ function isCapturedWorkspaceUrlState(
 
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
+  "retainedPackageRootLens",
   "currentCompareSubject",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount", "packageHierarchyTargetFramework",
-  "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
+  "workspaceTraversalTargetFramework",
+  "selectedLibraryShareKey", "packageDependenciesData",
+  "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
   "navigateInAppUrl", "navigateWithinCurrentWorkspace",
   "clearWorkspaceFeedIdentity", "failCanonicalWorkspaceRestore",
@@ -160,7 +187,8 @@ const hostNames = new Set([
   "focusInspectionResult", "focusLevelOneHeading",
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
   "errorMessage", "friendlyLoadError", "isRecord",
-  "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
+  "runHomeDemo", "resolveAndRunHomeDemo", "runCompatibilityHomeDemo",
+  "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
   "openPlatformSubject", "openPlatformLibrary", "platformCoordinateCapacityError",
   "canRestoreWorkbenchFocus", "isTextEntry",
@@ -204,6 +232,7 @@ assert.equal(
 
 interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
+  runtimeIdentifier?: string | null;
   types: { id: string }[];
 }
 
@@ -365,6 +394,7 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    runtimePopulation: null,
     documents: surface.documents,
     surface,
     defaultLibraryId: surface.defaultAssemblyId,
@@ -382,6 +412,8 @@ function sharedState(): BrowserWorkspaceShareState {
     contexts: [{ id: "both", tabIds: ["first", "second"] }],
     activeTabId: "second",
     selectedContextId: "both",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
@@ -553,7 +585,12 @@ function harness() {
       | ((state: WorkspaceUrlState, base?: string) => Promise<URL>)
       | null,
     acquisition: async (_id: string): Promise<boolean> => true,
-    queryPackage: async (_id: string, _version: string, _framework: string) =>
+    queryPackage: async (
+      _id: string,
+      _version: string,
+      _framework: string,
+      _runtimeIdentifier: string,
+    ) =>
       packageLoadResult(),
     selection: async (): Promise<void> => {},
     demo: async (): Promise<void> => {},
@@ -861,6 +898,21 @@ function harness() {
       demoRuns.push({ id, navigationSeq });
       return controls.demo();
     },
+    resolveProductHomeDemo: async (id: string) => ({
+      id,
+      title: id,
+      summary: "",
+      workspaceMembers: [],
+      tabs: [],
+      focusTabIndex: 0,
+      view: {
+        library: null,
+        type: null,
+        memberAnchor: null,
+        memberKey: null,
+        section: "Call Graph",
+      },
+    }),
     inspectEncodeWorkspaceShareState: () => controls.encodeResult,
     platformCoordinate: (tab: BrowserWorkspaceShareState["tabs"][number]) =>
       tab.kind === "group" && tab.source === ":Platform"
@@ -944,6 +996,13 @@ function harness() {
   };
 }
 
+setTypeViewFacetCatalog([
+  { id: "type.api", kind: "Type", title: "API", order: 100 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
+  { id: "type.source", kind: "Type", title: "Source", order: 300 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+]);
+
 test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {
   const h = harness();
   const runtimeDiagnostic = [
@@ -987,6 +1046,47 @@ test("failed workspace restore retains the background Wasm stack through its for
   assert.ok(
     h.state.errorDetail.indexOf("index out of bounds")
       < h.state.errorDetail.indexOf("runtime is not running"),
+  );
+});
+
+for (const contextSource of ["retained", "decoded"] as const) {
+  test(`Hierarchy capture carries the ${contextSource} Workspace context`, () => {
+    const h = harness();
+    h.state.workspaceSubjectOpen = false;
+    h.state.packageLens = "hierarchy";
+    h.state.workspaceShareBasis = {
+      ...sharedState(), hierarchyWorkspacePacket: "decoded-context",
+    };
+    if (contextSource === "retained") {
+      Object.assign(h.context, {
+        activeRetainedWorkspacePosting: {
+          canonicalPacket: "retained-context",
+          definition: { traversalTargetFramework: "net8.0" },
+        },
+      });
+    }
+
+    const captured = h.captureUrlState();
+
+    assert.equal(captured.view.lens, "hierarchy");
+    assert.equal(captured.hierarchyWorkspacePacket, `${contextSource}-context`);
+  });
+}
+
+test("Hierarchy capture refuses non-projectable retained context instead of product defaults", () => {
+  const h = harness();
+  h.state.workspaceSubjectOpen = false;
+  h.state.packageLens = "hierarchy";
+  Object.assign(h.context, {
+    activeRetainedWorkspacePosting: {
+      canonicalPacket: null,
+      definition: { traversalTargetFramework: null },
+    },
+  });
+
+  assert.throws(
+    () => h.captureUrlState(),
+    /Workspace context cannot be projected into a share packet/u,
   );
 });
 
@@ -1635,6 +1735,104 @@ test("floating packet coordinates resolve the active package for saved capture",
     });
 });
 
+test("RID-distinct package tabs retain exact active identity through capture and restore", async () => {
+  const packageId = "Runtime.Package";
+  const version = "1.0.0";
+  const framework = "net11.0";
+  const linux = {
+    ...sourcePackage,
+    id: packageId,
+    version,
+    activeFramework: framework,
+    runtimeIdentifier: "linux-x64",
+  };
+  const windows = {
+    ...linux,
+    runtimeIdentifier: "win-x64",
+  };
+
+  const capture = harness();
+  capture.state.packages = [linux, windows];
+  capture.state.package = windows;
+  const captured = capture.captureUrlState();
+  assert.equal(captured.activeTabId, "t1");
+  assert.deepEqual(
+    captured.tabs.map(tab => tab.runtimeIdentifier),
+    ["linux-x64", "win-x64"],
+  );
+
+  const restore = harness();
+  restore.controls.share = {
+    tabs: [
+      {
+        id: "windows",
+        kind: "package",
+        source: packageId,
+        version,
+        framework,
+        runtimeIdentifier: "win-x64",
+      },
+      {
+        id: "linux",
+        kind: "package",
+        source: packageId,
+        version,
+        framework,
+        runtimeIdentifier: "linux-x64",
+      },
+    ],
+    contexts: [{ id: "both", tabIds: ["windows", "linux"] }],
+    activeTabId: "windows",
+    selectedContextId: "both",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+      sourceView: null,
+      comparison: null,
+    },
+  };
+  restore.controls.queryPackage = async (
+    id,
+    requestedVersion,
+    requestedFramework,
+    runtimeIdentifier,
+  ) => ({
+    ...packageLoadResult(
+      packageSurface(id, requestedVersion, requestedFramework)),
+    runtimePopulation: {
+      status: "Selected",
+      selectedRuntimeIdentifier: runtimeIdentifier,
+      availableRuntimeIdentifiers: ["linux-x64", "win-x64"],
+    },
+  });
+
+  const loc = await parseWorkspaceLocationAsync(
+    new URL("https://inspect.test/?w=rid-packet#workspace"),
+    async () => ({
+      succeeded: true,
+      state: restore.controls.share,
+      failure: null,
+    }),
+  );
+  await restore.restoreWithProductionLoad(loc);
+
+  assert.deepEqual(
+    restore.queries.map(query => query[3]),
+    ["win-x64", "linux-x64"],
+  );
+  assert.equal(restore.state.package?.runtimeIdentifier, "win-x64");
+  assert.deepEqual(
+    [...restore.state.packages].map(pkg => pkg.runtimeIdentifier),
+    ["win-x64", "linux-x64"],
+  );
+});
+
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
   const h = harness();
   h.location.href = "https://inspect.test/demos?keep=1#workspace";
@@ -1722,6 +1920,8 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     contexts: [{ id: "platform-context", tabIds: ["platform"] }],
     activeTabId: "platform",
     selectedContextId: "platform-context",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
@@ -2271,7 +2471,11 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   const declaration = app.program.body.find(node =>
     node.type === "FunctionDeclaration"
     && node.id?.name === "publishSourceBearingWorkspace");
+  const installer = app.program.body.find(node =>
+    node.type === "FunctionDeclaration"
+    && node.id?.name === "installRetainedWorkspaceModels");
   assert.ok(declaration);
+  assert.ok(installer);
   Object.assign(h.context, {
     createNavigationDescriptorPresentation: () => ({
       packages: [],
@@ -2299,7 +2503,10 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   });
   runInNewContext(
     stripTypeScriptTypes(
-      appSource.slice(declaration.start, declaration.end)),
+      [
+        appSource.slice(declaration.start, declaration.end),
+        appSource.slice(installer.start, installer.end),
+      ].join("\n")),
     h.context);
 
   const packageModel = structuredClone(h.state.package!);
@@ -2330,7 +2537,10 @@ test("mixed source publication keeps its inactive Platform visible", () => {
       ],
     },
     navigation: {
-      snapshot: { activePackage: "package-subject" },
+      snapshot: {
+        activePackage: "package-subject",
+        lensOutcome: { request: null, effectiveLens: null },
+      },
     },
   };
   const models = {
@@ -2544,6 +2754,7 @@ test("demo execution starts under one observed navigation sequence", async () =>
   const href = h.location.href;
   const entryState = h.history.state;
   h.demo();
+  await new Promise(resolve => setImmediate(resolve));
   const sequence = h.navigationSequence.current();
   assert.equal(h.state.loading, true);
   assert.equal(h.state.package, sourcePackage);
@@ -2580,6 +2791,7 @@ for (const rejected of [false, true]) {
     const selection = deferred<void>();
     h.controls.demo = () => execution.promise;
     h.demo();
+    await new Promise(resolve => setImmediate(resolve));
     h.controls.selection = () => selection.promise;
     h.open();
     await new Promise(resolve => setImmediate(resolve));
@@ -2735,7 +2947,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   query.resolve(packageLoadResult());
   await operation;
 
-  assert.deepEqual(h.queries, [["Added.Package", "latest", ""]]);
+  assert.deepEqual(h.queries, [["Added.Package", "latest", "", ""]]);
   assert.deepEqual(h.state.packages.slice(0, 2), previous);
   previous.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
   assert.equal(h.state.package, sourcePackage);
@@ -2784,6 +2996,8 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
       { id: "g0", tabIds: ["t0"] }, { id: "g1", tabIds: ["t1"] }, { id: "g2", tabIds: ["t2"] },
     ],
     activeTabId: "t1", selectedContextId: "g1",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null },
   });
@@ -3026,7 +3240,8 @@ test("Add whose last slot fills during query refuses before retention and preser
   query.resolve(packageLoadResult());
   await operation;
   assert.deepEqual(h.queries, [
-    ["Added.Package", "latest", ""], ["Arrived", "8.9.0", "net9.0"],
+    ["Added.Package", "latest", "", ""],
+    ["Arrived", "8.9.0", "net9.0", ""],
   ]);
   assert.equal(h.retained.length, 1);
   assert.equal(h.retained[0]!.packageModel, arrived);
@@ -3079,7 +3294,8 @@ for (const source of ["/?package=Source&w=source-packet#workspace", "/demos?keep
     await h.settle();
     assert.ok(h.navigationSequence.current() > failedSequence);
     assert.deepEqual(h.queries, [
-      ["Added.Package", "latest", ""], ["Added.Package", "latest", ""],
+      ["Added.Package", "latest", "", ""],
+      ["Added.Package", "latest", "", ""],
     ]);
     assert.equal(h.state.packages.length, 2);
     assert.deepEqual(inspectionSelection(h), selection);
@@ -3238,10 +3454,10 @@ test("deferred Add failure focus is discarded when navigation changes before the
 
 for (const [result, expected] of [
   [{ kind: "pkg-recent", entry: { id: "Recent", version: "3.2.1", framework: "net9.0" },
-    ranges: [] }, ["Recent", "3.2.1", "net9.0"]],
-  [{ kind: "pkg-recent", entry: { id: "Recent" }, ranges: [] }, ["Recent", "latest", ""]],
+    ranges: [] }, ["Recent", "3.2.1", "net9.0", ""]],
+  [{ kind: "pkg-recent", entry: { id: "Recent" }, ranges: [] }, ["Recent", "latest", "", ""]],
   [{ kind: "pkg-nuget", hit: { id: "Found", version: "6.7.8" }, ranges: [] },
-    ["Found", "6.7.8", ""]],
+    ["Found", "6.7.8", "", ""]],
 ] satisfies [SpotlightPackageResult, string[]][]) {
   test(`Workspace picker routes ${result.kind} ${expected.join("/")} through Add acquisition`, async () => {
     const h = harness();

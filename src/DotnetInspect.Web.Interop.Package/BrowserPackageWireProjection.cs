@@ -294,6 +294,33 @@ internal static class BrowserPackageWireProjection
             [.. inspection.Diagnostics.Select(Project)]);
     }
 
+    internal static BrowserPackageRuntimePopulationChoice? Project(
+        PackageRuntimePopulationChoiceResult? choice)
+    {
+        if (choice is null)
+            return null;
+
+        return new(
+            choice switch
+            {
+                PackageRuntimePopulationChoiceResult.Selected =>
+                    BrowserPackageRuntimePopulationChoiceStatus.Selected,
+                PackageRuntimePopulationChoiceResult.NoMatch =>
+                    BrowserPackageRuntimePopulationChoiceStatus.NoMatch,
+                PackageRuntimePopulationChoiceResult.Ambiguous =>
+                    BrowserPackageRuntimePopulationChoiceStatus.Ambiguous,
+                PackageRuntimePopulationChoiceResult.Refused =>
+                    BrowserPackageRuntimePopulationChoiceStatus.Refused,
+                PackageRuntimePopulationChoiceResult.Failed =>
+                    BrowserPackageRuntimePopulationChoiceStatus.Failed,
+                _ => throw new InvalidOperationException(
+                    "Unknown runtime-population choice outcome."),
+            },
+            (choice as PackageRuntimePopulationChoiceResult.Selected)
+                ?.RuntimeIdentifier,
+            [.. choice.AvailableRuntimeIdentifiers]);
+    }
+
     internal static BrowserPackageChildrenInspection Project(
         InspectionEnvelope<PackageChildrenDocument> inspection)
     {

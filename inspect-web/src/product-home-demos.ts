@@ -83,7 +83,7 @@ function focusPlatformSurface(
   return matches[0]!;
 }
 
-function platformPackForFamily(family: string): PlatformPack | null {
+export function platformPackForFamily(family: string): PlatformPack | null {
   return family === "runtime"
     ? "netcore.app"
     : family === "aspnetcore"

@@ -959,6 +959,9 @@ public static partial class ResearchDiff
             var keys = oldMethods.Keys.Intersect(newMethods.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             using var oldBodies = new MethodBodyLookup(pair.Old);
             using var newBodies = new MethodBodyLookup(pair.New);
+            // One side per image of the pair: the operands every compared body
+            // names are spelled once, not once per method.
+            var (oldSide, newSide) = IlCensusSide.CreatePair(oldBodies.MetadataReader, newBodies.MetadataReader, normalization);
 
             foreach (var key in keys)
             {
@@ -992,12 +995,7 @@ public static partial class ResearchDiff
                     continue;
                 }
 
-                var diff = IlBodyDiff.Compare(
-                    oldBodies.MetadataReader,
-                    oldBody!,
-                    newBodies.MetadataReader,
-                    newBody!,
-                    normalization);
+                var diff = IlBodyDiff.Compare(oldSide, oldBody!, newSide, newBody!);
                 if (findingComparison is FindingComparison<CanonicalIlOperation>.Complete complete
                     && ImplementationDiff.FindingDivergenceChange(
                         subject,
@@ -1096,6 +1094,16 @@ public static partial class ResearchDiff
             using var newBodies = pair.New is null
                 ? null
                 : new MethodBodyLookup(pair.New);
+            // One side per present image; a pair of sides shares the policy's
+            // generated-ordinal correspondence when both are present.
+            IlCensusSide? oldSide = null;
+            IlCensusSide? newSide = null;
+            if (oldBodies is not null && newBodies is not null)
+                (oldSide, newSide) = IlCensusSide.CreatePair(oldBodies.MetadataReader, newBodies.MetadataReader, normalization);
+            else if (oldBodies is not null)
+                oldSide = IlCensusSide.Create(oldBodies.MetadataReader, normalization);
+            else if (newBodies is not null)
+                newSide = IlCensusSide.Create(newBodies.MetadataReader, normalization);
 
             foreach (string key in oldMethods.Keys
                 .Union(newMethods.Keys, StringComparer.Ordinal)
@@ -1115,14 +1123,13 @@ public static partial class ResearchDiff
                 if (oldMethod is not null && newMethod is not null)
                 {
                     comparison = IlFindings.Compare(
+                        oldSide!,
                         oldBodies!.PeReader,
-                        oldBodies.MetadataReader,
                         MethodHandle(oldMethod.MetadataToken),
+                        newSide!,
                         newBodies!.PeReader,
-                        newBodies.MetadataReader,
                         MethodHandle(newMethod.MetadataToken),
-                        findingSubject,
-                        normalization: normalization);
+                        findingSubject);
                 }
                 else
                 {
@@ -1133,11 +1140,10 @@ public static partial class ResearchDiff
                             findingSubject,
                             "old")
                         : IlFindings.Inspect(
+                            oldSide!,
                             oldBodies!.PeReader,
-                            oldBodies.MetadataReader,
                             MethodHandle(oldMethod.MetadataToken),
-                            findingSubject,
-                            normalization);
+                            findingSubject);
                     var newInspection = newMethod is null
                         ? MissingIlInspection(
                             pair.New,
@@ -1145,11 +1151,10 @@ public static partial class ResearchDiff
                             findingSubject,
                             "new")
                         : IlFindings.Inspect(
+                            newSide!,
                             newBodies!.PeReader,
-                            newBodies.MetadataReader,
                             MethodHandle(newMethod.MetadataToken),
-                            findingSubject,
-                            normalization);
+                            findingSubject);
                     comparison = IlFindings.Compare(oldInspection, newInspection);
                 }
 

@@ -2,7 +2,8 @@
 
 ## Status and ownership
 
-Status: **shared policy implemented; production adopters pending**.
+Status: **shared policy, Package Navigation, and Source adoption implemented;
+Compare adoption pending**.
 
 This document is the normative owner for the package-local Selection RID
 policy, tracked by
@@ -189,7 +190,7 @@ Selection rather than a Source- or Compare-local setting. Changing it submits
 a typed Package-coordinate transition and replaces every derived Library,
 Type, Member, Source, and implementation-Compare result.
 
-The planned Inspect Web Navigation adoption lists the complete available-RID
+The Inspect Web Navigation adoption lists the complete available-RID
 inventory directly below the TFM inventory in the Package navigation pane.
 The active row is the exact RID retained by the current Package coordinate.
 When the result is ambiguous, no RID row is active until the user chooses one.
@@ -276,8 +277,9 @@ The counted delivery is:
 5. retire replaced Source and Compare archive search or implicit-host-RID
    behavior.
 
-The design, lower-owner inventory prerequisite, and shared policy complete
-step 1. Steps 2-5 remain production adoption work.
+The design, lower-owner inventory prerequisite, shared policy, Package
+Navigation, and Source adoption complete steps 1-3. Steps 4-5 remain production
+adoption work.
 
 The shared policy is gated by
 `PackageRuntimePopulationChoiceTests` and the resource-free receipt graph in
@@ -293,17 +295,29 @@ The shared policy is gated by
 - lower-owner failure preservation; and
 - rejection of a lower receipt that already carries an exact RID.
 
+The Package Navigation Release gates cover neutral bypass, product-ordered RID
+rows beneath TFMs, active retained identity, ambiguity with no active row, and
+exact Root reopening.
+
+The Source Release gates cover exact RID retention in Browser request
+composition and Worker transport, exact-RID scope reopening before Type,
+Type Explorer, Member, member-document, graph, Annotated Source, or Finding
+Census work, and declaration-context admission with the same
+`FindPackageSourceRequest`. A two-RID Browser fixture keeps only the retained
+population valid, so archive-order or source-equivalence inference cannot
+satisfy the request. CLI Package Source was already conformant:
+Package Library selection records the selected RID in
+`AssemblyResolutionProvenance.PackageAsset`, and package-local Portable PDB
+settlement constructs its exact target from that retained provenance.
+
 Later adoption Release gates must cover:
 
-- neutral implementation bypassing RID choice;
-- Traversal target and executing-host independence;
-- Package Navigation listing RIDs below TFMs and retaining the active identity;
-- Source refusing equivalence inference across ambiguous RIDs;
 - Compare applying one exact Package Selection RID to both endpoints;
 - Compare reporting a missing counterpart without common-RID search; and
 - compile/API comparison bypassing runtime choice.
 
-These adoption gates are **unverified** until their owning slices land.
+The Source adoption gates are **verified**. The Compare adoption gates remain
+**unverified** until their owning slice lands.
 
 ## Non-claims
 

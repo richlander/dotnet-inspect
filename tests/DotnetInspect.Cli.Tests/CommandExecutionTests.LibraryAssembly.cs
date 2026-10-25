@@ -2191,8 +2191,8 @@ public partial class CommandExecutionTests
     [InlineData("References", "--markdown")]
     // A composition is not a lone section.
     [InlineData("References,Signals")]
-    // A Graph declares no shape, so it keeps its current default.
-    [InlineData("Dependency Structure")]
+    // Dependency Structure's Document stays one explicit format away.
+    [InlineData("Dependency Structure", "--markdown")]
     // The request named two sections; dropping the scalar record from the
     // Rows execution does not make it a lone section.
     [InlineData("Symbols,Signals", "--rows", "1..2")]

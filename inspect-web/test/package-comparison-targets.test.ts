@@ -5,6 +5,7 @@ import {
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
   diffTargetDescription,
+  implementationComparisonRuntimeIdentifier,
   renderPackageComparisonTargets,
   resolveEffectiveDiffTarget,
   type ComparisonPackage,
@@ -34,6 +35,20 @@ test("new Packages default to the previous version and live Workspace including 
     diffContent: { kind: "api" },
     clone: { kind: "workspace" },
     mode: "diff",
+  });
+
+  test("implementation comparison uses the retained RID or the product default", () => {
+    assert.equal(
+      implementationComparisonRuntimeIdentifier(pkg()),
+      "linux-x64",
+    );
+    assert.equal(
+      implementationComparisonRuntimeIdentifier({
+        ...pkg(),
+        runtimeIdentifier: "win-x64",
+      }),
+      "win-x64",
+    );
   });
   assert.equal(diffTargetDescription(targets.get(current).diff, versions),
     "Previous listed release");

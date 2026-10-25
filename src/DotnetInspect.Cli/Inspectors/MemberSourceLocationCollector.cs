@@ -270,12 +270,12 @@ internal static class MemberSourceLocationCollector
                     source.PackageReplaySourceUrls)
                 : options.SourceOptions;
         using var stores =
-            new DesktopPackageStoreScope(
+            new TemporaryPackageStoreScope(
                 "inspect-cli-member-pdb");
         await using DesktopPackageSourceComposition composition =
             source.Context.CreatePackageSourceComposition();
         var packageSource =
-            new DesktopPortablePdbPackageContentSource(
+            new PortablePdbPackageContentSource(
                 composition,
                 stores,
                 sourceOptions,
@@ -490,9 +490,9 @@ internal static class MemberSourceLocationCollector
         IReadOnlyDictionary<ApiMember, ApiMember>
             TokenSources);
 
-    private sealed class DesktopPortablePdbPackageContentSource(
+    private sealed class PortablePdbPackageContentSource(
         DesktopPackageSourceComposition composition,
-        DesktopPackageStoreScope stores,
+        TemporaryPackageStoreScope stores,
         NuGetSourceOptions? sourceOptions,
         string requiredProducerKey,
         Action<string>? log)

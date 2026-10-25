@@ -658,11 +658,29 @@ public sealed class WorkspaceSharePacketCodecTests
     [InlineData(
         """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"q":[],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""",
         WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData(
+        """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}],"b":"not-a-framework"}""",
+        WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData(
+        """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}],"b":"NET8.0"}""",
+        WorkspaceSharePacketFailureKind.InvalidShape)]
+    [InlineData(
+        """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}],"b":8}""",
+        WorkspaceSharePacketFailureKind.InvalidShape)]
     public void Decode_RejectsInvalidOrUnsupportedFormat2Shape(
         string json,
         WorkspaceSharePacketFailureKind expected)
     {
         AssertFailure(EncodeJson(json), expected);
+    }
+
+    [Fact]
+    public void LegacyHierarchy_RejectsUnsupportedTraversalTargetWithTypedFailure()
+    {
+        AssertFailure(
+            EncodeJson(
+                """{"f":1,"t":[["P","1.0.0","not-a-framework",null]],"g":[[0]],"a":0,"x":0,"v":"hierarchy"}"""),
+            WorkspaceSharePacketFailureKind.InvalidShape);
     }
 
     [Theory]

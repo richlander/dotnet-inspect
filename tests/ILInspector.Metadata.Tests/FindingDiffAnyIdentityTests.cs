@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.RegularExpressions;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -11,7 +12,7 @@ namespace ILInspector.Metadata.Tests;
 /// </summary>
 public sealed class FindingDiffAnyIdentityTests
 {
-    static readonly byte[] ReturnOne = [0x17, 0x26, 0x2A]; // ldc.i4.1; pop; ret
+    internal static readonly byte[] ReturnOne = [0x17, 0x26, 0x2A]; // ldc.i4.1; pop; ret
     static readonly byte[] ReturnTwo = [0x18, 0x26, 0x2A]; // ldc.i4.2; pop; ret
 
     [Fact]
@@ -201,7 +202,7 @@ public sealed class FindingDiffAnyIdentityTests
         Assert.Equal(FindingDiffAnyState.Changed, state.Body);
     }
 
-    enum AttributeTarget { Field, Event }
+    internal enum AttributeTarget { Field, Event }
 
     const int Int32Primitive = -1;
     const int FunctionPointerToVoidPointer = -2;
@@ -248,12 +249,116 @@ public sealed class FindingDiffAnyIdentityTests
         Assert.Equal((FindingDiffAnyState.Indeterminate, FindingDiffAnyState.Indeterminate), (type.Api, type.Body));
     }
 
+    /// <summary>
+    /// Both sides of a comparison intern their Type-level keys in one table.
+    /// A spelling embeds a named Type (definition, reference, primitive) as the
+    /// Ref of its shared id and never as its bytes, and embeds a Type
+    /// specification's composite as a Key part, the form an inline composite
+    /// takes, whose own Types are Refs; a Ref expands to the key it names.
+    /// Checked over every method, field, member reference, and Type
+    /// specification of this assembly.
+    /// </summary>
+    [Fact]
+    public void NamedTypes_EmbedAsRefsOfTheComparisonsTable_AndCompositesAsKeys()
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(FindingDiffAny).Assembly.Location));
+        MetadataReader md = pe.GetMetadataReader();
+        var table = new SymbolKeyInterner<FindingDiffAnyPart>();
+        var a = new FindingDiffAny.Side(pe, table);
+        var b = new FindingDiffAny.Side(pe, table);
+        var expansion = new SymbolKeyBuilder<FindingDiffAnyPart>();
+        var ids = new List<int>();
+        int refs = 0;
+        int composites = 0;
+        IEnumerable<EntityHandle> rows =
+        [
+            .. md.MethodDefinitions.Select(handle => (EntityHandle)handle),
+            .. md.FieldDefinitions.Select(handle => (EntityHandle)handle),
+            .. md.MemberReferences.Select(handle => (EntityHandle)handle),
+            .. Enumerable.Range(1, md.GetTableRowCount(TableIndex.TypeSpec)).Select(row => (EntityHandle)MetadataTokens.TypeSpecificationHandle(row)),
+        ];
+        foreach (EntityHandle handle in rows)
+        {
+            KeyRef keyA;
+            try
+            {
+                keyA = a.ReferenceKey(handle);
+            }
+            catch (BadImageFormatException)
+            {
+                // A compiler-controlled member, which the walk refuses to name.
+                continue;
+            }
+            Assert.Equal(keyA, b.ReferenceKey(handle));
+            if (handle.Kind == HandleKind.TypeSpecification)
+            {
+                // A specification of a plain row is that row; a composite embeds as its bytes.
+                SymbolKey<FindingDiffAnyPart> spec = keyA.IsFrozen ? keyA.Frozen : keyA.Detach();
+                Assert.Equal(spec.Kind is FindingDiffAnyPart.Type or FindingDiffAnyPart.Primitive, keyA.EmbedsAsRef);
+                Assert.Equal(spec, table[keyA.Id]);
+                composites += keyA.EmbedsAsRef ? 0 : 1;
+            }
+            else
+            {
+                Assert.True(keyA.IsTransient);
+                KeyRef declaring = a.TypeKey(DeclaringType(md, handle, out bool declared));
+                if (declared)
+                {
+                    Assert.Equal(declaring, b.TypeKey(md.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType()));
+                    Assert.Equal(declaring.IsFrozen ? declaring.Frozen : declaring.Detach(), table[declaring.Id]);
+                }
+                SymbolKey<FindingDiffAnyPart> view = keyA.Detach();
+                ids.Clear();
+                refs += CollectRefs(view.Parts, ids);
+                if (declared)
+                    Assert.Contains(declaring.Id, ids);
+                expansion.Reset();
+                Assert.Equal(
+                    Regex.Replace(SymbolKeyText.Describe(view, table), "#[0-9]+", ""),
+                    SymbolKeyText.Describe(table.Expand(view, expansion)));
+            }
+        }
+        Assert.True(refs > 5_000, $"{refs} named Type references");
+        Assert.True(composites > 50, $"{composites} composite specifications");
+    }
+
+    // A method's declaring Type is asserted; other rows only need a Type to resolve against.
+    static TypeDefinitionHandle DeclaringType(MetadataReader md, EntityHandle handle, out bool declared)
+    {
+        declared = handle.Kind == HandleKind.MethodDefinition;
+        return declared
+            ? md.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType()
+            : md.TypeDefinitions.First();
+    }
+
+    // Every named Type under a spelling is a Ref; a nested Key part is a member key or a composite, whose own Types are Refs.
+    static int CollectRefs(SymbolKeyPartReader<FindingDiffAnyPart> parts, List<int> ids)
+    {
+        int refs = 0;
+        while (parts.Read())
+        {
+            if (parts.Kind == SymbolKeyPartKind.Ref)
+            {
+                ids.Add(parts.Id);
+                refs++;
+            }
+            else if (parts.Kind == SymbolKeyPartKind.Key)
+            {
+                Assert.False(
+                    parts.Key.Kind is FindingDiffAnyPart.Type or FindingDiffAnyPart.Primitive,
+                    $"a named Type embedded by its bytes: {SymbolKeyText.Describe(parts.Key)}");
+                refs += CollectRefs(parts.Key.Parts, ids);
+            }
+        }
+        return refs;
+    }
+
     [Fact]
     public void StoredNames_AreTheUtf8OfTheDecodedNames()
     {
         using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
         MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
-        var names = new SymbolKey.Utf8Names(pe, md);
+        var names = new MetadataStringHeap(md);
         IEnumerable<StringHandle> handles = md.TypeDefinitions
             .SelectMany(type => (StringHandle[])[md.GetTypeDefinition(type).Namespace, md.GetTypeDefinition(type).Name])
             .Concat(md.MethodDefinitions.Select(method => md.GetMethodDefinition(method).Name))
@@ -261,16 +366,15 @@ public sealed class FindingDiffAnyIdentityTests
         int compared = 0;
         foreach (StringHandle handle in handles)
         {
-            int length = names.Length(handle);
-            byte[] stored = new byte[length];
-            names.Copy(handle, stored, 0, length);
-            Assert.Equal(System.Text.Encoding.UTF8.GetBytes(md.GetString(handle)), stored);
+            byte[] decoded = System.Text.Encoding.UTF8.GetBytes(md.GetString(handle));
+            Assert.Equal(decoded.Length, names.Length(handle));
+            Assert.True(names.ValueTextEquals(handle, decoded));
             compared++;
         }
         Assert.True(compared > 10_000);
     }
 
-    static byte[] Patch(byte[] image, ReadOnlySpan<byte> marker, byte[] replacement)
+    internal static byte[] Patch(byte[] image, ReadOnlySpan<byte> marker, byte[] replacement)
     {
         int index = image.AsSpan().IndexOf(marker);
         Assert.True(index >= 0 && image.AsSpan(index + 1).IndexOf(marker) < 0);
@@ -287,7 +391,7 @@ public sealed class FindingDiffAnyIdentityTests
     /// no parameter, an <c>int</c>, a function pointer, or an instance of an
     /// earlier Type.
     /// </summary>
-    sealed record TypeSpec(
+    internal sealed record TypeSpec(
         string? Namespace,
         string Name,
         int? DeclaringType,
@@ -297,12 +401,13 @@ public sealed class FindingDiffAnyIdentityTests
         bool Public = true,
         AttributeTarget? FieldLikeEventAttribute = null,
         int? VarargRequired = null,
-        bool PrivateScope = false);
+        bool PrivateScope = false,
+        byte[][]? MethodBodies = null);
 
     static FindingDiffAnyResult Compare(TypeSpec[] before, TypeSpec[] after)
         => CompareImages(Image(before), Image(after));
 
-    static FindingDiffAnyResult CompareImages(byte[] beforeImage, byte[] afterImage)
+    internal static FindingDiffAnyResult CompareImages(byte[] beforeImage, byte[] afterImage)
     {
         using var beforeReader = new PEReader(new MemoryStream(beforeImage, writable: false));
         using var afterReader = new PEReader(new MemoryStream(afterImage, writable: false));
@@ -320,7 +425,7 @@ public sealed class FindingDiffAnyIdentityTests
         return whole;
     }
 
-    static byte[] Image(TypeSpec[] types)
+    internal static byte[] Image(TypeSpec[] types)
     {
         var metadata = new MetadataBuilder();
         var il = new BlobBuilder();
@@ -442,7 +547,7 @@ public sealed class FindingDiffAnyIdentityTests
             for (int i = 0; i < methods.Length; i++)
             {
                 var code = new InstructionEncoder(new BlobBuilder());
-                code.CodeBuilder.WriteBytes(i == 0 ? type.Body : ReturnOne);
+                code.CodeBuilder.WriteBytes(type.MethodBodies?[i] ?? (i == 0 ? type.Body : ReturnOne));
                 metadata.AddMethodDefinition(
                     (type.PrivateScope ? MethodAttributes.PrivateScope : MethodAttributes.Public)
                         | MethodAttributes.Static | MethodAttributes.HideBySig,

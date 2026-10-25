@@ -13,6 +13,71 @@ namespace DotnetInspector.Services.Tests;
 /// </summary>
 public sealed partial class PackageRangedRealizationTests
 {
+    [Fact]
+    public async Task
+        EndpointScope_ExactAllocationMapsSurfaceMethodToImplementation()
+    {
+        const string package = "System.Text.Json";
+        const string version = "10.0.0";
+        var server = new RangeFeed(
+            package,
+            version,
+            File.ReadAllBytes(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "PackageAdmission",
+                    "System.Text.Json.10.0.0.nupkg")));
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        await using PackageEndpointScope scope = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                new InMemoryPackageStore(),
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(package, version),
+                    "net9.0",
+                    PackageAssetDemand.SurfaceAndImplementation)));
+        ILInspector.Metadata.ApiSurface surface =
+            await PackageEndpointApiSurfaceQuery.ExecuteAsync(
+                scope,
+                package,
+                ApiSurfaceScope.IncludeAll,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        ILInspector.Metadata.ApiType type = Assert.Single(
+            surface.Types,
+            candidate =>
+                candidate.FullName
+                    == "System.Text.Json.Schema.JsonSchemaExporter");
+        ILInspector.Metadata.ResolvedMemberTarget target =
+            Assert.IsType<ILInspector.Metadata.ResolvedMemberTarget>(
+                ILInspector.Metadata.MemberTargetResolver.Resolve(
+                    type,
+                    ILInspector.Metadata.MemberTargetSelector.Parse(
+                        "MapJsonSchemaCore")).Target);
+        int surfaceToken =
+            Assert.IsType<int>(target.Body!.MetadataToken);
+
+        PackageEndpointMethodAllocationResult result =
+            await PackageEndpointMethodAllocationQuery.ExecuteAsync(
+                scope,
+                Assert.IsType<string>(type.SourceAssemblyPath),
+                surfaceToken,
+                TestContext.Current.CancellationToken);
+
+        var analyzed = Assert.IsType<
+            PackageEndpointMethodAllocationResult.Analyzed>(result);
+        AssemblyMethodAllocationAnalysis analysis = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAllocationAnalysis>.Available>(
+                analyzed.Entry).Value;
+        Assert.Equal(
+            analysis.RequestedMethodToken,
+            analysis.Method.MetadataToken);
+        Assert.Empty(analysis.Diagnostics);
+        Assert.NotEmpty(analysis.Allocations);
+    }
+
     /// <summary>
     /// Step 4 part 2: an endpoint's merged API surface holds every surface
     /// participant's Types, ordered by name, with the participants' counts
@@ -148,6 +213,7 @@ public sealed partial class PackageRangedRealizationTests
             selected.Asset.Path,
             StringComparison.Ordinal);
         Assert.Empty(scope.ImplementationParticipants);
+        Assert.NotNull(scope.Root.Root.AssetSelection);
         Assert.Equal(11, scope.Root.Root.AssetSelection.Assets.Count);
         var content =
             Assert.IsType<RangedPackageContent>(scope.Payload.Content);
@@ -155,6 +221,75 @@ public sealed partial class PackageRangedRealizationTests
         Assert.False(
             content.IsMaterialized(
                 $"{AvaloniaSurface}Avalonia.Dialogs.dll"));
+    }
+
+    [Fact]
+    public async Task
+        EndpointScope_CompileLibrariesDemandMaterializesExactAggregateEntries()
+    {
+        byte[] archive = ReadAvalonia();
+        var server = new RangeFeed(
+            Avalonia,
+            AvaloniaVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        PackageEndpointScopeRequest request =
+            PackageEndpointScopeRequest.ForCompileLibraries(
+                PackageSourceCoordinate.Create(
+                    Avalonia,
+                    AvaloniaVersion),
+                "net10.0",
+                PackageAssetDemand.Surface);
+
+        await using PackageEndpointScope cold =
+            AssertOpened(
+                await OpenSemanticEndpointAsync(
+                    environment,
+                    store,
+                    request));
+        string[] expected =
+        [
+            .. cold.SurfaceParticipants.Select(
+                static participant =>
+                    participant.Asset.Path),
+        ];
+        Assert.Equal(11, expected.Length);
+        Assert.Equal(
+            expected.Order(StringComparer.Ordinal),
+            cold.Payload.Content
+                .EnumerateEntries()
+                .Order(StringComparer.Ordinal));
+        Assert.DoesNotContain(
+            cold.Payload.Content.EnumerateEntries(),
+            static path => path.EndsWith(
+                ".xml",
+                StringComparison.OrdinalIgnoreCase));
+        PackageTransferReceipt coldTransfer =
+            cold.Contribution.Result.Evidence.Acquisition!.Transfer;
+        Assert.Equal(
+            PackagePayloadOrigin.Ranged,
+            cold.Payload.Origin);
+        Assert.NotEmpty(coldTransfer.Requests);
+
+        await using PackageEndpointScope warm =
+            AssertOpened(
+                await OpenSemanticEndpointAsync(
+                    environment,
+                    store,
+                    request));
+        PackageTransferReceipt warmTransfer =
+            warm.Contribution.Result.Evidence.Acquisition!.Transfer;
+        Assert.Equal(
+            PackagePayloadOrigin.Cache,
+            warm.Payload.Origin);
+        Assert.Empty(warmTransfer.Requests);
+        Assert.Equal(
+            expected.Order(StringComparer.Ordinal),
+            warm.Payload.Content
+                .EnumerateEntries()
+                .Order(StringComparer.Ordinal));
     }
 
     /// <summary>
@@ -473,6 +608,30 @@ public sealed partial class PackageRangedRealizationTests
             environment.Authorization,
             acquisition);
         var operation = PackageHouseOperation.Create(PackageHouseOperationProfile.Realize);
+        return PackageEndpointScope.OpenAsync(
+            house,
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operation.RequestTimeout,
+                operation.OperationTimeout),
+            request,
+            TestContext.Current.CancellationToken);
+    }
+
+    private static Task<PackageEndpointScopeOutcome>
+        OpenSemanticEndpointAsync(
+            RangedEnvironment environment,
+            IPackageStore store,
+            PackageEndpointScopeRequest request)
+    {
+        var house = new PackageHouse(
+            environment.Authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store,
+                log: environment.Log.Enqueue,
+                rangedSizeCut: 0));
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Realize);
         return PackageEndpointScope.OpenAsync(
             house,
             environment.Root.IssueOperationLease(

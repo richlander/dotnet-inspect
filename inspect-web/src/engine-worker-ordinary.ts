@@ -176,8 +176,12 @@ type CatalogOperationName =
   | "decodeWorkspaceShareState"
   | "encodeWorkspaceShareState"
   | "explainVocabularies"
+  | "explainResources"
+  | "describeWorkspaceComponents"
+  | "explainWorkspaceComponent"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
+  | "prepareHomeDemoWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
@@ -1139,7 +1143,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPackage: valueOperation(
       "ordinary-package-query-package",
-      3,
+      4,
       (
         facades,
         ...args: Parameters<PackageFacade["queryPackage"]>
@@ -1155,7 +1159,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPackageSummary: valueOperation(
       "ordinary-package-query-package-summary",
-      3,
+      4,
       (
         facades,
         ...args: Parameters<PackageFacade["queryPackageSummary"]>
@@ -1213,7 +1217,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberDocumentation: valueOperation(
       "ordinary-package-query-member-documentation",
-      5,
+      6,
       (
         facades,
         ...args: Parameters<PackageFacade["queryMemberDocumentation"]>
@@ -1245,7 +1249,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPackageDependencies: valueOperation(
       "ordinary-package-query-dependencies",
-      4,
+      5,
       (
         facades,
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
@@ -1261,7 +1265,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPackageHierarchy: valueOperation(
       "ordinary-package-query-hierarchy",
-      3,
+      4,
       (
         facades,
         ...args: Parameters<PackageFacade["queryPackageHierarchy"]>
@@ -1355,7 +1359,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberDeclaration: valueOperation(
       "ordinary-metadata-query-member-declaration",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryMemberDeclaration"]>
@@ -1363,7 +1367,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberDocument: valueOperation(
       "ordinary-metadata-query-member-document",
-      8,
+      9,
       (
         facades,
         ...args: Parameters<
@@ -1383,7 +1387,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeMemberPopulation: valueOperation(
       "ordinary-metadata-query-type-member-population",
-      7,
+      8,
       (
         facades,
         ...args: Parameters<
@@ -1393,7 +1397,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeOverviewDocument: valueOperation(
       "ordinary-metadata-query-type-overview-document",
-      7,
+      8,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryTypeOverviewDocument"]>
@@ -1401,7 +1405,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPerformanceTypeMemberPopulation: valueOperation(
       "ordinary-metadata-query-performance-type-member-population",
-      7,
+      8,
       (
         facades,
         ...args: Parameters<
@@ -1633,7 +1637,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeProjection: valueOperation(
       "ordinary-metadata-query-type-projection",
-      7,
+      8,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>
@@ -1691,7 +1695,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryGraphMemberSurface: valueOperation(
       "ordinary-metadata-query-graph-member-surface",
-      8,
+      9,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryGraphMemberSurface"]>
@@ -1894,7 +1898,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberSource: valueOperation(
       "ordinary-source-query-member",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberSource"]>
@@ -1910,7 +1914,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeMemberSource: valueOperation(
       "ordinary-source-query-type-member",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<SourceFacade["queryTypeMemberSource"]>
@@ -1994,7 +1998,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberFindingCensus: valueOperation(
       "ordinary-source-query-member-finding-census",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberFindingCensus"]>
@@ -2012,7 +2016,7 @@ export const engineWorkerOrdinaryOperations = {
   callGraph: {
     queryMemberCallGraph: valueOperation(
       "ordinary-call-graph-query-member",
-      12,
+      13,
       (
         facades,
         ...args: Parameters<CallGraphFacade["queryMemberCallGraph"]>
@@ -2198,6 +2202,24 @@ export const engineWorkerOrdinaryOperations = {
         >
       ) => facades.catalog.describeWorkspacePackageSources(...args),
     ),
+    explainResources: valueOperation(
+      "ordinary-catalog-explain-resources",
+      2,
+      (facades, ...args: Parameters<CatalogFacade["explainResources"]>) =>
+        facades.catalog.explainResources(...args),
+    ),
+    describeWorkspaceComponents: valueOperation(
+      "ordinary-catalog-describe-workspace-components",
+      1,
+      (facades, ...args: Parameters<CatalogFacade["describeWorkspaceComponents"]>) =>
+        facades.catalog.describeWorkspaceComponents(...args),
+    ),
+    explainWorkspaceComponent: valueOperation(
+      "ordinary-catalog-explain-workspace-component",
+      3,
+      (facades, ...args: Parameters<CatalogFacade["explainWorkspaceComponent"]>) =>
+        facades.catalog.explainWorkspaceComponent(...args),
+    ),
     explainVocabularies: valueOperation(
       "ordinary-catalog-explain-vocabularies",
       3,
@@ -2259,6 +2281,29 @@ export const engineWorkerOrdinaryOperations = {
           throw new Error(
             cancellation.failure?.message
               ?? "Rejected Ecosystem Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
+    ),
+    prepareHomeDemoWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-home-demo-workspace-definition",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareHomeDemoWorkspaceDefinition"]
+        >
+      ) => facades.catalog.prepareHomeDemoWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected product home demo Workspace preparation could not be cleaned up.",
           );
         }
       },
@@ -2878,6 +2923,15 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.catalog
           .describeWorkspacePackageSources,
       ),
+      explainResources: bind(
+        engineWorkerOrdinaryOperations.catalog.explainResources,
+      ),
+      describeWorkspaceComponents: bind(
+        engineWorkerOrdinaryOperations.catalog.describeWorkspaceComponents,
+      ),
+      explainWorkspaceComponent: bind(
+        engineWorkerOrdinaryOperations.catalog.explainWorkspaceComponent,
+      ),
       explainVocabularies: bind(
         engineWorkerOrdinaryOperations.catalog.explainVocabularies,
       ),
@@ -2899,6 +2953,10 @@ export function bindEngineWorkerOrdinaryClient(
       prepareEcosystemWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .prepareEcosystemWorkspaceDefinition,
+      ),
+      prepareHomeDemoWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareHomeDemoWorkspaceDefinition,
       ),
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

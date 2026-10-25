@@ -61,7 +61,7 @@ function locationSnapshot(value: string | URL): WorkspaceLocationSnapshot {
 
 function workspaceState(
   overrides: Partial<WorkspaceUrlState> = {},
-): WorkspaceUrlState {
+): WorkspaceUrlState & BrowserWorkspaceShareState {
   return {
     package: "Example.Second",
     subject: null,
@@ -89,6 +89,8 @@ function workspaceState(
     }],
     activeTabId: "t1",
     selectedContextId: "g0",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: "api",
       type: "Example.Widget",
@@ -684,6 +686,8 @@ test("canonical context capture does not broaden a selected subset for Call Grap
     contexts: [{ id: "g0", tabIds: ["t0", "t1"] }],
     activeTabId: "t0",
     selectedContextId: "g0",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: "api",
       type: null,
@@ -873,6 +877,32 @@ test("hierarchy share retains a requested target through compatible asset select
       section: null,
       libraries: [],
     },
+  });
+
+  test("configured Hierarchy target survives URL capture separately from package assets", () => {
+    const state = workspaceState({
+      traversalTargetFramework: "net8.0",
+      view: {
+        ...workspaceState().view,
+        lens: "hierarchy",
+      },
+    });
+    const captures: BrowserWorkspaceShareState[] = [];
+    buildWorkspaceStateUrl(
+      "https://inspect.example/",
+      state,
+      capture => {
+        captures.push(capture);
+        return encoded();
+      });
+
+    const capture = captures[0]!;
+    assert.equal(capture.traversalTargetFramework, "net8.0");
+    assert.deepEqual(capture.tabs, state.tabs);
+    assert.equal(
+      hierarchyShareTargetFramework(
+        capture, { id: "Another.Package", version: "1.0.0" }, "hierarchy"),
+      "net8.0");
   });
 
   assert.equal(workspaceShareTabsMatchResolved([tab], [resolved]), false);

@@ -21,6 +21,8 @@ import type { BrowserBuildIdentity } from "../src/facades/inspect-web-host.d.ts"
 import type {
   BrowserEcosystemCatalog,
   BrowserHomeDemoCatalog,
+  BrowserViewFacetCatalog,
+  BrowserViewFacetDescriptor,
   BrowserVocabularyInspection,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
@@ -57,6 +59,26 @@ const vocabulary: BrowserVocabularyInspection = {
 };
 const demos: BrowserHomeDemoCatalog = {
   demos: [{ id: "source", title: "Source", summary: "Show generated source." }],
+};
+const typeViewFacets: BrowserViewFacetCatalog = {
+  facets: [{
+    id: "type.api",
+    kind: "Type",
+    title: "API",
+    summary: "Public API.",
+    order: 100,
+    role: "TypeApi",
+  } satisfies BrowserViewFacetDescriptor],
+};
+const libraryViewFacets: BrowserViewFacetCatalog = {
+  facets: [{
+    id: "library.references",
+    kind: "Library",
+    title: "References",
+    summary: "Referenced Libraries.",
+    order: 300,
+    role: "LibraryReferences",
+  } satisfies BrowserViewFacetDescriptor],
 };
 const productEcosystems: BrowserEcosystemCatalog = {
   ecosystems: [{
@@ -178,6 +200,20 @@ const cases = [
   { operation: engineStartupOperations.listHomeDemos, expected: demos, field: "demos",
     read: (client: EngineStartupClient) => client.catalog.listHomeDemos() },
   {
+    operation: engineStartupOperations.listLibraryViewFacets,
+    expected: libraryViewFacets,
+    field: "facets",
+    read: (client: EngineStartupClient) =>
+      client.catalog.listLibraryViewFacets(),
+  },
+  {
+    operation: engineStartupOperations.listTypeViewFacets,
+    expected: typeViewFacets,
+    field: "facets",
+    read: (client: EngineStartupClient) =>
+      client.catalog.listTypeViewFacets(),
+  },
+  {
     operation: engineStartupOperations.listEcosystems,
     expected: productEcosystems,
     field: "ecosystems",
@@ -227,6 +263,14 @@ function fixture(options: {
     async buildIdentity() { calls.push("identity"); return identity; },
     async inspectVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
+    async listLibraryViewFacets() {
+      calls.push("library-view-facets");
+      return libraryViewFacets;
+    },
+    async listTypeViewFacets() {
+      calls.push("type-view-facets");
+      return typeViewFacets;
+    },
     async listEcosystems() {
       calls.push("product-ecosystems");
       return productEcosystems;
@@ -290,8 +334,9 @@ test("all cold reads share readiness and preserve full generated-shaped results"
   assert.deepEqual(
     state.calls,
     [
-      "identity", "vocabulary", "demos", "product-ecosystems",
-      "facets", "durable-row-layout", "ecosystems",
+      "identity", "vocabulary", "demos", "library-view-facets",
+      "type-view-facets",
+      "product-ecosystems", "facets", "durable-row-layout", "ecosystems",
     ]);
   assert.deepEqual(
     await Promise.all(cases.map(item => item.read(state.client))),
@@ -299,9 +344,11 @@ test("all cold reads share readiness and preserve full generated-shaped results"
   assert.deepEqual(
     state.calls,
     [
-      "identity", "vocabulary", "demos", "product-ecosystems",
-      "facets", "durable-row-layout", "ecosystems",
-      "identity", "demos", "product-ecosystems",
+      "identity", "vocabulary", "demos", "library-view-facets",
+      "type-view-facets",
+      "product-ecosystems", "facets", "durable-row-layout", "ecosystems",
+      "identity", "demos", "library-view-facets", "type-view-facets",
+      "product-ecosystems",
       "facets", "durable-row-layout", "ecosystems",
     ]);
   assert.equal(state.starts(), 1);

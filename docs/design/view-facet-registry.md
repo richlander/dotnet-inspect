@@ -742,8 +742,14 @@ The initial contract is enforced by
 
 Current transitional surfaces are:
 
-- `inspect-web/src/data.ts`, which owns browser arrays and local
-  tokens;
+- `inspect-web/src/data.ts`, which retains Browser route tokens and
+  applicability for Package, Library, Type, and Member. Type descriptor
+  identity, labels, and order are projected from this Registry through
+  `CatalogExports.ListTypeViewFacets`. The exact Library References, Metadata,
+  and Compare descriptor identities and labels are projected through
+  `CatalogExports.ListLibraryViewFacets`, while Browser Overview and Analysis
+  remain local composites with Browser-owned order. Package and Member still
+  own parallel Browser arrays;
 - `ProductDemoSections`, which admits product demo section display names; and
 - CLI section descriptor names and `SelectResolver` aliases, which remain
   command presentation rather than registry identity.

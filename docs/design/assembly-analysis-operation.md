@@ -481,32 +481,46 @@ selected physical body differs from its declared member, receipted exact
 method-analysis support authenticates the ultimate declared owner without
 expanding terminal breadth or building a module-wide lifted-method census. Its
 finite owner-type candidates, closure relationships, and attribution IL probes
-are reported separately in the support receipt. Declared-owner identity reuses
-the execution's receipted memory-safety contract index. Local allocation
-exception classification follows only the operand's definition and bounded
-base chain, with those rows and any TypeSpec bytes reported in the same support
-receipt. Exact optimization suppression also uses that support; method and
+are reported in the declared-source capability receipt. Declared-owner
+identity reuses the execution's receipted memory-safety contract index. Local
+allocation exception classification follows only the operand's definition and
+bounded base chain, with those rows and any TypeSpec bytes reported in the same
+support receipt. Exact optimization reads scoped generated-code facts from
+that support; the producer owns suppression policy, while method and
 enclosing-type attribute rows, enclosing TypeDef rows, and bounded
-declaring-type relationships remain visible when suppression returns before
-intrinsic opportunity collection. Exact declared-source attribution resolves
-state-machine ownership from the selected execution type and targeted source
-candidates rather than building the whole-module certificate; generated-type
-provenance reports its TypeDef, attribute, and enclosing-relationship reads
-in the same support receipt. Caller attribution and generated-owner
-suppression consume the authenticated owner result.
+declaring-type relationships remain visible in their capability receipt.
+Exact declared-source attribution resolves state-machine ownership from the
+selected execution type and targeted source candidates rather than building
+the whole-module certificate; generated-type provenance reports its TypeDef,
+attribute, and enclosing-relationship reads in the declared-source capability
+receipt. Caller attribution and generated-owner suppression consume the
+authenticated owner result.
 `AssemblyContextMethodAnalysisQuery` no longer invokes
-`LibraryBodyAnalysisService`. The unsafe member census
+`LibraryBodyAnalysisService`. The allocation-only matched-member route instead
+plans
+`ExactMethodAllocationProducer`, which publishes the same exact allocation
+rows without collecting calls, safety, signals, or optimization. Exact
+single-member CLI Diff requests for allocation alone use the same producer
+for the MethodDef selected from each endpoint's API surface. Package execution
+uses the endpoint's surface-to-implementation role correspondence and maps that
+surface MethodDef to the exact managed implementation body before analysis;
+local execution likewise validates that the selected MethodDef has a managed
+body. Their comparison does not construct `MethodBodyInspectionSession` or
+`LibraryBodyAnalysisService`. Mixed analysis sets, bodyless, forwarded, or
+absent declarations, and other target shapes retain the established
+body-signal fallback. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.
 
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
-same exact producer for safety-only IL-coordinate preparation. Direct CLI and
-host-neutral Library Address execution borrow the already-open prefetched image
-and issue one exact MethodDef request for the deduplicated coordinate methods.
-The resulting source receipt records exact breadth, bounded body acquisition,
-and no module lookup. Allocation, cost, and combined coordinate requests remain
-on `LibraryBodyAnalysisService` because their complete result ownership has
-not moved.
+exact method-analysis producer for safety-only IL-coordinate preparation.
+Direct CLI and host-neutral Library Address execution borrow the already-open
+prefetched image and issue one exact MethodDef request for the deduplicated
+coordinate methods. Allocation-only coordinate preparation independently
+plans `ExactMethodAllocationProducer` over that same bounded population. The
+two focused inputs retain exact source and work receipts; neither path opens
+`LibraryBodyAnalysisService`. Cost-only and combined semantic coordinate
+requests remain on the service until their complete result ownership moves.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first
@@ -640,6 +654,10 @@ generated-owner suppression, and exact publication parity without an LBA
 donor. The focused producers preserve the resolved direct-call prefix and
 independent exception-region, operation-safety, allocation, and
 safety-occurrence evidence when a later call operand fails recoverably.
+`ExactMethodAllocations_OmitUnrequestedCallAndOptimizationWork` separately
+proves that the allocation-only route acquires one body and local signature,
+publishes legacy-equivalent allocation rows, performs no call read or
+same-module call-target query, and executes one Method-analysis query.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).

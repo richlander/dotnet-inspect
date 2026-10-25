@@ -110,12 +110,12 @@ public class IlBodyDiffExceptionRegionTests
     }
 
     /// <summary>
-    /// The census bound counts clause atoms: a body one instruction under the
-    /// limit with two clauses is a typed inspection failure, not an exception
-    /// from the matcher.
+    /// The matcher's bound counts clause atoms: a body one instruction under
+    /// the limit with two clauses drains to a complete census, and comparing
+    /// it is a typed comparison failure, not an exception from the matcher.
     /// </summary>
     [Fact]
-    public void NearLimitBodyWithClauses_IsATypedInspectionFailure()
+    public void NearLimitBodyWithClauses_IsATypedComparisonFailure()
     {
         // The nested shape is six instructions; the padding brings the body to
         // one instruction under the limit, and its two clauses cross it.
@@ -128,9 +128,15 @@ public class IlBodyDiffExceptionRegionTests
         Assert.Equal(instructions, decoded.Instructions.Length);
         Assert.Equal(2, decoded.Blocks.Regions.Length);
 
-        var inspection = IlFindings.Inspect(decoded, pe.GetMetadataReader(), new FindingSubject("C::M", "M"));
-        var failed = Assert.IsType<FindingInspection<CanonicalIlOperation>.Failed>(inspection.Value);
-        Assert.Contains("exception clauses", failed.Error.Reason);
+        var subject = new FindingSubject("C::M", "M");
+        var inspection = IlFindings.Inspect(decoded, pe.GetMetadataReader(), subject);
+        var complete = Assert.IsType<FindingInspection<CanonicalIlOperation>.Complete>(inspection.Value);
+        Assert.Equal(instructions + 2, complete.Findings.Length);
+
+        var comparison = IlFindings.Compare(inspection, inspection);
+        var failed = Assert.IsType<FindingComparison<CanonicalIlOperation>.Failed>(comparison.Value);
+        Assert.Contains("canonical operations", failed.ComparisonFailure);
+        Assert.False(comparison.IsExact);
     }
 
     [Fact]
@@ -192,7 +198,7 @@ public class IlBodyDiffExceptionRegionTests
     /// One image with a public static method <c>C::M()</c> of the shape, and
     /// a callee <c>C::Work()</c> it calls. Returns the image and M's body RVA.
     /// </summary>
-    static (byte[] Image, int BodyRva) Image(Shape shape, int paddingNops = 0)
+    internal static (byte[] Image, int BodyRva) Image(Shape shape, int paddingNops = 0)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(0, metadata.GetOrAddString("Eh.dll"), metadata.GetOrAddGuid(new Guid("5a5a5a5a-0000-4000-8000-000000000001")), default, default);

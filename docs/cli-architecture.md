@@ -364,13 +364,16 @@ reusable owners produce the facts.
 ### Planned Workspace packet activation
 
 Root activation admits Workspace inventory and query-free saved Package
-`package.libraries` views. The latter consumes the exact selected-subject
-handoff implemented under [#10408](https://github.com/richlander/dotnet-inspect/issues/10408)
-and invokes the ordinary Package inspection over that admitted Root. Both raw
-and `-w` entrances preserve its Hierarchy, structured formats and Count.
+`package.libraries` and Type `type.api` views. These consume the exact
+selected-subject handoff implemented under
+[#10408](https://github.com/richlander/dotnet-inspect/issues/10408) and invoke
+the ordinary inspection over the admitted Root and Navigation registration.
+Type projection uses its structured definition identity within that exact
+Library; it does not search declaration contexts again. Both raw and `-w`
+entrances preserve ordinary output formats, row controls and Count.
 Other saved facets and attached queries are refused before acquisition.
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647) continues with
-individual Type, Member and saved-query bindings. The full target contract follows.
+Member and saved-query bindings. The full target contract follows.
 
 This is the target CLI contract for [#4647](https://github.com/richlander/dotnet-inspect/issues/4647),
 partially implemented as described above. The CLI owns command admission,
@@ -503,7 +506,7 @@ while rendering its frozen compile selection; replacing that request with the
 selected asset folder can make the two owner-issued observations disagree.
 Their producer/replay JSON and Count gates retain zero and two children.
 
-Target walkthrough (saved Type execution remains staged under #4647):
+Worked Type save/replay:
 
 ```bash
 environment=$(dotnet-inspect workspace --register-ecosystem runtime)
@@ -538,8 +541,13 @@ System.Text.Json query, replay identical ordinary output across formats and
 Count, preserve a different input focus and all-context environment, and refuse
 unsupported facets/source denial without output. The recorded format-5
 [Package replay packet](examples/workspace-package-replay.json) is also opened
-through the production Browser activation owner. Type, Member and attached-query
-execution remain staged.
+through the production Browser activation owner. The recorded
+[Type replay packet](examples/workspace-type-replay.json) similarly preserves
+its exact JsonSerializer subject and `type.api` facet through Browser
+activation. CLI Type cases compare ordinary rendering and Count across
+formats, two contexts and small Type populations. Plain text includes a
+per-invocation temporary assembly path, normalized only in parity assertions.
+Member and attached-query execution remain staged.
 
 [#10132](https://github.com/richlander/dotnet-inspect/issues/10132) tracks the
 production path: this focused CLI contract, owner-issued packet recognition,

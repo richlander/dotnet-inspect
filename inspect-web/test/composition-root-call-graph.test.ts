@@ -300,6 +300,15 @@ test("graph-only members open through the typed member surface", () => {
   assert.match(
     generatedFacadeSource("inspect-web-metadata"),
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);
+  assert.match(
+    appSource,
+    /async function loadGraphMemberSurface\([\s\S]*inspectGraphMemberSurface\([\s\S]*pkg\.runtimeIdentifier \?\? null\)/);
+  assert.match(
+    appSource,
+    /return callGraphInspection\.load\(\{[\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*traversalFramework/);
+  assert.match(
+    appSource,
+    /inspectMemberCallGraph\([\s\S]*platformRuntimePruningInventory\([\s\S]*request\.runtimeIdentifier\)/);
   assert.match(graphLegendsSource, /solid border: no platform lookup/);
   assert.match(
     graphLegendsSource,

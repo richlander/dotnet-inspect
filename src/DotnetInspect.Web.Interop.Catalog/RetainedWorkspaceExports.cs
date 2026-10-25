@@ -36,6 +36,27 @@ public static partial class CatalogExports
     }
 
     [JSExport]
+    public static async Task<string> PrepareHomeDemoWorkspaceDefinition(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string scenarioId)
+    {
+        BrowserRetainedWorkspacePreparationResult result =
+            await BrowserRetainedWorkspaceActivationService
+                .PrepareHomeDemoAsync(
+                    retainedDefinitionId,
+                    label,
+                    canonicalLocation,
+                    scenarioId)
+                .ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePreparationResult);
+    }
+
+    [JSExport]
     public static async Task<string> PreparePackageQueryWorkspaceDefinition(
         string retainedDefinitionId,
         string label,
@@ -680,6 +701,69 @@ internal static class BrowserRetainedWorkspaceActivationService
                     StringComparer.Ordinal)).ConfigureAwait(false);
 
     internal static async Task<BrowserRetainedWorkspacePreparationResult>
+        PrepareHomeDemoAsync(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        string scenarioId)
+    {
+        if (string.IsNullOrWhiteSpace(scenarioId))
+        {
+            return FailedPreparation(
+                "InvalidRequest",
+                "A product home demo identity is required.");
+        }
+
+        EcosystemDemoSelectionResult selectionResult =
+            EcosystemPackCatalog.SelectDemo(scenarioId);
+        if (selectionResult is EcosystemDemoSelectionResult.Unknown)
+        {
+            return FailedPreparation(
+                "UnknownDemo",
+                $"Product home demo '{scenarioId}' is not in the catalog.");
+        }
+
+        EcosystemDemoSelection selection =
+            ((EcosystemDemoSelectionResult.Known)selectionResult).Selection;
+        BrowserHomeDemoRunPlan plan;
+        try
+        {
+            plan = BrowserProductHomeDemos.ToRunPlan(selection.Scenario);
+        }
+        catch (InspectionDefinitionException ex)
+        {
+            return FailedPreparation("InvalidDefinition", ex.Message);
+        }
+        if (!string.Equals(
+                plan.Section,
+                ProductDemoSections.Methods,
+                StringComparison.Ordinal))
+        {
+            return FailedPreparation(
+                "UnsupportedDemoSection",
+                $"Product home demo '{scenarioId}' requires section "
+                    + $"'{plan.Section}'; retained activation currently "
+                    + $"supports '{ProductDemoSections.Methods}'.");
+        }
+
+        BrowserRetainedWorkspaceActivationRequest request;
+        try
+        {
+            request = new(
+                retainedDefinitionId,
+                label,
+                canonicalLocation,
+                selection.RestorationRequest);
+        }
+        catch (ArgumentException ex)
+        {
+            return FailedPreparation("InvalidRequest", ex.Message);
+        }
+
+        return await PrepareAsync(request).ConfigureAwait(false);
+    }
+
+    internal static async Task<BrowserRetainedWorkspacePreparationResult>
         PreparePackageQueryAsync(
         string retainedDefinitionId,
         string label,
@@ -1076,7 +1160,7 @@ internal static class BrowserRetainedWorkspaceActivationService
                     new(
                         "UnsupportedDefinition",
                         "packet.view.active",
-                        "Source-free complete Workspace link activation currently supports only Workspace or default Package selections."));
+                        "Source-free complete Workspace link activation currently supports only Workspace, default Package, or Package Hierarchy selections."));
             }
             return new(
                 true,
@@ -1119,7 +1203,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             WorkspaceShareViewState state = packet.ViewStates[index + 1];
             if (packet.Tabs[index].SourceKind
                     == WorkspaceShareSourceKind.Package
-                ? !IsPackageDefault(state)
+                ? !IsPackageRoot(state)
                 : !IsDormantGroup(state))
             {
                 return false;
@@ -1136,12 +1220,13 @@ internal static class BrowserRetainedWorkspaceActivationService
         && state.Facet is null or "workspace.overview";
 
     // Package views recorded before package.libraries became the default
-    // name package.overview; both remain the default Package state.
-    private static bool IsPackageDefault(WorkspaceShareViewState state) =>
+    // name package.overview; preserve both beside the explicit Hierarchy inspector.
+    private static bool IsPackageRoot(WorkspaceShareViewState state) =>
         IsUnscoped(state)
         && state.Subject is PortableSubjectRequest.Package
         && state.Context is PortableRetainedSubjectContext.Package
-        && state.Facet is null or "package.libraries" or "package.overview";
+        && state.Facet is null or "package.libraries" or "package.overview"
+            or "package.dependency-hierarchy";
 
     private static bool IsDormantGroup(WorkspaceShareViewState state) =>
         IsUnscoped(state)
@@ -1641,7 +1726,7 @@ internal static class BrowserRetainedWorkspaceActivationService
                 "A restored Workspace requires its Workspace definition.");
         if (canonicalPacket is null)
         {
-            return ExternalPackageDefinition(
+            return NonprojectableSingleSubjectDefinition(
                 definition,
                 navigation,
                 workspace);
@@ -1671,7 +1756,8 @@ internal static class BrowserRetainedWorkspaceActivationService
             ],
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
-            definition.Scenario.Context);
+            definition.Scenario.Context,
+            workspace.TraversalTargetPolicy.TargetFramework);
     }
 
     static BrowserRetainedWorkspaceDefinitionState
@@ -1688,48 +1774,60 @@ internal static class BrowserRetainedWorkspaceActivationService
             [],
             [.. request.Plan.Registrations.Select(Registration)],
             ActiveTabId: null,
-            SelectedContextId: null);
+            SelectedContextId: null,
+            request.Plan.TraversalTargetPolicy.TargetFramework);
     }
 
-    static BrowserRetainedWorkspaceDefinitionState ExternalPackageDefinition(
+    static BrowserRetainedWorkspaceDefinitionState
+        NonprojectableSingleSubjectDefinition(
         CommittedScenarioDefinitionSet definition,
         CommittedNavigationDefinition navigation,
         WorkspaceDefinition workspace)
     {
         NavigationTabDefinition tab = AssertSingle(
             navigation.Tabs,
-            "A nonprojectable external Package definition requires one Navigation tab.");
+            "A nonprojectable retained definition requires one Navigation tab.");
         WorkspaceContextDefinition context = AssertSingle(
             workspace.Contexts,
-            "A nonprojectable external Package definition requires one Workspace context.");
-        DefinitionMemberCoordinate.PackageCoordinate package =
-            tab.Coordinate
-                as DefinitionMemberCoordinate.PackageCoordinate
-                ?? throw new InvalidOperationException(
-                    "A nonprojectable external Package definition requires a Package tab.");
+            "A nonprojectable retained definition requires one Workspace context.");
         DefinitionMemberCoordinate member = AssertSingle(
             context.Members,
-            "A nonprojectable external Package definition requires one Package member.");
-        if (!Equals(member, package))
+            "A nonprojectable retained definition requires one Workspace member.");
+        if (!Equals(member, tab.Coordinate))
         {
             throw new InvalidOperationException(
-                "The external Package Navigation tab must match its Workspace member.");
+                "The nonprojectable Navigation tab must match its Workspace member.");
         }
 
-        return new(
-            [
-                new BrowserWorkspaceShareTab(
+        BrowserWorkspaceShareTab projectedTab = tab.Coordinate switch
+        {
+            DefinitionMemberCoordinate.PackageCoordinate package =>
+                new(
                     tab.Id,
                     package.Kind,
                     package.Id,
                     package.Version,
                     package.Framework,
                     package.RuntimeIdentifier),
-            ],
+            DefinitionMemberCoordinate.PlatformCoordinate platform =>
+                new(
+                    tab.Id,
+                    platform.Kind,
+                    platform.Family,
+                    platform.Version,
+                    platform.Framework,
+                    RuntimeIdentifier: null),
+            _ => throw new InvalidOperationException(
+                "A nonprojectable retained definition requires a Package or Platform tab."),
+        };
+
+        return new(
+            [projectedTab],
             [new BrowserWorkspaceShareContext(context.Name, [tab.Id])],
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
-            definition.Scenario.Context);
+            definition.Scenario.Context,
+            workspace.TraversalTargetPolicy.TargetFramework);
     }
 
     static T AssertSingle<T>(

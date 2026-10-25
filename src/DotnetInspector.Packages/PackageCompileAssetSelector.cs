@@ -168,12 +168,7 @@ public sealed record PackageCompileAssetSelection(
     public PackageCompileAsset? FindImplementationAsset(PackageCompileAsset compileAsset)
     {
         ArgumentNullException.ThrowIfNull(compileAsset);
-        if (!Assets.Any(asset => asset.Id.Equals(compileAsset.Id, StringComparison.Ordinal)))
-        {
-            throw new ArgumentException(
-                "The compile asset is not part of this selected set.",
-                nameof(compileAsset));
-        }
+        RequireSelectedCompileAsset(compileAsset);
 
         PackageCompileAsset? exact =
             ImplementationAssets.FirstOrDefault(asset =>
@@ -191,36 +186,50 @@ public sealed record PackageCompileAssetSelection(
                 is true);
     }
 
-    static string? TryGetRelativePath(PackageCompileAsset asset)
+    /// <summary>
+    /// Finds the runtime-population counterpart of one selected compile asset.
+    /// </summary>
+    public PackageAssetEntry? FindImplementationAsset(
+        PackageCompileAsset compileAsset,
+        PackageRuntimeAssetPopulation population)
     {
-        string[] segments = asset.Path.Split('/');
-        if (segments.Length == 2
-            && segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase)
-            && PackageAssetSelector.IsFrameworkAgnostic(
-                asset.TargetFramework))
-        {
-            return segments[1];
-        }
+        ArgumentNullException.ThrowIfNull(compileAsset);
+        ArgumentNullException.ThrowIfNull(population);
+        RequireSelectedCompileAsset(compileAsset);
 
-        if (segments.Length >= 3
-            && (segments[0].Equals("ref", StringComparison.OrdinalIgnoreCase)
-                || segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
-            && segments[1].Equals(
-                asset.TargetFramework,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return string.Join('/', segments[2..]);
-        }
-
-        return segments.Length >= 5
-            && segments[0].Equals("runtimes", StringComparison.OrdinalIgnoreCase)
-            && segments[2].Equals("lib", StringComparison.OrdinalIgnoreCase)
-            && segments[3].Equals(
-                asset.TargetFramework,
-                StringComparison.OrdinalIgnoreCase)
-                ? string.Join('/', segments[4..])
-                : null;
+        string? relativePath = TryGetRelativePath(compileAsset);
+        return relativePath is null
+            ? null
+            : population.Assets.FirstOrDefault(asset =>
+                TryGetRelativePath(asset, population)?.Equals(
+                    relativePath,
+                    StringComparison.OrdinalIgnoreCase)
+                is true);
     }
+
+    void RequireSelectedCompileAsset(PackageCompileAsset compileAsset)
+    {
+        if (!Assets.Any(asset => asset.Id.Equals(
+                compileAsset.Id,
+                StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "The compile asset is not part of this selected set.",
+                nameof(compileAsset));
+        }
+    }
+
+    static string? TryGetRelativePath(PackageCompileAsset asset)
+        => PackageEntryPath.TryGetLibraryRelativePath(
+            asset.Path,
+            asset.TargetFramework);
+
+    static string? TryGetRelativePath(
+        PackageAssetEntry asset,
+        PackageRuntimeAssetPopulation population)
+        => PackageEntryPath.TryGetLibraryRelativePath(
+            asset.EntryPath,
+            population.TargetFramework);
 }
 
 /// <summary>
@@ -488,10 +497,25 @@ public static class PackageCompileAssetSelector
         ];
         if (frameworks.Length == 0)
         {
+            IReadOnlyList<string> runtimeFrameworks =
+                PackageAssetSelector.GetSingleRuntimeTargetFrameworks(
+                    content,
+                    runtimeIdentifier);
+            if (runtimeIdentifier is not null
+                && SelectRuntimeOnlySurface(
+                    content,
+                    packageId,
+                    targetFramework,
+                    runtimeIdentifier,
+                    runtimeFrameworks)
+                    is { } runtimeOnly)
+            {
+                return runtimeOnly;
+            }
             return new PackageCompileAssetSelection(
                 PackageCompileAssetSelectionStatus.NoCompileAssets,
                 null,
-                [],
+                runtimeFrameworks,
                 [],
                 null,
                 [],
@@ -782,6 +806,76 @@ public static class PackageCompileAssetSelector
                 selectedImplementationTargetFramework,
             UsesCompatibleImplementationSelection =
                 usesCompatibleImplementationSelection,
+        };
+    }
+
+    private static PackageCompileAssetSelection?
+        SelectRuntimeOnlySurface(
+            IPackageContent content,
+            string packageId,
+            string? targetFramework,
+            string runtimeIdentifier,
+            IReadOnlyList<string> availableTargetFrameworks)
+    {
+        PackageAssetSelection selection =
+                PackageAssetSelector.EvaluateSingleRuntime(
+                content,
+                targetFramework,
+                    runtimeIdentifier).Selection;
+        if (selection is not PackageAssetSelection.Selected selected)
+            return null;
+
+        PackageCompileAsset[] assets =
+        [
+            .. selected.Universe.Assets.Select(asset =>
+                new PackageCompileAsset(
+                    AssetIdPrefix + asset.EntryPath,
+                    asset.EntryPath,
+                    asset.FileName,
+                    selected.Universe.TargetFramework,
+                    PackageCompileAssetKind.Library,
+                    asset.RuntimeIdentifier)),
+        ];
+        if (assets.Length == 0)
+            return null;
+
+        PackageLibraryIdentity[] identities =
+        [
+            .. assets.Select(
+                static asset => new PackageLibraryIdentity(
+                    asset.Path,
+                    asset.AssemblySimpleName)),
+        ];
+        var first = (FirstPackageLibrarySelection.Selected)
+            PackageLibraryOrder.SelectFirst(
+                identities,
+                [],
+                packageId);
+        PackageCompileAsset defaultAsset = assets.First(
+            asset => asset.Path.Equals(
+                    first.Library.AssetPath,
+                    StringComparison.Ordinal)
+                && asset.AssemblySimpleName.Equals(
+                    first.Library.AssemblySimpleName,
+                    StringComparison.Ordinal));
+        string framework = selected.Universe.TargetFramework;
+        return new PackageCompileAssetSelection(
+            PackageCompileAssetSelectionStatus.Selected,
+            framework,
+            availableTargetFrameworks,
+            assets,
+            defaultAsset,
+            assets,
+            assets,
+            [],
+            [new PackageCompileAssetSlice(
+                framework,
+                assets,
+                HasExplicitEmptyReferenceGroup: false)])
+        {
+            ImplementationTargetFramework = framework,
+            UsesCompatibleImplementationSelection =
+                selection.UsesCompatibleTargetSelection,
         };
     }
 

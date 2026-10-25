@@ -200,7 +200,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             log?.Invoke(
                 $"Using committed package Root for search: "
                 + $"{binding.Root.PackageId}@{binding.Root.PackageVersion} "
-                + $"({binding.Root.AssetSelection.Status}; payload {origin}).");
+                + $"({binding.Root.AssetSelection?.Status.ToString() ?? "Library selection not requested"}; payload {origin}).");
             return new(
                 workspace,
                 correspondence,
@@ -476,8 +476,11 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
         if (payload is null)
             return (null, default);
+        PackageCompileAssetSelection selection = binding?.Root.AssetSelection
+            ?? throw new InvalidOperationException(
+                "Package search requires a realized Library selection.");
         if (payload.Content is RangedPackageContent ranged
-            && !CoversSelection(binding!.Root.AssetSelection, ranged))
+            && !CoversSelection(selection, ranged))
         {
             log?.Invoke(
                 $"The ranged read of {member.PackageId}@{member.Version} did not "
@@ -536,7 +539,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 payload,
                 targetFramework,
                 member.PackageId);
-        if (binding.Root.AssetSelection.Status
+        if (binding.Root.AssetSelection?.Status
                 == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
             && PackageAssetSelector.Select(payload.Content, targetFramework)
                 is PackageAssetSelection.Selected compatible)

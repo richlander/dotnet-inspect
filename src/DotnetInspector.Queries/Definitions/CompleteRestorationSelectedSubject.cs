@@ -163,6 +163,20 @@ public static class CompleteRestorationSelectedSubjectOperation
         Func<CompleteRestorationSelectedSubject, CancellationToken, ValueTask<T>> inspect,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(inspect);
+        return await ExecuteAsync(workspace, activation,
+            (target, _, token) => inspect(target, token), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Uses the same borrow for the subject and its assembly roles.</summary>
+    public static async ValueTask<CompleteRestorationSubjectResult<T>> ExecuteAsync<T>(
+        InspectionWorkspace workspace,
+        CompleteWorkspaceActivation activation,
+        Func<CompleteRestorationSelectedSubject, PackageAssemblyContextRealization,
+            CancellationToken, ValueTask<T>> inspect,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(activation);
         ArgumentNullException.ThrowIfNull(inspect);
@@ -188,7 +202,7 @@ public static class CompleteRestorationSelectedSubjectOperation
         ArtifactRootResult<T> result = await workspace.ExecutePackageRootQueryAsync(
             (PackageArtifactRootCorrespondence)target.Occurrence.Occurrence.Correspondence,
             ((ArtifactRootRealizationStatus.Ready)target.Occurrence.Realization.Status).Generation,
-            (_, token) => inspect(target, token),
+            (roles, token) => inspect(target, roles, token),
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return result switch
         {

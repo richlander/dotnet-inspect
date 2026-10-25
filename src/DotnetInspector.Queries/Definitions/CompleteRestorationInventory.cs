@@ -45,7 +45,9 @@ public sealed record CompleteRestorationPackageInventory(
             navigationId,
             contextIndex,
             evaluation.Occurrence.Occurrence.Package,
-            binding.Root.AssetSelection,
+            binding.Root.AssetSelection
+                ?? throw new InvalidOperationException(
+                    "Complete restoration inventory requires a realized Library selection."),
             [.. manifest.EnumerateEntriesWithLengths()],
             [
                 .. evaluation.Libraries.Select(static library =>
@@ -123,8 +125,8 @@ internal static class CompleteRestorationInventories
 
         var platforms =
             ImmutableArray.CreateBuilder<CompleteRestorationPlatformInventory>();
-        foreach ((string navigationId, GroupNavigationSource source)
-            in plan.GroupSources)
+        foreach ((string navigationId, PlatformNavigationSource source)
+            in plan.PlatformSources)
         {
             cancellationToken.ThrowIfCancellationRequested();
             WorkspaceContextLoadOutcome.Loaded context =

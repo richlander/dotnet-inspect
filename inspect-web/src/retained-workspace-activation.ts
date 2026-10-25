@@ -21,6 +21,8 @@ interface PacketRetainedWorkspaceDefinitionInput
   extends RetainedWorkspaceDefinitionIdentity {
   readonly canonicalPacket: string;
   readonly packageQuery?: never;
+  readonly homeDemo?: never;
+  readonly ecosystem?: never;
 }
 
 interface PackageQueryRetainedWorkspaceDefinitionInput
@@ -30,12 +32,25 @@ interface PackageQueryRetainedWorkspaceDefinitionInput
     readonly packageId: string;
     readonly version: string;
   };
+  readonly homeDemo?: never;
+  readonly ecosystem?: never;
+}
+
+interface HomeDemoRetainedWorkspaceDefinitionInput
+  extends RetainedWorkspaceDefinitionIdentity {
+  readonly canonicalPacket?: never;
+  readonly packageQuery?: never;
+  readonly homeDemo: {
+    readonly id: string;
+  };
+  readonly ecosystem?: never;
 }
 
 interface EcosystemRetainedWorkspaceDefinitionInput
   extends RetainedWorkspaceDefinitionIdentity {
   readonly canonicalPacket?: never;
   readonly packageQuery?: never;
+  readonly homeDemo?: never;
   readonly ecosystem: {
     readonly id: string;
   };
@@ -44,6 +59,7 @@ interface EcosystemRetainedWorkspaceDefinitionInput
 type RetainedWorkspaceDefinitionInput =
   | PacketRetainedWorkspaceDefinitionInput
   | PackageQueryRetainedWorkspaceDefinitionInput
+  | HomeDemoRetainedWorkspaceDefinitionInput
   | EcosystemRetainedWorkspaceDefinitionInput;
 
 type RetainedWorkspaceDefinition = RetainedWorkspaceDefinitionInput & {
@@ -90,6 +106,12 @@ export interface RetainedWorkspaceActivationClient {
     canonicalLocation: string,
     packageId: string,
     version: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult>;
+  prepareHomeDemoWorkspaceDefinition?(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    scenarioId: string,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
   prepareEcosystemWorkspaceDefinition?(
     retainedDefinitionId: string,
@@ -287,7 +309,8 @@ export function createRetainedWorkspaceActivationController(
       );
     }
     if ("ecosystem" in definition
-      || definition.packageQuery !== undefined) {
+      || definition.packageQuery !== undefined
+      || definition.homeDemo !== undefined) {
       throw new Error(
         "This Workspace definition does not require a package-source description.",
       );
@@ -534,10 +557,12 @@ export function createRetainedWorkspaceActivationController(
       || input.canonicalLocation.trim().length === 0
       || ("ecosystem" in input
         ? input.ecosystem.id.trim().length === 0
-        : input.packageQuery === undefined
-          ? input.canonicalPacket.trim().length === 0
-          : input.packageQuery.packageId.trim().length === 0
-            || input.packageQuery.version.trim().length === 0)) {
+        : input.homeDemo !== undefined
+          ? input.homeDemo.id.trim().length === 0
+          : input.packageQuery === undefined
+            ? input.canonicalPacket.trim().length === 0
+            : input.packageQuery.packageId.trim().length === 0
+              || input.packageQuery.version.trim().length === 0)) {
       throw new Error(
         "A retained Workspace definition requires a label, canonical location, and restoration input.",
       );
@@ -617,6 +642,23 @@ export function createRetainedWorkspaceActivationController(
             definition.label,
             definition.canonicalLocation,
             definition.ecosystem.id,
+          );
+        } else if (definition.homeDemo !== undefined) {
+          if (credentialEndpoints.length !== 0) {
+            throw new Error(
+              "Product home demo Workspace definitions do not accept credential bindings.",
+            );
+          }
+          if (client.prepareHomeDemoWorkspaceDefinition === undefined) {
+            throw new Error(
+              "This engine does not support product home demo Workspace definitions.",
+            );
+          }
+          preparation = await client.prepareHomeDemoWorkspaceDefinition(
+            definition.id,
+            definition.label,
+            definition.canonicalLocation,
+            definition.homeDemo.id,
           );
         } else if (definition.packageQuery !== undefined) {
           if (credentialEndpoints.length !== 0) {

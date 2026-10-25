@@ -135,6 +135,7 @@ test("Workspace details render product occurrences as opaque actions", () => {
     id: "System.Text.Json",
     version: "10.0.0",
     activeFramework: "net10.0",
+    runtimeIdentifier: "linux-x64",
     isRuntimePack: false,
   }, {
     id: "Microsoft.NETCore.App",
@@ -149,6 +150,7 @@ test("Workspace details render product occurrences as opaque actions", () => {
       package: "system.text.json",
       version: "10.0.0",
       framework: "net10.0",
+      runtimeIdentifier: "linux-x64",
     }],
     packages,
     platform: { tfm: "net11.0", version: "11.0.0-preview.7.26381.103", includeAllLibraries: false, filter: "" },

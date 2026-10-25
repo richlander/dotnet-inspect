@@ -62,7 +62,7 @@ public sealed partial class CompleteRestorationExecutionTests
             bool called = false;
             CompleteRestorationSubjectResult<string> result =
                 await CompleteRestorationSelectedSubjectOperation.ExecuteAsync(
-                    restored.Activation, restored.Workspace, (target, _) =>
+                    restored.Activation, restored.Workspace, (target, roles, _) =>
                     {
                         called = true;
                         Assert.Equal(facet, target.Lens.Facet.Value);
@@ -90,6 +90,8 @@ public sealed partial class CompleteRestorationExecutionTests
                                 break;
                             case CompleteRestorationSelectedSubject.Type one:
                                 Assert.Equal("type", kind);
+                                Assert.Contains(one.DefiningLibrary.Library.Participant,
+                                    roles.SurfaceGroup.Participants);
                                 Assert.Same(one.Subject.Identity.Registration,
                                     NavigationRegistrationIdentity.From(
                                         one.DefiningLibrary.Library.Participant.Assembly.Registration));

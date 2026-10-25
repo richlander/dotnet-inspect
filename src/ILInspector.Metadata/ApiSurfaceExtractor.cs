@@ -15,8 +15,8 @@ namespace ILInspector.Metadata;
 public enum ApiSurfaceExtractionScope
 {
     /// <summary>
-    /// The default consumer surface: public types with their public members, minus the types and
-    /// members the extractor hides.
+    /// The default consumer surface: public types, public through every enclosing type, with
+    /// their public members, minus the types and members the extractor hides.
     /// </summary>
     Public,
 
@@ -33,7 +33,8 @@ public enum ApiSurfaceExtractionScope
     /// <summary>
     /// The diff's API axis (docs/design/diff-capabilities.md#axes): the <c>public</c> and
     /// <c>protected</c> accessibility buckets less <c>private protected</c>, with hidden
-    /// declarations admitted and marked by <c>IsHidden</c>. A Type is admitted by its own row.
+    /// declarations admitted and marked by <c>IsHidden</c>. A Type is admitted when another
+    /// assembly can reach it through every enclosing Type.
     /// The <see cref="Public"/> scope is this population's ordinary presentation default.
     /// </summary>
     ApiAxis,
@@ -328,7 +329,7 @@ public static partial class ApiSurfaceExtractor
             try
             {
                 var typeDef = reader.GetTypeDefinition(typeDefHandle);
-                if (!typeDef.IsPublic)
+                if (!AdmitsPublicScopeType(reader, typeDefHandle, typeDef))
                     continue;
 
                 var typeAttributes = typeDef.Attributes;
@@ -486,7 +487,7 @@ public static partial class ApiSurfaceExtractor
             {
                 TypeDefinition typeDef =
                     reader.GetTypeDefinition(typeDefHandle);
-                if (!typeDef.IsPublic)
+                if (!AdmitsPublicScopeType(reader, typeDefHandle, typeDef))
                     continue;
 
                 string metadataName =
@@ -1265,11 +1266,16 @@ public static partial class ApiSurfaceExtractor
                 continue;
             }
 
-            // Only include public types by default. The filtered-export scan
-            // above intentionally precedes this visibility check: an authentic
-            // row on a private compiler-generated lambda type remains relevant
-            // failure evidence even though the type is not an API declaration.
-            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
+            // Only include public types by default: public through every enclosing
+            // Type. The filtered-export scan above intentionally precedes this
+            // visibility check: an authentic row on a private compiler-generated
+            // lambda type remains relevant failure evidence even though the type
+            // is not an API declaration.
+            bool publicScopeType =
+                scope is (ApiSurfaceExtractionScope.Public
+                    or ApiSurfaceExtractionScope.PublicWithNonPublicTypes)
+                && AdmitsPublicScopeType(reader, typeDefHandle, typeDef);
+            if (!publicScopeType && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
             // The API axis admits a Type another assembly can reach through every
@@ -1284,7 +1290,7 @@ public static partial class ApiSurfaceExtractor
             // list while a non-public type carries its complete one.
             bool includeAll = scope == ApiSurfaceExtractionScope.IncludeAll
                 || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
-                    && !typeDef.IsPublic);
+                    && !publicScopeType);
 
             // Skip EditorBrowsable(Never) and Obsolete types unless --all. A public type the
             // extractor hides stays hidden in the composed scope too: it is suppressed, not

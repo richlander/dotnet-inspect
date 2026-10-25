@@ -1826,7 +1826,10 @@ public partial class CommandExecutionTests
         }
         else
         {
-            Assert.Contains(
+            // FSharpKind is a public nested Type of the internal
+            // FSharpCoreReflectionProxy, so neither path admits it without
+            // --all (docs/design/api-population-scope.md).
+            Assert.DoesNotContain(
                 locator,
                 static row =>
                     row.Contains(

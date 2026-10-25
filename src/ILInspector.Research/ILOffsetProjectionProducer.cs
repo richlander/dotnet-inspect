@@ -158,22 +158,36 @@ public static class ILOffsetProjectionProducer
             Guid sourceModuleVersionId = ReadModuleVersionId(context);
             if (wantsAllocation)
             {
-                if (RequireLegacyAnalysis(
-                        request,
-                        sourceModuleVersionId,
-                        ILOffsetProjectionFailureKind
-                            .AllocationAnalysisUnavailable)
-                    is { } failure)
+                if (request.AllocationAnalysis
+                    is { } focusedAllocation)
                 {
-                    return failure;
+                    if (sourceModuleVersionId
+                        != focusedAllocation.ModuleVersionId)
+                    {
+                        return GenerationMismatch(
+                            ILOffsetProjectionFailureKind
+                                .AllocationAnalysisUnavailable);
+                    }
                 }
-                if (!request.Analysis!.Allocations.WasRequested)
+                else
                 {
-                    return ILOffsetProjectionOutcome.Failed(
-                        ILOffsetProjectionFailureKind
-                            .AllocationAnalysisUnavailable,
-                        "IL-offset allocation analysis was not requested "
-                            + "by the supplied execution.");
+                    if (RequireLegacyAnalysis(
+                            request,
+                            sourceModuleVersionId,
+                            ILOffsetProjectionFailureKind
+                                .AllocationAnalysisUnavailable)
+                        is { } failure)
+                    {
+                        return failure;
+                    }
+                    if (!request.Analysis!.Allocations.WasRequested)
+                    {
+                        return ILOffsetProjectionOutcome.Failed(
+                            ILOffsetProjectionFailureKind
+                                .AllocationAnalysisUnavailable,
+                            "IL-offset allocation analysis was not requested "
+                                + "by the supplied execution.");
+                    }
                 }
             }
             if (wantsSafety)
@@ -231,10 +245,17 @@ public static class ILOffsetProjectionProducer
             }
             if (wantsAllocation)
             {
-                allocationContext = BuildAllocationContext(
-                    request.Analysis!,
-                    request.MethodToken,
-                    request.ILOffset);
+                allocationContext =
+                    request.AllocationAnalysis
+                        is { } focusedAllocation
+                    ? BuildAllocationContext(
+                        focusedAllocation,
+                        request.MethodToken,
+                        request.ILOffset)
+                    : BuildAllocationContext(
+                        request.Analysis!,
+                        request.MethodToken,
+                        request.ILOffset);
             }
             if (wantsSafety)
             {
@@ -415,6 +436,17 @@ public static class ILOffsetProjectionProducer
         int ilOffset)
         => Analysis.SemanticFactProjection.AllocationFacts(
                 analysis.Allocations.Occurrences,
+                methodToken,
+                ilOffset)
+            .Select(ToILOffsetAllocationContext)
+            .ToList();
+
+    static List<ILOffsetAllocationContext> BuildAllocationContext(
+        ILOffsetAllocationAnalysisInput analysis,
+        int methodToken,
+        int ilOffset)
+        => Analysis.SemanticFactProjection.AllocationFacts(
+                analysis.Occurrences,
                 methodToken,
                 ilOffset)
             .Select(ToILOffsetAllocationContext)

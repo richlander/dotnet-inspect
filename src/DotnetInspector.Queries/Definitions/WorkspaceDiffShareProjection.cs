@@ -59,7 +59,8 @@ public static class WorkspaceDiffShareProjection
                 ? new(index, subject, context, facet, [0])
                 : new(index, null, null, null));
         var packet = WorkspaceSharePacket.CreateV4([.. presentation.Tabs], [.. presentation.Contexts], [],
-            presentation.ActiveTabIndex, presentation.SelectedContextIndex ?? throw new ArgumentException("A selected context is required."), [.. states], [intent.ToIdentity()]);
+            presentation.ActiveTabIndex, presentation.SelectedContextIndex ?? throw new ArgumentException("A selected context is required."), [.. states], [intent.ToIdentity()],
+            presentation.TraversalTargetPolicy);
         _ = WorkspaceSharePacketTransposer.ToCommittedDefinitions(packet);
         return packet;
     }
@@ -95,7 +96,8 @@ public static class WorkspaceDiffShareProjection
         var presentation = new WorkspaceSharePacket([.. packet.Tabs], [.. packet.Contexts], active,
             packet.SelectedContextIndex ?? throw new ArgumentException("Exact Diff requires a selected context."),
             type is null ? "library:compare" : anchor is not null || signature is not null ? "api" : "compare", type, anchor, signature,
-            anchor is not null || signature is not null ? "compare" : null, [intent.Asset]);
+            anchor is not null || signature is not null ? "compare" : null, [intent.Asset],
+            traversalTargetPolicy: packet.TraversalTargetPolicy);
         // This consumer admits only the complete representable subset it can restore.
         // It never discards dormant state, another query, or a structural association.
         if (WorkspaceSharePacketCodec.Encode(Create(presentation, library, intent)) != WorkspaceSharePacketCodec.Encode(packet))

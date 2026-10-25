@@ -2007,6 +2007,9 @@ public sealed partial class InspectionWorkspace :
     {
         ArgumentNullException.ThrowIfNull(plan);
         _registrationRevision = new(_identity, plan);
+        _scopeProject = plan.Project is { } project
+            ? new(_identity, project)
+            : null;
         _closeStart = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         _closeTask = CloseCoreAsync(_closeStart.Task);

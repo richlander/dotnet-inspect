@@ -362,53 +362,13 @@ public sealed partial class MethodBodySource
     /// </summary>
     bool TryReadILExtent(int rva, out int headerSize, out int ilByteCount)
     {
-        headerSize = 0;
-        ilByteCount = 0;
-        try
-        {
-            PEMemoryBlock section = _peReader.GetSectionData(rva);
-            if (section.Length == 0)
-                return false;
-
-            BlobReader header = section.GetReader();
-            byte first = header.ReadByte();
-            int prefix;
-            int codeSize;
-            switch (first & 0x03)
-            {
-                case 0x02:  // CorILMethod_TinyFormat: size in the upper six bits.
-                    prefix = 1;
-                    codeSize = first >> 2;
-                    break;
-                case 0x03:  // CorILMethod_FatFormat: flags/header size, max stack, code size.
-                    header.Offset = 0;
-                    int flagsAndSize = header.ReadUInt16();
-                    prefix = (flagsAndSize >> 12) * 4;
-                    if (prefix < 12)
-                        return false;
-                    header.ReadUInt16();  // max stack
-                    uint declared = header.ReadUInt32();
-                    if (declared > int.MaxValue)
-                        return false;
-                    codeSize = (int)declared;
-                    break;
-                default:
-                    return false;
-            }
-
-            if (prefix > section.Length || codeSize > section.Length - prefix)
-                return false;
-
-            headerSize = prefix;
-            ilByteCount = codeSize;
-            return true;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or ArgumentOutOfRangeException
-            or InvalidOperationException)
-        {
-            return false;
-        }
+        return RawMethodBodyHeader.TryRead(
+            _peReader,
+            rva,
+            out _,
+            out headerSize,
+            out ilByteCount,
+            out _);
     }
 
     bool TryGetUserStringHeap(out UserStringHeapWindow heap)

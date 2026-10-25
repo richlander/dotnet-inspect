@@ -330,6 +330,8 @@ export interface WorkspaceUrlState {
   activeTabId: string;
   selectedContextId: string;
   view: BrowserWorkspaceShareView;
+  traversalTargetFramework: string | null;
+  hierarchyWorkspacePacket?: string | null;
   analysisMode?: AnalysisMode | null;
 }
 
@@ -602,6 +604,8 @@ export function hierarchyShareTargetFramework(
   pkg: { id: string; version: string },
   packageLens: string | null,
 ): string | null {
+  if (packageLens === "hierarchy" && basis?.traversalTargetFramework)
+    return basis.traversalTargetFramework;
   const target = basis?.tabs.length === 1 ? basis.tabs[0] : null;
   return basis?.view.lens === "hierarchy"
     && packageLens === "hierarchy"
@@ -703,6 +707,8 @@ function workspaceShareState(
     activeTabId: state.activeTabId,
     selectedContextId: state.selectedContextId,
     view: state.view,
+    traversalTargetFramework: state.traversalTargetFramework ?? null,
+    hierarchyWorkspacePacket: state.hierarchyWorkspacePacket ?? null,
   };
 }
 
@@ -764,7 +770,7 @@ function decodeWorkspaceShareResult(
   const tabs: WorkspaceCoordinate[] = [];
   let platformTabCount = 0;
   for (const tab of state.tabs) {
-    if (tab.runtimeIdentifier) {
+    if (tab.kind !== "package" && tab.runtimeIdentifier) {
       return {
         error: "The shared workspace uses a runtime-specific context that this browser cannot activate.",
       };
@@ -777,7 +783,7 @@ function decodeWorkspaceShareResult(
         shareId: tab.id,
         shareKind: "package",
         shareSource: tab.source,
-        runtimeIdentifier: null,
+        runtimeIdentifier: tab.runtimeIdentifier,
       });
       continue;
     }

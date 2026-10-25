@@ -163,21 +163,27 @@ public sealed partial class MethodDefinitionRequestSetTests
             source.ResultOf(exact).SourceReceipt.Coverage;
         MethodAnalysisSupportCoverage support = coverage.MethodAnalysis;
         Assert.True(support.Constructed);
-        Assert.Equal(1, support.Queries);
-        Assert.Equal(1, support.QueryingMethods.Count);
-        Assert.True(support.QueryingMethods.Contains(method));
+        Assert.Equal(1, support.Resolver.Queries);
+        Assert.Equal(1, support.Resolver.QueryingMethods.Count);
+        Assert.True(support.Resolver.QueryingMethods.Contains(method));
         Assert.Equal(0, coverage.ModuleLookupMethods.Count);
         Assert.Equal(1, coverage.BodiesAcquired.Count);
-        Assert.True(support.QueryWork.StableReceiverQueries > 0);
-        Assert.Equal(1, support.QueryWork.MethodReferencesResolved);
+        Assert.True(
+            support.Resolver.QueryWork.StableReceiverQueries > 0);
+        Assert.Equal(
+            1,
+            support.Resolver.QueryWork.MethodReferencesResolved);
         Assert.Equal(
             2L * Math.Max(constructorSignatureBytes, 1),
-            support.QueryWork.MethodReferenceSignatureWork);
-        Assert.Equal(1, support.QueryWork.StableGetterBodiesRead);
-        Assert.True(support.QueryWork.StableGetterEncodedIlBytes > 0);
+            support.Resolver.QueryWork.MethodReferenceSignatureWork);
+        Assert.Equal(
+            1,
+            support.Resolver.QueryWork.StableGetterBodiesRead);
+        Assert.True(
+            support.Resolver.QueryWork.StableGetterEncodedIlBytes > 0);
         Assert.Equal(
             reader.TypeDefinitions.Count,
-            support.QueryWork.AsyncStateMachineTypeRows);
+            support.Resolver.QueryWork.AsyncStateMachineTypeRows);
     }
 
     [Fact]
@@ -250,54 +256,47 @@ public sealed partial class MethodDefinitionRequestSetTests
             1,
             coverage.InstructionWork.LazyRetainedSourcesOpened);
         Assert.Equal(0, coverage.ModuleLookupMethods.Count);
-        Assert.Equal(1, coverage.Calls.CallReads);
+        Assert.Equal(0, coverage.Calls.CallReads);
         Assert.Equal(1, coverage.Calls.LocalSignatureReads);
-        Assert.True(coverage.CallTargets.Constructed);
-        Assert.Equal(4, coverage.MethodAnalysis.Queries);
-        Assert.Equal(
-            1,
-            coverage.MethodAnalysis.QueryWork
-                .DeclaredSourceQueries);
+        Assert.False(coverage.CallTargets.Constructed);
+        Assert.Equal(2, coverage.MethodAnalysis.Resolver.Queries);
         Assert.Equal(
             0,
-            coverage.MethodAnalysis.QueryWork
-                .DeclaredSourceCandidateDefinitions);
-        Assert.True(
-            coverage.MethodAnalysis.QueryWork
-                .DeclaredSourceTypeDefinitionRows > 0);
-        Assert.True(
-            coverage.MethodAnalysis.QueryWork
-                .DeclaredSourceRelationshipNodes > 0);
+            coverage.MethodAnalysis.DeclaredSource.Queries);
         Assert.Equal(
             1,
-            coverage.MethodAnalysis.QueryWork
-                .OptimizationSuppressionQueries);
+            coverage.MethodAnalysis.GeneratedCodeEvidence.Queries);
+        Assert.Equal(
+            0,
+            coverage.MethodAnalysis.DeclaredSource.QueryWork
+                .CandidateDefinitions);
+        Assert.Equal(
+            0,
+            coverage.MethodAnalysis.DeclaredSource.QueryWork
+                .TypeDefinitionRows);
+        Assert.Equal(
+            0,
+            coverage.MethodAnalysis.DeclaredSource.QueryWork
+                .RelationshipNodes);
 
         ProducerParticipation allocation =
             request.WorkReceipt.For(
                 ExactMethodAllocationProducer.Instance);
-        Assert.DoesNotContain(
-            allocation.Layers,
-            layer => layer.Layer
-                == nameof(MethodDefinitionLayers.LocalSignature));
-        Assert.DoesNotContain(
-            allocation.Layers,
-            layer => layer.Layer
-                == nameof(MethodDefinitionLayers.Calls));
-        ProducerParticipation methodAnalysis =
-            request.WorkReceipt.For(
-                ExactMethodAnalysisProducer.Instance);
         Assert.Contains(
-            methodAnalysis.Layers,
+            allocation.Layers,
             layer => layer
                 == new ProducerLayerParticipation(
                     nameof(MethodDefinitionLayers.LocalSignature),
                     1));
+        Assert.DoesNotContain(
+            allocation.Layers,
+            layer => layer.Layer
+                == nameof(MethodDefinitionLayers.Calls));
         Assert.Contains(
-            methodAnalysis.Layers,
+            allocation.Layers,
             layer => layer
                 == new ProducerLayerParticipation(
-                    nameof(MethodDefinitionLayers.Calls),
+                    nameof(MethodDefinitionLayers.MethodAnalysis),
                     1));
         ProducerParticipation optimization =
             request.WorkReceipt.For(
@@ -312,9 +311,11 @@ public sealed partial class MethodDefinitionRequestSetTests
 
     [Fact]
     public void
-        MethodQuerySource_ReceiptsMethodOptimizationSuppression()
+        MethodQuerySource_ReceiptsMethodGeneratedCodeEvidence()
     {
-        (ExactMethodOptimizationBody actual, MethodAnalysisSupportWork work) =
+        (
+            ExactMethodOptimizationBody actual,
+            MethodGeneratedCodeEvidenceWork work) =
             ExecuteExactOptimization(
                 typeof(MethodAnalysisSupportFixture)
                     .GetMethod(
@@ -322,25 +323,19 @@ public sealed partial class MethodDefinitionRequestSetTests
                             .GeneratedMethodSuppression))!);
 
         Assert.True(actual.SuppressesDerivedOpportunities);
-        Assert.Equal(1, work.OptimizationSuppressionQueries);
-        Assert.True(
-            work.OptimizationSuppressionMethodAttributeRows > 0);
-        Assert.Equal(
-            0,
-            work.OptimizationSuppressionTypeDefinitionRows);
-        Assert.Equal(
-            0,
-            work.OptimizationSuppressionTypeAttributeRows);
-        Assert.Equal(
-            0,
-            work.OptimizationSuppressionRelationshipNodes);
+        Assert.True(work.MethodAttributeRows > 0);
+        Assert.Equal(0, work.TypeDefinitionRows);
+        Assert.Equal(0, work.TypeAttributeRows);
+        Assert.Equal(0, work.RelationshipNodes);
     }
 
     [Fact]
     public void
-        MethodQuerySource_ReceiptsEnclosingTypeOptimizationSuppression()
+        MethodQuerySource_ReceiptsEnclosingTypeGeneratedCodeEvidence()
     {
-        (ExactMethodOptimizationBody actual, MethodAnalysisSupportWork work) =
+        (
+            ExactMethodOptimizationBody actual,
+            MethodGeneratedCodeEvidenceWork work) =
             ExecuteExactOptimization(
                 typeof(MethodAnalysisGeneratedContainer.Nested)
                     .GetMethod(
@@ -349,18 +344,11 @@ public sealed partial class MethodDefinitionRequestSetTests
 
         Assert.True(actual.SuppressesDerivedOpportunities);
         Assert.True(
-            work.DeclaredSourceTypeDefinitionRows >= 2);
+            work.TypeDefinitionRows >= 2);
         Assert.True(
-            work.DeclaredSourceTypeAttributeRows > 0);
+            work.TypeAttributeRows > 0);
         Assert.True(
-            work.DeclaredSourceRelationshipNodes > 0);
-        Assert.Equal(1, work.OptimizationSuppressionQueries);
-        Assert.True(
-            work.OptimizationSuppressionTypeDefinitionRows >= 2);
-        Assert.True(
-            work.OptimizationSuppressionTypeAttributeRows > 0);
-        Assert.True(
-            work.OptimizationSuppressionRelationshipNodes > 0);
+            work.RelationshipNodes > 0);
     }
 
     [Fact]
@@ -381,7 +369,7 @@ public sealed partial class MethodDefinitionRequestSetTests
                 lifted.MetadataToken & 0x00FF_FFFF);
         MethodDefinitionSourceAssociation exact =
             Association(
-                ExactMethodOptimizationProducer.Instance,
+                ExactMethodAnalysisBundleProducer.Instance,
                 ProducerTerminal.Rows,
                 MethodDefinitionSourceBreadth.ExactMethods(method),
                 new(
@@ -397,26 +385,23 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Equal(
             0,
             coverage.GeneratedExpansion.ProbeBodiesAttempted.Count);
+        ExactDeclaredSourceWork work =
+            coverage.MethodAnalysis.DeclaredSource.QueryWork;
         Assert.True(
-            coverage.MethodAnalysis.QueryWork
-                .DeclaredSourceCandidateDefinitions > 0);
+            work.CandidateDefinitions > 0);
         Assert.True(
-            coverage.MethodAnalysis.QueryWork
-                .DeclaredSourceProbeBodies > 0);
+            work.ProbeBodies > 0);
         Assert.True(
-            coverage.MethodAnalysis.QueryWork
-                .DeclaredSourceProbeEncodedIlBytes > 0);
-        MethodAnalysisSupportWork work =
-            coverage.MethodAnalysis.QueryWork;
-        Assert.True(work.DeclaredSourceTypeDefinitionRows > 0);
-        Assert.True(work.DeclaredSourceRelationshipNodes > 0);
-        Assert.True(work.DeclaredSourceContractQueries > 0);
+            work.ProbeEncodedIlBytes > 0);
+        Assert.True(work.TypeDefinitionRows > 0);
+        Assert.True(work.RelationshipNodes > 0);
+        Assert.True(work.ContractQueries > 0);
         Assert.Equal(
             MemorySafetyMetadataWork.Empty,
-            work.DeclaredSourceContractConstructionWork);
+            work.ContractConstructionWork);
         Assert.Equal(
             0,
-            work.DeclaredSourceContractQueryWork
+            work.ContractQueryWork
                 .IntegrityTypeDefRows);
         Assert.Equal(
             reader.TypeDefinitions.Count,
@@ -426,7 +411,7 @@ public sealed partial class MethodDefinitionRequestSetTests
 
     static (
         ExactMethodOptimizationBody Body,
-        MethodAnalysisSupportWork Work)
+        MethodGeneratedCodeEvidenceWork Work)
         ExecuteExactOptimization(MethodInfo target)
     {
         string path = target.DeclaringType!.Assembly.Location;
@@ -450,10 +435,10 @@ public sealed partial class MethodDefinitionRequestSetTests
                         source,
                         exact)
                     .Value!.Bodies);
-        MethodAnalysisSupportWork work =
+        MethodGeneratedCodeEvidenceWork work =
             source.ResultOf(exact)
                 .SourceReceipt.Coverage
-                .MethodAnalysis.QueryWork;
+                .MethodAnalysis.GeneratedCodeEvidence.QueryWork;
         return (body, work);
     }
 
@@ -509,10 +494,10 @@ public sealed partial class MethodDefinitionRequestSetTests
         using var stream = File.OpenRead(path);
         using var pe = new PEReader(stream);
         MetadataReader reader = pe.GetMetadataReader();
-        MethodAnalysisSupportWork work =
+        MethodAnalysisResolverWork work =
             source.ResultOf(exact)
                 .SourceReceipt.Coverage
-                .MethodAnalysis.QueryWork;
+                .MethodAnalysis.Resolver.QueryWork;
         Assert.True(work.LocalExceptionTypeQueries > 0);
         Assert.InRange(
             work.LocalExceptionTypeDefinitionRows,
@@ -571,17 +556,24 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.True(physical.Constructed);
         Assert.True(firstCoverage.Constructed);
         Assert.False(secondCoverage.Constructed);
-        Assert.Equal(2, physical.Queries);
-        Assert.Equal(1, firstCoverage.Queries);
-        Assert.Equal(1, secondCoverage.Queries);
-        Assert.Equal(1, physical.QueryingMethods.Count);
-        Assert.Equal(1, physical.QueryWork.StableGetterBodiesRead);
+        Assert.Equal(2, physical.Resolver.Queries);
+        Assert.Equal(1, firstCoverage.Resolver.Queries);
+        Assert.Equal(1, secondCoverage.Resolver.Queries);
+        Assert.Equal(1, physical.Resolver.QueryingMethods.Count);
         Assert.Equal(
-            firstCoverage.QueryWork.StableGetterBodiesRead,
-            physical.QueryWork.StableGetterBodiesRead);
-        Assert.Equal(0, secondCoverage.QueryWork.StableGetterBodiesRead);
-        Assert.True(firstCoverage.QueryWork.AsyncStateMachineTypeRows > 0);
-        Assert.Equal(0, secondCoverage.QueryWork.AsyncStateMachineTypeRows);
+            1,
+            physical.Resolver.QueryWork.StableGetterBodiesRead);
+        Assert.Equal(
+            firstCoverage.Resolver.QueryWork.StableGetterBodiesRead,
+            physical.Resolver.QueryWork.StableGetterBodiesRead);
+        Assert.Equal(
+            0,
+            secondCoverage.Resolver.QueryWork.StableGetterBodiesRead);
+        Assert.True(
+            firstCoverage.Resolver.QueryWork.AsyncStateMachineTypeRows > 0);
+        Assert.Equal(
+            0,
+            secondCoverage.Resolver.QueryWork.AsyncStateMachineTypeRows);
     }
 
     sealed record MethodAnalysisObservation(

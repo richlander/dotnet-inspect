@@ -1,0 +1,48 @@
+{
+  "_links": {
+    "describedby": {
+      "href": "inspect-resource:/workspace/components/package"
+    }
+  },
+  "_embedded": {
+    "data": {
+      "scope": "Detached",
+      "identity": {
+        "owner": "workspace",
+        "schema": "components",
+        "type": "package",
+        "value": "[\"system.text.json\",\"10.0.0\",\"net10.0\",\"\",\"\",\"a53c82ab6204d9dbd7fb659d7a84779d490eed4e41061e026b1a16e43d73dcd8\"]"
+      },
+      "facts": {
+        "package_id": "System.Text.Json",
+        "version": "10.0.0",
+        "framework": "net10.0",
+        "defaulted_fields": [],
+        "component_path": "packages/system.text.json@10.0.0/net10.0/~",
+        "contexts": [
+          "contexts/g0"
+        ],
+        "focused": true
+      },
+      "fact_states": {
+        "runtime_identifier": {
+          "state": "Absent"
+        }
+      },
+      "traversal": {
+        "requested_depth": 0,
+        "requested_resource_limit": 256,
+        "requested_relationship_limit": 2048,
+        "requested_relationship_target_limit": 4096,
+        "requested_schema_declaration_limit": 4096,
+        "completed_depth": 0,
+        "visited_resource_count": 1,
+        "emitted_relationship_count": 0,
+        "emitted_relationship_target_count": 0,
+        "emitted_schema_declaration_count": 12,
+        "completeness": "Complete",
+        "truncation_reasons": []
+      }
+    }
+  }
+}

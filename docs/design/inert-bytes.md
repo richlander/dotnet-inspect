@@ -175,11 +175,17 @@ exact-Type inspection boundary:
 3. Presentation writes the Type spelling directly to `IBufferWriter<byte>`,
    and the CLI writes the completed UTF-8 document to standard output without
    an intermediate UTF-16 document.
-4. The direct document is admitted only for a clean non-generic Type whose
-   established `Type Info` projection needs no rendered base-Type identity.
-   Generic Types, transformed names, nontrivial base Types, other formats,
-   row or column projections, and every broader command shape retain the
-   established renderer.
+4. The direct document is admitted only for a clean Type whose established
+   `Type Info` projection needs no rendered base-Type identity. A generic Type
+   is admitted when the leaf segment introduces every parameter, no parameter
+   has a constraint row or a non-canonical annotation, and every parameter
+   name is clean and is not a keyword the constraint spelling would escape.
+   Metadata removes each segment's canonical arity suffix by slicing its
+   range, and the `Type Parameters` row spells variance and constraint
+   keywords from the posted flags and annotations, so no parameter name is
+   decoded. Constraint types, Types nested in generic Types, transformed
+   names, nontrivial base Types, other formats, row or column projections, and
+   every broader command shape retain the established renderer.
 
 That eligibility rule preserves the byte-identical selected document while
 establishing one complete host-input-to-byte-sink path. Diagnostic reach
@@ -737,10 +743,12 @@ the repository threat model.
 | Exact-Type selected identity | A fully qualified exact nested Type detaches only its matched namespace and root-to-leaf Name segments into one backing, preserves segment boundaries, keeps raw lookup identity unchanged, and carries the separately contained presentation without applying identity limits to its expanded spelling | First adoption PR |
 | Exact-Type base/head | NativeAOT exact-command time and allocation comparison preserves result semantics; retained-memory claims include the detached matched Name backing and do not count UTF-16 compatibility output as byte-native savings | First adoption PR |
 | Host-input optimization | Exact query bytes are encoded once, typed match evidence is available only after exact equality, and the candidate is compared with the merged exact-Type baseline | Follow-up adoption PR |
-| Exact-Type direct byte output | Direct-library clean non-generic `Type Info` TSV preserves byte-identical output through host input, metadata proof, `TypeSubject`, Presentation, and the CLI UTF-8 sink; ineligible shapes reproduce the established fallback output | End-to-end Type adoption |
-| Exact-Type one-shot cost | Exact-base/head NativeAOT comparison includes command input construction, plan construction, inspection, Presentation, and output; kernel-only measurements remain separately labeled | End-to-end Type adoption |
+| Exact-Type direct byte output | `docs/workflows/perf/cli-byte-publication.md` compares the direct-library clean non-generic `Type Info` TSV with a neighboring rich-renderer fallback and requires byte-identical output through host input, metadata proof, `TypeSubject`, Presentation, and the CLI UTF-8 sink | Exact-build workflow |
+| Exact-Type one-shot cost | The same exact-build workflow measures the complete NativeAOT command through standard output and uses the exact-source NativeAOT allocation probe for public command construction, parsing, inspection, Presentation, and output; kernel-only measurements remain separately labeled | Exact-build workflow |
+| Browser/Wasm text publication | `docs/workflows/perf/browser-text-publication.md` measures one pinned Type-overview population through the production Worker, managed JSON serialization, Wasm interop, generated-facade `JSON.parse`, structured clone, and retained page-owned results; exact payload census is recorded without claiming browser heap bytes | Exact-build workflow |
+| Exact-Member CLI publication | `docs/workflows/perf/cli-member-publication.md` measures one pinned exact Member through subject resolution, Metadata declaration evidence, `MemberDocument`, final documentation composition, Markdown presentation, and standard output; exact output, latency, and warmed command allocation are recorded without claiming retained memory | Exact-build workflow |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Completed pilot |
-| Finding Diff Any product path | Exact base/head NativeAOT comparison on all pinned Finding Diff Any pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
+| Finding Diff Any product path | Base/head NativeAOT comparison on the six Finding Diff Any gate pairs with identity answers unchanged, read as the [Symbol Key gate row](symbol-key.md#evidence-and-gates) states: the aggregate diff experience weighted to the expensive common tasks, the surface pass bounded, retained memory at parity | Symbol Key implementation adoption |
 | Finding Diff Any direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
 
 Documentation-only design changes require Markdown validation, not product
@@ -769,7 +777,10 @@ exact-base/head gates run.
    pre-adoption path.
 6. **Shared Symbol Key and Finding Diff Any adoption.** Move Finding Diff
    Any's private Symbol Key onto the shared representation and remove the
-   duplicate storage owner only with exact base/head NativeAOT parity.
+   duplicate storage owner, with base/head NativeAOT read as the
+   [Symbol Key gate row](symbol-key.md#evidence-and-gates) states
+   (implemented as Symbol Key step 5,
+   [#10476](https://github.com/richlander/dotnet-inspect/issues/10476)).
 7. **API qualified anchor adoption.** Carry byte-backed names through
    declaration, signature, and resolver boundaries under
    [#9907](https://github.com/richlander/dotnet-inspect/issues/9907).
@@ -779,11 +790,15 @@ exact-base/head gates run.
    those views and write contained UTF-8 directly at byte-capable sinks.
 10. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
    projections in the product paths tracked by their owning issues.
-11. **Host publication scenarios.** Track exact-build CLI byte publication in
-   [#10468](https://github.com/richlander/dotnet-inspect/issues/10468) and
-   published-runtime Browser/Wasm text publication in
+11. **Host publication scenarios.** Validate exact-build CLI byte publication
+   with
+   [`cli-byte-publication.md`](../workflows/perf/cli-byte-publication.md) under
+   [#10468](https://github.com/richlander/dotnet-inspect/issues/10468), then
+   track published-runtime Browser/Wasm text publication in
    [#10469](https://github.com/richlander/dotnet-inspect/issues/10469) before
-   broader representation migration.
+   broader representation migration. Extend that evidence with the pinned
+   exact-Member CLI publication path under
+   [#10511](https://github.com/richlander/dotnet-inspect/issues/10511).
 
 Each adoption is independently reviewable and keeps its domain semantics with
 its owner. This design does not authorize a multi-owner implementation PR.

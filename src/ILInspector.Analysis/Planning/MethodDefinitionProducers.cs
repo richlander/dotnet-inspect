@@ -855,13 +855,12 @@ public readonly ref struct MethodDefinitionView
     }
 
     /// <summary>
-    /// Applies exact optimization suppression through receipted
-    /// method-analysis support.
+    /// Begins a receipted generated-code evidence query. The consuming
+    /// producer owns which facts it reads and any policy over them.
     /// </summary>
-    internal bool SuppressOptimizationOpportunities(
-        MethodIdentity method)
+    internal MethodGeneratedCodeEvidenceQuery
+        BeginGeneratedCodeEvidence()
     {
-        ArgumentNullException.ThrowIfNull(method);
         MethodDefinitionExecution.ProducerState producer = Producer;
         if (!producer.HasMethodAnalysisLayer)
         {
@@ -874,7 +873,7 @@ public readonly ref struct MethodDefinitionView
             ref producer.LastMethodAnalysisUnit,
             Token,
             ref producer.MethodAnalysisUses);
-        return _unit.SuppressOptimizationOpportunities(method);
+        return _unit.BeginGeneratedCodeEvidence();
     }
 
     /// <summary>
@@ -1288,7 +1287,7 @@ internal struct MethodAnalysisQuery : IDisposable
     readonly MethodDefinitionSourceCoverageBuilder? _requestCoverage;
     readonly MethodDefinitionHandle _method;
     readonly MethodAnalysisLookup _lookup;
-    readonly MethodAnalysisSupportWork _before;
+    readonly MethodAnalysisResolverWork _before;
     bool _disposed;
 
     internal MethodAnalysisQuery(
@@ -1296,7 +1295,7 @@ internal struct MethodAnalysisQuery : IDisposable
         MethodDefinitionSourceCoverageBuilder? requestCoverage,
         MethodDefinitionHandle method,
         MethodAnalysisLookup lookup,
-        MethodAnalysisSupportWork before,
+        MethodAnalysisResolverWork before,
         ILibraryMethodAnalysisResolver resolver)
     {
         _physicalCoverage = physicalCoverage;
@@ -1314,16 +1313,81 @@ internal struct MethodAnalysisQuery : IDisposable
         if (_disposed)
             return;
 
-        MethodAnalysisSupportWork work =
-            _lookup.RecordedWork.Since(_before);
-        _physicalCoverage.RecordMethodAnalysisQuery(
+        MethodAnalysisResolverWork work =
+            _lookup.ResolverWork.Since(_before);
+        _physicalCoverage.RecordMethodAnalysisResolverQuery(
             _method,
             work);
         if (!ReferenceEquals(
                 _requestCoverage,
                 _physicalCoverage))
         {
-            _requestCoverage?.RecordMethodAnalysisQuery(
+            _requestCoverage?.RecordMethodAnalysisResolverQuery(
+                _method,
+                work);
+        }
+        _disposed = true;
+    }
+}
+
+/// <summary>
+/// One scoped generated-code evidence query. The consumer controls which raw
+/// facts are acquired; disposal records exactly the source work performed.
+/// </summary>
+internal struct MethodGeneratedCodeEvidenceQuery : IDisposable
+{
+    readonly MethodDefinitionSourceCoverageBuilder _physicalCoverage;
+    readonly MethodDefinitionSourceCoverageBuilder? _requestCoverage;
+    readonly MethodDefinitionHandle _method;
+    readonly MethodDefinition _methodDefinition;
+    readonly TypeDefinitionHandle _type;
+    readonly MethodAnalysisLookup _lookup;
+    readonly MethodGeneratedCodeEvidenceWork _before;
+    bool _disposed;
+
+    internal MethodGeneratedCodeEvidenceQuery(
+        MethodDefinitionSourceCoverageBuilder physicalCoverage,
+        MethodDefinitionSourceCoverageBuilder? requestCoverage,
+        MethodDefinitionHandle method,
+        MethodDefinition methodDefinition,
+        TypeDefinitionHandle type,
+        MethodAnalysisLookup lookup,
+        MethodGeneratedCodeEvidenceWork before)
+    {
+        _physicalCoverage = physicalCoverage;
+        _requestCoverage = requestCoverage;
+        _method = method;
+        _methodDefinition = methodDefinition;
+        _type = type;
+        _lookup = lookup;
+        _before = before;
+    }
+
+    internal bool MethodHasGeneratedCodeAttribute() =>
+        _lookup.MethodHasGeneratedCodeAttribute(_methodDefinition);
+
+    internal bool MethodHasCompilerGeneratedAttribute() =>
+        _lookup.MethodHasCompilerGeneratedAttribute(_methodDefinition);
+
+    internal DeclaringTypeGeneratedCodeEvidence
+        ReadDeclaringTypeEvidence() =>
+        _lookup.ReadDeclaringTypeGeneratedCodeEvidence(_type);
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        MethodGeneratedCodeEvidenceWork work =
+            _lookup.GeneratedCodeEvidenceWork.Since(_before);
+        _physicalCoverage.RecordGeneratedCodeEvidenceQuery(
+            _method,
+            work);
+        if (!ReferenceEquals(
+                _requestCoverage,
+                _physicalCoverage))
+        {
+            _requestCoverage?.RecordGeneratedCodeEvidenceQuery(
                 _method,
                 work);
         }
@@ -1933,8 +1997,9 @@ internal struct MethodDefinitionUnit(
         MethodInstructions instructions)
     {
         MethodAnalysisLookup lookup =
-            BeginMethodAnalysisSupportQuery(
-                out MethodAnalysisSupportWork before);
+            AcquireMethodAnalysisSupport();
+        MethodAnalysisResolverWork before =
+            lookup.ResolverWork;
         ILibraryMethodAnalysisResolver resolver =
             lookup.CreateResolver(
                 TypeDefinition,
@@ -1954,8 +2019,9 @@ internal struct MethodDefinitionUnit(
         MethodIdentity method)
     {
         MethodAnalysisLookup lookup =
-            BeginMethodAnalysisSupportQuery(
-                out MethodAnalysisSupportWork before);
+            AcquireMethodAnalysisSupport();
+        ExactDeclaredSourceWork before =
+            lookup.DeclaredSourceWork;
         try
         {
             return lookup.ResolveDeclaredSource(
@@ -1965,31 +2031,42 @@ internal struct MethodDefinitionUnit(
         }
         finally
         {
-            EndMethodAnalysisSupportQuery(lookup, before);
+            ExactDeclaredSourceWork work =
+                lookup.DeclaredSourceWork.Since(before);
+            _physicalSourceCoverage
+                .RecordExactDeclaredSourceQuery(
+                    MethodHandle,
+                    work);
+            if (!ReferenceEquals(
+                    _requestSourceCoverage,
+                    _physicalSourceCoverage))
+            {
+                _requestSourceCoverage
+                    ?.RecordExactDeclaredSourceQuery(
+                        MethodHandle,
+                        work);
+            }
         }
     }
 
-    public bool SuppressOptimizationOpportunities(
-        MethodIdentity method)
+    public MethodGeneratedCodeEvidenceQuery
+        BeginGeneratedCodeEvidence()
     {
         MethodAnalysisLookup lookup =
-            BeginMethodAnalysisSupportQuery(
-                out MethodAnalysisSupportWork before);
-        try
-        {
-            return lookup.SuppressOptimizationOpportunities(
-                MethodDefinition,
-                TypeHandle,
-                method);
-        }
-        finally
-        {
-            EndMethodAnalysisSupportQuery(lookup, before);
-        }
+            AcquireMethodAnalysisSupport();
+        MethodGeneratedCodeEvidenceWork before =
+            lookup.GeneratedCodeEvidenceWork;
+        return new(
+            _physicalSourceCoverage,
+            _requestSourceCoverage,
+            MethodHandle,
+            MethodDefinition,
+            TypeHandle,
+            lookup,
+            before);
     }
 
-    MethodAnalysisLookup BeginMethodAnalysisSupportQuery(
-        out MethodAnalysisSupportWork before)
+    MethodAnalysisLookup AcquireMethodAnalysisSupport()
     {
         MethodAnalysisSupport support =
             _methodAnalysis ?? throw new InvalidOperationException(
@@ -2008,30 +2085,7 @@ internal struct MethodDefinitionUnit(
                     ?.RecordMethodAnalysisConstruction();
             }
         }
-
-        before = lookup.RecordedWork;
         return lookup;
-    }
-
-    readonly void EndMethodAnalysisSupportQuery(
-        MethodAnalysisLookup lookup,
-        MethodAnalysisSupportWork before)
-    {
-        MethodAnalysisSupportWork work =
-            lookup.RecordedWork.Since(before);
-        _physicalSourceCoverage
-            .RecordMethodAnalysisQuery(
-                MethodHandle,
-                work);
-        if (!ReferenceEquals(
-                _requestSourceCoverage,
-                _physicalSourceCoverage))
-        {
-            _requestSourceCoverage
-                ?.RecordMethodAnalysisQuery(
-                    MethodHandle,
-                    work);
-        }
     }
 
     /// <summary>

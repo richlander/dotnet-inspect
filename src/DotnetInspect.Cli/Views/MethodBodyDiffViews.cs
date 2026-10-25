@@ -70,13 +70,19 @@ public sealed record MethodBodyEndpointDocument(
     public ResearchTargetAttempt? Attempt { get; init; }
 }
 
+/// <param name="ComparisonFailure">
+/// Why the comparison refused two non-failed inspections, such as a pair
+/// beyond the ordered matcher's bound; null when an inspection failure is the
+/// reason, which the endpoints carry.
+/// </param>
 public sealed record MethodBodyFindingsDocument(
     string Outcome,
     bool? IsExact,
     FindingInspectionTransition? Transition,
     FindingMatch? Match,
     int? PairCount,
-    string? Failure);
+    string? Failure,
+    string? ComparisonFailure = null);
 
 // Owner-defined absent arrays serialize as empty; the original payloads remain on the producer.
 public sealed record MethodBodyCSharpEvidence(

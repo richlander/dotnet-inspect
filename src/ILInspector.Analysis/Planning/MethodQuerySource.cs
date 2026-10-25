@@ -1760,12 +1760,25 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     int _semanticIdentitiesDecoded;
     int _semanticIdentitiesBounded;
     int _semanticIdentitiesMalformed;
-    readonly MethodDefinitionHandleCoverageBuilder _methodAnalysisMethods =
+    readonly MethodDefinitionHandleCoverageBuilder
+        _methodAnalysisResolverMethods =
         new();
     bool _methodAnalysisConstructed;
-    MethodAnalysisSupportWork _methodAnalysisWork =
-        MethodAnalysisSupportWork.Empty;
-    int _methodAnalysisQueries;
+    MethodAnalysisResolverWork _methodAnalysisResolverWork =
+        MethodAnalysisResolverWork.Empty;
+    int _methodAnalysisResolverQueries;
+    readonly MethodDefinitionHandleCoverageBuilder
+        _exactDeclaredSourceMethods =
+            new();
+    ExactDeclaredSourceWork _exactDeclaredSourceWork =
+        ExactDeclaredSourceWork.Empty;
+    int _exactDeclaredSourceQueries;
+    readonly MethodDefinitionHandleCoverageBuilder
+        _generatedCodeEvidenceMethods =
+            new();
+    MethodGeneratedCodeEvidenceWork _generatedCodeEvidenceWork =
+        MethodGeneratedCodeEvidenceWork.Empty;
+    int _generatedCodeEvidenceQueries;
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
     int _noRetentionSourcesOpened;
@@ -1986,18 +1999,49 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _methodAnalysisConstructed = true;
     }
 
-    public void RecordMethodAnalysisQuery(
+    public void RecordMethodAnalysisResolverQuery(
         MethodDefinitionHandle handle,
-        MethodAnalysisSupportWork work)
+        MethodAnalysisResolverWork work)
     {
         ArgumentNullException.ThrowIfNull(work);
         if (!_enabled)
             return;
 
-        _methodAnalysisMethods.Add(handle);
-        _methodAnalysisWork = _methodAnalysisWork.Plus(work);
-        _methodAnalysisQueries =
-            checked(_methodAnalysisQueries + 1);
+        _methodAnalysisResolverMethods.Add(handle);
+        _methodAnalysisResolverWork =
+            _methodAnalysisResolverWork.Plus(work);
+        _methodAnalysisResolverQueries =
+            checked(_methodAnalysisResolverQueries + 1);
+    }
+
+    public void RecordExactDeclaredSourceQuery(
+        MethodDefinitionHandle handle,
+        ExactDeclaredSourceWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _exactDeclaredSourceMethods.Add(handle);
+        _exactDeclaredSourceWork =
+            _exactDeclaredSourceWork.Plus(work);
+        _exactDeclaredSourceQueries =
+            checked(_exactDeclaredSourceQueries + 1);
+    }
+
+    public void RecordGeneratedCodeEvidenceQuery(
+        MethodDefinitionHandle handle,
+        MethodGeneratedCodeEvidenceWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _generatedCodeEvidenceMethods.Add(handle);
+        _generatedCodeEvidenceWork =
+            _generatedCodeEvidenceWork.Plus(work);
+        _generatedCodeEvidenceQueries =
+            checked(_generatedCodeEvidenceQueries + 1);
     }
 
     public void RecordGeneratedExpansion(
@@ -2086,12 +2130,23 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
                     : MethodSemanticIdentityCoverage.Empty,
             MethodAnalysis =
                 _methodAnalysisConstructed
-                || _methodAnalysisQueries != 0
+                || _methodAnalysisResolverQueries != 0
+                || _exactDeclaredSourceQueries != 0
+                || _generatedCodeEvidenceQueries != 0
                     ? new(
                         _methodAnalysisConstructed,
-                        _methodAnalysisWork,
-                        _methodAnalysisQueries,
-                        _methodAnalysisMethods.Build())
+                        new(
+                            _methodAnalysisResolverWork,
+                            _methodAnalysisResolverQueries,
+                            _methodAnalysisResolverMethods.Build()),
+                        new(
+                            _exactDeclaredSourceWork,
+                            _exactDeclaredSourceQueries,
+                            _exactDeclaredSourceMethods.Build()),
+                        new(
+                            _generatedCodeEvidenceWork,
+                            _generatedCodeEvidenceQueries,
+                            _generatedCodeEvidenceMethods.Build()))
                     : MethodAnalysisSupportCoverage.Empty,
             PublicMethodRoots =
                 _publicRootsConstructed || _publicRootReads != 0

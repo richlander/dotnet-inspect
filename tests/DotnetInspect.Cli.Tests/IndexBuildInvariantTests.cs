@@ -267,6 +267,76 @@ public class IndexBuildInvariantTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task DiffCommand_ExactAllocation_DoesNotOpenLegacyAnalysisSession()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+        string before = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string after = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{before}..{after}",
+                Analysis = ["allocation"],
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = ["RegressesAllocInLoop"],
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            "| PairFinding.Added | analysis.allocation |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(0, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task DiffCommand_BodylessExactAllocation_FallsBackToLegacyAnalysis()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+        string assembly =
+            FixtureCatalog.AnalysisMethodCorrespondenceSurface.AssemblyPath();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{assembly}..{assembly}",
+                Analysis = ["allocation"],
+                TypeFilter = ["MethodCorrespondenceFixture.Bodyless"],
+                MemberFilter = ["Run"],
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(2, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task DiffCommand_MixedBodyAnalysis_RetainsSharedLegacySession()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+        string before = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string after = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{before}..{after}",
+                Analysis = ["allocation", "call-site"],
+                TypeFilter = ["DiffFixtureSample.DiffSample"],
+                MemberFilter = ["RegressesAllocInLoop"],
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(2, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
     public void PdbContext_RequiresPrefetchForSharedParallelBodyAnalysis()
     {
         using var lazy =

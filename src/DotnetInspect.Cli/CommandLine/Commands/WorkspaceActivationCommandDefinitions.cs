@@ -43,8 +43,8 @@ internal static class WorkspaceActivationCommandDefinitions
             if ((explicitPacket is null) == (rawPacket is null))
                 result.AddError("Packet activation requires exactly one packet, via -w PACKET or raw packet input.");
         });
-        bool PackageLibraries(System.CommandLine.ParseResult result) =>
-            WorkspacePacketActivation.UsesPackageLibrariesOutput(
+        bool RenderedLines(System.CommandLine.ParseResult result) =>
+            WorkspacePacketActivation.UsesRenderedLineOutput(
                 result.GetValue(packetOption) ?? result.GetValue(packet));
 
         command.SetAction(async (result, cancellationToken) =>
@@ -62,9 +62,10 @@ internal static class WorkspaceActivationCommandDefinitions
                     Packet = result.GetValue(packetOption) ?? result.GetValue(packet),
                     Inventory = true,
                     Format = opts.ResolveFormat(result),
+                    MarkdownExplicitlySet = result.GetResult(opts.Markdown) is { Implicit: false },
                     Count = result.GetValue(opts.Count),
-                    RowSelection = PackageLibraries(result) ? null : rows,
-                    Rows = PackageLibraries(result) ? opts.ParseRows(result) : null,
+                    RowSelection = RenderedLines(result) ? null : rows,
+                    Rows = RenderedLines(result) ? opts.ParseRows(result) : null,
                     NoHeader = result.GetValue(opts.NoHeaders),
                     Verbose = result.GetValue(opts.Verbose),
                 }, cancellationToken);
@@ -74,7 +75,7 @@ internal static class WorkspaceActivationCommandDefinitions
                 opts.Head, opts.Tail, opts.Lines, opts.TailLines),
             CliRowSelectionCapabilities.HeadTail | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
-            isActive: result => !PackageLibraries(result),
+            isActive: result => !RenderedLines(result),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result), lowering));
@@ -83,7 +84,7 @@ internal static class WorkspaceActivationCommandDefinitions
                 opts.Head, opts.Tail, opts.Lines, opts.TailLines),
             CliRowSelectionCapabilities.HeadTail | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
-            isActive: PackageLibraries,
+            isActive: RenderedLines,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result), lowering),

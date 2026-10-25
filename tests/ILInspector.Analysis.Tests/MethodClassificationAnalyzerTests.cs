@@ -536,6 +536,10 @@ public sealed class MethodClassificationAnalyzerTests
         MemberReferenceHandle obsolete = builder.AttributeConstructor(
             builder.TypeRef("System", "ObsoleteAttribute"),
             static t => t.String());
+        MemberReferenceHandle obsoleteError = builder.AttributeConstructor(
+            builder.TypeRef("System", "ObsoleteAttribute"),
+            static t => t.String(),
+            static t => t.Boolean());
         MemberReferenceHandle compilerFeatureRequired = builder.AttributeConstructor(
             builder.TypeRef("System.Runtime.CompilerServices", "CompilerFeatureRequiredAttribute"),
             static t => t.String());
@@ -552,9 +556,9 @@ public sealed class MethodClassificationAnalyzerTests
             .Method("Deprecated", PointerParameter(), PublicStatic, attributeConstructors: extension)
             .MethodAttribute(obsolete, GateFixtureImage.AttributeValue("Use Visible."))
             .Method("CompilerCompatibility", PointerParameter(), PublicStatic, attributeConstructors: extension)
-            .MethodAttribute(obsolete, GateFixtureImage.AttributeValue(
-                "Types with embedded references are not supported in this version of your compiler."))
-            .MethodAttribute(compilerFeatureRequired, GateFixtureImage.AttributeValue("RefStructs"))
+            .MethodAttribute(obsoleteError, ObsoleteErrorValue(
+                "Constructors of types with required members are not supported in this version of your compiler."))
+            .MethodAttribute(compilerFeatureRequired, GateFixtureImage.AttributeValue("RequiredMembers"))
             .Method("CompilerCompatibilityWithDiagnosticId", PointerParameter(), PublicStatic, attributeConstructors: extension)
             .MethodAttribute(obsolete, ObsoleteWithDiagnosticId(
                 "Types with embedded references are not supported in this version of your compiler.",
@@ -564,7 +568,7 @@ public sealed class MethodClassificationAnalyzerTests
         for (int marker = 0; marker < 2048; marker++)
         {
             builder.Types[^1]
-                .MethodAttribute(obsolete, GateFixtureImage.AttributeValue(
+                .MethodAttribute(obsoleteError, ObsoleteErrorValue(
                     "Constructors of types with required members are not supported in this version of your compiler."))
                 .MethodAttribute(compilerFeatureRequired, GateFixtureImage.AttributeValue("RequiredMembers"));
         }
@@ -593,6 +597,84 @@ public sealed class MethodClassificationAnalyzerTests
             rows.Select(static row => row.MethodName.ToString()));
         Assert.All(rows, static row => Assert.Equal(MethodClassification.Extension, row.Classification));
         Assert.Equal(4, LegacyExtensionMethodCount(image));
+    }
+
+    [Fact]
+    public void ExtensionAnalyzer_TypeHiddenMatchesLegacyForTheRefStructMarker()
+    {
+        // Roslyn stamps a ref struct with [IsByRefLike] and
+        // [Obsolete(<marker>, true)], adding [CompilerFeatureRequired("RefStructs")]
+        // only where that attribute exists. The marker without the guard is
+        // not hiding; an Obsolete differing in error flag, constructor,
+        // message, or declaration kind is. The gate and legacy agree.
+        const string marker = "Types with embedded references are not supported in this version of your compiler.";
+        GateFixtureImage builder = new();
+        MemberReferenceHandle extension = builder.AttributeConstructor(builder.TypeRef(
+            "System.Runtime.CompilerServices", "ExtensionAttribute"));
+        MemberReferenceHandle isByRefLike = builder.AttributeConstructor(builder.TypeRef(
+            "System.Runtime.CompilerServices", "IsByRefLikeAttribute"));
+        MemberReferenceHandle obsolete = builder.AttributeConstructor(
+            builder.TypeRef("System", "ObsoleteAttribute"),
+            static t => t.String());
+        MemberReferenceHandle obsoleteError = builder.AttributeConstructor(
+            builder.TypeRef("System", "ObsoleteAttribute"),
+            static t => t.String(),
+            static t => t.Boolean());
+        builder.Type("N", "Marker")
+            .Attributes(extension, isByRefLike)
+            .Attribute(obsoleteError, ObsoleteErrorValue(marker))
+            .Method("Kept", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        builder.Type("N", "NotByRefLike")
+            .Attributes(extension)
+            .Attribute(obsoleteError, ObsoleteErrorValue(marker))
+            .Method("NotByRefLikeMethod", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        builder.Type("N", "NotError")
+            .Attributes(extension, isByRefLike)
+            .Attribute(obsoleteError, ObsoleteErrorValue(marker, error: false))
+            .Method("NotErrorMethod", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        builder.Type("N", "OneArgument")
+            .Attributes(extension, isByRefLike)
+            .Attribute(obsolete, OneArgumentWithNamedBoolean(marker))
+            .Method("OneArgumentMethod", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        builder.Type("N", "UserMessage")
+            .Attributes(extension, isByRefLike)
+            .Attribute(obsoleteError, ObsoleteErrorValue("Use something else."))
+            .Method("UserMessageMethod", PointerParameter(), PublicStatic, attributeConstructors: extension);
+        ImmutableArray<byte> image = builder.Build();
+
+        ImmutableArray<ClassifiedMethodRow> rows = Rows(image, ExtensionMethodClassificationProducer.Instance);
+
+        Assert.Equal(["Kept"], rows.Select(static row => row.MethodName.ToString()));
+        Assert.Equal(1, LegacyExtensionMethodCount(image));
+    }
+
+    /// <summary>An <c>[Obsolete(message, error)]</c> value.</summary>
+    static BlobBuilder ObsoleteErrorValue(string message, bool error = true)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteSerializedString(message);
+        blob.WriteBoolean(error);
+        blob.WriteUInt16(0);
+        return blob;
+    }
+
+    /// <summary>
+    /// An <c>[Obsolete(message)]</c> value with one short named boolean, whose
+    /// named-argument count's first byte reads as <c>true</c> where an error
+    /// flag would be.
+    /// </summary>
+    static BlobBuilder OneArgumentWithNamedBoolean(string message)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteSerializedString(message);
+        blob.WriteUInt16(1);
+        blob.WriteByte(0x54); // PROPERTY
+        blob.WriteByte(0x02); // ELEMENT_TYPE_BOOLEAN
+        blob.WriteSerializedString("E");
+        blob.WriteBoolean(true);
+        return blob;
     }
 
     /// <summary>An <c>[Obsolete(message, DiagnosticId = id)]</c> value: one fixed string and one named property.</summary>

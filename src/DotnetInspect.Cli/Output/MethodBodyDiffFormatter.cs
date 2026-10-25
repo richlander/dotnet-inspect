@@ -108,6 +108,11 @@ public static class MethodBodyDiffFormatter
                 if (endpoint.Error is { } error)
                     diagnostics.Add(DiagnosticRow(
                         name, endpoint.Side.ToString(), error.Descriptor.Id, error.Reason));
+            // A comparison that refused two non-failed inspections names its
+            // reason here, as the endpoints name theirs, so the view is never
+            // a bare Failed.
+            if (producer.Findings?.ComparisonFailure is { } refused)
+                diagnostics.Add(DiagnosticRow(name, side: null, "comparison", refused));
 
             if (producer.NativeCSharp is { } csharp)
             {
@@ -181,7 +186,7 @@ public static class MethodBodyDiffFormatter
                 before = Inspection(before, csharp.Findings.OldInspection) with { CSharpSubject = csharp.Old };
                 after = Inspection(after, csharp.Findings.NewInspection) with { CSharpSubject = csharp.New };
                 document = new(work.Item.Producer, basis, "ProducedCSharp",
-                    csharp.BodyDiff is { } body ? body.IsExact ? "Exact" : "NotExact" : MissingBodyVerdict(before, after),
+                    csharp.BodyDiff is { } body ? body.IsExact ? "Exact" : "NotExact" : MissingBodyVerdict(csharp.Findings),
                     before, after)
                 {
                     Findings = Findings(csharp.Findings),
@@ -195,7 +200,7 @@ public static class MethodBodyDiffFormatter
                 before = Inspection(before, il.Findings.OldInspection) with { IlSubject = il.Old };
                 after = Inspection(after, il.Findings.NewInspection) with { IlSubject = il.New };
                 document = new(work.Item.Producer, basis, "ProducedIlBody",
-                    il.MemberDiff?.Diff.Outcome.ToString() ?? MissingBodyVerdict(before, after),
+                    il.MemberDiff?.Diff.Outcome.ToString() ?? MissingBodyVerdict(il.Findings),
                     before, after)
                 {
                     Findings = Findings(il.Findings),
@@ -280,14 +285,15 @@ public static class MethodBodyDiffFormatter
             FindingComparison<T>.Complete complete => new(
                 "Complete", complete.IsExact, complete.Transition, complete.Match, complete.Pairs.Length, null),
             FindingComparison<T>.Failed failed => new(
-                "Failed", null, null, null, null, failed.Failure),
+                "Failed", null, null, null, null, failed.Failure, failed.ComparisonFailure),
             _ => throw new ArgumentOutOfRangeException(nameof(comparison)),
         };
 
-    static string MissingBodyVerdict(MethodBodyEndpointDocument before, MethodBodyEndpointDocument after)
-        => before.State == MethodBodyEndpointState.Failed || after.State == MethodBodyEndpointState.Failed
-            ? "Unavailable"
-            : "NotApplicable";
+    // Without native evidence, a failed Findings comparison, for an inspection
+    // failure or for a comparison that refused to run (a pair beyond the ordered
+    // matcher's bound), is Unavailable; the Findings document carries its reason.
+    static string MissingBodyVerdict<T>(FindingComparison<T> findings) where T : notnull
+        => findings is FindingComparison<T>.Failed ? "Unavailable" : "NotApplicable";
 
     static ImmutableArray<MethodBodyCleanupDocument> BuildCleanup(
         ImmutableArray<ResearchProducerCleanupOutcome> cleanup)

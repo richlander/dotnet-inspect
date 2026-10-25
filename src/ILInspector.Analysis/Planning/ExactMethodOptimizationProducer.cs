@@ -56,6 +56,12 @@ public sealed class ExactMethodAllocationBody
 }
 
 /// <summary>
+/// Detached exact-method allocation rows.
+/// </summary>
+public sealed record ExactMethodAllocationProducerResult(
+    ImmutableArray<ExactMethodAllocationBody> Bodies);
+
+/// <summary>
 /// Exact allocation and intrinsic optimization evidence for one MethodDef.
 /// </summary>
 public sealed record ExactMethodOptimizationBody(
@@ -112,20 +118,17 @@ public sealed class ExactMethodAllocationProducer :
     MethodDefinitionProducer<
         ExactMethodAllocationBody,
         ImmutableArray<ExactMethodAllocationBody>.Builder,
-        ImmutableArray<ExactMethodAllocationBody>>
+        ExactMethodAllocationProducerResult>
 {
     ExactMethodAllocationProducer()
         : base(
-            "Exact Method Allocation",
+            "Exact Method Allocations",
             version: 1,
             tier: 0,
-            MethodDefinitionLayers.MethodAnalysis,
-            dependencies: static () =>
-            [
-                new(
-                    ExactMethodAnalysisProducer.Instance,
-                    ProducerDependencyKind.VisitNeedsVisit),
-            ])
+            MethodDefinitionLayers.SemanticIdentity
+                | MethodDefinitionLayers.MemorySafetyContracts
+                | MethodDefinitionLayers.LocalSignature
+                | MethodDefinitionLayers.MethodAnalysis)
     {
     }
 
@@ -134,36 +137,71 @@ public sealed class ExactMethodAllocationProducer :
     internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
         InstructionAnalyzers =>
         [
+            MethodBodyAnalyzerDeclarations.Allocations,
             MethodBodyAnalyzerDeclarations.BoundedFlow,
         ];
 
     internal override ExactMethodAllocationBody Visit(
         scoped MethodDefinitionView view)
     {
-        ExactMethodAnalysisBody analysis =
-            view.FactOf(ExactMethodAnalysisProducer.Instance);
-        int token = analysis.MethodToken;
+        int token = view.Token;
         var diagnostics =
             ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
-        if (analysis.Method is not { } method
-            || !analysis.HasManagedBody
-            || analysis.Context is not { } context)
+        MethodSemanticIdentityResult semanticIdentity =
+            view.SemanticIdentity;
+        if (semanticIdentity is MethodSemanticIdentityResult.Malformed malformed)
         {
+            diagnostics.Add(
+                new(
+                    token,
+                    $"0x{token:x8}",
+                    malformed.Reason));
             return Empty(
                 token,
-                analysis.Method,
-                analysis.HasManagedBody,
+                null,
+                view.HasManagedBody,
                 diagnostics);
         }
 
+        MethodIdentity method =
+            ToMethodIdentity(
+                semanticIdentity,
+                CallerUnsafeModeFacts.FromContract(
+                    view.GetMemorySafetyMethodContract(
+                        MetadataTokens.MethodDefinitionHandle(token))
+                        .Contract));
+        if (!view.HasManagedBody)
+        {
+            return Empty(
+                token,
+                method,
+                hasManagedBody: false,
+                diagnostics);
+        }
+
+        MethodBodyAnalysisContext? context = null;
         MethodAllocationFacts? facts = null;
         try
         {
+            MethodBodyBlock body = view.GetBody();
+            MethodInstructions instructions =
+                view.MaterializeInstructions(out MethodBodyData bodyData);
+            MethodLocalSignature localSignature =
+                view.GetLocalSignature();
+            context =
+                MethodBodyAnalysisContext.Create(
+                    method,
+                    bodyData,
+                    instructions,
+                    localSignature.Types,
+                    localSignature.DeclaredCount,
+                    localSignature.IncompleteReason,
+                    body.LocalVariablesInitialized);
             facts = MethodAllocationFacts.Create(context);
             using MethodAnalysisQuery query =
                 view.BeginMethodAnalysis(
                     method,
-                    context.Instructions);
+                    instructions);
             facts.Collect(query.Resolver);
             if (facts.CollectionFailure is { } failure)
             {
@@ -221,10 +259,10 @@ public sealed class ExactMethodAllocationProducer :
         return accumulator;
     }
 
-    internal override ImmutableArray<ExactMethodAllocationBody> Complete(
+    internal override ExactMethodAllocationProducerResult Complete(
         ImmutableArray<ExactMethodAllocationBody>.Builder accumulator,
         MethodDefinitionCompletionView completion) =>
-        accumulator.ToImmutable();
+        new(accumulator.ToImmutable());
 
     static ExactMethodAllocationBody Empty(
         int token,
@@ -237,6 +275,19 @@ public sealed class ExactMethodAllocationProducer :
             hasManagedBody,
             [],
             diagnostics.ToImmutable());
+
+    static MethodIdentity ToMethodIdentity(
+        MethodSemanticIdentityResult semanticIdentity,
+        CallerUnsafeMode callerUnsafeMode) =>
+        semanticIdentity switch
+        {
+            MethodSemanticIdentityResult.Decoded decoded =>
+                decoded.Identity.ToMethodIdentity(callerUnsafeMode),
+            MethodSemanticIdentityResult.SignatureBoundExceeded exceeded =>
+                exceeded.Identity.ToMethodIdentity(callerUnsafeMode),
+            _ => throw new InvalidOperationException(
+                "Malformed semantic identity has no MethodIdentity."),
+        };
 }
 
 /// <summary>
@@ -280,7 +331,9 @@ public sealed class ExactMethodOptimizationProducer :
         {
             return new(allocation, []);
         }
-        if (view.SuppressOptimizationOpportunities(method))
+        using MethodGeneratedCodeEvidenceQuery generatedCode =
+            view.BeginGeneratedCodeEvidence();
+        if (SuppressesOpportunities(method, generatedCode))
         {
             return new(allocation, [])
             {
@@ -307,6 +360,25 @@ public sealed class ExactMethodOptimizationProducer :
             SuppressesDerivedOpportunities =
                 requiresDeclaredOwner,
         };
+    }
+
+    static bool SuppressesOpportunities(
+        MethodIdentity method,
+        MethodGeneratedCodeEvidenceQuery generatedCode)
+    {
+        if (generatedCode.MethodHasGeneratedCodeAttribute()
+            || !CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                method.Name)
+                && generatedCode.MethodHasCompilerGeneratedAttribute()
+            || LibraryMethodAnalysisRunner.IsBlazorRenderMethod(method))
+        {
+            return true;
+        }
+
+        DeclaringTypeGeneratedCodeEvidence declaringType =
+            generatedCode.ReadDeclaringTypeEvidence();
+        return declaringType.HasGeneratedCodeAttribute
+            || !declaringType.DeclaringTypeChainComplete;
     }
 
     internal override ImmutableArray<ExactMethodOptimizationBody>.Builder

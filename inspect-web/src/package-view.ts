@@ -1,5 +1,6 @@
 import type { PackageVersionState } from "./catalog-requests.ts";
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
+import type { BrowserPackageRuntimePopulationChoiceStatus } from "./facades/inspect-web-package.d.ts";
 
 // DOM bindings for package-level navigation surfaces. The application root owns
 // package, filter, graph, and inspection state transitions behind these callbacks.
@@ -57,6 +58,9 @@ export function packageNavigationVersions(activeVersion: string, entry: PackageV
 export interface PackageNavOptions {
   frameworks: readonly string[];
   activeFramework: string;
+  runtimeIdentifiers?: readonly string[];
+  activeRuntimeIdentifier?: string | null;
+  runtimePopulationStatus?: BrowserPackageRuntimePopulationChoiceStatus | null;
   versions: readonly string[];
   activeVersion: string;
   unlistedVersions?: readonly string[];
@@ -67,8 +71,15 @@ export interface PackageNavOptions {
 export function renderPackageNav(options: PackageNavOptions): string {
   const { versions, activeVersion, statusHtml = "", escapeHtml } = options;
   const unlisted = new Set(options.unlistedVersions?.map(version => version.toLowerCase()));
-  return `<aside id="content-navigation-pane" class="type-browser package-version-nav" aria-label="Frameworks &amp; versions">
+  const hasRuntimeChoice = options.runtimePopulationStatus !== undefined
+    && options.runtimePopulationStatus !== null;
+  return `<aside id="content-navigation-pane" class="type-browser package-version-nav" aria-label="${hasRuntimeChoice ? "Frameworks, RIDs &amp; versions" : "Frameworks &amp; versions"}">
     ${renderPackageFrameworks(options.frameworks, options.activeFramework, escapeHtml, renderContentNavigationCloseButton())}
+    ${renderPackageRuntimeIdentifiers(
+      options.runtimeIdentifiers ?? [],
+      options.activeRuntimeIdentifier ?? null,
+      options.runtimePopulationStatus ?? null,
+      escapeHtml)}
     <section class="package-navigation-controls" aria-label="Version filters">
       <div class="section-title"><h2>Versions</h2><span>${versions.length}</span></div>
       <label>Filter versions<input id="package-version-filter" type="search" placeholder="Find a version"></label>
@@ -83,6 +94,28 @@ export function renderPackageNav(options: PackageNavOptions): string {
       ${versions.map(version => `<button type="button" class="type-row ${version.toLowerCase() === activeVersion.toLowerCase() ? "selected" : ""}" data-package-version="${escapeHtml(version)}"${unlisted.has(version.toLowerCase()) ? ' data-package-unlisted="true"' : ""}${version.toLowerCase() === activeVersion.toLowerCase() ? ' aria-current="page"' : ""} title="Use ${escapeHtml(version)}"><span class="kind-icon">V</span><span class="type-name">${escapeHtml(version)}</span></button>`).join("")}
     </div>
   </aside>`;
+}
+
+export function renderPackageRuntimeIdentifiers(
+  runtimeIdentifiers: readonly string[],
+  activeRuntimeIdentifier: string | null,
+  status: BrowserPackageRuntimePopulationChoiceStatus | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (status === null) return "";
+  const detail = status === "Ambiguous"
+    ? "Select a runtime identifier to choose the implementation population."
+    : status === "NoMatch"
+      ? "No runtime identifier matches this package coordinate."
+      : status === "Refused"
+        ? "The retained runtime identifier is not valid for this package coordinate."
+        : status === "Failed"
+          ? "Runtime identifier selection is unavailable."
+          : "";
+  return `<section class="document-section package-runtime-identifiers"><div class="section-title"><h2>Runtime identifiers</h2><span>${runtimeIdentifiers.length}</span></div>
+    <div role="group" aria-label="Runtime identifiers" tabindex="-1" data-nav-scope="runtime-identifiers">${runtimeIdentifiers.map(runtimeIdentifier => `<button type="button" class="type-row ${runtimeIdentifier === activeRuntimeIdentifier ? "selected" : ""}" data-package-runtime="${escapeHtml(runtimeIdentifier)}"${runtimeIdentifier === activeRuntimeIdentifier ? ' aria-current="page"' : ""}><span class="kind-icon">R</span><span class="type-name">${escapeHtml(runtimeIdentifier)}</span></button>`).join("") || '<p class="empty-list">No runtime identifiers are available for this package coordinate.</p>'}</div>
+    ${detail ? `<p role="status">${escapeHtml(detail)}</p>` : ""}
+  </section>`;
 }
 
 export function renderPackageFrameworks(

@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.SourceSelection;
 using QuerySpace.Rows;
 using NuGetFetch;
@@ -237,7 +238,19 @@ public partial class PackageCommand
             version,
             extraction,
             options,
-            retainedToolSelection);
+            retainedToolSelection,
+            localPackageFile:
+                !isLocalFile
+                    ? null
+                    : !resolvedPayload
+                        ? packageArg
+                        // A local shell's payload is a sibling file when one
+                        // was found; otherwise it was acquired by coordinate.
+                        : LibraryCommand.TryFindLocalSiblingPackage(
+                            packageArg,
+                            PackageExtractor.ParsePackageReference(
+                                packageName).name,
+                            version));
         if (selected == null)
         {
             if (resolvedPayload)
@@ -1113,7 +1126,8 @@ public partial class PackageCommand
         string version,
         PackageExtractionResult extraction,
         InspectionOptions options,
-        PackageToolSliceSelection? retainedToolSelection)
+        PackageToolSliceSelection? retainedToolSelection,
+        string? localPackageFile = null)
     {
         var requestedLibrary = options.PackageLibrary;
         if (requestedLibrary == null)
@@ -1171,10 +1185,23 @@ public partial class PackageCommand
                     candidates.PopulationPath);
         }
         if (resolution.IsSelected)
+        {
+            if (options.ReportUnnamedLibrarySelection
+                && candidates.Paths.Count > 1)
+            {
+                WriteUnnamedLibrarySelection(
+                    options,
+                    localPackageFile,
+                    packageId,
+                    version,
+                    candidates.Paths.Count,
+                    listable: population.RuntimeIdentifier is null);
+            }
             return new PackageLibrarySelection(
                 resolution.Paths[0],
                 resolution.Tfm,
                 population.RuntimeIdentifier);
+        }
 
         ReportPackageLibraryResolutionFailure(
             extractPath,
@@ -2046,6 +2073,46 @@ public partial class PackageCommand
                 switchRows.Length != 0);
         }
 
+        if (section.Equals(
+                SectionNames.DependencyStructure,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var dependencyRows = new List<string[]>();
+            foreach (LibraryInspection inspection in inspections)
+            {
+                if (inspection.DependencyStructureQueryResult
+                    is not LibraryDependencyStructureQueryResult.Available
+                        available)
+                {
+                    CommandError.WriteWarning(
+                        $"Dependency Structure is unavailable for "
+                            + $"{inspection.FileName}.");
+                    continue;
+                }
+
+                InspectionEnvelope<LibraryDependencyStructureTable> table =
+                    LibraryDependencyStructureInspection.TableEnvelope(
+                        available);
+                LibraryDependencyStructureTableOutput.WriteDiagnostics(
+                    table.Diagnostics,
+                    inspection.FileName);
+                dependencyRows.AddRange(
+                    LibraryDependencyStructureTableOutput
+                        .Values(table.Content)
+                        .Select(values => WithProvenance(
+                            packageName,
+                            version,
+                            inspection,
+                            values)));
+            }
+
+            return new(
+                rowSchema.Headers,
+                rowSchema.StableHeaders,
+                [.. RowWindow.Apply(rowWindow, dependencyRows)],
+                dependencyRows.Count != 0);
+        }
+
         if (!section.Equals(
                 IntegrationSectionNames.Integrations,
                 StringComparison.OrdinalIgnoreCase))
@@ -2424,6 +2491,25 @@ public partial class PackageCommand
                     continue;
                 }
 
+                // Dependency Structure counts its Table rows, the selected
+                // namespace edges, never its Document summary lines.
+                if (section.Equals(
+                        SectionNames.DependencyStructure,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    if (inspection.DependencyStructureQueryResult
+                        is LibraryDependencyStructureQueryResult.Available
+                            dependencyStructure)
+                    {
+                        projection.RecordRows(
+                            SectionNames.DependencyStructure,
+                            dependencyStructure.Count
+                                ?? dependencyStructure.Rows
+                                    .NamespaceEdges.Length);
+                    }
+                    continue;
+                }
+
                 CountProjection library = CountProjectionFormatter.Capture(
                     new LibraryInspectionView(
                         inspection,
@@ -2590,6 +2676,63 @@ public partial class PackageCommand
     /// observed one.
     /// </remarks>
     private static string CodeCell(string value) => MarkoutInline.Code(value);
+
+    /// <summary>
+    /// Reports that an unnamed Library selection shows one of several
+    /// Libraries, naming the <c>package</c> gesture that lists the same
+    /// population: the selected coordinate plus every option that chose it.
+    /// </summary>
+    /// <param name="listable">
+    /// <c>false</c> for a RID-specific population, which no <c>package</c>
+    /// gesture lists, so the warning names no gesture.
+    /// </param>
+    static void WriteUnnamedLibrarySelection(
+        InspectionOptions options,
+        string? localPackageFile,
+        string packageId,
+        string version,
+        int libraryCount,
+        bool listable)
+    {
+        // A local file names the population only when its Libraries were
+        // counted; a tool shell's payload is named by its own coordinate.
+        string package =
+            localPackageFile
+                ?? (string.IsNullOrWhiteSpace(version)
+                    ? packageId
+                    : $"{packageId}@{version}");
+        string summary =
+            $"{package} has {libraryCount} libraries; one is shown.";
+        if (!listable)
+        {
+            CommandError.WriteWarning(summary);
+            return;
+        }
+
+        var gesture = new List<string> { "dotnet-inspect", "package", package };
+        if (!string.IsNullOrWhiteSpace(options.Tfm))
+            gesture.AddRange(["--tfm", options.Tfm]);
+        if (options.SourceOptions is { } sources)
+        {
+            foreach (string source in sources.Sources)
+                gesture.AddRange(["--source", source]);
+            foreach (string source in sources.AdditionalSources)
+                gesture.AddRange(["--add-source", source]);
+            if (!string.IsNullOrWhiteSpace(sources.ConfigFile))
+                gesture.AddRange(["--nugetconfig", sources.ConfigFile]);
+            if (!string.IsNullOrWhiteSpace(sources.ConfigDirectory))
+            {
+                gesture.AddRange(
+                    ["--nugetconfig-directory", sources.ConfigDirectory]);
+            }
+        }
+        CommandError.WriteWarning(
+            $"{summary} Use `{string.Join(' ', gesture.Select(QuoteArgument))}` "
+                + "to list them.");
+    }
+
+    static string QuoteArgument(string argument) =>
+        argument.Any(char.IsWhiteSpace) ? $"\"{argument}\"" : argument;
 
     private static void WritePackageLibraryCandidates(
         string extractPath,

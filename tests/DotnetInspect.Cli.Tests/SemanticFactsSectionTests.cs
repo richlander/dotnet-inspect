@@ -239,6 +239,7 @@ public class SemanticFactsSectionTests
                 [method.MetadataToken, method.MetadataToken]);
 
         Assert.Null(preparation.Input);
+        Assert.Null(preparation.AllocationInput);
         Assert.Null(preparation.Failure);
         ILOffsetSafetyAnalysisInput safety =
             Assert.IsType<ILOffsetSafetyAnalysisInput>(
@@ -258,7 +259,7 @@ public class SemanticFactsSectionTests
 
     [Fact]
     public void
-        ILAnalysisPreparation_AllocationRetainsLegacyAnalysis()
+        ILAnalysisPreparation_AllocationOnlyUsesExactMethodSource()
     {
         MethodInfo method =
             typeof(SemanticFactsFixture).GetMethod(
@@ -275,11 +276,69 @@ public class SemanticFactsSectionTests
             ILOffsetQuery.PrepareAnalysis(
                 source,
                 options,
-                [method.MetadataToken]);
+                [method.MetadataToken, method.MetadataToken]);
 
-        Assert.NotNull(preparation.Input);
+        Assert.Null(preparation.Input);
         Assert.Null(preparation.SafetyInput);
         Assert.Null(preparation.Failure);
+        ILOffsetAllocationAnalysisInput allocation =
+            Assert.IsType<ILOffsetAllocationAnalysisInput>(
+                preparation.AllocationInput);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.ExactMethods,
+            allocation.SourceReceipt.Breadth.Kind);
+        Assert.Single(allocation.SourceReceipt.Breadth.Methods);
+        Assert.Equal(
+            source.Context.GetPrefetchedImage().Length,
+            allocation.SourceReceipt.TerminalWorkLimits
+                .MaximumEncodedIlBytes);
+        Assert.Equal(1, allocation.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, allocation.SourceReceipt.BodiesAcquired);
+        Assert.Equal(0, allocation.SourceReceipt.ModuleLookups);
+        Assert.Single(allocation.WorkReceipt.Producers);
+    }
+
+    [Fact]
+    public void
+        ILAnalysisPreparation_CostAndMixedRequestsRetainLegacyAnalysis()
+    {
+        MethodInfo method =
+            typeof(SemanticFactsFixture).GetMethod(
+                nameof(SemanticFactsFixture.AllSignals))!;
+        using var source =
+            SourceLinkService.OpenPrefetched(TestAssemblyPath);
+        string[][] sectionSets =
+        [
+            [SectionNames.CostContext],
+            [
+                SectionNames.AllocationContext,
+                SectionNames.SafetyContext,
+            ],
+            [
+                SectionNames.AllocationContext,
+                SectionNames.CostContext,
+            ],
+        ];
+
+        foreach (string[] sections in sectionSets)
+        {
+            var options = new LibraryOptions
+            {
+                IncludeSections = [.. sections],
+                Select = [.. sections],
+            };
+
+            ILOffsetAnalysisPreparation preparation =
+                ILOffsetQuery.PrepareAnalysis(
+                    source,
+                    options,
+                    [method.MetadataToken]);
+
+            Assert.NotNull(preparation.Input);
+            Assert.Null(preparation.AllocationInput);
+            Assert.Null(preparation.SafetyInput);
+            Assert.Null(preparation.Failure);
+        }
     }
 
     [Fact]

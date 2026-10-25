@@ -11,6 +11,17 @@ areas: [routing, resolution, platform]
 > name overlaps with the .NET platform. An unversioned overlapping name such as
 > `System.Text.Json` defaults to **platform**. An explicit package version
 > selects NuGet, as does the `package` command.
+>
+> Platform overlap uses the first product-ordered Ecosystem that claims the
+> assembly name through the
+> [Ecosystem Dependency Recognition](../../design/ecosystem-dependency-recognition.md)
+> profile. The host-neutral Ecosystem result makes Platform search eligible
+> when that claimant belongs to the platform-curated ASP.NET Core lineage,
+> which includes .NET Runtime and Microsoft.Extensions. Other names, such as
+> `Microsoft.Azure.SignalR`, are ordinary NuGet candidates and do not start
+> Platform discovery. Association is only the routing candidate: an actual
+> Platform source is claimed only after installed or acquired Platform
+> resolution succeeds.
 
 ## Preconditions
 

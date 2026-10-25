@@ -2398,9 +2398,20 @@ is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
 #### Content-only package admission
 
+An acquire-only package payload may enter a content-only Root without Library
+selection. Admission preserves the acquired coordinate, producer, and exact
+content generation; it neither runs a selector nor fabricates an empty
+successful selection. Absence of selection remains distinct from every
+selector-issued outcome, including no compile assets and explicit empty
+groups. Content-only Roots cannot be upgraded to Library realization in place.
+Library inspection requires a separately realized binding.
+`PackageRootBinding.CreateForContentInspection()` accepts the acquired payload
+directly. The Root and its Scope descriptors retain absent selection rather
+than reporting a selector-issued status.
+
 Package inspection may admit an acquired Root for content-only use. This
 retains its exact coordinate, content generation, requested target, and complete
-selector-issued evidence without preparing Library participants. A missing
+selector-issued evidence, when present, without preparing Library participants. A missing
 compile target or invalid implementation selection does not prevent inspecting
 the package itself. Content-only admission does not turn that selection into
 an empty successful selection.
@@ -2413,11 +2424,35 @@ protocol applies; no new scheduling transition is introduced. Content-only
 Roots prepare no assembly images and expose no Library role groups. Ordinary
 admission still validates and prepares its selected Libraries.
 
+Changing only the admission purpose preserves the Root's already-computed
+unselected target-framework assembly-candidate fact without enumerating the
+same content again. This reuse applies to the unchanged content generation and
+selection; ordinary construction and changed selections still compute their
+own facts. The real `Newtonsoft.Json@13.0.4` and
+`Microsoft.NETCore.App.Ref@10.0.0` Package survey exposed this redundant walk.
+`ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence` gates its absence
+for both complete Library populations and packages containing reference plus
+implementation assemblies, preserving both false and true candidate facts.
+
 The current durable Root token represents Library realization and does not
 encode this additional admission purpose. A content-only binding therefore
 refuses to issue that token rather than silently changing purpose on reopening.
 This does not change a host's existing package-coordinate Share projection.
 Durable content-only Root reopening is outside this slice.
+
+The acquire-only motivating asset is nuget.org `System.Text.Json@10.0.0`,
+whose `System.Text.Json.nuspec` is 3,543 bytes alongside multiple Library
+frameworks and source-generator assets. Reading that exact file needs no
+Library selection. Its published archive was verified at
+`https://api.nuget.org/v3-flatcontainer/system.text.json/10.0.0/system.text.json.10.0.0.nupkg`.
+`AcquireOnlyPackageAdmission_QueriesContentWithoutSelectingLibraries` gates
+retained generation identity, readable package content, absent selection and
+Library participants, no selector-driven entry enumeration, and query rejection
+after retirement. `HouseAcquireOnlyContent_AdmitsWithoutCompileRealization`
+gates the native handoff from a House Acquire result. The CLI exact-file
+consumer and Browser content consumer adopt this substrate in separate slices
+under #6638; prerequisite #10591 does not change their routing or add evidence
+capture. Evidence remains independent of operational admission.
 
 The motivating asset is `Microsoft.NETCore.App.Ref@10.0.0`: inspecting package
 facts while requesting `net9.0` remains useful even though its compile assets
