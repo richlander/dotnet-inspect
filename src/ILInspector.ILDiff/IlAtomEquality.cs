@@ -29,6 +29,8 @@ public readonly struct IlAtomEquality : IFindingAtomEquality<CanonicalIlOperatio
                 if (newAtom.Operand?.Kind is not IlOperandIdentityKind.SwitchTargets)
                     return FindingAtomEquality.Unequal;
                 break;
+            case IlOperandIdentityKind.Token when IlAblation.NoTokenCompare:
+                break;
             default:
                 if (!Equals(oldAtom.Operand, newAtom.Operand))
                     return FindingAtomEquality.Unequal;

@@ -18,6 +18,9 @@ internal static class IlAblation
     /// <summary>Do not build per-atom target and target-index arrays.</summary>
     public static readonly bool NoTargets = Has("no-targets");
 
+    /// <summary>Resolve token operands but treat any two as equal, so their comparison is not paid.</summary>
+    public static readonly bool NoTokenCompare = Has("no-token-compare");
+
     static bool Has(string name)
     {
         foreach (string part in Env.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
