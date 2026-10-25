@@ -66,14 +66,16 @@ public sealed class MethodCallCountProducer
         ProducerTerminal terminal,
         int? rowLimit,
         ImmutableArray<int> dependencies,
-        UnitFactRetention retention) =>
+        UnitFactRetention retention,
+        bool retainResult) =>
         new FusedState(
             this,
             execution,
             terminal,
             rowLimit,
             dependencies,
-            retention);
+            retention,
+            retainResult);
 
     internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
         InstructionAnalyzers =>
@@ -195,14 +197,16 @@ public sealed class MethodCallCountProducer
             ProducerTerminal terminal,
             int? rowLimit,
             ImmutableArray<int> dependencies,
-            UnitFactRetention retention)
+            UnitFactRetention retention,
+            bool retainResult)
             : base(
                 producer,
                 execution,
                 terminal,
                 rowLimit,
                 dependencies,
-                retention)
+                retention,
+                retainResult)
         {
             _producer = producer;
         }

@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 
+using ILInspector.Analysis.Planning;
+
 namespace ILInspector.Analysis;
 
 /// <summary>
@@ -63,10 +65,90 @@ public sealed class LibraryCallGraphAnalysisResult
             && ownership.Limitations.IsEmpty;
     }
 
+    internal LibraryCallGraphAnalysisResult(
+        LibraryBodyAnalysisReceipt receipt,
+        string? moduleName,
+        LibraryCallGraphProducerResult analysis,
+        MethodDefinitionSourceReceipt sourceReceipt,
+        WorkReceipt producerReceipt)
+    {
+        Receipt = receipt;
+        _moduleName = moduleName;
+        DeclaredMethods = analysis.DeclaredMethods;
+        Methods = analysis.Methods;
+        DirectCalls = analysis.DirectCalls;
+        _unsafeEvidence = analysis.UnsafeEvidence;
+        _bodySignals = analysis.BodySignals;
+        _allocationOccurrences =
+            new Dictionary<
+                int,
+                ImmutableArray<AllocationOccurrence>>();
+        _inAssemblyTypeIsException =
+            analysis.InAssemblyTypeIsException;
+        _nonHeapNewObjOperandTokens =
+            analysis.NonHeapNewObjOperandTokens;
+        _declaredSources = analysis.DeclaredSources;
+        _declaredSourceSuppressedMethodTokens =
+            analysis.DeclaredSourceSuppressedMethodTokens;
+        ResourceOwnershipSummaries = [];
+        ResourceOwnershipPublicationComplete = false;
+        MethodSourceReceipt = sourceReceipt;
+        ProducerReceipt = producerReceipt;
+    }
+
+    /// <summary>
+    /// Publishes focused all-definition call evidence with its exact Method
+    /// source and producer receipts.
+    /// </summary>
+    public static LibraryCallGraphAnalysisResult FromProducer(
+        string sourceName,
+        LibraryCallGraphProducerResult analysis,
+        MethodDefinitionSourceReceipt sourceReceipt,
+        WorkReceipt producerReceipt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        ArgumentNullException.ThrowIfNull(analysis);
+        ArgumentNullException.ThrowIfNull(sourceReceipt);
+        ArgumentNullException.ThrowIfNull(producerReceipt);
+
+        MethodDefinitionSourceModuleIdentity module =
+            sourceReceipt.Module;
+        var receipt = new LibraryBodyAnalysisReceipt(
+            sourceName,
+            new LibraryBodyModuleIdentity(
+                module.AssemblyIdentity,
+                module.ModuleVersionId),
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            HasFullMethodEvidenceScope:
+                sourceReceipt.Breadth.Kind
+                    == MethodDefinitionSourceBreadthKind.AllDefinitions
+                && sourceReceipt.Completion
+                    == MethodDefinitionSourceCompletion.Exhausted,
+            analysis.Diagnostics);
+        return new(
+            receipt,
+            module.ModuleName,
+            analysis,
+            sourceReceipt,
+            producerReceipt);
+    }
+
     /// <summary>
     /// Common identity, coverage, and diagnostics for the producing execution.
     /// </summary>
     public LibraryBodyAnalysisReceipt Receipt { get; }
+
+    /// <summary>
+    /// Exact Method-source work when this result was produced through
+    /// Assembly Analysis Operation rather than Library Body Analysis.
+    /// </summary>
+    public MethodDefinitionSourceReceipt? MethodSourceReceipt { get; }
+
+    /// <summary>
+    /// Exact producer participation when this result was produced through
+    /// Assembly Analysis Operation rather than Library Body Analysis.
+    /// </summary>
+    public WorkReceipt? ProducerReceipt { get; }
 
     /// <summary>Whether method-evidence production participated.</summary>
     public bool WasRequested =>
