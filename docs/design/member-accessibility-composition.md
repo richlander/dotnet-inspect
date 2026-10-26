@@ -12,7 +12,7 @@ The operator approved this cross-owner scope.
 
 | Owner | Contract this map relies on |
 | --- | --- |
-| [API and implementation population scope](api-population-scope.md#accessibility-within-api-visibility-scope) | Accessibility as the arbiter; `EditorBrowsable(Never)` and `[Obsolete]` as independent attribute facts with opt-in `--skip` and `--only`; `--include` (legacy `--all`) and the `accessibility` term; [C# and metadata spelling](api-population-scope.md#spelling-within-api-visibility-scope) |
+| [API and implementation population scope](api-population-scope.md#accessibility-within-api-visibility-scope) | Accessibility as the arbiter; `EditorBrowsable(Never)` and `[Obsolete]` as independent attribute facts with one fixed term set in the `--only`, `--include` (legacy `--all`), and `--skip` slots; buckets by effective accessibility; [C# and metadata spelling](api-population-scope.md#spelling-within-api-visibility-scope) |
 | [Type and Member inspection documents](type-member-inspection-documents.md#typeoverviewdocument) | The compact Type Member rows and exact-Member Counts over which this map requires the `accessibility` projection and Composition Count |
 
 ## What the reader sees
