@@ -1175,7 +1175,9 @@ function workspacePackageModel(
 ): AppPackage {
   const packageModel = createNuGetPackageModelWithDefaultLibrary(
     surface,
-    inventory.defaultLibrary);
+    inventory.defaultLibrary,
+    inventory.implementationComparisonRuntimeIdentifier,
+    inventory.runtimeIdentifier);
   return {
     ...packageModel,
     source: { kind: isGallery ? "nuget.org" : "unknown" },

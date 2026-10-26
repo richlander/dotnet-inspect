@@ -166,8 +166,9 @@ owns that presentation and the obsolete marker.
   category, classification, and values.
 - The Public comparison reports the hidden and obsolete-Type cases as a
   removal or an addition and reports no status row.
-- `ApiDiffAnalyzerTests` classify every transition in the table above,
-  including a subject outside the API axis under include-all.
+- `ApiDiffAnalyzerTests` classify every transition in the table above through
+  the production comparer, `MetadataFindings.CompareApi`, including a subject
+  outside the API axis under include-all.
 - `LibraryApiDiffCommandTests` assert `--all` JSON status rows and totals.
 
 ## Non-claims

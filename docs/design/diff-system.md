@@ -120,17 +120,17 @@ over Exists on Finding Diff Any's axes, are not composed. Finding Diff Any is
 therefore one composition, not the solution.
 
 What is foundational is what every row of the table uses: the cursors and
-`FindingExists` of [Finding census](finding-census.md), which owns the
-reading of one row on one kind including when it is `Indeterminate`; the
-exhaustive comparison of each kind; and the vocabulary Finding Diff Any owns
-as contract rather than mechanism: the identity rule, which rows count toward
-which axis, and how a Type's rows and their undecided readings fold. Finding
-census step 4 makes Finding Diff Any the owner of Exists at Library, Type, and
-Member scope, which is the point at which it becomes a thin composition of
-those primitives. The walk is a provision of that owner, kept while it is
-measurably cheaper than lockstep over the cursors and deleted when lockstep
-matches it, under Finding census step 2b; it is justified by time alone,
-never by a second definition of change.
+`FindingExists` of [Finding census](finding-census.md), which owns the reading
+of one row on one kind including when it is `Indeterminate`; the exhaustive
+comparison of each kind; and the vocabulary Finding Diff Any owns as contract
+rather than mechanism: the identity rule, which rows count toward which axis,
+and how a Type's rows and their undecided readings fold. Since Finding census
+step 4, Finding Diff Any owns Exists at Library, Type, and Member scope, as a
+composition of those primitives. The walk is a provision of that owner, kept
+because Finding census step 2b measured it cheaper than lockstep over the
+cursors, and deleted only when lockstep matches or beats it on every number
+Finding census's Cost gate reports; it is justified by time alone, never by a
+second definition of change.
 
 Three consequences follow for what Finding Diff Any does not compose:
 
@@ -288,7 +288,7 @@ today, across about thirty payloads, while the other rungs serve narrow domains:
 covers History's six payloads, and exact-identity Correlate is API members only.
 The designed `ComparisonDocument<AnalysisDiff<TItem>>` and
 `ComparisonDocument<MappedTextDiff>` forms have no production instantiation.
-Finding Diff Any's `FindingDiffAnyState`, `ApiDiffAnalyzer`'s `ApiChange`, and
+Finding Diff Any's `FindingDiffAnyState`, `ApiFindingClassifier`'s `ApiChange`, and
 the IL and C# body rows have no `T` at all; they are the producers that the next
 table marks as off the ladder.
 
@@ -302,7 +302,7 @@ table marks as off the ladder.
 | **Text characterization** | `TextDiffCharacterization` (`TextRegion`, `TextChange`, `TextMove`) over an `AnalysisDiff<string>` | Lines, with whitespace-only and moved changes | Facts over an `AnalysisDiff<string>` | [Text whitespace](text-whitespace-characterization.md), [text moves](text-move-characterization.md) |
 | **Canonical IL comparison** | `IlBodyDiff` rows over `CanonicalIlOperation` | One method body | No: native rows; IL Findings take the ladder separately | [IL diff canonicalization](il-diff-canonicalization.md) |
 | **C# body comparison** | `CSharpBodyDiff` line rows; `CSharpStructuralComparison` node matches within one body | One method body | No: native rows; C# Findings take the ladder separately | [Implementation diff](implementation-diff.md#structural-body-comparison) |
-| **API surface comparison** | `ApiDiffAnalyzer` `ApiChange` with `ChangeKind` and `ChangeClassification` | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
+| **API surface comparison** | `ApiFindingClassifier` `ApiChange` with `ChangeKind` and `ChangeClassification`, from `ApiDiffAnalyzer`'s change facts over the API Finding correspondence | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
 | **Axis summary** | `FindingDiffAnyState` per Type and axis | Type, with Member and residual partitions designed | No: per-pair states | [Finding Diff Any](finding-diff-any.md#levels) |
 | **Subject composition** | `ComparisonSubjectChange`: Diff, Addition, Deletion, Rename, Move, RenameAndMove | A root or subject in a composed comparison | Composition, not a rung | [Comparison document](comparison-document.md#subject-changes) |
 
@@ -350,7 +350,7 @@ way for every producer.
 - **Moves inside IL and C# line diffs.** Only Findings, text and C# structure
   detect moves.
 - **Correlation for non-Finding producers.** Finding Diff Any,
-  `ApiDiffAnalyzer`, and the IL and C# body diffs return native rows rather than
+  `ApiFindingClassifier`, and the IL and C# body diffs return native rows rather than
   Findings, so their results cannot be correlated across versions; only their
   Finding projections can.
 - **One alignment kernel.** Three product LCS implementations exist:

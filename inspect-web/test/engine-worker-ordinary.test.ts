@@ -902,6 +902,8 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "package-subject",
+      runtimeIdentifier: "win-x64",
+      implementationComparisonRuntimeIdentifier: "osx-arm64",
       defaultLibrary: null,
       summary: {
         selectedCompileFramework: null,
@@ -1219,6 +1221,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     superseded: false,
     package: null,
     runtimeIdentifier: "",
+    implementationComparisonRuntimeIdentifier: null,
     future: { message: "preserved" },
   };
   let cleared = 0;
@@ -1615,6 +1618,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       diagnostics: [],
     },
     runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: "linux-x64",
     documents: surface.documents,
     surface,
     defaultLibraryId: surface.defaultAssemblyId,
@@ -1652,6 +1656,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     packageInfo: null,
     packageChildren: null,
     runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: "linux-x64",
     documents: [],
     surface: null,
     defaultLibraryId: null,

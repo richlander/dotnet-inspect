@@ -247,21 +247,31 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         ProducerTerminal terminal,
         int? rowLimit,
         ImmutableArray<int> dependencies,
-        UnitFactRetention retention) =>
-        new State(this, execution, terminal, rowLimit, dependencies, retention);
+        UnitFactRetention retention,
+        bool retainResult) =>
+        new State(
+            this,
+            execution,
+            terminal,
+            rowLimit,
+            dependencies,
+            retention,
+            retainResult);
 
     MethodDefinitionExecution.ProducerState IMethodDefinitionProducer.CreateState(
         MethodDefinitionExecution execution,
         ProducerTerminal terminal,
         int? rowLimit,
         ImmutableArray<int> dependencies,
-        UnitFactRetention retention) =>
+        UnitFactRetention retention,
+        bool retainResult) =>
         CreateState(
             execution,
             terminal,
             rowLimit,
             dependencies,
-            retention);
+            retention,
+            retainResult);
 
     /// <summary>
     /// A producer's per-execution state, typed by its fact, accumulator, and
@@ -272,6 +282,7 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     {
         readonly MethodDefinitionProducer<TFact, TAccumulator, TResult> _producer;
         TAccumulator _accumulator;
+        readonly bool _retainResult;
 
         // The plan decides retention: the current unit's fact in one slot
         // when every reader visits in the same pass, every unit's otherwise.
@@ -290,7 +301,8 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             ProducerTerminal terminal,
             int? rowLimit,
             ImmutableArray<int> dependencies,
-            UnitFactRetention retention)
+            UnitFactRetention retention,
+            bool retainResult)
             : base(
                 execution,
                 producer,
@@ -300,7 +312,9 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
                 dependencies)
         {
             _producer = producer;
-            _accumulator = producer.Seed();
+            _retainResult = retainResult;
+            _accumulator =
+                retainResult ? producer.Seed() : default!;
             _keepCurrent = retention == UnitFactRetention.CurrentUnit;
             _factsByUnit = retention == UnitFactRetention.AllUnits ? [] : null;
             _classifies = producer.ClassifiesUnits;
@@ -316,6 +330,8 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         public override bool ClassifiesUnits => _classifies;
 
         public override bool RetainsFacts => _keepCurrent || _factsByUnit is not null;
+
+        public override bool RetainsResult => _retainResult;
 
         public override bool HasTypeScope { get; }
 
@@ -342,7 +358,11 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
 
         protected bool AcceptFact(int unitToken, TFact fact)
         {
-            _accumulator = _producer.Accumulate(_accumulator, fact);
+            if (_retainResult)
+            {
+                _accumulator =
+                    _producer.Accumulate(_accumulator, fact);
+            }
             if (_classifies)
             {
                 _classToken = unitToken;
@@ -381,8 +401,11 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             return false;
         }
 
-        public override void Complete(MethodDefinitionCompletionView completion) =>
-            SetResult(_producer.Complete(_accumulator, completion));
+        public override void Complete(MethodDefinitionCompletionView completion)
+        {
+            if (_retainResult)
+                SetResult(_producer.Complete(_accumulator, completion));
+        }
     }
 }
 
@@ -404,7 +427,8 @@ internal interface IMethodDefinitionProducer
         ProducerTerminal terminal,
         int? rowLimit,
         ImmutableArray<int> dependencies,
-        UnitFactRetention retention);
+        UnitFactRetention retention,
+        bool retainResult);
 }
 
 internal delegate bool MethodBodyInstructionShapeVisitor<TState>(

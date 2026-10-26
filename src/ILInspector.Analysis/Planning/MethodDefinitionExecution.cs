@@ -473,7 +473,8 @@ public sealed class MethodDefinitionExecution
                 description.TerminalByIndex[i],
                 description.RowLimitAtIndex(i),
                 description.DependencyIndices[i],
-                description.FactRetention[i]);
+                description.FactRetention[i],
+                description.ResultRetention[i]);
         }
 
         // Each dependent reads its dependencies' states directly, aligned
@@ -1121,6 +1122,16 @@ public sealed class MethodDefinitionExecution
         }
 
         var state = (ProducerState<TResult>)_states[index];
+        if (!state.RetainsResult
+            && state.Outcome is
+                ProducerOutcome.Complete
+                or ProducerOutcome.Stopped
+                or ProducerOutcome.SourceBounded)
+        {
+            throw new ProducerContractException(
+                $"Producer '{producer.Identity}' was planned only for "
+                + "same-unit facts; no result was retained.");
+        }
         return state.Outcome switch
         {
             ProducerOutcome.Complete or ProducerOutcome.Stopped =>
@@ -1493,14 +1504,41 @@ public sealed class MethodDefinitionExecution
                 ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
             foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
             {
+                TypeDefinition type = reader.GetTypeDefinition(typeHandle);
                 if (attribution.PrimaryMetadataResolver
                     .IsCompilerGeneratedTypeOrEnclosing(typeHandle))
                 {
+                    if (!type.GetDeclaringType().IsNil)
+                        continue;
+
+                    ImmutableArray<MethodDefinitionHandle> methods =
+                        [.. type.GetMethods()];
+                    HashSet<string> liftedOwnerNames =
+                    [
+                        .. methods
+                            .Select(method =>
+                                reader.GetString(
+                                    reader.GetMethodDefinition(
+                                        method).Name))
+                            .Select(name =>
+                                CompilerGeneratedNames
+                                    .TryGetLiftedOwnerName(
+                                        name,
+                                        out string ownerName)
+                                    ? ownerName
+                                    : null)
+                            .OfType<string>(),
+                    ];
+                    userMethods.AddRange(
+                        methods.Where(method =>
+                            liftedOwnerNames.Contains(
+                                reader.GetString(
+                                    reader.GetMethodDefinition(
+                                        method).Name))));
                     continue;
                 }
                 userTypes.Add(typeHandle);
-                userMethods.AddRange(
-                    reader.GetTypeDefinition(typeHandle).GetMethods());
+                userMethods.AddRange(type.GetMethods());
             }
 
             MethodDefinitionGeneratedExpansionResult relation =
@@ -2340,6 +2378,12 @@ public sealed class MethodDefinitionExecution
 
         /// <summary>Whether the plan keeps this producer's per-unit facts for a reader.</summary>
         public virtual bool RetainsFacts => false;
+
+        /// <summary>
+        /// Whether the plan keeps this producer's accumulator and completed
+        /// result for a request or result-reading dependency.
+        /// </summary>
+        public abstract bool RetainsResult { get; }
 
         /// <summary>The dependencies' states, aligned with the declared dependencies.</summary>
         public ProducerState[] DependencyStates { get; set; } = [];

@@ -104,7 +104,12 @@ a separate axis: they are admitted and marked, as the default already does.
   requires. A public nested Type of a protected Type is reachable only by
   derivation, so it is not in the `public` bucket, and no other assembly can
   reach one of an internal or private Type. Such a Type and its Members leave
-  the default public-facing population; `--all` still lists them.
+  the default public-facing population; `--all` still lists them. Every
+  Metadata reader that means the public Type population applies this one
+  admission: Type lookup and counts, the integration, telemetry, and
+  opportunity scanners, the hierarchy and dependency indexes, and the
+  extension scan's declaring Type. A reader that means another population,
+  such as the row-local surface classification count, says so in its owner.
 - An `accessibility` term selects one or more buckets. By itself it does not
   admit hidden declarations.
 - `--all` selects every bucket and admits hidden declarations into their
@@ -349,6 +354,39 @@ NonBreaking on the API axis as well. Breaking and Additive describe the public
 contract, the API axis: under `--all`, any change wholly outside the API axis on
 both sides, judged by external reach through every enclosing Type, is
 NonBreaking. Comparisons of other scopes keep their existing output.
+
+A property's C# spelling states each accessor's accessibility relative to the
+property's own, so its signature can change when no accessor's reach does. When
+a matched Member's old and new signatures differ only in that accessor
+spelling, with the same accessors and the same declaration otherwise, the
+comparison classifies the signature change by each accessor's own external
+reach, as it classifies an accessibility move: Breaking when any accessor's
+reach narrows, including an accessor that leaves the externally reachable
+population, Additive when reach only widens, and NonBreaking when no
+accessor's reach changes. Unlike the accessibility move above, this holds in
+every comparison scope, because every scope reports the signature row. The
+change stays one signature row, beside the property's own accessibility move when
+the widest accessor moves. Every other signature change, including an
+accessor added or removed and any change to a declaration modifier the
+signature does not spell, such as `init`, `static`, `virtual`, `override`,
+`sealed`, `abstract`, or `readonly`, stays Breaking. An event's signature spells no
+accessor, so it never takes this rule.
+
+For example, `protected int V { get; set; }` to
+`public int V { get; protected set; }` widens the getter and keeps the setter
+protected, so its signature row is Additive beside the Additive move, and the
+reverse is Breaking. `{ get; set; }` to `{ get; protected set; }` and
+`{ get; protected set; }` to `{ get; private set; }` narrow the setter and are
+Breaking; `{ get; protected set; }` to `{ get; protected internal set; }` is
+NonBreaking. Real version pairs carry this shape: Avalonia 11.3.14 to 12.1.2
+widens `FlyoutBase.IsOpen` from `{ get; protected set; }` to
+`{ get; set; }` (Additive), and System.Text.Json 6.0.0 to 8.0.6 moves
+`JsonTypeInfo<T>.SerializeHandler` from `{ get; private protected set; }` to
+`{ get; internal set; }`, which neither side's setter lets another assembly
+reach (NonBreaking). The rule was adopted on 2026-10-25 in
+[#10628](https://github.com/richlander/dotnet-inspect/issues/10628), where
+the operator delegated the choice.
+`FindingDiffAnyTests` and `LibraryApiDiffCommandTests` gate it.
 
 The ordinary population, the `public` bucket without hidden declarations, is
 the presentation default for diff output: a host shows it unless the user

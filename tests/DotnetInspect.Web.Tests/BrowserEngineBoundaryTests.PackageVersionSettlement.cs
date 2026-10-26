@@ -151,7 +151,10 @@ public sealed partial class BrowserEngineBoundaryTests
             PackageInfo: null,
             PackageChildren: null,
             Documents: [],
-            Surface: null);
+            Surface: null,
+            ImplementationComparisonRuntimeIdentifier:
+                PackageRuntimePopulationChoice
+                    .ProductDefaultRuntimeIdentifier);
         string json = JsonSerializer.Serialize(
             wireResult,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -626,7 +629,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 TotalMembers: 0,
                 Documents: [],
                 InspectionErrors: [],
-                InspectionError: null));
+                InspectionError: null),
+            ImplementationComparisonRuntimeIdentifier:
+                PackageRuntimePopulationChoice
+                    .ProductDefaultRuntimeIdentifier);
 
         string json = JsonSerializer.Serialize(
             result,
