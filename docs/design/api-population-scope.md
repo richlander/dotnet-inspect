@@ -11,9 +11,11 @@ command contract; it does not change current behavior by itself.
 API and Implementation Population Scope owns:
 
 > An API-level operation selects a declaration population whose default is the
-> product's public-facing API, decided by accessibility alone. `--include` is
-> an explicit visibility gesture that widens that population by accessibility;
-> `--skip` and `--only` are explicit attribute filters. An operation that
+> product's public-facing API, decided by accessibility alone. `--only`,
+> `--include`, and `--skip` are explicit selection gestures over one fixed term
+> set of accessibilities and attribute facts: `--only` replaces a dimension's
+> selection, `--include` adds to it, and `--skip` removes from the result. An
+> operation that
 > analyzes a declared set of implementations selects its complete admitted
 > implementation population by default; it does not use a visibility gesture
 > as a proxy for completeness.
@@ -46,8 +48,9 @@ compare:
 
 These routes use their public-facing declaration population by default, as
 [Accessibility within API visibility scope](#accessibility-within-api-visibility-scope)
-defines it. `--include` widens that population by accessibility, and `--skip`
-and `--only` filter it by attribute facts. These options change which API
+defines it. `--only`, `--include`, and `--skip` select a different population
+from the same term set; `--where` only filters its rows. These options change
+which API
 declarations are eligible; they do not mean "perform every available
 analysis."
 
@@ -342,7 +345,7 @@ the implementation analysis complete.
 
 ## Decision table
 
-| Question | Default population | Widening and filtering |
+| Question | Default population | Selection |
 | --- | --- | --- |
 | Which API declarations should an API inventory show? | Declarations effectively `public` or `protected`, with `EditorBrowsable(Never)` and `[Obsolete]` declarations admitted and marked | `--only` replaces and `--include` adds a dimension's selection; `--skip` removes; every term works in every slot |
 | Which accessibility should a Type's Member inventory show? | The `public` and `protected` buckets, by effective accessibility | `--only private` selects one bucket alone; `--include internal` adds one; `--where` filters rows only |
