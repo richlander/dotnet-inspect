@@ -210,8 +210,9 @@ public enum LibraryApiMemberRelationRole
 /// One occupied side's API status in a Library API diff
 /// (docs/design/library-api-diff-presentation.md#ordinary-presentation).
 /// <see cref="IsOrdinary"/> places the side in the ordinary population: a public, not hidden
-/// declaration whose enclosing or declaring Types are all ordinary. Obsolete does not remove
-/// a declaration from that population.
+/// declaration whose enclosing Types are all public, and, for a Member, whose declaring Type
+/// is ordinary. Hidden status is not inherited through nesting. Obsolete does not remove a
+/// declaration from that population.
 /// </summary>
 public sealed record LibraryApiDeclarationStatus(
     bool IsOrdinary,

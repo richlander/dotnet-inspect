@@ -418,7 +418,7 @@ public sealed class LibraryApiDiffCommandTests
     }
 
     // A Type filter projects a nested Type without its enclosing Type, so whether the
-    // enclosing Types are ordinary comes from metadata, not from the projected Types.
+    // enclosing Types are public comes from metadata, not from the projected Types.
     [Theory]
     [InlineData("Nested")]
     [InlineData("NestedPublicToProtected+Nested")]

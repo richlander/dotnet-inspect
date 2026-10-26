@@ -640,9 +640,9 @@ public sealed class FindingDiffAnyTests
         Assert.True(type.IsHidden);
     }
 
-    // Whether every enclosing Type is ordinary is read from metadata, so a Type selection
-    // that does not project the enclosing Type keeps it. Only reach is inherited: a hidden
-    // enclosing Type does not hide the Types it nests
+    // Whether every enclosing Type has the ordinary reach is read from metadata, so a Type
+    // selection that does not project the enclosing Type keeps it. Only reach is inherited:
+    // a hidden enclosing Type does not hide the Types it nests
     // (docs/design/library-api-diff-presentation.md#per-side-facts).
     [Theory]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis)]

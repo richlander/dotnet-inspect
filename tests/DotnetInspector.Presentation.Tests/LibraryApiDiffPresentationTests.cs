@@ -818,15 +818,17 @@ public sealed class LibraryApiDiffPresentationTests
         }
     }
 
-    // A Type selection projects a nested Type without its enclosing Type. Its ordinary fact
-    // comes from metadata, so it matches the complete comparison: ordinary under a public
-    // Type, and under a hidden one, whose hidden status does not pass to the Types it nests.
+    // A Type selection projects a nested Type without its enclosing Type, and the Public scope
+    // never projects a hidden one. Its ordinary fact comes from metadata, so it matches the
+    // complete comparison: ordinary under a public Type, and under a hidden one, whose hidden
+    // status does not pass to the Types it nests.
     [Theory]
     [InlineData(ApiSurfaceScope.ApiAxis, "FindingDiffAnyFixture.NestedPublicToProtected+Nested", true, false)]
     [InlineData(ApiSurfaceScope.ApiAxis, "FindingDiffAnyFixture.NestedProtectedToPublic+Nested", false, true)]
     [InlineData(ApiSurfaceScope.ApiAxis, "FindingDiffAnyFixture.HiddenOuter+Inner", true, true)]
     [InlineData(ApiSurfaceScope.IncludeAll, "FindingDiffAnyFixture.NestedPublicToProtected+Nested", true, false)]
     [InlineData(ApiSurfaceScope.IncludeAll, "FindingDiffAnyFixture.HiddenOuter+Inner", true, true)]
+    [InlineData(ApiSurfaceScope.Public, "FindingDiffAnyFixture.HiddenOuter+Inner", true, true)]
     public async Task Create_TypeSelectionOfANestedType_KeepsItsOrdinaryFact(
         ApiSurfaceScope scope,
         string identifier,
