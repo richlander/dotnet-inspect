@@ -122,7 +122,8 @@ opposite directions:
 Contract strength runs public > obsolete > `EditorBrowsable`. Nesting treats
 accessibility and attribute facts differently. An enclosing Type's
 accessibility limits a nested Type's reach: a public Type nested in a private
-Type is unreachable from another assembly, as the Type admission below states.
+Type is unreachable from another assembly, as effective accessibility below
+states.
 An enclosing Type's attribute facts do not pass to the Types it nests: a public
 Type nested in an `EditorBrowsable(Never)` or `[Obsolete]` Type carries neither
 fact unless it declares it (decided 2026-10-25 in
@@ -133,12 +134,28 @@ rule, including its exemption for the compiler's compatibility `[Obsolete]`
 markers.
 
 **Effective accessibility.** A declaration's effective accessibility is the
-narrowest of its own accessibility and that of every enclosing or declaring
-Type, in the order `public` > `protected` > `internal` > `private`. It places
-the declaration in exactly one bucket. A public Type nested in a private Type
-is effectively `private`; a public Member of an internal Type is effectively
-`internal`; a protected Member of an internal Type is effectively `internal`.
-Rows still show each declaration's declared accessibility.
+narrowest common reach of its own accessibility and that of every enclosing or
+declaring Type, as C# and ECMA-335 define accessibility domains, over the six
+accessibilities `public`, `protected internal`, `protected`, `internal`,
+`private protected`, and `private`. The narrowest common reach of `protected`
+and `internal` is `private protected`: derived Types inside the assembly. It
+maps to exactly one bucket:
+
+| Effective accessibility | Bucket |
+| --- | --- |
+| `public` | `public` |
+| `protected internal`, `protected` | `protected` |
+| `internal` | `internal` |
+| `private protected`, `private` | `private` |
+
+A public Type nested in a private Type is effectively `private`; a public
+Member of an internal Type is effectively `internal`; a protected Member of an
+internal Type is effectively `private protected`, in the `private` bucket,
+exactly where a declared `private protected` Member is (decided 2026-10-26 on
+[#10693](https://github.com/richlander/dotnet-inspect/issues/10693)). A
+Member's own accessibility is the one the rules below give it, such as an
+explicit interface implementation's interface accessibility, before enclosing
+Types narrow it. Rows still show each declaration's declared accessibility.
 
 **Terms.** Each term names a set of declarations. The term set is fixed, and
 each term is one token, matched without regard to case:
@@ -148,10 +165,11 @@ each term is one token, matched without regard to case:
 | Accessibility | `public`, `protected`, `internal`, `private`, `protected-internal`, `private-protected`, `all` | `public` and `protected` |
 | Attribute fact | `EditorBrowsableNever`, `Obsolete` | any |
 
-A bucket term matches declarations whose effective accessibility is in that
-bucket. `protected-internal` and `private-protected` match declarations
-declared with exactly that accessibility, a narrower selection inside the
-`protected` and `private` buckets. `all` matches every bucket. A fact term
+Every accessibility term matches effective accessibility. A bucket term
+matches declarations whose effective accessibility maps to that bucket.
+`protected-internal` and `private-protected` match declarations whose
+effective accessibility is exactly that composite, a narrower selection inside
+the `protected` and `private` buckets. `all` matches every bucket. A fact term
 matches declarations carrying that fact. A composite accessibility is always
 hyphenated, so several tokens are always several terms:
 `--only private protected` is `private` or `protected`, and only
@@ -166,11 +184,18 @@ that can be set or added:
 - `--include <term>...` adds to the selection in the term's dimension.
 - `--skip <term>...` removes matching declarations after selection.
 
-Several terms in one dimension combine as a union; the two dimensions
-intersect. Terms may be repeated tokens or repeated options. A term named both
-in `--skip` and in `--only` or `--include` is a usage error, because it selects
-nothing. The population is therefore each dimension's selection, intersected,
-less every skipped term:
+Terms may be repeated tokens or repeated options. In each dimension, the
+selection is the `--only` terms, or the default when the request names none,
+united with the `--include` terms. The two dimensions intersect, and every
+`--skip` term is then removed. The order of options does not matter. A term
+named both in `--skip` and in `--only` or `--include` is a usage error,
+because the request contradicts itself.
+
+A named subject, such as the Type a `type` or `member` request lists or the
+root a body operation starts from, resolves against the default population
+united with the selection. The selection then chooses the declarations listed
+under it. So `type JsonDocument --only private` lists the private Members of
+the public Type `JsonDocument`.
 
 | Request | Population |
 | --- | --- |
@@ -179,7 +204,8 @@ less every skipped term:
 | `--include all` | every declaration |
 | `--only private` | effectively `private`, any facts |
 | `--only public internal` | effectively `public` or `internal` |
-| `--only private-protected` | declared `private protected` |
+| `--only private-protected` | effectively `private protected` |
+| `type JsonDocument --only private` | `JsonDocument`'s effectively `private` Members |
 | `--only Obsolete` | effectively `public` or `protected`, and obsolete |
 | `--only EditorBrowsableNever --include Obsolete` | effectively `public` or `protected`, and hidden or obsolete |
 | `--only private Obsolete` | effectively `private`, and obsolete |
@@ -505,7 +531,7 @@ also leaves out hidden declarations. Under
 it becomes the default population, the same `public` and `protected` buckets
 the API axis compares, with hidden and obsolete rows marked, and
 `--skip EditorBrowsableNever` leaves hidden rows out on request. Rows outside
-it remain only under `--include`.
+it appear only under an explicit `--only` or `--include` selection.
 
 ## Adoption
 
@@ -554,7 +580,9 @@ timing:
    (hidden rows counted outside), [Find](find-search-service.md) (default
    suppression of hidden and obsolete definitions), and
    [Member accessibility composition](member-accessibility-composition.md)
-   (the bucket map's default buckets and hidden admission). The
+   (the bucket map's default buckets and hidden admission, and its
+   `--where "accessibility=…"` CLI example, Browser request, and typed handoff,
+   which move to `--only`). The
    [Diff capabilities](diff-capabilities.md) definition of the API axis as
    "`--all` narrowed by an `accessibility` term", and its "less
    `private protected`" wording, are replaced by the default population.
