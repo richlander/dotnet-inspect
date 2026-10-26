@@ -173,6 +173,17 @@ public sealed class CapabilityCatalogStructuralSearchTests
     }
 
     [Fact]
+    public void TextWithNoSearchWord_UsesTheWholeTextRule()
+    {
+        CapabilityCatalogSearchDocument document = Search("is it");
+
+        Assert.Equal(
+            CapabilityCatalogSearch.SimilarityThreshold,
+            document.SimilarityThreshold);
+        Assert.Equal(0, document.MatchCount);
+    }
+
+    [Fact]
     public void PhraseEqualToATerm_MatchesTheCompleteTerm()
     {
         CapabilityCatalogSearchResult result =

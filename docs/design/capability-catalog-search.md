@@ -465,9 +465,9 @@ Examples:
 | `litteral` | segment `literal` from `library-literal` | `0.875`, included |
 | `library-literal` | complete canonical key `library-literal` | `1.0`, included |
 | `literal` | an unrelated long summary containing no close term | below threshold, excluded |
-| `namespace dependency cycles` | name segment `Dependency` of Dependency Structure, plus summary words for `namespace` and `cycles` | phrase score `0.741`, included |
-| `unsafe code` | segment `Unsafe` of the Unsafe Members name | phrase score `0.5`, included |
-| `dependency structure` | complete name `Dependency Structure` | `1.0`, included |
+| `namespace dependency cycles` | owner-identity segment `Dependency` of Dependency Structure, plus summary words for `namespace` and `cycles` | phrase score `0.741`, included |
+| `unsafe code` | owner-identity segment `Unsafe` of Unsafe Members | phrase score `0.5`, included |
+| `dependency structure` | complete owner identity `Dependency Structure` | `1.0`, included |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -842,7 +842,8 @@ publish a partially ranked prefix as complete.
 | Structural search acquires nothing and runs no producer | Implemented: the CLI acquisition seam test runs a structural match |
 | A phrase averages each search word's best weighted term score, ignores function words and short words, and reports the phrase threshold | Implemented: host-neutral phrase tests over the structural fixture |
 | A heading term outweighs a summary term, and a scoping path segment is context | Implemented: host-neutral weighting tests |
-| A phrase equal to a term matches that complete term | Implemented: host-neutral complete-term test |
+| A phrase equal to a term matches that complete term, including the separator-joined key `library-literal` | Implemented: host-neutral complete-term tests over the structural fixture and the composed Package Query graph |
+| A text of several segments with no search word uses the whole-text rule | Implemented: host-neutral test reporting the `0.6` threshold |
 | A phrase below `0.25` is complete empty | Implemented: host-neutral zero-match phrase test |
 | The routing question "Does this library have namespace dependency cycles?" ranks Dependency Structure first | Implemented: CLI facade theory with the verbatim question and two shorter phrases |
 
