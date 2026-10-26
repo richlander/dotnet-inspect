@@ -25,6 +25,9 @@ public sealed class CapabilityCatalogStructuralSearchTests
     {
         CapabilityCatalogSearchDocument document = Search("unsafe");
 
+        Assert.Equal(
+            CapabilityCatalogSearch.SimilarityThreshold,
+            document.SimilarityThreshold);
         CapabilityCatalogSearchResult result = document.Results[0];
         Assert.Equal(1.0, result.Similarity);
         Assert.Equal("Unsafe", result.MatchedTerm);
@@ -95,6 +98,102 @@ public sealed class CapabilityCatalogStructuralSearchTests
 
         Assert.Equal(0, document.MatchCount);
         Assert.Empty(document.Results);
+    }
+
+    [Fact]
+    public void Phrase_AveragesTheBestScoreOfEachWord()
+    {
+        CapabilityCatalogSearchDocument document = Search("unsafe code");
+
+        Assert.Equal(
+            CapabilityCatalogSearch.PhraseThreshold,
+            document.SimilarityThreshold);
+        CapabilityCatalogSearchResult result = Assert.Single(document.Results);
+        Assert.Equal("Unsafe Members", result.ResourceName);
+        Assert.Equal(0.5, result.Similarity);
+        Assert.Equal("Unsafe", result.MatchedTerm);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.OwnerIdentity,
+            result.MatchSource);
+        Assert.True(result.IsSegment);
+    }
+
+    [Fact]
+    public void PhraseWord_InTheResourceHeadingOutweighsASummaryWord()
+    {
+        CapabilityCatalogSearchResult[] results =
+            [.. Search("members volume").Results];
+
+        Assert.Equal(
+            ["Unsafe Members", "Library Metrics"],
+            results.Select(static result => result.ResourceName));
+        Assert.Equal(0.5, results[0].Similarity);
+        // The summary word counts at the context weight 1/1.5, averaged
+        // over two words.
+        Assert.Equal(0.333, results[1].Similarity);
+        Assert.Equal("volume", results[1].MatchedTerm);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.Summary,
+            results[1].MatchSource);
+    }
+
+    [Fact]
+    public void PhraseWord_InAScopingPathSegmentIsContext()
+    {
+        CapabilityCatalogSearchResult[] results =
+            [.. Search("unsafe library").Results];
+
+        // `library` scopes `library/sections/unsafe-members` but names
+        // `library/sections/library-metrics`.
+        Assert.Equal(
+            [
+                ("Unsafe Members", 0.833),
+                ("Library Metrics", 0.5),
+            ],
+            results
+                .Take(2)
+                .Select(static result =>
+                    (result.ResourceName, result.Similarity)));
+        Assert.All(
+            results.Skip(2),
+            static result => Assert.Equal(0.333, result.Similarity));
+    }
+
+    [Fact]
+    public void Phrase_IgnoresFunctionWordsAndShortWords()
+    {
+        CapabilityCatalogSearchDocument document = Search("is the unsafe");
+
+        Assert.Equal(
+            CapabilityCatalogSearch.PhraseThreshold,
+            document.SimilarityThreshold);
+        CapabilityCatalogSearchResult result = Assert.Single(document.Results);
+        Assert.Equal("Unsafe Members", result.ResourceName);
+        Assert.Equal(1.0, result.Similarity);
+    }
+
+    [Fact]
+    public void PhraseEqualToATerm_MatchesTheCompleteTerm()
+    {
+        CapabilityCatalogSearchResult result =
+            Search("unsafe members").Results[0];
+
+        Assert.Equal(1.0, result.Similarity);
+        Assert.Equal("Unsafe Members", result.MatchedTerm);
+        Assert.False(result.IsSegment);
+    }
+
+    [Fact]
+    public void PhraseBelowThePhraseThreshold_IsCompleteEmpty()
+    {
+        CapabilityCatalogSearchDocument document =
+            Search("unsafe alpha bravo charlie delta");
+
+        Assert.Equal(0, document.MatchCount);
+        Assert.Empty(document.Results);
+        Assert.Equal(
+            CapabilityCatalogSearch.PhraseThreshold,
+            document.SimilarityThreshold);
     }
 
     [Fact]
