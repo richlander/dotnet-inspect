@@ -395,6 +395,7 @@ function packageLoadResult(
       diagnostics: [],
     },
     runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: "linux-x64",
     documents: surface.documents,
     surface,
     defaultLibraryId: surface.defaultAssemblyId,
@@ -1810,6 +1811,7 @@ test("RID-distinct package tabs retain exact active identity through capture and
       selectedRuntimeIdentifier: runtimeIdentifier,
       availableRuntimeIdentifiers: ["linux-x64", "win-x64"],
     },
+    implementationComparisonRuntimeIdentifier: runtimeIdentifier,
   });
 
   const loc = await parseWorkspaceLocationAsync(
@@ -1830,6 +1832,70 @@ test("RID-distinct package tabs retain exact active identity through capture and
   assert.deepEqual(
     [...restore.state.packages].map(pkg => pkg.runtimeIdentifier),
     ["win-x64", "linux-x64"],
+  );
+});
+
+test("neutral Package explicit RID survives Workspace restore and recapture", async () => {
+  const packageId = "Neutral.Package";
+  const version = "1.0.0";
+  const framework = "net11.0";
+  const runtimeIdentifier = "win-x64";
+  const h = harness();
+  h.controls.share = {
+    tabs: [{
+      id: "neutral",
+      kind: "package",
+      source: packageId,
+      version,
+      framework,
+      runtimeIdentifier,
+    }],
+    contexts: [{ id: "neutral-context", tabIds: ["neutral"] }],
+    activeTabId: "neutral",
+    selectedContextId: "neutral-context",
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+      sourceView: null,
+      comparison: null,
+    },
+  };
+  h.controls.queryPackage = async (
+    id,
+    requestedVersion,
+    requestedFramework,
+    requestedRuntimeIdentifier,
+  ) => ({
+    ...packageLoadResult(
+      packageSurface(id, requestedVersion, requestedFramework)),
+    runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: requestedRuntimeIdentifier,
+  });
+
+  const loc = await parseWorkspaceLocationAsync(
+    new URL("https://inspect.test/?w=neutral-rid-packet#workspace"),
+    async () => ({
+      succeeded: true,
+      state: h.controls.share,
+      failure: null,
+    }),
+  );
+  await h.restoreWithProductionLoad(loc);
+
+  assert.deepEqual(
+    h.queries.map(query => query[3]),
+    [runtimeIdentifier],
+  );
+  assert.equal(h.state.package?.runtimeIdentifier, runtimeIdentifier);
+  assert.deepEqual(
+    h.captureUrlState().tabs.map(tab => tab.runtimeIdentifier),
+    [runtimeIdentifier],
   );
 });
 

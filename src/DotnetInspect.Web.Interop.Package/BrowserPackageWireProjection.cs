@@ -14,6 +14,10 @@ namespace DotnetInspect.Web.Interop.Package;
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageWireProjection
 {
+    internal static string ImplementationComparisonRuntimeIdentifier(
+        BrowserPackageCoordinate coordinate) =>
+        coordinate.ImplementationComparisonRuntimeIdentifier;
+
     internal static BrowserExactLibraryApiInspection Project(
         InspectionEnvelope<ExactLibraryApiInspectionResult> inspection)
     {

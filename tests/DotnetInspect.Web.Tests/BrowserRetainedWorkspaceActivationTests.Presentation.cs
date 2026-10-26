@@ -934,7 +934,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         await Catalog.BrowserRetainedWorkspaceActivationService.ResetForTestsAsync();
         try
         {
-            string packet = includePlatform ? MixedInventoryPacket(false) : Packet();
+            string packet = includePlatform
+                ? MixedInventoryPacket(false)
+                : Packet(runtimeIdentifier: "win-x64");
             string activeTab = includePlatform ? "t1" : "t0";
             string json = await Catalog.CatalogExports.ActivateRetainedWorkspaceDefinition(
                 "facade", "Package", "/workspace", packet);
@@ -1018,6 +1020,14 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.True(package.Summary.TypeCount > 0);
             Assert.True(package.Summary.DocumentCount > 0);
             Assert.Equal("net9.0", package.Summary.SelectedCompileFramework);
+            string expectedRuntimeIdentifier =
+                includePlatform ? "linux-x64" : "win-x64";
+            Assert.Equal(
+                expectedRuntimeIdentifier,
+                package.RuntimeIdentifier);
+            Assert.Equal(
+                expectedRuntimeIdentifier,
+                package.ImplementationComparisonRuntimeIdentifier);
             Catalog.BrowserRetainedWorkspacePackageLibraryIdentity defaultLibrary =
                 Assert.IsType<Catalog.BrowserRetainedWorkspacePackageLibraryIdentity>(
                     package.DefaultLibrary);

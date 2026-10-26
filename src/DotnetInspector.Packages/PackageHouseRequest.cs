@@ -522,7 +522,6 @@ public sealed class PackageHouseRequest
         bool compileLibraries = realizes
             && assetSelection == PackageHouseAssetSelectionKind.Compile
             && libraryHandoff == PackageHouseLibraryHandoffMode.PackageOnly
-            && implementationNames is null
             && libraryCompanionDemand == PackageHouseLibraryCompanionDemand.None
             && contentQuery is
             {
@@ -764,13 +763,47 @@ public sealed class PackageHouseRequest
 
     /// <summary>
     /// Declares every compatible compile Library for one exact target before
-    /// House acquisition planning.
+    /// House acquisition planning, optionally naming only the implementation
+    /// assemblies the consumer requires.
     /// </summary>
     public static PackageHouseRequest CompileLibraries(
         PackageHouseDemand demand,
         PackageHouseOperation operation,
         PackageHouseTargetContext target,
         PackageAssetDemand assetDemand) =>
+        CompileLibrariesCore(
+            demand,
+            operation,
+            target,
+            assetDemand,
+            implementationNames: null);
+
+    /// <summary>
+    /// Declares every compatible compile Library while narrowing the
+    /// implementation role to the named assemblies.
+    /// </summary>
+    public static PackageHouseRequest CompileLibraries(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string> implementationNames)
+    {
+        ArgumentNullException.ThrowIfNull(implementationNames);
+        return CompileLibrariesCore(
+            demand,
+            operation,
+            target,
+            assetDemand,
+            implementationNames);
+    }
+
+    static PackageHouseRequest CompileLibrariesCore(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames) =>
         new(
             demand,
             operation,
@@ -778,6 +811,7 @@ public sealed class PackageHouseRequest
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.PackageOnly,
             assetDemand: assetDemand,
+            implementationNames: implementationNames,
             contentQuery:
                 PackageHouseContentQuery.GetLibrariesForTarget(
                     target,
