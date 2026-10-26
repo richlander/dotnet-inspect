@@ -28,7 +28,7 @@ It consumes and does not redefine:
 | [API population scope](api-population-scope.md) | The ordinary and widened API populations; this document changes which one a comparison uses |
 | [Diff observability](diff-observability.md) | A reported change has a view; over-reporting stays within observability |
 | [IL diff canonicalization](il-diff-canonicalization.md) | Canonical body equality, and a failed inspection for an endpoint it cannot decode |
-| [Finding Diff Any](finding-diff-any.md) | Today's Exists provision: its census, identity, axes, and Type level |
+| [Finding Diff Any](finding-diff-any.md) | Exists at Library, Type, and Member scope, with its provisions: its census, identity, axes, and Type level |
 | [Annotated Type Map](annotated-type-map.md) | The per-Member differences of a Type |
 | [Annotated Source diff document](annotated-source-diff-document.md) | The complete diff of one Member |
 | [Symbol Key](symbol-key.md) | Byte-exact symbolic identity |
@@ -276,10 +276,13 @@ spike](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-62
 measured the complete IL diff's own code, with symbolic identity, at 0.67 to
 1.19 times Finding Diff Any's Body cost on six pairs, with every method pair
 agreeing. Finding Diff Any's Body IL walk is therefore deleted once the shared
-code meets the latency bar below. Its censuses remain: the API census as the API
-axis's Exists provision, because the surface model costs about ten times more,
-and the Body declaration census, which compares the Body axis's declaration
-facts. Both are owned by the diff owner as the first stages of their axes.
+code meets the latency bar below. Finding census step 2b measured lockstep over
+the IL cursors against that bar and kept the walk ([what remains of the
+gap](finding-census.md#what-remains-of-the-gap)). Its censuses remain: the API
+census as the API axis's Exists provision, because the surface model costs
+about ten times more, and the Body declaration census, which compares the Body
+axis's declaration facts. Both are owned by the diff owner as the first stages
+of their axes.
 
 ## Latency bar
 

@@ -13,6 +13,31 @@ The producer is `FindingDiffAny.Compare` in `ILInspector.Metadata`. It depends
 only on System.Reflection.Metadata, so it runs unchanged under NativeAOT and
 Browser/Wasm.
 
+Since [Finding census](finding-census.md#adoption) step 4, this document owns
+**Exists at Library, Type, and Member scope** over the census: the axes, the
+pair partition, the API axis surface, the folds of a Type's rows, and their
+gates, at the [three levels](#levels). Finding census owns the reading of one
+row on one kind beneath them, and the agreement of that reading with
+Exhaustive. Exists at Member scope is a Member's row of the [Type
+level](#type), its API and Body states, which adoption step 7 lands; the Member
+level's complete diff stays with its owners.
+
+Two provisions answer the rows this document folds. Each is bound to the
+cursor's equality by Finding census's [provision
+rule](finding-census.md#provisions) and kept for its time alone:
+
+- **The paired Body walk** decides a paired method's IL. Finding census step 2b
+  ran lockstep over two IL cursors through the walk's [body reader
+  seam](#axes), at Library and Type scope, and kept the walk ([what remains of
+  the gap](finding-census.md#what-remains-of-the-gap)).
+- **The census slot comparison** decides one unit's census facts on each axis.
+  Finding census step 3 reads the same slots through the declaration cursor
+  and keeps the comparison ([declaration cursor](finding-census.md#adoption)).
+
+Either provision is deleted when lockstep over the cursors matches it on every
+number the cost gate reports, and the change that deletes it owns the
+Allocation gate and the Browser/Wasm measurement.
+
 The name was Fast Diff until 2026-10-21
 ([#10430](https://github.com/richlander/dotnet-inspect/issues/10430)). "Fast"
 named a cost, and the design says the cost is not its identity; `Any` names the
@@ -160,9 +185,9 @@ only in what each builds above it. The walk is a provision behind one seam: a
 caller may supply a `FindingDiffAnyBodyReader`, which receives the two images
 and the two method rows the comparison paired and answers as Exists answers,
 and the comparison then folds its answer as it folds the walk's, an undecided
-pair as a body it could not read. Finding census step 2b runs lockstep over two
-IL cursors through that seam, beside the walk, to decide whether the walk is
-kept ([Finding census](finding-census.md#provisions)).
+pair as a body it could not read. Finding census step 2b ran lockstep over two
+IL cursors through that seam, beside the walk, and kept the walk ([Finding
+census](finding-census.md#what-remains-of-the-gap)).
 
 A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,
