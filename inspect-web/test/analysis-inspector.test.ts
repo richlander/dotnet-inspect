@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isLibraryLens, libraryLenses } from "../src/data.ts";
+import {
+  isLibraryLens,
+  libraryLensDefinitions,
+  setLibraryViewFacetCatalog,
+} from "../src/data.ts";
 import {
   defaultAnalysisMode,
   isAnalysisMode,
@@ -8,9 +12,21 @@ import {
   type AnalysisMode,
 } from "../src/analysis-inspector.ts";
 
+setLibraryViewFacetCatalog([
+  { id: "library.types", kind: "Library", title: "Types", order: 10 },
+  { id: "library.info", kind: "Library", title: "Info", order: 20 },
+  { id: "library.references", kind: "Library", title: "References", order: 30 },
+  { id: "library.ecosystem-dependencies", kind: "Library", title: "Ecosystem dependencies", order: 40 },
+  { id: "library.reference-hierarchy", kind: "Library", title: "Reference hierarchy", order: 50 },
+  { id: "library.integrations", kind: "Library", title: "Integrations", order: 60 },
+  { id: "library.analysis", kind: "Library", title: "Analysis", order: 70 },
+  { id: "library.metadata", kind: "Library", title: "Metadata", order: 80 },
+  { id: "library.compare", kind: "Library", title: "Compare", order: 90 },
+]);
+
 test("Library exposes one ordered Analysis inspector", () => {
   assert.deepEqual(
-    libraryLenses.map(([id]) => id),
+    libraryLensDefinitions().map(([id]) => id),
     ["overview", "references", "compare", "analysis", "metadata"],
   );
   assert.equal(isLibraryLens("integrations"), false);

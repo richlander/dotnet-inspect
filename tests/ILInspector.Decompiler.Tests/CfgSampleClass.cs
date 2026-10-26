@@ -6423,6 +6423,67 @@ public class CfgSampleClass
         public Branchy? Inner { get; set; }
         public int Tag { get; set; }
     }
+
+    // #10577: a hand-written enumerator loop that assigns its item variable is not
+    // a foreach (the raise would assign a foreach iteration variable, CS1656); it
+    // keeps its using/while form. Without symbols the enumerator slot is unnamed,
+    // which is exactly when the pass would otherwise raise it. Each definition of
+    // the item has two uses so the live-range inliner leaves both stores in place
+    // and the hoisted-form matcher sees the reassignment.
+    public static int EnumeratorLoopAssignsItem(IEnumerable<int> items)
+    {
+        int sum = 0;
+        using (var e = items.GetEnumerator())
+        {
+            while (e.MoveNext())
+            {
+                int item = e.Current;
+                sum += item;
+                sum ^= item;
+                item = Math.Abs(sum);
+                sum += item;
+                sum ^= item;
+            }
+        }
+        return sum;
+    }
+
+    // #10577: `item = default` on a struct lowers to initobj on the item's
+    // address rather than a store; it is an assignment all the same.
+    public static long ArrayCopyLoopDefaultsStructItem(DateTime[] items)
+    {
+        long total = 0;
+        DateTime[] copy = items;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            DateTime stamp = copy[i];
+            total += stamp.Ticks;
+            total ^= stamp.Ticks;
+            stamp = default;
+            total += stamp.Ticks;
+            total ^= stamp.Ticks;
+        }
+        return total;
+    }
+
+    // #10577: the array-copy indexed loop with an assigned item variable stays a
+    // for loop for the same reason.
+    public static int ArrayCopyLoopAssignsItem(string[] items)
+    {
+        int total = 0;
+        string[] copy = items;
+        for (int i = 0; i < copy.Length; i++)
+        {
+            string s = copy[i];
+            total += s.Length;
+            total ^= s.Length;
+            s = string.Concat(s, "!");
+            total += s.Length;
+            total ^= s.Length;
+        }
+        return total;
+    }
+
 }
 
 public static class StaticLocalFunctionDependencyClosureSamples

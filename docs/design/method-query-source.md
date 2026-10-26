@@ -756,12 +756,16 @@ The same declared support exposes two facts only when the producer asks:
 
 One execution-scoped lookup owns signature decoding. The packet caches Calls,
 the local signature, and each distinct field token for one physical MethodDef.
-Lanes in one shared execution group reuse those packet facts. The physical
-receipt charges each decode once; each request receipt receives the shared
-decode work once and retains its own logical read counts. Work records call
-sites, method and field operands, local signatures, generic-parameter rows,
-and signature bytes. `CallTargets` separately receipts target-resolution work
-for every site, including replay to a lane that reads cached Calls.
+The lookup also shares resolved MethodDef identities and MemberRef identities
+whose parent is not a caller-scoped TypeSpec across physical bodies; TypeSpec
+parents and MethodSpecs share identity only when the operand handle and
+structural caller scope both match. Lanes in one shared execution group reuse
+those packet facts. The physical receipt charges each decode once; each request
+receipt receives the shared decode work once and retains its own logical read
+counts. Work records call sites, method and field operands, local signatures,
+generic-parameter rows, and signature bytes. `CallTargets` separately receipts
+target-resolution work for every site, including replay to a lane that reads
+cached Calls.
 
 Shallow call-count producers do not declare `Calls`. They retain no
 instructions, decode no call operand or external signature, construct no
@@ -841,7 +845,11 @@ terminal breadth:
   TypeDef, attribute, and enclosing-relationship reads; and
 - exact local-allocation exception classification follows the operand's
   TypeDef or TypeSpec definition and its bounded base chain rather than
-  constructing a module-wide type-name index.
+  constructing a module-wide type-name index. An exact `System.Exception`
+  anchor is positive, exact `System.Object`, `System.ValueType`, and
+  `System.Enum` anchors are negative, and any other external or generic base is
+  unknown so the consuming signal policy can apply the constructed type's own
+  name heuristic.
 
 Those reads are supporting probes, not terminal methods. They do not add
 MethodDefs to the producer's visited population or bodies to its terminal body
@@ -1202,6 +1210,8 @@ One detached `MethodSourceReceipt` records actual source work, not requested
 work or a cost estimate. It contains:
 
 - the exact request or execution-group association and subject identity;
+- the source module's assembly-definition identity, MVID, and module name, so
+  a detached sink need not reopen the image to recover module identity;
 - direct breadth, declared expansion, terminal, and demanded depth;
 - completion for every served request and its settlement position, when any;
 - exact MethodDef coverage for definitions examined, physical methods
@@ -1352,7 +1362,23 @@ Migration is incremental:
     identity, memory-safety contracts, local signatures, allocation analyzers,
     and Method-analysis support; calls, safety, signals, and optimization do
     not participate.
-13. Move remaining producers and delete each superseded legacy scan and index
+13. The all-definition Call Graph adoption splits reusable physical Method
+    evidence from exact-target attribution. `PhysicalMethodAnalysisProducer`
+    owns semantic identity, calls, local signatures, safety, and body context;
+    `ExactMethodAnalysisProducer` adds sparse declared-source attribution.
+    `LibraryCallGraphProducer` consumes the physical fact, method-local
+    construction judgments without allocation or escape collection, and the
+    settled all-definition declared-source relation. That relation
+    admits only the inferred lifted-owner methods of a top-level
+    compiler-generated type while excluding its unrelated methods and nested
+    generated implementation types. Its origin preserves whether an
+    authenticated state-machine body is classic async or async-iterator rather
+    than sync iterator; the Call Graph sink maps lifted and async execution
+    bodies while retaining sync iterator identity, without re-inferring the
+    lowering from the declared return type.
+    `AssemblyContextCallGraphAnalysis` consumes the resulting focused
+    operation and no longer executes `LibraryBodyAnalysisService`.
+14. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result
@@ -1489,6 +1515,7 @@ Calls support is gated in Release:
 - `MethodQuerySource_CallsAbsentWhenUndeclared`
 - `MethodQuerySource_CallsRequireDeclaration`
 - `MethodQuerySource_CallsReceiptExactMethodWork`
+- `MethodQuerySource_SharesScopeIndependentCalleeIdentityAcrossBodies`
 - `MethodQuerySource_ClosedGenericFieldTypeIsInstantiated`
 - `MethodQuerySource_CalleeIdentityPreservesPlatformContractHit`
 - `MethodQuerySource_CallsAreDecodedOnceAcrossLanes`

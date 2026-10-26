@@ -57,7 +57,7 @@ public sealed class FindingDiffAnyBodyReaderTests
         return lockstep;
     }
 
-    static FindingDiffAnyBodyReader Lockstep(PEReader before, PEReader after)
+    internal static FindingDiffAnyBodyReader Lockstep(PEReader before, PEReader after)
     {
         IlCensusSide beforeSide = IlCensusSide.Create(before.GetMetadataReader(), IlBodyDiffPolicy.Body);
         IlCensusSide afterSide = IlCensusSide.Create(after.GetMetadataReader(), IlBodyDiffPolicy.Body);

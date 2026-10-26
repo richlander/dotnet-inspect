@@ -66,7 +66,9 @@ export type BrowserLibraryApiDiffTypeState = "Diff" | "Addition" | "Deletion" | 
 
 export type BrowserLibraryApiDiffUnavailableKind = "TargetIncomplete" | "CurrentIncomplete" | "BothIncomplete" | number;
 
-export type BrowserLibraryFindingDiffAnyResultKind = "Succeeded" | "Rejected" | "Failed" | "Canceled" | number;
+export type BrowserLibraryFindingDiffAnyEndpoint = "Target" | "Current" | number;
+
+export type BrowserLibraryFindingDiffAnyResultKind = "Succeeded" | "MissingCounterpart" | "Rejected" | "Failed" | "Canceled" | number;
 
 export type BrowserMemberDocumentOutcome = "Available" | "Rejected" | "Incomplete" | "Failed" | number;
 
@@ -402,12 +404,20 @@ export interface BrowserLibraryFindingDiffAnyCancellation {
   readonly reason: string | null;
 }
 
+export interface BrowserLibraryFindingDiffAnyMissingCounterpart {
+  readonly endpoint: BrowserLibraryFindingDiffAnyEndpoint;
+  readonly version: string;
+  readonly runtimeIdentifier: string;
+  readonly availableRuntimeIdentifiers: ReadonlyArray<string>;
+}
+
 export interface BrowserLibraryFindingDiffAnyRequest {
   readonly schemaVersion: number;
   readonly packageId: string;
   readonly currentVersion: string;
   readonly targetVersion: string;
   readonly targetFramework: string;
+  readonly runtimeIdentifier: string | null;
   readonly compileAssetId: string;
   readonly axes: BrowserFindingDiffAnyAxes;
 }
@@ -420,6 +430,7 @@ export interface BrowserLibraryFindingDiffAnyResult {
   readonly error: string | null;
   readonly diagnostic: string | null;
   readonly reason: string | null;
+  readonly missingCounterpart: BrowserLibraryFindingDiffAnyMissingCounterpart | null;
 }
 
 export interface BrowserLibraryFindingDiffAnyValue {

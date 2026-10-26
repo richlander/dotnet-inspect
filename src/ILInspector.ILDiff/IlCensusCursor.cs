@@ -32,7 +32,10 @@ namespace ILInspector.ILDiff;
 /// past the body's end is undecided too, and a stream that completes with one
 /// ends failed rather than complete, as the decoder rejects it. Exception
 /// clauses are validated by the decoder's own rules once every instruction is
-/// read, so a clause atom never carries a boundary the alignment cannot place.
+/// read, through its exception-flow topology over the cursor's instruction
+/// map, without the decoder's blocks or any retained instruction, so a clause
+/// atom never carries a boundary the alignment cannot place; a body that
+/// declares no exception regions has no clause table.
 /// Over an already decoded <see cref="MethodInstructions"/> the pre-scan is that
 /// decode; an incomplete decode retains no prefix, so the cursor fails at
 /// position zero with the decode's reason.
@@ -44,13 +47,12 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
     readonly IlBodyDiffNormalization _policy;
     readonly IlBodyDiff.InstructionMap _map;
 
-    // Raw source: the IL, its regions, the pre-scan fault, and the instructions
-    // decoded so far, which the clause stage validates regions against.
+    // Raw source: the IL, its regions, and the pre-scan fault; the clause
+    // stage validates regions against the instruction map.
     readonly byte[]? _il;
     readonly IReadOnlyCollection<ExceptionRegion>? _rawRegions;
     readonly int _faultOffset;
     readonly string? _faultReason;
-    readonly ImmutableArray<DecodedInstruction>.Builder? _collected;
     int _nextOffset;
 
     // Decoded source: the instructions and validated regions of the decode.
@@ -102,7 +104,6 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
         _il = il;
         _rawRegions = exceptionRegions;
         _map = IlBodyDiff.InstructionMap.Scan(il, out _faultOffset, out _faultReason);
-        _collected = ImmutableArray.CreateBuilder<DecodedInstruction>(_map.InstructionCount);
     }
 
     /// <summary>The policy the cursor's atoms are read under.</summary>
@@ -290,23 +291,23 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
                 return Fail(instruction.Offset, failure ?? "operand resolution failed");
             if (_firstUndecidedOffset < 0 && operation.TargetIndexes.Contains(CanonicalIlOperation.UndecidedTarget))
                 _firstUndecidedOffset = operation.Offset;
-            _collected?.Add(instruction);
             return Yield(operation);
         }
 
         if (!_clausesReady)
         {
-            // The stream is read to its end: the pre-scan's fault, then the
-            // decoder's own rules over the whole body (a target that starts no
-            // admitted instruction or leaves the body, and the clause table),
-            // whose reasons are the ones an incomplete decode reports.
+            // The stream is read to its end: the pre-scan's fault, then a
+            // target that starts no admitted instruction or leaves the body,
+            // which the decoder rejects before any clause and the cursor
+            // reports in its own words, then the clause table by the
+            // decoder's rules, whose reason is the one an incomplete decode
+            // reports.
             if (_faultOffset >= 0)
                 return Fail(_faultOffset, _faultReason ?? "body decode failed");
-            int undecided = _firstUndecidedOffset >= 0 ? _firstUndecidedOffset : _map.IlLength;
-            if (!TryValidateClauses(out string? clauseFailure))
-                return Fail(undecided, clauseFailure);
             if (_firstUndecidedOffset >= 0)
-                return Fail(undecided, $"Branch target of the instruction at IL_{undecided:X4} does not align with an instruction.");
+                return Fail(_firstUndecidedOffset, $"Branch target of the instruction at IL_{_firstUndecidedOffset:X4} does not align with an instruction.");
+            if (!TryValidateClauses(out string? clauseFailure))
+                return Fail(_map.IlLength, clauseFailure);
             _clausesReady = true;
         }
 
@@ -405,17 +406,30 @@ public sealed class IlCensusCursor : IFindingCursor<CanonicalIlOperation>
             failure = null;
             return true;
         }
+        if (_rawRegions!.Count == 0)
+        {
+            // No exception regions: no clause table to validate and no clause
+            // atoms to yield.
+            _clauses = [];
+            failure = null;
+            return true;
+        }
 
         try
         {
-            BlockGraph graph = BlockGraph.Build(_map.IlLength, _collected!.ToImmutable(), _rawRegions!);
-            if (!graph.IsComplete)
+            // The decoder's clause-table rules are its exception-flow
+            // topology's region rules; its blocks, its edges, and the
+            // exception-flow facts' transfer validation, which the block graph
+            // never consulted, are not needed to apply them, and the map
+            // answers the boundaries its instruction list would.
+            ExceptionClauseTable table = ExceptionFlowTopology.CreateTable(_map.IlLength, _map, _rawRegions);
+            if (table.IncompleteReason is not null)
             {
-                failure = graph.IncompleteReason ?? "body decode failed";
+                failure = table.IncompleteReason;
                 return false;
             }
 
-            _clauses = graph.Regions;
+            _clauses = table.Models;
             failure = null;
             return true;
         }

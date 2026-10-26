@@ -124,12 +124,18 @@ public sealed record MethodRowAnchor(
 public readonly ref struct MethodRowTypeView
 {
     readonly MethodRowGate _gate;
+    readonly TypeDefinitionHandle _handle;
     readonly TypeDefinition _type;
     readonly MethodRowClassifier _owner;
 
-    internal MethodRowTypeView(MethodRowGate gate, TypeDefinition type, MethodRowClassifier owner)
+    internal MethodRowTypeView(
+        MethodRowGate gate,
+        TypeDefinitionHandle handle,
+        TypeDefinition type,
+        MethodRowClassifier owner)
     {
         _gate = gate;
+        _handle = handle;
         _type = type;
         _owner = owner;
     }
@@ -141,6 +147,23 @@ public readonly ref struct MethodRowTypeView
         {
             Require(MethodDefinitionLayers.Flags);
             return _type.Attributes;
+        }
+    }
+
+    /// <summary>
+    /// Whether the type is public through every enclosing type, as the Public
+    /// scope admits it (<c>ApiSurfaceExtractor.AdmitsPublicScopeType</c>).
+    /// Requires <see cref="MethodDefinitionLayers.Flags"/>.
+    /// </summary>
+    public bool IsPublicScopeType
+    {
+        get
+        {
+            Require(MethodDefinitionLayers.Flags);
+            return ApiSurfaceExtractor.AdmitsPublicScopeType(
+                _gate.Reader,
+                _handle,
+                _type);
         }
     }
 
@@ -320,7 +343,7 @@ internal sealed class MethodRowGate
             try
             {
                 cache.TypeInScope = classifier.TypeInScope(
-                    new MethodRowTypeView(this, typeDefinition, classifier));
+                    new MethodRowTypeView(this, typeHandle, typeDefinition, classifier));
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))

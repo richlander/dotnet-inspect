@@ -12,6 +12,12 @@ public static class InspectionViewFacetCatalog
             "ecosystem.overview",
             InspectionViewFacetExecution.EcosystemOverview),
         Binding(
+            "project.overview",
+            InspectionViewFacetExecution.ProjectOverview),
+        Binding(
+            "project.dependencies",
+            InspectionViewFacetExecution.ProjectDependencies),
+        Binding(
             "package.libraries",
             InspectionViewFacetExecution.PackageLibraries),
         Binding(
@@ -104,6 +110,25 @@ public static class InspectionViewFacetCatalog
                 ViewFacetRole.EcosystemOverview),
             "Registered Ecosystem identity, declarations, and population capabilities.",
             AppliesToEcosystem),
+        Active(
+            Descriptor(
+                "project.overview",
+                StructuralSubjectKind.Project,
+                "Overview",
+                "Supplied Project identity, target observations, and evidence basis.",
+                100,
+                ViewFacetRole.ProjectOverview),
+            "Supplied Project identity, target observations, and evidence basis.",
+            AppliesToProject),
+        Active(
+            Descriptor(
+                "project.dependencies",
+                StructuralSubjectKind.Project,
+                "Dependencies",
+                "Authored declarations or restored dependency graph, with limitations and failures.",
+                200),
+            "Authored declarations or restored dependency graph, with limitations and failures.",
+            AppliesToProject),
         Active(
             Descriptor(
                 "package.libraries",
@@ -368,6 +393,9 @@ public static class InspectionViewFacetCatalog
     static bool AppliesToEcosystem(ViewFacetTarget target) =>
         target.Subject.Kind == StructuralSubjectKind.Ecosystem;
 
+    static bool AppliesToProject(ViewFacetTarget target) =>
+        target.Subject.Kind == StructuralSubjectKind.Project;
+
     static bool AppliesToPackage(ViewFacetTarget target) =>
         target.Subject.Kind == StructuralSubjectKind.Package;
 
@@ -408,4 +436,6 @@ internal enum InspectionViewFacetExecution
     MemberSource,
     MemberAnnotatedSource,
     MemberCompare,
+    ProjectOverview,
+    ProjectDependencies,
 }

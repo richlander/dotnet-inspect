@@ -11,6 +11,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -22,6 +23,7 @@ using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using InertText;
 using Inspector.Findings;
+using InspectWeb.MethodBodyFixtures;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -336,7 +338,7 @@ public sealed partial class BrowserEngineBoundaryTests
         byte[] neighbor)
     {
         byte[] selected = File.ReadAllBytes(
-            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+            FixtureCatalog.InspectWebMethodBodies.AssemblyPath());
         BrowserPackageCoordinate coordinate = await Coordinate(
             packageId,
             PackageEntries(
@@ -358,7 +360,8 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Null(performance.InspectionError);
         Assert.True(performance.TotalOpportunities > 0);
         Assert.Contains(performance.Members, member =>
-            member.MemberName == nameof(PerformanceBoxingProbe));
+            member.MemberName
+                == nameof(PerformanceProbes.PerformanceBoxingProbe));
         Assert.Equal(expected, actual);
 
         string neighborId = coordinate.Selection.Assets.Single(
@@ -444,7 +447,7 @@ public sealed partial class BrowserEngineBoundaryTests
             id,
             package.Version,
             "net11.0");
-        Assert.True(assemblyContext.AssetSelection.IsSelected);
+        Assert.True(Assert.IsType<PackageCompileAssetSelection>(assemblyContext.AssetSelection).IsSelected);
         return new BrowserPackageCoordinate(package, assemblyContext);
     }
 

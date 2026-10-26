@@ -104,7 +104,12 @@ a separate axis: they are admitted and marked, as the default already does.
   requires. A public nested Type of a protected Type is reachable only by
   derivation, so it is not in the `public` bucket, and no other assembly can
   reach one of an internal or private Type. Such a Type and its Members leave
-  the default public-facing population; `--all` still lists them.
+  the default public-facing population; `--all` still lists them. Every
+  Metadata reader that means the public Type population applies this one
+  admission: Type lookup and counts, the integration, telemetry, and
+  opportunity scanners, the hierarchy and dependency indexes, and the
+  extension scan's declaring Type. A reader that means another population,
+  such as the row-local surface classification count, says so in its owner.
 - An `accessibility` term selects one or more buckets. By itself it does not
   admit hidden declarations.
 - `--all` selects every bucket and admits hidden declarations into their

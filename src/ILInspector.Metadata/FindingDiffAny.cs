@@ -315,7 +315,7 @@ public static class FindingDiffAny
     /// differs. A body the walk cannot decode or resolve before it decides a
     /// difference is malformed, which the caller reads as Indeterminate.
     /// </summary>
-    static bool BodyEqual(
+    internal static bool BodyEqual(
         Side a,
         MethodDefinitionHandle handleA,
         Side b,
