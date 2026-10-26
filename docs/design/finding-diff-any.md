@@ -39,10 +39,10 @@ rule](finding-census.md#provisions) and kept for its time alone:
 Either provision is deleted only when lockstep over the cursors meets Diff
 capabilities' [latency bar](diff-capabilities.md#latency-bar) and matches or
 beats the provision on every number Finding census's [Cost
-gate](finding-census.md#gates) reports; the Cost gate is the stricter of the
-two and decides. The change that deletes the walk owns the IL kind's Allocation
-gate and the Browser/Wasm measurement, and the change that deletes the slot
-comparison owns the declaration kind's allocation debt that step 3 records.
+gate](finding-census.md#gates) reports; both must hold. The change that deletes
+the walk owns the IL kind's Allocation gate and the Browser/Wasm measurement,
+and the change that deletes the slot comparison owns the declaration kind's
+allocation debt that step 3 records.
 
 The name was Fast Diff until 2026-10-21
 ([#10430](https://github.com/richlander/dotnet-inspect/issues/10430)). "Fast"
