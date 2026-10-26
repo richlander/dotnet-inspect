@@ -548,6 +548,33 @@ public sealed class FindingDiffAnyTests
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
     }
 
+    // Roslyn emits a private accessor of a virtual property as a non-virtual method, so its
+    // method modifiers follow its accessibility; the property's declaration modifiers do not
+    // change, so the accessor's reach classifies the signature row.
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public, "public virtual int Value { get; private set; }", "public virtual int Value { get; protected set; }", ChangeClassification.Additive)]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public virtual int Value { get; private set; }", "public virtual int Value { get; protected set; }", ChangeClassification.Additive)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "public virtual int Value { get; private set; }", "public virtual int Value { get; protected set; }", ChangeClassification.Additive)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "public virtual int Value { get; private set; }", "public virtual int Value { get; internal set; }", ChangeClassification.NonBreaking)]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "protected virtual int Value { get; private set; }", "protected virtual int Value { get; set; }", ChangeClassification.Additive)]
+    public void AccessorSpellingChange_OnAVirtualPropertysPrivateAccessor_IsClassifiedByReach(
+        ApiSurfaceExtractionScope scope,
+        string oldProperty,
+        string newProperty,
+        ChangeClassification expected)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface($"public class C {{ {oldProperty} }}", scope),
+            CompiledSurface($"public class C {{ {newProperty} }}", scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(
+            Assert.Single(comparison.ApiDiff.TypeDiffs).Changes,
+            change => change.Kind == ChangeKind.MemberSignatureChanged);
+        Assert.Equal(expected, change.Classification);
+    }
+
     // A base Type B carries the property each side of C overrides or hides, so only C's
     // declaration modifiers and accessor spelling change.
     [Theory]

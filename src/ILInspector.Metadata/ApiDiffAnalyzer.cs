@@ -894,9 +894,13 @@ public static class ApiDiffAnalyzer
             && oldMember.IsExplicitInterfaceImplementation == newMember.IsExplicitInterfaceImplementation;
 
     /// <summary>
-    /// Every accessor fact the model records other than its accessibility: its kind, its
-    /// structural return (an <c>init</c> setter's carries <c>IsExternalInit</c>), and its own
-    /// modifiers.
+    /// The accessor facts the model records that do not follow from its accessibility: its
+    /// kind, its structural return (an <c>init</c> setter's carries <c>IsExternalInit</c>), and
+    /// its <c>readonly</c> and explicit-implementation facts. Its
+    /// <see cref="ApiAccessor.DeclarationModifiersMatchProperty"/> is not compared: Roslyn
+    /// emits a <c>private</c> accessor of a virtual property as a non-virtual method, so that
+    /// fact follows the accessor's accessibility, and the member's own modifiers
+    /// (<see cref="SameDeclarationModifiers"/>) already carry the declaration.
     /// </summary>
     static bool SameAccessorFacts(ApiAccessor oldAccessor, ApiAccessor newAccessor)
         => string.Equals(oldAccessor.Kind, newAccessor.Kind, StringComparison.Ordinal)
@@ -905,7 +909,6 @@ public static class ApiDiffAnalyzer
                 newAccessor.StructuralReturnType,
                 StringComparison.Ordinal)
             && oldAccessor.IsReadOnly == newAccessor.IsReadOnly
-            && oldAccessor.DeclarationModifiersMatchProperty == newAccessor.DeclarationModifiersMatchProperty
             && oldAccessor.IsExplicitInterfaceImplementation == newAccessor.IsExplicitInterfaceImplementation;
 
     /// <summary>
