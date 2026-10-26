@@ -562,13 +562,20 @@ preflight.
 
 ### Member detail PDB requests
 
-The CLI's standalone exact-Member PDB-resolution path requires explicit
-section selection. A detailed view, whether requested by the user or promoted
-internally, does not request that enrichment for automatically included
+The CLI's standalone exact-Member PDB-resolution path requires an explicitly
+selected section or operation. A detailed view, whether requested by the user
+or promoted internally, does not request that enrichment for automatically included
 Decompiled Source, Body Shapes, or other detail sections. Explicit sections,
 categories, and globs retain their existing resolved-section semantics and
 capability preflight. Explicit Source, PDB Source, and Source Diff retain their
 existing acquisition and failure contracts.
+
+An explicit typed body query is a selecting operation. For example,
+`--where "Kind=ObjectCreationExpression"` retains the existing
+[Body Shapes selection](body-shape-views.md#two-explicit-sections) and its
+standalone PDB request, even without `-S`. That request comes from the query
+gesture, not from verbosity. This adoption does not narrow existing query
+gestures to require a redundant section option.
 
 This adopts step 5 of [CLI verbosity retirement](cli-verbosity-retirement.md)
 for that Member path only. Source Locations, Type and Library source policy,
@@ -583,8 +590,8 @@ with its compiled Library and matching Portable PDB. Detailed automatically
 includes both PDB Source and Decompiled Source; the prior Member gate admits
 standalone PDB resolution even without explicit selection. The Release
 `MemberSourceAuthorizationTests` gates that automatic-detail case, explicit
-section preservation, unrelated selection, and overload scope against this
-real declaration. Existing `LocalRepoSourceProjectionTests` retain the
+section preservation, typed-query lowering, unrelated selection, and overload
+scope against this real declaration. Existing `LocalRepoSourceProjectionTests` retain the
 positive CLI PDB Source and Source Locations canaries. These gates establish
 request decisions and offline production behavior, not network-transfer counts.
 

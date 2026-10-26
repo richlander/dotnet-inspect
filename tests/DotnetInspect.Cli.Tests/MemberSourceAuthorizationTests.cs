@@ -88,6 +88,39 @@ public sealed class MemberSourceAuthorizationTests
         Assert.False(MemberCommand.NeedsMemberSourceResolution(type, options));
     }
 
+    [Theory]
+    [InlineData(Verbosity.Quiet)]
+    [InlineData(Verbosity.Minimal)]
+    [InlineData(Verbosity.Normal)]
+    [InlineData(Verbosity.Detailed)]
+    public void TypedBodyQueryKeepsItsPdbRequestWithoutSectionOption(Verbosity verbosity)
+    {
+        ApiType type = LoadRealMember();
+        var options = new MemberOptions
+        {
+            AssemblyPath = typeof(MemberTextSlicer).Assembly.Location,
+            TypeName = type.FullName,
+            MemberFilter = new(StringComparer.OrdinalIgnoreCase)
+            {
+                nameof(MemberTextSlicer.ExtractMemberText),
+            },
+            OverloadIndex = 1,
+            Verbosity = verbosity,
+            BodyKindQuery = new() { Kind = "ObjectCreationExpression" },
+        };
+        Assert.Null(options.Select);
+        Assert.Null(options.IncludeSections);
+
+        var (preamble, error) = ApiCommand.RunPreamble(options);
+
+        Assert.Null(error);
+        var lowered = Assert.IsType<MemberOptions>(preamble.Options);
+        Assert.Equal(verbosity, lowered.UserVerbosity);
+        Assert.Equal(SectionNames.BodyShapes, Assert.Single(lowered.IncludeSections!));
+        Assert.True(MemberCommand.AuthorizesMemberSourceResolution(type, lowered));
+        Assert.False(MemberCommand.AuthorizesMemberSourceContent(type, lowered));
+    }
+
     private static ApiType LoadRealMember()
     {
         using var stream = File.OpenRead(typeof(MemberTextSlicer).Assembly.Location);

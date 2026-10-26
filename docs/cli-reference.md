@@ -1934,7 +1934,9 @@ other detail sections, but does not request their standalone PDB enrichment.
 Select the section explicitly (for example, `-S "Decompiled Source"`) or
 through its category to retain that request. Explicit `Source`, `PDB Source`,
 and `Source Diff`, and the separate Source Locations operation keep their
-existing symbol and source policies.
+existing symbol and source policies. A typed `--where "Kind=..."` query also
+retains its existing Body Shapes selection and PDB request without requiring
+a redundant `-S` option.
 
 `Source` is the Text whose rows are its exact lines, per
 [Source document cardinality](design/source-document-cardinality.md):
