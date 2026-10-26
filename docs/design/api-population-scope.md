@@ -151,16 +151,28 @@ markers.
 - `--skip <term>` removes declarations carrying an attribute fact. Its fixed
   term set starts with `EditorBrowsableNever`.
 - `--only <term>` keeps only the named selection. Its fixed terms are the
-  bucket names and the `private protected` spelling, which select those
-  buckets alone (`--only public` returns no `protected` member), and the
-  attribute facts, starting with `Obsolete`. It is the option form of the
-  `accessibility` term below.
+  accessibility terms, which `--only` shares with the `accessibility` term
+  below, and the attribute facts, starting with `Obsolete`.
+  `--only public` returns no `protected` member.
+- The accessibility terms are the four bucket names and the `private protected`
+  spelling, a narrower selection inside the `private` bucket. An
+  `accessibility` term, for example `--where "accessibility=private"`, and
+  `--only` accept the same accessibility terms, and several combine as a
+  union. Attribute facts then narrow the result.
 - An unknown term is a usage error that lists the term set. `--skip` and
-  `--only` never name the same term. Accessibility selection applies first,
-  then the attribute filters.
-- An `accessibility` term on its own selects one or more buckets, for example
-  `--where "accessibility=private"`. Combined with `--include`, it narrows the
-  buckets `--include` selected.
+  `--only` never name the same term.
+
+One admission rule covers every combination. The *reach set* is the default
+buckets, every bucket `--include` adds, and every bucket an accessibility term
+names, through `--only` or an `accessibility` term. A declaration is admitted
+when it and every enclosing or declaring Type is in the reach set. When an
+accessibility term is named, only declarations whose own bucket or spelling it
+names are kept; `--skip` and an attribute term in `--only` then filter by fact.
+So `--include internal` admits an internal Type with its public Members and
+public nested Types; `--only private` keeps a private nested Type of a public
+Type and the private Members of public Types; and, combined with
+`--include all`, an accessibility term narrows the rows without narrowing
+reach.
 - `--spelling metadata` selects the metadata spelling defined below, and
   `--spelling csharp` selects the default C# spelling. Spelling chooses the
   row unit, so it is an option rather than a row predicate.
@@ -494,10 +506,11 @@ timing:
    status reader, keeping today's `EditorBrowsable(Never)` default, behind a
    layering gate.
 3. Change the default in the admission: `private protected` moves to the
-   `private` bucket in the `api.accessibility` vocabulary
-   ([Vocabulary](vocabulary.md), `ApiAccessibilityVocabulary`, and Metadata's
-   bucket classification); the default population becomes the `public` and
-   `protected` buckets;
+   `private` bucket in the `api.accessibility` vocabulary, which gains the
+   `private protected` spelling as a narrower selection
+   ([Vocabulary](vocabulary.md), `ApiAccessibilityVocabulary`,
+   `ApiAccessibility.Classify`, and Metadata's `AccessibilityBucket`); the
+   default population becomes the `public` and `protected` buckets;
    `EditorBrowsable(Never)` declarations are admitted;
    `--skip` and `--only` are added; and the
    diff's ordinary view shows the API axis population with hidden rows
@@ -510,7 +523,9 @@ timing:
    (hidden rows counted outside), [Find](find-search-service.md) (default
    suppression of hidden and obsolete definitions), and
    [Member accessibility composition](member-accessibility-composition.md)
-   (the bucket map's default buckets and hidden admission).
+   (the bucket map's default buckets and hidden admission). The
+   [Diff capabilities](diff-capabilities.md) and diff API axis wording "less
+   `private protected`" becomes redundant and is simplified.
 4. `--include` replaces `--all` in every command definition and in the
    [CLI reference](../cli-reference.md).
 
