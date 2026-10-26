@@ -497,22 +497,23 @@ the part reader exposes it as `SymbolKeyPartKind.Ref` with its `Id`.
 
 Finding Diff Any is the first adopter. One table per comparison is shared by
 both sides, so equal Type-level keys of the two images receive one id; a
-Type-level key is interned when memoized, its `KeyRef` records the id and
-the form, and two Type-level `KeyRef`s compare and hash by id. The form is
-decided by the embedded key's kind, its first marker: a named Type (a Type
-definition, reference, or primitive) embeds as the `Ref` of its id; a
-composite embeds as a `Key` part of its bytes, whether it is a Type
-specification row or is spelled inline in a signature, and its own Types are
-`Ref`s, so the two encodings of one composite are one byte sequence; a member
-row embeds as a `Key` part. Named Types, composites, and members begin with
-disjoint markers, so two embedded keys with equal expansions have one kind
-and therefore one form, which is what the injectivity above requires. The
-table serves the comparison and is released with the builders when the sides
-complete. The IL census cursor still writes Type-level keys in full; its
-operand keys are the expansions of Finding Diff Any's, and it joins the
-comparison's table when
-[Finding Census](finding-census.md#adoption-sequence) step 2 gives it Finding
-Diff Any's side.
+Type-level key is interned when memoized, its `KeyRef` records the id and the
+form, and two Type-level `KeyRef`s compare and hash by id. The form is decided
+by the embedded key's kind, its first marker: a named Type (a Type definition,
+reference, or primitive) embeds as the `Ref` of its id; a composite embeds as a
+`Key` part of its bytes, whether it is a Type specification row or is spelled
+inline in a signature, and its own Types are `Ref`s, so the two encodings of
+one composite are one byte sequence; a member row embeds as a `Key` part. Named
+Types, composites, and members begin with disjoint markers, so two embedded
+keys with equal expansions have one kind and therefore one form, which is what
+the injectivity above requires. The table serves the comparison and is released
+with the builders when the sides complete. The IL census cursor writes
+Type-level keys in full; its operand keys are the expansions of Finding Diff
+Any's. A census side has no table, since a host holds one per image and pairs
+it freely; Ref parts would reach it only through a table scoped to a batch
+([#10533](https://github.com/richlander/dotnet-inspect/issues/10533)), and
+Finding Census records why it does not take one now ([what remains of the
+gap](finding-census.md#what-remains-of-the-gap)).
 
 ### Cost of the Ref parts
 

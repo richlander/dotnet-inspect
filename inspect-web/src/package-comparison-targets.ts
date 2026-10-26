@@ -5,16 +5,20 @@ export interface ComparisonPackage {
   version: string;
   activeFramework: string;
   runtimeIdentifier?: string | null;
+  implementationComparisonRuntimeIdentifier?: string;
   source: { kind: string };
 }
 
-export const PRODUCT_DEFAULT_COMPARISON_RUNTIME_IDENTIFIER = "linux-x64";
-
 export function implementationComparisonRuntimeIdentifier(
-  pkg: Pick<ComparisonPackage, "runtimeIdentifier">,
+  pkg: Pick<ComparisonPackage, "implementationComparisonRuntimeIdentifier">,
 ): string {
-  return pkg.runtimeIdentifier
-    ?? PRODUCT_DEFAULT_COMPARISON_RUNTIME_IDENTIFIER;
+  const runtimeIdentifier = pkg.implementationComparisonRuntimeIdentifier;
+  if (!runtimeIdentifier) {
+    throw new Error(
+      "The Package did not supply an implementation comparison runtime identifier.",
+    );
+  }
+  return runtimeIdentifier;
 }
 
 export type DiffTarget = { kind: "previous" } | { kind: "exact"; version: string };

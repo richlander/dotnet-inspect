@@ -151,6 +151,7 @@ export interface AppPackage {
   runtimeIdentifier?: string | null;
   runtimeIdentifiers?: string[];
   runtimePopulation?: BrowserPackageRuntimePopulationChoice | null;
+  implementationComparisonRuntimeIdentifier?: string;
   assembly: string;
   assemblyId: string;
   assemblyAsset: string;
@@ -802,15 +803,23 @@ export function createNuGetPackageModel(
 export function createNuGetPackageModelWithDefaultLibrary(
   result: InspectedPackageSurface,
   defaultLibrary: PackageDefaultLibraryIdentity | null,
+  implementationComparisonRuntimeIdentifier: string,
+  runtimeIdentifier: string | null = null,
 ): AppPackage {
-  return defaultLibrary === null
+  const model = defaultLibrary === null
     ? createNuGetPackageModel(result)
     : createNuGetPackageModel(result, defaultLibrary);
+  return {
+    ...model,
+    ...(runtimeIdentifier ? { runtimeIdentifier } : {}),
+    implementationComparisonRuntimeIdentifier,
+  };
 }
 
 export function createWorkspaceOccurrencePackageModel(
   result: InspectedPackageSurface,
   runtimeIdentifier: string,
+  implementationComparisonRuntimeIdentifier: string,
   activePackage: AppPackage | null | undefined,
   retainedPackages: readonly AppPackage[],
 ): AppPackage {
@@ -831,6 +840,7 @@ export function createWorkspaceOccurrencePackageModel(
   return {
     ...model,
     ...(runtimeIdentifier ? { runtimeIdentifier } : {}),
+    implementationComparisonRuntimeIdentifier,
     ...(retained?.runtimeIdentifiers
       ? { runtimeIdentifiers: retained.runtimeIdentifiers }
       : {}),
@@ -1253,6 +1263,7 @@ export function createPackageAcquisition(
       let documents: readonly InspectedPackageDocument[] = [];
       let defaultLibraryId: string | null | undefined;
       let runtimePopulation: BrowserPackageRuntimePopulationChoice | null = null;
+      let implementationComparisonRuntimeIdentifier: string;
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
@@ -1261,6 +1272,8 @@ export function createPackageAcquisition(
           await dependencies.queryPackageRoot(request.rootRequest);
         packageChildren = rootLoad.packageChildren;
         runtimePopulation = rootLoad.runtimePopulation;
+        implementationComparisonRuntimeIdentifier =
+          rootLoad.implementationComparisonRuntimeIdentifier;
         documents = rootLoad.documents;
         defaultLibraryId = rootLoad.defaultLibraryId;
       } else {
@@ -1285,6 +1298,8 @@ export function createPackageAcquisition(
         }
         packageInfo = loadResult.packageInfo;
         runtimePopulation = loadResult.runtimePopulation;
+        implementationComparisonRuntimeIdentifier =
+          loadResult.implementationComparisonRuntimeIdentifier;
         if (loadResult.packageChildren === null) {
           throw new Error(
             "A settled package surface must carry Package children.");
@@ -1328,7 +1343,11 @@ export function createPackageAcquisition(
         ? [...runtimePopulation.availableRuntimeIdentifiers]
         : [];
       packageModel.runtimeIdentifier =
-        runtimePopulation?.selectedRuntimeIdentifier ?? null;
+        request.runtimeIdentifier
+        || runtimePopulation?.selectedRuntimeIdentifier
+        || null;
+      packageModel.implementationComparisonRuntimeIdentifier =
+        implementationComparisonRuntimeIdentifier;
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(
         packageModel.id,

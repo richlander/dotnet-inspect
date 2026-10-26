@@ -256,7 +256,9 @@ public record ApiChange(
 /// Named, explicitly-requested classification exceptions -- mirrors
 /// <c>IlBodyDiffNormalization</c>'s policy shape. Default (<see cref="None"/>) is strict:
 /// a fuzzy/soft member identity match (e.g. an extension method's static/instance
-/// projection) is treated as unrelated (a breaking removal plus an additive addition).
+/// projection) is treated as unrelated: a removal plus an addition, each classified on its
+/// own (a removal is breaking; an addition is additive, or potentially breaking on an
+/// interface).
 /// Requesting
 /// <see cref="NormalizeMemberProjection"/> instead treats a fuzzy-matched member pair as
 /// the same member observed under two projections, classifying only its facet deltas.

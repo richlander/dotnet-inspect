@@ -123,6 +123,70 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        DefiningImplementationTargetUsesTheNonNamesakeImplementationAsset()
+    {
+        const string selectedAssembly = "DotnetInspector.Sections.dll";
+        byte[] selected = await File.ReadAllBytesAsync(
+            typeof(ExactTypeInspectionOperation).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] sibling = BuildMetadataAssembly(
+            PackageId,
+            Guid.NewGuid(),
+            definesType: true,
+            "Other",
+            "Sibling");
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll", sibling),
+            ($"lib/{Framework}/{PackageId}.dll", sibling),
+            ($"ref/{Framework}/{selectedAssembly}", selected),
+            ($"lib/{Framework}/{selectedAssembly}", selected));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new NotFoundHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            typeof(ExactTypeInspectionOperation).FullName!);
+
+        string? assetPath =
+            await ExactTypeInspectionOperation
+                .ExecuteFirstAvailableWithDefiningImplementationTargetAsync(
+                    [request],
+                    house,
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken),
+                    ApiSurfaceScope.Public,
+                    (envelope, target, _) =>
+                    {
+                        Assert.True(envelope.Content.IsAvailable);
+                        Assert.NotNull(target);
+                        using Stream stream = target.Assembly.OpenRead();
+                        Assert.True(stream.Length > 0);
+                        return ValueTask.FromResult(
+                            target.PackageAssetPath);
+                    },
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            $"lib/{Framework}/{selectedAssembly}",
+            assetPath);
+    }
+
+    [Fact]
     public void ExactTypeEnvelope_PublicSurfaceCarriesNoLiveAuthorityOrContent()
     {
         var visited = new HashSet<Type>();

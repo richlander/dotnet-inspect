@@ -2,8 +2,8 @@
 
 ## Status and ownership
 
-Status: **shared policy, Package Navigation, and Source adoption implemented;
-Compare adoption pending**.
+Status: **implemented and adopted by Package Navigation, Package Source, and
+Browser implementation Compare; replacement retirement verified**.
 
 This document is the normative owner for the package-local Selection RID
 policy, tracked by
@@ -233,7 +233,10 @@ different common population is wanted.
 If the current Package endpoint uses a neutral implementation population but a
 comparison endpoint requires RID qualification, the Package-owned comparison
 target uses the retained explicit RID when present and otherwise the product
-default `linux-x64`. It does not derive authority from the baseline endpoint.
+default `linux-x64`. Package projects that effective comparison RID across its
+host boundary; adopters consume the owner-issued value rather than restating
+the product default. The choice does not derive authority from the baseline
+endpoint.
 
 Compile/API comparison modes continue to use compile populations and do not
 adopt this policy. The Compare owner classifies which modes require
@@ -278,8 +281,8 @@ The counted delivery is:
    behavior.
 
 The design, lower-owner inventory prerequisite, shared policy, Package
-Navigation, and Source adoption complete steps 1-3. Steps 4-5 remain production
-adoption work.
+Navigation, Source adoption, Compare adoption, and retirement audit complete
+all five steps.
 
 The shared policy is gated by
 `PackageRuntimePopulationChoiceTests` and the resource-free receipt graph in
@@ -310,14 +313,34 @@ Package Library selection records the selected RID in
 `AssemblyResolutionProvenance.PackageAsset`, and package-local Portable PDB
 settlement constructs its exact target from that retained provenance.
 
-Later adoption Release gates must cover:
+The Compare Release gates cover:
 
 - Compare applying one exact Package Selection RID to both endpoints;
 - Compare reporting a missing counterpart without common-RID search; and
 - compile/API comparison bypassing runtime choice.
 
-The Source adoption gates are **verified**. The Compare adoption gates remain
-**unverified** until their owning slice lands.
+`BrowserEngineBoundaryTests.PackageRange`,
+`BrowserEngineBoundaryTests.HomeDemoAndCallGraph`,
+`BrowserRetainedWorkspaceActivationTests.Presentation`,
+`package-acquisition.test.ts`, `retained-workspace-installation.test.ts`,
+`workspace-feed-activation.test.ts`, `product-home-demos.test.ts`, and
+`package-comparison-targets.test.ts` also prove that the exact retained RID
+remains Browser Workspace coordinate identity while Package separately projects
+the retained RID or shared product default as its comparison currency.
+Workspace occurrence activation, sharing and restore, retained Workspace
+Package inventory, and Package product home demos preserve both identities,
+every Compare-capable model construction consumes the owner-issued comparison
+value, and implementation Compare has no browser-local default.
+
+The step 5 audit found no remaining archive-order search or executing-host RID
+authority in the adopted Package Source or Browser implementation Compare
+paths. It retired the final copied Browser Compare default by projecting the
+Package-owned effective RID. CLI endpoint-diff sessions without a retained
+Package Navigation coordinate, general source fallback, and package-backed
+Platform realization are adjacent paths governed by their own owners, not
+adopters covered by this contract.
+
+The Source, Compare, and retirement gates are **verified**.
 
 ## Non-claims
 

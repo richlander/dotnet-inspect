@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createAppMemberSurface,
   createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   packageQueryAssemblyId,
   createPackageAcquisition,
   createRuntimePackageModel,
@@ -396,10 +397,12 @@ function packageChildren(
 
 function packageRootLoad(
   surface: BrowserPackageSurface,
+  implementationComparisonRuntimeIdentifier = "linux-x64",
 ): BrowserPackageRootLoadResult {
   return {
     packageChildren: packageChildren(surface),
     runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier,
     documents: surface.documents,
     defaultLibraryId: surface.defaultAssemblyId,
   };
@@ -861,9 +864,11 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     runtimeIdentifier: "win-x64",
     runtimeIdentifiers: ["linux-x64", "win-x64"],
     runtimePopulation,
+    implementationComparisonRuntimeIdentifier: "win-x64",
   };
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ totalMembers: 12 }),
+    "win-x64",
     "win-x64",
     retained,
     [retained]);
@@ -871,6 +876,10 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
   assert.equal(activated.runtimeIdentifier, "win-x64");
   assert.equal(activated.runtimeIdentifiers, retained.runtimeIdentifiers);
   assert.equal(activated.runtimePopulation, runtimePopulation);
+  assert.equal(
+    activated.implementationComparisonRuntimeIdentifier,
+    "win-x64",
+  );
   assert.equal(activated.totalMembers, 6);
   assert.equal(activated.versionSettlement, versionSettlement);
   assert.equal(activated.packageInfo, measurements);
@@ -879,6 +888,19 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     activated.assemblies[0]?.publicTypes,
     retained.assemblies[0]?.publicTypes);
   assert.equal(activated.totalTypes, retained.totalTypes);
+});
+
+test("retained Workspace Package models preserve the owner-issued comparison RID", () => {
+  const model = createNuGetPackageModelWithDefaultLibrary(
+    packageSurface(),
+    null,
+    "osx-arm64",
+  );
+
+  assert.equal(
+    model.implementationComparisonRuntimeIdentifier,
+    "osx-arm64",
+  );
 });
 
 test("Workspace occurrence activation does not copy envelopes across TFMs", () => {
@@ -910,6 +932,7 @@ test("Workspace occurrence activation does not copy envelopes across TFMs", () =
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ activeFramework: "net9.0" }),
     "",
+    "linux-x64",
     retained,
     [retained]);
 
@@ -1064,6 +1087,7 @@ function acquisitionDependencies(
       packageInfo: packageInfo(),
       packageChildren: packageChildren(packageSurface()),
       runtimePopulation: null,
+      implementationComparisonRuntimeIdentifier: "linux-x64",
       documents: [],
       surface: packageSurface(),
     }),
@@ -1099,6 +1123,45 @@ function contractViolation<T>(value: unknown): T {
   return value as T;
 }
 
+test("neutral Package acquisition retains an explicit RID as Workspace identity", async () => {
+  const baseline = acquisitionDependencies();
+  const queried: string[] = [];
+  const acquisition = createPackageAcquisition(acquisitionDependencies({
+    queryPackageSummary: async (
+      packageId,
+      version,
+      framework,
+      runtimeIdentifier,
+    ) => {
+      queried.push(runtimeIdentifier);
+      return {
+        ...await baseline.queryPackageSummary(
+          packageId,
+          version,
+          framework,
+          runtimeIdentifier),
+        runtimePopulation: null,
+        implementationComparisonRuntimeIdentifier: runtimeIdentifier,
+      };
+    },
+  }));
+
+  const result = await acquisition.loadPackage({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    runtimeIdentifier: "win-x64",
+  });
+
+  assert.deepEqual(queried, ["win-x64"]);
+  assert.equal(result?.runtimeIdentifier, "win-x64");
+  assert.deepEqual(result?.runtimeIdentifiers, []);
+  assert.equal(
+    result?.implementationComparisonRuntimeIdentifier,
+    "win-x64",
+  );
+});
+
 test("query results open through the exact opaque Root request", async () => {
   const rootRequest = "owner-issued-root-request";
   const opened: string[] = [];
@@ -1117,7 +1180,7 @@ test("query results open through the exact opaque Root request", async () => {
           size: 128,
         }],
       });
-      return packageRootLoad(surface);
+      return packageRootLoad(surface, "osx-arm64");
     },
   }));
 
@@ -1132,6 +1195,10 @@ test("query results open through the exact opaque Root request", async () => {
   assert.equal(result?.id, "Example.Package");
   assert.equal(result?.version, "1.2.3");
   assert.equal(result?.activeFramework, "net9.0");
+  assert.equal(
+    result?.implementationComparisonRuntimeIdentifier,
+    "osx-arm64",
+  );
   assert.deepEqual(result?.assemblies, []);
   assert.deepEqual(result?.documents, [{
     kind: "readme",
@@ -1232,6 +1299,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
       packageInfo: null,
       packageChildren: null,
       runtimePopulation: null,
+      implementationComparisonRuntimeIdentifier: "linux-x64",
       documents: [],
       surface: null,
     }),
