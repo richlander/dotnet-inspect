@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
@@ -1580,6 +1581,8 @@ internal static class BrowserRetainedWorkspaceActivationService
                             package.NavigationId,
                             package.ContextIndex,
                             package.ConsumerPackageSubjectId,
+                            package.Inventory.Package.RuntimeIdentifier,
+                            ImplementationComparisonRuntimeIdentifier(package),
                             Summary(package.Surface),
                             DefaultLibrary(package))),
             ],
@@ -1615,6 +1618,8 @@ internal static class BrowserRetainedWorkspaceActivationService
                         package.NavigationId,
                         package.ContextIndex,
                         package.ConsumerPackageSubjectId,
+                        package.Inventory.Package.RuntimeIdentifier,
+                        ImplementationComparisonRuntimeIdentifier(package),
                         Summary(package.Surface),
                         DefaultLibrary(package))),
             ],
@@ -1645,6 +1650,12 @@ internal static class BrowserRetainedWorkspaceActivationService
             package.ConsumerPackageSubjectId,
             PageSurface(package.Surface, typeOffset),
             TypePage(package.Surface, typeOffset));
+
+    static string ImplementationComparisonRuntimeIdentifier(
+        BrowserRetainedWorkspacePackagePresentation package) =>
+        package.Inventory.Package.RuntimeIdentifier
+            ?? PackageRuntimePopulationChoice
+                .ProductDefaultRuntimeIdentifier;
 
     static BrowserRetainedWorkspacePlatform Platform(
         BrowserRetainedWorkspacePlatformPresentation platform,

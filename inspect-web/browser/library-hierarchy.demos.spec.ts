@@ -150,8 +150,16 @@ function homeDemoResult(
   return {
     found: true,
     packages: platform
-      ? [platformPeerSurface, platformFocusSurface]
-      : [peerSurface, surface],
+      ? [platformPeerSurface, platformFocusSurface].map(packageSurface => ({
+        surface: packageSurface,
+        runtimeIdentifier: null,
+        implementationComparisonRuntimeIdentifier: null,
+      }))
+      : [peerSurface, surface].map(packageSurface => ({
+        surface: packageSurface,
+        runtimeIdentifier: "linux-x64",
+        implementationComparisonRuntimeIdentifier: "linux-x64",
+      })),
     activation: {
       focusKind,
       focusId: platform ? "runtime" : surface.package,
