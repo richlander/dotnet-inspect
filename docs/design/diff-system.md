@@ -120,17 +120,17 @@ over Exists on Finding Diff Any's axes, are not composed. Finding Diff Any is
 therefore one composition, not the solution.
 
 What is foundational is what every row of the table uses: the cursors and
-`FindingExists` of [Finding census](finding-census.md), which owns the
-reading of one row on one kind including when it is `Indeterminate`; the
-exhaustive comparison of each kind; and the vocabulary Finding Diff Any owns
-as contract rather than mechanism: the identity rule, which rows count toward
-which axis, and how a Type's rows and their undecided readings fold. Finding
-census step 4 makes Finding Diff Any the owner of Exists at Library, Type, and
-Member scope, which is the point at which it becomes a thin composition of
-those primitives. The walk is a provision of that owner, kept while it is
-measurably cheaper than lockstep over the cursors and deleted when lockstep
-matches it, under Finding census step 2b; it is justified by time alone,
-never by a second definition of change.
+`FindingExists` of [Finding census](finding-census.md), which owns the reading
+of one row on one kind including when it is `Indeterminate`; the exhaustive
+comparison of each kind; and the vocabulary Finding Diff Any owns as contract
+rather than mechanism: the identity rule, which rows count toward which axis,
+and how a Type's rows and their undecided readings fold. Since Finding census
+step 4, Finding Diff Any owns Exists at Library, Type, and Member scope, as a
+composition of those primitives. The walk is a provision of that owner, kept
+because Finding census step 2b measured it cheaper than lockstep over the
+cursors, and deleted only when lockstep matches or beats it on every number
+Finding census's Cost gate reports; it is justified by time alone, never by a
+second definition of change.
 
 Three consequences follow for what Finding Diff Any does not compose:
 
