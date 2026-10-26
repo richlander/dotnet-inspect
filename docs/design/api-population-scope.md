@@ -11,11 +11,12 @@ command contract; it does not change current behavior by itself.
 API and Implementation Population Scope owns:
 
 > An API-level operation selects a declaration population whose default is the
-> product's ordinary public-facing API. `--all` is an explicit visibility
-> gesture that widens that declaration population. An operation that analyzes
-> a declared set of implementations selects its complete admitted
-> implementation population by default; it does not use `--all` as a proxy for
-> completeness.
+> product's public-facing API, decided by accessibility alone. `--include` is
+> an explicit visibility gesture that widens that population by accessibility;
+> `--skip` and `--only` are explicit attribute filters. An operation that
+> analyzes a declared set of implementations selects its complete admitted
+> implementation population by default; it does not use a visibility gesture
+> as a proxy for completeness.
 
 It also owns the boundary between declaration and contextual populations:
 
@@ -43,10 +44,11 @@ compare:
 - API compatibility and declaration correspondence; and
 - sections whose rows are API declarations.
 
-These routes use their ordinary public-facing declaration population by
-default. `--all` widens that population to the command's existing
-non-public, hidden, and obsolete declarations. The option changes which API
-declarations are eligible; it does not mean "perform every available
+These routes use their public-facing declaration population by default, as
+[Accessibility within API visibility scope](#accessibility-within-api-visibility-scope)
+defines it. `--include` widens that population by accessibility, and `--skip`
+and `--only` filter it by attribute facts. These options change which API
+declarations are eligible; they do not mean "perform every available
 analysis."
 
 The default is still applied independently at each operation boundary. A
@@ -86,35 +88,57 @@ projection, not C# spelling.
 
 ### Accessibility within API visibility scope
 
-A Type's Member inventory is one declaration population with two independent
-visibility axes: accessibility and hidden status. Accessibility is the
+**Accessibility is the arbiter.** A declaration's accessibility alone decides
+whether it is in a public-facing population. Accessibility is the
 `api.accessibility` vocabulary's buckets (`public`, `protected`, `internal`,
 and `private`). A composite spelling such as `protected internal` belongs to
-the one bucket that vocabulary classifies it into. Hidden status marks
-declarations the public-facing default omits for reasons other than
-accessibility, such as `EditorBrowsable(Never)`. Obsolete declarations are not
-a separate axis: they are admitted and marked, as the default already does.
+the one bucket that vocabulary classifies it into.
 
-- The default population is the `public` bucket without hidden declarations:
-  the ordinary public-facing API. The Metadata owner's admission decides its
-  exact members, and the spelling below decides how records form them.
+**Attributes are facts, not admission.** `EditorBrowsable(Never)` and
+`[Obsolete]` are independent status facts about a declaration. Each is read on
+its own, listed on the declaration's type or member page, and marked on its
+rows. Neither removes a declaration from any population by default, and no
+rule treats them together. They are different statements and are used in
+opposite directions:
+
+- `EditorBrowsable(Never)` is a presentation hint, usually on infrastructure a
+  caller should not reach for. A reader removes it on request:
+  `--skip EditorBrowsableNever`.
+- `[Obsolete]` is a contract statement that the API may be removed. A reader
+  asks for it on request, for example to see which deprecated APIs a codebase
+  depends on: `--only Obsolete`.
+
+Contract strength runs public > obsolete > `EditorBrowsable`. Nesting is
+orthogonal to both facts: a nested Type does not inherit its enclosing Type's
+facts (decided 2026-10-25 in
+[#10642](https://github.com/richlander/dotnet-inspect/issues/10642)).
+Roslyn's compiler-compatibility `[Obsolete]` markers (ref-struct Types and
+`required`-member constructors) are not obsolescence and do not set the fact.
+
+- The default population is the `public` bucket. The Metadata owner's
+  admission decides its exact members, and the spelling below decides how
+  records form them.
 - A Type is in the `public` bucket only when it and every enclosing Type is
   public or nested public, the reach the
   [ordinary presentation](library-api-diff-presentation.md#per-side-facts)
   requires. A public nested Type of a protected Type is reachable only by
   derivation, so it is not in the `public` bucket, and no other assembly can
   reach one of an internal or private Type. Such a Type and its Members leave
-  the default public-facing population; `--all` still lists them. Every
-  Metadata reader that means the public Type population applies this one
-  admission: Type lookup and counts, the integration, telemetry, and
-  opportunity scanners, the hierarchy and dependency indexes, and the
-  extension scan's declaring Type. A reader that means another population,
-  such as the row-local surface classification count, says so in its owner.
-- An `accessibility` term selects one or more buckets. By itself it does not
-  admit hidden declarations.
-- `--all` selects every bucket and admits hidden declarations into their
-  buckets. Combined with an `accessibility` term, the term narrows the buckets
-  and hidden declarations stay admitted.
+  the default public-facing population; `--include all` still lists them. A
+  reader that means another population, such as the row-local surface
+  classification count, says so in its owner.
+- `--include <term>` widens the population by accessibility. Its fixed terms
+  are the bucket names `protected`, `internal`, and `private`, which add that
+  bucket to `public`, and `all`, which selects every bucket. It never changes
+  attribute filtering.
+- `--skip <term>` removes declarations carrying an attribute fact. Its fixed
+  term set starts with `EditorBrowsableNever`.
+- `--only <term>` keeps only declarations carrying an attribute fact. Its
+  fixed term set starts with `Obsolete`.
+- An unknown term is a usage error that lists the term set. `--skip` and
+  `--only` never name the same term, and each composes with `--include`: the
+  accessibility selection applies first, then the attribute filters.
+- An `accessibility` term narrows the selected buckets, as before.
 - `--spelling metadata` selects the metadata spelling defined below, and
   `--spelling csharp` selects the default C# spelling. Spelling chooses the
   row unit, so it is an option rather than a row predicate.
@@ -126,10 +150,29 @@ Metadata owner's admission decides which declarations are compiler-generated.
 Those declarations are not API declarations and belong to no bucket. A host
 does not narrow the population further by name.
 
+**One implementation.** This policy is implemented in one place. One Metadata
+admission takes a declaration's accessibility, its enclosing Types' reach, and
+the request's `--include`, `--skip`, and `--only` selection, and answers
+whether the declaration is in the population. One Metadata status reader
+reads `EditorBrowsableNever` and `Obsolete` as two independent facts. Every
+reader that forms an API population calls them: Type and Member listings and
+lookup, counts, Find and its indexes, the hierarchy, dependency, extension,
+integration, telemetry, and opportunity scanners, Library Info, the Browser
+exports, Analysis planning, and the diff's presentation. No reader
+re-implements either, decides admission from an attribute directly, or ORs the
+two facts. A layering gate enforces that only the admission and the status
+reader call the attribute rule. The CLI and Browser parse their options into
+the same typed selection; neither host spells the policy.
+
+`--all` is the legacy spelling of `--include all`. Today it also admits hidden
+and obsolete declarations; under this rule it implies no attribute filtering in
+either direction, and the adoption below retires it.
+
 ### Spelling within API visibility scope
 
 The same Member population has two spellings. Spelling is independent of
-accessibility, hidden status, `--all`, and contextual population selection.
+accessibility, attribute facts, `--include`, `--skip`, `--only`, and contextual
+population selection.
 
 **C# spelling** is the default. It composes metadata records into one
 declaration wherever the same Type physically owns the records and a consumer
@@ -204,13 +247,15 @@ An implementation operation may begin by resolving a user-written Type or
 Member selector through an API declaration population. That initial lookup and
 the later body analysis are separate population decisions:
 
-1. Root resolution uses the ordinary public-facing API population by default.
-   `--all` is required when the named root is non-public, hidden, or obsolete.
+1. Root resolution uses the public-facing API population by default.
+   `--include` (today `--all`) is required when the named root is non-public;
+   a hidden or obsolete public root resolves without it.
 2. After the root is resolved, the operation analyzes its complete admitted
-   implementation population by default. `--all` does not widen traversal,
-   select more relationships, remove work bounds, or request every analysis.
+   implementation population by default. `--include` does not widen
+   traversal, select more relationships, remove work bounds, or request every
+   analysis.
 
-The presence of `--all` on a body-oriented command therefore does not make
+The presence of `--include` on a body-oriented command therefore does not make
 implementation completeness opt-in. It widens only the API boundary used to
 resolve the requested root.
 
@@ -239,20 +284,20 @@ the implementation analysis complete.
 
 ## Decision table
 
-| Question | Default population | Meaning of `--all` |
+| Question | Default population | Widening and filtering |
 | --- | --- | --- |
-| Which API declarations should an API inventory show? | The ordinary public-facing API | Include the command's non-public, hidden, and obsolete declarations |
-| Which accessibility should a Type's Member inventory show? | The `public` bucket without hidden declarations; an `accessibility` term selects other buckets, still without hidden declarations | Every bucket plus hidden declarations; an added `accessibility` term narrows the buckets and hidden declarations stay admitted |
+| Which API declarations should an API inventory show? | The `public` bucket, with `EditorBrowsable(Never)` and `[Obsolete]` declarations admitted and marked | `--include` adds accessibility buckets; `--skip EditorBrowsableNever` and `--only Obsolete` filter by attribute fact |
+| Which accessibility should a Type's Member inventory show? | The `public` bucket; an `accessibility` term selects other buckets | `--include` adds buckets; an added `accessibility` term narrows them |
 | Which members belong to a Type's declaration population? | Declarations physically owned by that Type; inherited and extension members require separately requested contextual populations | Widen only the visibility of the declaration population; do not request contextual populations |
 | How should a Type's Member inventory spell its rows? | C# spelling: same-owner records compose into declarations wherever a consumer sees a single unit | Unchanged; metadata spelling is a separate, explicit choice |
-| Which declarations should an API comparison match? | A diff's API axis compares the `public` and `protected` buckets, less `private protected`, with hidden declarations admitted; the ordinary API population is its presentation default | Widen the API population where that comparison admits the option |
-| Which named root should a body operation resolve? | Roots in the ordinary public-facing API | Include a non-public, hidden, or obsolete root; the resulting implementation analysis is unchanged |
+| Which declarations should an API comparison match? | A diff's API axis compares the `public` and `protected` buckets, less `private protected`; attribute facts never decide what is compared | Widen the API population where that comparison admits `--include` |
+| Which named root should a body operation resolve? | Roots in the public-facing API | `--include` resolves a non-public root; the resulting implementation analysis is unchanged |
 | Which method bodies should a whole-library metric summarize? | Every admitted implementation body in the selected library population | Not a completeness switch; the report declares its own implementation population |
 | Which bodies should a type/member metric or call analysis inspect? | Every admitted body under the selected typed root | Not a substitute for selecting the root or changing its API visibility |
 
 `--all-libraries` and similar package-population controls are separate
 selection mechanisms. They decide which Library occurrences participate; they
-do not redefine the meaning of API `--all` inside an already selected
+do not redefine the meaning of API `--include` inside an already selected
 Library.
 
 ## Population and identity
@@ -388,10 +433,13 @@ reach (NonBreaking). The rule was adopted on 2026-10-25 in
 the operator delegated the choice.
 `FindingDiffAnyTests` and `LibraryApiDiffCommandTests` gate it.
 
-The ordinary population, the `public` bucket without hidden declarations, is
-the presentation default for diff output: a host shows it unless the user
-selects more, and it filters by each compared declaration's accessibility and
-its API status findings rather than by narrowing the comparison.
+The ordinary population is the presentation default for diff output: a host
+shows it unless the user selects more, and it filters by each compared
+declaration's accessibility rather than by narrowing the comparison. Today it
+also leaves out hidden declarations. Under
+[Accessibility within API visibility scope](#accessibility-within-api-visibility-scope)
+it becomes the `public` bucket with hidden and obsolete rows marked, and
+`--skip EditorBrowsableNever` leaves hidden rows out on request.
 
 ## Adoption
 
@@ -406,6 +454,31 @@ other implementation analyses should state their implementation population
 directly and should not add `--all` solely to expose non-public or generated
 bodies. When an implementation report offers a follow-up API route, that route
 may apply its own visibility defaults and explain the separate `--all` gesture.
+
+[#10693](https://github.com/richlander/dotnet-inspect/issues/10693) adopts
+[Accessibility within API visibility scope](#accessibility-within-api-visibility-scope).
+Today 109 sites read the two attributes. 39 of them filter, under two
+conflated rules: Never-or-Obsolete for Types and Never-only for Members. The
+adoption runs in this order, each step with population evidence and NativeAOT
+timing:
+
+1. Separate the two facts. `[Obsolete]` stops suppressing any declaration, and
+   every rule that combines the two facts is deleted.
+2. Route every filter through the one admission and every mark through the one
+   status reader, keeping today's `EditorBrowsable(Never)` default, behind a
+   layering gate.
+3. Change the default in the admission: `EditorBrowsable(Never)` declarations
+   are admitted, `--skip EditorBrowsableNever` and `--only Obsolete` are
+   added, and the diff's ordinary view marks hidden rows. The Type locator's
+   `EditorBrowsableNever` and `Obsolete` default restrictions
+   ([Type-declaration visibility](type-declaration-visibility.md)) adopt the
+   same defaults.
+4. `--include` replaces `--all` in every command definition.
+
+[#10694](https://github.com/richlander/dotnet-inspect/issues/10694) makes Type
+lookup one path that consumes the admission.
+[#10695](https://github.com/richlander/dotnet-inspect/issues/10695) lists each
+Type's and Member's attributes with faithfully decoded values.
 
 Current member-visibility inconsistencies and the transition from
 single-Library to aggregate package/API subjects are tracked separately by
