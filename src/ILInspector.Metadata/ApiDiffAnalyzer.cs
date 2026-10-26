@@ -833,9 +833,10 @@ public static class ApiDiffAnalyzer
     /// <summary>
     /// The accessor reach classification when the two signatures differ only in their
     /// accessor accessibility spelling: the same accessors, in the same order and with the
-    /// same structural return (an <c>init</c> setter's carries <c>IsExternalInit</c>), the same
-    /// static-ness, and the same text before the accessor list, which each side's typed
-    /// accessors reproduce; the signature text spells neither <c>init</c> nor <c>static</c>. An
+    /// same accessor facts (<see cref="SameAccessorFacts"/>), the same declaration modifiers
+    /// (<see cref="SameDeclarationModifiers"/>), and the same text before the accessor list,
+    /// which each side's typed accessors reproduce. The signature text spells no declaration
+    /// modifier and no <c>init</c>, so those facts are compared from the typed model. An
     /// accessor's own accessibility is its spelled accessibility, or its property's when it
     /// spells none. <see langword="null"/> for any other difference, including an added or
     /// removed accessor, or when either side's typed accessors are unavailable.
@@ -845,7 +846,7 @@ public static class ApiDiffAnalyzer
         if (oldMember.SignatureModel?.Accessors is not { Count: > 0 } oldAccessors
             || newMember.SignatureModel?.Accessors is not { } newAccessors
             || oldAccessors.Count != newAccessors.Count
-            || oldMember.IsStatic != newMember.IsStatic
+            || !SameDeclarationModifiers(oldMember, newMember)
             || SignatureBeforeAccessors(oldMember.Signature, oldAccessors) is not { } oldDeclaration
             || SignatureBeforeAccessors(newMember.Signature, newAccessors) is not { } newDeclaration
             || !string.Equals(oldDeclaration, newDeclaration, StringComparison.Ordinal))
@@ -858,11 +859,7 @@ public static class ApiDiffAnalyzer
         {
             ApiAccessor oldAccessor = oldAccessors[index];
             ApiAccessor newAccessor = newAccessors[index];
-            if (!string.Equals(oldAccessor.Kind, newAccessor.Kind, StringComparison.Ordinal)
-                || !string.Equals(
-                    oldAccessor.StructuralReturnType,
-                    newAccessor.StructuralReturnType,
-                    StringComparison.Ordinal)
+            if (!SameAccessorFacts(oldAccessor, newAccessor)
                 || ExternalReach(oldAccessor.Accessibility ?? oldMember.Accessibility) is not { } oldReach
                 || ExternalReach(newAccessor.Accessibility ?? newMember.Accessibility) is not { } newReach)
             {
@@ -881,6 +878,35 @@ public static class ApiDiffAnalyzer
         }
         return classification;
     }
+
+    /// <summary>
+    /// Every declaration modifier the member model records, other than accessibility and
+    /// hidden status, which their own rows report.
+    /// </summary>
+    static bool SameDeclarationModifiers(ApiMember oldMember, ApiMember newMember)
+        => oldMember.IsStatic == newMember.IsStatic
+            && oldMember.IsVirtual == newMember.IsVirtual
+            && oldMember.IsAbstract == newMember.IsAbstract
+            && oldMember.IsOverride == newMember.IsOverride
+            && oldMember.IsSealed == newMember.IsSealed
+            && oldMember.IsReadOnly == newMember.IsReadOnly
+            && oldMember.IsUnsafe == newMember.IsUnsafe
+            && oldMember.IsExplicitInterfaceImplementation == newMember.IsExplicitInterfaceImplementation;
+
+    /// <summary>
+    /// Every accessor fact the model records other than its accessibility: its kind, its
+    /// structural return (an <c>init</c> setter's carries <c>IsExternalInit</c>), and its own
+    /// modifiers.
+    /// </summary>
+    static bool SameAccessorFacts(ApiAccessor oldAccessor, ApiAccessor newAccessor)
+        => string.Equals(oldAccessor.Kind, newAccessor.Kind, StringComparison.Ordinal)
+            && string.Equals(
+                oldAccessor.StructuralReturnType,
+                newAccessor.StructuralReturnType,
+                StringComparison.Ordinal)
+            && oldAccessor.IsReadOnly == newAccessor.IsReadOnly
+            && oldAccessor.DeclarationModifiersMatchProperty == newAccessor.DeclarationModifiersMatchProperty
+            && oldAccessor.IsExplicitInterfaceImplementation == newAccessor.IsExplicitInterfaceImplementation;
 
     /// <summary>
     /// The signature text before its accessor list, such as <c>int Value</c> for

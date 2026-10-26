@@ -520,9 +520,10 @@ public sealed class FindingDiffAnyTests
         Assert.Equal("int Value { get; private set; }", change.NewValue);
     }
 
-    // The signature text spells neither an init setter nor static, so an accessor that
-    // becomes init or a property that changes static-ness is not an accessor spelling change
-    // and stays Breaking (docs/design/api-population-scope.md#the-diffs-api-axis-population).
+    // The signature text spells no declaration modifier and no init setter, so an accessor
+    // that becomes init, or a property whose static, sealed, override, or virtual modifiers
+    // change, is not an accessor spelling change and stays Breaking
+    // (docs/design/api-population-scope.md#the-diffs-api-axis-population).
     [Theory]
     [InlineData(ApiSurfaceExtractionScope.Public, "public int Value { get; protected set; }", "public int Value { get; init; }")]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public int Value { get; protected set; }", "public int Value { get; init; }")]
@@ -543,6 +544,29 @@ public sealed class FindingDiffAnyTests
 
         ApiChange change = Assert.Single(
             Assert.Single(comparison.ApiDiff.TypeDiffs).Changes,
+            change => change.Kind == ChangeKind.MemberSignatureChanged);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+    }
+
+    // A base Type B carries the property each side of C overrides or hides, so only C's
+    // declaration modifiers and accessor spelling change.
+    [Theory]
+    [InlineData(
+        "public class B { public virtual int V { get; protected set; } } public class C : B { public override int V { get; protected set; } }",
+        "public class B { public virtual int V { get; set; } } public class C : B { public sealed override int V { get; set; } }")]
+    [InlineData(
+        "public class B { public virtual int V { get; protected set; } } public class C : B { public override int V { get; protected set; } }",
+        "public class B { public virtual int V { get; protected internal set; } } public class C : B { public new virtual int V { get; protected internal set; } }")]
+    public void AccessorSpellingChange_WithOverrideModifierChange_IsBreaking(string oldSource, string newSource)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface(oldSource, ApiSurfaceExtractionScope.ApiAxis),
+            CompiledSurface(newSource, ApiSurfaceExtractionScope.ApiAxis),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(
+            Assert.Single(comparison.ApiDiff.TypeDiffs, diff => diff.TypeFullName == "C").Changes,
             change => change.Kind == ChangeKind.MemberSignatureChanged);
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
     }
