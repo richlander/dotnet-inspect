@@ -22,6 +22,10 @@ implemented for the CLI, which admits its six explained structural catalogs.
 [#10568](https://github.com/richlander/dotnet-inspect/issues/10568) is
 implemented in the host-neutral operation, so both hosts receive it.
 
+The [analysis catalog population](#analysis-catalog-population) for
+[#10445](https://github.com/richlander/dotnet-inspect/issues/10445) is
+implemented for the CLI, which admits Diff's registered analyses.
+
 ## Owner and exact claim
 
 **Capability Catalog Search** owns this exact claim:
@@ -29,7 +33,8 @@ implemented in the host-neutral operation, so both hosts receive it.
 > Given one non-empty bounded search text and one settled search population,
 > the composed available-capability graph together with the structural
 > catalogs the host explains under one root and binds to a production
-> section-selection gesture, project a bounded set of canonical search terms from each available
+> section-selection gesture, and the analysis catalog it explains under the
+> same root and binds to a production analysis-selection gesture, project a bounded set of canonical search terms from each available
 > resource, rank matching resources with the repository's existing
 > string-similarity model, and return one deterministic bounded Document that
 > preserves each result's exact resource path, owning route, and available
@@ -38,7 +43,8 @@ implemented in the host-neutral operation, so both hosts receive it.
 This owner defines:
 
 - the host-neutral search request and result Document;
-- which composed and structural owner-issued fields participate in search;
+- which composed, structural, and analysis owner-issued fields participate
+  in search;
 - canonical term segmentation, search-text segmentation, and comparison
   normalization;
 - similarity threshold, score aggregation, tie-breaking, and result bounds;
@@ -223,18 +229,22 @@ plans, and pagination are outside this contract.
 
 ## Search population
 
-The search population has two explicit families:
+The search population has three explicit families:
 
 1. the **capability family**, the settled available-capability projection
-   from Inspection Capability Composition; and
+   from Inspection Capability Composition;
 2. the **structural family**, the host's admitted
-   [structural catalogs](#structural-catalog-population).
+   [structural catalogs](#structural-catalog-population); and
+3. the **analysis family**, the host's admitted
+   [analysis catalog](#analysis-catalog-population).
 
 A capability-family resource is searchable only when the composed graph
 proves that it is reachable from an executable registered route and at least
 one production consumer binding. A structural-family resource is searchable
 only when its catalog meets the admission rule of the structural catalog
-population. No resource is searchable by any other path.
+population. An analysis is searchable only when the admitted analysis
+catalog binds an operation it participates in. No resource is searchable by
+any other path.
 
 This excludes:
 
@@ -343,12 +353,58 @@ its schema only alongside one, so its binding covers the coordinate-scoped
 categories that contain them. Every other Library section and category
 carries only the `library -S` binding, and `@Metadata` carries both.
 
-A search over both families evaluates the complete union.
-`CandidateResourceCount` counts every admitted capability and structural
-resource, and the same ranking applies to both. A host that adds a structural
+A search over all families evaluates the complete union.
+`CandidateResourceCount` counts every admitted capability, structural, and
+analysis resource, and the same ranking applies to each. A host that adds a structural
 catalog to search and omits it from exact explanation, or the reverse, breaks
 a host wiring invariant; the host's wiring test fails rather than the host
 shipping a partial population.
+
+### Analysis catalog population
+
+A registered analysis is an owner-issued capability resource, explained at
+`analyses/<identity>`, but it is not reachable from a Query Space route, so
+the capability family does not reach it. Its production gesture is the
+operation consumer binding that selects analyses by identity, such as
+`diff --analysis`. Search therefore admits the analyses a host explains as a
+third family, from the same
+[analysis participation registrations](inspection-capability-composition.md#analysis-participation-registration)
+that its analysis Resource Explanation catalog and dispatch read.
+
+A host supplies at most one analysis population entry:
+
+```text
+CapabilityCatalogSearchAnalysisCatalog
+  Catalog             composed catalog with analysis registrations and
+                      analysis consumer bindings
+  Route               identity, name, and the analyses collection path
+```
+
+The entry is admissible only when all three hold:
+
+1. its Catalog is the composed catalog the host creates its analysis
+   Resource Explanation catalog from;
+2. its Route is the root's operation declaration whose destination is the
+   analyses collection, and its ResourcePath is `analyses`; and
+3. the Catalog registers at least one analysis and one analysis consumer
+   binding.
+
+An analysis is admitted when at least one of the Catalog's analysis consumer
+bindings selects an operation it participates in, and it carries exactly
+those bindings. Each binding's `ResourcePath` is the analyses collection, as a
+structural binding's is its catalog root. An analysis result carries the
+composed `InspectionCapabilityResourceIdentity` of kind `Analysis`, with
+`ResourceKind` `Analysis`, the Route as its one owning route, and the path
+that Resource Explanation issues for that identity. Because the path and the
+explanation come from the same registrations, a search path is the path
+exact explanation resolves; that equivalence is a host wiring invariant with
+host tests.
+
+The CLI admits Diff's analyses with the `diff-analysis` operation declaration
+(`Diff analyses`) as the Route and the `diff --analysis` binding. The Browser
+explains no `analyses` collection and admits no analysis catalog; its wire
+projection rejects an analysis result visibly, as it rejects a structural
+one.
 
 ## Canonical search-term projection
 
@@ -375,6 +431,19 @@ For a structural Section or Category, the projected fields are:
 4. for a Section, the Summary of its [section
    description](section-model.md#description) when one is declared; and
 5. the identity and name of its admitted Route and Binding.
+
+For an analysis, the projected fields are:
+
+1. its owner-issued analysis identity, the exact name that selects it, as its
+   owner identity and its resource name;
+2. its canonical Resource Explanation path;
+3. the owner-issued title of each finding it issues, from the Finding
+   descriptors of its participations; and
+4. the identity and name of its admitted Route and Bindings.
+
+An analysis has no summary. Its finding titles, such as `Direct call site`,
+are the owner-issued text that says what it reports. Its revision, cost,
+surfaces, and Finding descriptor identities do not participate.
 
 A structural resource has no canonical key or example value. A Section
 description's Basis, Empty, and Boundary parts, its schema columns, and its
@@ -413,7 +482,7 @@ Search-term provenance is ordered from strongest to weakest:
 2. owner-issued example value;
 3. canonical resource path;
 4. owner-issued resource name;
-5. owner-issued summary; and
+5. owner-issued summary or issued finding title; and
 6. related route or production-binding identity or name.
 
 This order breaks equal similarity scores. It does not change the similarity
@@ -566,6 +635,8 @@ catalog name and its typed Discovery resource identity, with `ResourceKind`
 its host admitted, and the admitted Bindings whose Resources contain it, in
 admission order. Their `ResourcePath` values are the catalog root path. No
 structural resource is represented by a fabricated capability identity.
+An analysis result carries its composed identity of kind `Analysis`, as the
+[analysis catalog population](#analysis-catalog-population) defines.
 
 `CanonicalKeys` retains owner-issued keys applicable to the resource, including
 `library-literal` for the production witness. It is empty for a structural
@@ -694,7 +765,9 @@ synthesized without an explainable resource prevents catalog construction or
 operation completion. For the structural family, the gate is the host's wiring
 test, because search reads the same inputs the host creates its exact
 structural catalog from (see
-[Structural catalog population](#structural-catalog-population)).
+[Structural catalog population](#structural-catalog-population)). The analysis
+family has the same host wiring gate (see
+[Analysis catalog population](#analysis-catalog-population)).
 
 ## Explain facade and Browser adoption
 
@@ -846,6 +919,11 @@ publish a partially ranked prefix as complete.
 | A text of several segments with no search word uses the whole-text rule | Implemented: host-neutral test reporting the `0.6` threshold |
 | A phrase below `0.25` is complete empty | Implemented: host-neutral zero-match phrase test |
 | The routing question "Does this library have namespace dependency cycles?" ranks Dependency Structure first | Implemented: CLI facade theory with the verbatim question and two shorter phrases |
+| A host searches every analysis it explains, with its analysis binding | Implemented: a CLI wiring test finds every registered Diff analysis with only the `diff --analysis` binding and follows each path through exact explanation |
+| An analysis matches on its identity, path, and issued finding titles, and a finding-title word is context | Implemented: host-neutral term-provenance and weighting tests over Diff's registrations |
+| Every analysis path resolves in the analysis explanation catalog created from the same registrations | Implemented: host-neutral resolution test |
+| An analysis entry routes to the analyses collection, binds at least one analysis, and is admitted once | Implemented: host-neutral rejection tests |
+| `string literal diff` and `allocation changes` rank the analysis first | Implemented: CLI facade theory |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -880,6 +958,11 @@ implementation; this adoption adds no new matching algorithm.
 7. Score phrases word by word with heading weights
    ([#10568](https://github.com/richlander/dotnet-inspect/issues/10568)).
    **Complete.**
+8. Admit the CLI's registered Diff analyses as the analysis catalog
+   population with their `diff --analysis` binding
+   ([#10445](https://github.com/richlander/dotnet-inspect/issues/10445)).
+   **Complete for the CLI.** Naming the binding and any required row
+   predicate in each analysis's exact explanation remains with #10445.
 
 Each slice lands with its own production consumer. A search implementation
 over a synthetic test-only registry does not complete this design.

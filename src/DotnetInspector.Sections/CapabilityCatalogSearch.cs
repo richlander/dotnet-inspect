@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using DotnetInspector.Queries;
 using ILInspector.MetadataPrimitives;
 using QuerySpace.Composition;
 
@@ -54,6 +55,7 @@ public enum CapabilityCatalogSearchMatchSource
     Summary,
     RelatedRoute,
     ProductionBinding,
+    IssuedFinding,
 }
 
 [JsonConverter(
@@ -67,6 +69,7 @@ public enum CapabilityCatalogSearchResourceKind
     ConsumerBinding,
     Section,
     Category,
+    Analysis,
 }
 
 public sealed record CapabilityCatalogSearchRoute(
@@ -184,8 +187,50 @@ public sealed record CapabilityCatalogSearchStructuralCatalog
 }
 
 /// <summary>
+/// One analysis catalog a host admits to search: the composed catalog its
+/// analysis Resource Explanation catalog is created from, and the registered
+/// operation route whose root is the analyses collection. An analysis is
+/// admitted when one of the catalog's analysis consumer bindings selects an
+/// operation it participates in, and it carries exactly those bindings.
+/// </summary>
+public sealed record CapabilityCatalogSearchAnalysisCatalog
+{
+    public CapabilityCatalogSearchAnalysisCatalog(
+        InspectionCapabilityCatalog catalog,
+        CapabilityCatalogSearchRoute route)
+    {
+        Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        Route = route ?? throw new ArgumentNullException(nameof(route));
+        ArgumentException.ThrowIfNullOrWhiteSpace(route.Identity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(route.Name);
+        if (!string.Equals(
+                route.ResourcePath,
+                ResourceExplanationCatalog.AnalysesCollectionSegment,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"Analysis route path '{route.ResourcePath}' is not the "
+                + "analyses collection.",
+                nameof(route));
+        }
+        if (catalog.Analyses.IsEmpty || catalog.AnalysisBindings.IsEmpty)
+        {
+            throw new ArgumentException(
+                "An analysis catalog admits at least one analysis and one "
+                + "analysis consumer binding.",
+                nameof(catalog));
+        }
+    }
+
+    public InspectionCapabilityCatalog Catalog { get; }
+
+    public CapabilityCatalogSearchRoute Route { get; }
+}
+
+/// <summary>
 /// One ranked search result. Exactly one of <see cref="ResourceIdentity"/>
-/// (a composed capability resource) and <see cref="StructuralIdentity"/>
+/// (a composed capability resource or an admitted analysis) and
+/// <see cref="StructuralIdentity"/>
 /// (an admitted structural Section or Category) is present.
 /// </summary>
 public sealed record CapabilityCatalogSearchResult(
@@ -234,24 +279,41 @@ public static class CapabilityCatalogSearch
         InspectionCapabilityCatalog capabilityCatalog,
         ResourceExplanationCatalog explanationCatalog,
         CapabilityCatalogSearchRequest request) =>
-        Search(capabilityCatalog, explanationCatalog, [], request);
+        Search(capabilityCatalog, explanationCatalog, [], [], request);
+
+    public static InspectionEnvelope<CapabilityCatalogSearchDocument> Search(
+        InspectionCapabilityCatalog capabilityCatalog,
+        ResourceExplanationCatalog explanationCatalog,
+        IEnumerable<CapabilityCatalogSearchStructuralCatalog>
+            structuralCatalogs,
+        CapabilityCatalogSearchRequest request) =>
+        Search(
+            capabilityCatalog,
+            explanationCatalog,
+            structuralCatalogs,
+            [],
+            request);
 
     /// <summary>
-    /// Searches the composed capability family and the admitted structural
-    /// catalogs. <paramref name="explanationCatalog"/> resolves the
-    /// capability family's paths; structural candidates are read from each
-    /// catalog's Discovery projection without building its explanation graph.
+    /// Searches the composed capability family, the admitted structural
+    /// catalogs, and the admitted analysis catalogs.
+    /// <paramref name="explanationCatalog"/> resolves the capability family's
+    /// paths; structural candidates are read from each catalog's Discovery
+    /// projection and analysis candidates from each catalog's registrations,
+    /// without building their explanation graphs.
     /// </summary>
     public static InspectionEnvelope<CapabilityCatalogSearchDocument> Search(
         InspectionCapabilityCatalog capabilityCatalog,
         ResourceExplanationCatalog explanationCatalog,
         IEnumerable<CapabilityCatalogSearchStructuralCatalog>
             structuralCatalogs,
+        IEnumerable<CapabilityCatalogSearchAnalysisCatalog> analysisCatalogs,
         CapabilityCatalogSearchRequest request)
     {
         ArgumentNullException.ThrowIfNull(capabilityCatalog);
         ArgumentNullException.ThrowIfNull(explanationCatalog);
         ArgumentNullException.ThrowIfNull(structuralCatalogs);
+        ArgumentNullException.ThrowIfNull(analysisCatalogs);
         ArgumentNullException.ThrowIfNull(request);
 
         IReadOnlyDictionary<
@@ -267,6 +329,7 @@ public static class CapabilityCatalogSearch
                 explanationCatalog,
                 resources),
             .. CreateStructuralCandidates([.. structuralCatalogs]),
+            .. CreateAnalysisCandidates([.. analysisCatalogs]),
         ];
         ImmutableArray<string> words = SearchWords(request.Text);
         Func<Candidate, ScoredCandidate?> score = words.IsEmpty
@@ -649,6 +712,64 @@ public static class CapabilityCatalogSearch
             StringComparer.Ordinal);
     }
 
+    // An analysis path is the path the host's analysis explanation catalog
+    // issues from the same registrations, so it resolves by construction.
+    private static IEnumerable<Candidate> CreateAnalysisCandidates(
+        ImmutableArray<CapabilityCatalogSearchAnalysisCatalog> catalogs)
+    {
+        if (catalogs.Length > 1)
+        {
+            throw new ArgumentException(
+                "The analyses collection is admitted more than once.",
+                nameof(catalogs));
+        }
+
+        var candidates = new List<Candidate>();
+        foreach (CapabilityCatalogSearchAnalysisCatalog catalog in catalogs)
+        {
+            foreach (InspectionAnalysisRegistration registration
+                     in catalog.Catalog.Analyses)
+            {
+                AnalysisDescriptor analysis = registration.Analysis;
+                CapabilityCatalogSearchBinding[] bindings =
+                [
+                    .. catalog.Catalog.AnalysisBindings
+                        .Where(binding =>
+                            analysis.ParticipationFor(
+                                binding.Operation.Kind) is not null)
+                        .OrderBy(
+                            static binding => binding.Descriptor.Identity,
+                            StringComparer.Ordinal)
+                        .Select(binding => new CapabilityCatalogSearchBinding(
+                            binding.Descriptor.Identity,
+                            binding.Descriptor.Owner,
+                            binding.Descriptor.Kind,
+                            binding.Descriptor.Gesture,
+                            catalog.Route.ResourcePath)),
+                ];
+                if (bindings.Length == 0)
+                    continue;
+
+                candidates.Add(Candidate.CreateAnalysis(
+                    ResourceExplanationCatalog.AnalysisIdentity(registration),
+                    ResourceExplanationCatalog.AnalysisPath(analysis.Id.Value)
+                        .Value,
+                    analysis.Participations
+                        .SelectMany(static participation =>
+                            participation.Surfaces)
+                        .SelectMany(static surface => surface.Descriptors)
+                        .Select(static descriptor => descriptor.Title)
+                        .Distinct(StringComparer.Ordinal),
+                    catalog.Route,
+                    bindings));
+            }
+        }
+
+        return candidates.OrderBy(
+            static candidate => candidate.Path,
+            StringComparer.Ordinal);
+    }
+
     /// <summary>
     /// The search words of a phrase search: the distinct segments of at
     /// least three characters that are not function words. A text with one
@@ -982,6 +1103,67 @@ public static class CapabilityCatalogSearch
                 OrderTerms(terms));
         }
 
+        public static Candidate CreateAnalysis(
+            InspectionCapabilityResourceIdentity identity,
+            string path,
+            IEnumerable<string> issuedFindings,
+            CapabilityCatalogSearchRoute route,
+            IReadOnlyList<CapabilityCatalogSearchBinding> bindings)
+        {
+            var terms =
+                new Dictionary<string, SearchTerm>(
+                    StringComparer.OrdinalIgnoreCase);
+            AddTerms(
+                terms,
+                identity.Identity,
+                CapabilityCatalogSearchMatchSource.OwnerIdentity);
+            AddTerms(
+                terms,
+                path,
+                CapabilityCatalogSearchMatchSource.ResourcePath);
+            AddTerms(
+                terms,
+                identity.Identity,
+                CapabilityCatalogSearchMatchSource.ResourceName);
+            foreach (string finding in issuedFindings)
+            {
+                AddTerms(
+                    terms,
+                    finding,
+                    CapabilityCatalogSearchMatchSource.IssuedFinding);
+            }
+            AddTerms(
+                terms,
+                route.Identity,
+                CapabilityCatalogSearchMatchSource.RelatedRoute);
+            AddTerms(
+                terms,
+                route.Name,
+                CapabilityCatalogSearchMatchSource.RelatedRoute);
+            foreach (CapabilityCatalogSearchBinding binding in bindings)
+            {
+                AddTerms(
+                    terms,
+                    binding.Identity,
+                    CapabilityCatalogSearchMatchSource.ProductionBinding);
+                AddTerms(
+                    terms,
+                    binding.Name,
+                    CapabilityCatalogSearchMatchSource.ProductionBinding);
+            }
+
+            return new Candidate(
+                identity,
+                null,
+                CapabilityCatalogSearchResourceKind.Analysis,
+                path,
+                identity.Identity,
+                [],
+                [route],
+                [.. bindings],
+                OrderTerms(terms));
+        }
+
         private static ImmutableArray<SearchTerm> OrderTerms(
             Dictionary<string, SearchTerm> terms) =>
         [
@@ -1058,7 +1240,8 @@ public static class CapabilityCatalogSearch
             CapabilityCatalogSearchMatchSource.ExampleValue => 1,
             CapabilityCatalogSearchMatchSource.ResourcePath => 2,
             CapabilityCatalogSearchMatchSource.ResourceName => 3,
-            CapabilityCatalogSearchMatchSource.Summary => 4,
+            CapabilityCatalogSearchMatchSource.Summary
+                or CapabilityCatalogSearchMatchSource.IssuedFinding => 4,
             CapabilityCatalogSearchMatchSource.RelatedRoute
                 or CapabilityCatalogSearchMatchSource.ProductionBinding => 5,
             _ => throw new ArgumentOutOfRangeException(

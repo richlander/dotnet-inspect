@@ -228,6 +228,7 @@ public static partial class ResourceExplanationCommand
                 CreateStructuralSearchCatalogs()
                 ?? throw new InvalidOperationException(
                     "The structural search catalogs could not be built."),
+                [CreateAnalysisSearchCatalog()],
                 searchRequest);
         WriteSearch(
             search,
@@ -236,6 +237,26 @@ public static partial class ResourceExplanationCommand
             noHeaders,
             outputPath);
         return 0;
+    }
+
+    /// <summary>
+    /// The analyses the combined catalog explains under its <c>analyses</c>
+    /// collection, routed by the root's <c>diff-analysis</c> operation
+    /// declaration.
+    /// </summary>
+    internal static CapabilityCatalogSearchAnalysisCatalog
+        CreateAnalysisSearchCatalog()
+    {
+        ResourceExplanationRoutingDeclaration operation =
+            CapabilityRoutingDeclarations.Create().Single(
+                static declaration =>
+                    declaration.Identity == "diff-analysis");
+        return new(
+            DiffAnalysisCommandCapability.Catalog,
+            new CapabilityCatalogSearchRoute(
+                operation.Identity,
+                operation.Title,
+                ResourceExplanationCatalog.AnalysesCollectionSegment));
     }
 
     private static ResourceExplanationCatalog? CreateStructuralCatalog(
