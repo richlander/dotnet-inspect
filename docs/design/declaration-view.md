@@ -337,7 +337,7 @@ opens.
 | DV4 | The declaration medium in the Member reader, opened from a Type Compare Member row's Body transition, and the residual's document opened from the Type row | Inspect Web Compare |
 
 DV1's census and identity-set comparison landed through
-[Finding census](finding-census.md#adoption-sequence) step 3
+[Finding census](finding-census.md#adoption) step 3
 ([#10630](https://github.com/richlander/dotnet-inspect/issues/10630) slice 1):
 `DeclarationFindings.Inspect` seals one Type's facts on one axis, spelled at
 sealing, and `DeclarationFindings.Compare` matches two sealed censuses by exact

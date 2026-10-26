@@ -741,7 +741,7 @@ as the Library level reads it, and every row keeps its own state. One name the
 pairing withholds: two paired Type rows that spell one display name, which the
 Library level decides each by key, are `Indeterminate` under that name, since
 the name selects neither row. The [declaration
-cursor](finding-census.md#adoption-sequence) reads the same slots, and its
+cursor](finding-census.md#adoption) reads the same slots, and its
 identity-set comparison of one Type's census finds the same one-sided facts.
 Types present on one side only are not paired; their one-sided form is this
 level's. Step 7 folds these rows into Member states under the ownership rules
