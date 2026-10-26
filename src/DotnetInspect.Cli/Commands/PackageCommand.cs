@@ -121,10 +121,12 @@ public partial class PackageCommand
         }
 #if DEBUG
         if (options.WorkspacePacket is null
-            && options.EvidenceEnvelopePath is not null)
+            && options.EvidenceEnvelopePath is not null
+            && (!options.ShowContent || packageArgs.Length != 1))
         {
             CommandError.Write(
-                "--evidence-envelope on package requires --workspace.");
+                "--evidence-envelope on package requires --workspace "
+                + "or one pinned literal file with --content.");
             return 1;
         }
 #endif
@@ -599,7 +601,7 @@ public partial class PackageCommand
                     packageArgs[0],
                     explicitVersion);
             int? houseResult =
-                await TryWriteLiteralHouseDocumentContentAsync(
+                await TryWriteLiteralHouseFileContentAsync(
                         [houseTarget],
                         options,
                         context)

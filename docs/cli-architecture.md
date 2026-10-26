@@ -78,6 +78,57 @@ Deterministic configured-source tests gate admitted inspection with unusable
 DLLs, unmatched frameworks, and selected versions; existing source, wrapper,
 offline, and Library tests remain neighboring controls.
 
+### Literal Package file content admission
+
+One pinned online Package with a safe, extension-bearing literal `--path` and
+full `--content` acquires its exact file through PackageHouse and admits that
+same generation as a native content-only Workspace Root before reading it.
+The shared detached-content operation runs under the committed Root's query
+admission; exact file export retains its bounded streaming path under the same
+admission and lifetime. No Library selection is requested or invented.
+The detached request must name the same acquired content generation as its
+Workspace occurrence; reacquiring a coordinate does not reuse the old admission.
+Acquisition, admission, and read failures are terminal, not permission to retry
+through extraction.
+
+This is slice 2 of the three-slice content-adoption plan under
+[#6638](https://github.com/richlander/dotnet-inspect/issues/6638), following
+[#10607](https://github.com/richlander/dotnet-inspect/pull/10607).
+[Content-only package admission](design/artifact-acquisition-and-workspaces.md#content-only-package-admission)
+owns Root identity and lifetime; [exact file demand](design/package-read-demand.md#exact-file-demand)
+owns House entry selection and transfer policy. Browser adoption is a separate
+slice. Evidence is optional detached output, not a prerequisite for admission.
+
+Debug builds advertise `--evidence-envelope <file>` for detached literal-file
+content projections. The same invocation reports its House transfer receipt,
+Root query admission outcome, retained Library-selection status, and realized
+Library counts. Exact streaming file export does not currently expose this
+gesture; it refuses it before acquisition rather than detaching extra content
+or claiming an envelope it did not execute. Ordinary exports retain their
+bounded behavior. Release builds do not expose evidence capture.
+
+The motivating asset is nuget.org `System.Text.Json@10.0.0`: its 3,543-byte
+`System.Text.Json.nuspec` needs neither a Library nor its framework/generator
+assets. Reproduce with `package System.Text.Json@10.0.0 --path
+System.Text.Json.nuspec --content --raw`. Deterministic configured-source
+packages gate the production route; the published package supplies pinned
+real-asset evidence.
+`PackageCommand_LiteralNuspec_RealSystemTextJsonUsesExactContent` exercises the
+pinned real archive through separator, raw, JSONL, and exact file output.
+`PackageFileContentInspectionTests.RetiredRootCannotReadTheAcquiredFile`
+gates refusal after retirement;
+`ReacquiredFileRequiresItsOwnAdmittedGeneration` gates exact-generation
+correspondence; and
+`PackageCommand_LiteralFile_AcquisitionFailureDoesNotRetryExtractor` gates
+terminal acquisition failure.
+
+Local/offline, unpinned, TFM-filtered, scoped-content, row-selected,
+multi-Package, alias, glob, and directory requests retain their existing routes.
+Extensionless files also remain there because their Markdown role may require
+manifest interpretation. A tool wrapper retains its existing redirect route.
+Recognizing those distinct requests is not an extractor retry after an exact
+file operation fails.
+
 ### Exact Package reference admission
 
 An owner-issued exact Package reference is accepted as positional `package`

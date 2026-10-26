@@ -465,17 +465,23 @@ Two production hosts use the exact-file operation for their document
 vocabularies:
 
 - **The CLI exact-file content route.** `package
-  ID@VERSION --content` with one literal root `README.md` or
-  `skills/**/SKILL.md` path
+  ID@VERSION --content` with one safe, extension-bearing literal file path,
+  including root `README.md`, `skills/**/SKILL.md`, and ordinary `.nuspec`,
+  JSON, or binary entries,
   calls the desktop `AcquireFileAsync` adapter. It uses the
   authority-scoped store the search Root uses, so directory first, the entry
   cache, and durable HTTP identity apply. The directory lists every entry, so
   the query's File List lets the .NET tool-wrapper check observe the ranged
   directory as it reads the complete archive; a possible wrapper takes the
   complete package-content path, which follows the redirect, and says so in
-  verbose output. Separator, raw, JSONL, and Skill file projections detach
+  verbose output. A literal that instead names a directory retains directory
+  selection. The CLI admits the acquired generation as a native content-only
+  Workspace Root before reading, without Library selection. Exact acquisition,
+  admission, and read failures do not retry the extractor.
+  Separator, raw, JSONL, and Skill file projections detach
   content up to the 16 MiB document limit; exact README file output copies the
-  acquired file directly with a bounded buffer.
+  acquired file directly with a bounded buffer, as do other non-Skill exact
+  file exports, under committed Root query admission.
   Offline, the command keeps the local package cache path, as the search Root's
   offline branch does, so it does not yet answer from the authority-scoped
   store or the entry cache. For `Newtonsoft.Json` 13.0.4 (2.5 MB), a cold
@@ -504,7 +510,7 @@ vocabularies:
 | Richer `type`, other richer `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
-| `package ID@VERSION --content` of a root `README.md` or `skills/**/SKILL.md` | one exact file | directory-first, with complete acquisition at or below the cut |
+| `package ID@VERSION --content` of one eligible literal file | one exact file, admitted without Library selection | directory-first, with complete acquisition at or below the cut |
 | `diff --history`, Metadata cells (API findings) | `Surface` | directory-first, with complete acquisition at or below the cut |
 | `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | directory-first, with complete acquisition at or below the cut |
 
