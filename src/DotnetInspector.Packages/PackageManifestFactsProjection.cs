@@ -47,6 +47,37 @@ public static class PackageManifestFactsProjection
     }
 
     /// <summary>
+    /// Retains valid Package metadata while projecting directly from one
+    /// bounded seekable manifest stream.
+    /// </summary>
+    public static PackageManifestFactsResult ExecuteWithSectionFailures(
+        Stream manifestStream,
+        PackageSourceCoordinate expectedCoordinate)
+    {
+        ArgumentNullException.ThrowIfNull(manifestStream);
+        ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        if (!manifestStream.CanSeek)
+        {
+            throw new ArgumentException(
+                "Direct manifest projection requires a seekable stream.",
+                nameof(manifestStream));
+        }
+
+        long remainingBytes = checked(
+            manifestStream.Length - manifestStream.Position);
+        if (remainingBytes < 0 || remainingBytes > MaxManifestBytes)
+        {
+            return Failed(
+                PackageManifestFailureReason.ConfiguredLimitExceeded);
+        }
+
+        return ExecuteCore(
+            manifestStream,
+            expectedCoordinate,
+            retainDependencyFailure: true);
+    }
+
+    /// <summary>
     /// Projects manifest facts using a validated coordinate declared by the
     /// manifest itself.
     /// </summary>
@@ -62,30 +93,41 @@ public static class PackageManifestFactsProjection
         PackageSourceCoordinate? expectedCoordinate,
         bool retainDependencyFailure)
     {
+        if (manifestBytes.Length > MaxManifestBytes)
+        {
+            return Failed(
+                PackageManifestFailureReason.ConfiguredLimitExceeded);
+        }
+
+        using MemoryStream buffer =
+            MemoryMarshal.TryGetArray(
+                manifestBytes,
+                out ArraySegment<byte> segment)
+            && segment.Array is not null
+                ? new MemoryStream(
+                    segment.Array,
+                    segment.Offset,
+                    segment.Count,
+                    writable: false,
+                    publiclyVisible: false)
+                : new MemoryStream(
+                    manifestBytes.ToArray(),
+                    writable: false);
+        return ExecuteCore(
+            buffer,
+            expectedCoordinate,
+            retainDependencyFailure);
+    }
+
+    private static PackageManifestFactsResult ExecuteCore(
+        Stream manifestStream,
+        PackageSourceCoordinate? expectedCoordinate,
+        bool retainDependencyFailure)
+    {
         try
         {
-            if (manifestBytes.Length > MaxManifestBytes)
-            {
-                throw Failure(
-                    PackageManifestFailureReason.ConfiguredLimitExceeded);
-            }
-
-            using MemoryStream buffer =
-                MemoryMarshal.TryGetArray(
-                    manifestBytes,
-                    out ArraySegment<byte> segment)
-                && segment.Array is not null
-                    ? new MemoryStream(
-                        segment.Array,
-                        segment.Offset,
-                        segment.Count,
-                        writable: false,
-                        publiclyVisible: false)
-                    : new MemoryStream(
-                        manifestBytes.ToArray(),
-                        writable: false);
             NuspecData nuspec = NuspecParser.Parse(
-                buffer,
+                manifestStream,
                 MaxManifestCharacters);
             PackageSourceCoordinate coordinate;
             PackageManifestIdentityProvenance identityProvenance;

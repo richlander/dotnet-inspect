@@ -547,6 +547,24 @@ public sealed class PackageManifestFactsQueryTests
     }
 
     [Fact]
+    public void ExecuteWithSectionFailures_ProjectsSeekableStreamDirectly()
+    {
+        using var stream = new MemoryStream(
+            Encoding.UTF8.GetBytes(MinimalManifest()),
+            writable: false);
+
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsProjection.ExecuteWithSectionFailures(
+                stream,
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal("Example.Package", facts.DeclaredPackageId);
+        Assert.Equal(stream.Length, stream.Position);
+    }
+
+    [Fact]
     public void Execute_RejectsInvalidDependencyRangeWithTypedReason()
     {
         PackageManifestFactsResult.Failed failure = Assert.IsType<
@@ -620,6 +638,27 @@ public sealed class PackageManifestFactsQueryTests
         Assert.Equal(
             PackageManifestFailureReason.ConfiguredLimitExceeded,
             failure.Failure.Reason);
+    }
+
+    [Fact]
+    public void ExecuteWithSectionFailures_EnforcesSeekableStreamByteLimit()
+    {
+        using var stream = new MemoryStream(
+            new byte[PackageManifestFactsQuery.MaxManifestBytes + 1],
+            writable: false);
+
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsProjection.ExecuteWithSectionFailures(
+                    stream,
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
+        Assert.Equal(0, stream.Position);
     }
 
     [Fact]

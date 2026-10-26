@@ -126,6 +126,18 @@ public static class PackageManifestFactsQuery
                                 coordinate)));
                 }
             }
+            if (manifestStream.CanSeek)
+            {
+                using (manifestStream)
+                {
+                    return Task.FromResult(
+                        Project(
+                            PackageManifestFactsProjection
+                                .ExecuteWithSectionFailures(
+                                    manifestStream,
+                                    coordinate)));
+                }
+            }
 
             return ReadAndProjectAsync(
                 manifestStream,
