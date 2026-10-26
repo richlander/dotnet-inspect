@@ -24,7 +24,8 @@ public sealed class FileSystemPackageContent :
     IPackageContentEntryManifest,
     IPackageArchiveEntryManifest,
     IPackageContentDigestSource,
-    IPackageHousePayloadSource
+    IPackageHousePayloadSource,
+    IRootPackageEntrySource
 {
     private readonly string _root;
     private readonly PackageContentGenerationIdentity _generationIdentity = new();
@@ -367,6 +368,20 @@ public sealed class FileSystemPackageContent :
         foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
         {
             yield return Path.GetRelativePath(_root, file).Replace(Path.DirectorySeparatorChar, '/');
+        }
+    }
+
+    IEnumerable<string> IRootPackageEntrySource.EnumerateRootEntries()
+    {
+        if (!Directory.Exists(_root))
+            yield break;
+
+        foreach (string file in Directory.EnumerateFiles(
+            _root,
+            "*",
+            SearchOption.TopDirectoryOnly))
+        {
+            yield return Path.GetFileName(file);
         }
     }
 
