@@ -117,22 +117,28 @@ Which declarations carry each fact is the
 rule, including its exemption for the compiler's compatibility `[Obsolete]`
 markers.
 
-- The default population is the `public` bucket. The Metadata owner's
-  admission decides its exact members, and the spelling below decides how
-  records form them.
-- A Type is in the `public` bucket only when it and every enclosing Type is
-  public or nested public, the reach the
-  [ordinary presentation](library-api-diff-presentation.md#per-side-facts)
-  requires. A public nested Type of a protected Type is reachable only by
-  derivation, so it is not in the `public` bucket, and no other assembly can
-  reach one of an internal or private Type. Such a Type and its Members leave
-  the default public-facing population; `--include all` still lists them. A
+- The default population is the `public` and `protected` buckets, less
+  `private protected` declarations: everything another assembly can reach,
+  by calling or by deriving. It is the population reference documentation
+  lists and the one whose changes can break another assembly, so it is the
+  same population the [diff's API axis](#the-diffs-api-axis-population)
+  compares (decided 2026-10-26 on
+  [#10693](https://github.com/richlander/dotnet-inspect/issues/10693)). The
+  Metadata owner's admission decides its exact members, and the spelling
+  below decides how records form them.
+- A Type is in the default population only when it and every enclosing Type is
+  public, nested public, nested protected, or nested `protected internal`. A
+  public nested Type of a protected Type is reachable by derivation, so it is
+  in the default population. No other assembly can reach a Type nested in an
+  internal, private, or `private protected` Type, so such a Type and its
+  Members leave the default population; `--include all` still lists them. A
   reader that means another population, such as the row-local surface
   classification count, says so in its owner.
 - `--include <term>` widens the population by accessibility. Its fixed terms
-  are the bucket names `protected`, `internal`, and `private`, which add that
-  bucket to `public`, and `all`, which selects every bucket. It never changes
-  attribute filtering.
+  are `internal`, which adds the `internal` bucket and `private protected`
+  declarations, both reachable only inside the assembly; `private`, which adds
+  the `private` bucket; and `all`, which selects every bucket. It never
+  changes attribute filtering.
 - `--skip <term>` removes declarations carrying an attribute fact. Its fixed
   term set starts with `EditorBrowsableNever`.
 - `--only <term>` keeps only declarations carrying an attribute fact. Its
@@ -253,8 +259,9 @@ Member selector through an API declaration population. That initial lookup and
 the later body analysis are separate population decisions:
 
 1. Root resolution uses the public-facing API population by default.
-   `--include` (today `--all`) is required when the named root is non-public;
-   a hidden or obsolete public root resolves without it.
+   `--include` (today `--all`) is required when the named root is internal,
+   private, or `private protected`; a protected, hidden, or obsolete root
+   resolves without it.
 2. After the root is resolved, the operation analyzes its complete admitted
    implementation population by default. `--include` does not widen
    traversal, select more relationships, remove work bounds, or request every
@@ -291,11 +298,11 @@ the implementation analysis complete.
 
 | Question | Default population | Widening and filtering |
 | --- | --- | --- |
-| Which API declarations should an API inventory show? | The `public` bucket, with `EditorBrowsable(Never)` and `[Obsolete]` declarations admitted and marked | `--include` adds accessibility buckets; `--skip EditorBrowsableNever` and `--only Obsolete` filter by attribute fact |
-| Which accessibility should a Type's Member inventory show? | The `public` bucket; an `accessibility` term on its own selects other buckets | `--include` adds buckets; an `accessibility` term combined with `--include` narrows them |
+| Which API declarations should an API inventory show? | The `public` and `protected` buckets, less `private protected`, with `EditorBrowsable(Never)` and `[Obsolete]` declarations admitted and marked | `--include` adds accessibility buckets; `--skip EditorBrowsableNever` and `--only Obsolete` filter by attribute fact |
+| Which accessibility should a Type's Member inventory show? | The `public` and `protected` buckets, less `private protected`; an `accessibility` term on its own selects other buckets | `--include` adds buckets; an `accessibility` term combined with `--include` narrows them |
 | Which members belong to a Type's declaration population? | Declarations physically owned by that Type; inherited and extension members require separately requested contextual populations | Widen only the visibility of the declaration population; do not request contextual populations |
 | How should a Type's Member inventory spell its rows? | C# spelling: same-owner records compose into declarations wherever a consumer sees a single unit | Unchanged; metadata spelling is a separate, explicit choice |
-| Which declarations should an API comparison match? | A diff's API axis compares the `public` and `protected` buckets, less `private protected`; attribute facts never decide what is compared | Widen the API population where that comparison admits `--include` |
+| Which declarations should an API comparison match? | A diff's API axis compares the default population: the `public` and `protected` buckets, less `private protected`; attribute facts never decide what is compared | Widen the API population where that comparison admits `--include` |
 | Which named root should a body operation resolve? | Roots in the public-facing API | `--include` resolves a non-public root; the resulting implementation analysis is unchanged |
 | Which method bodies should a whole-library metric summarize? | Every admitted implementation body in the selected library population | Not a completeness switch; the report declares its own implementation population |
 | Which bodies should a type/member metric or call analysis inspect? | Every admitted body under the selected typed root | Not a substitute for selecting the root or changing its API visibility |
@@ -443,8 +450,10 @@ shows it unless the user selects more, and it filters by each compared
 declaration's accessibility rather than by narrowing the comparison. Today it
 also leaves out hidden declarations. Under
 [Accessibility within API visibility scope](#accessibility-within-api-visibility-scope)
-it becomes the `public` bucket with hidden and obsolete rows marked, and
-`--skip EditorBrowsableNever` leaves hidden rows out on request.
+it becomes the default population, the same `public` and `protected` buckets
+the API axis compares, with hidden and obsolete rows marked, and
+`--skip EditorBrowsableNever` leaves hidden rows out on request. Rows outside
+it remain only under `--include`.
 
 ## Adoption
 
@@ -472,9 +481,12 @@ timing:
 2. Route every filter through the one admission and every mark through the one
    status reader, keeping today's `EditorBrowsable(Never)` default, behind a
    layering gate.
-3. Change the default in the admission: `EditorBrowsable(Never)` declarations
-   are admitted, `--skip EditorBrowsableNever` and `--only Obsolete` are
-   added, and the diff's ordinary view marks hidden rows. The owners that
+3. Change the default in the admission: the default population becomes the
+   `public` and `protected` buckets, less `private protected`;
+   `EditorBrowsable(Never)` declarations are admitted;
+   `--skip EditorBrowsableNever` and `--only Obsolete` are added; and the
+   diff's ordinary view shows the API axis population with hidden rows
+   marked. The owners that
    state today's defaults adopt the rule in the same step:
    [Type-declaration visibility](type-declaration-visibility.md) (the
    locator's `EditorBrowsableNever` and `Obsolete` restrictions),
@@ -483,7 +495,7 @@ timing:
    (hidden rows counted outside), [Find](find-search-service.md) (default
    suppression of hidden and obsolete definitions), and
    [Member accessibility composition](member-accessibility-composition.md)
-   (the bucket map's hidden admission).
+   (the bucket map's default buckets and hidden admission).
 4. `--include` replaces `--all` in every command definition and in the
    [CLI reference](../cli-reference.md).
 
