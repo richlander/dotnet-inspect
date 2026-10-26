@@ -520,6 +520,33 @@ public sealed class FindingDiffAnyTests
         Assert.Equal("int Value { get; private set; }", change.NewValue);
     }
 
+    // The signature text spells neither an init setter nor static, so an accessor that
+    // becomes init or a property that changes static-ness is not an accessor spelling change
+    // and stays Breaking (docs/design/api-population-scope.md#the-diffs-api-axis-population).
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public, "public int Value { get; protected set; }", "public int Value { get; init; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public int Value { get; protected set; }", "public int Value { get; init; }")]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "public int Value { get; protected set; }", "public int Value { get; init; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public int Value { get; protected set; }", "public int Value { get; protected internal init; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public int Value { get; protected set; }", "public static int Value { get; protected internal set; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public static int Value { get; protected set; }", "public int Value { get; set; }")]
+    public void AccessorSpellingChange_WithInitOrStaticChange_IsBreaking(
+        ApiSurfaceExtractionScope scope,
+        string oldProperty,
+        string newProperty)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface($"public class C {{ {oldProperty} }}", scope),
+            CompiledSurface($"public class C {{ {newProperty} }}", scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(
+            Assert.Single(comparison.ApiDiff.TypeDiffs).Changes,
+            change => change.Kind == ChangeKind.MemberSignatureChanged);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+    }
+
     static ApiSurface CompiledSurface(string source, ApiSurfaceExtractionScope scope)
     {
         CSharpCompilation compilation = CSharpCompilation.Create(

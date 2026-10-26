@@ -367,7 +367,8 @@ accessor's reach changes. Unlike the accessibility move above, this holds in
 every comparison scope, because every scope reports the signature row. The
 change stays one signature row, beside the property's own accessibility move when
 the widest accessor moves. Every other signature change, including an
-accessor added or removed, stays Breaking. An event's signature spells no
+accessor added or removed, a setter that becomes or stops being `init`, and a
+property that becomes or stops being `static`, stays Breaking. An event's signature spells no
 accessor, so it never takes this rule.
 
 For example, `protected int V { get; set; }` to

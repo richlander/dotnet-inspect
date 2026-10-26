@@ -832,8 +832,10 @@ public static class ApiDiffAnalyzer
 
     /// <summary>
     /// The accessor reach classification when the two signatures differ only in their
-    /// accessor accessibility spelling: the same accessors, in the same order, and the same
-    /// text before the accessor list, which each side's typed accessors reproduce. An
+    /// accessor accessibility spelling: the same accessors, in the same order and with the
+    /// same structural return (an <c>init</c> setter's carries <c>IsExternalInit</c>), the same
+    /// static-ness, and the same text before the accessor list, which each side's typed
+    /// accessors reproduce; the signature text spells neither <c>init</c> nor <c>static</c>. An
     /// accessor's own accessibility is its spelled accessibility, or its property's when it
     /// spells none. <see langword="null"/> for any other difference, including an added or
     /// removed accessor, or when either side's typed accessors are unavailable.
@@ -843,6 +845,7 @@ public static class ApiDiffAnalyzer
         if (oldMember.SignatureModel?.Accessors is not { Count: > 0 } oldAccessors
             || newMember.SignatureModel?.Accessors is not { } newAccessors
             || oldAccessors.Count != newAccessors.Count
+            || oldMember.IsStatic != newMember.IsStatic
             || SignatureBeforeAccessors(oldMember.Signature, oldAccessors) is not { } oldDeclaration
             || SignatureBeforeAccessors(newMember.Signature, newAccessors) is not { } newDeclaration
             || !string.Equals(oldDeclaration, newDeclaration, StringComparison.Ordinal))
@@ -856,6 +859,10 @@ public static class ApiDiffAnalyzer
             ApiAccessor oldAccessor = oldAccessors[index];
             ApiAccessor newAccessor = newAccessors[index];
             if (!string.Equals(oldAccessor.Kind, newAccessor.Kind, StringComparison.Ordinal)
+                || !string.Equals(
+                    oldAccessor.StructuralReturnType,
+                    newAccessor.StructuralReturnType,
+                    StringComparison.Ordinal)
                 || ExternalReach(oldAccessor.Accessibility ?? oldMember.Accessibility) is not { } oldReach
                 || ExternalReach(newAccessor.Accessibility ?? newMember.Accessibility) is not { } newReach)
             {

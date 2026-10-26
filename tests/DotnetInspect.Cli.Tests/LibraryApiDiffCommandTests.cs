@@ -253,8 +253,9 @@ public sealed class LibraryApiDiffCommandTests
     [Fact]
     public async Task Default_OmitsTheNonBreakingCount()
     {
-        // Only a comparison that admits subjects outside the API axis produces
-        // non-breaking rows; other comparisons keep their document unchanged.
+        // The default JSON document keeps its shape and does not carry the
+        // non-breaking count, although the default comparison can classify rows
+        // NonBreaking (an accessor spelling change with unchanged reach).
         var (exitCode, output, error) = await Run("--json");
 
         Assert.Equal(0, exitCode);
