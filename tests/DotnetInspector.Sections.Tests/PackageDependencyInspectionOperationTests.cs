@@ -26,6 +26,12 @@ public sealed class PackageDependencyInspectionOperationTests
             Assert.IsType<PackageDependencyInspectionOutcome.Available>(
                 inspection.Content);
         Assert.Equal(
+            "Package dependency inspection fixture.",
+            available.Manifest.Description?.ToString());
+        Assert.Equal(
+            PackageManifestIdentityProvenance.ExpectedCoordinate,
+            available.Manifest.IdentityProvenance);
+        Assert.Equal(
             PackageDependencyGroupSelectionStatus.Selected,
             available.Dependencies.SelectionStatus);
         Assert.Equal(0, available.Dependencies.SelectedGroupIndex);
@@ -131,6 +137,14 @@ public sealed class PackageDependencyInspectionOperationTests
         Assert.Equal(
             PackageDependencyInspectionFailureReason.ManifestRejected,
             failed.Reason);
+        Assert.Equal(
+            "Example.Package",
+            Assert.IsType<PackageManifestFacts>(failed.Manifest)
+                .DeclaredPackageId);
+        Assert.Equal(
+            "evil/../other",
+            Assert.Single(failed.Manifest.DependencyIdentifierObservations)
+                .Id);
         Assert.Equal(
             "package-dependencies.manifest-rejected",
             Assert.Single(inspection.Diagnostics).Code);

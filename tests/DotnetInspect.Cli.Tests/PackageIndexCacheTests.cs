@@ -471,15 +471,20 @@ public sealed class PackageIndexCacheTests
                     PackagePayloadOrigin.Cache),
             };
             NuspecData nuspec = NuspecParser.ParseContent(
-                nuspecXml.Replace(
-                    """
-                      <dependency id="B" version="2.0.0" />
-                      <dependency id="A" version="1.0.0" />
-                    """,
-                    """
-                      <dependency id="Legacy.Compatibility" version="9.0.0" />
-                    """,
-                    StringComparison.Ordinal));
+                nuspecXml
+                    .Replace(
+                        "<description>projection agreement</description>",
+                        "<description>legacy compatibility</description>",
+                        StringComparison.Ordinal)
+                    .Replace(
+                        """
+                          <dependency id="B" version="2.0.0" />
+                          <dependency id="A" version="1.0.0" />
+                        """,
+                        """
+                          <dependency id="Legacy.Compatibility" version="9.0.0" />
+                        """,
+                        StringComparison.Ordinal));
             using var client = new HttpClient();
 
             InspectionResult cold = await PackageInspector.InspectAsync(
@@ -506,6 +511,7 @@ public sealed class PackageIndexCacheTests
 
             Assert.Equal(cold.PackageName, warm.PackageName);
             Assert.Equal(cold.Version, warm.Version);
+            Assert.Equal("projection agreement", cold.Description?.ToString());
             Assert.Equal(cold.Description, warm.Description);
             Assert.Equal(cold.PackageReadmeFile, warm.PackageReadmeFile);
             Assert.Equal(cold.HasReadme, warm.HasReadme);

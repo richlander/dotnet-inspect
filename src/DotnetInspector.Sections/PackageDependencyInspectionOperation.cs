@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
@@ -34,8 +33,7 @@ public abstract record PackageDependencyInspectionOutcome
     }
 
     public sealed record Available(
-        PackageSourceCoordinate Coordinate,
-        PackageManifestIdentityProvenance IdentityProvenance,
+        PackageManifestFacts Manifest,
         PackageDependencyGroups Dependencies) :
         PackageDependencyInspectionOutcome;
 
@@ -47,7 +45,8 @@ public abstract record PackageDependencyInspectionOutcome
     public sealed record Failed(
         string? PackageId,
         string? PackageVersion,
-        PackageDependencyInspectionFailureReason Reason) :
+        PackageDependencyInspectionFailureReason Reason,
+        PackageManifestFacts? Manifest = null) :
         PackageDependencyInspectionOutcome;
 }
 
@@ -89,29 +88,22 @@ public static class PackageDependencyInspectionOperation
                 share);
         }
 
-        PackageDependencyGroupsResult result =
-            await PackageDependencyGroupsQuery.ExecuteAsync(
+        PackageManifestInspectionResult result =
+            await PackageManifestFactsQuery.ExecuteInspectionAsync(
                     request.Input,
-                    request.RequestedTargetFramework,
-                    cancellationToken,
-                    request.AllowCompatibleFallbackForRequestedTfm)
+                    cancellationToken)
                 .ConfigureAwait(false);
         return result switch
         {
-            PackageDependencyGroupsResult.Available available =>
-                new(
-                    new PackageDependencyInspectionOutcome.Available(
-                        available.Manifest.Coordinate,
-                        available.Manifest.IdentityProvenance,
-                        available.Value),
-                    share),
-            PackageDependencyGroupsResult.NoManifest =>
+            PackageManifestInspectionResult.Available available =>
+                Project(available.Value, request, share),
+            PackageManifestInspectionResult.NoManifest =>
                 new(
                     new PackageDependencyInspectionOutcome.NoManifest(
                         request.Input.PackageId,
                         request.Input.PackageVersion),
                     share),
-            PackageDependencyGroupsResult.Failed failed =>
+            PackageManifestInspectionResult.Failed failed =>
                 Failed(
                     request.Input,
                     failed.ManifestFailure is null
@@ -127,6 +119,38 @@ public static class PackageDependencyInspectionOperation
                         : "The package dependency manifest was rejected.",
                     share),
             _ => throw new InvalidOperationException(
+                "Unknown package manifest inspection result."),
+        };
+    }
+
+    private static InspectionEnvelope<PackageDependencyInspectionOutcome>
+        Project(
+            PackageManifestFacts manifest,
+            PackageDependencyInspectionRequest request,
+            InspectionShare share)
+    {
+        PackageDependencyGroupsResult dependencies =
+            PackageDependencyGroupsQuery.Execute(
+                manifest,
+                request.RequestedTargetFramework,
+                request.AllowCompatibleFallbackForRequestedTfm);
+        return dependencies switch
+        {
+            PackageDependencyGroupsResult.Available available =>
+                new(
+                    new PackageDependencyInspectionOutcome.Available(
+                        manifest,
+                        available.Value),
+                    share),
+            PackageDependencyGroupsResult.Failed =>
+                Failed(
+                    request.Input,
+                    PackageDependencyInspectionFailureReason.ManifestRejected,
+                    "package-dependencies.manifest-rejected",
+                    "The package dependency manifest was rejected.",
+                    share,
+                    manifest),
+            _ => throw new InvalidOperationException(
                 "Unknown package dependency-group result."),
         };
     }
@@ -137,12 +161,14 @@ public static class PackageDependencyInspectionOperation
             PackageDependencyInspectionFailureReason reason,
             string code,
             string summary,
-            InspectionShare share) =>
+            InspectionShare share,
+            PackageManifestFacts? manifest = null) =>
         new(
             new PackageDependencyInspectionOutcome.Failed(
                 input.PackageId,
                 input.PackageVersion,
-                reason),
+                reason,
+                manifest),
             share,
             [
                 new InspectionDiagnostic(

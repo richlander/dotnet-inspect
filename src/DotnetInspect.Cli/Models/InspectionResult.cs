@@ -223,6 +223,10 @@ public class InspectionResult
 
     public List<DependencyGroup>? DependencyGroups { get; set; }
 
+    [JsonIgnore]
+    internal IReadOnlyList<PackageManifestDependencyIdentifierObservation>?
+        RejectedDependencyIdentifierObservations { get; set; }
+
     /// <summary>
     /// The shared Depends operation projected for this resolved Package subject.
     /// </summary>

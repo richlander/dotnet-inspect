@@ -54,7 +54,11 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 root, TempDir: null, packageId, version, ProducerKey: producer)
             {
                 Authority = authority,
-                AcquiredPayload = Payload(packageId, version, producer),
+                AcquiredPayload = Payload(
+                    packageId,
+                    version,
+                    producer,
+                    name),
             };
             PackageIndexCacheSubject? subject =
                 PackageIndexCacheSubject.TryCreate(
@@ -1766,11 +1770,15 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     private static AcquiredPackageSourcePayload Payload(
         string packageId,
         string version,
-        string producerKey)
+        string producerKey,
+        string? description = null)
         => new(
             NuGetFetch.PackageSourceCoordinate.Create(packageId, version),
             new InMemoryPackageContent(
-                [1, 2, 3],
+                CreatePackage(
+                    packageId,
+                    version: version,
+                    description: description),
                 fromCache: true,
                 producerKey),
             producerKey,
@@ -1833,6 +1841,19 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         string packageId,
         string? dependencyId = null,
         string? assemblyPath = null)
+        => CreatePackage(
+            packageId,
+            "1.0.0",
+            "Test package",
+            dependencyId,
+            assemblyPath);
+
+    private static byte[] CreatePackage(
+        string packageId,
+        string version,
+        string? description,
+        string? dependencyId = null,
+        string? assemblyPath = null)
     {
         string dependencies = dependencyId is null
             ? ""
@@ -1859,9 +1880,9 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     <package>
                       <metadata>
                         <id>{{packageId}}</id>
-                        <version>1.0.0</version>
+                        <version>{{version}}</version>
                         <authors>Test</authors>
-                        <description>Test package</description>
+                        <description>{{description}}</description>
                     {{dependencies}}
                       </metadata>
                     </package>

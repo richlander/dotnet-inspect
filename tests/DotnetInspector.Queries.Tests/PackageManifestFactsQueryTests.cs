@@ -86,6 +86,8 @@ public sealed class PackageManifestFactsQueryTests
                 coordinate));
 
         Assert.Equal(coordinate, facts.Coordinate);
+        Assert.Equal("Example.Package", facts.DeclaredPackageId);
+        Assert.Equal("1.0.0", facts.DeclaredPackageVersion);
         Assert.Equal(
             PackageManifestIdentityProvenance.ExpectedCoordinate,
             facts.IdentityProvenance);
@@ -506,6 +508,42 @@ public sealed class PackageManifestFactsQueryTests
             "evil/../other",
             failure.Failure.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExecuteWithSectionFailures_RetainsValidMetadata()
+    {
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsQuery.ExecuteWithSectionFailures(
+                Encoding.UTF8.GetBytes(
+                    """
+                    <package>
+                      <metadata>
+                        <id>Example.Package</id>
+                        <version>1.0.0</version>
+                        <authors>Example Authors</authors>
+                        <description>Example description</description>
+                        <dependencies>
+                          <dependency id="evil/../other" version="not-a-range" />
+                        </dependencies>
+                      </metadata>
+                    </package>
+                    """),
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal("Example.Package", facts.DeclaredPackageId);
+        Assert.Equal("Example Authors", facts.Authors);
+        Assert.Equal("Example description", facts.Description?.ToString());
+        Assert.Empty(facts.DependencyGroups);
+        Assert.Equal(
+            "evil/../other",
+            Assert.Single(facts.DependencyIdentifierObservations).Id);
+        Assert.Equal(
+            PackageManifestFailureReason.InvalidDependencyContract,
+            Assert.IsType<PackageManifestDependencyFactsResult.Failed>(
+                facts.DependencyDeclarations).Failure.Reason);
     }
 
     [Fact]
@@ -930,6 +968,12 @@ public sealed class PackageManifestFactsQueryTests
         PackageManifestFacts actual)
     {
         Assert.Equal(expected.Coordinate, actual.Coordinate);
+        Assert.Equal(
+            expected.DeclaredPackageId,
+            actual.DeclaredPackageId);
+        Assert.Equal(
+            expected.DeclaredPackageVersion,
+            actual.DeclaredPackageVersion);
         Assert.Equal(expected.ManifestVersion, actual.ManifestVersion);
         Assert.Equal(
             expected.Description?.ToString(),

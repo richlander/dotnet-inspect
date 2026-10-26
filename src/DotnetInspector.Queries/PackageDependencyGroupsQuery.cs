@@ -170,11 +170,31 @@ public static class PackageDependencyGroupsQuery
                 failed.Failure);
         }
 
+        PackageManifestFacts manifest =
+            ((PackageManifestFactsResult.Available)facts).Value;
+        return Execute(
+            manifest,
+            requestedTargetFramework,
+            allowCompatibleFallbackForRequestedTfm);
+    }
+
+    public static PackageDependencyGroupsResult Execute(
+        PackageManifestFacts manifest,
+        string? requestedTargetFramework = null,
+        bool allowCompatibleFallbackForRequestedTfm = false)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (manifest.DependencyDeclarations is
+            PackageManifestDependencyFactsResult.Failed failed)
+        {
+            return new PackageDependencyGroupsResult.Failed(
+                new InvalidDataException(failed.Failure.Message),
+                failed.Failure);
+        }
+
         string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
             ? null
             : requestedTargetFramework;
-        PackageManifestFacts manifest =
-            ((PackageManifestFactsResult.Available)facts).Value;
         return new PackageDependencyGroupsResult.Available(
             manifest,
             ProjectDependencyGroups(

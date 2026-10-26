@@ -146,7 +146,7 @@ internal static class PackageInspector
         };
 
         ApplyNuspec(result, nuspec);
-        bool dependencyProjectionComplete = ApplyPackageDependencies(
+        bool manifestProjectionComplete = ApplyPackageManifest(
             result,
             dependencyInspection,
             logger.Log);
@@ -160,14 +160,7 @@ internal static class PackageInspector
         string libDir = Path.Combine(extractPath, "lib");
         bool hasToolsDir = Directory.Exists(toolsDir);
         bool hasLibDir = Directory.Exists(libDir);
-        bool productionComplete =
-            nuspec is not null && dependencyProjectionComplete;
-        if (cacheSubject is not null && nuspec is null)
-        {
-            logger.LogWarning(
-                "Package manifest facts were unavailable; "
-                + "the package index will not be cached.");
-        }
+        bool productionComplete = manifestProjectionComplete;
 
         if (hasToolsDir)
         {
@@ -325,13 +318,14 @@ internal static class PackageInspector
         return result;
     }
 
-    internal static async Task<InspectionResult> InspectPackageInventoryAsync(
+    internal static InspectionResult InspectPackageInventory(
         PackageHouseSettlement.Acquired settlement,
-        NuspecData? nuspec,
-        Action<string> log,
-        string? requestedTargetFramework = null)
+        InspectionEnvelope<PackageDependencyInspectionOutcome>
+            dependencyInspection,
+        Action<string> log)
     {
         ArgumentNullException.ThrowIfNull(settlement);
+        ArgumentNullException.ThrowIfNull(dependencyInspection);
         ArgumentNullException.ThrowIfNull(log);
         PackageHouseFileList fileList =
             settlement.Result.Evidence.FileList
@@ -342,16 +336,7 @@ internal static class PackageInspector
             PackageName = settlement.Payload.Coordinate.PackageId,
             Version = settlement.Payload.Coordinate.Version,
         };
-        ApplyNuspec(result, nuspec);
-        InspectionEnvelope<PackageDependencyInspectionOutcome>
-            dependencyInspection =
-            await PackageDependencyInspectionOperation.ExecuteAsync(
-                    new(
-                        PackageInspectionInput.CreateFromPayload(
-                            settlement.Payload),
-                        requestedTargetFramework))
-                .ConfigureAwait(false);
-        ApplyPackageDependencies(
+        ApplyPackageManifest(
             result,
             dependencyInspection,
             log);
@@ -441,7 +426,7 @@ internal static class PackageInspector
             .ConfigureAwait(false);
     }
 
-    private static bool ApplyPackageDependencies(
+    private static bool ApplyPackageManifest(
         InspectionResult result,
         InspectionEnvelope<PackageDependencyInspectionOutcome> inspection,
         Action<string> log)
@@ -453,6 +438,7 @@ internal static class PackageInspector
         if (inspection.Content is
             PackageDependencyInspectionOutcome.Available available)
         {
+            ApplyManifestFacts(result, available.Manifest);
             result.DependencyGroups =
             [
                 .. available.Dependencies.Groups.Select(group =>
@@ -475,6 +461,14 @@ internal static class PackageInspector
             return true;
         }
 
+        if (inspection.Content is
+                PackageDependencyInspectionOutcome.Failed
+                {
+                    Manifest: { } manifest,
+                })
+        {
+            ApplyManifestFacts(result, manifest);
+        }
         result.DependencyGroups = null;
         string summary = inspection.Content switch
         {
@@ -496,6 +490,39 @@ internal static class PackageInspector
         };
         log(summary);
         return false;
+    }
+
+    private static void ApplyManifestFacts(
+        InspectionResult result,
+        PackageManifestFacts manifest)
+    {
+        result.PackageName = manifest.DeclaredPackageId;
+        result.Version = manifest.DeclaredPackageVersion;
+        result.ManifestVersion = manifest.ManifestVersion;
+        result.Description = manifest.Description;
+        result.Authors = manifest.Authors;
+        result.Repository = manifest.Repository;
+        result.RepositoryType = manifest.RepositoryType;
+        result.RepositoryCommit = manifest.RepositoryCommit;
+        result.License = manifest.License;
+        result.LicenseUrl = manifest.LicenseUrl;
+        result.DeclaredLicenseFile = manifest.LicenseDeclaration is
+            {
+                Kind: PackageLicenseDeclarationKind.File,
+            } license
+                ? license.Value
+                : null;
+        result.PackageTypes = manifest.PackageTypes.IsEmpty
+            ? null
+            : [.. manifest.PackageTypes];
+        result.IsToolPackage = manifest.IsToolPackage;
+        result.ReadmeFile = manifest.ReadmeFile;
+        result.RejectedDependencyIdentifierObservations =
+            manifest.DependencyDeclarations
+                is PackageManifestDependencyFactsResult.Failed
+                && !manifest.DependencyIdentifierObservations.IsEmpty
+                    ? manifest.DependencyIdentifierObservations
+                    : null;
     }
 
     private static IReadOnlyList<string> DeriveInventoryDirectories(

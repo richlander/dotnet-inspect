@@ -821,10 +821,6 @@ public partial class PackageCommand
                 RequestsPackageEcosystemDependencies(
                     producerOptions,
                     pipeline);
-            NuspecData? nuspec = FindPackageNuspecForInspection(
-                extractPath,
-                resolution,
-                wantsEcosystemDependencies);
 
             long? packageSize = null;
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
@@ -849,7 +845,7 @@ public partial class PackageCommand
                 version,
                 target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
-                nuspec,
+                nuspec: null,
                 context.HttpClient,
                 logger,
                 options.ForceLatest,
@@ -1642,20 +1638,33 @@ public partial class PackageCommand
             RequestsPackageEcosystemDependencies(
                 producerOptions,
                 pipeline);
-        NuspecData? nuspec =
-            ReadCompileInventoryNuspec(
-                settlement.Payload.Content,
-                wantsEcosystemDependencies);
-        if (nuspec?.IsToolPackage == true)
+        InspectionEnvelope<PackageDependencyInspectionOutcome>
+            dependencyInspection =
+            await PackageDependencyInspectionOperation.ExecuteAsync(
+                    new(
+                        PackageInspectionInput.CreateFromPayload(
+                            settlement.Payload),
+                        options.Tfm))
+                .ConfigureAwait(false);
+        PackageManifestFacts? manifest =
+            dependencyInspection.Content switch
+            {
+                PackageDependencyInspectionOutcome.Available available =>
+                    available.Manifest,
+                PackageDependencyInspectionOutcome.Failed failed =>
+                    failed.Manifest,
+                _ => null,
+            };
+        if (manifest?.IsToolPackage == true)
+        {
             return PackageInfoInventoryAttempt.NotHandled;
+        }
 
         InspectionResult result =
-            await PackageInspector.InspectPackageInventoryAsync(
+            PackageInspector.InspectPackageInventory(
                 settlement,
-                nuspec,
-                context.Logger.Log,
-                options.Tfm)
-                .ConfigureAwait(false);
+                dependencyInspection,
+                context.Logger.Log);
         ApplyPackageInfoMeasurementInspection(
             result,
             PackageInfoMeasurementInspection.Project(
@@ -1760,38 +1769,6 @@ public partial class PackageCommand
             && path.EndsWith(
                 ".deps.json",
                 StringComparison.OrdinalIgnoreCase);
-
-    private static NuspecData? ReadCompileInventoryNuspec(
-        IPackageContent content,
-        bool ecosystemRecognitionRequested)
-    {
-        string? manifestPath =
-            PackageManifestContent.FindRootManifest(content);
-        if (manifestPath is null
-            || !content.TryOpenEntry(
-                manifestPath,
-                PackageManifestFactsProjection.MaxManifestBytes,
-                out Stream? manifest))
-        {
-            return null;
-        }
-
-        using (manifest)
-        {
-            try
-            {
-                return NuspecParser.Parse(
-                    manifest,
-                    PackageManifestFactsProjection
-                        .MaxManifestCharacters);
-            }
-            catch (NuspecParseException) when (
-                ecosystemRecognitionRequested)
-            {
-                return null;
-            }
-        }
-    }
 
     private static void WritePackageInfoAcquisitionFailure(
         string packageId,

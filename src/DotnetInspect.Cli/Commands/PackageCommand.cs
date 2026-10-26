@@ -1342,15 +1342,19 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline);
 
-            // Typed JSON needs full inspection; local packages and Markdown titles need nuspec identity.
-            NuspecData? nuspec = lightweightTargetFrameworks
-                && !target.IsLocalFile
-                && (options.Count || options.Format != OutputFormat.Markdown)
-                ? null
-                : FindPackageNuspecForInspection(
+            bool needsLegacyNuspec =
+                options.ShowContent
+                || options.AllLibraries
+                || lightweightTargetFrameworks
+                    && (target.IsLocalFile
+                        || !options.Count
+                            && options.Format == OutputFormat.Markdown);
+            NuspecData? nuspec = needsLegacyNuspec
+                ? FindPackageNuspecForInspection(
                     extractPath,
                     resolution,
-                    wantsEcosystemDependencies);
+                    wantsEcosystemDependencies)
+                : null;
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
