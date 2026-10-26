@@ -119,6 +119,30 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void
+        CompileLibrariesDemandCanNameOnlyTheRequiredImplementations()
+    {
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+        PackageHouseRequest request =
+            PackageHouseRequest.CompileLibraries(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                target,
+                PackageAssetDemand.SurfaceAndImplementation,
+                ["Contoso.Json.dll"]);
+
+        Assert.True(request.IsCompileLibraries);
+        Assert.Equal(
+            ["Contoso.Json.dll"],
+            request.ImplementationNames!.Names);
+        Assert.Equal(
+            PackageAssetDemand.SurfaceAndImplementation,
+            request.ContentQuery!.CompileLibrariesTerminal!.AssetDemand);
+    }
+
+    [Fact]
     public void RequestFloorRetainsExactDemandAndAssociation()
     {
         var demand = new PackageHouseDemand.Exact(Coordinate);

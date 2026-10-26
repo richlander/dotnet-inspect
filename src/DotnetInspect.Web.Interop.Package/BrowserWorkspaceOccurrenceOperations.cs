@@ -465,7 +465,8 @@ public static partial class PackageExports
                 Activated: false,
                 Superseded: true,
                 Package: null,
-                RuntimeIdentifier: "");
+                RuntimeIdentifier: "",
+                ImplementationComparisonRuntimeIdentifier: null);
         }
 
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
@@ -479,7 +480,8 @@ public static partial class PackageExports
                 Activated: false,
                 Superseded: true,
                 Package: null,
-                RuntimeIdentifier: "");
+                RuntimeIdentifier: "",
+                ImplementationComparisonRuntimeIdentifier: null);
         }
 
         BrowserInspectionScope scope = scopeLease.Scope;
@@ -492,7 +494,10 @@ public static partial class PackageExports
             Activated: true,
             Superseded: false,
             package,
-            selection.Coordinate.RuntimeIdentifier ?? "");
+            selection.Coordinate.RuntimeIdentifier ?? "",
+            BrowserPackageWireProjection
+                .ImplementationComparisonRuntimeIdentifier(
+                    selection.Coordinate));
     }
 }
 }

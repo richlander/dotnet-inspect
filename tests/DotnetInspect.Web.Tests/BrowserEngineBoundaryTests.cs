@@ -438,7 +438,10 @@ public sealed partial class BrowserEngineBoundaryTests
         return coordinate;
     }
 
-    static async Task<BrowserPackageCoordinate> Coordinate(string id, byte[] nupkg)
+    static async Task<BrowserPackageCoordinate> Coordinate(
+        string id,
+        byte[] nupkg,
+        string? runtimeIdentifier = null)
     {
         var package = new BrowserPackage(id, "1.0.0", nupkg, fromCache: false);
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(package);
@@ -446,7 +449,8 @@ public sealed partial class BrowserEngineBoundaryTests
             package.Content,
             id,
             package.Version,
-            "net11.0");
+            "net11.0",
+            runtimeIdentifier);
         Assert.True(Assert.IsType<PackageCompileAssetSelection>(assemblyContext.AssetSelection).IsSelected);
         return new BrowserPackageCoordinate(package, assemblyContext);
     }

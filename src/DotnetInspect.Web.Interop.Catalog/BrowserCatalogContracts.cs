@@ -551,13 +551,22 @@ public sealed record BrowserHomeDemoRunActivation(
     string? PlatformContextId = null);
 
 /// <summary>
+/// One product home-demo surface, its exact Package coordinate RID, and the
+/// Package-owned implementation-comparison RID. Platform surfaces carry neither.
+/// </summary>
+public sealed record BrowserHomeDemoRunPackage(
+    BrowserPackageSurface Surface,
+    string? RuntimeIdentifier,
+    string? ImplementationComparisonRuntimeIdentifier);
+
+/// <summary>
 /// Browser result of running one product home demo through the normal package
 /// or Platform workspace and query path. Unknown ids return <see cref="Found"/> false;
 /// known-demo failures remain visible exceptions.
 /// </summary>
 public sealed record BrowserHomeDemoRunResult(
     bool Found,
-    BrowserPackageSurface[] Packages,
+    BrowserHomeDemoRunPackage[] Packages,
     BrowserHomeDemoRunActivation? Activation,
     BrowserCallGraph? CallGraph);
 
@@ -871,6 +880,8 @@ public sealed record BrowserRetainedWorkspacePackageInventory(
     string NavigationId,
     int ContextIndex,
     string ConsumerPackageSubjectId,
+    string? RuntimeIdentifier,
+    string ImplementationComparisonRuntimeIdentifier,
     BrowserRetainedWorkspaceSurfaceSummary Summary,
     BrowserRetainedWorkspacePackageLibraryIdentity? DefaultLibrary);
 
