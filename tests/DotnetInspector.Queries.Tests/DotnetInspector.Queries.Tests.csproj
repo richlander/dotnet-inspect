@@ -37,6 +37,7 @@
     <PackageDownload Include="Avalonia" Version="[11.3.14];[12.1.2]" />
     <PackageDownload Include="Polly.Core" Version="[8.8.0]" />
     <PackageDownload Include="Dapper" Version="[2.1.89]" />
+    <PackageDownload Include="Aspire.StackExchange.Redis" Version="[13.6.3]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -100,6 +101,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="$(NuGetPackageRoot)aspire.stackexchange.redis/13.6.3/aspire.stackexchange.redis.13.6.3.nupkg"
+          Link="RealAssets/CompleteRestoration/aspire.stackexchange.redis.13.6.3.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/microsoft.netcore.app.ref.10.0.10.nupkg"
           Link="RealAssets/CompleteRestoration/microsoft.netcore.app.ref.10.0.10.nupkg"
           CopyToOutputDirectory="PreserveNewest" />

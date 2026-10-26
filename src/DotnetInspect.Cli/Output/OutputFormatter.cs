@@ -740,6 +740,17 @@ public static class OutputFormatter
         }
         else
         {
+            if (LibraryCommand.IsExactDependencyStructureSelection(options)
+                && inspection.DependencyStructureQueryResult
+                    is LibraryDependencyStructureQueryResult.Available
+                        dependencyStructure)
+            {
+                LibraryDependencyStructureTableOutput.Write(
+                    dependencyStructure,
+                    options);
+                return;
+            }
+
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
             WriteLibraryTabular(auditView, inspection, writerOpts, options);
         }

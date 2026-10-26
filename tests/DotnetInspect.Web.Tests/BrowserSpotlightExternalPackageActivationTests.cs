@@ -95,7 +95,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                 source,
                 descriptor,
                 host,
-                (candidate, curated, authority) =>
+                (candidate, _, curated, authority) =>
                 {
                     received = new(candidate, curated, authority);
                     return received;
@@ -153,7 +153,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                 source,
                 descriptor,
                 host,
-                static (package, curated, authority) =>
+                static (package, _, curated, authority) =>
                     new(package, curated, authority),
                 (_, _) =>
                     ValueTask.FromResult<RestorationResult>(
@@ -191,7 +191,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                     source,
                     descriptor,
                     host,
-                    static (package, curated, authority) =>
+                    static (package, _, curated, authority) =>
                         new(package, curated, authority),
                     async (_, cancellationToken) =>
                     {
@@ -246,7 +246,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                     source,
                     descriptor,
                     host,
-                    static (package, curated, authority) =>
+                    static (package, _, curated, authority) =>
                         new(package, curated, authority),
                     (_, _) =>
                     {
@@ -292,7 +292,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                     source,
                     descriptor,
                     host,
-                    static (package, curated, authority) =>
+                    static (package, _, curated, authority) =>
                         new(package, curated, authority),
                     (_, _) =>
                     {
@@ -347,7 +347,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                 source,
                 descriptor,
                 host,
-                (package, curated, authority) =>
+                (package, _, curated, authority) =>
                 {
                     requestCount++;
                     return new(package, curated, authority);
@@ -404,7 +404,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                     source,
                     descriptor,
                     host,
-                    static (candidate, curated, authority) =>
+                    static (candidate, _, curated, authority) =>
                         new(candidate, curated, authority),
                     static (_, _) =>
                         ValueTask.FromResult<RestorationResult>(

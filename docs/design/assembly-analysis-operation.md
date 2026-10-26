@@ -26,6 +26,12 @@ uses request-set access while the PEReader overload remains the direct
 reference. Direct and request-set operations now carry an owner-issued source
 adapter opaquely: the service reads no Method breadth, layer, terminal, request,
 or receipt type and contains no source-kind switch.
+`AssemblyContextCallGraphAnalysis` now adopts the same boundary for one
+all-definition `LibraryCallGraphProducer` request. The producer composes
+physical Method, allocation, and declared-source evidence, and the sink
+publishes `LibraryCallGraphAnalysisResult` with exact Method-source and
+Producer Planning receipts. This production path no longer invokes
+`LibraryBodyAnalysisService`.
 Other source kinds, cancellation, residual request satisfaction, and mixed-
 hub composition remain **unverified**. The no-remainder rule and split
 exact-member prerequisites are recorded under
@@ -509,15 +515,29 @@ body-signal fallback. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.
 
+`LibraryCallGraphProducer` is the first all-definition production adoption.
+It requests all MethodDefs plus the generated execution-body relation, visits
+physical Method and allocation facts once, and publishes detached declared
+methods, managed methods, direct calls, safety evidence, body signals,
+exception classification, declared-owner mappings, and diagnostics.
+`AssemblyContextCallGraphAnalysis` binds that Rows terminal through
+`AssemblyAnalysisOperation` and consumes only the focused result. Its
+`LibraryCallGraphAnalysisResult` compatibility receipt remains transitional;
+the exact Method-source receipt and Producer Planning work receipt are the
+authoritative execution evidence. Type Method Leverage and other consumers of
+the legacy whole-library Call Graph remain separate drain slices.
+
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
 exact method-analysis producer for safety-only IL-coordinate preparation.
 Direct CLI and host-neutral Library Address execution borrow the already-open
 prefetched image and issue one exact MethodDef request for the deduplicated
 coordinate methods. Allocation-only coordinate preparation independently
-plans `ExactMethodAllocationProducer` over that same bounded population. The
-two focused inputs retain exact source and work receipts; neither path opens
-`LibraryBodyAnalysisService`. Cost-only and combined semantic coordinate
-requests remain on the service until their complete result ownership moves.
+plans `ExactMethodAllocationProducer` over that same bounded population.
+Cost-only preparation plans `FocusedMethodCallProducer` and retains only the
+direct-call rows needed by coordinate projection. The three focused inputs
+retain exact source and work receipts; none opens
+`LibraryBodyAnalysisService`. Combined semantic coordinate requests remain on
+the service until their complete result ownership moves.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first

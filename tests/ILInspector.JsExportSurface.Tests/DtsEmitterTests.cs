@@ -796,6 +796,57 @@ public sealed class DtsEmitterTests
                     == "ReadCount JSON input parameters");
     }
 
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    public void Emit_RejectsInvalidInt64MarshalingAssociations(
+        int parameterIndex,
+        bool duplicate)
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        JsExportParameterInt64Marshaling fact = new()
+        {
+            ParameterIndex = parameterIndex,
+            Marshaling = JsExportInt64Marshaling.BigInt,
+        };
+        var facts =
+            new List<JsExportParameterInt64Marshaling> { fact };
+        if (duplicate)
+            facts.Add(fact);
+
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "Ping",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Value",
+                            Type = "long",
+                        },
+                    ],
+                    ParameterInt64Marshalings = facts,
+                },
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function ping(value: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Ping Int64 parameters");
+    }
+
     [Fact]
     public void Emit_LeavesDirectInteropArraysMutable()
     {

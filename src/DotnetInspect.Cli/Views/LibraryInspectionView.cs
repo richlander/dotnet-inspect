@@ -323,12 +323,11 @@ public class LibraryInspectionView
 
     [MarkoutSection(
         Name = SectionNames.DependencyStructure,
-        EmptyText = "No internal namespace dependencies.",
         ShowWhenProperty = nameof(HasDependencyStructure))]
-    public Markout.Graph? DependencyStructureSection =>
+    public LibraryDependencyStructureSection? DependencyStructureSection =>
         _data.DependencyStructureQueryResult
             is LibraryDependencyStructureQueryResult.Available available
-                ? LibraryDependencyStructureOutputAdapter.ToGraph(available)
+                ? LibraryDependencyStructureSection.From(available)
                 : null;
 
     private EcosystemDependencyRecognitionDocument? RecognitionDocument =>

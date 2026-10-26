@@ -2749,7 +2749,7 @@ public static class WorkspaceContextLoader
                 coordinateProducer,
                 sourceProducer);
         if (binding is WorkspacePackageRootAcquisitionOutcome.Acquired acquiredRoot
-            && acquiredRoot.Root.Root.AssetSelection.Status
+            && acquiredRoot.Root.Root.AssetSelection?.Status
                 == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
             && PackageAssetSelector.Select(
                     acquired.Content,

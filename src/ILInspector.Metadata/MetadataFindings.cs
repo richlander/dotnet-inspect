@@ -5,8 +5,9 @@ namespace ILInspector.Metadata;
 
 /// <summary>
 /// API-surface observations and comparisons over the domain-free Finding substrate.
-/// Types and members are unordered identity sets; compatibility classification remains
-/// the responsibility of <see cref="ApiDiffAnalyzer"/>.
+/// Types and members are unordered identity sets; compatibility classification is
+/// <see cref="ApiFindingClassifier"/>, which works from <see cref="ApiDiffAnalyzer"/>'s
+/// change facts.
 /// </summary>
 public static partial class MetadataFindings
 {
@@ -550,8 +551,8 @@ public static partial class MetadataFindings
         // ApiSurface.Types already excludes the entities recorded in InspectionFailures (see
         // AssemblyReader/ApiSurfaceExtractor) -- the surface itself is the healthy subset, and
         // InspectionFailures is structured metadata about what was skipped, not a signal that
-        // nothing usable was extracted. Mirrors the legacy analyzer's per-type-skip: a failure
-        // affecting some types must not discard the comparison for every type that did load.
+        // nothing usable was extracted. A failure affecting some types must not discard the
+        // comparison for every type that did load.
         return InspectApiTypes(surface, subject);
     }
 
@@ -599,7 +600,7 @@ public static partial class MetadataFindings
             }
         }
 
-        ThrowIfLegacyChangesUnconsumed("type", changesByKey, consumedKeys);
+        ThrowIfClassifiedChangesUnpaired("type", changesByKey, consumedKeys);
         return builder.ToImmutable();
     }
 
@@ -662,19 +663,19 @@ public static partial class MetadataFindings
             }
         }
 
-        ThrowIfLegacyChangesUnconsumed("member", changesByKey, consumedKeys);
+        ThrowIfClassifiedChangesUnpaired("member", changesByKey, consumedKeys);
         return builder.ToImmutable();
     }
 
     /// <summary>
-    /// Cross-validates the legacy <see cref="ApiDiffAnalyzer"/> lane against the Finding
-    /// lane (finding-adoption.md rule 1): every present-in-both facet change the legacy
-    /// analyzer reports must land on a matching identity-set <c>Present</c> pair here. A
-    /// legacy change with no matching pair means the two lanes disagree about which
-    /// types/members correspond across surfaces -- a producer or adapter bug that must
-    /// fail loudly rather than silently render only the legacy change.
+    /// Checks that every present-in-both facet change <see cref="ApiFindingClassifier"/>
+    /// reports lands on a matching identity-set <c>Present</c> pair here
+    /// (finding-adoption.md rule 1). A change with no matching pair means the classified
+    /// <see cref="ApiDiff"/> and the identity-set pairs disagree about which types/members
+    /// correspond across surfaces -- a producer or adapter bug that must fail loudly rather
+    /// than silently render only the classified change.
     /// </summary>
-    static void ThrowIfLegacyChangesUnconsumed(
+    static void ThrowIfClassifiedChangesUnpaired(
         string domain,
         Dictionary<string, List<ApiChange>> changesByKey,
         HashSet<string> consumedKeys)
@@ -687,12 +688,12 @@ public static partial class MetadataFindings
             return;
 
         throw new InvalidOperationException(
-            $"API {domain} diff divergence: the legacy ApiDiffAnalyzer reported "
-            + $"{unconsumed.Count} present-in-both {domain} change(s) that the Finding-lane "
+            $"API {domain} diff divergence: the classified API diff reported "
+            + $"{unconsumed.Count} present-in-both {domain} change(s) that the "
             + "identity-set comparison did not match to a Present pair: "
             + string.Join(", ", unconsumed)
-            + ". This means the legacy and Finding lanes disagree about correspondence "
-            + "for these identities.");
+            + ". This means the classifier and the identity-set pairs disagree about "
+            + "correspondence for these identities.");
     }
 
 

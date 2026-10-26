@@ -53,6 +53,10 @@ for (
 const configureHostKey =
   facadeSource.match(/"(ConfigureHost\.-?\d+)"/)?.[1];
 const echoKey = facadeSource.match(/"(Echo\.-?\d+)"/)?.[1];
+const echoBigIntKey =
+  facadeSource.match(/"(EchoBigInt\.-?\d+)"/)?.[1];
+const echoInt52Key =
+  facadeSource.match(/"(EchoInt52\.-?\d+)"/)?.[1];
 const matchWidgetCandidatesKey =
   facadeSource.match(/"(MatchWidgetCandidates\.-?\d+)"/)?.[1];
 const getWidgetAsyncKey =
@@ -146,6 +150,14 @@ assert.ok(
   "The generated ConfigureHost runtime dispatch key was not found.",
 );
 assert.ok(echoKey, "The generated Echo runtime dispatch key was not found.");
+assert.ok(
+  echoBigIntKey,
+  "The generated EchoBigInt runtime dispatch key was not found.",
+);
+assert.ok(
+  echoInt52Key,
+  "The generated EchoInt52 runtime dispatch key was not found.",
+);
 assert.ok(
   matchWidgetCandidatesKey,
   "The generated MatchWidgetCandidates runtime dispatch key was not found.",
@@ -330,6 +342,10 @@ function managedExports(methods = {}) {
             [configureHostKey]:
               methods.configureHost ?? (() => {}),
             [echoKey]: methods.echo ?? ((value) => value),
+            [echoBigIntKey]:
+              methods.echoBigInt ?? ((value) => value),
+            [echoInt52Key]:
+              methods.echoInt52 ?? ((value) => value),
             [matchWidgetCandidatesKey]:
               methods.matchWidgetCandidates
               ?? ((requestedName, candidatesJson) =>
@@ -593,6 +609,12 @@ async function freshFacade() {
   facade.configureHost("https://example.test");
   assert.deepEqual(hostCalls, ["https://example.test"]);
   assert.equal(facade.echo("value"), "not-json");
+  const exactInt64 = 9_007_199_254_740_993n;
+  assert.equal(facade.echoBigInt(exactInt64), exactInt64);
+  assert.equal(
+    facade.echoInt52(9_007_199_254_740_991),
+    9_007_199_254_740_991,
+  );
   assert.equal(
     facade.matchWidgetCandidates(
       "primary",

@@ -97,7 +97,8 @@ static class ClassifiedRows
 
 /// <summary>
 /// The extension-method scope: static (sealed abstract) types carrying
-/// <c>[Extension]</c> and not hidden; within them, public static methods
+/// <c>[Extension]</c>, not hidden, and public through every enclosing type;
+/// within them, public static methods
 /// carrying <c>[Extension]</c> and not hidden. It is the scope
 /// <c>ExtensionMethodScanner.FindAllExtensions(includeAll: false)</c> selects
 /// for methods, minus the signature decode, which Roslyn never fails and
@@ -130,7 +131,8 @@ public sealed class ExtensionMethodScope : MethodRowClassifier<ExtensionMethodSc
             const TypeAttributes Static = TypeAttributes.Sealed | TypeAttributes.Abstract;
             return (attributes & Static) == Static
                 && type.HasAttributeOfType(ExtensionAttribute)
-                && !type.IsHidden;
+                && !type.IsHidden
+                && type.IsPublicScopeType;
         }
 
         public int Classify(scoped MethodDefinitionView row)
