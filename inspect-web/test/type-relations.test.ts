@@ -23,14 +23,19 @@ function state(): TypeRelationsState {
 }
 
 function available(
-  limited = 0,
+  relationLimited = 0,
+  colorLimited = 0,
 ): BrowserAnnotatedTypeRelationsInspection {
   return {
     outcome: "Available",
     reason: null,
     inspection: {
       content: {
-        terminal: { kind: "Rows", value: 1, is_complete: limited === 0 },
+        terminal: {
+          kind: "Rows",
+          value: 1,
+          is_complete: relationLimited === 0,
+        },
         subjects: [
           {
             id: 1,
@@ -48,11 +53,29 @@ function available(
         occurrences: [{ relation_id: 4 }, { relation_id: 4 }],
         annotations: [{
           descriptor: { id: "member.requires-dynamic-code" },
-          target: { kind: "Relation", id: 4 },
+          target: { kind: "Subject", id: 1 },
         }],
         relationship_outcomes: [{
+          family: "call",
           disposition: "Produced",
-          coverage: { considered: 3, examined: 3 - limited, limited },
+          coverage: {
+            considered: 3,
+            examined: 3 - relationLimited,
+            excluded: 0,
+            unavailable: 0,
+            limited: relationLimited,
+          },
+        }],
+        color_outcomes: [{
+          family: "member.requires-dynamic-code",
+          disposition: "Produced",
+          coverage: {
+            considered: 3,
+            examined: 3 - colorLimited,
+            excluded: 0,
+            unavailable: 0,
+            limited: colorLimited,
+          },
         }],
       },
       share: {
@@ -156,10 +179,10 @@ test("stale results are discarded and retry is explicit", async () => {
   assert.equal(queries, 3);
 });
 
-test("available rendering exposes physical evidence, color, and limits", () => {
+test("available rendering exposes physical evidence, colors, and limits", () => {
   const current = state();
   current.signature = "package/type";
-  current.result = available(1);
+  current.result = available(1, 1);
 
   const html = renderTypeRelations({
     signature: "package/type",
@@ -171,6 +194,10 @@ test("available rendering exposes physical evidence, color, and limits", () => {
   assert.match(html, /Example\.Target\.Run/);
   assert.match(html, /2 occurrences/);
   assert.match(html, /member\.requires-dynamic-code/);
-  assert.match(html, /Partial evidence/);
-  assert.match(html, /2 of 3 candidates examined; 1 limited/);
+  assert.match(html, /Call evidence is partial/);
+  assert.match(html, /2 of 3 candidates examined; 0 unavailable; 1 limited/);
+  assert.match(html, /Compatibility color evidence is partial/);
+  assert.match(
+    html,
+    /member\.requires-dynamic-code<\/code>: 2 of 3 examined; 1 limited/);
 });

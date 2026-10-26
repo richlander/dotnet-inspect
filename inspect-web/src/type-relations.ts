@@ -29,10 +29,13 @@ interface CanonicalAnnotation {
 }
 
 interface CanonicalFamilyOutcome {
+  family: string;
   disposition: string;
   coverage: {
     considered: number;
     examined: number;
+    excluded: number;
+    unavailable: number;
     limited: number;
   };
 }
@@ -48,6 +51,7 @@ interface CanonicalRelationsDocument {
   occurrences: CanonicalOccurrence[];
   annotations: CanonicalAnnotation[];
   relationship_outcomes: CanonicalFamilyOutcome[];
+  color_outcomes: CanonicalFamilyOutcome[];
 }
 
 export interface TypeRelationsRequest {
@@ -138,7 +142,8 @@ function canonicalDocument(
     || !Array.isArray(value.relations)
     || !Array.isArray(value.occurrences)
     || !Array.isArray(value.annotations)
-    || !Array.isArray(value.relationship_outcomes)) {
+    || !Array.isArray(value.relationship_outcomes)
+    || !Array.isArray(value.color_outcomes)) {
     return null;
   }
   const terminal = value.terminal;
@@ -211,23 +216,38 @@ function canonicalDocument(
       },
     });
   }
-  const relationshipOutcomes: CanonicalFamilyOutcome[] = [];
-  for (const candidate of value.relationship_outcomes) {
-    if (!isRecord(candidate)
-      || typeof candidate.disposition !== "string"
-      || !isRecord(candidate.coverage)
-      || typeof candidate.coverage.considered !== "number"
-      || typeof candidate.coverage.examined !== "number"
-      || typeof candidate.coverage.limited !== "number") return null;
-    relationshipOutcomes.push({
-      disposition: candidate.disposition,
-      coverage: {
-        considered: candidate.coverage.considered,
-        examined: candidate.coverage.examined,
-        limited: candidate.coverage.limited,
-      },
-    });
-  }
+  const familyOutcomes = (
+    values: unknown[],
+  ): CanonicalFamilyOutcome[] | null => {
+    const outcomes: CanonicalFamilyOutcome[] = [];
+    for (const candidate of values) {
+      if (!isRecord(candidate)
+        || typeof candidate.family !== "string"
+        || typeof candidate.disposition !== "string"
+        || !isRecord(candidate.coverage)
+        || typeof candidate.coverage.considered !== "number"
+        || typeof candidate.coverage.examined !== "number"
+        || typeof candidate.coverage.excluded !== "number"
+        || typeof candidate.coverage.unavailable !== "number"
+        || typeof candidate.coverage.limited !== "number") return null;
+      outcomes.push({
+        family: candidate.family,
+        disposition: candidate.disposition,
+        coverage: {
+          considered: candidate.coverage.considered,
+          examined: candidate.coverage.examined,
+          excluded: candidate.coverage.excluded,
+          unavailable: candidate.coverage.unavailable,
+          limited: candidate.coverage.limited,
+        },
+      });
+    }
+    return outcomes;
+  };
+  const relationshipOutcomes =
+    familyOutcomes(value.relationship_outcomes);
+  const colorOutcomes = familyOutcomes(value.color_outcomes);
+  if (!relationshipOutcomes || !colorOutcomes) return null;
   return {
     terminal: {
       kind: terminal.kind,
@@ -239,6 +259,7 @@ function canonicalDocument(
     occurrences,
     annotations,
     relationship_outcomes: relationshipOutcomes,
+    color_outcomes: colorOutcomes,
   };
 }
 
@@ -297,12 +318,12 @@ export function renderTypeRelations(
       occurrence.relation_id,
       (occurrenceCounts.get(occurrence.relation_id) ?? 0) + 1);
   }
-  const colors = new Map<number, string[]>();
+  const colorsBySubject = new Map<number, string[]>();
   for (const annotation of document.annotations) {
-    if (annotation.target.kind !== "Relation") continue;
-    const existing = colors.get(annotation.target.id) ?? [];
+    if (annotation.target.kind !== "Subject") continue;
+    const existing = colorsBySubject.get(annotation.target.id) ?? [];
     existing.push(annotation.descriptor.id);
-    colors.set(annotation.target.id, existing);
+    colorsBySubject.set(annotation.target.id, existing);
   }
   const visible = document.relations.slice(0, 50);
   const rows = visible.map(relation => {
@@ -312,7 +333,8 @@ export function renderTypeRelations(
     const target = member && type
       ? `${type.namespace ? `${type.namespace}.` : ""}${type.name}.${member.name}`
       : `Subject ${relation.target_subject_id}`;
-    const relationColors = colors.get(relation.id) ?? [];
+    const relationColors =
+      colorsBySubject.get(relation.target_subject_id) ?? [];
     return `<li><code>${escapeHtml(target)}</code>`
       + `<span>${occurrenceCounts.get(relation.id) ?? 0} occurrence${
         occurrenceCounts.get(relation.id) === 1 ? "" : "s"
@@ -330,22 +352,52 @@ export function renderTypeRelations(
       (total, value) => ({
         considered: total.considered + value.considered,
         examined: total.examined + value.examined,
+        excluded: total.excluded + value.excluded,
+        unavailable: total.unavailable + value.unavailable,
         limited: total.limited + value.limited,
       }),
-      { considered: 0, examined: 0, limited: 0 });
-  const isPartial = document.terminal.is_complete === false
+      {
+        considered: 0,
+        examined: 0,
+        excluded: 0,
+        unavailable: 0,
+        limited: 0,
+      });
+  const relationshipIsPartial = document.terminal.is_complete === false
+    || coverage.unavailable > 0
     || coverage.limited > 0;
+  const incompleteColors = document.color_outcomes.filter(
+    outcome =>
+      outcome.coverage.unavailable > 0
+      || outcome.coverage.limited > 0);
+  const colorWarning = incompleteColors.length
+    ? `<div class="metadata-warning"><strong>⚠ Compatibility color evidence is partial</strong><ul>${
+        incompleteColors.map(outcome =>
+          `<li><code>${escapeHtml(outcome.family)}</code>: `
+          + `${outcome.coverage.examined} of `
+          + `${outcome.coverage.considered} examined`
+          + (outcome.coverage.unavailable > 0
+            ? `; ${outcome.coverage.unavailable} unavailable`
+            : "")
+          + (outcome.coverage.limited > 0
+            ? `; ${outcome.coverage.limited} limited`
+            : "")
+          + "</li>").join("")
+      }</ul></div>`
+    : "";
   const count = document.terminal.value ?? document.relations.length;
   return section(`
     <div class="section-title">
       <h2>Outgoing calls</h2>
       <span>${count} logical · ${document.occurrences.length} physical</span>
     </div>
-    ${isPartial
-      ? `<div class="metadata-warning"><strong>⚠ Partial evidence</strong>`
+    ${relationshipIsPartial
+      ? `<div class="metadata-warning"><strong>⚠ Call evidence is partial</strong>`
         + `<p>${coverage.examined} of ${coverage.considered} candidates examined; `
+        + `${coverage.unavailable} unavailable; `
         + `${coverage.limited} limited.</p></div>`
       : ""}
+    ${colorWarning}
     ${rows ? `<ol class="type-relations-list">${rows}</ol>` : "<p>No outgoing calls found.</p>"}
     ${document.relations.length > visible.length
       ? `<p>Showing ${visible.length} of ${document.relations.length} relations.</p>`
