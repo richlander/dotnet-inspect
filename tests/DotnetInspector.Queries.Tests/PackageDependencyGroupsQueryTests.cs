@@ -304,7 +304,9 @@ public sealed class PackageDependencyGroupsQueryTests
         Assert.Equal(0, result.SelectedGroupIndex);
         Assert.True(result.SelectedGroup!.IsImplicitManifestGroup);
         Assert.Equal(
-            ["Before", "After"],
+            allowCompatibleFallback
+                ? ["Before", "After"]
+                : ["Before"],
             result.SelectedGroup.Dependencies.Select(dependency =>
                 dependency.Id));
     }

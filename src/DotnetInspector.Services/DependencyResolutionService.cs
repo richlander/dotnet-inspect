@@ -270,35 +270,6 @@ public static class DependencyResolutionService
 
         if (!allowCompatibleFallbackForRequestedTfm)
         {
-            if (HasMultipleImplicitGroups(groups))
-            {
-                List<(DeclaredPackageDependencyGroup Group, int Index)>
-                    normalizedGroups = LegacyResolutionGroups(groups);
-                (DeclaredPackageDependencyGroup Group, int Index)?
-                    normalizedSelection =
-                        requestedTfm is null
-                            ? HighestPriorityGroup(
-                                normalizedGroups,
-                                static _ => true)
-                            : FindNormalizedExactGroup(
-                                normalizedGroups,
-                                requestedTfm)
-                                ?? FindUniversalGroup(normalizedGroups);
-                return normalizedSelection is { } normalizedMatch
-                    ? new(
-                        normalizedMatch.Group,
-                        normalizedMatch.Index,
-                        requestedTfm
-                            ?? normalizedMatch.Group.TargetFramework,
-                        DependencyGroupSelectionStatus.Selected)
-                    : new(
-                        Group: null,
-                        GroupIndex: null,
-                        requestedTfm,
-                        DependencyGroupSelectionStatus
-                            .NoMatchingTargetFramework);
-            }
-
             (DeclaredPackageDependencyGroup Group, int Index)? selected =
                 requestedTfm is null
                     ? HighestPriorityGroup(groups)
@@ -392,22 +363,6 @@ public static class DependencyResolutionService
         return result;
     }
 
-    static bool HasMultipleImplicitGroups(
-        ImmutableArray<DeclaredPackageDependencyGroup> groups)
-    {
-        bool foundImplicitGroup = false;
-        foreach (DeclaredPackageDependencyGroup group in groups)
-        {
-            if (!group.IsImplicitManifestGroup)
-                continue;
-            if (foundImplicitGroup)
-                return true;
-            foundImplicitGroup = true;
-        }
-
-        return false;
-    }
-
     static List<(DeclaredPackageDependencyGroup Group, int Index)>
         LegacyResolutionGroups(
             ImmutableArray<DeclaredPackageDependencyGroup> groups)
@@ -484,24 +439,6 @@ public static class DependencyResolutionService
                     StringComparison.OrdinalIgnoreCase))
             {
                 return (groups[index], index);
-            }
-        }
-
-        return null;
-    }
-
-    static (DeclaredPackageDependencyGroup Group, int Index)?
-        FindUniversalGroup(
-            List<(DeclaredPackageDependencyGroup Group, int Index)> groups)
-    {
-        foreach (var candidate in groups)
-        {
-            if (string.IsNullOrWhiteSpace(candidate.Group.TargetFramework)
-                || candidate.Group.TargetFramework.Equals(
-                    "any",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return candidate;
             }
         }
 
