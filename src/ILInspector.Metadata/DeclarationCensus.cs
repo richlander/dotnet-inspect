@@ -8,16 +8,6 @@ using Inspector.Findings;
 
 namespace ILInspector.Metadata;
 
-/// <summary>The axis a declaration fact is censused on (<c>docs/design/finding-diff-any.md#axes</c>).</summary>
-public enum DeclarationAxis
-{
-    /// <summary>The Public API facts of a visible Type and its visible Members.</summary>
-    Api,
-
-    /// <summary>The declaration facts of every other row: non-public Members, hidden Types, implementation facts, and generated nested Types.</summary>
-    Body,
-}
-
 /// <summary>
 /// The kinds of declaration fact Finding Diff Any's census records
 /// (<c>docs/design/declaration-view.md#facts</c>). A constant and a property's
@@ -58,7 +48,7 @@ public sealed class DeclarationFact
     readonly SymbolKey<FindingDiffAnyPart> _key;
     string? _identityKey;
 
-    internal DeclarationFact(DeclarationFactKind kind, DeclarationAxis axis, SymbolKey<FindingDiffAnyPart> key, string? text)
+    internal DeclarationFact(DeclarationFactKind kind, FindingDiffAnyAxis axis, SymbolKey<FindingDiffAnyPart> key, string? text)
     {
         Kind = kind;
         Axis = axis;
@@ -68,7 +58,7 @@ public sealed class DeclarationFact
 
     public DeclarationFactKind Kind { get; }
 
-    public DeclarationAxis Axis { get; }
+    public FindingDiffAnyAxis Axis { get; }
 
     /// <summary>The fact's expanded census key: its exact identity, as bytes.</summary>
     public OpaqueByteRange Key => _key.Range;
@@ -216,13 +206,13 @@ public sealed class DeclarationCensusSide : IDisposable
 public sealed class DeclarationCensusCursor : IFindingCursor<DeclarationFact>
 {
     readonly FindingSubject? _subject;
-    readonly DeclarationAxis _axis;
+    readonly FindingDiffAnyAxis _axis;
     readonly ImmutableArray<DeclarationFact> _facts;
     int _position;
     DeclarationFact? _current;
     FindingCursorTerminal? _terminal;
 
-    DeclarationCensusCursor(FindingSubject? subject, DeclarationAxis axis, ImmutableArray<DeclarationFact> facts, FindingCursorTerminal? terminal)
+    DeclarationCensusCursor(FindingSubject? subject, FindingDiffAnyAxis axis, ImmutableArray<DeclarationFact> facts, FindingCursorTerminal? terminal)
     {
         _subject = subject;
         _axis = axis;
@@ -230,7 +220,7 @@ public sealed class DeclarationCensusCursor : IFindingCursor<DeclarationFact>
         _terminal = terminal;
     }
 
-    public DeclarationAxis Axis => _axis;
+    public FindingDiffAnyAxis Axis => _axis;
 
     public DeclarationFact? Current => _current;
 
@@ -247,14 +237,14 @@ public sealed class DeclarationCensusCursor : IFindingCursor<DeclarationFact>
     public static DeclarationCensusCursor Create(
         DeclarationCensusSide side,
         TypeDefinitionHandle type,
-        DeclarationAxis axis,
+        FindingDiffAnyAxis axis,
         bool? ownerVisible = null)
         => Create(side, type, axis, subject: null, ownerVisible, spell: false);
 
     internal static DeclarationCensusCursor Create(
         DeclarationCensusSide side,
         TypeDefinitionHandle type,
-        DeclarationAxis axis,
+        FindingDiffAnyAxis axis,
         FindingSubject? subject,
         bool? ownerVisible,
         bool spell)
@@ -287,7 +277,7 @@ public sealed class DeclarationCensusCursor : IFindingCursor<DeclarationFact>
         FindingDiffAny.Side inner = side.Side;
         try
         {
-            List<SymbolKeySlot> slots = axis == DeclarationAxis.Api
+            List<SymbolKeySlot> slots = axis == FindingDiffAnyAxis.Api
                 ? inner.ApiCensus(unit)
                 : inner.BodyCensus(unit, ownerVisible ?? inner.IsVisible(unit.Owner), out _);
             var facts = new DeclarationFact[slots.Count];
@@ -316,7 +306,7 @@ public sealed class DeclarationCensusCursor : IFindingCursor<DeclarationFact>
     // One staged slot becomes one fact: the slot's key is detached, expanded so
     // that every Ref part is the named Type's full key, and detached again as
     // the fact's identity; the kind is read from the key's leading markers.
-    static DeclarationFact Materialize(DeclarationCensusSide side, SymbolKeySlot slot, DeclarationAxis axis, bool spell)
+    static DeclarationFact Materialize(DeclarationCensusSide side, SymbolKeySlot slot, FindingDiffAnyAxis axis, bool spell)
     {
         FindingDiffAny.Side inner = side.Side;
         SymbolKey<FindingDiffAnyPart> staged = inner.Transient.Resolve(slot).Detach();
@@ -434,7 +424,7 @@ public static class DeclarationFindings
     public static FindingInspection<DeclarationFact> Inspect(
         DeclarationCensusSide side,
         TypeDefinitionHandle type,
-        DeclarationAxis axis,
+        FindingDiffAnyAxis axis,
         FindingSubject subject,
         bool? ownerVisible = null)
     {
@@ -466,12 +456,12 @@ public static class DeclarationFindings
         TypeDefinitionHandle beforeType,
         DeclarationCensusSide after,
         TypeDefinitionHandle afterType,
-        DeclarationAxis axis)
+        FindingDiffAnyAxis axis)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
         bool? ownerVisible = null;
-        if (axis == DeclarationAxis.Body
+        if (axis == FindingDiffAnyAxis.Body
             && before.TryFindUnit(beforeType, out FindingDiffAny.Unit? beforeUnit) && !beforeUnit.Malformed
             && after.TryFindUnit(afterType, out FindingDiffAny.Unit? afterUnit) && !afterUnit.Malformed)
         {

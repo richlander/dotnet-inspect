@@ -72,20 +72,20 @@ public sealed class DeclarationCensusAgreementTests
 
             foreach (DeclarationCensusType duplicate in duplicates)
             {
-                DeclarationCensusCursor cursor = DeclarationCensusCursor.Create(oldSide, duplicate.Type, DeclarationAxis.Api);
+                DeclarationCensusCursor cursor = DeclarationCensusCursor.Create(oldSide, duplicate.Type, FindingDiffAnyAxis.Api);
                 Assert.False(cursor.Advance());
                 Assert.True(cursor.Terminal!.IsIdentityFailure);
                 foreach (DeclarationCensusType other in newSide.Types)
                 {
-                    Assert.Equal(FindingExistsDecision.Indeterminate, DeclarationFindings.Exists(oldSide, duplicate.Type, newSide, other.Type, DeclarationAxis.Api).Decision);
-                    Assert.Equal(FindingExistsDecision.Indeterminate, DeclarationFindings.Exists(oldSide, duplicate.Type, newSide, other.Type, DeclarationAxis.Body).Decision);
+                    Assert.Equal(FindingExistsDecision.Indeterminate, DeclarationFindings.Exists(oldSide, duplicate.Type, newSide, other.Type, FindingDiffAnyAxis.Api).Decision);
+                    Assert.Equal(FindingExistsDecision.Indeterminate, DeclarationFindings.Exists(oldSide, duplicate.Type, newSide, other.Type, FindingDiffAnyAxis.Body).Decision);
                 }
             }
 
             // The healthy row is read after the failures from the same sides.
             DeclarationCensusType oldGood = Assert.Single(oldSide.Types, type => type.FullName == "N.Good");
-            Assert.Equal(FindingExistsDecision.Unchanged, DeclarationFindings.Exists(oldSide, oldGood.Type, newSide, good.Type, DeclarationAxis.Api).Decision);
-            Assert.Equal(FindingExistsDecision.Unchanged, DeclarationFindings.Exists(oldSide, oldGood.Type, newSide, good.Type, DeclarationAxis.Body).Decision);
+            Assert.Equal(FindingExistsDecision.Unchanged, DeclarationFindings.Exists(oldSide, oldGood.Type, newSide, good.Type, FindingDiffAnyAxis.Api).Decision);
+            Assert.Equal(FindingExistsDecision.Unchanged, DeclarationFindings.Exists(oldSide, oldGood.Type, newSide, good.Type, FindingDiffAnyAxis.Body).Decision);
         }
     }
 
@@ -111,15 +111,79 @@ public sealed class DeclarationCensusAgreementTests
             Assert.All(newSide.Types, type => Assert.False(type.IsMalformed));
             foreach (DeclarationCensusType other in newSide.Types)
             {
-                Assert.Equal(FindingExistsDecision.Indeterminate, DeclarationFindings.Exists(oldSide, malformed.Type, newSide, other.Type, DeclarationAxis.Api).Decision);
-                Assert.Equal(FindingExistsDecision.Indeterminate, DeclarationFindings.Exists(oldSide, malformed.Type, newSide, other.Type, DeclarationAxis.Body).Decision);
+                Assert.Equal(FindingExistsDecision.Indeterminate, DeclarationFindings.Exists(oldSide, malformed.Type, newSide, other.Type, FindingDiffAnyAxis.Api).Decision);
+                Assert.Equal(FindingExistsDecision.Indeterminate, DeclarationFindings.Exists(oldSide, malformed.Type, newSide, other.Type, FindingDiffAnyAxis.Body).Decision);
             }
 
             DeclarationCensusType oldGood = Assert.Single(oldSide.Types, type => type.FullName == "N.Good");
             DeclarationCensusType newGood = Assert.Single(newSide.Types, type => type.FullName == "N.Good");
-            Assert.Equal(FindingExistsDecision.Unchanged, DeclarationFindings.Exists(oldSide, oldGood.Type, newSide, newGood.Type, DeclarationAxis.Api).Decision);
-            Assert.Equal(FindingExistsDecision.Unchanged, DeclarationFindings.Exists(oldSide, oldGood.Type, newSide, newGood.Type, DeclarationAxis.Body).Decision);
+            Assert.Equal(FindingExistsDecision.Unchanged, DeclarationFindings.Exists(oldSide, oldGood.Type, newSide, newGood.Type, FindingDiffAnyAxis.Api).Decision);
+            Assert.Equal(FindingExistsDecision.Unchanged, DeclarationFindings.Exists(oldSide, oldGood.Type, newSide, newGood.Type, FindingDiffAnyAxis.Body).Decision);
         }
+    }
+
+    /// <summary>
+    /// The declaration cursor and Finding Diff Any's Type pairing read the same
+    /// staged slots, so for every paired Type of the fixture pair the facts the
+    /// identity-set comparison finds on one side only are the inventory's
+    /// facts, spelled alike from their expansions, per axis and side.
+    /// </summary>
+    [Fact]
+    public void FixturePair_OneSidedFactsEqualTheTypePairingsInventory()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
+        using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
+        var pairing = new FindingDiffAnyTypePairing(before, after);
+        var paired = new HashSet<string>(pairing.Types, StringComparer.Ordinal);
+        (DeclarationCensusSide oldSide, DeclarationCensusSide newSide) = DeclarationCensusSide.CreatePair(before, after);
+        using (oldSide)
+        using (newSide)
+        {
+            Dictionary<string, DeclarationCensusType> newTypes = newSide.Types.Where(t => !t.IsMalformed).ToDictionary(t => t.Identifier, StringComparer.Ordinal);
+            int checkedTypes = 0;
+            int facts = 0;
+            foreach (DeclarationCensusType oldType in oldSide.Types.Where(t => !t.IsMalformed))
+            {
+                if (!newTypes.TryGetValue(oldType.Identifier, out DeclarationCensusType? newType) || !paired.Contains(oldType.FullName))
+                    continue;
+                FindingDiffAnyTypeInventory inventory = pairing.Inventory(oldType.FullName);
+                if (inventory.Api == FindingDiffAnyState.Indeterminate || inventory.Body == FindingDiffAnyState.Indeterminate)
+                    continue;
+                foreach (FindingDiffAnyAxis axis in new[] { FindingDiffAnyAxis.Api, FindingDiffAnyAxis.Body })
+                {
+                    bool? ownerVisible = axis == FindingDiffAnyAxis.Body
+                        ? oldSide.IsVisible(oldType.Type) || newSide.IsVisible(newType.Type)
+                        : null;
+                    var subject = new FindingSubject(oldType.Identifier, oldType.FullName);
+                    var complete = Assert.IsType<FindingComparison<DeclarationFact>.Complete>(
+                        DeclarationFindings.Compare(
+                            DeclarationFindings.Inspect(oldSide, oldType.Type, axis, subject, ownerVisible),
+                            DeclarationFindings.Inspect(newSide, newType.Type, axis, subject, ownerVisible)).Value);
+                    List<string> cursor = complete.Pairs
+                        .Where(p => p.Kind != PairKind.Present)
+                        .Select(p => p.Value switch
+                        {
+                            PairFinding<DeclarationFact>.Added added => "After " + added.New.Payload.Text,
+                            PairFinding<DeclarationFact>.Removed removed => "Before " + removed.Old.Payload.Text,
+                            _ => throw new InvalidOperationException($"An identity set yields no {p.Kind} pair."),
+                        })
+                        .Order(StringComparer.Ordinal)
+                        .ToList();
+                    List<string> rows = inventory.Facts
+                        .Where(f => f.Axis == axis)
+                        .Select(f => (f.Side == FindingDiffAnySide.After ? "After " : "Before ") + f.Key)
+                        .Order(StringComparer.Ordinal)
+                        .ToList();
+                    Assert.True(cursor.SequenceEqual(rows), $"{oldType.FullName} {axis}: cursor {cursor.Count} one-sided facts, inventory {rows.Count}");
+                    facts += rows.Count;
+                }
+                checkedTypes++;
+            }
+            Assert.True(checkedTypes > 40, $"{checkedTypes} Types checked");
+            Assert.True(facts > 0, "the fixture pair has one-sided facts");
+        }
+        pairing.Release();
     }
 
     [Fact]
@@ -139,9 +203,9 @@ public sealed class DeclarationCensusAgreementTests
             {
                 if (!newTypes.TryGetValue(oldType.Identifier, out DeclarationCensusType? newType))
                     continue;
-                foreach (DeclarationAxis axis in new[] { DeclarationAxis.Api, DeclarationAxis.Body })
+                foreach (FindingDiffAnyAxis axis in new[] { FindingDiffAnyAxis.Api, FindingDiffAnyAxis.Body })
                 {
-                    bool? ownerVisible = axis == DeclarationAxis.Body
+                    bool? ownerVisible = axis == FindingDiffAnyAxis.Body
                         ? oldSide.IsVisible(oldType.Type) || newSide.IsVisible(newType.Type)
                         : null;
                     var subject = new FindingSubject(oldType.Identifier, oldType.FullName);
@@ -213,14 +277,14 @@ public sealed class DeclarationCensusAgreementTests
             .First(handle => !units.Contains(handle) && reader.GetString(reader.GetTypeDefinition(handle).Name).StartsWith('<')
                 && !reader.GetTypeDefinition(handle).GetDeclaringType().IsNil);
 
-        DeclarationCensusCursor cursor = DeclarationCensusCursor.Create(side, generated, DeclarationAxis.Body);
+        DeclarationCensusCursor cursor = DeclarationCensusCursor.Create(side, generated, FindingDiffAnyAxis.Body);
         Assert.False(cursor.Advance());
         Assert.Equal(FindingCursorTerminalKind.Absent, cursor.Terminal!.Kind);
         Assert.Equal(FindingInspectionAbsenceKind.NoApplicableInput, cursor.Terminal.AbsenceKind);
 
         TypeDefinitionHandle module = reader.TypeDefinitions.First();
         Assert.DoesNotContain(module, units);
-        DeclarationCensusCursor moduleCursor = DeclarationCensusCursor.Create(side, module, DeclarationAxis.Api);
+        DeclarationCensusCursor moduleCursor = DeclarationCensusCursor.Create(side, module, FindingDiffAnyAxis.Api);
         Assert.False(moduleCursor.Advance());
         Assert.Equal(FindingCursorTerminalKind.Absent, moduleCursor.Terminal!.Kind);
     }
@@ -249,8 +313,8 @@ public sealed class DeclarationCensusAgreementTests
                 {
                     continue;
                 }
-                FindingExistsResult api = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, DeclarationAxis.Api);
-                FindingExistsResult body = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, DeclarationAxis.Body);
+                FindingExistsResult api = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, FindingDiffAnyAxis.Api);
+                FindingExistsResult body = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, FindingDiffAnyAxis.Body);
                 Assert.True(
                     Decision(state.Api) == api.Decision,
                     $"{state.FullName} API: walk {state.Api}, lockstep {api.Decision} after {api.OldAtoms}/{api.NewAtoms} facts");

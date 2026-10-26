@@ -145,8 +145,8 @@ FindingDiffAnyResult RunLockstep()
             {
                 if (!newUnits.TryGetValue(oldType.Identifier, out DeclarationCensusType? newType))
                     continue;
-                FindingExistsResult api = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, DeclarationAxis.Api);
-                FindingExistsResult body = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, DeclarationAxis.Body);
+                FindingExistsResult api = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, FindingDiffAnyAxis.Api);
+                FindingExistsResult body = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, FindingDiffAnyAxis.Body);
                 pairs++;
                 if (walk.TryGetValue(oldType.Identifier, out FindingDiffAnyTypeState? state))
                 {
@@ -174,9 +174,9 @@ FindingDiffAnyResult RunLockstep()
                 if (!newUnits.TryGetValue(oldType.Identifier, out DeclarationCensusType? newType))
                     continue;
                 var subject = new FindingSubject(oldType.Identifier, oldType.FullName);
-                foreach (DeclarationAxis axis in new[] { DeclarationAxis.Api, DeclarationAxis.Body })
+                foreach (FindingDiffAnyAxis axis in new[] { FindingDiffAnyAxis.Api, FindingDiffAnyAxis.Body })
                 {
-                    bool? ownerVisible = axis == DeclarationAxis.Body ? oldSide.IsVisible(oldType.Type) || newSide.IsVisible(newType.Type) : null;
+                    bool? ownerVisible = axis == FindingDiffAnyAxis.Body ? oldSide.IsVisible(oldType.Type) || newSide.IsVisible(newType.Type) : null;
                     FindingInspection<DeclarationFact> oldInspection = DeclarationFindings.Inspect(oldSide, oldType.Type, axis, subject, ownerVisible);
                     FindingInspection<DeclarationFact> newInspection = DeclarationFindings.Inspect(newSide, newType.Type, axis, subject, ownerVisible);
                     if (DeclarationFindings.Compare(oldInspection, newInspection).Value is FindingComparison<DeclarationFact>.Complete complete)

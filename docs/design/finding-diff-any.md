@@ -740,14 +740,16 @@ paired method, in the Body census's method order, whose body is not
 as the Library level reads it, and every row keeps its own state. One name the
 pairing withholds: two paired Type rows that spell one display name, which the
 Library level decides each by key, are `Indeterminate` under that name, since
-the name selects neither row. Types present on one side only are not paired;
-their one-sided form is this level's. Step 7 folds these rows into Member
-states under the ownership rules above, reading each fact's owner from its key
-parts, and the inventory is the closed set it folds: the rows are fixed by the
-two censuses before any body is read. The Type scenario of [Diff
-system](diff-system.md#scenarios) enters here, and [Finding
-census](finding-census.md#cost-at-type-scope) records what one Type costs
-through each reader.
+the name selects neither row. The [declaration
+cursor](finding-census.md#adoption-sequence) reads the same slots, and its
+identity-set comparison of one Type's census finds the same one-sided facts.
+Types present on one side only are not paired; their one-sided form is this
+level's. Step 7 folds these rows into Member states under the ownership rules
+above, reading each fact's owner from its key parts, and the inventory is the
+closed set it folds: the rows are fixed by the two censuses before any body is
+read. The Type scenario of [Diff system](diff-system.md#scenarios) enters here,
+and [Finding census](finding-census.md#cost-at-type-scope) records what one
+Type costs through each reader.
 
 ### Member
 

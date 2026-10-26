@@ -114,13 +114,13 @@ public sealed class FindingDiffAnyMetadataSafetyTests
             foreach (DeclarationCensusType type in types.OrderBy(type => states[type.Identifier].Api == FindingDiffAnyState.Indeterminate ? 0 : 1))
             {
                 FindingDiffAnyTypeState state = states[type.Identifier];
-                FindingExistsResult api = DeclarationFindings.Exists(oldSide, type.Type, newSide, type.Type, DeclarationAxis.Api);
-                FindingExistsResult body = DeclarationFindings.Exists(oldSide, type.Type, newSide, type.Type, DeclarationAxis.Body);
+                FindingExistsResult api = DeclarationFindings.Exists(oldSide, type.Type, newSide, type.Type, FindingDiffAnyAxis.Api);
+                FindingExistsResult body = DeclarationFindings.Exists(oldSide, type.Type, newSide, type.Type, FindingDiffAnyAxis.Body);
                 Assert.Equal(Decision(state.Api), api.Decision);
                 Assert.Equal(Decision(state.Body), body.Decision);
                 if (state.Api == FindingDiffAnyState.Indeterminate)
                 {
-                    DeclarationCensusCursor cursor = DeclarationCensusCursor.Create(oldSide, type.Type, DeclarationAxis.Api);
+                    DeclarationCensusCursor cursor = DeclarationCensusCursor.Create(oldSide, type.Type, FindingDiffAnyAxis.Api);
                     Assert.False(cursor.Advance());
                     Assert.Equal(FindingCursorTerminalKind.Failed, cursor.Terminal!.Kind);
                     failed++;
@@ -129,7 +129,7 @@ public sealed class FindingDiffAnyMetadataSafetyTests
                 {
                     var subject = new FindingSubject(type.Identifier, type.FullName);
                     Assert.IsType<FindingInspection<DeclarationFact>.Complete>(
-                        DeclarationFindings.Inspect(oldSide, type.Type, DeclarationAxis.Api, subject).Value);
+                        DeclarationFindings.Inspect(oldSide, type.Type, FindingDiffAnyAxis.Api, subject).Value);
                     if (failed > 0)
                         healthyAfterFailure++;
                 }

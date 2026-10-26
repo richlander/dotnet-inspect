@@ -547,8 +547,8 @@ The spelling share is what Ref parts saved Finding Diff Any's own side ([Symbol
 Key](symbol-key.md#interning)). It is not taken here. A Ref-form key means
 something only relative to its table, so every side that may be compared must
 share one. Finding Diff Any's table serves one comparison, which owns both of
-its sides. A census side has no table: a host holds one per image and pairs it
-freely (the member endpoint diff, the Research session), and the scenarios
+its sides. An IL census side has no table: a host holds one per image and pairs
+it freely (the member endpoint diff, the Research session), and the scenarios
 lockstep serves are member, bisect, and batch, and in bisect and batch one
 version's side is compared with several others. Ref parts could reach them only
 through a table scoped to the batch, which #10533 and [Diff
@@ -836,8 +836,12 @@ test class gates its cursor:
    the other side, and a well-formed Type read next from the same side is
    Unchanged with a Complete census. The row-tier soft key that pairs a
    changed slot as `Changed` is DV1's remaining step; the per-fact expansion
-   and detachment is this kind's allocation debt, as step 2b is the IL
-   kind's.
+   and detachment is this kind's allocation debt, as step 2b records the IL
+   kind's, owned by any change that would let the cursor replace the walk's
+   slot comparison. Finding Diff Any's Type pairing
+   ([Type inventory](finding-diff-any.md#type)) reads the same slots, and
+   `DeclarationCensusAgreementTests` gates that the facts the cursor's
+   identity-set comparison finds on one side only are the inventory's.
 4. **Exists owner.** Finding Diff Any's document becomes the owner of Exists at
    Library, Type, and Member scope over the census, keeping its axes,
    partition, folds, and gates, with the paired walk recorded as a retired
