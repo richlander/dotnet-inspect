@@ -641,12 +641,13 @@ public sealed class FindingDiffAnyTests
     }
 
     // Whether every enclosing Type is ordinary is read from metadata, so a Type selection
-    // that does not project the enclosing Type keeps it
+    // that does not project the enclosing Type keeps it. Only reach is inherited: a hidden
+    // enclosing Type does not hide the Types it nests
     // (docs/design/library-api-diff-presentation.md#per-side-facts).
     [Theory]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
     [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
-    public void EnclosingTypesOrdinary_RequiresEveryEnclosingTypePublicAndNotHidden(
+    public void EnclosingTypesOrdinary_RequiresEveryEnclosingTypePublic(
         ApiSurfaceExtractionScope scope)
     {
         const string source = """
@@ -682,8 +683,8 @@ public sealed class FindingDiffAnyTests
         Assert.True(facts["Outer.Protected"]);
         Assert.False(facts["Outer.Protected.InProtected"]);
         Assert.True(facts["Outer.Hidden"]);
-        Assert.False(facts["Outer.Hidden.InHidden"]);
-        Assert.False(facts["HiddenOuter.Inner"]);
+        Assert.True(facts["Outer.Hidden.InHidden"]);
+        Assert.True(facts["HiddenOuter.Inner"]);
     }
 
     [Theory]

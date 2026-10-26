@@ -916,10 +916,11 @@ public class ApiType
     public bool? EnclosingTypesExternallyReachable { get; set; }
 
     /// <summary>
-    /// Whether every Type enclosing this one is ordinary: public or nested public, and not
-    /// hidden by the rule <see cref="IsHidden"/> records. True for a top-level Type. Read from
-    /// metadata, so it holds when a Type selection does not project the enclosing Type. Null
-    /// when not recorded; only API axis and include-all extractions record it.
+    /// Whether every Type enclosing this one has the ordinary population's reach: public or
+    /// nested public. An enclosing Type's hidden status does not pass to this one. True for a
+    /// top-level Type. Read from metadata, so it holds when a Type selection does not project
+    /// the enclosing Type. Null when not recorded; only API axis and include-all extractions
+    /// record it.
     /// </summary>
     [JsonIgnore]
     public bool? EnclosingTypesOrdinary { get; set; }
