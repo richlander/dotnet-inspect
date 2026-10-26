@@ -104,7 +104,7 @@ side. It is what makes positional equality meaningful across two images:
 | Kind | Atom | Order | Matcher mode | Owner |
 | --- | --- | --- | --- | --- |
 | IL operations | A canonical operation, as IL diff canonicalization shapes it: the folded opcode family, its operand as a `SymbolKey` for a metadata token, a value for an immediate or a user string, and each branch or switch target as the target's instruction index within its own body; then, after the last instruction, each exception clause in declaration order as an atom of its kind, with its catch Type as the operand and its extent boundaries as targets | Instruction order, then clause order | `Ordered`, with the move pass, then the kind's target validation over the match | IL diff canonicalization; `IlFindings` |
-| Declaration facts | One census fact, keyed by its whole `SymbolKey` | Ascending key bytes | `IdentitySet` | Declaration view for the atom; Finding Diff Any for the census it compares today |
+| Declaration facts | One census fact, keyed by its whole `SymbolKey`, expanded so that every Type it names is spelled in full and two images compare without a shared table | Ascending key bytes | `IdentitySet` | Declaration view for the atom; Finding Diff Any's side for the facts, which `DeclarationCensusCursor` reads |
 
 For an ordered kind, positional equality is sequence equality. For an
 identity-set kind, the sort makes positional equality multiset equality, so
@@ -547,8 +547,8 @@ The spelling share is what Ref parts saved Finding Diff Any's own side ([Symbol
 Key](symbol-key.md#interning)). It is not taken here. A Ref-form key means
 something only relative to its table, so every side that may be compared must
 share one. Finding Diff Any's table serves one comparison, which owns both of
-its sides. A census side has no table: a host holds one per image and pairs it
-freely (the member endpoint diff, the Research session), and the scenarios
+its sides. An IL census side has no table: a host holds one per image and pairs
+it freely (the member endpoint diff, the Research session), and the scenarios
 lockstep serves are member, bisect, and batch, and in bisect and batch one
 version's side is compared with several others. Ref parts could reach them only
 through a table scoped to the batch, which #10533 and [Diff
@@ -812,7 +812,36 @@ test class gates its cursor:
      the walk.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Finding Diff Any's declaration census, which is the view's
-   adoption step DV1 taken through this owner; gated as step 1 is.
+   adoption step DV1 taken through this owner; gated as step 1 is. Landed as
+   `DeclarationCensusCursor` and `DeclarationFindings` in
+   `ILInspector.Metadata` ([#10630](https://github.com/richlander/dotnet-inspect/issues/10630)
+   slice 1): the facts are the slots Finding Diff Any's side stages for a unit
+   on an axis, so there is one producer of them; the cursor expands each to a
+   side-independent key and yields them in key order. Its laziness is per
+   unit and stated: the cursor reads the unit's facts before its first atom,
+   because its canonical order is a sort over them, and lockstep then stops at
+   the first differing position. The walk keeps comparing staged slots per
+   unit, which is the same multiset equality without the expansion, under the
+   gates: per Type over the fixture pair, through a shared interning table
+   and through two independent ones, Exists on the API axis equals the
+   walk's API state and Exists on the Body declaration facts equals the
+   walk's declaration census equality (a Body `Changed` whose first
+   difference `Explain` names is a declaration fact, not a method's IL); the
+   identity-set comparison of two drained censuses has a non-Present pair
+   exactly when Exists is Changed; a real image against itself is Unchanged
+   on every Type with equal atom counts; and fault order over the
+   `FindingDiffAnyMetadataSafetyTests` and `FindingDiffAnyIdentityTests`
+   images read through the cursor: a Type the walk decides Indeterminate ends
+   its cursor `Failed` and is Indeterminate on both axes against any row of
+   the other side, and a well-formed Type read next from the same side is
+   Unchanged with a Complete census. The row-tier soft key that pairs a
+   changed slot as `Changed` is DV1's remaining step; the per-fact expansion
+   and detachment is this kind's allocation debt, as step 2b records the IL
+   kind's, owned by any change that would let the cursor replace the walk's
+   slot comparison. Finding Diff Any's Type pairing
+   ([Type inventory](finding-diff-any.md#type)) reads the same slots, and
+   `DeclarationCensusAgreementTests` gates that the facts the cursor's
+   identity-set comparison finds on one side only are the inventory's.
 4. **Exists owner.** Finding Diff Any's document becomes the owner of Exists at
    Library, Type, and Member scope over the census, keeping its axes,
    partition, folds, and gates, with the paired walk recorded as a retired
