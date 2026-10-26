@@ -725,8 +725,9 @@ test class gates its cursor:
   hosts' uses of Exists or Exhaustive, not depths of their own.
 - It does not own the axes, the pair partition, the API axis surface, or the
   Type and Library folds; Finding Diff Any does.
-- It does not rename Finding Diff Any's public types. Adoption step 4 does that
-  under Finding Diff Any's owner, after the walk's fate is measured.
+- It does not rename Finding Diff Any's public types; the Fast Diff rename
+  ([#10432](https://github.com/richlander/dotnet-inspect/pull/10432)) named
+  them under Finding Diff Any's owner.
 
 ## Adoption
 
@@ -842,8 +843,13 @@ test class gates its cursor:
    ([Type inventory](finding-diff-any.md#type)) reads the same slots, and
    `DeclarationCensusAgreementTests` gates that the facts the cursor's
    identity-set comparison finds on one side only are the inventory's.
-4. **Exists owner.** Finding Diff Any's document becomes the owner of Exists at
+4. **Exists owner.** Landed: [Finding Diff
+   Any](finding-diff-any.md#status-and-owner)'s document owns Exists at
    Library, Type, and Member scope over the census, keeping its axes,
-   partition, folds, and gates, with the paired walk recorded as a retired
-   or retained provision, and its public types renamed under that owner in
-   one slice with the hosts that consume them.
+   partition, folds, and gates. It records its paired Body walk and its census
+   slot comparison as retained provisions, under steps 2b and 3, each deleted
+   only under the [Cost gate](#gates) and Diff capabilities' [latency
+   bar](diff-capabilities.md#latency-bar). Its public types were renamed under
+   that owner, with the hosts that consume them, by the Fast Diff rename
+   ([#10432](https://github.com/richlander/dotnet-inspect/pull/10432)), so no
+   further rename is owed.
