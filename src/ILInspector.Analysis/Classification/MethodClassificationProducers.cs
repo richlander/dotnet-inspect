@@ -260,16 +260,20 @@ public sealed class PointerSignatureClassificationProducer
 
 static class AsyncClassification
 {
-    internal const MethodImplAttributes RuntimeAsyncFlag = (MethodImplAttributes)0x2000;
-
-    internal static readonly MetadataTypeNameTarget AsyncStateMachine =
-        new(KnownAttributeNames.AsyncStateMachineAttribute);
-
-    internal static readonly MetadataTypeNameTarget AsyncIteratorStateMachine =
-        new(KnownAttributeNames.AsyncIteratorStateMachineAttribute);
-
     internal static bool IsRuntimeAsync(scoped MethodDefinitionView view) =>
-        (view.ImplAttributes & RuntimeAsyncFlag) != 0;
+        (view.ImplAttributes & StateMachineClaims.RuntimeAsyncFlag) != 0;
+
+    /// <summary>Whether the method claims a compiler async state machine, through the shared claim targets.</summary>
+    internal static bool ClaimsCompilerAsync(scoped MethodDefinitionView view)
+    {
+        foreach (StateMachineClaimTarget claim in StateMachineClaims.Targets)
+        {
+            if (claim.IsAsync && view.HasAttributeOfType(claim.Type))
+                return true;
+        }
+
+        return false;
+    }
 }
 
 /// <summary>Runtime async: the <c>MethodImplAttributes.Async</c> (0x2000) flag.</summary>
@@ -315,8 +319,7 @@ public struct CompilerAsyncTest : IMethodDefinitionPredicate
 {
     public readonly bool Test(scoped MethodDefinitionView view) =>
         !AsyncClassification.IsRuntimeAsync(view)
-        && (view.HasAttributeOfType(AsyncClassification.AsyncStateMachine)
-            || view.HasAttributeOfType(AsyncClassification.AsyncIteratorStateMachine));
+        && AsyncClassification.ClaimsCompilerAsync(view);
 }
 
 public struct CompilerAsyncRowProjection : IMethodDefinitionProjection<ClassifiedMethodRow>
