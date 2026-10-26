@@ -109,6 +109,18 @@ public sealed class LibraryCompilationProfileTests
         Assert.Equal(expected, MethodClassificationScanner.ClassifyStateMachine(reader, method));
     }
 
+    [Fact]
+    public void ClaimTargets_AreTheCompilersAttributes_InClaimOrder()
+    {
+        Assert.Equal(
+            [
+                (KnownAttributeNames.AsyncStateMachineAttribute, StateMachineClaimKind.ClassicAsync, true),
+                (KnownAttributeNames.AsyncIteratorStateMachineAttribute, StateMachineClaimKind.AsyncIterator, true),
+                (KnownAttributeNames.IteratorStateMachineAttribute, StateMachineClaimKind.Iterator, false),
+            ],
+            StateMachineClaims.Targets.Select(static claim => (claim.Type.FullName, claim.Kind, claim.IsAsync)));
+    }
+
     [Theory]
     [InlineData(FixtureIds.MetadataStateMachinesDebug)]
     [InlineData(FixtureIds.MetadataCompilationProfileRuntimeAsync)]

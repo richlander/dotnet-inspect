@@ -472,7 +472,8 @@ claim:
 > async and async iterator, without the runtime flag), the async iterators
 > among them, and iterators. `MethodClassificationScanner.ClassifyStateMachine`
 > is the per-method claim it reads: the method's own state-machine attributes,
-> matched in place as the compiler-async analyzer matches them.
+> matched in place through `StateMachineClaims`, the targets the
+> compiler-async analyzer also reads.
 
 - **Debug** is `DebuggingModes.DisableOptimizations` in the one-argument
   constructor, or `isJITOptimizerDisabled` in the two-argument constructor.
@@ -491,6 +492,21 @@ claim:
   count in a runtime-async Library and zero otherwise. Both read
   [The notable set](notable-findings.md#the-notable-set); this owner issues
   the facts and decides no mark.
+- **One in-place claim source.** `StateMachineClaims` holds the
+  runtime-async flag and the three state-machine attribute targets with their
+  claim kinds. The compiler-async analyzer, `ClassifyStateMachine`, and the
+  profile read it, so the name-matched claim is spelled once. The analyzer
+  keeps its gate's memoized matching; only the targets and the
+  attribute-to-kind mapping are shared.
+- **The profile reads the claim, not the index.**
+  `StateMachineRelationshipIndex` reads the same attributes under a different
+  contract: a trusted attribute identity, typed unreadable and malformed
+  constructors, an authenticated relationship, and whole-module rejection
+  under a work budget. The profile is a classification fact under the
+  [fidelity policy](#fidelity-policy), so it reads the name-matched claim,
+  per method, and never rejects the module; a consumer that needs an
+  authenticated relationship asks the index, and both answer in the shared
+  `StateMachineClaimKind` vocabulary.
 - **`ClassifyAsyncMethod` is unchanged.** It keeps its materialized
   comparison because the legacy oracle reads it, and the profile gate compares
   the in-place walk against it over every fixture body.

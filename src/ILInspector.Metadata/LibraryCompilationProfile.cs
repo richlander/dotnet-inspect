@@ -65,8 +65,6 @@ public readonly record struct LibraryCompilationProfile(
 /// </summary>
 public static class LibraryCompilationProfileScanner
 {
-    const MethodImplAttributes RuntimeAsyncFlag = (MethodImplAttributes)0x2000;
-
     /// <summary><c>DebuggingModes.DisableOptimizations</c>.</summary>
     const int DisableOptimizations = 0x100;
 
@@ -85,7 +83,7 @@ public static class LibraryCompilationProfileScanner
                 continue;
             bodies++;
 
-            if ((method.ImplAttributes & RuntimeAsyncFlag) != 0)
+            if ((method.ImplAttributes & StateMachineClaims.RuntimeAsyncFlag) != 0)
             {
                 runtimeAsync++;
                 continue;
