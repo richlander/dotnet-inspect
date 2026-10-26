@@ -19,8 +19,8 @@ pair partition, the API axis surface, the folds of a Type's rows, and their
 gates, at the [three levels](#levels). Finding census owns the reading of one
 row on one kind beneath them, and the agreement of that reading with
 Exhaustive. Exists at Member scope is a Member's row of the [Type
-level](#type), its API and Body states, which adoption step 7 lands; the Member
-level's complete diff stays with its owners.
+level](#type), its API and Body states, which adoption step 7 will land; the
+Member level's complete diff stays with its owners.
 
 Two provisions answer the rows this document folds. Each is bound to the
 cursor's equality by Finding census's [provision
@@ -30,13 +30,19 @@ rule](finding-census.md#provisions) and kept for its time alone:
   ran lockstep over two IL cursors through the walk's [body reader
   seam](#axes), at Library and Type scope, and kept the walk ([what remains of
   the gap](finding-census.md#what-remains-of-the-gap)).
-- **The census slot comparison** decides one unit's census facts on each axis.
-  Finding census step 3 reads the same slots through the declaration cursor
-  and keeps the comparison ([declaration cursor](finding-census.md#adoption)).
+- **The census slot comparison** decides one unit's census facts on each axis,
+  with the API axis surface deciding a census that differs only in uncertain
+  facts. Finding census step 3 reads the same slots through the declaration
+  cursor and keeps the comparison ([declaration
+  cursor](finding-census.md#adoption)).
 
-Either provision is deleted when lockstep over the cursors matches it on every
-number the cost gate reports, and the change that deletes it owns the
-Allocation gate and the Browser/Wasm measurement.
+Either provision is deleted only when lockstep over the cursors meets Diff
+capabilities' [latency bar](diff-capabilities.md#latency-bar) and matches or
+beats the provision on every number Finding census's [Cost
+gate](finding-census.md#gates) reports; the Cost gate is the stricter of the
+two and decides. The change that deletes the walk owns the IL kind's Allocation
+gate and the Browser/Wasm measurement, and the change that deletes the slot
+comparison owns the declaration kind's allocation debt that step 3 records.
 
 The name was Fast Diff until 2026-10-21
 ([#10430](https://github.com/richlander/dotnet-inspect/issues/10430)). "Fast"

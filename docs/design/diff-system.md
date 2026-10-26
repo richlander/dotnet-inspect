@@ -128,8 +128,9 @@ and how a Type's rows and their undecided readings fold. Since Finding census
 step 4, Finding Diff Any owns Exists at Library, Type, and Member scope, as a
 composition of those primitives. The walk is a provision of that owner, kept
 because Finding census step 2b measured it cheaper than lockstep over the
-cursors, and deleted when lockstep matches it on every reported number; it is
-justified by time alone, never by a second definition of change.
+cursors, and deleted only when lockstep matches or beats it on every number
+Finding census's Cost gate reports; it is justified by time alone, never by a
+second definition of change.
 
 Three consequences follow for what Finding Diff Any does not compose:
 

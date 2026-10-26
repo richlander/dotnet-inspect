@@ -275,9 +275,12 @@ Finding Diff Any is today's lockstep Exists provision. The [symbolic-identity
 spike](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6253951916)
 measured the complete IL diff's own code, with symbolic identity, at 0.67 to
 1.19 times Finding Diff Any's Body cost on six pairs, with every method pair
-agreeing. Finding Diff Any's Body IL walk is therefore deleted once the shared
-code meets the latency bar below. Finding census step 2b measured lockstep over
-the IL cursors against that bar and kept the walk ([what remains of the
+agreeing. Meeting the latency bar below is therefore necessary to delete
+Finding Diff Any's Body IL walk. Finding census's [Cost
+gate](finding-census.md#gates) is stricter: it runs lockstep beside the walk
+itself and deletes the walk only when lockstep matches or beats it on every
+reported number, so it decides. Finding census step 2b measured lockstep under
+that gate and kept the walk ([what remains of the
 gap](finding-census.md#what-remains-of-the-gap)). Its censuses remain: the API
 census as the API axis's Exists provision, because the surface model costs
 about ten times more, and the Body declaration census, which compares the Body
