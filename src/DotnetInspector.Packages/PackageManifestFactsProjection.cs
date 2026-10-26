@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using NuGet.Frameworks;
 using NuGet.Versioning;
 using NuGetFetch;
@@ -69,9 +70,20 @@ public static class PackageManifestFactsProjection
                     PackageManifestFailureReason.ConfiguredLimitExceeded);
             }
 
-            using var buffer = new MemoryStream(
-                manifestBytes.ToArray(),
-                writable: false);
+            using MemoryStream buffer =
+                MemoryMarshal.TryGetArray(
+                    manifestBytes,
+                    out ArraySegment<byte> segment)
+                && segment.Array is not null
+                    ? new MemoryStream(
+                        segment.Array,
+                        segment.Offset,
+                        segment.Count,
+                        writable: false,
+                        publiclyVisible: false)
+                    : new MemoryStream(
+                        manifestBytes.ToArray(),
+                        writable: false);
             NuspecData nuspec = NuspecParser.Parse(
                 buffer,
                 MaxManifestCharacters);

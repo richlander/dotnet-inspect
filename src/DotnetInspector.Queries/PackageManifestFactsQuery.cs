@@ -70,7 +70,7 @@ public static class PackageManifestFactsQuery
         ReadOnlyMemory<byte> manifestBytes) =>
         PackageManifestFactsProjection.ExecuteSelfAttested(manifestBytes);
 
-    public static async Task<PackageManifestInspectionResult>
+    public static Task<PackageManifestInspectionResult>
         ExecuteInspectionAsync(
             PackageInspectionInput input,
             CancellationToken cancellationToken = default)
@@ -78,9 +78,10 @@ public static class PackageManifestFactsQuery
         ArgumentNullException.ThrowIfNull(input);
         if (input.PackageId is null || input.PackageVersion is null)
         {
-            return new PackageManifestInspectionResult.Failed(
-                new InvalidOperationException(
-                    "Package manifest inspection requires an exact package identity."));
+            return Task.FromResult<PackageManifestInspectionResult>(
+                new PackageManifestInspectionResult.Failed(
+                    new InvalidOperationException(
+                        "Package manifest inspection requires an exact package identity.")));
         }
 
         try
@@ -88,18 +89,68 @@ public static class PackageManifestFactsQuery
             string? manifestPath =
                 PackageManifestContent.FindRootManifest(input.Content);
             if (manifestPath is null)
-                return new PackageManifestInspectionResult.NoManifest();
+            {
+                return Task.FromResult<PackageManifestInspectionResult>(
+                    new PackageManifestInspectionResult.NoManifest());
+            }
 
             if (!input.Content.TryOpenEntry(
                     manifestPath,
                     MaxManifestBytes,
                     out Stream? manifestStream))
             {
-                return new PackageManifestInspectionResult.Failed(
-                    new InvalidDataException(
-                        "The selected package manifest is no longer available."));
+                return Task.FromResult<PackageManifestInspectionResult>(
+                    new PackageManifestInspectionResult.Failed(
+                        new InvalidDataException(
+                            "The selected package manifest is no longer available.")));
             }
 
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(
+                    input.PackageId,
+                    input.PackageVersion);
+            if (manifestStream is MemoryStream memory
+                && memory.TryGetBuffer(out ArraySegment<byte> segment)
+                && segment.Array is not null)
+            {
+                using (manifestStream)
+                {
+                    int offset = checked(
+                        segment.Offset + (int)memory.Position);
+                    int count = checked(
+                        (int)(memory.Length - memory.Position));
+                    return Task.FromResult(
+                        Project(
+                            ExecuteWithSectionFailures(
+                                segment.Array.AsMemory(offset, count),
+                                coordinate)));
+                }
+            }
+
+            return ReadAndProjectAsync(
+                manifestStream,
+                coordinate,
+                cancellationToken);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or InvalidDataException
+                or NuspecParseException)
+        {
+            return Task.FromResult<PackageManifestInspectionResult>(
+                new PackageManifestInspectionResult.Failed(ex));
+        }
+    }
+
+    private static async Task<PackageManifestInspectionResult>
+        ReadAndProjectAsync(
+            Stream manifestStream,
+            PackageSourceCoordinate coordinate,
+            CancellationToken cancellationToken)
+    {
+        try
+        {
             byte[] manifestBytes;
             using (manifestStream)
             {
@@ -110,23 +161,10 @@ public static class PackageManifestFactsQuery
                     .ConfigureAwait(false);
             }
 
-            PackageManifestFactsResult facts = ExecuteWithSectionFailures(
-                manifestBytes,
-                PackageSourceCoordinate.Create(
-                    input.PackageId,
-                    input.PackageVersion));
-            return facts switch
-            {
-                PackageManifestFactsResult.Available available =>
-                    new PackageManifestInspectionResult.Available(
-                        available.Value),
-                PackageManifestFactsResult.Failed failed =>
-                    new PackageManifestInspectionResult.Failed(
-                        new InvalidDataException(failed.Failure.Message),
-                        failed.Failure),
-                _ => throw new InvalidOperationException(
-                    "Unknown package manifest facts result."),
-            };
+            return Project(
+                ExecuteWithSectionFailures(
+                    manifestBytes,
+                    coordinate));
         }
         catch (Exception ex) when (
             ex is IOException
@@ -137,4 +175,19 @@ public static class PackageManifestFactsQuery
             return new PackageManifestInspectionResult.Failed(ex);
         }
     }
+
+    private static PackageManifestInspectionResult Project(
+        PackageManifestFactsResult facts) =>
+        facts switch
+        {
+            PackageManifestFactsResult.Available available =>
+                new PackageManifestInspectionResult.Available(
+                    available.Value),
+            PackageManifestFactsResult.Failed failed =>
+                new PackageManifestInspectionResult.Failed(
+                    new InvalidDataException(failed.Failure.Message),
+                    failed.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown package manifest facts result."),
+        };
 }
