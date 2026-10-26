@@ -280,7 +280,7 @@ public sealed class LibraryApiDiffCommandTests
     // population: a row shows when either side is public and not hidden
     // (docs/design/library-api-diff-presentation.md#ordinary-presentation).
     const string OutsideNote =
-        "Note: 8 API change rows are outside the ordinary population (protected or hidden "
+        "Note: 7 API change rows are outside the ordinary population (protected or hidden "
             + "declarations) and not shown; unprojected --json reports the complete comparison.";
 
     [Theory]
@@ -353,8 +353,6 @@ public sealed class LibraryApiDiffCommandTests
     [InlineData("FindingDiffAnyFixture.ProtectedInternalToProtected")]
     [InlineData("FindingDiffAnyFixture.HiddenMemberChanged")]
     [InlineData("FindingDiffAnyFixture.HiddenTypeChanged")]
-    // A public nested Type of a hidden Type is not ordinary.
-    [InlineData("FindingDiffAnyFixture.HiddenOuter+Inner")]
     public async Task Default_CountsRowsOutsideTheOrdinaryPopulationInsteadOfShowingThem(
         string type)
     {
@@ -373,7 +371,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(OutsideNote, namesError.Trim());
         Assert.Equal(OutsideNote, tableError.Trim());
         // Summary counts describe the displayed rows.
-        Assert.Contains("28 breaking, 18 additive, 6 non-breaking across 39 types", output);
+        Assert.Contains("29 breaking, 18 additive, 6 non-breaking across 40 types", output);
 
         // The unprojected document keeps the complete API axis population.
         using JsonDocument document = await FindingDiffAnyJson();
@@ -404,7 +402,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(
             (int)DotnetInspector.Queries.ApiSurfaceScope.ApiAxis,
             root.GetProperty("after").GetProperty("scope").GetInt32());
-        // 39 displayed Types plus the eight whose one row is outside the ordinary
+        // 40 displayed Types plus the seven whose one row is outside the ordinary
         // population; the CLI JSON spells a nested Type with '+'.
         Assert.Equal(47, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
         JsonElement nested = Subject(document, "FindingDiffAnyFixture.NestedPublicToProtected+Nested");
@@ -420,7 +418,7 @@ public sealed class LibraryApiDiffCommandTests
     }
 
     // A Type filter projects a nested Type without its enclosing Type, so whether the
-    // enclosing Types are ordinary comes from metadata, not from the projected Types.
+    // enclosing Types are public comes from metadata, not from the projected Types.
     [Theory]
     [InlineData("Nested")]
     [InlineData("NestedPublicToProtected+Nested")]
@@ -437,20 +435,22 @@ public sealed class LibraryApiDiffCommandTests
             Assert.Contains("NestedProtectedToPublic", output);
     }
 
+    // Hidden status does not pass to a nested Type, so a public Type nested in a hidden
+    // one shows its rows.
     [Theory]
     [InlineData("Inner")]
     [InlineData("HiddenOuter+Inner")]
-    public async Task TypeFilter_PublicTypeNestedInAHiddenType_StaysOutsideTheOrdinaryPopulation(
+    public async Task TypeFilter_PublicTypeNestedInAHiddenType_StaysInTheOrdinaryPopulation(
         string filter)
     {
         var (exitCode, output, error) = await RunFindingDiffAny("-t", filter);
 
         Assert.Equal(0, exitCode);
-        Assert.DoesNotContain("HiddenOuter", output);
-        Assert.Equal(
-            "Note: 1 API change row is outside the ordinary population (protected or hidden "
-                + "declarations) and not shown; unprojected --json reports the complete comparison.",
-            error.Trim());
+        Assert.Empty(error);
+        Assert.Contains(
+            "Member 'Value' signature changed from 'int Value(int before)' to 'int Value(int after)'",
+            output);
+        Assert.DoesNotContain("No API changes detected", output);
     }
 
     static JsonElement Subject(JsonDocument document, string type)
