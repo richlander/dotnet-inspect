@@ -2702,19 +2702,17 @@ public static partial class MemberCommand
 
     internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
+        if (options.IncludeSections is not { Count: > 0 })
+            return false;
+
         var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
-        if (sections.Overlaps(
+        return sections.Overlaps(
                 [
                     SectionNames.Source,
                     SectionNames.PdbSource,
                     SectionNames.SourceDiff,
-                ]))
-            return true;
-
-        bool pdbAuthorized = options.IncludeSections is { Count: > 0 }
-                             || options.Verbosity >= Verbosity.Detailed;
-        return pdbAuthorized
-               && sections.Overlaps(MemberSourceResolutionSectionNames);
+                ])
+            || sections.Overlaps(MemberSourceResolutionSectionNames);
     }
 
     internal static bool AuthorizesMemberSourceResolution(

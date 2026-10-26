@@ -1929,6 +1929,13 @@ an inventory, so `--count` and `--rows` stay rejected. Composed Markdown
 still shows each Text's body, so `-S "Decompiled Source,IL"` reads side by
 side.
 
+For an exact Member, detailed verbosity can include Decompiled Source and
+other detail sections, but does not request their standalone PDB enrichment.
+Select the section explicitly (for example, `-S "Decompiled Source"`) or
+through its category to retain that request. Explicit `Source`, `PDB Source`,
+and `Source Diff`, and the separate Source Locations operation keep their
+existing symbol and source policies.
+
 `Source` is the Text whose rows are its exact lines, per
 [Source document cardinality](design/source-document-cardinality.md):
 `--count` reports the line count, which includes the empty final line after a
