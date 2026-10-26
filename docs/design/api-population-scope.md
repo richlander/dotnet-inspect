@@ -112,8 +112,10 @@ Contract strength runs public > obsolete > `EditorBrowsable`. Nesting is
 orthogonal to both facts: a nested Type does not inherit its enclosing Type's
 facts (decided 2026-10-25 in
 [#10642](https://github.com/richlander/dotnet-inspect/issues/10642)).
-Roslyn's compiler-compatibility `[Obsolete]` markers (ref-struct Types and
-`required`-member constructors) are not obsolescence and do not set the fact.
+Which declarations carry each fact is the
+[API status analysis](api-status-analysis.md#authority-and-exact-claim) owner's
+rule, including its exemption for the compiler's compatibility `[Obsolete]`
+markers.
 
 - The default population is the `public` bucket. The Metadata owner's
   admission decides its exact members, and the spelling below decides how
@@ -138,7 +140,9 @@ Roslyn's compiler-compatibility `[Obsolete]` markers (ref-struct Types and
 - An unknown term is a usage error that lists the term set. `--skip` and
   `--only` never name the same term, and each composes with `--include`: the
   accessibility selection applies first, then the attribute filters.
-- An `accessibility` term narrows the selected buckets, as before.
+- An `accessibility` term on its own selects one or more buckets, for example
+  `--where "accessibility=private"`. Combined with `--include`, it narrows the
+  buckets `--include` selected.
 - `--spelling metadata` selects the metadata spelling defined below, and
   `--spelling csharp` selects the default C# spelling. Spelling chooses the
   row unit, so it is an option rather than a row predicate.
@@ -235,7 +239,8 @@ receiver is not a spelling.
 
 Hidden status also remains record-local under metadata spelling. A hidden
 property or event record does not hide its accessor MethodDef records; each
-accessor is admitted or hidden by its own metadata.
+accessor carries its own hidden fact, and `--skip EditorBrowsableNever` applies
+to each record alone.
 
 In both spellings the buckets partition that spelling's population, and every
 Count is in that spelling's unit: declarations for C# spelling, records for
@@ -287,7 +292,7 @@ the implementation analysis complete.
 | Question | Default population | Widening and filtering |
 | --- | --- | --- |
 | Which API declarations should an API inventory show? | The `public` bucket, with `EditorBrowsable(Never)` and `[Obsolete]` declarations admitted and marked | `--include` adds accessibility buckets; `--skip EditorBrowsableNever` and `--only Obsolete` filter by attribute fact |
-| Which accessibility should a Type's Member inventory show? | The `public` bucket; an `accessibility` term selects other buckets | `--include` adds buckets; an added `accessibility` term narrows them |
+| Which accessibility should a Type's Member inventory show? | The `public` bucket; an `accessibility` term on its own selects other buckets | `--include` adds buckets; an `accessibility` term combined with `--include` narrows them |
 | Which members belong to a Type's declaration population? | Declarations physically owned by that Type; inherited and extension members require separately requested contextual populations | Widen only the visibility of the declaration population; do not request contextual populations |
 | How should a Type's Member inventory spell its rows? | C# spelling: same-owner records compose into declarations wherever a consumer sees a single unit | Unchanged; metadata spelling is a separate, explicit choice |
 | Which declarations should an API comparison match? | A diff's API axis compares the `public` and `protected` buckets, less `private protected`; attribute facts never decide what is compared | Widen the API population where that comparison admits `--include` |
@@ -469,11 +474,18 @@ timing:
    layering gate.
 3. Change the default in the admission: `EditorBrowsable(Never)` declarations
    are admitted, `--skip EditorBrowsableNever` and `--only Obsolete` are
-   added, and the diff's ordinary view marks hidden rows. The Type locator's
-   `EditorBrowsableNever` and `Obsolete` default restrictions
-   ([Type-declaration visibility](type-declaration-visibility.md)) adopt the
-   same defaults.
-4. `--include` replaces `--all` in every command definition.
+   added, and the diff's ordinary view marks hidden rows. The owners that
+   state today's defaults adopt the rule in the same step:
+   [Type-declaration visibility](type-declaration-visibility.md) (the
+   locator's `EditorBrowsableNever` and `Obsolete` restrictions),
+   [Library API diff presentation](library-api-diff-presentation.md#per-side-facts)
+   (ordinary sides exclude hidden), [API status analysis](api-status-analysis.md)
+   (hidden rows counted outside), [Find](find-search-service.md) (default
+   suppression of hidden and obsolete definitions), and
+   [Member accessibility composition](member-accessibility-composition.md)
+   (the bucket map's hidden admission).
+4. `--include` replaces `--all` in every command definition and in the
+   [CLI reference](../cli-reference.md).
 
 [#10694](https://github.com/richlander/dotnet-inspect/issues/10694) makes Type
 lookup one path that consumes the admission.
