@@ -272,8 +272,11 @@ public sealed class PackageDependencyGroupsQueryTests
             Assert.Single(result.Groups[0].Dependencies).Id);
     }
 
-    [Fact]
-    public async Task ExecuteAsync_PreservesInterleavedImplicitDependencyRuns()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_PreservesInterleavedImplicitDependencyRuns(
+        bool allowCompatibleFallback)
     {
         InMemoryPackageContent content = Content(
             ("Example.Package.nuspec", Manifest(
@@ -290,7 +293,8 @@ public sealed class PackageDependencyGroupsQueryTests
                 content,
                 "Example.Package",
                 "any",
-                allowCompatibleFallbackForRequestedTfm: true));
+                allowCompatibleFallbackForRequestedTfm:
+                    allowCompatibleFallback));
 
         Assert.Equal(
             ["Before", "Middle", "After"],
