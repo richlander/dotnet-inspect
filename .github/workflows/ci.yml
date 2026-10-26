@@ -394,7 +394,7 @@ jobs:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: '24'
           cache: npm
