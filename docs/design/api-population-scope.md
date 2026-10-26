@@ -161,10 +161,14 @@ markers.
   union. Attribute facts then narrow the result.
 - An unknown term is a usage error that lists the term set. `--skip` and
   `--only` never name the same term.
+- `--spelling metadata` selects the metadata spelling defined below, and
+  `--spelling csharp` selects the default C# spelling. Spelling chooses the
+  row unit, so it is an option rather than a row predicate.
 
 One admission rule covers every combination. The *reach set* is the default
-buckets, every bucket `--include` adds, and every bucket an accessibility term
-names, through `--only` or an `accessibility` term. A declaration is admitted
+buckets, every bucket `--include` adds, and the bucket containing each
+accessibility term named through `--only` or an `accessibility` term (the
+`private` bucket for `private protected`). A declaration is admitted
 when it and every enclosing or declaring Type is in the reach set. When an
 accessibility term is named, only declarations whose own bucket or spelling it
 names are kept; `--skip` and an attribute term in `--only` then filter by fact.
@@ -173,9 +177,6 @@ public nested Types; `--only private` keeps a private nested Type of a public
 Type and the private Members of public Types; and, combined with
 `--include all`, an accessibility term narrows the rows without narrowing
 reach.
-- `--spelling metadata` selects the metadata spelling defined below, and
-  `--spelling csharp` selects the default C# spelling. Spelling chooses the
-  row unit, so it is an option rather than a row predicate.
 
 Every admitted declaration belongs to exactly one bucket, so Counts over the
 buckets of one population are truthful. They cover the same declarations,
@@ -411,10 +412,13 @@ reused as an implementation completeness claim.
 ### The diff's API axis population
 
 A diff's API axis, as [Diff capabilities](diff-capabilities.md#axes) defines it,
-compares one widened population rather than the ordinary one: `--all` narrowed
-by an `accessibility` term to the `public` and `protected` buckets, less
-`private protected` declarations, which no other assembly can reach. Hidden
-declarations stay admitted into their buckets. `EditorBrowsable` and `Obsolete`
+compares the declarations another assembly can reach: the `public` and
+`protected` buckets, less `private protected` declarations while the
+vocabulary still places them in `protected`, with every enclosing Type in the
+same buckets. Under
+[Accessibility within API visibility scope](#accessibility-within-api-visibility-scope)
+that is exactly the default population, not a combination of `--include` and
+an accessibility term. Hidden declarations stay admitted into their buckets. `EditorBrowsable` and `Obsolete`
 status do not decide what the diff compares; a separate [API status
 analysis](api-status-analysis.md) reports them and their transitions, as Diff
 capabilities states. A Type is admitted when its own row and every enclosing
@@ -524,8 +528,9 @@ timing:
    suppression of hidden and obsolete definitions), and
    [Member accessibility composition](member-accessibility-composition.md)
    (the bucket map's default buckets and hidden admission). The
-   [Diff capabilities](diff-capabilities.md) and diff API axis wording "less
-   `private protected`" becomes redundant and is simplified.
+   [Diff capabilities](diff-capabilities.md) definition of the API axis as
+   "`--all` narrowed by an `accessibility` term", and its "less
+   `private protected`" wording, are replaced by the default population.
 4. `--include` replaces `--all` in every command definition and in the
    [CLI reference](../cli-reference.md).
 
