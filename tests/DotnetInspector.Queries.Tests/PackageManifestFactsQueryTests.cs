@@ -547,6 +547,43 @@ public sealed class PackageManifestFactsQueryTests
     }
 
     [Fact]
+    public void ExecuteWithSectionFailures_BoundsRejectedIdentifierObservations()
+    {
+        string oversizedId =
+            new('x', PackageManifestFactsQuery.MaxScalarCharacters + 1);
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsQuery.ExecuteWithSectionFailures(
+                Encoding.UTF8.GetBytes(
+                    $"""
+                     <package>
+                       <metadata>
+                         <id>Example.Package</id>
+                         <version>1.0.0</version>
+                         <authors>Example Authors</authors>
+                         <description>Keep valid metadata</description>
+                         <dependencies>
+                           <dependency id="evil/../other" version="[1.0.0]" />
+                           <dependency id="{oversizedId}" version="[1.0.0]" />
+                         </dependencies>
+                       </metadata>
+                     </package>
+                     """),
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal("Example Authors", facts.Authors);
+        Assert.Equal("Keep valid metadata", facts.Description?.ToString());
+        Assert.Equal(
+            "evil/../other",
+            Assert.Single(facts.DependencyIdentifierObservations).Id);
+        Assert.Equal(
+            PackageManifestFailureReason.InvalidDependencyContract,
+            Assert.IsType<PackageManifestDependencyFactsResult.Failed>(
+                facts.DependencyDeclarations).Failure.Reason);
+    }
+
+    [Fact]
     public void ExecuteWithSectionFailures_ProjectsSeekableStreamDirectly()
     {
         using var stream = new MemoryStream(

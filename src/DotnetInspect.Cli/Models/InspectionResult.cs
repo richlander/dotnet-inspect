@@ -224,6 +224,10 @@ public class InspectionResult
     public List<DependencyGroup>? DependencyGroups { get; set; }
 
     [JsonIgnore]
+    internal InspectionEnvelope<PackageDependencyInspectionOutcome>?
+        PackageDependencyInspection { get; set; }
+
+    [JsonIgnore]
     internal IReadOnlyList<PackageManifestDependencyIdentifierObservation>?
         RejectedDependencyIdentifierObservations { get; set; }
 

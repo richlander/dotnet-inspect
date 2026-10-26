@@ -88,6 +88,48 @@ public static class PackageManifestFactsProjection
             expectedCoordinate: null,
             retainDependencyFailure: false);
 
+    /// <summary>
+    /// Retains valid Package metadata and uses the manifest's own validated
+    /// identity when only the dependency section is rejected.
+    /// </summary>
+    public static PackageManifestFactsResult
+        ExecuteSelfAttestedWithSectionFailures(
+            ReadOnlyMemory<byte> manifestBytes) =>
+        ExecuteCore(
+            manifestBytes,
+            expectedCoordinate: null,
+            retainDependencyFailure: true);
+
+    /// <summary>
+    /// Retains valid Package metadata while projecting a self-attested
+    /// identity directly from one bounded seekable manifest stream.
+    /// </summary>
+    public static PackageManifestFactsResult
+        ExecuteSelfAttestedWithSectionFailures(
+            Stream manifestStream)
+    {
+        ArgumentNullException.ThrowIfNull(manifestStream);
+        if (!manifestStream.CanSeek)
+        {
+            throw new ArgumentException(
+                "Direct manifest projection requires a seekable stream.",
+                nameof(manifestStream));
+        }
+
+        long remainingBytes = checked(
+            manifestStream.Length - manifestStream.Position);
+        if (remainingBytes < 0 || remainingBytes > MaxManifestBytes)
+        {
+            return Failed(
+                PackageManifestFailureReason.ConfiguredLimitExceeded);
+        }
+
+        return ExecuteCore(
+            manifestStream,
+            expectedCoordinate: null,
+            retainDependencyFailure: true);
+    }
+
     private static PackageManifestFactsResult ExecuteCore(
         ReadOnlyMemory<byte> manifestBytes,
         PackageSourceCoordinate? expectedCoordinate,
@@ -283,10 +325,7 @@ public static class PackageManifestFactsProjection
         if (groups is null)
             return [];
         if (groups.Count > MaxDependencyGroups)
-        {
-            throw Failure(
-                PackageManifestFailureReason.ConfiguredLimitExceeded);
-        }
+            return [];
 
         var builder = ImmutableArray.CreateBuilder<
             PackageManifestDependencyIdentifierObservation>();
@@ -301,13 +340,12 @@ public static class PackageManifestFactsProjection
             {
                 dependencyCount++;
                 if (dependencyCount > MaxDependencies)
-                {
-                    throw Failure(
-                        PackageManifestFailureReason.ConfiguredLimitExceeded);
-                }
+                    return builder.ToImmutable();
 
                 string id = dependencies[dependencyIndex].Id;
-                ValidateScalar(id);
+                if (string.IsNullOrEmpty(id)
+                    || id.Length > MaxScalarCharacters)
+                    continue;
                 builder.Add(
                     new PackageManifestDependencyIdentifierObservation(
                         id,

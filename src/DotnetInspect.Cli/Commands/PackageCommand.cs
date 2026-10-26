@@ -1479,6 +1479,25 @@ public partial class PackageCommand
                 requestedTargetFramework: options.Tfm);
             observedInspection = result;
 
+            if (!effectiveDiscovery
+                && RequestsSelectedOrDiscoveredSection(
+                    producerOptions,
+                    PackageSections.Dependencies,
+                    pipeline)
+                && result.PackageDependencyInspection is
+                    {
+                        Content:
+                            PackageDependencyInspectionOutcome.Failed,
+                    } dependencyInspection)
+            {
+                foreach (InspectionDiagnostic diagnostic
+                    in dependencyInspection.Diagnostics)
+                {
+                    CommandError.Write(diagnostic.Summary.ToString());
+                }
+                return 1;
+            }
+
             if (admittedPackageInfoMeasurements is not null
                 && RequestsPackageInfoMeasurements(
                     producerOptions,

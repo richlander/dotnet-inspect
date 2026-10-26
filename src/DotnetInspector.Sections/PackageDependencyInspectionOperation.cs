@@ -76,18 +76,6 @@ public static class PackageDependencyInspectionOperation
             ?? new InspectionShare.NonProjectable(
                 SharePath,
                 "Package dependency inspection does not yet have a canonical Workspace Share projection.");
-        if (request.Input.PackageId is null
-            || request.Input.PackageVersion is null)
-        {
-            return Failed(
-                request.Input,
-                PackageDependencyInspectionFailureReason
-                    .PackageIdentityUnavailable,
-                "package-dependencies.identity-unavailable",
-                "Package dependency inspection requires an exact package identity.",
-                share);
-        }
-
         PackageManifestInspectionResult result =
             await PackageManifestFactsQuery.ExecuteInspectionAsync(
                     request.Input,
@@ -165,8 +153,8 @@ public static class PackageDependencyInspectionOperation
             PackageManifestFacts? manifest = null) =>
         new(
             new PackageDependencyInspectionOutcome.Failed(
-                input.PackageId,
-                input.PackageVersion,
+                manifest?.DeclaredPackageId ?? input.PackageId,
+                manifest?.DeclaredPackageVersion ?? input.PackageVersion,
                 reason,
                 manifest),
             share,

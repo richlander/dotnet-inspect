@@ -419,8 +419,8 @@ internal static class PackageInspector
                         resolution.NupkgPath,
                         resolution.FromCache,
                         resolution.ProducerKey ?? "local-package"),
-                    nuspec?.PackageName ?? packageName,
-                    nuspec?.Version ?? version);
+                    nuspec?.PackageName,
+                    nuspec?.Version);
         return await PackageDependencyInspectionOperation.ExecuteAsync(
                 new(input, requestedTargetFramework))
             .ConfigureAwait(false);
@@ -435,6 +435,7 @@ internal static class PackageInspector
         ArgumentNullException.ThrowIfNull(inspection);
         ArgumentNullException.ThrowIfNull(log);
 
+        result.PackageDependencyInspection = inspection;
         if (inspection.Content is
             PackageDependencyInspectionOutcome.Available available)
         {
@@ -470,25 +471,19 @@ internal static class PackageInspector
             ApplyManifestFacts(result, manifest);
         }
         result.DependencyGroups = null;
-        string summary = inspection.Content switch
+        string? summary = inspection.Content switch
         {
             PackageDependencyInspectionOutcome.NoManifest =>
                 "The package manifest is unavailable; dependencies were not projected.",
-            PackageDependencyInspectionOutcome.Failed failed =>
-                failed.Reason switch
-                {
-                    PackageDependencyInspectionFailureReason
-                        .PackageIdentityUnavailable =>
-                        "The package identity is unavailable; dependencies were not projected.",
-                    PackageDependencyInspectionFailureReason.ManifestRejected =>
-                        "The package manifest was rejected; dependencies were not projected.",
-                    _ =>
-                        "The package manifest could not be read; dependencies were not projected.",
-                },
+            PackageDependencyInspectionOutcome.Failed =>
+                inspection.Diagnostics.IsEmpty
+                    ? "The package manifest could not be inspected; dependencies were not projected."
+                    : null,
             _ => throw new InvalidOperationException(
                 "Unknown package dependency inspection outcome."),
         };
-        log(summary);
+        if (summary is not null)
+            log(summary);
         return false;
     }
 

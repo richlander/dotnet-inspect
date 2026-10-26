@@ -64,6 +64,37 @@ public sealed class PackageDependencyInspectionOperationTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_UsesSelfAttestedLocalManifestIdentity()
+    {
+        PackageInspectionInput input = Input(
+            """
+            <dependencies>
+              <dependency id="Example.Dependency" version="[1.0.0]" />
+            </dependencies>
+            """,
+            includeExpectedIdentity: false);
+
+        InspectionEnvelope<PackageDependencyInspectionOutcome> inspection =
+            await PackageDependencyInspectionOperation.ExecuteAsync(
+                new(input),
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<PackageDependencyInspectionOutcome.Available>(
+                inspection.Content);
+        Assert.Equal("Example.Package", available.Manifest.DeclaredPackageId);
+        Assert.Equal("1.0.0", available.Manifest.DeclaredPackageVersion);
+        Assert.Equal(
+            PackageManifestIdentityProvenance.SelfAttested,
+            available.Manifest.IdentityProvenance);
+        Assert.Equal(
+            "Example.Dependency",
+            Assert.Single(
+                Assert.Single(available.Dependencies.Groups).Dependencies).Id);
+        Assert.Empty(inspection.Diagnostics);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_DistinguishesNoMatchingFramework()
     {
         PackageInspectionInput input = Input(
@@ -177,7 +208,9 @@ public sealed class PackageDependencyInspectionOperationTests
             Assert.Single(inspection.Diagnostics).Code);
     }
 
-    private static PackageInspectionInput Input(string dependencies)
+    private static PackageInspectionInput Input(
+        string dependencies,
+        bool includeExpectedIdentity = true)
     {
         string manifest =
             $"""
@@ -202,13 +235,16 @@ public sealed class PackageDependencyInspectionOperationTests
             entry.Write(Encoding.UTF8.GetBytes(manifest));
         }
 
-        return PackageInspectionInput.CreateLocal(
-            new InMemoryPackageContent(
-                package.ToArray(),
-                fromCache: false,
-                producerKey: "package-dependency-inspection-tests"),
-            "Example.Package",
-            "1.0.0");
+        var content = new InMemoryPackageContent(
+            package.ToArray(),
+            fromCache: false,
+            producerKey: "package-dependency-inspection-tests");
+        return includeExpectedIdentity
+            ? PackageInspectionInput.CreateLocal(
+                content,
+                "Example.Package",
+                "1.0.0")
+            : PackageInspectionInput.CreateLocal(content);
     }
 
     private static byte[] EmptyArchive()

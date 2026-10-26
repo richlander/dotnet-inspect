@@ -70,19 +70,18 @@ public static class PackageManifestFactsQuery
         ReadOnlyMemory<byte> manifestBytes) =>
         PackageManifestFactsProjection.ExecuteSelfAttested(manifestBytes);
 
+    public static PackageManifestFactsResult
+        ExecuteSelfAttestedWithSectionFailures(
+            ReadOnlyMemory<byte> manifestBytes) =>
+        PackageManifestFactsProjection
+            .ExecuteSelfAttestedWithSectionFailures(manifestBytes);
+
     public static Task<PackageManifestInspectionResult>
         ExecuteInspectionAsync(
             PackageInspectionInput input,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
-        if (input.PackageId is null || input.PackageVersion is null)
-        {
-            return Task.FromResult<PackageManifestInspectionResult>(
-                new PackageManifestInspectionResult.Failed(
-                    new InvalidOperationException(
-                        "Package manifest inspection requires an exact package identity.")));
-        }
 
         try
         {
@@ -105,10 +104,13 @@ public static class PackageManifestFactsQuery
                             "The selected package manifest is no longer available.")));
             }
 
-            PackageSourceCoordinate coordinate =
-                PackageSourceCoordinate.Create(
-                    input.PackageId,
-                    input.PackageVersion);
+            PackageSourceCoordinate? coordinate =
+                input.PackageId is not null
+                && input.PackageVersion is not null
+                    ? PackageSourceCoordinate.Create(
+                        input.PackageId,
+                        input.PackageVersion)
+                    : null;
             if (manifestStream is MemoryStream memory
                 && memory.TryGetBuffer(out ArraySegment<byte> segment)
                 && segment.Array is not null)
@@ -121,7 +123,7 @@ public static class PackageManifestFactsQuery
                         (int)(memory.Length - memory.Position));
                     return Task.FromResult(
                         Project(
-                            ExecuteWithSectionFailures(
+                            ExecuteInspectionProjection(
                                 segment.Array.AsMemory(offset, count),
                                 coordinate)));
                 }
@@ -132,10 +134,9 @@ public static class PackageManifestFactsQuery
                 {
                     return Task.FromResult(
                         Project(
-                            PackageManifestFactsProjection
-                                .ExecuteWithSectionFailures(
-                                    manifestStream,
-                                    coordinate)));
+                            ExecuteInspectionProjection(
+                                manifestStream,
+                                coordinate)));
                 }
             }
 
@@ -158,7 +159,7 @@ public static class PackageManifestFactsQuery
     private static async Task<PackageManifestInspectionResult>
         ReadAndProjectAsync(
             Stream manifestStream,
-            PackageSourceCoordinate coordinate,
+            PackageSourceCoordinate? coordinate,
             CancellationToken cancellationToken)
     {
         try
@@ -174,7 +175,7 @@ public static class PackageManifestFactsQuery
             }
 
             return Project(
-                ExecuteWithSectionFailures(
+                ExecuteInspectionProjection(
                     manifestBytes,
                     coordinate));
         }
@@ -187,6 +188,23 @@ public static class PackageManifestFactsQuery
             return new PackageManifestInspectionResult.Failed(ex);
         }
     }
+
+    private static PackageManifestFactsResult ExecuteInspectionProjection(
+        ReadOnlyMemory<byte> manifestBytes,
+        PackageSourceCoordinate? coordinate) =>
+        coordinate is null
+            ? ExecuteSelfAttestedWithSectionFailures(manifestBytes)
+            : ExecuteWithSectionFailures(manifestBytes, coordinate);
+
+    private static PackageManifestFactsResult ExecuteInspectionProjection(
+        Stream manifestStream,
+        PackageSourceCoordinate? coordinate) =>
+        coordinate is null
+            ? PackageManifestFactsProjection
+                .ExecuteSelfAttestedWithSectionFailures(manifestStream)
+            : PackageManifestFactsProjection.ExecuteWithSectionFailures(
+                manifestStream,
+                coordinate);
 
     private static PackageManifestInspectionResult Project(
         PackageManifestFactsResult facts) =>
