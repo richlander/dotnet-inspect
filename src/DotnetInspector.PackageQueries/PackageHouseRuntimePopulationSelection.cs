@@ -48,7 +48,19 @@ public static class PackageHouseRuntimePopulationSelector
     public static PackageHouseRuntimePopulationSelection Select(
         PackageHouseSettlement.Acquired settlement,
         PackageHouseRootContribution contribution,
-        PackageRuntimePopulationAuthority authority)
+        PackageRuntimePopulationAuthority authority) =>
+        Select(
+            settlement,
+            contribution,
+            authority,
+            retainedRuntimePopulationRequest: null);
+
+    public static PackageHouseRuntimePopulationSelection Select(
+        PackageHouseSettlement.Acquired settlement,
+        PackageHouseRootContribution contribution,
+        PackageRuntimePopulationAuthority authority,
+        PackageRootReacquisitionRequest?
+            retainedRuntimePopulationRequest)
     {
         ArgumentNullException.ThrowIfNull(settlement);
         ArgumentNullException.ThrowIfNull(contribution);
@@ -63,8 +75,17 @@ public static class PackageHouseRuntimePopulationSelector
         PackageCompileAssetSelectionReceipt compileReceipt =
             contribution.SelectionReceipt;
         string? runtimeTargetFramework =
-            compileReceipt.RequestedTargetFramework
-            ?? compileReceipt.Selection.TargetFramework;
+            retainedRuntimePopulationRequest is null
+                ? compileReceipt.RequestedTargetFramework
+                    ?? compileReceipt.Selection.TargetFramework
+                : retainedRuntimePopulationRequest
+                    .RuntimePopulationTargetFramework;
+        PackageRootBinding contributionBinding =
+            retainedRuntimePopulationRequest is null
+                ? contribution.Binding
+                : contribution.Binding
+                    .WithRuntimePopulationTargetFramework(
+                        runtimeTargetFramework);
         PackageAssetSelectionReceipt runtimeReceipt =
             PackageAssetSelector.EvaluateSingleRuntime(
                 settlement.Payload.Content,
@@ -72,7 +93,7 @@ public static class PackageHouseRuntimePopulationSelector
         if (runtimeReceipt.AvailableRuntimePopulations.Count == 0)
         {
             return new(
-                contribution.Binding,
+                contributionBinding,
                 choice: null);
         }
 
@@ -88,7 +109,7 @@ public static class PackageHouseRuntimePopulationSelector
             is not PackageRuntimePopulationChoiceResult.Selected selected)
         {
             return new(
-                contribution.Binding,
+                contributionBinding,
                 choice);
         }
 
@@ -116,8 +137,11 @@ public static class PackageHouseRuntimePopulationSelector
         if (!PackageRootBinding.TryCreateFromSourceSelection(
                 settlement.Payload,
                 selectedReceipt,
-                OriginalRequestedFramework(
-                    contribution.Result.Request.TargetContext),
+                retainedRuntimePopulationRequest is null
+                    ? OriginalRequestedFramework(
+                        contribution.Result.Request.TargetContext)
+                    : retainedRuntimePopulationRequest
+                        .RequestedTargetFramework,
                 out PackageRootBinding? selectedBinding,
                 runtimePopulationTargetFramework:
                     runtimeTargetFramework,

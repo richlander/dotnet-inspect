@@ -121,6 +121,30 @@ public sealed class PackageRootBinding
     /// </summary>
     internal string? RuntimePopulationTargetFramework { get; }
 
+    internal PackageRootBinding WithRuntimePopulationTargetFramework(
+        string? targetFramework)
+    {
+        if (string.Equals(
+                RuntimePopulationTargetFramework,
+                targetFramework,
+                StringComparison.Ordinal))
+        {
+            return this;
+        }
+
+        return new PackageRootBinding(
+            Root,
+            Coordinate,
+            SourceProducer,
+            ContentGenerationIdentity,
+            SelectionIdentity,
+            CompileTargetFramework,
+            ImplementationSelectionTargetFramework,
+            UsesCompatibleImplementationSelection,
+            AllowsCompatibleTargetSelection,
+            targetFramework);
+    }
+
     /// <summary>
     /// Issues the exact, resource-free request that repeats this logical Root
     /// under another host's acquisition capabilities.

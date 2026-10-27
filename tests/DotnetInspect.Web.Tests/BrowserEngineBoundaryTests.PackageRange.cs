@@ -1015,7 +1015,7 @@ public sealed partial class BrowserEngineBoundaryTests
             ($"{id}.nuspec", Encoding.UTF8.GetBytes(
                 $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
             ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly),
-            ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net10.0/{id}.dll", assembly),
             ("content/padding.bin", new byte[2_000_000]));
         var handler = new GalleryPackageHandler(id, "1.0.0", archive);
         using IPackageSourceClient source = Gallery(handler);
@@ -1025,17 +1025,21 @@ public sealed partial class BrowserEngineBoundaryTests
                 await BrowserPackageWorkspace.RealizeWithSettlementAsync(
                     id,
                     "1.0.0",
-                    "net11.0",
+                    "",
                     source,
                     TimeSpan.FromSeconds(10),
                     TestContext.Current.CancellationToken))
             .Realization;
         Assert.Equal("linux-x64", realization.Coordinate.RuntimeIdentifier);
+        PackageRuntimePopulationChoiceResult.Selected runtimePopulation =
+            Assert.IsType<PackageRuntimePopulationChoiceResult.Selected>(
+                realization.Coordinate.RuntimePopulationChoice);
         Assert.Equal(
             PackageRuntimePopulationChoiceSource.ProductDefault,
-            Assert.IsType<PackageRuntimePopulationChoiceResult.Selected>(
-                    realization.Coordinate.RuntimePopulationChoice)
-                .ChoiceSource);
+            runtimePopulation.ChoiceSource);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            runtimePopulation.AvailableRuntimeIdentifiers);
         RangedPackageContent ranged =
             Assert.IsType<RangedPackageContent>(
                 realization.Coordinate.Package.Content);
@@ -1045,6 +1049,18 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(
             ranged.IsMaterialized(implementationPath),
             $"Expected {implementationPath} to be materialized.");
+        PackageRootReacquisitionRequest rootRequest =
+            realization.Coordinate.Binding!
+                .CreateReacquisitionRequest();
+        Assert.Null(rootRequest.RequestedTargetFramework);
+        Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
+        Assert.Equal("net10.0", rootRequest.SelectionTargetFramework);
+        Assert.Null(rootRequest.RuntimePopulationTargetFramework);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                rootRequest.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+        Assert.Null(decoded.RuntimePopulationTargetFramework);
 
         await using var lease =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -1058,7 +1074,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 await BrowserPackageWorkspace.RealizeWithSettlementAsync(
                     id,
                     "1.0.0",
-                    "net11.0",
+                    "",
                     source,
                     TimeSpan.FromSeconds(10),
                     TestContext.Current.CancellationToken))

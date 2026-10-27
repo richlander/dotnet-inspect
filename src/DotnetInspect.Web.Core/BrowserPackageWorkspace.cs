@@ -888,7 +888,9 @@ internal static class BrowserPackageWorkspace
         BrowserPackageOperationDeadline deadline,
         bool inventoryOnly,
         PackageLibrarySelector? librarySelector,
-        PackageAssetDemand assetDemand)
+        PackageAssetDemand assetDemand,
+        PackageRootReacquisitionRequest?
+            retainedRuntimePopulationRequest = null)
     {
         var coordinateRequest = new PackageCoordinate(
             normalizedPackageId,
@@ -1084,7 +1086,8 @@ internal static class BrowserPackageWorkspace
                 requestedRuntimeIdentifier is null
                     ? new PackageRuntimePopulationAuthority.None()
                     : new PackageRuntimePopulationAuthority.Explicit(
-                        requestedRuntimeIdentifier));
+                        requestedRuntimeIdentifier),
+                retainedRuntimePopulationRequest);
         if (requestedRuntimeIdentifier is null
             && runtimePopulation.Choice
                 is PackageRuntimePopulationChoiceResult.Selected selected
@@ -1092,18 +1095,26 @@ internal static class BrowserPackageWorkspace
                 acquired.Payload.Content,
                 runtimePopulation.Binding))
         {
+            PackageRootReacquisitionRequest retainedRuntimeRequest =
+                runtimePopulation.Binding.CreateReacquisitionRequest();
             BrowserPackageRealizationResult selectedResult =
                 await RealizeOneAsync(
                     packageId,
                     normalizedPackageId,
                     requestedVersion,
-                    targetFramework,
+                    string.IsNullOrWhiteSpace(targetFramework)
+                        && retainedRuntimeRequest
+                            .RuntimePopulationTargetFramework is null
+                        ? selected.SelectedTargetFramework
+                        : targetFramework,
                     selected.RuntimeIdentifier,
                     source,
                     deadline,
                     inventoryOnly,
                     librarySelector,
-                    assetDemand).ConfigureAwait(false);
+                    assetDemand,
+                    retainedRuntimeRequest)
+                    .ConfigureAwait(false);
             if (selectedResult
                 is not BrowserPackageRealizationResult.Realized selectedRealized)
             {
