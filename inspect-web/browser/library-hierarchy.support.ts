@@ -3365,6 +3365,7 @@ async function installFacades(
           }
           const parsed = JSON.parse(record);
           if (!parsed || typeof parsed !== "object"
+              || parsed.schemaVersion !== 4
               || typeof parsed.kind !== "string"
               || typeof parsed.id !== "string") {
             throw new Error(
@@ -3380,10 +3381,16 @@ async function installFacades(
         }
         const workspace = byId.get(scenario.workspace);
         const navigation = byId.get(scenario.navigation);
+        const view = byId.get(scenario.view);
         if (workspace?.kind !== "workspace"
-            || navigation?.kind !== "navigation") {
+            || navigation?.kind !== "navigation"
+            || view?.kind !== "view") {
           throw new Error(
             "The retained Workspace definition is incomplete.");
+        }
+        if (navigation.focus !== null) {
+          throw new Error(
+            "The committed retained Navigation must select Workspace.");
         }
         const context = workspace.contexts?.find(
           candidate => candidate.name === scenario.context);
@@ -3410,16 +3417,19 @@ async function installFacades(
           }
           return { id: tab.id, member };
         });
-        if (navigation.focus !== null
-            && navigation.focus !== undefined
-            && !tabs.some(tab => tab.id === navigation.focus)) {
+        if (!Array.isArray(view.states)
+            || view.states.length !== tabs.length + 1
+            || view.states[0]?.navigation !== null
+            || view.states[0]?.subject?.kind !== "workspace"
+            || tabs.some((tab, index) =>
+              view.states[index + 1]?.navigation !== tab.id)) {
           throw new Error(
-            "The retained Navigation focus is unavailable.");
+            "The committed retained View is incomplete.");
         }
         return {
           members: [...membersByCoordinate.values()],
           tabs,
-          activeTabId: navigation.focus ?? null,
+          activeTabId: null,
           selectedContextId: context.name,
         };
       }

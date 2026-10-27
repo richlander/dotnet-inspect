@@ -593,6 +593,11 @@ publish a canonical packet; nonprojectable definitions, including exact
 Platform membership and scanner-bearing ecosystem registrations, retain their
 serialized Definitions request without manufacturing one.
 
+The committed restoration records enter at Workspace root. After exact
+membership is installed, the retained demo presentation selects its saved
+Package or Platform tab and then applies the Type/Methods view. The host does
+not rewrite committed Navigation focus to encode presentation.
+
 ## Browser history
 
 The retained-realization owner supplies resource-free selection intent to

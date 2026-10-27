@@ -268,6 +268,58 @@ public sealed class BrowserProductHomeDemosTests
             record => record is ScenarioDefinition);
     }
 
+    [Theory]
+    [InlineData(
+        "package-methods-restoration-records.json",
+        "package-methods")]
+    [InlineData(
+        "platform-methods-restoration-records.json",
+        "platform-methods")]
+    public void BrowserMethodsRestorationFixtures_PrepareAsCommittedDefinitions(
+        string fileName,
+        string scenarioId)
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(
+                RepositoryRoot(),
+                "fixtures",
+                "inspect-web",
+                fileName)));
+        InspectionDefinitionRecord[] records =
+        [
+            .. document.RootElement
+                .EnumerateArray()
+                .Select(record =>
+                    InspectionDefinitionJson.Parse(record.GetRawText())),
+        ];
+        var request =
+            new CompleteRestorationRequestBasis.DefinitionInput(
+                scenarioId,
+                records);
+
+        CompleteRestorationPreparationResult.Ready ready =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                CompleteRestorationPreparation.FromDefinition(
+                    request,
+                    new TestIntentAuthority(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<CompleteRestorationRecipe.Version4>(
+            ready.Plan.Recipe);
+        Assert.All(
+            records,
+            record => Assert.Equal(
+                InspectionDefinitionSchema.Version4,
+                record.SchemaVersion));
+        Assert.Single(records.OfType<WorkspaceDefinition>());
+        Assert.Null(
+            Assert.Single(
+                records.OfType<CommittedNavigationDefinition>())
+                .Focus);
+        Assert.Single(records.OfType<CommittedViewDefinition>());
+        Assert.Single(records.OfType<ScenarioDefinition>());
+    }
+
     [Fact]
     public void ResolveHomeDemo_ExtensionsCallGraph_ProjectsPlatformLibrariesAndMemberAnchor()
     {
@@ -987,5 +1039,16 @@ public sealed class BrowserProductHomeDemosTests
 
         throw new DirectoryNotFoundException(
             "Could not locate the dotnet-inspect repository root.");
+    }
+
+    private sealed class TestIntentAuthority :
+        ICompleteRestorationIntentAuthority
+    {
+        public CompleteRestorationIntentIdentity Identity { get; } = new();
+
+        public CompleteRestorationIntentStatus Status =>
+            CompleteRestorationIntentStatus.Current;
+
+        public CancellationToken Revocation => CancellationToken.None;
     }
 }

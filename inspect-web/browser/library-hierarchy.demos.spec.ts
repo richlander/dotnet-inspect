@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import {
   subjectTab,
@@ -182,6 +183,118 @@ function homeDemoResult(
   };
 }
 
+function memberCoordinate(
+  member: BrowserHomeDemoResolved["workspaceMembers"][number],
+): Record<string, unknown> {
+  return member.kind === "platform"
+    ? {
+      kind: "platform",
+      family: member.id,
+      assembly: member.assembly,
+      version: member.version,
+      framework: member.framework,
+    }
+    : {
+      kind: "package",
+      id: member.id,
+      version: member.version,
+      framework: member.framework,
+    };
+}
+
+function committedRestorationDefinitions(
+  id: string,
+  title: string,
+  members: BrowserHomeDemoResolved["workspaceMembers"],
+  tabs: BrowserHomeDemoResolved["tabs"],
+): string[] {
+  const workspaceId = `${id}-workspace`;
+  const viewId = `${id}-view`;
+  const navigationId = `${id}-navigation`;
+  const coordinates = members.map(memberCoordinate);
+  return [
+    JSON.stringify({
+      schemaVersion: 4,
+      kind: "workspace",
+      id: workspaceId,
+      title,
+      description: "Typed product demo",
+      contexts: [{
+        name: "demo",
+        framework: tabs.at(-1)!.member.framework,
+        members: coordinates,
+      }],
+      registrations: [],
+    }),
+    JSON.stringify({
+      schemaVersion: 4,
+      kind: "navigation",
+      id: navigationId,
+      tabs: tabs.map((tab, index) => ({
+        id: tab.id,
+        coordinate: coordinates[index],
+      })),
+      focus: null,
+    }),
+    JSON.stringify({
+      schemaVersion: 4,
+      kind: "view",
+      id: viewId,
+      states: [
+        {
+          navigation: null,
+          subject: { kind: "workspace" },
+        },
+        ...tabs.map(tab => ({ navigation: tab.id })),
+      ],
+    }),
+    JSON.stringify({
+      schemaVersion: 4,
+      kind: "scenario",
+      id,
+      title,
+      description: "Typed product demo",
+      workspace: workspaceId,
+      context: "demo",
+      view: viewId,
+      navigation: navigationId,
+    }),
+  ];
+}
+
+function methodsRestorationDefinitions(
+  id: string,
+  focusKind: "package" | "platform",
+): string[] {
+  const name = focusKind === "package"
+    ? "package-methods-restoration-records.json"
+    : "platform-methods-restoration-records.json";
+  const parsed = JSON.parse(readFileSync(
+    new URL(`../../fixtures/inspect-web/${name}`, import.meta.url),
+    "utf8",
+  )) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Methods restoration fixture '${name}' is not an array.`);
+  }
+  const records = parsed as readonly unknown[];
+  const scenario = records.find(isScenarioDefinitionRecord);
+  if (scenario?.id !== id) {
+    throw new Error(
+      `Methods restoration fixture '${name}' does not select '${id}'.`);
+  }
+  return records.map(record => JSON.stringify(record));
+}
+
+function isScenarioDefinitionRecord(
+  value: unknown,
+): value is { readonly kind: "scenario"; readonly id: string } {
+  if (typeof value !== "object" || value === null) return false;
+  return "kind" in value
+    && value.kind === "scenario"
+    && "id" in value
+    && typeof value.id === "string";
+}
+
 function homeDemoResolution(
   id: string,
   section: "Methods" | "Call Graph",
@@ -234,27 +347,10 @@ function homeDemoResolution(
       framework: tab.member.framework,
       runtimeIdentifier: null,
     }));
-  const workspaceId = `${id}-workspace`;
-  const viewId = `${id}-view`;
-  const navigationId = `${id}-navigation`;
-  const coordinates = members.map(member =>
-    member.kind === "platform"
-      ? {
-        kind: "platform",
-        family: member.id,
-        assembly: member.assembly,
-        version: member.version,
-        framework: member.framework,
-      }
-      : {
-        kind: "package",
-        id: member.id,
-        version: member.version,
-        framework: member.framework,
-      });
+  const title = `${focusKind} ${section}`;
   return {
     id,
-    title: `${focusKind} ${section}`,
+    title,
     summary: "Typed product demo",
     workspaceMembers: members,
     tabs,
@@ -281,50 +377,9 @@ function homeDemoResolution(
       traversalTargetFramework: null,
       hierarchyWorkspacePacket: null,
     },
-    restorationDefinitions: [
-      JSON.stringify({
-        schemaVersion: 1,
-        kind: "workspace",
-        id: workspaceId,
-        title: `${focusKind} ${section}`,
-        description: "Typed product demo",
-        contexts: [{
-          name: "demo",
-          framework: focus.member.framework,
-          members: coordinates,
-        }],
-      }),
-      JSON.stringify({
-        schemaVersion: 1,
-        kind: "view",
-        id: viewId,
-        type: view.type,
-        memberAnchor: view.memberAnchor,
-        memberKey: view.memberKey,
-        section,
-      }),
-      JSON.stringify({
-        schemaVersion: 1,
-        kind: "navigation",
-        id: navigationId,
-        tabs: tabs.map((tab, index) => ({
-          id: tab.id,
-          coordinate: coordinates[index],
-        })),
-        focus: focus.id,
-      }),
-      JSON.stringify({
-        schemaVersion: 1,
-        kind: "scenario",
-        id,
-        title: `${focusKind} ${section}`,
-        description: "Typed product demo",
-        workspace: workspaceId,
-        context: "demo",
-        view: viewId,
-        navigation: navigationId,
-      }),
-    ],
+    restorationDefinitions: section === "Methods"
+      ? methodsRestorationDefinitions(id, focusKind)
+      : committedRestorationDefinitions(id, title, members, tabs),
   };
 }
 

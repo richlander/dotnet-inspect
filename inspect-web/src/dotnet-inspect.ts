@@ -27369,11 +27369,7 @@ function applyMethodsHomeDemoSelection(
     throw new Error(
       `Product home demo '${demo.id}' is not an unscoped Methods view.`);
   }
-  const focus = demo.tabs[demo.focusTabIndex];
-  if (focus === undefined) {
-    throw new Error(
-      `Product home demo '${demo.id}' has no focused navigation tab.`);
-  }
+  const focus = methodsHomeDemoFocus(demo);
   const packageModel = state.package;
   if (packageModel === null) {
     throw new Error(
@@ -27419,6 +27415,17 @@ function applyMethodsHomeDemoSelection(
   );
 }
 
+function methodsHomeDemoFocus(
+  demo: BrowserHomeDemoResolved,
+): BrowserHomeDemoResolved["tabs"][number] {
+  const focus = demo.tabs[demo.focusTabIndex];
+  if (focus === undefined) {
+    throw new Error(
+      `Product home demo '${demo.id}' has no focused navigation tab.`);
+  }
+  return focus;
+}
+
 async function installMethodsHomeDemoPosting(
   posting: BrowserRetainedWorkspacePosting,
   demo: BrowserHomeDemoResolved,
@@ -27448,7 +27455,14 @@ async function installMethodsHomeDemoPosting(
     || retainedLocationIntents.currentIntentId !== locationIntent.id) {
     return false;
   }
-  installRetainedWorkspaceModels(posting, models, null, false);
+  const focus = methodsHomeDemoFocus(demo);
+  installRetainedWorkspaceModels(
+    posting,
+    models,
+    null,
+    false,
+    focus.id,
+  );
   if (!publishRetainedLocationAssociation(
     posting,
     locationIntent,
@@ -28322,6 +28336,7 @@ function installRetainedWorkspaceModels(
   models: RetainedWorkspaceModels,
   workspaceFeedUrl: string | null,
   renderAfterInstall = true,
+  selectedNavigationId?: string,
 ): void {
   const allModels = [
     ...models.packages.map(item => item.packageModel),
@@ -28338,14 +28353,33 @@ function installRetainedWorkspaceModels(
     createNavigationDescriptorPresentation(posting);
   retainedWorkspaceInitialDetailAuthority = null;
   installedRetainedLocation = null;
-  const activeTab = posting.definition.activeTabId === null
+  const activeTabId =
+    selectedNavigationId ?? posting.definition.activeTabId;
+  const activeTab = activeTabId === null
     ? null
     : posting.definition.tabs.find(
-        tab => tab.id === posting.definition.activeTabId);
+        tab => tab.id === activeTabId);
+  if (activeTabId !== null && activeTab === undefined) {
+    throw new Error(
+      "The retained Workspace selected an unavailable navigation tab.");
+  }
   const activePackageSubjectId =
     posting.navigation.snapshot.activePackage;
-  const activePackage = models.packages.find(item =>
-    item.consumerPackageSubjectId === activePackageSubjectId)?.packageModel
+  const explicitlySelected = selectedNavigationId === undefined
+    ? null
+    : models.packages.find(item =>
+        item.navigationId === selectedNavigationId)?.packageModel
+      ?? models.platforms.find(item =>
+        item.navigationId === selectedNavigationId)?.packageModel
+      ?? null;
+  if (selectedNavigationId !== undefined
+      && explicitlySelected === null) {
+    throw new Error(
+      "The retained product demo did not publish its focused surface.");
+  }
+  const activePackage = explicitlySelected
+    ?? models.packages.find(item =>
+      item.consumerPackageSubjectId === activePackageSubjectId)?.packageModel
     ?? (activeTab?.kind === "package"
     ? models.packages.find(item =>
         item.packageModel.id.toLowerCase() === activeTab.source.toLowerCase()
