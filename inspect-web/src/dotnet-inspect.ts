@@ -61,6 +61,7 @@ import {
   scopedRequestState,
   searchableMemberGroups,
   setLibraryViewFacetCatalog,
+  setMemberViewFacetCatalog,
   setTypeViewFacetCatalog,
   sourceReloadKind,
   spotlightCandidateKey,
@@ -5024,8 +5025,9 @@ function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
 }
 
 function memberSectionsFor(member: AppMemberGroup) {
+  const definitions = memberSectionDefinitions();
   if (state.rootKind === "library") {
-    return memberSectionDefinitions.filter(([id]) => id === "overview");
+    return definitions.filter(([id]) => id === "overview");
   }
   const allowed = new Set(
     memberSectionIdsFor(
@@ -5033,7 +5035,7 @@ function memberSectionsFor(member: AppMemberGroup) {
       state.package?.isRuntimePack,
       memberHasSelectedBody(member)));
   if (!compareAvailableFor(state.package)) allowed.delete("compare");
-  return memberSectionDefinitions.filter(([id]) => allowed.has(id));
+  return definitions.filter(([id]) => allowed.has(id));
 }
 
 function memberHasSelectedBody(member: AppMemberGroup) {
@@ -28572,6 +28574,8 @@ async function bootstrap() {
       (await engineClient.catalog.listLibraryViewFacets()).facets);
     setTypeViewFacetCatalog(
       (await engineClient.catalog.listTypeViewFacets()).facets);
+    setMemberViewFacetCatalog(
+      (await engineClient.catalog.listMemberViewFacets()).facets);
     try {
       setProductEcosystemCatalog(
         (await engineClient.catalog.listEcosystems()).ecosystems ?? []);

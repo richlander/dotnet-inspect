@@ -4146,6 +4146,63 @@ async function installFacades(
           ],
         };
       }
+      export function listMemberViewFacets() {
+        return {
+          facets: [
+            {
+              id: "member.overview",
+              kind: "Member",
+              title: "Overview",
+              summary:
+                "Signature, documentation, and overload context for the active Member.",
+              order: 100,
+              role: "MemberOverview",
+            },
+            {
+              id: "member.call-graph",
+              kind: "Member",
+              title: "Call graph",
+              summary: "Incoming and outgoing calls for the active Member.",
+              order: 200,
+              role: null,
+            },
+            {
+              id: "member.facts",
+              kind: "Member",
+              title: "Facts",
+              summary:
+                "Metadata, IL, safety, and analysis facts for the active Member.",
+              order: 300,
+              role: null,
+            },
+            {
+              id: "member.source",
+              kind: "Member",
+              title: "Source",
+              summary: "Source or decompiled code for the active Member.",
+              order: 400,
+              role: null,
+            },
+            {
+              id: "member.annotated-source",
+              kind: "Member",
+              title: "Annotated source",
+              summary:
+                "Source for the active Member with product analysis annotations.",
+              order: 500,
+              role: null,
+            },
+            {
+              id: "member.compare",
+              kind: "Member",
+              title: "Compare",
+              summary: "Detailed diff and clone results for the active Member.",
+              order: 600,
+              role: null,
+            },
+          ],
+        };
+      }
       export function listTypeViewFacets() {
         return {
           facets: [

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Commands;
@@ -9,8 +10,8 @@ namespace DotnetInspect.Cli.Commands;
 /// Inspection Capability Composition's routing declarations: one operation
 /// per composed capability family the CLI admits. Package Query and Package
 /// Files route to their inspection documents; the Diff analyses route to the
-/// analysis collection, and accept the subject kinds their Compare
-/// participation registers.
+/// Diff analysis document and the analysis collection, and accept the
+/// subject kinds their Compare participation registers.
 /// </summary>
 /// <remarks>
 /// Each operation accepts Schema Query subject kinds, so a host admits these
@@ -84,7 +85,11 @@ internal static class CapabilityRoutingDeclarations
                 + "versions?",
                 "Which string literals did this library add or remove?",
             ],
-            [ResourceExplanationCatalog.AnalysesCollectionKey],
+            [
+                ResourceExplanationCatalog.CapabilityDocumentKey(
+                    DiffAnalysisCatalog.DocumentIdentity),
+                ResourceExplanationCatalog.AnalysesCollectionKey,
+            ],
             grain: "One finding per changed occurrence at each analysis's own "
                 + "grain, such as an API member, IL operation, C# line, or "
                 + "allocation, within the compared library, type, or member.",

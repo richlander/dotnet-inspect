@@ -323,6 +323,13 @@ property or event record does not hide its accessor MethodDef records; each
 accessor carries its own hidden fact, and `--skip EditorBrowsableNever` applies
 to each record alone.
 
+A property setter whose return carries `modreq(IsExternalInit)` is an `init`
+accessor, and both spellings spell it `init` on every surface: declarations,
+listings, and diff rows. ASP.NET Core 10.0.12 to 11.0.0-rc.1 changed
+`ValidateContext.ValidationOptions` from `{ get; set; }` to `{ get; init; }`,
+which breaks a caller that assigns it after construction; the diff reports
+that break only because each side spells its own accessor (#10679).
+
 In both spellings the buckets partition that spelling's population, and every
 Count is in that spelling's unit: declarations for C# spelling, records for
 metadata spelling.
@@ -502,9 +509,10 @@ accessor's reach changes. Unlike the accessibility move above, this holds in
 every comparison scope, because every scope reports the signature row. The
 change stays one signature row, beside the property's own accessibility move when
 the widest accessor moves. Every other signature change, including an
-accessor added or removed and any change to a declaration modifier the
-signature does not spell, such as `init`, `static`, `virtual`, `override`,
-`sealed`, `abstract`, or `readonly`, stays Breaking. An event's signature spells no
+accessor added or removed, a `set` accessor becoming `init` or the reverse,
+and any change to a declaration modifier the signature does not spell, such
+as `static`, `virtual`, `override`, `sealed`, `abstract`, or `readonly`, stays
+Breaking. An event's signature spells no
 accessor, so it never takes this rule.
 
 For example, `protected int V { get; set; }` to
