@@ -274,7 +274,8 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
-    public void RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback()
+    public void
+        RidSpecificImplementation_ReplacesWholeNeutralImplementationGroup()
     {
         IPackageContent content = InMemory(
             "lib/net8.0/Example.dll",
@@ -301,22 +302,18 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(3, slice.CandidateAssets.Count);
         Assert.Equal(
             [
-                "lib/net8.0/Example.Companion.dll",
-                "lib/net8.0/shadow/Example.dll",
                 "runtimes/linux-x64/lib/net8.0/Example.dll",
             ],
             selection.ImplementationAssets.Select(asset => asset.Path));
         Assert.Equal(
             "linux-x64",
-            selection.ImplementationAssets[2].RuntimeIdentifier);
+            Assert.Single(selection.ImplementationAssets).RuntimeIdentifier);
         Assert.Equal("lib/net8.0/Example.dll", selection.DefaultAsset!.Path);
         Assert.Equal(
             "runtimes/linux-x64/lib/net8.0/Example.dll",
             selection.FindImplementationAsset(selection.DefaultAsset)!.Path);
         PackageCompileAsset companion = selection.Assets[0];
-        Assert.Same(
-            companion,
-            selection.FindImplementationAsset(companion));
+        Assert.Null(selection.FindImplementationAsset(companion));
     }
 
     [Fact]

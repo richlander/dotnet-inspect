@@ -16,7 +16,7 @@ The exact claim is:
 > assets, choose one canonical Selection RID or return typed non-success before
 > Package Asset Selection issues the implementation population. A neutral
 > `lib/<tfm>` implementation is fallback and does not suppress an eligible
-> `runtimes/<rid>/lib/<tfm>` overlay.
+> `runtimes/<rid>/lib/<tfm>` population.
 
 This owner chooses the RID used by one package-local Selection coordinate. It
 does not enumerate package entries, select target frameworks, issue asset
@@ -36,8 +36,10 @@ Runtime-population choice applies when an operation requires implementation
 bytes and the lower owner reports at least one eligible runtime implementation
 population. A neutral `lib/<tfm>` implementation is the runtime fallback; it
 does not answer the request in place of an eligible
-`runtimes/<rid>/lib/<tfm>` overlay. Compile/API operations retain their compile
-population and do not invoke this policy merely because runtime folders exist.
+`runtimes/<rid>/lib/<tfm>` population. The selected RID-specific group supplies
+the whole managed implementation population; it is not merged per assembly
+with neutral `lib`. Compile/API operations retain their compile population and
+do not invoke this policy merely because runtime folders exist.
 
 An explicit product gesture or exact retained Package coordinate supplies an
 exact Selection RID. Without that authority:
@@ -310,7 +312,7 @@ The shared policy is gated by
 - rejection of a lower receipt that already carries an exact RID.
 
 The Package Navigation Release gates cover neutral fallback with a RID-specific
-overlay, product-ordered RID rows beneath TFMs, active retained identity,
+population, product-ordered RID rows beneath TFMs, active retained identity,
 ambiguity with no active row, and exact Root reopening.
 
 The Source Release gates cover exact RID retention in Browser request
@@ -361,7 +363,8 @@ This owner does not define:
   fallback;
 - target-framework parsing, compatibility, or selection;
 - Package Asset Selection inventory construction or population issuance;
-- lower-owner neutral-overlay construction or compile population policy;
+- lower-owner neutral/runtime population construction or compile population
+  policy;
 - exact Library choice inside an issued population;
 - PDB, SourceLink, decompilation, Source equivalence, or Source presentation;
 - comparison mode applicability, endpoint Library correspondence, diff or

@@ -50,6 +50,50 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task
+        RuntimePopulationSelectionUsesCompatibleRuntimeGroupOverNewerNeutralFallback()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                new SourceBehavior(
+                    [Version],
+                    PayloadEntries:
+                    [
+                        $"lib/net10.0/{PackageId}.dll",
+                        $"runtimes/linux-x64/lib/net8.0/{PackageId}.dll",
+                    ]));
+        (
+            PackageHouseSettlement.Acquired acquired,
+            PackageHouseRootContribution contribution) =
+                await RuntimePopulationContributionAsync(environment);
+
+        PackageHouseRuntimePopulationSelection selection =
+            PackageHouseRuntimePopulationSelector.Select(
+                acquired,
+                contribution,
+                new PackageRuntimePopulationAuthority.None());
+
+        var selected = Assert.IsType<
+            PackageRuntimePopulationChoiceResult.Selected>(
+                selection.Choice);
+        Assert.Equal("linux-x64", selected.RuntimeIdentifier);
+        Assert.Equal("net8.0", selected.SelectedTargetFramework);
+        Assert.Equal("net10.0", selection.Binding.Coordinate.Framework);
+        Assert.Equal(
+            "linux-x64",
+            selection.Binding.Coordinate.RuntimeIdentifier);
+        PackageCompileAssetSelection assetSelection =
+            Assert.IsType<PackageCompileAssetSelection>(
+                selection.Binding.Root.AssetSelection);
+        Assert.Equal("net8.0", assetSelection.ImplementationTargetFramework);
+        Assert.True(assetSelection.UsesCompatibleImplementationSelection);
+        Assert.Equal(
+            $"runtimes/linux-x64/lib/net8.0/{PackageId}.dll",
+            Assert.Single(assetSelection.ImplementationAssets).Path);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task RuntimePopulationSelectionRetainsOwnerDefaultFramework()
     {
         await using HouseEnvironment environment =

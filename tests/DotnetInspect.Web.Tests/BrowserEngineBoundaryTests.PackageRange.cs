@@ -588,7 +588,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
             ($"lib/net11.0/{id}.dll", assembly),
             ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly),
-            ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly));
+            ($"runtimes/linux-x64/lib/net9.0/{id}.dll", assembly));
         await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
             new BrowserPackage(
                 id,
@@ -632,6 +632,15 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "linux-x64",
             realization.Coordinate.RuntimeIdentifier);
+        PackageCompileAssetSelection selectedAssets =
+            Assert.IsType<PackageCompileAssetSelection>(
+                realization.Coordinate.Root.AssetSelection);
+        Assert.Equal(
+            "net9.0",
+            selectedAssets.ImplementationTargetFramework);
+        Assert.Equal(
+            $"runtimes/linux-x64/lib/net9.0/{id}.dll",
+            Assert.Single(selectedAssets.ImplementationAssets).Path);
         string rootRequest = realization.Coordinate.Binding!
             .CreateReacquisitionRequest()
             .Encode();
