@@ -155,7 +155,7 @@ public class FindProgressiveTsvTests
             Assert.True(root.TryGetProperty("diagnostics", out _));
             JsonElement search = root.GetProperty("evidence").GetProperty("search");
             Assert.Equal(0, search.GetProperty("prefix_candidates_evaluated").GetInt32());
-            Assert.Contains(search.GetProperty("evaluated_indexes").EnumerateArray(),
+            Assert.Contains(search.GetProperty("admitted_indexes").EnumerateArray(),
                 index => index.GetString() == "ecosystem.aspire");
             Assert.Equal("Indexed", Assert.Single(search.GetProperty("work").EnumerateArray())
                 .GetProperty("phase").GetString());

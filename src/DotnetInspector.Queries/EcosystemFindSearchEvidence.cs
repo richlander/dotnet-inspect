@@ -33,7 +33,7 @@ public sealed record EcosystemFindPageEvidence(
 
 public sealed record EcosystemFindSearchEvidence(
     EcosystemFindRequestEvidence Request,
-    ImmutableArray<string> EvaluatedIndexes,
+    ImmutableArray<string> AdmittedIndexes,
     ImmutableArray<EcosystemFindWorkEvidence> Work,
     ImmutableArray<EcosystemFindPageEvidence> Pages,
     int PrefixCandidatesEvaluated);

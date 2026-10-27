@@ -1092,7 +1092,7 @@ public partial class FindCommand
             completion,
             failures)
         {
-            EvaluatedIndexes =
+            AdmittedIndexes =
             [
                 .. layers.Where(layer => demands.Any(demand => demand.Ecosystem == layer.Id))
                     .Select(layer => layer.Declaration.Id),

@@ -141,7 +141,7 @@ public sealed record EcosystemFindIndexedOutcome<T>(
     EcosystemFindIndexedCompletion Completion,
     IReadOnlyList<EcosystemFindSourceFailure> Failures)
 {
-    public IReadOnlyList<WorkspaceEcosystemRegistrationId> EvaluatedIndexes { get; init; } = [];
+    public IReadOnlyList<WorkspaceEcosystemRegistrationId> AdmittedIndexes { get; init; } = [];
 }
 
 /// <summary>A single-use capability issued by exactly one staged session.</summary>
@@ -202,7 +202,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
     private List<EcosystemFindWorkEvidence>? _workEvidence;
     private List<EcosystemFindPageEvidence>? _pageEvidence;
     private int _prefixCandidatesEvaluated;
-    private IReadOnlyList<WorkspaceEcosystemRegistrationId> _evaluatedIndexes = [];
+    private IReadOnlyList<WorkspaceEcosystemRegistrationId> _admittedIndexes = [];
 
     public EcosystemFindSearchSession(
         EcosystemFindSearchRequest request,
@@ -524,7 +524,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                 || indexed.Blocks.Any(block => block.HasFailures),
             indexed.Blocks.Any(block => block.Incomplete)));
         if (_workEvidence is not null)
-            _evaluatedIndexes = indexed.EvaluatedIndexes;
+            _admittedIndexes = indexed.AdmittedIndexes;
         foreach (EcosystemFindSourceFailure failure in indexed.Failures)
             _sourceFailures.Add(failure);
         if (indexed.Failures.Count > 0)
@@ -579,7 +579,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                 [.. Request.PrefixDemand.Select(id => id.Value)],
                 [.. Request.Prefixes.Select(prefix => prefix.Prefix)],
                 Request.MaximumPrefixPackages, Request.MaximumRows),
-            [.. _evaluatedIndexes.Select(id => id.Value)],
+            [.. _admittedIndexes.Select(id => id.Value)],
             [.. _workEvidence], [.. _pageEvidence],
             _prefixCandidatesEvaluated));
     }

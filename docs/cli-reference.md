@@ -1415,7 +1415,7 @@ The same Ecosystem output, row limits, Count and prefix-search rules below apply
 
 Debug builds expose `--evidence-envelope <path>` for `--ecosystem` and these
 registration-only Workspaces. The sidecar contains the completed inspection
-envelope plus the normalized question, resolved scope, evaluated indexes,
+envelope plus the normalized question, resolved scope, admitted indexes,
 phase work, live candidate allowance and consumption, stop reason, and remaining
 coverage. Ordinary output is unchanged. Legacy acquisition-receipt
 unavailability is explicit, not zero network activity. Discovery and other
