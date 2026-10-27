@@ -1705,13 +1705,13 @@ internal static class BrowserRetainedWorkspaceActivationService
             : null;
 
     static string? CanonicalPacket(
-        CompleteRestorationProjection projection) =>
+        CompleteRestorationProjection? projection) =>
         projection is CompleteRestorationProjection.Projectable projectable
             ? projectable.CanonicalPacket
             : null;
 
     static BrowserRetainedWorkspaceDefinitionState Definition(
-        CompleteRestorationRequestBasis restorationRequest,
+        CompleteRestorationRequestBasis? restorationRequest,
         string? canonicalPacket,
         CommittedScenarioDefinitionSet? definition)
     {

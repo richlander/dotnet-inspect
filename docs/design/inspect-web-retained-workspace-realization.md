@@ -220,6 +220,8 @@ A retained record may contain only state that remains meaningful without a live
 Workspace realization:
 
 - the canonical Workspace packet or another complete restoration request,
+- shared inspected Project evidence and traversal policy under
+  [Local Project input](#local-project-input),
 - the stable retained-definition identity and user-visible label,
 - the canonical browser location,
 - detached Navigation input and focus identities that the Navigation owners
@@ -241,6 +243,52 @@ The record must not contain or retain:
 - result models whose validity depends on a realization,
 - retry closures capturing realization-owned state, or
 - any other owner-issued live authority.
+
+### Local Project input
+
+The managed Browser owner may retain the resource-free
+`InspectionEnvelope<ProjectInputDocument>` produced by
+[Dependency Inspection](dependency-inspection-command.md), including its original
+Content, Share outcome, and diagnostics. It consumes
+`ProjectWorkspaceConstruction` and the Workspace-owned Project occurrence;
+it does not reparse or reinterpret the document.
+
+Selecting that local record constructs a fresh candidate through the same
+realization host, consumer-acceptance, cutover, Navigation posting, and
+settlement transaction as other retained Workspaces. Initial Navigation
+selects the exact newly issued Project occurrence. Reselecting an inactive
+record preserves the input evidence, not the old realization or Project
+identity. The input's declared dependencies do not become acquired Package
+membership.
+
+Whole-document rejection leaves the incumbent selected and admits no
+candidate. Incomplete authored declarations, unavailable restored targets, and
+partial or failed graphs retain the shared construction owner's admission
+semantics. Cancellation, supersession, and consumer rejection settle an
+unpublished candidate without replacing the incumbent.
+
+This record is local to the page session and nonprojectable. It is not a
+Workspace Definitions request or a portable packet. Project input does not
+authorize MSBuild evaluation, restore, neighboring-file discovery, feed
+inference, or dependency acquisition. This profile changes no realization
+scheduling or consumer-completion protocol; the existing owner models remain
+the basis for those interactions.
+
+The motivating asset is
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at commit
+`bebfab236a6a3061bc74c53d22067acb86050afc`. Its centrally versioned declarations
+motivate retaining incomplete authored evidence without acquiring Packages.
+Managed host tests use deterministic versions of that declaration shape and
+the restored `Newtonsoft.Json@13.0.3` control, plus rejection and cancellation
+neighbors.
+
+Overall tracker [#10478](https://github.com/richlander/dotnet-inspect/issues/10478)
+counts six slices, three merged at the start of this work.
+[#10716](https://github.com/richlander/dotnet-inspect/issues/10716) owns this
+managed activation prerequisite; production facade/wire, file opening, views,
+and real Browser/Wasm evidence remain
+[#10517](https://github.com/richlander/dotnet-inspect/issues/10517). This profile
+does not claim that Project upload is already available in the website.
 
 ### Retained package selection
 
