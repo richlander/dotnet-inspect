@@ -1039,6 +1039,13 @@ public sealed class PackageRootAcquisitionTests
                     Framework,
                     null,
                     ownerDefaultTarget: true),
+                Request(
+                    null,
+                    null,
+                    Framework,
+                    null,
+                    ownerDefaultTarget: true,
+                    retainsUnboundedRuntimePopulation: true),
                 Request(null, null, null, null),
             })
         {
@@ -1157,6 +1164,34 @@ public sealed class PackageRootAcquisitionTests
             currentPrevious.Encode(),
             StringComparison.Ordinal);
 
+        string precedingToken = VersionedToken(
+            "pkgroot6",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            null,
+            Framework,
+            Framework,
+            null,
+            "exact",
+            "exact",
+            "selected");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                precedingToken,
+                out PackageRootReacquisitionRequest? preceding));
+        Assert.Null(preceding.RequestedTargetFramework);
+        Assert.Equal(Framework, preceding.CompileTargetFramework);
+        Assert.Equal(
+            Framework,
+            preceding.RuntimePopulationTargetFramework);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            preceding.Encode(),
+            StringComparison.Ordinal);
+
         string previousToken = VersionedToken(
             "pkgroot4",
             PackageId,
@@ -1186,6 +1221,20 @@ public sealed class PackageRootAcquisitionTests
         Assert.NotEqual(
             Request(Framework, null, Framework, null).Encode(),
             Request(Framework, "win-x64", Framework, "win-x64").Encode());
+        Assert.NotEqual(
+            Request(
+                null,
+                null,
+                Framework,
+                null,
+                ownerDefaultTarget: true).Encode(),
+            Request(
+                null,
+                null,
+                Framework,
+                null,
+                ownerDefaultTarget: true,
+                retainsUnboundedRuntimePopulation: true).Encode());
     }
 
     [Fact]
@@ -1365,6 +1414,20 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     Framework,
                     Framework,
+                    Framework,
+                    null,
+                    "exact",
+                    "exact",
+                    "selected",
+                    " net11.0"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    Framework,
                     null,
                     "other",
                     "exact"),
@@ -1506,7 +1569,8 @@ public sealed class PackageRootAcquisitionTests
         bool usesCompatibleImplementationSelection = false,
         bool allowsCompatibleTargetSelection = false,
         bool? hasSelectedImplementationUniverse = null,
-        bool ownerDefaultTarget = false)
+        bool ownerDefaultTarget = false,
+        bool retainsUnboundedRuntimePopulation = false)
         => RequestForProducer(
             NuGetCache.GetSourceKey(NuGetOrg.Url),
             acquisitionFramework,
@@ -1517,7 +1581,8 @@ public sealed class PackageRootAcquisitionTests
             usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection,
             hasSelectedImplementationUniverse,
-            ownerDefaultTarget);
+            ownerDefaultTarget,
+            retainsUnboundedRuntimePopulation);
 
     static PackageRootReacquisitionRequest RequestForProducer(
         string producer,
@@ -1529,7 +1594,8 @@ public sealed class PackageRootAcquisitionTests
         bool usesCompatibleImplementationSelection = false,
         bool allowsCompatibleTargetSelection = false,
         bool? hasSelectedImplementationUniverse = null,
-        bool ownerDefaultTarget = false)
+        bool ownerDefaultTarget = false,
+        bool retainsUnboundedRuntimePopulation = false)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
@@ -1554,7 +1620,11 @@ public sealed class PackageRootAcquisitionTests
                 hasSelectedImplementationUniverse
                     ?? selectionTargetFramework is not null,
                 usesCompatibleImplementationSelection,
-                allowsCompatibleTargetSelection));
+                allowsCompatibleTargetSelection,
+                retainsUnboundedRuntimePopulation
+                    ? null
+                    : compileTargetFramework
+                        ?? selectionTargetFramework));
     }
 
     static string Token(params string?[] fields)
@@ -1570,6 +1640,14 @@ public sealed class PackageRootAcquisitionTests
                 .. fields[..5],
                 fields[5],
                 .. fields[5..],
+            ];
+        }
+        if (fields.Length == 12)
+        {
+            fields =
+            [
+                .. fields,
+                fields[5] ?? fields[6],
             ];
         }
 

@@ -2302,6 +2302,9 @@ universe adds another field and therefore uses the `pkgroot5` prefix.
 Preserving the Root's original requested target separately from frozen compile
 and implementation-selection targets adds another field and therefore uses the
 `pkgroot6` prefix.
+Preserving the runtime-population target-framework input independently from the
+selected RID population adds another field and therefore uses the `pkgroot7`
+prefix.
 
 A destination coordinate grants no source authority. Reacquisition first
 intersects the requested producer with currently authorized sources by asking
@@ -3516,12 +3519,16 @@ candidate disposed before the user acts on the result — the owner also issues 
 single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
-encoding are owner-owned, and only the owner's decode reads it. Current `pkgroot6` tokens carry the original Root-requested target separately
-from the frozen compile and implementation-selection targets, selected-
-implementation presence, compatible authorization, and observed implementation
-use. Previous `pkgroot5` tokens carry selected-implementation presence but not
-the original Root-requested target, so decoding uses their implementation-
-selection target as the legacy requested-target interpretation. `pkgroot4`
+encoding are owner-owned, and only the owner's decode reads it. Current
+`pkgroot7` tokens carry the runtime-population target-framework input separately
+from the original Root-requested target, frozen compile and
+implementation-selection targets, selected-implementation presence, compatible
+authorization, and observed implementation use. Previous `pkgroot6` tokens do
+not carry the runtime-population input, so decoding derives it from the original
+requested target when present and otherwise from the frozen compile target.
+`pkgroot5` tokens carry selected-implementation presence but not the original
+Root-requested target, so decoding uses their implementation-selection target
+as the legacy requested-target interpretation. `pkgroot4`
 tokens carry the two compatible facts but cannot represent an absent
 implementation universe
 independently, so decoding conservatively treats a present selection target as
@@ -3595,10 +3602,10 @@ only a nested compile asset.
 negative replacement outcome as typed `SelectionRequestNotReproduced` rather
 than a durable-request reconstruction exception.
 
-`Token_RoundTripsExactRequest` additionally gates independent `pkgroot6`
-Root-requested target, implementation-presence, compatible-selection
-authorization, and observed-use fields plus `pkgroot1` through `pkgroot5`
-migration.
+`Token_RoundTripsExactRequest` additionally gates independent `pkgroot7`
+runtime-population target, Root-requested target, implementation-presence,
+compatible-selection authorization, and observed-use fields plus `pkgroot1`
+through `pkgroot6` migration.
 `Token_RejectsMalformedOrNonCanonicalInput` rejects an observed compatible-use
 claim without its authorization, invalid implementation-presence values,
 selected implementation presence without a selection target, compatible

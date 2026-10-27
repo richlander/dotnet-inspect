@@ -752,6 +752,11 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             $"lib/net10.0/{id}.dll",
             Assert.Single(selectedAssets.ImplementationAssets).Path);
+        Assert.Equal(
+            "net10.0",
+            realization.Coordinate.Binding!
+                .CreateReacquisitionRequest()
+                .RuntimePopulationTargetFramework);
 
         string rootRequest = realization.Coordinate.Binding!
             .CreateReacquisitionRequest()
@@ -763,6 +768,81 @@ public sealed partial class BrowserEngineBoundaryTests
                     BrowserPackageJsonContext.Default
                         .BrowserPackageRootLoadResult));
         Assert.Null(root.RuntimePopulation);
+    }
+
+    [Fact]
+    public async Task PackageSummary_RuntimeOnlyEligibilitySurvivesExactRootReopening()
+    {
+        string id = $"Summary.Runtime.Only.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"runtimes/linux-x64/lib/net10.0/{id}.dll", assembly),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        targetFramework: ""),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            summary.RuntimePopulation!.Status);
+        Assert.Equal(
+            "linux-x64",
+            summary.RuntimePopulation.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    targetFramework: "",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        PackageRootBinding binding =
+            Assert.IsType<PackageRootBinding>(
+                realization.Coordinate.Binding);
+        Assert.Null(binding.Root.RequestedTargetFramework);
+        Assert.Equal("net10.0", binding.Root.AssetSelection!.TargetFramework);
+        Assert.Null(
+            binding.CreateReacquisitionRequest()
+                .RuntimePopulationTargetFramework);
+
+        string rootRequest = binding.CreateReacquisitionRequest().Encode();
+        BrowserPackageRootLoadResult root =
+            Assert.IsType<BrowserPackageRootLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageRoot(rootRequest),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageRootLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            root.RuntimePopulation!.Status);
+        Assert.Equal(
+            summary.RuntimePopulation.SelectedRuntimeIdentifier,
+            root.RuntimePopulation.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers,
+            root.RuntimePopulation.AvailableRuntimeIdentifiers);
     }
 
     [Fact]
@@ -826,6 +906,11 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             $"runtimes/linux-x64/lib/net11.0/{id}.dll",
             Assert.Single(selectedAssets.ImplementationAssets).Path);
+        Assert.Equal(
+            "net11.0",
+            realization.Coordinate.Binding!
+                .CreateReacquisitionRequest()
+                .RuntimePopulationTargetFramework);
 
         string rootRequest = realization.Coordinate.Binding!
             .CreateReacquisitionRequest()

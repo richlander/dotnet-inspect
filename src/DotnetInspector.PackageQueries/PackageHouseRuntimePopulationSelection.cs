@@ -118,7 +118,10 @@ public static class PackageHouseRuntimePopulationSelector
                 selectedReceipt,
                 OriginalRequestedFramework(
                     contribution.Result.Request.TargetContext),
-                out PackageRootBinding? selectedBinding))
+                out PackageRootBinding? selectedBinding,
+                runtimePopulationTargetFramework:
+                    runtimeTargetFramework,
+                retainsRuntimePopulationTargetFramework: true))
         {
             throw new InvalidOperationException(
                 "The selected runtime population could not be represented by the existing Package Root coordinate.");
