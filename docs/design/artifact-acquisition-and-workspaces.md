@@ -2424,15 +2424,32 @@ protocol applies; no new scheduling transition is introduced. Content-only
 Roots prepare no assembly images and expose no Library role groups. Ordinary
 admission still validates and prepares its selected Libraries.
 
-Changing only the admission purpose preserves the Root's already-computed
-unselected target-framework assembly-candidate fact without enumerating the
-same content again. This reuse applies to the unchanged content generation and
-selection; ordinary construction and changed selections still compute their
-own facts. The real `Newtonsoft.Json@13.0.4` and
-`Microsoft.NETCore.App.Ref@10.0.0` Package survey exposed this redundant walk.
-`ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence` gates its absence
-for both complete Library populations and packages containing reference plus
-implementation assemblies, preserving both false and true candidate facts.
+Root construction and content-only admission do not request the Library
+compatibility fact about unselected target-framework assembly candidates.
+That fact is evaluated only when a consumer requests it, against the Root's
+retained content and frozen selection. Unrequested evidence is not replaced
+with a successful false or empty fact. Changing only admission purpose shares
+the pending or computed fact for the unchanged content generation and
+selection; a separately selected Root resolves its own evidence.
+
+The real `Newtonsoft.Json@13.0.4` and
+`Microsoft.NETCore.App.Ref@10.0.0` Package survey exposed this redundant walk:
+content-only Package inspection inherited preparation used by the
+declaration-locator's Library compatibility decision. #10596 adopts the
+[House consumer-result requirement](package-house-semantic-content-demand.md#consumer-result-requirements)
+at this shared handoff, before CLI and Browser requirement lowering in #10594
+and #10598. Readable reference-plus-implementation and Library-only
+fixtures retain both possible compatibility outcomes without requiring
+network access or retained package binaries.
+`ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence` gates sharing
+before and after the fact is requested, preserving both false and true
+outcomes.
+`ContentOnlyPackageAdmission_FromSelectionDefersCompatibilityEnumeration`
+gates zero payload enumeration and DLL opens from retained-selection binding
+through content-only Workspace publication, followed by the unchanged
+compatibility result when requested. Existing Root publication, retirement,
+and Library-realization gates retain their authority; this does not change
+their protocols or introduce an in-place Library upgrade.
 
 The current durable Root token represents Library realization and does not
 encode this additional admission purpose. A content-only binding therefore

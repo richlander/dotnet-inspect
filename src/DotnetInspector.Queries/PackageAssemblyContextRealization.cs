@@ -145,13 +145,7 @@ public sealed class PackageRootBinding
         if (Root.ContentOnly)
             return this;
 
-        var root = new PackageRootRealization(
-            Root.Content, Root.PackageId, Root.PackageVersion,
-            Root.RequestedTargetFramework, Root.RequestedRuntimeIdentifier,
-            Root.AssetSelection, Root.AssetDemand, Root.ImplementationNames,
-            Root.LibrarySelector, contentOnly: true,
-            hasUnselectedTargetFrameworkAssemblyCandidates:
-                Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+        PackageRootRealization root = Root.ForContentInspection();
         return new PackageRootBinding(
             root, Coordinate, SourceProducer, ContentGenerationIdentity,
             SelectionIdentity, CompileTargetFramework,
@@ -1269,6 +1263,7 @@ public sealed class PackageRootBinding
 public sealed class PackageRootRealization
 {
     readonly IPackageContent _content;
+    readonly Lazy<bool> _unselectedTargetFrameworkAssemblyCandidates;
 
     public PackageRootRealization(
         IPackageContent content,
@@ -1298,7 +1293,7 @@ public sealed class PackageRootRealization
         PackageImplementationNames? implementationNames = null,
         PackageLibrarySelector? librarySelector = null,
         bool contentOnly = false,
-        bool? hasUnselectedTargetFrameworkAssemblyCandidates = null)
+        Lazy<bool>? unselectedTargetFrameworkAssemblyCandidates = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -1334,9 +1329,9 @@ public sealed class PackageRootRealization
                     packageId,
                     targetFramework,
                     runtimeIdentifier));
-        HasUnselectedTargetFrameworkAssemblyCandidates =
-            hasUnselectedTargetFrameworkAssemblyCandidates
-            ?? (AssetSelection is not null
+        _unselectedTargetFrameworkAssemblyCandidates =
+            unselectedTargetFrameworkAssemblyCandidates
+            ?? new(() => AssetSelection is not null
                 && HasUnselectedTargetFrameworkAssemblyCandidatesCore(
                     content,
                     AssetSelection));
@@ -1418,11 +1413,21 @@ public sealed class PackageRootRealization
 
     /// <summary>
     /// Whether the package contains a DLL candidate for the selected target
-    /// framework outside the implementation universe.
+    /// framework outside the implementation universe, evaluated when requested.
     /// </summary>
-    public bool HasUnselectedTargetFrameworkAssemblyCandidates { get; }
+    public bool HasUnselectedTargetFrameworkAssemblyCandidates =>
+        _unselectedTargetFrameworkAssemblyCandidates.Value;
 
     internal IPackageContent Content => _content;
+
+    internal PackageRootRealization ForContentInspection() =>
+        new(
+            _content, PackageId, PackageVersion,
+            RequestedTargetFramework, RequestedRuntimeIdentifier,
+            AssetSelection, AssetDemand, ImplementationNames,
+            LibrarySelector, contentOnly: true,
+            unselectedTargetFrameworkAssemblyCandidates:
+                _unselectedTargetFrameworkAssemblyCandidates);
 
     /// <summary>
     /// Uses the already-admitted package content without transferring its
