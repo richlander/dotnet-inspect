@@ -54,8 +54,8 @@ public sealed record DependencyHierarchyPruning(
                 .. pruning.Input.Inventory.Families.Select(static family =>
                     new DependencyHierarchyPruningFamily(
                         family.Name,
-                        family.TargetPackVersion.ToNormalizedString(),
-                        family.SourcePackVersion.ToNormalizedString(),
+                        family.NormalizedTargetPackVersion,
+                        family.NormalizedSourcePackVersion,
                         family.Precision.ToString())),
             ],
             pruning.Input.MissingFamilies,
@@ -77,8 +77,7 @@ public sealed record DependencyHierarchyPruning(
                         comparison.Receipt.Coordinate.Version!,
                         comparison.Receipt.Supply.Subsumption.ToString(),
                         comparison.Receipt.Supply.Family,
-                        comparison.Receipt.Supply.SuppliedVersion
-                            ?.ToNormalizedString(),
+                        comparison.Receipt.Supply.NormalizedSuppliedVersion,
                         comparison.Receipt.Supply.DelegatesToPlatform);
                 }),
             ]);
