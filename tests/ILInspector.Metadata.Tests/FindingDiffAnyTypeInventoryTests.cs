@@ -81,13 +81,15 @@ public sealed class FindingDiffAnyTypeInventoryTests
     }
 
     [Fact]
-    public void AddedPublicMethod_IsAnApiFactOnTheAfterSide()
+    public void AddedPublicMethod_IsAnApiFactOnTheAfterSideAndABodyDifference()
     {
         FindingDiffAnyTypeInventory inventory = Inventory(
             [new("N", "C", null, ReturnOne)],
             [new("N", "C", null, ReturnOne, Methods: ["M", "Added"])]);
         Assert.Equal(FindingDiffAnyState.Changed, inventory.Api);
-        Assert.Equal(FindingDiffAnyState.Unchanged, inventory.Body);
+        // A method with a body present on one side only is a Body difference,
+        // public or not, without a Body fact or a body read.
+        Assert.Equal(FindingDiffAnyState.Changed, inventory.Body);
         Assert.NotEmpty(inventory.Facts);
         Assert.All(inventory.Facts, fact =>
         {

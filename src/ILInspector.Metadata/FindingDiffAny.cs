@@ -181,6 +181,10 @@ public static class FindingDiffAny
             a.BodyCensus(unitA, ownerVisible, out var methodsA),
             b,
             b.BodyCensus(unitB, ownerVisible, out var methodsB));
+        if (body is null && OneSidedBody(a, methodsA, methodsB) is { } beforeOnly)
+            body = "- body " + Describe(beforeOnly);
+        if (body is null && OneSidedBody(b, methodsB, methodsA) is { } afterOnly)
+            body = "+ body " + Describe(afterOnly);
         if (body is null)
         {
             var work = new Work();
@@ -294,9 +298,11 @@ public static class FindingDiffAny
         List<SymbolKeySlot> censusB = b.BodyCensus(unitB, ownerVisible, out Dictionary<KeyRef, MethodDefinitionHandle> methodsB);
         if (!CensusesEqual(a, censusA, b, censusB))
             return false;
+        if (OneSidedBody(a, methodsA, methodsB) is not null || OneSidedBody(b, methodsB, methodsA) is not null)
+            return false;
 
-        // Equal censuses declare the same non-public members. A public method
-        // on one side only is an API fact; its body is not compared.
+        // Equal censuses declare the same non-public members, and a method
+        // with a body on one side only was decided above.
         foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
         {
             if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
@@ -306,6 +312,26 @@ public static class FindingDiffAny
                 return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// The first method of <paramref name="side"/> with a body whose key the
+    /// other side's methods do not hold, or null. A method with a body present
+    /// on one side only is a Body difference, public or not, decided without
+    /// reading its IL; a public one is an API fact too. A non-public one also
+    /// differs in the Body census, so this decides the public ones.
+    /// </summary>
+    internal static KeyRef? OneSidedBody(
+        Side side,
+        Dictionary<KeyRef, MethodDefinitionHandle> methods,
+        Dictionary<KeyRef, MethodDefinitionHandle> others)
+    {
+        foreach ((KeyRef key, MethodDefinitionHandle method) in methods)
+        {
+            if (!others.ContainsKey(key) && side.Md.GetMethodDefinition(method).RelativeVirtualAddress != 0)
+                return key;
+        }
+        return null;
     }
 
     /// <summary>
