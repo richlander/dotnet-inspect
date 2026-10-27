@@ -27,7 +27,11 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.PrivateMemberAdded", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.PrivateFieldAdded", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.PrivateCalleeChanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
-    [InlineData("FindingDiffAnyFixture.PublicMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    // A method with a body present on one side only is a Body difference,
+    // public or not, as well as an API fact when it is public.
+    [InlineData("FindingDiffAnyFixture.PublicMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    // A method added without a body is an API fact only.
+    [InlineData("FindingDiffAnyFixture.AbstractMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     // The setter's MethodDef signature gains modreq(IsExternalInit), so the Body axis
     // compares a changed method as well.
     [InlineData("FindingDiffAnyFixture.SetterBecomesInit", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
@@ -37,13 +41,13 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.DefaultParameter", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ParameterName", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.PublicAttribute", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
-    [InlineData("FindingDiffAnyFixture.InterfaceAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.InterfaceAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.BecomesPublic", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.Outer.Inner", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.NullableOuter", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.NullableOuter.Inner", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.Outer", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
-    [InlineData("FindingDiffAnyFixture.Generic`1", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.Generic`1", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.InternalBodyOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.Added", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.Removed", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]

@@ -765,9 +765,9 @@ state through the pairing's body reader, the walk unless a
 `FindingDiffAnyBodyReader` is supplied. The inventory's fold is the Library
 level's state for the Type, which the gates check for every paired Type of the
 fixture pair: API `Changed` exactly when an API fact is present on one side
-only, Body `Changed` when a Body fact is, and otherwise the state of the first
-paired method, in the Body census's method order, whose body is not
-`Unchanged`, so an `Indeterminate` row after a `Changed` one folds to `Changed`
+only, Body `Changed` when a Body fact or a method with a body is, and
+otherwise the state of the first paired method, in the Body census's method
+order, whose body is not `Unchanged`, so an `Indeterminate` row after a `Changed` one folds to `Changed`
 as the Library level reads it, and every row keeps its own state. One name the
 pairing withholds: two paired Type rows that spell one display name, which the
 Library level decides each by key, are `Indeterminate` under that name, since

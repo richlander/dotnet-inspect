@@ -35,7 +35,8 @@ public sealed class BrowserLibraryFindingDiffAnyOperationTests
             (BrowserFindingDiffAnyState.Unchanged, BrowserFindingDiffAnyState.Changed),
             State(value, "FindingDiffAnyFixture.BodyOnly"));
         Assert.Equal(
-            (BrowserFindingDiffAnyState.Changed, BrowserFindingDiffAnyState.Unchanged),
+            // A public method added with a body is a Body difference too.
+            (BrowserFindingDiffAnyState.Changed, BrowserFindingDiffAnyState.Changed),
             State(value, "FindingDiffAnyFixture.PublicMemberAdded"));
         // Nested Types use the escaped navigation identity, not the dotted name.
         BrowserFindingDiffAnyType inner = Assert.Single(
