@@ -134,6 +134,7 @@ public static class DiffAnalysisCatalog
 
         Operation = new AnalysisOperationDefinition(
             AnalysisOperationKind.Compare,
+            AnalysisQuestionMode.Targeted,
             ["api"]);
         Document = new(
             new(
@@ -155,7 +156,8 @@ public static class DiffAnalysisCatalog
                 cancellationToken.ThrowIfCancellationRequested();
                 return ValueTask.FromResult(
                     DiffAnalysisInspection.Execute(request));
-            });
+            },
+            Operation);
         ProductModule = new InspectionCapabilityModule(
             "diff.analyses",
             documents: [Document],

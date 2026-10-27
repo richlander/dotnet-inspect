@@ -181,6 +181,10 @@ public static class FindingDiffAny
             a.BodyCensus(unitA, ownerVisible, out var methodsA),
             b,
             b.BodyCensus(unitB, ownerVisible, out var methodsB));
+        if (body is null && OneSidedBody(a, methodsA, methodsB) is { } beforeOnly)
+            body = "- body " + Describe(beforeOnly);
+        if (body is null && OneSidedBody(b, methodsB, methodsA) is { } afterOnly)
+            body = "+ body " + Describe(afterOnly);
         if (body is null)
         {
             var work = new Work();
@@ -295,17 +299,49 @@ public static class FindingDiffAny
         if (!CensusesEqual(a, censusA, b, censusB))
             return false;
 
-        // Equal censuses declare the same non-public members. A public method
-        // on one side only is an API fact; its body is not compared.
+        // Equal censuses declare the same non-public members. A method with a
+        // body on one side only is a difference decided before any IL is read,
+        // so a body that cannot be decoded never hides it: the pairs are
+        // collected first, and the after side is searched for an unpaired body
+        // only when some method went unpaired.
+        List<(MethodDefinitionHandle A, MethodDefinitionHandle B)> pairs = work.Pairs;
+        pairs.Clear();
         foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
         {
-            if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
-                continue;
+            if (methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
+                pairs.Add((methodA, methodB));
+            else if (a.Md.GetMethodDefinition(methodA).RelativeVirtualAddress != 0)
+                return false;
+        }
+        if (pairs.Count != methodsB.Count && OneSidedBody(b, methodsB, methodsA) is not null)
+            return false;
+        foreach ((MethodDefinitionHandle methodA, MethodDefinitionHandle methodB) in pairs)
+        {
             work.Bodies++;
             if (!BodyEqual(a, methodA, b, methodB, work))
                 return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// The first method of <paramref name="side"/> with a body whose key the
+    /// other side's methods do not hold, or null. A method with a body present
+    /// on one side only is a Body difference, public or not, decided without
+    /// reading its IL; a public one is an API fact too. A non-public one also
+    /// differs in the Body census, so this decides the public ones.
+    /// </summary>
+    internal static KeyRef? OneSidedBody(
+        Side side,
+        Dictionary<KeyRef, MethodDefinitionHandle> methods,
+        Dictionary<KeyRef, MethodDefinitionHandle> others)
+    {
+        foreach ((KeyRef key, MethodDefinitionHandle method) in methods)
+        {
+            if (!others.ContainsKey(key) && side.Md.GetMethodDefinition(method).RelativeVirtualAddress != 0)
+                return key;
+        }
+        return null;
     }
 
     /// <summary>
@@ -903,6 +939,9 @@ public static class FindingDiffAny
         public long IlBytes;
 
         public BodyWalk Walk { get; } = new();
+
+        /// <summary>One unit's paired methods, reused across units so that pairing allocates nothing.</summary>
+        public List<(MethodDefinitionHandle A, MethodDefinitionHandle B)> Pairs { get; } = [];
 
         /// <summary>The Body provision in place of the walk, or null for the walk.</summary>
         public FindingDiffAnyBodyReader? BodyReader { get; init; }
