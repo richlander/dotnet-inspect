@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using ILInspector.Analysis;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
@@ -185,12 +186,20 @@ public class ILOffsetProjectionProducerTests
 
     [Fact]
     public void
-        ILOffsetSemanticAnalysis_MixedProductsShareOneExactMethodGroup()
+        ILOffsetSemanticAnalysis_MixedProductsShareOneExactAsyncMethodGroup()
     {
-        MethodInfo method =
+        MethodInfo kickoff =
             typeof(ILOffsetProjectionProducerTests).GetMethod(
-                nameof(Allocate),
+                nameof(CallVirtualAsync),
                 BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo method = kickoff
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!
+            .StateMachineType
+            .GetMethod(
+                nameof(IAsyncStateMachine.MoveNext),
+                BindingFlags.Instance
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Public)!;
         using var source = SourceLinkService.OpenPrefetched(
             typeof(ILOffsetProjectionProducerTests)
                 .Assembly.Location);
@@ -217,6 +226,13 @@ public class ILOffsetProjectionProducerTests
         ILOffsetCostAnalysisInput cost =
             Assert.IsType<ILOffsetCostAnalysisInput>(
                 semantic.Cost);
+        DirectCall call = Assert.Single(
+            cost.Calls[method.MetadataToken],
+            call => call.Callee.Name
+                    == nameof(OffsetVirtualTarget.Compute));
+        Assert.Equal(
+            method.MetadataToken,
+            call.EvidenceMethod.MetadataToken);
         Assert.Equal(3, semantic.SourceGroupReceipt.LaneReceipts.Length);
         Assert.Single(
             semantic.SourceGroupReceipt
