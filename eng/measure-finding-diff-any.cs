@@ -5,7 +5,7 @@
 // complete API comparison and canonical IL comparison.
 // Usage: measure-finding-diff-any <before.dll> <after.dll> [iterations]
 // Also reports the API axis alone, bounded steps over retained readers, and
-// every paired Type's inventory per Type through the walk and through lockstep.
+// every paired Type's inventory and Member fold through the walk and lockstep.
 
 using System.Diagnostics;
 using System.Reflection.Metadata;
@@ -294,6 +294,7 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
     int count = names.Count;
     int foldMismatch = 0;
     int rowMismatch = 0;
+    int memberMismatch = 0;
     var bodiesPerType = new int[count];
     var changedType = new bool[count];
     for (int i = 0; i < count; i++)
@@ -308,12 +309,29 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
             if (rowMismatch <= 12)
                 ReportRowMismatch(before.GetMetadataReader(), names[i], w, l);
         }
+        FindingDiffAnyTypeMembers typeMembers = walkPairing.Members(names[i]);
+        FindingDiffAnyTypeMembers cursorMembers = lockstepPairing.Members(names[i]);
+        bool apiUnchanged = typeMembers.ResidualApi == FindingDiffAnyState.Unchanged
+            && typeMembers.Members.All(m => m.Api == FindingDiffAnyState.Unchanged);
+        bool bodyUnchanged = typeMembers.ResidualBody == FindingDiffAnyState.Unchanged
+            && typeMembers.Members.All(m => m.Body == FindingDiffAnyState.Unchanged);
+        if (apiUnchanged != (w.Api == FindingDiffAnyState.Unchanged)
+            || bodyUnchanged != (w.Body == FindingDiffAnyState.Unchanged)
+            || !typeMembers.Members.SequenceEqual(cursorMembers.Members)
+            || typeMembers.ResidualApi != cursorMembers.ResidualApi
+            || typeMembers.ResidualBody != cursorMembers.ResidualBody)
+        {
+            memberMismatch++;
+            Console.WriteLine($"  type-member-mismatch\t{names[i]}");
+        }
         bodiesPerType[i] = w.Bodies.Length;
         changedType[i] = w.Api == FindingDiffAnyState.Changed || w.Body == FindingDiffAnyState.Changed;
     }
     Console.WriteLine(
         $"type-pairing\twalk-ms={walkPairingMs:F2}\tlockstep-ms={lockstepPairingMs:F2}\ttypes={count}"
-            + $"\tfoldMismatch={foldMismatch}\trowMismatch={rowMismatch}");
+            + $"\tfoldMismatch={foldMismatch}\trowMismatch={rowMismatch}\tmemberMismatch={memberMismatch}");
+    if (memberMismatch != 0)
+        throw new InvalidOperationException("The Member partition or readers disagree.");
 
     // Each Type's first request, as a host that opened the pair and asks Type
     // by Type pays it: fresh pairings every pass (so no cache from a previous
@@ -372,11 +390,13 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
     // alternating per Type so neither owns a warmer cache.
     var walkUs = new double[count, iterations];
     var lockstepUs = new double[count, iterations];
+    var memberUs = new double[count, iterations];
     for (int pass = 0; pass < iterations; pass++)
     {
         for (int i = 0; i < count; i++)
         {
             string name = names[i];
+            memberUs[i, pass] = Timed(() => walkPairing.Members(name)) * 1000;
             if ((pass + i) % 2 == 0)
             {
                 walkUs[i, pass] = Timed(() => walkPairing.Inventory(name)) * 1000;
@@ -391,9 +411,13 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
     }
     var walkBytes = new long[count];
     var lockstepBytes = new long[count];
+    var memberBytes = new long[count];
     for (int i = 0; i < count; i++)
     {
         long allocated = GC.GetAllocatedBytesForCurrentThread();
+        walkPairing.Members(names[i]);
+        memberBytes[i] = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        allocated = GC.GetAllocatedBytesForCurrentThread();
         walkPairing.Inventory(names[i]);
         walkBytes[i] = GC.GetAllocatedBytesForCurrentThread() - allocated;
         allocated = GC.GetAllocatedBytesForCurrentThread();
@@ -404,10 +428,14 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
     {
         double[] firstWalkMedian = PerTypeMedian(firstWalkUs, count, iterations);
         double[] firstLockstepMedian = PerTypeMedian(firstLockstepUs, count, iterations);
+        double[] memberMedian = PerTypeMedian(memberUs, count, iterations);
         double[] walkMedian = PerTypeMedian(walkUs, count, iterations);
         double[] lockstepMedian = PerTypeMedian(lockstepUs, count, iterations);
         ReportTypeScope("type-first", "walk", firstWalkMedian, firstWalkBytes);
         ReportTypeScope("type-first", "lockstep", firstLockstepMedian, firstLockstepBytes);
+        ReportTypeScope("type-members-repeat", "walk", memberMedian, memberBytes);
+        foreach (int i in Enumerable.Range(0, count).Where(i => changedType[i]).OrderByDescending(i => bodiesPerType[i]).Take(5))
+            Console.WriteLine($"type-members-changed\t{names[i]}\tmedian-us={memberMedian[i]:F2}\tbytes={memberBytes[i]}");
         ReportTypeScope("type-repeat", "walk", walkMedian, walkBytes);
         ReportTypeScope("type-repeat", "lockstep", lockstepMedian, lockstepBytes);
         foreach (int i in Enumerable.Range(0, count).OrderByDescending(i => bodiesPerType[i]).Take(5))
