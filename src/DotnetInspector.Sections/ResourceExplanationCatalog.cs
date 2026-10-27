@@ -245,57 +245,26 @@ public sealed partial class ResourceExplanationCatalog
         IEnumerable<StructuralResourcePathRegistration> registrations)
     {
         ArgumentNullException.ThrowIfNull(document);
-        ArgumentNullException.ThrowIfNull(registrations);
+        StructuralResourcePathIndex paths = StructuralResourcePathIndex.Create(
+            document, registrations);
+        return Create(ResourceExplanationVocabulary.Schemas,
+            StructuralSnapshots(document, paths));
+    }
 
-        ImmutableArray<StructuralResourcePathRegistration>
-            registrationArray = [.. registrations];
-        var authoritative =
-            document.Resources.ToDictionary(
-                static resource => resource.Identity);
-        var paths =
-            new Dictionary<DiscoveryResourceIdentity, ResourcePath>();
-        var identitiesByPath =
-            new Dictionary<string, DiscoveryResourceIdentity>(
-                StringComparer.OrdinalIgnoreCase);
-        foreach (StructuralResourcePathRegistration registration
-                 in registrationArray)
-        {
-            if (!authoritative.ContainsKey(registration.Identity))
-            {
-                throw new ArgumentException(
-                    "A structural path registration has no authoritative "
-                    + "Discovery resource.",
-                    nameof(registrations));
-            }
-            if (!paths.TryAdd(
-                    registration.Identity,
-                    registration.Path))
-            {
-                throw new ArgumentException(
-                    "A structural identity has more than one path "
-                    + "registration.",
-                    nameof(registrations));
-            }
-            if (!identitiesByPath.TryAdd(
-                    registration.Path.Value,
-                    registration.Identity))
-            {
-                throw new ArgumentException(
-                    "Structural path registrations must be unique "
-                    + "case-insensitively.",
-                    nameof(registrations));
-            }
-        }
-        if (paths.Count != authoritative.Count)
-        {
-            throw new ArgumentException(
-                "Every authoritative Discovery resource must have exactly "
-                + "one structural path registration.",
-                nameof(registrations));
-        }
+    public static ResourceExplanationCatalog CreateStructural(
+        InspectionStructuralCatalogRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        return Create(ResourceExplanationVocabulary.Schemas,
+            StructuralSnapshots(registration.Document, registration.ResourcePaths));
+    }
 
-        ResourcePath catalogPath = new(document.Catalog);
-        ValidateStructuralPaths(document, catalogPath, paths);
+    private static List<ExplanationResourceSnapshot> StructuralSnapshots(
+        DiscoveryDocument document,
+        StructuralResourcePathIndex index)
+    {
+        ResourcePath catalogPath = index.CatalogPath;
+        IReadOnlyDictionary<DiscoveryResourceIdentity, ResourcePath> paths = index.Paths;
         ExplanationResourceKey catalogKey =
             ResourceExplanationVocabulary.Key(
                 ResourceExplanationVocabulary.CatalogType,
@@ -497,7 +466,7 @@ public sealed partial class ResourceExplanationCatalog
             }
         }
 
-        return Create(ResourceExplanationVocabulary.Schemas, snapshots);
+        return snapshots;
     }
 
     public static ResourceExplanationCatalog CreateCapabilities(
@@ -979,21 +948,12 @@ public sealed partial class ResourceExplanationCatalog
         if (!catalog.Analyses.IsEmpty)
             snapshots.AddRange(AnalysisSnapshots(catalog, keys));
 
-        var projections = new List<ResourceExplanationCatalog>();
-        if (snapshots.Count > 0)
-            projections.Add(Create(ResourceExplanationVocabulary.Schemas, snapshots));
         if (includeStructuralCatalogs)
         {
-            projections.AddRange(catalog.StructuralCatalogs.Select(static structural =>
-                CreateStructural(structural.Document, structural.Projection.ResourcePaths)));
+            foreach (InspectionStructuralCatalogRegistration structural in catalog.StructuralCatalogs)
+                snapshots.AddRange(StructuralSnapshots(structural.Document, structural.ResourcePaths));
         }
-        return projections.Count switch
-        {
-            0 => throw new ArgumentException(
-                "The requested explanation has no registered resources.", nameof(catalog)),
-            1 => projections[0],
-            _ => Combine([.. projections]),
-        };
+        return Create(ResourceExplanationVocabulary.Schemas, snapshots);
     }
 
     private static IEnumerable<ExplanationFactObservation>
@@ -2346,71 +2306,6 @@ public sealed partial class ResourceExplanationCatalog
             }
         }
         return paths;
-    }
-
-    private static void ValidateStructuralPaths(
-        DiscoveryDocument document,
-        ResourcePath catalogPath,
-        IReadOnlyDictionary<
-            DiscoveryResourceIdentity,
-            ResourcePath> paths)
-    {
-        foreach (DiscoveryResource resource in document.Resources)
-        {
-            string expectedPrefix = resource.Identity.Kind switch
-            {
-                DiscoveryResourceKind.Category =>
-                    $"{catalogPath.Value}/categories/",
-                DiscoveryResourceKind.Section =>
-                    $"{catalogPath.Value}/sections/",
-                DiscoveryResourceKind.Item =>
-                    ItemPrefix(resource.Identity, paths),
-                _ => throw new InvalidOperationException(
-                    "Unknown Discovery resource kind."),
-            };
-            if (!paths[resource.Identity].Value.StartsWith(
-                    expectedPrefix,
-                    StringComparison.Ordinal)
-                || !ResourcePath.IsCanonicalSegment(
-                    paths[resource.Identity].Value[
-                        expectedPrefix.Length..]))
-            {
-                throw new ArgumentException(
-                    $"Structural path '{paths[resource.Identity]}' does not "
-                    + $"match {resource.Identity.Kind} identity "
-                    + $"'{resource.Identity.Name}'.",
-                    nameof(paths));
-            }
-        }
-    }
-
-    private static string ItemPrefix(
-        DiscoveryResourceIdentity identity,
-        IReadOnlyDictionary<
-            DiscoveryResourceIdentity,
-            ResourcePath> paths)
-    {
-        var sectionIdentity =
-            new DiscoveryResourceIdentity(
-                DiscoveryResourceKind.Section,
-                identity.Section!);
-        if (!paths.TryGetValue(
-                sectionIdentity,
-                out ResourcePath? sectionPath))
-        {
-            throw new ArgumentException(
-                $"Item '{identity.Name}' has no registered owning section.",
-                nameof(paths));
-        }
-        if (!ResourcePath.IsCanonicalSegment(identity.ItemKind!))
-        {
-            throw new ArgumentException(
-                $"Item kind '{identity.ItemKind}' is not a canonical path "
-                + "segment.",
-                nameof(paths));
-        }
-
-        return $"{sectionPath.Value}/items/{identity.ItemKind}/";
     }
 
     private ImmutableArray<ExplanationSchema> CreateSchemaSlice(

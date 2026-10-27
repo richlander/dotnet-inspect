@@ -646,6 +646,14 @@ The allocation contract has three paths:
 | `-D` or `-Q` | The host reads the cached effective descriptor for the active route. No subject acquisition or producer execution occurs. |
 | `--explain` or adoption census | The host may construct and index the required capability graph. These are explicit cold operations. |
 
+Structural explanation consumes validated registration facts. A selected
+catalog does not construct an otherwise empty aggregate route/analysis graph.
+Path validation remains with Resource Explanation and is shared by registration
+and projection. Complete capability explanation composes snapshots before
+catalog validation, without constructing intermediate explanation catalogs
+only to combine and validate them again. The shared path boundary retains
+canonical shape, uniqueness, and owner-membership failures.
+
 Static registration arrays and cached providers may allocate once when their
 own discovery module is first initialized. Ordinary execution must not
 initialize unrelated discovery modules merely because it invokes a route.

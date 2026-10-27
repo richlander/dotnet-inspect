@@ -241,10 +241,8 @@ public static partial class ResourceExplanationCommand
         InspectionCatalogIdentity catalogIdentity,
         StructuralViewIdentity[] views) =>
         CreateStructuralProjection(catalogIdentity, views) is { } structural
-            ? ResourceExplanationCatalog.CreateCapabilities(
-                InspectionCapabilityCatalog.Create(
-                    [StructuralCatalogCapability.CreateModule(structural)]),
-                [])
+            ? ResourceExplanationCatalog.CreateStructural(
+                StructuralCatalogCapability.CreateModule(structural).StructuralCatalogs.Single())
             : null;
 
     /// <summary>

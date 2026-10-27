@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using System.Collections.Immutable;
 
 namespace DotnetInspector.Sections;
@@ -28,7 +27,7 @@ public static class StructuralCatalogCapability
 /// </summary>
 public sealed class InspectionStructuralCatalogRegistration
 {
-    private readonly FrozenDictionary<DiscoveryResourceIdentity, ResourcePath> _paths;
+    internal StructuralResourcePathIndex ResourcePaths { get; }
 
     public InspectionStructuralCatalogRegistration(
         string identity,
@@ -41,43 +40,7 @@ public sealed class InspectionStructuralCatalogRegistration
         Identity = identity;
         Name = name;
         Projection = projection;
-        var paths = new Dictionary<DiscoveryResourceIdentity, ResourcePath>();
-        var spellings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        string root = Document.Catalog;
-        _ = new ResourcePath(root);
-        foreach (StructuralResourcePathRegistration registration in projection.ResourcePaths)
-        {
-            if (!registration.Path.Value.StartsWith($"{root}/", StringComparison.Ordinal))
-            {
-                throw new ArgumentException(
-                    $"Structural path '{registration.Path}' is not under catalog root '{root}'.",
-                    nameof(projection));
-            }
-            if (!paths.TryAdd(registration.Identity, registration.Path))
-            {
-                throw new ArgumentException(
-                    $"Structural resource '{registration.Identity.Name}' has more than one path registration.",
-                    nameof(projection));
-            }
-            if (!spellings.Add(registration.Path.Value))
-                throw new ArgumentException("Structural paths must be unique.", nameof(projection));
-        }
-        foreach (DiscoveryResource resource in Document.Resources)
-        {
-            if (!paths.ContainsKey(resource.Identity))
-            {
-                throw new ArgumentException(
-                    $"Structural resource '{resource.Identity.Name}' has no path registration.",
-                    nameof(projection));
-            }
-        }
-        if (paths.Count != Document.Resources.Length)
-        {
-            throw new ArgumentException(
-                $"Catalog '{root}' registers a path with no Discovery resource.",
-                nameof(projection));
-        }
-        _paths = paths.ToFrozenDictionary();
+        ResourcePaths = StructuralResourcePathIndex.Create(Document, projection.ResourcePaths);
     }
 
     public string Identity { get; }
@@ -88,11 +51,11 @@ public sealed class InspectionStructuralCatalogRegistration
 
     public DiscoveryDocument Document => Projection.Document;
 
-    public ResourcePath PathOf(DiscoveryResourceIdentity resource) => _paths[resource];
+    public ResourcePath PathOf(DiscoveryResourceIdentity resource) => ResourcePaths.Paths[resource];
 
     internal bool ContainsSelectableResource(DiscoveryResourceIdentity resource) =>
         resource.Kind is DiscoveryResourceKind.Section or DiscoveryResourceKind.Category
-        && _paths.ContainsKey(resource);
+        && ResourcePaths.Paths.ContainsKey(resource);
 }
 
 /// <summary>One host gesture selecting resources of an exact registered catalog.</summary>
