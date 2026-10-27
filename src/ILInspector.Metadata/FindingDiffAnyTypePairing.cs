@@ -41,7 +41,7 @@ public readonly record struct FindingDiffAnyBodyRow(
 /// reference; compare <see cref="Facts"/> and <see cref="Bodies"/> as sequences.
 /// </summary>
 /// <param name="Api">The Library level's API state of the Type: <see cref="FindingDiffAnyState.Changed"/> exactly when an API fact is present on one side only.</param>
-/// <param name="Body">The Library level's Body state of the Type: <see cref="FindingDiffAnyState.Changed"/> when a Body fact is present on one side only, otherwise the state of the first paired method, in the Body census's method order, whose body is not <see cref="FindingDiffAnyState.Unchanged"/>, which is where the Library level stops.</param>
+/// <param name="Body">The Library level's Body state of the Type: <see cref="FindingDiffAnyState.Changed"/> when a Body fact, or a method with a body, is present on one side only, otherwise the state of the first paired method, in the Body census's method order, whose body is not <see cref="FindingDiffAnyState.Unchanged"/>, which is where the Library level stops.</param>
 /// <param name="Facts">Every census fact present on one side only, API facts first, each axis ordered by spelling and then side, an order that does not depend on the pairing's interning table.</param>
 /// <param name="Bodies">Every method paired by the Body census, in its method order, with its Body state through the body reader; a method present on one side only is a fact, not a body row.</param>
 /// <param name="ApiFactsBefore">The API census size on the before side; with the other three counts, the closed inventory the rows were read from.</param>
@@ -147,7 +147,9 @@ public sealed class FindingDiffAnyTypePairing
             bodyAfter = bodyCensusB.Count;
             int apiFacts = facts.Count;
             Differences(bodyCensusA, bodyCensusB, FindingDiffAnyAxis.Body, facts);
-            bool bodyFactsDiffer = facts.Count > apiFacts;
+            bool bodyFactsDiffer = facts.Count > apiFacts
+                || FindingDiffAny.OneSidedBody(_a, methodsA, methodsB) is not null
+                || FindingDiffAny.OneSidedBody(_b, methodsB, methodsA) is not null;
 
             // Every paired method is read, in the order the Body census lists
             // them, where the Library level stops at the first difference; the

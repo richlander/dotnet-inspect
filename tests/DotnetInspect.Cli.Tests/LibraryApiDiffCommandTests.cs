@@ -271,9 +271,10 @@ public sealed class LibraryApiDiffCommandTests
         // and one narrowing move) and two additive ones (the widening move and its signature
         // change), and the accessor move between protected and protected internal adds one
         // non-breaking signature change (docs/design/api-population-scope.md). A setter
-        // becoming init adds one breaking signature change (#10679).
+        // becoming init adds one breaking signature change (#10679), and the abstract
+        // method added without a body adds one additive row.
         Assert.Equal(35, summary.GetProperty("breakingCount").GetInt32());
-        Assert.Equal(18, summary.GetProperty("additiveCount").GetInt32());
+        Assert.Equal(19, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
         Assert.Equal(17, summary.GetProperty("nonBreakingCount").GetInt32());
     }
@@ -424,7 +425,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(OutsideNote, namesError.Trim());
         Assert.Equal(OutsideNote, tableError.Trim());
         // Summary counts describe the displayed rows.
-        Assert.Contains("30 breaking, 18 additive, 6 non-breaking across 41 types", output);
+        Assert.Contains("30 breaking, 19 additive, 6 non-breaking across 42 types", output);
 
         // JSON preserves the selected population; --all explicitly widens it.
         using JsonDocument document = await FindingDiffAnyJson();
@@ -458,8 +459,8 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(
             (int)DotnetInspector.Queries.ApiSurfaceScope.ApiAxis,
             root.GetProperty("after").GetProperty("scope").GetInt32());
-        Assert.Equal(41, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
-        Assert.Equal(41, root.GetProperty("rows").GetArrayLength());
+        Assert.Equal(42, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
+        Assert.Equal(42, root.GetProperty("rows").GetArrayLength());
         Assert.False(root.TryGetProperty("comparison", out _));
         Assert.All(root.GetProperty("rows").EnumerateArray(),
             row => Assert.False(row.TryGetProperty("comparison", out _)));

@@ -89,6 +89,11 @@ public class PublicMemberAdded
     public int Added() => 0;
 }
 
+public abstract class AbstractMemberAdded
+{
+    public abstract int Added();
+}
+
 public class MethodConstraint
 {
     public void Value<T>() where T : struct { }
