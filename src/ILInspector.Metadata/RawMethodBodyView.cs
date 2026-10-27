@@ -83,6 +83,9 @@ internal readonly ref struct RawMethodBodyView
 
     internal BlobReader IL { get; }
 
+    /// <summary>The IL bytes as a span over the image, for a reader that takes one.</summary>
+    internal unsafe ReadOnlySpan<byte> IlBytes => new(IL.StartPointer, IL.Length);
+
     internal RawExceptionRegionEnumerator ExceptionRegions =>
         new(_regions, _regionCount, _fatRegions);
 

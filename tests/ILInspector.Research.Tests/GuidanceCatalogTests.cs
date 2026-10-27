@@ -2,6 +2,7 @@ using ILInspector.Analysis;
 using ILInspector.Analysis.UnsafeMemberFindingFixtures;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
 
@@ -145,6 +146,35 @@ public class GuidanceCatalogTests
     /// producer's own loop attribute, and the same operation on a straight-line
     /// path reaches the base entry.
     /// </summary>
+    [Theory]
+    [InlineData(StateMachineClaimKind.Iterator, GuidanceRefinement.Iterator)]
+    [InlineData(StateMachineClaimKind.AsyncIterator, GuidanceRefinement.Iterator)]
+    [InlineData(StateMachineClaimKind.ClassicAsync, GuidanceRefinement.Async)]
+    [InlineData(null, GuidanceRefinement.None)]
+    public void For_SelectsTheStateMachineRefinement_FromTheContext(
+        StateMachineClaimKind? claim,
+        GuidanceRefinement expected)
+    {
+        var stateMachine = NotableFindingPresetTests.Allocation("alloc.statemachine", AllocationKind.StateMachine);
+        var context = new NotableFindingContext(StateMachine: claim);
+
+        Assert.Equal(expected, GuidanceCatalog.RefinementOf(stateMachine, context));
+        GuidanceEntry? entry = GuidanceCatalog.For(stateMachine, context);
+        Assert.NotNull(entry);
+        Assert.Equal(expected, entry.Refinement);
+        Assert.Equal(GuidanceCatalog.Find("alloc.statemachine", expected), entry);
+    }
+
+    [Fact]
+    public void Context_DoesNotRefineOtherDescriptors()
+    {
+        var box = NotableFindingPresetTests.Allocation("alloc.box", AllocationKind.Box);
+        var context = new NotableFindingContext(StateMachine: StateMachineClaimKind.ClassicAsync);
+
+        Assert.Equal(GuidanceRefinement.None, GuidanceCatalog.RefinementOf(box, context));
+        Assert.Equal(GuidanceCatalog.For(box), GuidanceCatalog.For(box, context));
+    }
+
     [Fact]
     public void StackallocInLoop_ReachesTheLoopRefinedEntry_ThroughTheProducer()
     {

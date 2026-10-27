@@ -62,6 +62,9 @@ public static class FixtureIds
     public const string MetadataFindingDiffAnyV2 = "metadata.finding-diff-any.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
     public const string MetadataEnablements = "metadata.enablements";
+    public const string MetadataStateMachinesDebug = "metadata.state-machines.debug";
+    public const string MetadataCompilationProfileRuntimeAsync =
+        "metadata.compilation-profile.runtime-async";
     public const string MetadataSourceProvenance =
         "metadata.source-provenance";
     public const string MetadataSourceProvenanceLookalike =
@@ -400,6 +403,20 @@ public static class FixtureCatalog
         "ILInspector.Metadata.EnablementFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "metadata", "enablements", "runtime-async");
+
+    public static readonly FixtureDefinition MetadataStateMachinesDebug = Fixture(
+        FixtureIds.MetadataStateMachinesDebug,
+        "ILInspector.Metadata.StateMachineFixtures.Debug",
+        "ILInspector.Metadata.StateMachineFixtures.Debug.dll",
+        Boundaries(FixtureBoundary.ModuleAttribute, FixtureBoundary.CompilerLowering),
+        "metadata", "state-machines", "compilation-profile", "debug");
+
+    public static readonly FixtureDefinition MetadataCompilationProfileRuntimeAsync = Fixture(
+        FixtureIds.MetadataCompilationProfileRuntimeAsync,
+        "ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync",
+        "ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "metadata", "compilation-profile", "runtime-async");
 
     public static readonly FixtureDefinition MetadataSourceProvenance =
         Fixture(
@@ -1256,6 +1273,8 @@ public static class FixtureCatalog
         MetadataFindingDiffAnyV2,
         MetadataMemorySafety,
         MetadataEnablements,
+        MetadataStateMachinesDebug,
+        MetadataCompilationProfileRuntimeAsync,
         MetadataSourceProvenance,
         MetadataSourceProvenanceLookalike,
         MetadataSourceProvenanceNetStandard,
@@ -1709,6 +1728,10 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
             "ILInspector.Metadata.EnablementFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.EnablementFixtures",
+            "ILInspector.Metadata.StateMachineFixtures.Debug" =>
+                "fixtures/metadata/ILInspector.Metadata.StateMachineFixtures.Debug",
+            "ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync" =>
+                "fixtures/metadata/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync",
             "ILInspector.Metadata.SourceProvenanceFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures",
             "ILInspector.Metadata.SourceProvenanceLookalike" =>

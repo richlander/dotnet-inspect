@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspector.InspectionContracts;
 using DotnetInspector.Networking;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using QuerySpace;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
@@ -468,10 +469,10 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Explain_LibraryDependencyStructure_IsAGraphWithoutShape()
+    public async Task Explain_LibraryDependencyStructure_IsANamespaceEdgeTable()
     {
-        // Dependency Structure is a Graph of namespace nodes and edges, not
-        // one of the three shapes, so it keeps its diagram formats.
+        // Dependency Structure offers a Table of namespace edges and a
+        // Document; its Mermaid diagram stays an explicit lowering.
         var result = await RunAsync(
             "explain",
             "library/sections/dependency-structure",
@@ -480,9 +481,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement root = document.RootElement.GetProperty("resources")[0];
-        Assert.Equal(
-            "Absent",
-            Fact(root, "shape").GetProperty("state").GetString());
+        Assert.Equal("table", TextFact(root, "shape"));
         Assert.Equal("inventory", TextFact(root, "cardinality"));
     }
 
@@ -1016,6 +1015,36 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Theory]
+    [InlineData(
+        "Does this library have namespace dependency cycles?",
+        "library/sections/dependency-structure")]
+    [InlineData(
+        "namespace dependency cycles",
+        "library/sections/dependency-structure")]
+    [InlineData("array pool escapes", "library/sections/array-pool-escapes")]
+    public async Task Phrase_RanksTheOwningSectionFirst(
+        string text,
+        string path)
+    {
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        Assert.Equal(
+            0.25,
+            document.RootElement
+                .GetProperty("similarity_threshold")
+                .GetDouble());
+        Assert.Equal(
+            path,
+            document.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("resource_path")
+                .GetString());
+    }
+
+    [Theory]
     [InlineData("files", "package/sections/files", "package -S")]
     [InlineData("delegates", "type/sections/delegates", "type -S")]
     [InlineData("unsafe", "member/sections/unsafe-members", "member -S")]
@@ -1055,6 +1084,35 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task DiffAnalysisRoute_ExplainsAsAnInspectionRouteBoundToDiff()
+    {
+        Assert.Contains(
+            DiffAnalysisCommandCapability.CompareBinding,
+            DiffAnalysisCommandCapability.Catalog.Bindings);
+        Assert.Same(
+            DiffAnalysisCatalog.Route,
+            DiffAnalysisCommandCapability.CompareBinding.Route);
+
+        var route = await RunAsync(
+            "explain",
+            "diff-analysis/routes/compare",
+            "--json");
+
+        Assert.Equal(0, route.ExitCode);
+        Assert.Empty(route.Error);
+        Assert.Contains("\"execution\":\"inspection\"", route.Output);
+        Assert.Contains("diff-analysis/bindings/cli", route.Output);
+
+        var document = await RunAsync("explain", "diff-analysis", "--json");
+
+        Assert.Equal(0, document.ExitCode);
+        using JsonDocument exact = JsonDocument.Parse(document.Output);
+        Assert.Equal(
+            "diff-analysis",
+            exact.RootElement.GetProperty("path").GetString());
+    }
+
+    [Fact]
     public async Task BareExplain_DefaultsToTheRoutingTableAsTsv()
     {
         // Explain is primarily for agents, so its starting point is the
@@ -1077,7 +1135,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 "operation\toperations/diff-analysis\tDiff analyses\t",
                 StringComparison.Ordinal)
                 && line.Contains(
-                    "\tlibrary, type, member\tanalyses\t",
+                    "\tlibrary, type, member\tdiff-analysis, analyses\t",
                     StringComparison.Ordinal));
         Assert.DoesNotContain("# Explain", result.Output);
     }
@@ -1132,7 +1190,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "| operation | operations/diff-analysis | Diff analyses |",
             result.Output);
         Assert.Contains(
-            "| library, type, member | analyses |",
+            "| library, type, member | diff-analysis, analyses |",
             result.Output);
         Assert.Contains(
             "| reference | references/vocabularies | Value vocabularies |",
@@ -1984,7 +2042,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     [Fact]
     public async Task CompactData_DistinguishesAbsentFactFromAvailableEmptyValues()
     {
-        var result = await RunAsync("explain", "library/sections/dependency-structure", "--json");
+        var result = await RunAsync("explain", "member-detail/sections/call-graph", "--json");
         Assert.Equal(0, result.ExitCode);
         using JsonDocument data = JsonDocument.Parse(result.Output);
         Assert.False(data.RootElement.GetProperty("facts").TryGetProperty("shape", out _));

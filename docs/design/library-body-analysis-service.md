@@ -119,10 +119,12 @@ receipt independently of the legacy three-result input.
 The allocation-only follow-up plans `ExactMethodAllocationProducer` over the
 same deduplicated MethodDef population. `ILOffsetAllocationAnalysisInput`
 carries detached allocation occurrences, diagnostics, source receipt, and work
-receipt. Direct CLI and Library Address reuse one focused input across every
-coordinate row and do not execute this service. Cost-only and combined
-semantic coordinate requests still use this service because cost requires the
-donor-owned public direct-call rows.
+receipt. The cost-only follow-up plans `FocusedMethodCallProducer`;
+`ILOffsetCostAnalysisInput` carries detached direct-call rows keyed by their
+physical evidence MethodDef, diagnostics, source receipt, and work receipt.
+QuerySpace selects any requested combination of those associations over one
+deduplicated exact MethodDef population. Direct CLI and Library Address reuse
+the focused inputs across every coordinate row and do not execute this service.
 
 The method-analysis-support prerequisite for exact allocation and optimization
 is tracked by
@@ -141,8 +143,8 @@ while the composed exact bundle publishes direct calls, final signals,
 allocations, and optimization opportunities without constructing this service.
 Allocation-only matched-member requests plan
 `ExactMethodAllocationProducer` and therefore omit call collection, safety,
-signals, and optimization entirely. Cost and combined coordinate requests
-still use this service. Final fallback drainage and deletion remain with #8965
+signals, and optimization entirely. IL-coordinate semantic requests no longer
+use this service. Final fallback drainage and deletion remain with issues #8965
 and #9959.
 
 The CLI session adoption moved both path and prefetched-image execution in

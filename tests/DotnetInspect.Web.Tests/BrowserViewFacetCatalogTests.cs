@@ -9,16 +9,34 @@ namespace DotnetInspect.Web.Tests;
 public sealed class BrowserViewFacetCatalogTests
 {
     [Fact]
-    public void ListTypeViewFacets_ProjectsExactRegistryDescriptorsInOwnerOrder()
+    public void ListLibraryViewFacets_ProjectsExactRegistryDescriptorsInOwnerOrder() =>
+        AssertRegistryProjection(
+            StructuralSubjectKind.Library,
+            Interop.Catalog.CatalogExports.ListLibraryViewFacets());
+
+    [Fact]
+    public void ListMemberViewFacets_ProjectsExactRegistryDescriptorsInOwnerOrder() =>
+        AssertRegistryProjection(
+            StructuralSubjectKind.Member,
+            Interop.Catalog.CatalogExports.ListMemberViewFacets());
+
+    [Fact]
+    public void ListTypeViewFacets_ProjectsExactRegistryDescriptorsInOwnerOrder() =>
+        AssertRegistryProjection(
+            StructuralSubjectKind.Type,
+            Interop.Catalog.CatalogExports.ListTypeViewFacets());
+
+    private static void AssertRegistryProjection(
+        StructuralSubjectKind kind,
+        string json)
     {
         ViewFacetDescriptor[] expected =
         [
             .. InspectionViewFacetCatalog.Registry
-                .Discover(StructuralSubjectKind.Type),
+                .Discover(kind),
         ];
 
-        using JsonDocument document = JsonDocument.Parse(
-            Interop.Catalog.CatalogExports.ListTypeViewFacets());
+        using JsonDocument document = JsonDocument.Parse(json);
         JsonElement[] actual =
         [
             .. document.RootElement.GetProperty("facets").EnumerateArray(),

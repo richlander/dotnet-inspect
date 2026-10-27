@@ -12,6 +12,9 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Reflection.Metadata;
 
+// Placed in ILInspector.MetadataPrimitives, below both ILInspector.Instructions
+// and ILInspector.Metadata, so the decoder and Finding Diff Any's Body walk read
+// one IL byte layer; the namespace stays the substrate's.
 namespace ILInspector.Instructions;
 
 /// <summary>
@@ -19,7 +22,8 @@ namespace ILInspector.Instructions;
 /// from dotnet/runtime Internal.IL.ILReader (the same reader ILVerify and
 /// the ILC type system build on), retargeted to the BCL's ILOpCode enum and
 /// extended with peeking, skipping, and branch-destination helpers. Shared
-/// by both decompiler pipelines.
+/// by the decoder, both decompiler pipelines, and Finding Diff Any's Body
+/// walk.
 /// </summary>
 public ref struct ILReader
 {

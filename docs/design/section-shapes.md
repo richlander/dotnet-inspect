@@ -653,8 +653,10 @@ unchanged.
    inventory and `Library Info`, under the same three shapes (#9511). Every
    section is a Table except `Reference Hierarchy`, a Hierarchy of rooted
    reference occurrences whose Mermaid format is its explicit diagram
-   lowering, and `Dependency Structure`, a Graph of namespace nodes and edges
-   that keeps its diagram formats. The library catalog has
+   lowering. `Dependency Structure` is a Table of namespace edges with a
+   Document, and its Mermaid format lowers the same graph
+   ([Library dependency structure](library-dependency-structure.md)). The
+   library catalog has
    no Text. Its field-set records — single-Library `Library Info`, the
    SourceLink availability and integrity records, `Symbols`, and
    `Metadata: Image` — are scalar Tables; every other section is an
@@ -665,8 +667,7 @@ unchanged.
    `Allocation`, `Safety`, and `Cost` list the regions or facts at the
    coordinate, one row each, and `Metadata: Heap` rows are heap entries.
    A lone selected Table streams its rows and `Reference Hierarchy` renders
-   its tree when no format is named; `Dependency Structure`, declaring no
-   shape, keeps its rendering.
+   its tree when no format is named.
 3. **Type owner.** Classifies the `type` sections, including the member tree
    and the `Source` family. The default Type overview is a Hierarchy: the
    Type, its categories as context, and its MemberGroups as rows, each

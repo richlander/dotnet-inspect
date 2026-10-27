@@ -124,6 +124,13 @@ existing `ExceptionRegionModel` surface is now a compatibility projection of
 that topology for consumers awaiting their focused adoption steps; it is not a
 second EH graph.
 
+IL diff's census cursor reads the clause table alone, through
+`ExceptionFlowTopology.CreateTable`: the region rules above over a boundary
+oracle the cursor answers from its own instruction map, returning the models
+and the reason the block graph would report, with no instruction list and
+without the normal-transfer validation below, which belongs to the facts and
+not to the table.
+
 ## Location context
 
 A location context is an ordered outer-to-inner sequence of typed exception

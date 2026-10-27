@@ -34,6 +34,42 @@ public static partial class ApiSurfaceExtractor
         => access is MethodAttributes.Family or MethodAttributes.FamORAssem;
 
     /// <summary>
+    /// The Public scope admits a Type by accessibility when its own row and every
+    /// enclosing Type's row is public or nested public
+    /// (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
+    /// A public nested Type of a non-public Type is not admitted: no other
+    /// assembly can reach it. Nor is one nested in a protected Type, which only a
+    /// derived Type can reach.
+    /// Type discovery's public surface applies the same rule, and every other
+    /// reader that means "public Type" calls this one (Type counts and lookups,
+    /// the integration, hierarchy, and dependency scanners, and the extension
+    /// scan's declaring Type). A malformed nesting graph is admitted here so
+    /// the Type identity read that follows rejects the row with its typed
+    /// relationship failure.
+    /// </summary>
+    public static bool AdmitsPublicScopeType(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        TypeDefinition typeDef)
+    {
+        if (!typeDef.IsPublic)
+            return false;
+
+        TypeDefinitionHandle declaringType = typeDef.GetDeclaringType();
+        if (declaringType.IsNil)
+            return true;
+
+        try
+        {
+            return MetadataVisibility.IsExternallyVisible(reader, declaringType);
+        }
+        catch (BadImageFormatException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
     /// The API axis admits a Type, as Finding Diff Any does, when its own row and
     /// every enclosing Type's row is public, nested public, nested protected,
     /// or nested protected internal. A public nested Type of a non-public Type
@@ -52,16 +88,16 @@ public static partial class ApiSurfaceExtractor
             && MetadataVisibility.AreEnclosingTypesExternallyReachable(reader, handle);
 
     /// <summary>
-    /// Whether every Type enclosing <paramref name="handle"/> is in the ordinary population
-    /// (docs/design/library-api-diff-presentation.md#per-side-facts): public or nested public,
-    /// and not hidden by <c>EditorBrowsable(Never)</c>, the rule <see cref="ApiType.IsHidden"/>
-    /// records. A top-level Type has no enclosing Type. Read from metadata, so the answer does
-    /// not depend on which Types a selection projects.
+    /// Whether every Type enclosing <paramref name="handle"/> has the ordinary population's
+    /// reach (docs/design/library-api-diff-presentation.md#per-side-facts): public or nested
+    /// public. Hidden status is a fact of each declaration, so an enclosing Type's
+    /// <c>EditorBrowsable(Never)</c> does not hide the Types it nests. A top-level Type has no
+    /// enclosing Type. Read from metadata, so the answer does not depend on which Types a
+    /// selection projects.
     /// </summary>
     static bool AreEnclosingTypesOrdinary(
         MetadataReader reader,
-        TypeDefinitionHandle handle,
-        Action<int>? beforeMaterialize)
+        TypeDefinitionHandle handle)
     {
         int remaining = reader.GetTableRowCount(TableIndex.TypeDef);
         TypeDefinitionHandle current =
@@ -76,11 +112,7 @@ public static partial class ApiSurfaceExtractor
 
             TypeDefinition definition = reader.GetTypeDefinition(current);
             if ((definition.Attributes & TypeAttributes.VisibilityMask)
-                    is not (TypeAttributes.Public or TypeAttributes.NestedPublic)
-                || AttributeReader.HasEditorBrowsableNeverAttribute(
-                    reader,
-                    definition.GetCustomAttributes(),
-                    beforeMaterialize))
+                is not (TypeAttributes.Public or TypeAttributes.NestedPublic))
             {
                 return false;
             }

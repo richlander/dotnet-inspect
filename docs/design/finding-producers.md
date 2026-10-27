@@ -236,9 +236,10 @@ Metadata's first soft tier is `api.member.extension-instance` at confidence 85.
 It projects structured method receiver, name, generic arity, return type, and
 non-receiver parameters while retaining extension/instance as the variant.
 Same-role relocations, signature near misses, ambiguous endpoints, and
-observations lacking structured signatures do not correlate. `ApiDiffAnalyzer`
-remains the compatibility authority even when an exploratory Finding consumer
-accepts this correspondence.
+observations lacking structured signatures do not correlate. Compatibility
+classification stays with `ApiFindingClassifier`, which reports an accepted
+pair as an unrelated removal and addition unless the caller requests
+`NormalizeMemberProjection`.
 
 ## 7. Keep higher rungs separate
 

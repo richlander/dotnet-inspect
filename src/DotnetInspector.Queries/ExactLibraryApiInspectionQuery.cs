@@ -563,14 +563,14 @@ public static class ExactLibraryApiInspectionQuery
             return false;
         }
 
-        PackageCompileAssetSelection selection = root.AssetSelection;
-        if (!selection.IsSelected)
+        PackageCompileAssetSelection? selection = root.AssetSelection;
+        if (selection is not { IsSelected: true })
         {
             asset = null;
             terminal = Unavailable(
                 request,
                 ExactLibraryApiInspectionFailureKind.CompileSelectionUnavailable,
-                selection.Message
+                selection?.Message
                     ?? "The package has no selected compile-asset set.",
                 package);
             return false;

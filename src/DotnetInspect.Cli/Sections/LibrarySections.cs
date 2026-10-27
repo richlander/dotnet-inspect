@@ -1464,9 +1464,10 @@ public static class LibrarySections
         public static string Name => SectionNames.DependencyStructure;
         public static SectionDescription? Description =>
             LibrarySectionDescriptions.DependencyStructure;
-        // Dependency Structure is a Graph of namespace nodes and typed
-        // edges, not one of the three section shapes; its diagram formats
-        // stay with the Graph owner (docs/design/section-shapes.md, Non-goals).
+        // Dependency Structure offers a Table of namespace edges and a
+        // Document (docs/design/library-dependency-structure.md); its
+        // Mermaid diagram stays an explicit lowering of the same graph.
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>

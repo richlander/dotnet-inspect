@@ -72,6 +72,8 @@ public sealed class ViewFacetRegistryTests
     [InlineData(StructuralSubjectKind.Workspace, "overview", "workspace.overview")]
     [InlineData(StructuralSubjectKind.Package, "libraries", "package.libraries")]
     [InlineData(StructuralSubjectKind.Ecosystem, "overview", "ecosystem.overview")]
+    [InlineData(StructuralSubjectKind.Project, "overview", "project.overview")]
+    [InlineData(StructuralSubjectKind.Project, "dependencies", "project.dependencies")]
     [InlineData(StructuralSubjectKind.Package, "dependencies", "package.dependencies")]
     [InlineData(StructuralSubjectKind.Library, "types", "library.types")]
     [InlineData(StructuralSubjectKind.Library, "info", "library.info")]
@@ -148,6 +150,7 @@ public sealed class ViewFacetRegistryTests
                 StructuralSubjectKind.Library,
                 StructuralSubjectKind.Type,
                 StructuralSubjectKind.Member,
+                StructuralSubjectKind.Project,
             ],
             descriptors.Select(descriptor => descriptor.Kind).Distinct());
         Assert.All(
@@ -761,6 +764,12 @@ public sealed class ViewFacetRegistryTests
             new("member.compare", StructuralSubjectKind.Member, "Compare",
                 "Detailed diff and clone results for the active Member.",
                 600),
+            new("project.overview", StructuralSubjectKind.Project, "Overview",
+                "Supplied Project identity, target observations, and evidence basis.",
+                100, ViewFacetRole.ProjectOverview),
+            new("project.dependencies", StructuralSubjectKind.Project, "Dependencies",
+                "Authored declarations or restored dependency graph, with limitations and failures.",
+                200),
         ];
 
         Assert.Equal(
@@ -779,6 +788,10 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.WorkspaceOverview),
                 ("ecosystem.overview",
                     InspectionViewFacetExecution.EcosystemOverview),
+                ("project.overview",
+                    InspectionViewFacetExecution.ProjectOverview),
+                ("project.dependencies",
+                    InspectionViewFacetExecution.ProjectDependencies),
                 ("package.libraries",
                     InspectionViewFacetExecution.PackageLibraries),
                 ("package.overview",

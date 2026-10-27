@@ -21,20 +21,96 @@ const typeLensRouteByFacetId = {
   "type.compare": "compare",
 } as const;
 
+const libraryLensRouteByFacetId = {
+  "library.references": "references",
+  "library.compare": "compare",
+  "library.metadata": "metadata",
+} as const;
+
+const memberSectionRouteByFacetId = {
+  "member.overview": "overview",
+  "member.call-graph": "call-graph",
+  "member.facts": "facts",
+  "member.source": "source",
+  "member.compare": "compare",
+} as const;
+
+const requiredLibraryViewFacetIds = [
+  "library.references",
+  "library.compare",
+  "library.metadata",
+] as const satisfies readonly (keyof typeof libraryLensRouteByFacetId)[];
+
+const requiredMemberViewFacetIds = [
+  "member.overview",
+  "member.call-graph",
+  "member.facts",
+  "member.source",
+  "member.compare",
+] as const satisfies readonly (keyof typeof memberSectionRouteByFacetId)[];
+
+const libraryLensRoutes = [
+  "overview",
+  "references",
+  "compare",
+  "analysis",
+  "metadata",
+] as const;
+
+const memberSectionRoutes = [
+  "overview",
+  "call-graph",
+  "facts",
+  "resource-triage",
+  "source",
+  "compare",
+] as const;
+
 export type TypeLens =
   (typeof typeLensRouteByFacetId)[keyof typeof typeLensRouteByFacetId]
   | "overview";
 
 type RegisteredTypeLens = Exclude<TypeLens, "overview">;
+export type MemberSection = (typeof memberSectionRoutes)[number];
 
-export interface TypeViewFacetDescriptor {
+function isTypeViewFacetId(
+  value: string,
+): value is keyof typeof typeLensRouteByFacetId {
+  return Object.hasOwn(typeLensRouteByFacetId, value);
+}
+
+function isLibraryViewFacetId(
+  value: string,
+): value is keyof typeof libraryLensRouteByFacetId {
+  return Object.hasOwn(libraryLensRouteByFacetId, value);
+}
+
+function isMemberViewFacetId(
+  value: string,
+): value is keyof typeof memberSectionRouteByFacetId {
+  return Object.hasOwn(memberSectionRouteByFacetId, value);
+}
+
+export interface ViewFacetDescriptor {
   readonly id: string;
   readonly kind: string;
   readonly title: string;
   readonly order: number;
 }
 
+export type TypeViewFacetDescriptor = ViewFacetDescriptor;
+export type LibraryViewFacetDescriptor = ViewFacetDescriptor;
+export type MemberViewFacetDescriptor = ViewFacetDescriptor;
+
 let typeLenses: readonly (readonly [RegisteredTypeLens, string])[] | null = null;
+type RegisteredLibraryLens =
+  (typeof libraryLensRouteByFacetId)[keyof typeof libraryLensRouteByFacetId];
+let libraryViewFacetTitles:
+  ReadonlyMap<RegisteredLibraryLens, string> | null = null;
+type RegisteredMemberSection =
+  (typeof memberSectionRouteByFacetId)[keyof typeof memberSectionRouteByFacetId];
+let memberViewFacetTitles:
+  ReadonlyMap<RegisteredMemberSection, string> | null = null;
 
 export function setTypeViewFacetCatalog(
   descriptors: readonly TypeViewFacetDescriptor[],
@@ -45,7 +121,7 @@ export function setTypeViewFacetCatalog(
   let previousOrder = Number.NEGATIVE_INFINITY;
   const projected: (readonly [RegisteredTypeLens, string])[] = [];
   for (const descriptor of typeDescriptors) {
-    if (!(descriptor.id in typeLensRouteByFacetId)) {
+    if (!isTypeViewFacetId(descriptor.id)) {
       throw new Error(
         `Type view facet '${descriptor.id}' has no Browser renderer binding.`);
     }
@@ -62,9 +138,7 @@ export function setTypeViewFacetCatalog(
     seen.add(descriptor.id);
     previousOrder = descriptor.order;
     projected.push([
-      typeLensRouteByFacetId[
-        descriptor.id as keyof typeof typeLensRouteByFacetId
-      ],
+      typeLensRouteByFacetId[descriptor.id],
       descriptor.title,
     ]);
   }
@@ -111,14 +185,6 @@ export function packageLensesFor(pkg: PackageInspectorContext | null) {
   });
 }
 
-export const libraryLenses = [
-  ["overview", "Overview"],
-  ["references", "References"],
-  ["compare", "Compare"],
-  ["analysis", "Analysis"],
-  ["metadata", "Metadata"]
-] as const;
-
 export type PackageLens = (typeof packageLenses)[number][0];
 
 export function isPackageLens(
@@ -128,31 +194,137 @@ export function isPackageLens(
     && packageLenses.some(([id]) => id === value);
 }
 
-export type LibraryLens = (typeof libraryLenses)[number][0];
+export type LibraryLens = (typeof libraryLensRoutes)[number];
+
+export function setLibraryViewFacetCatalog(
+  descriptors: readonly LibraryViewFacetDescriptor[],
+): void {
+  const seen = new Set<string>();
+  const titles = new Map<RegisteredLibraryLens, string>();
+  let previousOrder = Number.NEGATIVE_INFINITY;
+  for (const descriptor of descriptors) {
+    if (descriptor.kind !== "Library") continue;
+    if (seen.has(descriptor.id)) {
+      throw new Error(`Library view facet '${descriptor.id}' is duplicated.`);
+    }
+    if (!descriptor.title.trim()) {
+      throw new Error(`Library view facet '${descriptor.id}' has no title.`);
+    }
+    if (!Number.isFinite(descriptor.order) || descriptor.order < previousOrder) {
+      throw new Error(
+        "Library view facets must retain product-issued finite ascending order.");
+    }
+    seen.add(descriptor.id);
+    previousOrder = descriptor.order;
+    if (isLibraryViewFacetId(descriptor.id)) {
+      titles.set(
+        libraryLensRouteByFacetId[descriptor.id],
+        descriptor.title);
+    }
+  }
+  for (const id of requiredLibraryViewFacetIds) {
+    const route = libraryLensRouteByFacetId[id];
+    if (!titles.has(route)) {
+      throw new Error(`Required Library view facet '${id}' is missing.`);
+    }
+  }
+  libraryViewFacetTitles = titles;
+}
+
+export function libraryLensDefinitions():
+  readonly (readonly [LibraryLens, string])[] {
+  const titles = libraryViewFacetTitles;
+  if (titles === null) {
+    throw new Error("The product Library view-facet catalog is unavailable.");
+  }
+  return libraryLensRoutes.map(route => {
+    switch (route) {
+      case "overview":
+        return [route, "Overview"] as const;
+      case "analysis":
+        return [route, "Analysis"] as const;
+      case "references":
+      case "compare":
+      case "metadata": {
+        const title = titles.get(route);
+        if (title === undefined) {
+          throw new Error(
+            `The Library view-facet title for '${route}' is unavailable.`);
+        }
+        return [route, title] as const;
+      }
+      default:
+        return assertNever(route, "Library lens");
+    }
+  });
+}
 
 export function isLibraryLens(
   value: string | null | undefined,
 ): value is LibraryLens {
   return typeof value === "string"
-    && libraryLenses.some(([id]) => id === value);
+    && libraryLensRoutes.some(id => id === value);
 }
 
-export const memberSectionDefinitions = [
-  ["overview", "Overview"],
-  ["call-graph", "Call graph"],
-  ["facts", "Analysis"],
-  ["resource-triage", "Resource Triage"],
-  ["source", "Source"],
-  ["compare", "Compare"],
-] as const;
+export function setMemberViewFacetCatalog(
+  descriptors: readonly MemberViewFacetDescriptor[],
+): void {
+  const seen = new Set<string>();
+  const titles = new Map<RegisteredMemberSection, string>();
+  let previousOrder = Number.NEGATIVE_INFINITY;
+  for (const descriptor of descriptors) {
+    if (descriptor.kind !== "Member") continue;
+    if (seen.has(descriptor.id)) {
+      throw new Error(`Member view facet '${descriptor.id}' is duplicated.`);
+    }
+    if (!descriptor.title.trim()) {
+      throw new Error(`Member view facet '${descriptor.id}' has no title.`);
+    }
+    if (!Number.isFinite(descriptor.order) || descriptor.order < previousOrder) {
+      throw new Error(
+        "Member view facets must retain product-issued finite ascending order.");
+    }
+    seen.add(descriptor.id);
+    previousOrder = descriptor.order;
+    if (isMemberViewFacetId(descriptor.id)) {
+      titles.set(
+        memberSectionRouteByFacetId[descriptor.id],
+        descriptor.title);
+    }
+  }
+  for (const id of requiredMemberViewFacetIds) {
+    const route = memberSectionRouteByFacetId[id];
+    if (!titles.has(route)) {
+      throw new Error(`Required Member view facet '${id}' is missing.`);
+    }
+  }
+  memberViewFacetTitles = titles;
+}
 
-export type MemberSection = (typeof memberSectionDefinitions)[number][0];
+export function memberSectionDefinitions():
+  readonly (readonly [MemberSection, string])[] {
+  const titles = memberViewFacetTitles;
+  if (titles === null) {
+    throw new Error("The product Member view-facet catalog is unavailable.");
+  }
+  return memberSectionRoutes.map(route => {
+    if (route === "resource-triage") {
+      return [route, "Resource Triage"] as const;
+    }
+    const title = titles.get(route);
+    if (title === undefined) {
+      throw new Error(
+        `The Member view-facet title for '${route}' is unavailable.`);
+    }
+    return [route, title] as const;
+  });
+}
 
 export function isMemberSection(
   value: string | null | undefined,
 ): value is MemberSection {
   return typeof value === "string"
-    && memberSectionDefinitions.some(([id]) => id === value);
+    && memberSectionRoutes.some(id => id === value);
 }
 
 const workspaceScopes = [
@@ -1809,12 +1981,8 @@ export interface SectionableMember {
   overloads?: readonly unknown[];
 }
 
-// The full roster is derived from the catalog rather than restated, so a new section is
-// offered as soon as it is defined. Restating it was the durable defect: the compiler
-// rejects a *removal* from the catalog, because the literal would stop being assignable,
-// but nothing caught an *addition*, which silently never reached the UI at all.
 const allMemberSections: readonly MemberSection[] =
-  memberSectionDefinitions.map(([id]) => id);
+  memberSectionRoutes;
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
   new Set<MemberSection>(["compare"]);

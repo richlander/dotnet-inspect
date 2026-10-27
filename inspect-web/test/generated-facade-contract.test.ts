@@ -44,6 +44,10 @@ test("catalog facade exposes the typed vocabulary snapshot envelope", () => {
   assert.ok(catalogDeclarations.includes(
     "inspectVocabulary(): BrowserVocabularyInspection;"));
   assert.ok(catalogDeclarations.includes(
+    "listLibraryViewFacets(): BrowserViewFacetCatalog;"));
+  assert.ok(catalogDeclarations.includes(
+    "listMemberViewFacets(): BrowserViewFacetCatalog;"));
+  assert.ok(catalogDeclarations.includes(
     "listTypeViewFacets(): BrowserViewFacetCatalog;"));
   assert.ok(!catalogDeclarations.includes("BrowserVocabularyDocument"));
   assert.ok(!catalogDeclarations.includes("listVocabulary()"));
@@ -60,13 +64,14 @@ test("source facade separates member parts from flat source", () => {
     "queryMemberSource(packageId: string, version: string, targetFramework: string, "
     + "assemblyName: string, typeIdentity: string, memberName: string, "
     + "selectorKey: string, metadataToken: number, documentBaselineOrdinal: number, "
-    + "styleOptionsJson: string, view: string): "
+    + "styleOptionsJson: string, runtimeIdentifier: string | null, view: string): "
     + "Promise<BrowserMemberSourceResult>;",
   ));
   assert.ok(sourceDeclarations.includes(
     "queryTypeMemberSource(packageId: string, version: string, "
     + "targetFramework: string, assemblyName: string, typeIdentity: string, "
     + "memberName: string, selectorKey: string, metadataToken: number, "
-    + "styleOptionsJson: string): Promise<BrowserSource>;",
+    + "styleOptionsJson: string, runtimeIdentifier: string | null): "
+    + "Promise<BrowserSource>;",
   ));
 });

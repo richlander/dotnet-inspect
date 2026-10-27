@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using ILInspector.Analysis;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
@@ -111,6 +112,160 @@ public class ILOffsetProjectionProducerTests
             nameof(OffsetVirtualTarget.Compute),
             cost.Operation,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ProjectILOffset_ExactCostUsesOneDeduplicatedPhysicalMethodRequest()
+    {
+        MethodInfo sourceMethod =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(CallVirtualAsync),
+                BindingFlags.Static
+                    | BindingFlags.NonPublic)!;
+        string path =
+            typeof(ILOffsetProjectionProducerTests)
+                .Assembly.Location;
+        LibraryBodyAnalysisExecution legacy = AnalyzePath(path);
+        DirectCall call = Assert.Single(
+            legacy.CallGraph.DirectCalls,
+            call => call.Caller.MetadataToken
+                    == sourceMethod.MetadataToken
+                && call.EvidenceMethod != call.Caller
+                && call.Callee.Name
+                    == nameof(OffsetVirtualTarget.Compute));
+        using var source = SourceLinkService.OpenPrefetched(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(source.Context);
+
+        ILOffsetCostAnalysisInput cost =
+            ILOffsetCostAnalysis.Execute(
+                session,
+                "IL-offset exact cost test",
+                source.Context.ModuleVersionId(),
+                [
+                    call.EvidenceMethod.MetadataToken,
+                    call.EvidenceMethod.MetadataToken,
+                ],
+                TestContext.Current.CancellationToken);
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    call.EvidenceMethod.MetadataToken,
+                    call.ILOffset,
+                    ILOffsetProjectionCapabilities.CostContext,
+                    CostAnalysis: cost));
+
+        Assert.True(outcome.Succeeded);
+        ILOffsetCostContext context = Assert.Single(
+            outcome.Projection!.CostContext!);
+        Assert.Equal("virtual dispatch", context.CostKind);
+        Assert.Contains(
+            nameof(OffsetVirtualTarget.Compute),
+            context.Operation,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.ExactMethods,
+            cost.SourceReceipt.Breadth.Kind);
+        Assert.Single(cost.SourceReceipt.Breadth.Methods);
+        Assert.Equal(
+            session.ImageLength,
+            cost.SourceReceipt.TerminalWorkLimits
+                .MaximumEncodedIlBytes);
+        Assert.Equal(1, cost.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, cost.SourceReceipt.BodiesAcquired);
+        Assert.Equal(0, cost.SourceReceipt.ModuleLookups);
+        Assert.Equal(1, cost.SourceReceipt.Coverage.Calls.CallReads);
+        Assert.Equal(
+            1,
+            cost.WorkReceipt.For(
+                FocusedMethodCallProducer.Instance)
+                .UnitsCompleted);
+    }
+
+    [Fact]
+    public void
+        ILOffsetSemanticAnalysis_MixedProductsShareOneExactAsyncMethodGroup()
+    {
+        MethodInfo kickoff =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(CallVirtualAsync),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo method = kickoff
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!
+            .StateMachineType
+            .GetMethod(
+                nameof(IAsyncStateMachine.MoveNext),
+                BindingFlags.Instance
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Public)!;
+        using var source = SourceLinkService.OpenPrefetched(
+            typeof(ILOffsetProjectionProducerTests)
+                .Assembly.Location);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(source.Context);
+
+        ILOffsetSemanticAnalysisResult semantic =
+            ILOffsetSemanticAnalysis.Execute(
+                session,
+                "IL-offset mixed semantic test",
+                source.Context.ModuleVersionId(),
+                [method.MetadataToken, method.MetadataToken],
+                ILOffsetProjectionCapabilities.AllocationContext
+                    | ILOffsetProjectionCapabilities.SafetyContext
+                    | ILOffsetProjectionCapabilities.CostContext,
+                TestContext.Current.CancellationToken);
+
+        ILOffsetAllocationAnalysisInput allocation =
+            Assert.IsType<ILOffsetAllocationAnalysisInput>(
+                semantic.Allocation);
+        ILOffsetSafetyAnalysisInput safety =
+            Assert.IsType<ILOffsetSafetyAnalysisInput>(
+                semantic.Safety);
+        ILOffsetCostAnalysisInput cost =
+            Assert.IsType<ILOffsetCostAnalysisInput>(
+                semantic.Cost);
+        DirectCall call = Assert.Single(
+            cost.Calls[method.MetadataToken],
+            call => call.Callee.Name
+                    == nameof(OffsetVirtualTarget.Compute));
+        Assert.Equal(
+            method.MetadataToken,
+            call.EvidenceMethod.MetadataToken);
+        Assert.Equal(3, semantic.SourceGroupReceipt.LaneReceipts.Length);
+        Assert.Single(
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.MethodsSelected.Ranges);
+        Assert.Equal(
+            1,
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.MethodsSelected.Count);
+        Assert.Equal(
+            1,
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.BodiesAcquired.Count);
+        Assert.Equal(
+            1,
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.InstructionWork
+                .LazyRetainedSourcesOpened);
+        Assert.All(
+            new[]
+            {
+                allocation.SourceReceipt,
+                safety.SourceReceipt,
+                cost.SourceReceipt,
+            },
+            receipt =>
+            {
+                Assert.Equal(
+                    MethodDefinitionSourceBreadthKind.ExactMethods,
+                    receipt.Breadth.Kind);
+                Assert.Single(receipt.Breadth.Methods);
+                Assert.Equal(1, receipt.DefinitionsVisited);
+                Assert.Equal(1, receipt.BodiesAcquired);
+            });
     }
 
     [Fact]
@@ -349,7 +504,11 @@ public class ILOffsetProjectionProducerTests
         Assert.Equal(1, safety.SourceReceipt.DefinitionsVisited);
         Assert.Equal(1, safety.SourceReceipt.BodiesAcquired);
         Assert.Equal(0, safety.SourceReceipt.ModuleLookups);
-        Assert.Single(safety.WorkReceipt.Producers);
+        Assert.Equal(
+            1,
+            safety.WorkReceipt.For(
+                ExactMethodAnalysisProducer.Instance)
+                .UnitsCompleted);
     }
 
     [Fact]
@@ -394,6 +553,55 @@ public class ILOffsetProjectionProducerTests
         Assert.False(outcome.Succeeded);
         Assert.Equal(
             ILOffsetProjectionFailureKind.SafetyAnalysisUnavailable,
+            outcome.Failure!.Kind);
+        Assert.Contains(
+            "different module generations",
+            outcome.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ProjectILOffset_RejectsMismatchedExactCostGeneration()
+    {
+        MethodInfo method =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(AddOne),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo foreignMethod =
+            typeof(LibraryBodyAnalysisExecution)
+                .GetProperty(
+                    nameof(LibraryBodyAnalysisExecution.Receipt))!
+                .GetMethod!;
+        string foreignPath =
+            typeof(LibraryBodyAnalysisExecution).Assembly.Location;
+        using var foreignSource =
+            SourceLinkService.OpenPrefetched(foreignPath);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(foreignSource.Context);
+        ILOffsetCostAnalysisInput cost =
+            ILOffsetCostAnalysis.Execute(
+                session,
+                "IL-offset mismatched cost test",
+                foreignSource.Context.ModuleVersionId(),
+                [foreignMethod.MetadataToken],
+                TestContext.Current.CancellationToken);
+        using var source = SourceLinkService.OpenPrefetched(
+            typeof(ILOffsetProjectionProducerTests)
+                .Assembly.Location);
+
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    method.MetadataToken,
+                    ILOffset: 0,
+                    ILOffsetProjectionCapabilities.CostContext,
+                    CostAnalysis: cost));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(
+            ILOffsetProjectionFailureKind.CostAnalysisUnavailable,
             outcome.Failure!.Kind);
         Assert.Contains(
             "different module generations",

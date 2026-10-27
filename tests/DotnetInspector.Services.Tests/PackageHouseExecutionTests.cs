@@ -1130,6 +1130,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             "linux-x64",
             contribution.Binding.Root.RequestedRuntimeIdentifier);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Same(
             realization.Selection.DefaultAsset,
             contribution.Binding.Root.AssetSelection.DefaultAsset);
@@ -1200,6 +1201,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal("net10.0", rootRequest.RequestedTargetFramework);
         Assert.True(rootRequest.AllowsCompatibleTargetSelection);
         Assert.True(rootRequest.UsesCompatibleImplementationSelection);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Equal(
             "net8.0",
             contribution.Binding.Root.AssetSelection.TargetFramework);
@@ -1636,6 +1638,7 @@ public sealed partial class PackageHouseExecutionTests
                 PackageHouseRootContributionAdapter.Create(
                     settlement)).Contribution;
         Assert.Same(realization, contribution.Realization);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             contribution.Binding.Root.AssetSelection.Status);
@@ -1712,6 +1715,7 @@ public sealed partial class PackageHouseExecutionTests
                     settlement)).Contribution;
         Assert.Same(noMatch, contribution.Result);
         Assert.Same(realization, contribution.Realization);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Equal(
             PackageCompileAssetSelectionStatus
                 .NoMatchingTargetFramework,

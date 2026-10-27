@@ -38,6 +38,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task AllLibraries_DependencyStructureCount_EqualsTableRows()
+    {
+        // The package-wide count is the section's Table rows, summed over
+        // libraries, never the Document's Cycles field or Cycle Members rows.
+        var count = await RunAppAsync(
+            "library", "Newtonsoft.Json@13.0.4", "-S", "Dependency Structure",
+            "--count");
+        var table = await RunAppAsync(
+            "library", "Newtonsoft.Json@13.0.4", "-S", "Dependency Structure",
+            "--tsv");
+
+        Assert.Equal(0, count.Exit);
+        Assert.Equal(0, table.Exit);
+        string[] lines = table.Output.TrimEnd('\n').Split('\n');
+        Assert.StartsWith("package\tversion\tlibrary\ttfm\tfrom\tto\t", lines[0]);
+        Assert.Equal(
+            lines.Length - 1,
+            int.Parse(count.Output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
     public async Task AllLibraries_CategoryCount_RendersCountMap()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();

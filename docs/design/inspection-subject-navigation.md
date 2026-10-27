@@ -2,7 +2,7 @@
 
 Inspection Subject Navigation is the product owner for choosing and retaining
 the structural subject inside one exact inspection Workspace. It supplies a
-host-neutral contract for Workspace, Ecosystem, Package, Library, Type, and
+host-neutral contract for Workspace, Project, Ecosystem, Package, Library, Type, and
 Member navigation so that browser, CLI, and future hosts do not invent
 different identity, route, default, or recovery rules.
 
@@ -238,13 +238,14 @@ adoption for portable Workspace and Package subjects is #5525.
 This is shared product substrate; no single-consumer or single-host exception
 applies. The simplest sufficient boundary is one product-issued Navigation
 state lineage bound to one exact active Workspace realization, with one
-Workspace subject, zero or more exact Ecosystem, Package, and Library subjects,
+Workspace subject, an optional construction-bound Project, zero or more exact
+Ecosystem, Package, and Library subjects,
 and exact Type and Member descendants. It adds no generic Root, global Package,
 `All packages` subject, cross-Workspace correspondence, or second concurrency
 protocol.
 
 Artifact inputs do not become structural kinds merely because they can contain
-Libraries. Project, file, embedded, and future source families remain outside
+Libraries. File, embedded, and future source families remain outside
 the closed kind vocabulary until a focused Navigation design demonstrates a
 concrete subject identity and behavior. Artifact Acquisition continues to use
 Root for its broader physical realization contract. Scope's
@@ -254,6 +255,70 @@ package-specific decision is recorded on
 [PR #6184](https://github.com/richlander/dotnet-inspect/pull/6184#issuecomment-5574458614);
 issue #7301 replaces that Navigation constraint without relabeling non-package
 artifacts as Packages.
+
+### Project input navigation profile
+
+Issue #10516 consumes the construction-bound occurrence established by
+[Workspace Scope](workspace-scope-and-expansion.md#project-input-construction-profile).
+The focused claim is:
+
+> One exact Workspace-issued Project occurrence is selectable as a nonportable
+> subject. Its Overview and Dependencies lenses bind that occurrence, survive
+> ordinary maintenance, and remain separate from acquired Package subjects.
+
+Project is a direct child of Workspace, not a Package ancestor or a generic
+artifact Root. It is available only when the exact Scope snapshot retains that
+Workspace's Project occurrence. Equal filenames, input bytes, or graph
+coordinates do not establish identity. Its presence does not change the
+Workspace default: a host explicitly selects Project when opening that input.
+Selecting Project clears Package descendant context; selecting an admitted
+Package uses the existing Package selection and initial-subject policy.
+Project selection preserves a prepared Ecosystem as a selectable Workspace peer.
+A Project action requires Scope evidence only, not preparation of the
+previously active Package.
+
+The Registry supplies `project.overview` and `project.dependencies`; Overview
+is the preferred role. Their content is the already-inspected authored or
+restored input, not a new parse or graph query. Incomplete declarations,
+versionless references, selected framework/RID, partial graph phases and
+failures retain their provider meaning. Navigation does not reinterpret graph
+failure as absence of declarations. Availability remains an explicit producer
+fact, with ordinary exact-lens unavailable and failed results.
+
+Package drill-down uses explicit ordinary acquisition and Scope admission.
+Only the resulting owner-issued Package occurrence may be selected. A
+dependency row, authored constraint, or restored coordinate does not itself
+issue a Package subject, grant acquisition authority, or establish a new
+Project-to-Package ancestry relation. The Project remains independently
+selectable after admission, removal, Clear, or a Package realization failure.
+Targetless protected Scope maintenance preserves an active Project and its
+exact lens; explicit Package admission retains its existing activation policy.
+
+Canonical in-memory preparation accepts an exact Project and optional exact
+lens without Package preparation. Ordinary actions can leave and return to
+that occurrence. This supports a host's local history selection; it does not
+add a Browser history store, portable Project identity, or Definitions
+restoration. Consumer Navigation descriptors project no Project bytes and
+confer neither portability nor a Share representation.
+
+The real motivating input is `src/DotnetInspect.Cli/DotnetInspect.Cli.csproj`
+at `bebfab236a6a3061bc74c53d22067acb86050afc`: property-based targets and
+centrally versioned references are useful Project evidence without resolved
+Package membership. The neighboring restored control is the existing
+Newtonsoft.Json `13.0.3` input. Focused `ProjectNavigationTests` gate identity,
+exact lenses, maintenance, Package drill-down and return, and partial evidence.
+
+This is slice 3 of the approved five-slice #10478 plan: shared input #10514,
+Workspace construction #10513, this Navigation slice #10516, Browser
+adoption #10517, and independent CLI document inspection #10515. The Browser Workspace
+path uses slices 1-4. CLI document inspection uses slices 1 and 5 and does not
+construct a Project Workspace or adopt Project Navigation. The conditional
+ability of a future CLI Workspace consumer to use this host-neutral boundary
+does not add another planned CLI gesture. Browser wire, opening gestures,
+rendering, persistence and production history remain unverified until #10517.
+No existing production path is replaced. This immutable subject extension
+reuses the existing Navigation state and action protocol without adding a
+concurrency protocol or changing another owner's contract.
 
 The atomic descendant-subject plus exact-lens capability added by #6490 follows
 that same two-host adoption:
@@ -536,7 +601,7 @@ Inspection Subject Navigation owns:
 - initial subject recommendation and subject-scoped lens recommendation;
 - First Library initial recommendation plus explicit aggregate, exact, and
   namesake Library requests;
-- Workspace, Ecosystem, Package, Library, Type, Member, and lens navigation
+- Workspace, Project, Ecosystem, Package, Library, Type, Member, and lens navigation
   descriptors;
 - exact subject and lens activation outcomes;
 - same-occurrence and coordinate-variation reconciliation within one exact
@@ -561,6 +626,7 @@ The owner consumes:
 
 - one exact open Workspace identity and owner-ordered exact subject
   descriptors;
+- its optional construction-bound Project occurrence and retained input;
 - exact Workspace-bound Ecosystem registration occurrences and their
   owner-issued contribution relations when Ecosystem navigation is requested;
 - zero or one active retained-package occurrence and its realized Package
@@ -591,7 +657,7 @@ The owner returns:
 
 - one Workspace-bound active structural subject;
 - one exact Workspace-rooted route for that subject;
-- ordered Workspace, Ecosystem, Package, and Library descriptors supplied by
+- ordered Workspace, Project, Ecosystem, Package, and Library descriptors supplied by
   their owners;
 - ordered retained-package and Package descriptors;
 - one Type-inventory Library context;
@@ -777,6 +843,7 @@ Subjects form one Workspace-rooted typed graph:
 | --- | --- |
 | Workspace | One exact open Workspace and its structural inventory; Navigation does not combine descendant inspection results |
 | Ecosystem | One exact Workspace-bound ecosystem registration occurrence; registration remains inert and resource-free |
+| Project | One exact construction-bound Workspace Project occurrence; declarations and graph evidence are not Package membership |
 | Package | One exact retained package occurrence in that Workspace |
 | Library | One exact admitted Workspace-bound Library occurrence, independent of the route used to reach it |
 | Type | One exact type definition in one admitted Library |
@@ -786,6 +853,7 @@ The closed route-relation vocabulary is:
 
 ```text
 Workspace -> Ecosystem
+Workspace -> Project
 Workspace -> Package
 Workspace -> Library
 Ecosystem -> Package
@@ -802,7 +870,8 @@ those definition boundaries.
 
 Workspace is always applicable while its owner-issued lifetime remains open.
 An Ecosystem is applicable while its exact registration occurrence remains
-present. Package and Library subjects require exact owner-issued Workspace
+present. Project is applicable while its exact construction-bound occurrence
+is retained by Scope. Package and Library subjects require exact owner-issued Workspace
 occurrences. Lower levels remain applicable when their exact ancestor supports
 them even if an inventory is validly empty. Structurally unsupported levels
 are omitted; applicable but empty levels remain visible as unavailable.
@@ -845,6 +914,7 @@ The conceptual subject identity family is:
 | --- | --- |
 | Workspace | Artifact-owner `InspectionWorkspaceIdentity` established by #5508 |
 | Ecosystem | Exact Workspace plus an owner-issued Workspace ecosystem registration occurrence |
+| Project | Exact Workspace plus its Scope-issued Project occurrence |
 | Package | Complete scope-owner `WorkspacePackageOccurrence` and its separate `WorkspacePackageDescriptor` |
 | All Libraries | Exact Package plus explicit aggregate Library identity |
 | One Library | Exact Workspace-bound admitted Library occurrence, including source provenance and any owner-issued Package association |
@@ -988,11 +1058,12 @@ One navigation snapshot contains:
 | Generation | Identifies an action publication and scopes action IDs and snapshot-relative commands; not a semantic revision |
 | Workspace | Binds the session, every subject, descriptor, action, lens, basis, and diagnostic to one exact isolation boundary |
 | Active package occurrence | Names exact Package focus or provenance when Package participates; absent for unrelated direct or Ecosystem-to-Library routes |
-| Active subject | The one committed Workspace, Ecosystem, Package, Library, Type, or Member |
+| Active subject | The one committed Workspace, Project, Ecosystem, Package, Library, Type, or Member |
 | Active route | The complete exact Workspace-rooted route to the active subject |
 | Type-inventory Library context | Scopes Type navigation independently of the active subject |
 | Retained-coordinate descriptors | Owner-ordered exact occurrences available from Workspace |
 | Ecosystem descriptors | Owner-ordered exact registered Ecosystem occurrences available from Workspace |
+| Project descriptor | The optional exact construction-bound Project, independent of Package context |
 | Hierarchy descriptors | Ordered descriptors for the active exact route and required Library-to-Member definition ancestry |
 | Library descriptors | Aggregate, primary, then declaration order |
 | Type and Member rows | Producer rows plus product activation state |
@@ -1069,7 +1140,7 @@ second inventory or omit rows because of host filters.
 ### Action IDs
 
 Interactive consumers receive opaque action IDs for non-current available
-Workspace, Ecosystem, Package, Library, Type, and Member descriptors. Action IDs
+Workspace, Project, Ecosystem, Package, Library, Type, and Member descriptors. Action IDs
 are scoped to one exact Workspace and generation and are distinct from
 structured identities.
 
@@ -1448,6 +1519,7 @@ The preferred semantic roles are:
 | --- | --- |
 | Workspace | Workspace overview |
 | Ecosystem | Ecosystem overview |
+| Project | Project overview |
 | Package | Package libraries |
 | Type | Type API |
 | Member | Member overview |
@@ -1874,7 +1946,7 @@ No sibling Type or Member replaces a missing selected Type or Member, even
 when it has the same display name or ranks first. This ancestor fallback
 applies to same-occurrence refresh and coordinate replacement; incomplete
 evaluation remains distinct from confirmed absence. Inventory refresh never
-promotes an explicitly selected Workspace, Ecosystem, Package, or Library to
+promotes an explicitly selected Workspace, Project, Ecosystem, Package, or Library to
 Type. Navigation never chooses a sibling occurrence when the current occurrence
 is absent. It consumes only exact replacement and relation evidence supplied by
 the evaluation input. Otherwise it falls back through the exact route to

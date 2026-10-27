@@ -1,4 +1,5 @@
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using QuerySpace;
 using QuerySpace.Explanation;
 
@@ -74,7 +75,7 @@ public sealed class InspectionCapabilityCompositionTests
     {
         QuerySpace.Composition.QuerySpaceOperationTermDescriptor facet =
             Assert.Single(
-                PackageQueryCapability.Route.QuerySpace
+                PackageQueryCapability.Route.QuerySpace!
                     .Descriptor.Operation.Terms,
                 static term =>
                     term.Key == PackageQuery.LibraryLiteralTermKey);
@@ -719,6 +720,129 @@ public sealed class InspectionCapabilityCompositionTests
             catalog.Resources.Single(resource =>
                 resource.ResourceType.Value == resourceType
                 && Text(resource, "identity") == identity).Key;
+
+    [Fact]
+    public void InspectionRoute_ExecutesWithoutAQuerySpace()
+    {
+        InspectionRouteRegistration route = DiffAnalysisCatalog.Route;
+
+        Assert.Null(route.QuerySpace);
+        Assert.Equal(InspectionRouteExecution.Inspection, route.Execution);
+        Assert.Equal(
+            InspectionRouteExecution.QuerySpace,
+            PackageQueryCapability.Route.Execution);
+        Assert.Empty(route.QueryTermRelationships);
+        Assert.Empty(route.QueryTermPresentations);
+    }
+
+    [Fact]
+    public void InspectionRoute_BindingCannotExposeAQueryTerm()
+    {
+        var binding =
+            new InspectionConsumerBinding<
+                DiffAnalysisInspectionRequest,
+                DiffAnalysisDocument>(
+                new(
+                    "test/diff-compare",
+                    InspectionConsumerKind.Cli,
+                    "test CLI",
+                    "diff --analysis"),
+                DiffAnalysisCatalog.Route,
+                exposedQueryTerms: ["library-literal"]);
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            InspectionCapabilityCatalog.Create(
+            [
+                DiffAnalysisCatalog.ProductModule,
+                new InspectionCapabilityModule(
+                    "test/diff-compare-capability",
+                    bindings: [binding]),
+            ]));
+
+        Assert.Contains(
+            "exposes query term 'library-literal' outside route",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InspectionRoute_ExplanationDeclaresItsExecutionAndNoQuerySurface()
+    {
+        var binding =
+            new InspectionConsumerBinding<
+                DiffAnalysisInspectionRequest,
+                DiffAnalysisDocument>(
+                new(
+                    "test/diff-compare",
+                    InspectionConsumerKind.Cli,
+                    "test CLI",
+                    "diff --analysis"),
+                DiffAnalysisCatalog.Route,
+                exposedQueryTerms: []);
+        InspectionCapabilityCatalog capabilityCatalog =
+            InspectionCapabilityCatalog.Create(
+            [
+                DiffAnalysisCatalog.ProductModule,
+                new InspectionCapabilityModule(
+                    "test/diff-compare-capability",
+                    bindings: [binding]),
+            ]);
+        ResourceExplanationCatalog explanation =
+            ResourceExplanationCatalog.CreateCapabilities(
+                capabilityCatalog,
+                DiffAnalysisCapabilityResourcePaths.Create(
+                    capabilityCatalog));
+
+        ResourceExplanationResource route = ExplainOne(
+            explanation,
+            DiffAnalysisCapabilityResourcePaths.Route);
+
+        Assert.Equal("inspection", Text(route, "execution"));
+        Assert.Equal(
+            DiffAnalysisInspection.ResultContractIdentity,
+            Text(route, "result-contract"));
+        foreach (string absent in new[]
+                 {
+                     "subject-role",
+                     "result-grain",
+                     "profile",
+                 })
+        {
+            Assert.Equal(
+                ExplanationObservationState.Absent,
+                route.Facts.Single(fact => fact.Fact.Value == absent).State);
+        }
+        Assert.Equal(
+            "query-space",
+            Text(
+                ExplainOne(
+                    ResourceExplanationCatalog.CreateCapabilities(
+                        InspectionCapabilityCatalog.Create(
+                            [PackageQueryCapability.ProductModule]),
+                        PackageQueryCapabilityResourcePaths.Create(
+                            InspectionCapabilityCatalog.Create(
+                                [PackageQueryCapability.ProductModule]))),
+                    PackageQueryCapabilityResourcePaths.Route),
+                "execution"));
+    }
+
+    private static ResourceExplanationResource ExplainOne(
+        ResourceExplanationCatalog explanation,
+        ResourcePath path)
+    {
+        var resolved =
+            Assert.IsType<ResourcePathResolution.Resolved>(
+                explanation.Resolve(path.Value));
+        return Assert.Single(
+            explanation.Explain(
+                    resolved,
+                    new(
+                        depth: 0,
+                        resourceLimit: 8,
+                        relationshipLimit: 16))
+                .Content.Resources,
+            resource => resource.Path == path);
+    }
 
     private static string Text(
         ResourceExplanationResource resource,

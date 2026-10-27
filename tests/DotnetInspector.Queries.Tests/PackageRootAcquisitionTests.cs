@@ -27,6 +27,52 @@ public sealed class PackageRootAcquisitionTests
     static readonly PackageSource Private =
         new("private", "https://private.test/v3/index.json");
 
+    [Fact]
+    public async Task HouseAcquireOnlyContent_AdmitsWithoutCompileRealization()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(NoCompileAssetsPackage());
+        PackageRootHouseExecution execution = Options(http, store);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageFilesWithFileList(["content/readme.txt"]));
+        var settlement = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await execution.Executor.ExecuteAsync(
+                request, requiredProducerKey: null, TestContext.Current.CancellationToken));
+        Assert.IsType<PackageHouseResult.Settled>(settlement.Result);
+        Assert.Null(settlement.Result.Evidence.Realization);
+        PackageRootBinding binding =
+            PackageRootBinding.CreateForContentInspection(settlement.Payload);
+        Assert.Null(binding.Root.AssetSelection);
+        Assert.Same(settlement.Payload.Content.GenerationIdentity, binding.ContentGenerationIdentity);
+        Assert.Equal(PackageProducerIdentity.NuGetOrg.PortableKey, binding.Coordinate.Producer);
+
+        await using var workspace = new InspectionWorkspace();
+        var initial = Assert.IsType<WorkspaceScopeReadResult.Available>(
+            await workspace.GetScopeSnapshotAsync());
+        var committed = Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+            await workspace.AddPackagesAsync(
+                initial.Snapshot.Revision, [binding],
+                DateTimeOffset.UtcNow.AddMinutes(5),
+                TestContext.Current.CancellationToken));
+        var occurrence = Assert.Single(committed.Snapshot.Packages);
+        Assert.Null(occurrence.Occurrence.Package.SelectionStatus);
+        var correspondence = Assert.IsType<PackageArtifactRootCorrespondence>(
+            occurrence.Occurrence.Correspondence);
+        var ready = Assert.IsType<ArtifactRootRealizationStatus.Ready>(occurrence.Realization.Status);
+        ArtifactRootResult<int> query = await workspace.ExecutePackageRootQueryAsync(
+            correspondence, ready.Generation,
+            (realization, _) =>
+            {
+                Assert.False(realization.HasAssemblyContexts);
+                return ValueTask.FromResult(binding.Root.UseContent(
+                    content => content.EnumerateEntries().Count()));
+            },
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(1, Assert.IsType<ArtifactRootResult<int>.Available>(query).Value);
+    }
+
     /// <summary>
     /// A surface-only Root keeps its selection and is never upgraded in place
     /// (docs/design/package-read-demand.md).
@@ -56,8 +102,8 @@ public sealed class PackageRootAcquisitionTests
 
         Assert.Equal(PackageAssetDemand.Surface, surface.Root.AssetDemand);
         Assert.Equal(
-            full.Root.AssetSelection.Assets.Select(asset => asset.Path),
-            surface.Root.AssetSelection.Assets.Select(asset => asset.Path));
+            Assert.IsType<PackageCompileAssetSelection>(full.Root.AssetSelection).Assets.Select(asset => asset.Path),
+            Assert.IsType<PackageCompileAssetSelection>(surface.Root.AssetSelection).Assets.Select(asset => asset.Path));
         Assert.Same(surface, surface.WithAssetDemand(PackageAssetDemand.Surface));
         Assert.Throws<InvalidOperationException>(() =>
             surface.WithAssetDemand(PackageAssetDemand.SurfaceAndImplementation));
@@ -141,7 +187,7 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(Framework, binding.Root.RequestedTargetFramework);
         Assert.Equal(
             $"lib/{Framework}/{AssemblyName}.dll",
-            binding.Root.AssetSelection.Assets.Single().Path);
+            Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Assets.Single().Path);
 
         // The issued request is the binding's own, so a consumer that started
         // from an explicit coordinate holds a reacquirable handle immediately.
@@ -203,7 +249,7 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(Framework, acquired.Request.SelectionTargetFramework);
         Assert.Equal(
             $"lib/{Framework}/nested/{AssemblyName}.dll",
-            acquired.Binding.Root.AssetSelection.Assets.Single().Path);
+            Assert.IsType<PackageCompileAssetSelection>(acquired.Binding.Root.AssetSelection).Assets.Single().Path);
 
         Assert.True(
             PackageRootReacquisitionRequest.TryDecode(
@@ -217,8 +263,8 @@ public sealed class PackageRootAcquisitionTests
 
         Assert.Equal(acquired.Request, reacquired.Request);
         Assert.Equal(
-            acquired.Binding.Root.AssetSelection.Assets.Single().Path,
-            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+            Assert.IsType<PackageCompileAssetSelection>(acquired.Binding.Root.AssetSelection).Assets.Single().Path,
+            Assert.IsType<PackageCompileAssetSelection>(reacquired.Binding.Root.AssetSelection).Assets.Single().Path);
     }
 
     [Fact]
@@ -254,7 +300,7 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(Framework, rootRequest.SelectionTargetFramework);
         Assert.Equal(
             $"lib/{Framework}/nested/{AssemblyName}.dll",
-            contribution.Binding.Root.AssetSelection.Assets.Single().Path);
+            Assert.IsType<PackageCompileAssetSelection>(contribution.Binding.Root.AssetSelection).Assets.Single().Path);
         Assert.True(
             PackageRootReacquisitionRequest.TryDecode(
                 rootRequest.Encode(),
@@ -268,8 +314,8 @@ public sealed class PackageRootAcquisitionTests
 
         Assert.Equal(rootRequest, reacquired.Request);
         Assert.Equal(
-            contribution.Binding.Root.AssetSelection.Assets.Single().Path,
-            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+            Assert.IsType<PackageCompileAssetSelection>(contribution.Binding.Root.AssetSelection).Assets.Single().Path,
+            Assert.IsType<PackageCompileAssetSelection>(reacquired.Binding.Root.AssetSelection).Assets.Single().Path);
     }
 
     [Fact]
@@ -317,7 +363,7 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(rootRequest, reacquired.Request);
         Assert.Equal(
             $"lib/{Framework}/nested/{AssemblyName}.dll",
-            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+            Assert.IsType<PackageCompileAssetSelection>(reacquired.Binding.Root.AssetSelection).Assets.Single().Path);
     }
 
     [Fact]
@@ -550,8 +596,8 @@ public sealed class PackageRootAcquisitionTests
 
         Assert.Equal(first.Request, second.Request);
         Assert.Equal(
-            first.Binding.Root.AssetSelection.Assets.Single().Path,
-            second.Binding.Root.AssetSelection.Assets.Single().Path);
+            Assert.IsType<PackageCompileAssetSelection>(first.Binding.Root.AssetSelection).Assets.Single().Path,
+            Assert.IsType<PackageCompileAssetSelection>(second.Binding.Root.AssetSelection).Assets.Single().Path);
         Assert.NotSame(first.Binding, second.Binding);
         Assert.NotSame(first.Binding.SelectionIdentity, second.Binding.SelectionIdentity);
     }
@@ -726,7 +772,7 @@ public sealed class PackageRootAcquisitionTests
             acquired.Request.SelectionTargetFramework);
         Assert.Equal(
             $"lib/netstandard2.0/{AssemblyName}.dll",
-            acquired.Binding.Root.AssetSelection.Assets.Single().Path);
+            Assert.IsType<PackageCompileAssetSelection>(acquired.Binding.Root.AssetSelection).Assets.Single().Path);
 
         // The separation survives the transport seam and reacquisition.
         Assert.True(
@@ -746,7 +792,7 @@ public sealed class PackageRootAcquisitionTests
             reacquired.Binding.Root.RequestedTargetFramework);
         Assert.Equal(
             $"lib/netstandard2.0/{AssemblyName}.dll",
-            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+            Assert.IsType<PackageCompileAssetSelection>(reacquired.Binding.Root.AssetSelection).Assets.Single().Path);
     }
 
     [Fact]
@@ -822,7 +868,7 @@ public sealed class PackageRootAcquisitionTests
                 TestContext.Current.CancellationToken));
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-            acquired.Binding.Root.AssetSelection.Status);
+            Assert.IsType<PackageCompileAssetSelection>(acquired.Binding.Root.AssetSelection).Status);
 
         var reacquired =
             Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
@@ -833,7 +879,7 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(acquired.Request, reacquired.Request);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-            reacquired.Binding.Root.AssetSelection.Status);
+            Assert.IsType<PackageCompileAssetSelection>(reacquired.Binding.Root.AssetSelection).Status);
     }
 
     [Fact]
@@ -1443,7 +1489,7 @@ public sealed class PackageRootAcquisitionTests
         Assert.IsType<SparsePackageAssemblyProjectionOutcome.Available>(
             await workspace.ProjectSelectedPackageAssemblyAsync(
                 binding,
-                binding.Root.AssetSelection.Assets.Single(),
+                Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Assets.Single(),
                 new SparsePackageAssemblyProjectionOptions
                 {
                     MaxSelectedEntryBytes = 4 * 1024 * 1024,

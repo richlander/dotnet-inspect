@@ -231,7 +231,7 @@ the consumer's compiler own JavaScript and optional declaration emission.
 | Owner | Owns | Does not own |
 | --- | --- | --- |
 | .NET JavaScript interop | `[JSExport]` selection, generated managed thunks, marshalling descriptors, registration, generic runtime support, and the SDK-owned `dotnet.d.ts` description of `dotnet.js` | application JSON meaning, assembly-specific export shape, TypeScript facade policy |
-| `ILInspector.JsExportSurface` | C#-faithful export facts, exact runtime-publication identity, authenticated JSON wire evidence, and validation of producer-declared JSON input associations | TypeScript names, syntax, wrappers, compiler configuration |
+| `ILInspector.JsExportSurface` | C#-faithful export facts, exact runtime-publication identity, authenticated direct-JS marshaling evidence, authenticated JSON wire evidence, and validation of producer-declared JSON input associations | TypeScript names, syntax, wrappers, compiler configuration |
 | `TsJsExport.Contracts` | producer-side context root and JSON input declarations | export discovery, declaration validation, facade grouping, generation, runtime behavior |
 | `ts-jsexport` | deterministic TypeScript facade source and assembly-specific export shape from one `JsExportSurface`; exact context-root resolution into a closed set of independent surfaces; canonical context artifact filenames from assembly simple names | thunk generation, generic runtime declarations, runtime implementation, TypeScript compilation, browser publication, public module specifiers or startup order |
 | Consumer | context membership, fresh context output-directory location, TypeScript compiler configuration, public module specifiers, availability of the SDK-owned runtime declaration, derived artifacts, module resolution, composition, and hosting | placing pre-existing files in the context output directory; reinterpreting or weakening the context or `JsExportSurface` inputs |
@@ -278,6 +278,21 @@ The same distinction applies to inputs. A managed `string candidatesJson`
 parameter remains `string` in the private raw export signature even when the
 method body deserializes it. Raw marshalling does not by itself establish the
 JSON value type or which string parameter carries it.
+
+Raw interop types also retain authenticated runtime-marshaling distinctions
+when the managed signature alone is insufficient. A direct `long` parameter or
+return carrying the generated `get_BigInt64` descriptor becomes TypeScript
+`bigint`; the same direct `long` carrying `get_Int52` remains `number`.
+`ILInspector.JsExportSurface` owns the authenticated descriptor fact, while the
+TypeScript emitter owns the `bigint`/`number` spelling. The emitter never infers
+BigInt from `long` alone, rereads `[JSMarshalAs]`, or changes JSON-wire integer
+mapping.
+
+This support is intentionally limited to direct export slots. A BigInt
+descriptor nested beneath an array, nullable, task, or callback remains visibly
+unsupported until the surface can retain and consumers can lower the complete
+nested descriptor tree. That boundary prevents a nested JavaScript BigInt from
+silently inheriting the ordinary managed-type mapping to TypeScript `number`.
 
 ### Wire view
 

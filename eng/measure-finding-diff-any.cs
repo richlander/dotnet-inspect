@@ -4,9 +4,12 @@
 // Measures FindingDiffAny over one Library image pair and checks it against the
 // complete API comparison and canonical IL comparison.
 // Usage: measure-finding-diff-any <before.dll> <after.dll> [iterations]
-// Also reports the API axis alone and bounded steps over retained readers.
+// Also reports the API axis alone, bounded steps over retained readers, and
+// every paired Type's inventory per Type through the walk and through lockstep.
 
 using System.Diagnostics;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.ILDiff;
 using ILInspector.Metadata;
@@ -76,6 +79,151 @@ long retainedBytes;
 }
 Console.WriteLine($"alloc\tmedianBytes={allocatedMedian}\tretainedBytes={retainedBytes}");
 
+// The whole comparison with lockstep over two IL cursors in place of the walk
+// for every paired method, through the Body provision seam
+// (docs/design/finding-census.md#provisions, step 2b): the same pairing,
+// censuses, and folds, so the two legs differ in the body reader alone. The
+// cursor sides are created per run, as the walk's sides are.
+FindingDiffAnyResult RunLockstep()
+{
+    using var before = new PEReader(new MemoryStream(beforeBytes, writable: false));
+    using var after = new PEReader(new MemoryStream(afterBytes, writable: false));
+    IlCensusSide beforeSide = IlCensusSide.Create(before.GetMetadataReader(), IlBodyDiffPolicy.Body);
+    IlCensusSide afterSide = IlCensusSide.Create(after.GetMetadataReader(), IlBodyDiffPolicy.Body);
+    return FindingDiffAny.Compare(
+        before,
+        after,
+        (beforePe, beforeMethod, afterPe, afterMethod) =>
+            IlFindings.Exists(beforeSide, beforePe, beforeMethod, afterSide, afterPe, afterMethod).Decision);
+}
+{
+    FindingDiffAnyResult lockstepResult = RunLockstep();
+    bool agree = lockstepResult.Types.SequenceEqual(result.Types);
+    for (int i = 0; i < 3; i++)
+        RunLockstep();
+    var lockstepSamples = new List<double>(iterations);
+    var lockstepAllocations = new List<long>(iterations);
+    for (int i = 0; i < iterations; i++)
+    {
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        long start = Stopwatch.GetTimestamp();
+        RunLockstep();
+        lockstepSamples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        lockstepAllocations.Add(GC.GetAllocatedBytesForCurrentThread() - allocated);
+    }
+    lockstepSamples.Sort();
+    lockstepAllocations.Sort();
+    int p95Index = Math.Max(0, (int)Math.Ceiling(lockstepSamples.Count * 0.95) - 1);
+    Console.WriteLine(
+        $"lockstep\tmedian={lockstepSamples[lockstepSamples.Count / 2]:F2}\tp95={lockstepSamples[p95Index]:F2}"
+            + $"\tmin={lockstepSamples[0]:F2}\tmedianBytes={lockstepAllocations[lockstepAllocations.Count / 2]}\tagree={agree}");
+    Console.WriteLine($"  samples-ms\tlockstep\t{string.Join(",", lockstepSamples.Select(t => t.ToString("F2")))}");
+}
+
+// The declaration census cursor (docs/design/finding-census.md step 3): for
+// every Type paired by identifier, Exists over two cursors on the API axis and
+// on the Body declaration facts, agreeing with the walk's states; and the
+// sealed, spelled census of every paired Type on both axes, which is the
+// declaration view's cost of one census per side.
+{
+    static Dictionary<string, DeclarationCensusType> Units(DeclarationCensusSide side)
+        => side.Types.Where(t => !t.IsMalformed).ToDictionary(t => t.Identifier, StringComparer.Ordinal);
+
+    (int Pairs, bool Agree) RunDeclarationExists()
+    {
+        using var before = new PEReader(new MemoryStream(beforeBytes, writable: false));
+        using var after = new PEReader(new MemoryStream(afterBytes, writable: false));
+        (DeclarationCensusSide oldSide, DeclarationCensusSide newSide) = DeclarationCensusSide.CreatePair(before, after);
+        using (oldSide)
+        using (newSide)
+        {
+            Dictionary<string, DeclarationCensusType> newUnits = Units(newSide);
+            Dictionary<string, FindingDiffAnyTypeState> walk = result.Types.ToDictionary(t => t.Identifier, StringComparer.Ordinal);
+            int pairs = 0;
+            bool agree = true;
+            foreach (DeclarationCensusType oldType in oldSide.Types.Where(t => !t.IsMalformed))
+            {
+                if (!newUnits.TryGetValue(oldType.Identifier, out DeclarationCensusType? newType))
+                    continue;
+                FindingExistsResult api = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, FindingDiffAnyAxis.Api);
+                FindingExistsResult body = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, FindingDiffAnyAxis.Body);
+                pairs++;
+                if (walk.TryGetValue(oldType.Identifier, out FindingDiffAnyTypeState? state))
+                {
+                    agree &= (state.Api == FindingDiffAnyState.Changed) == (api.Decision == FindingExistsDecision.Changed);
+                    agree &= state.Body != FindingDiffAnyState.Unchanged || body.Decision == FindingExistsDecision.Unchanged;
+                    agree &= body.Decision != FindingExistsDecision.Changed || state.Body == FindingDiffAnyState.Changed;
+                }
+            }
+            return (pairs, agree);
+        }
+    }
+
+    int RunDeclarationDrain()
+    {
+        using var before = new PEReader(new MemoryStream(beforeBytes, writable: false));
+        using var after = new PEReader(new MemoryStream(afterBytes, writable: false));
+        (DeclarationCensusSide oldSide, DeclarationCensusSide newSide) = DeclarationCensusSide.CreatePair(before, after);
+        using (oldSide)
+        using (newSide)
+        {
+            Dictionary<string, DeclarationCensusType> newUnits = Units(newSide);
+            int facts = 0;
+            foreach (DeclarationCensusType oldType in oldSide.Types.Where(t => !t.IsMalformed))
+            {
+                if (!newUnits.TryGetValue(oldType.Identifier, out DeclarationCensusType? newType))
+                    continue;
+                var subject = new FindingSubject(oldType.Identifier, oldType.FullName);
+                foreach (FindingDiffAnyAxis axis in new[] { FindingDiffAnyAxis.Api, FindingDiffAnyAxis.Body })
+                {
+                    bool? ownerVisible = axis == FindingDiffAnyAxis.Body ? oldSide.IsVisible(oldType.Type) || newSide.IsVisible(newType.Type) : null;
+                    FindingInspection<DeclarationFact> oldInspection = DeclarationFindings.Inspect(oldSide, oldType.Type, axis, subject, ownerVisible);
+                    FindingInspection<DeclarationFact> newInspection = DeclarationFindings.Inspect(newSide, newType.Type, axis, subject, ownerVisible);
+                    if (DeclarationFindings.Compare(oldInspection, newInspection).Value is FindingComparison<DeclarationFact>.Complete complete)
+                        facts += complete.Pairs.Length;
+                }
+            }
+            return facts;
+        }
+    }
+
+    (int pairs, bool agree) = RunDeclarationExists();
+    int facts = RunDeclarationDrain();
+    for (int i = 0; i < 3; i++)
+    {
+        RunDeclarationExists();
+        RunDeclarationDrain();
+    }
+    var existsSamples = new List<double>(iterations);
+    var existsAllocations = new List<long>(iterations);
+    var drainSamples = new List<double>(iterations);
+    var drainAllocations = new List<long>(iterations);
+    for (int i = 0; i < iterations; i++)
+    {
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        long start = Stopwatch.GetTimestamp();
+        RunDeclarationExists();
+        existsSamples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        existsAllocations.Add(GC.GetAllocatedBytesForCurrentThread() - allocated);
+        allocated = GC.GetAllocatedBytesForCurrentThread();
+        start = Stopwatch.GetTimestamp();
+        RunDeclarationDrain();
+        drainSamples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        drainAllocations.Add(GC.GetAllocatedBytesForCurrentThread() - allocated);
+    }
+    existsSamples.Sort();
+    existsAllocations.Sort();
+    drainSamples.Sort();
+    drainAllocations.Sort();
+    int p95 = Math.Max(0, (int)Math.Ceiling(iterations * 0.95) - 1);
+    Console.WriteLine(
+        $"declaration-exists\tmedian={existsSamples[iterations / 2]:F2}\tp95={existsSamples[p95]:F2}\tmin={existsSamples[0]:F2}"
+            + $"\tmedianBytes={existsAllocations[iterations / 2]}\tpairs={pairs}\tagree={agree}");
+    Console.WriteLine(
+        $"declaration-drain\tmedian={drainSamples[iterations / 2]:F2}\tp95={drainSamples[p95]:F2}\tmin={drainSamples[0]:F2}"
+            + $"\tmedianBytes={drainAllocations[iterations / 2]}\tpairFacts={facts}");
+}
+
 // The API axis alone, and the whole comparison advanced in bounded steps over
 // retained readers, as a single-threaded host runs it.
 double Median(Func<double> sample)
@@ -120,6 +268,225 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
             $"stepped\tbudget={budgetMs:F1}ms\tsteps={steps}\tmedian={stepped:F2}\tmaxStep={maxStep:F2}");
     }
 }
+
+// Type scope: every paired Type's inventory, through the walk and through
+// lockstep over two IL cursors, timed per Type in two phases: each Type's
+// first request on fresh pairings, as a host that opened the pair and asks
+// Type by Type pays it, and the repeat on warmed pairings
+// (docs/design/finding-census.md, Exists, cost at Type scope).
+using (var before = new PEReader(new MemoryStream(beforeBytes, writable: false)))
+using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
+{
+    var libraryStates = new Dictionary<string, FindingDiffAnyTypeState>(StringComparer.Ordinal);
+    foreach (FindingDiffAnyTypeState state in result.Types)
+        libraryStates.TryAdd(state.FullName, state);
+
+    FindingDiffAnyTypePairing walkPairing = null!;
+    double walkPairingMs = Timed(() => walkPairing = new FindingDiffAnyTypePairing(before, after));
+    IlCensusSide cursorSideA = IlCensusSide.Create(before.GetMetadataReader(), IlBodyDiffPolicy.Body);
+    IlCensusSide cursorSideB = IlCensusSide.Create(after.GetMetadataReader(), IlBodyDiffPolicy.Body);
+    FindingDiffAnyBodyReader cursorReader = (beforePe, beforeMethod, afterPe, afterMethod) =>
+        IlFindings.Exists(cursorSideA, beforePe, beforeMethod, cursorSideB, afterPe, afterMethod).Decision;
+    FindingDiffAnyTypePairing lockstepPairing = null!;
+    double lockstepPairingMs = Timed(() => lockstepPairing = new FindingDiffAnyTypePairing(before, after, cursorReader));
+
+    IReadOnlyList<string> names = walkPairing.Types;
+    int count = names.Count;
+    int foldMismatch = 0;
+    int rowMismatch = 0;
+    var bodiesPerType = new int[count];
+    var changedType = new bool[count];
+    for (int i = 0; i < count; i++)
+    {
+        FindingDiffAnyTypeInventory w = walkPairing.Inventory(names[i]);
+        FindingDiffAnyTypeInventory l = lockstepPairing.Inventory(names[i]);
+        if (!libraryStates.TryGetValue(names[i], out FindingDiffAnyTypeState? state) || state.Api != w.Api || state.Body != w.Body)
+            foldMismatch++;
+        if (w.Api != l.Api || w.Body != l.Body || !w.Facts.SequenceEqual(l.Facts) || !w.Bodies.SequenceEqual(l.Bodies))
+        {
+            rowMismatch++;
+            if (rowMismatch <= 12)
+                ReportRowMismatch(before.GetMetadataReader(), names[i], w, l);
+        }
+        bodiesPerType[i] = w.Bodies.Length;
+        changedType[i] = w.Api == FindingDiffAnyState.Changed || w.Body == FindingDiffAnyState.Changed;
+    }
+    Console.WriteLine(
+        $"type-pairing\twalk-ms={walkPairingMs:F2}\tlockstep-ms={lockstepPairingMs:F2}\ttypes={count}"
+            + $"\tfoldMismatch={foldMismatch}\trowMismatch={rowMismatch}");
+
+    // Each Type's first request, as a host that opened the pair and asks Type
+    // by Type pays it: fresh pairings every pass (so no cache from a previous
+    // pass survives), each Type read once per pairing, the median over the
+    // passes, and the allocation of the first pass. Within a pass, Types read
+    // earlier leave their shared keys memoized for Types read later, which is
+    // the sequence such a host produces.
+    var firstWalkUs = new double[count, iterations];
+    var firstLockstepUs = new double[count, iterations];
+    var firstWalkBytes = new long[count];
+    var firstLockstepBytes = new long[count];
+    for (int pass = 0; pass < iterations; pass++)
+    {
+        var freshWalk = new FindingDiffAnyTypePairing(before, after);
+        IlCensusSide freshSideA = IlCensusSide.Create(before.GetMetadataReader(), IlBodyDiffPolicy.Body);
+        IlCensusSide freshSideB = IlCensusSide.Create(after.GetMetadataReader(), IlBodyDiffPolicy.Body);
+        var freshLockstep = new FindingDiffAnyTypePairing(before, after, (beforePe, beforeMethod, afterPe, afterMethod) =>
+            IlFindings.Exists(freshSideA, beforePe, beforeMethod, freshSideB, afterPe, afterMethod).Decision);
+        // Alternating which pairing reads a Type first, so neither always finds
+        // the Type's rows and IL in the CPU cache; timed and counted inline so
+        // the two phases allocate alike.
+        for (int i = 0; i < count; i++)
+        {
+            string name = names[i];
+            bool walkFirst = (pass + i) % 2 == 0;
+            for (int turn = 0; turn < 2; turn++)
+            {
+                bool walk = walkFirst == (turn == 0);
+                long allocated = GC.GetAllocatedBytesForCurrentThread();
+                long started = Stopwatch.GetTimestamp();
+                if (walk)
+                    freshWalk.Inventory(name);
+                else
+                    freshLockstep.Inventory(name);
+                double elapsedUs = Stopwatch.GetElapsedTime(started).TotalMilliseconds * 1000;
+                long bytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
+                if (walk)
+                    firstWalkUs[i, pass] = elapsedUs;
+                else
+                    firstLockstepUs[i, pass] = elapsedUs;
+                if (pass == 0)
+                {
+                    if (walk)
+                        firstWalkBytes[i] = bytes;
+                    else
+                        firstLockstepBytes[i] = bytes;
+                }
+            }
+        }
+        freshWalk.Release();
+        freshLockstep.Release();
+    }
+
+    // Each Type's repeat request on the pairings the correctness loop warmed:
+    // the median over the passes of each Type's own time, the two readers
+    // alternating per Type so neither owns a warmer cache.
+    var walkUs = new double[count, iterations];
+    var lockstepUs = new double[count, iterations];
+    for (int pass = 0; pass < iterations; pass++)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            string name = names[i];
+            if ((pass + i) % 2 == 0)
+            {
+                walkUs[i, pass] = Timed(() => walkPairing.Inventory(name)) * 1000;
+                lockstepUs[i, pass] = Timed(() => lockstepPairing.Inventory(name)) * 1000;
+            }
+            else
+            {
+                lockstepUs[i, pass] = Timed(() => lockstepPairing.Inventory(name)) * 1000;
+                walkUs[i, pass] = Timed(() => walkPairing.Inventory(name)) * 1000;
+            }
+        }
+    }
+    var walkBytes = new long[count];
+    var lockstepBytes = new long[count];
+    for (int i = 0; i < count; i++)
+    {
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        walkPairing.Inventory(names[i]);
+        walkBytes[i] = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        allocated = GC.GetAllocatedBytesForCurrentThread();
+        lockstepPairing.Inventory(names[i]);
+        lockstepBytes[i] = GC.GetAllocatedBytesForCurrentThread() - allocated;
+    }
+    if (count > 0)
+    {
+        double[] firstWalkMedian = PerTypeMedian(firstWalkUs, count, iterations);
+        double[] firstLockstepMedian = PerTypeMedian(firstLockstepUs, count, iterations);
+        double[] walkMedian = PerTypeMedian(walkUs, count, iterations);
+        double[] lockstepMedian = PerTypeMedian(lockstepUs, count, iterations);
+        ReportTypeScope("type-first", "walk", firstWalkMedian, firstWalkBytes);
+        ReportTypeScope("type-first", "lockstep", firstLockstepMedian, firstLockstepBytes);
+        ReportTypeScope("type-repeat", "walk", walkMedian, walkBytes);
+        ReportTypeScope("type-repeat", "lockstep", lockstepMedian, lockstepBytes);
+        foreach (int i in Enumerable.Range(0, count).OrderByDescending(i => bodiesPerType[i]).Take(5))
+            ReportType("type-largest", names[i], bodiesPerType[i], firstWalkMedian[i], firstLockstepMedian[i], walkMedian[i], lockstepMedian[i], firstWalkBytes[i], firstLockstepBytes[i]);
+        foreach (int i in Enumerable.Range(0, count).Where(i => changedType[i]).OrderByDescending(i => bodiesPerType[i]).Take(5))
+            ReportType("type-changed", names[i], bodiesPerType[i], firstWalkMedian[i], firstLockstepMedian[i], walkMedian[i], lockstepMedian[i], firstWalkBytes[i], firstLockstepBytes[i]);
+    }
+    walkPairing.Release();
+    lockstepPairing.Release();
+}
+
+// The first row on which the two readers disagree for one Type, by method
+// name and both states, so a disagreement the Library fold hides is visible.
+static void ReportRowMismatch(MetadataReader md, string type, FindingDiffAnyTypeInventory walk, FindingDiffAnyTypeInventory lockstep)
+{
+    if (walk.Api != lockstep.Api || walk.Body != lockstep.Body)
+        Console.WriteLine($"  type-row-mismatch\t{type}\tfold\twalk={walk.Api}/{walk.Body}\tlockstep={lockstep.Api}/{lockstep.Body}");
+    if (!walk.Facts.SequenceEqual(lockstep.Facts))
+    {
+        Console.WriteLine($"  type-row-mismatch\t{type}\tfacts\twalk={walk.Facts.Length}\tlockstep={lockstep.Facts.Length}");
+        for (int i = 0; i < Math.Min(walk.Facts.Length, lockstep.Facts.Length); i++)
+        {
+            if (walk.Facts[i] == lockstep.Facts[i])
+                continue;
+            Console.WriteLine($"    walk    \t{walk.Facts[i].Axis}\t{walk.Facts[i].Side}\t{walk.Facts[i].Key}");
+            Console.WriteLine($"    lockstep\t{lockstep.Facts[i].Axis}\t{lockstep.Facts[i].Side}\t{lockstep.Facts[i].Key}");
+            break;
+        }
+    }
+    if (walk.Bodies.Length != lockstep.Bodies.Length)
+    {
+        Console.WriteLine($"  type-row-mismatch\t{type}\tbodies\twalk={walk.Bodies.Length}\tlockstep={lockstep.Bodies.Length}");
+        return;
+    }
+    for (int i = 0; i < walk.Bodies.Length; i++)
+    {
+        if (walk.Bodies[i] == lockstep.Bodies[i])
+            continue;
+        MethodDefinition method = md.GetMethodDefinition(walk.Bodies[i].Before);
+        Console.WriteLine(
+            $"  type-row-mismatch\t{type}\t{md.GetString(method.Name)}\twalk={walk.Bodies[i].Body}\tlockstep={lockstep.Bodies[i].Body}"
+                + $"\tbeforeToken=0x{MetadataTokens.GetToken(walk.Bodies[i].Before):X8}\tafterToken=0x{MetadataTokens.GetToken(walk.Bodies[i].After):X8}");
+        return;
+    }
+}
+
+static double[] PerTypeMedian(double[,] samples, int count, int passes)
+{
+    var medians = new double[count];
+    var row = new double[passes];
+    for (int i = 0; i < count; i++)
+    {
+        for (int pass = 0; pass < passes; pass++)
+            row[pass] = samples[i, pass];
+        Array.Sort(row);
+        medians[i] = row[passes / 2];
+    }
+    return medians;
+}
+
+static void ReportTypeScope(string label, string reader, double[] medianUs, long[] bytes)
+{
+    double[] sorted = medianUs.Order().ToArray();
+    long[] sortedBytes = bytes.Order().ToArray();
+    int p95 = Math.Max(0, (int)Math.Ceiling(sorted.Length * 0.95) - 1);
+    Console.WriteLine(
+        $"{label}\treader={reader}\tsum-ms={sorted.Sum() / 1000:F2}\tmedian-us={sorted[sorted.Length / 2]:F1}"
+            + $"\tp95-us={sorted[p95]:F1}\tmax-us={sorted[^1]:F1}\tsumBytes={sortedBytes.Sum()}"
+            + $"\tmedianBytes={sortedBytes[sortedBytes.Length / 2]}\tmaxBytes={sortedBytes[^1]}");
+}
+
+static void ReportType(
+    string label, string name, int bodies,
+    double firstWalkUs, double firstLockstepUs, double repeatWalkUs, double repeatLockstepUs,
+    long firstWalkBytes, long firstLockstepBytes)
+    => Console.WriteLine(
+        $"  {label}\t{name}\tbodies={bodies}\tfirst-walk-us={firstWalkUs:F1}\tfirst-lockstep-us={firstLockstepUs:F1}"
+            + $"\trepeat-walk-us={repeatWalkUs:F1}\trepeat-lockstep-us={repeatLockstepUs:F1}"
+            + $"\tfirstWalkBytes={firstWalkBytes}\tfirstLockstepBytes={firstLockstepBytes}");
 
 // Complete Public API comparison, signatures and attributes.
 const ApiSurfaceExtractionScope surfaceScope = ApiSurfaceExtractionScope.Public;

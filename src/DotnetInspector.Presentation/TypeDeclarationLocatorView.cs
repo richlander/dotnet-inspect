@@ -114,7 +114,7 @@ public sealed class TypeDeclarationLocatorView
                             TypeDeclarationLocatorContextFailure.ReferenceImage image =>
                                 image.Failure.Kind.ToString(),
                             TypeDeclarationLocatorContextFailure.PackageScopeSelection package =>
-                                package.Status.ToString(),
+                                package.Status?.ToString() ?? "Library selection not requested",
                             _ => throw new InvalidOperationException("Unknown declaration context failure."),
                         },
                         Safe(failure.Message)));

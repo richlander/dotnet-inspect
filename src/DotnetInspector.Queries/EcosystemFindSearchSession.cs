@@ -87,6 +87,7 @@ public enum EcosystemFindPrefixPageCompletion
     Failed,
     RowLimitReached,
     CandidateLimitReached,
+    Continuing,
 }
 
 public sealed record EcosystemFindPrefixPage(
@@ -430,6 +431,14 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                         [.. Request.Prefixes.Skip(index)
                             .Select(source => source.Prefix)]);
                 }
+                if (page.Completion == EcosystemFindPrefixPageCompletion.Continuing
+                    && candidates >= Request.MaximumPrefixPackages)
+                {
+                    _prefixCoverage.Add(new(prefix.Prefix,
+                        EcosystemFindPrefixPageCompletion.CandidateLimitReached));
+                    return Complete(EcosystemFindCompletion.CandidateLimitReached,
+                        [.. Request.Prefixes.Skip(index).Select(source => source.Prefix)]);
+                }
                 if (page.Completion is EcosystemFindPrefixPageCompletion.SourcePageLimit
                     or EcosystemFindPrefixPageCompletion.ClientPageLimit)
                 {
@@ -445,7 +454,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                     _prefixCoverage.Add(new(prefix.Prefix, page.Completion));
                     if (candidates >= Request.MaximumPrefixPackages)
                         return Complete(EcosystemFindCompletion.CandidateLimitReached,
-                            [.. Request.Prefixes.Skip(index + 1)
+                            [.. Request.Prefixes.Skip(index)
                                 .Select(source => source.Prefix)]);
                     _incomplete = true;
                     sourceLimit ??= EcosystemFindCompletion.Partial;
