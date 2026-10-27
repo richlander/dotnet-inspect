@@ -252,6 +252,9 @@ public static class DiffAnalysisInspection
         DiffAnalysisTransitionRow row) =>
         row.Transition == FailedComparisonTransition;
 
+    /// <summary>The owner-issued result contract of the Diff analysis document.</summary>
+    public const string ResultContractIdentity = "diff-analysis/v2";
+
     public static InspectionEnvelope<DiffAnalysisDocument> Execute(
         DiffAnalysisInspectionRequest request)
     {
@@ -259,36 +262,41 @@ public static class DiffAnalysisInspection
         return ProjectDocument(request, result);
     }
 
-    public static InspectionEnvelope<DiffAnalysisSummaryTable> ExecuteSummaryTable(
-        DiffAnalysisInspectionRequest request)
+    /// <summary>
+    /// The Summary view of a document that selected exactly that view, as one
+    /// table with the document's Share and diagnostics.
+    /// </summary>
+    public static InspectionEnvelope<DiffAnalysisSummaryTable> SummaryTable(
+        InspectionEnvelope<DiffAnalysisDocument> document)
     {
-        RequireTableView(request, DiffAnalysisDocumentViews.Summary);
-        DiffAnalysisResult result = ExecuteResult(request);
-        return Complete(
-            new DiffAnalysisSummaryTable(
-                [.. ProjectOutcomes(request, result).Select(projection =>
-                    ProjectSummary(projection.Outcome, projection.Transitions))]),
-            result);
+        RequireTableView(document, DiffAnalysisDocumentViews.Summary);
+        return new(
+            new DiffAnalysisSummaryTable(document.Content.Summary!.Value),
+            document.Share,
+            document.Diagnostics);
     }
 
-    public static InspectionEnvelope<DiffAnalysisTransitionsTable> ExecuteTransitionsTable(
-        DiffAnalysisInspectionRequest request)
+    /// <summary>
+    /// The Transitions view of a document that selected exactly that view, as
+    /// one table with the document's Share and diagnostics.
+    /// </summary>
+    public static InspectionEnvelope<DiffAnalysisTransitionsTable> TransitionsTable(
+        InspectionEnvelope<DiffAnalysisDocument> document)
     {
-        RequireTableView(request, DiffAnalysisDocumentViews.Transitions);
-        DiffAnalysisResult result = ExecuteResult(request);
-        return Complete(
-            new DiffAnalysisTransitionsTable(TransitionRows(
-                ProjectOutcomes(request, result))),
-            result);
+        RequireTableView(document, DiffAnalysisDocumentViews.Transitions);
+        return new(
+            new DiffAnalysisTransitionsTable(document.Content.Transitions!.Value),
+            document.Share,
+            document.Diagnostics);
     }
 
     private static void RequireTableView(
-        DiffAnalysisInspectionRequest request,
+        InspectionEnvelope<DiffAnalysisDocument> document,
         DiffAnalysisDocumentViews view)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        if (request.Views != view)
-            throw new ArgumentException("A Table request must select exactly its own view.", nameof(request));
+        ArgumentNullException.ThrowIfNull(document);
+        if (document.Content.Comparison.Views != view)
+            throw new ArgumentException("A Table projection requires a document that selected exactly its own view.", nameof(document));
     }
 
     private static DiffAnalysisResult ExecuteResult(

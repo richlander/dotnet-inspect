@@ -515,6 +515,7 @@ public sealed partial class ResourceExplanationCatalog
         [
             .. catalog.Routes
                 .Select(static route => route.QuerySpace)
+                .OfType<QuerySpaceBinding>()
                 .DistinctBy(
                     static querySpace =>
                         querySpace.Descriptor.Identity,
@@ -600,8 +601,8 @@ public sealed partial class ResourceExplanationCatalog
         {
             InspectionCapabilityResourceIdentity identity =
                 RouteIdentity(route);
-            QuerySpaceOperationScopeDescriptor operation =
-                route.QuerySpace.Descriptor.Operation;
+            QuerySpaceOperationScopeDescriptor? operation =
+                route.QuerySpace?.Descriptor.Operation;
             snapshots.Add(
                 Snapshot(
                     paths[identity],
@@ -625,18 +626,31 @@ public sealed partial class ResourceExplanationCatalog
                         ResourceExplanationVocabulary.TextFact(
                             ResourceExplanationVocabulary
                                 .HostNeutralRouteType,
+                            "execution",
+                            route.Execution switch
+                            {
+                                InspectionRouteExecution.QuerySpace =>
+                                    "query-space",
+                                InspectionRouteExecution.Inspection =>
+                                    "inspection",
+                                _ => throw new InvalidOperationException(
+                                    "Unknown route execution kind."),
+                            }),
+                        DescriptionFact(
+                            ResourceExplanationVocabulary
+                                .HostNeutralRouteType,
                             "subject-role",
-                            operation.SubjectRole),
-                        ResourceExplanationVocabulary.TextFact(
+                            operation?.SubjectRole),
+                        DescriptionFact(
                             ResourceExplanationVocabulary
                                 .HostNeutralRouteType,
                             "result-grain",
-                            operation.ResultGrain),
-                        ResourceExplanationVocabulary.TextFact(
+                            operation?.ResultGrain),
+                        DescriptionFact(
                             ResourceExplanationVocabulary
                                 .HostNeutralRouteType,
                             "profile",
-                            operation.Profile),
+                            operation?.Profile),
                         ResourceExplanationVocabulary.TextFact(
                             ResourceExplanationVocabulary
                                 .HostNeutralRouteType,
@@ -651,13 +665,16 @@ public sealed partial class ResourceExplanationCatalog
                         {
                             ["produces"] =
                                 [keys[DocumentIdentity(route.Document)]],
-                            ["query-surface"] =
-                                [keys[QuerySpaceIdentity(route.QuerySpace)]],
+                            ["query-surface"] = route.QuerySpace is null
+                                ? []
+                                : [keys[QuerySpaceIdentity(route.QuerySpace)]],
                             ["consumer-binding"] = catalog.Bindings
                                 .Where(binding =>
                                     ReferenceEquals(binding.Route, route))
                                 .Select(binding =>
                                     keys[ConsumerBindingIdentity(binding)]),
+                            ["analysis"] = catalog.AnalysesOf(route)
+                                .Select(AnalysisKey),
                         })));
         }
 
@@ -940,18 +957,26 @@ public sealed partial class ResourceExplanationCatalog
                                 exposed =>
                                 {
                                     QuerySpaceOperationTermDescriptor term =
-                                        binding.Route.QuerySpace.Descriptor
+                                        binding.Route.QuerySpace!.Descriptor
                                             .Operation.Terms.Single(
                                                 candidate =>
                                                     candidate.Identity
                                                     == exposed);
                                     return keys[
                                         QueryFacetIdentity(
-                                            binding.Route.QuerySpace,
+                                            binding.Route.QuerySpace!,
                                             term)];
                                 }),
+                            ["exposes-analysis"] = binding.ExposedAnalyses
+                                .Select(identity => AnalysisKey(
+                                    catalog.Analyses.Single(registration =>
+                                        registration.Analysis.Id.Value
+                                        == identity))),
                         })));
         }
+
+        if (!catalog.Analyses.IsEmpty)
+            snapshots.AddRange(AnalysisSnapshots(catalog, keys));
 
         return Create(ResourceExplanationVocabulary.Schemas, snapshots);
     }
@@ -1048,24 +1073,19 @@ public sealed partial class ResourceExplanationCatalog
                     ("summary", ExplanationValue.Text(option.Summary)))));
     }
 
-    public static ResourceExplanationCatalog CreateAnalyses(
-        InspectionCapabilityCatalog catalog)
+    // The registered analyses, explained under the analyses collection as
+    // resources of the routes whose analysis operation dispatches them.
+    private static List<ExplanationResourceSnapshot> AnalysisSnapshots(
+        InspectionCapabilityCatalog catalog,
+        IReadOnlyDictionary<
+            InspectionCapabilityResourceIdentity,
+            ExplanationResourceKey> keys)
     {
-        ArgumentNullException.ThrowIfNull(catalog);
-        if (catalog.Analyses.IsEmpty)
-        {
-            throw new ArgumentException(
-                "The capability catalog registers no analyses.",
-                nameof(catalog));
-        }
-
         var collectionPath = new ResourcePath(AnalysesCollectionSegment);
         ExplanationResourceKey collectionKey = AnalysesCollectionKey;
         var analysisKeys = catalog.Analyses.ToDictionary(
             static registration => registration,
-            registration => ResourceExplanationVocabulary.Key(
-                ResourceExplanationVocabulary.AnalysisType,
-                Pack(registration.Analysis.Id.Value)));
+            AnalysisKey);
         var snapshots = new List<ExplanationResourceSnapshot>
         {
             NavigationSnapshot(
@@ -1133,6 +1153,17 @@ public sealed partial class ResourceExplanationCatalog
                             analysis.Cost.ToString()),
                         ResourceExplanationVocabulary.TextsFact(
                             ResourceExplanationVocabulary.AnalysisType,
+                            "findings",
+                            analysis.Participations
+                                .SelectMany(static participation =>
+                                    participation.Surfaces)
+                                .SelectMany(static surface =>
+                                    surface.Descriptors)
+                                .Select(static descriptor =>
+                                    descriptor.Title)
+                                .Distinct(StringComparer.Ordinal)),
+                        ResourceExplanationVocabulary.TextsFact(
+                            ResourceExplanationVocabulary.AnalysisType,
                             "participations",
                             analysis.Participations.SelectMany(
                                 static participation =>
@@ -1153,11 +1184,31 @@ public sealed partial class ResourceExplanationCatalog
                         {
                             ["participates"] = operationSurfaces,
                             ["issues"] = findings,
+                            ["route"] = catalog.Routes
+                                .Where(route =>
+                                    route.AnalysisOperation?.CanDispatch(
+                                        analysis) == true)
+                                .Select(route => keys[RouteIdentity(route)]),
+                            ["exposed-by"] = catalog.Bindings
+                                .Where(binding =>
+                                    binding.ExposedAnalyses.Contains(
+                                        analysis.Id.Value))
+                                .Select(binding =>
+                                    keys[ConsumerBindingIdentity(binding)]),
                         })));
         }
 
-        return Create(ResourceExplanationVocabulary.Schemas, snapshots);
+        return snapshots;
     }
+
+    internal static ExplanationResourceKey AnalysisKey(
+        InspectionAnalysisRegistration registration) =>
+        AnalysisKey(registration.Analysis.Id.Value);
+
+    private static ExplanationResourceKey AnalysisKey(string identity) =>
+        ResourceExplanationVocabulary.Key(
+            ResourceExplanationVocabulary.AnalysisType,
+            Pack(identity));
 
     public const string AnalysesCollectionSegment = "analyses";
 
@@ -1927,13 +1978,13 @@ public sealed partial class ResourceExplanationCatalog
                 + "Workspace projection."));
     }
 
-    internal static InspectionCapabilityResourceIdentity DocumentIdentity(
+    public static InspectionCapabilityResourceIdentity DocumentIdentity(
         InspectionDocumentRegistration document) =>
         new(
             InspectionCapabilityResourceKind.Document,
             document.Descriptor.Identity);
 
-    internal static InspectionCapabilityResourceIdentity RouteIdentity(
+    public static InspectionCapabilityResourceIdentity RouteIdentity(
         InspectionRouteRegistration route) =>
         new(
             InspectionCapabilityResourceKind.Route,
@@ -1960,7 +2011,7 @@ public sealed partial class ResourceExplanationCatalog
             InspectionCapabilityResourceKind.RelatedOperation,
             operation.Id.Value);
 
-    internal static InspectionCapabilityResourceIdentity
+    public static InspectionCapabilityResourceIdentity
         ConsumerBindingIdentity(
             InspectionConsumerBinding binding) =>
         new(
@@ -1969,7 +2020,9 @@ public sealed partial class ResourceExplanationCatalog
 
     internal static ExplanationResourceKey CapabilityKey(
         InspectionCapabilityResourceIdentity identity) =>
-        ResourceExplanationVocabulary.Key(
+        identity.Kind == InspectionCapabilityResourceKind.Analysis
+            ? AnalysisKey(identity.Identity)
+            : ResourceExplanationVocabulary.Key(
             identity.Kind switch
             {
                 InspectionCapabilityResourceKind.Document =>

@@ -522,7 +522,12 @@ public partial class ApiCommand
                             return 1;
                     }
                     var analysisInspection = new ApiMemberAnalysisInspection(
-                        mo4.DllPath!, methods, requestedSections, mo4.CallerScopeAssemblies, mo4);
+                        mo4.DllPath!,
+                        methods,
+                        requestedSections,
+                        mo4.CallerScopeAssemblies,
+                        mo4,
+                        memberCodeSourceAssembly);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         requestedSections, analysisInspection, mo4.PdbPath,
@@ -568,7 +573,8 @@ public partial class ApiCommand
                     TypeAnalysis().Safety);
             }
 
-            if (options.DllPath is { } exceptionRegionsDllPath
+            if (options is TypeOptions
+                && options.DllPath is { } exceptionRegionsDllPath
                 && (GetRequestedMemberSections(type, options).Contains(SectionNames.ExceptionRegions)
                     || options.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
             {

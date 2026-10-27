@@ -10,7 +10,8 @@ using ILInspector.Metadata;
 namespace DotnetInspect.Cli.Commands;
 
 // Keeps the restored occurrence and its binding policy alive throughout the
-// ordinary Type or Member pipeline, including temporary assembly/XML access.
+// ordinary Type or Member pipeline, including descriptor-backed body access
+// and any required temporary assembly/XML access.
 internal static class WorkspaceTypeInspectionTarget
 {
     internal static async Task<int> ExecuteAsync(
@@ -18,12 +19,15 @@ internal static class WorkspaceTypeInspectionTarget
         ExactTypeRenderSource renderSource,
         SelectedContextExactTypeLiveTarget target,
         Func<ApiSourceResult, ApiServices.LoadedApiSurface, Task<int>> execute,
-        string? packageExtractPathOverride = null)
+        string? packageExtractPathOverride = null,
+        bool requiresLocalAssemblyPath = true)
     {
         try
         {
             using WorkspaceTypeAssemblyPath assemblyPath =
-                WorkspaceTypeAssemblyPath.Create(target);
+                WorkspaceTypeAssemblyPath.Create(
+                    target,
+                    requiresLocalAssemblyPath);
             string libraryAssetPath =
                 renderSource.SelectedLibraryPath
                 ?? assemblyPath.Value;
@@ -202,7 +206,8 @@ internal static class WorkspaceTypeInspectionTarget
         internal string Value { get; }
 
         internal static WorkspaceTypeAssemblyPath Create(
-            SelectedContextExactTypeLiveTarget target)
+            SelectedContextExactTypeLiveTarget target,
+            bool requiresLocalAssemblyPath)
         {
             if (target.AssemblyPath is { } existing)
             {
@@ -220,6 +225,17 @@ internal static class WorkspaceTypeInspectionTarget
                             packageAssetPath.Replace(
                                 '/',
                                 Path.DirectorySeparatorChar))),
+                    temporaryDirectory: null);
+            }
+
+            if (!requiresLocalAssemblyPath)
+            {
+                string logicalPath =
+                    target.PackageAssetPath
+                    ?? target.Assembly.Path
+                    ?? $"{target.Assembly.Identity.Name}.dll";
+                return new WorkspaceTypeAssemblyPath(
+                    Path.GetFullPath(logicalPath),
                     temporaryDirectory: null);
             }
 

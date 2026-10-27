@@ -22,6 +22,15 @@ implemented for the CLI, which admits its six explained structural catalogs.
 [#10568](https://github.com/richlander/dotnet-inspect/issues/10568) is
 implemented in the host-neutral operation, so both hosts receive it.
 
+[#10700](https://github.com/richlander/dotnet-inspect/issues/10700) plans to
+replace the per-family [search population](#search-population) with one
+admission rule: search admits every resource that is registered in the
+composed graph and that the current host binds, as
+[Inspection Capability Composition](inspection-capability-composition.md#registration-execution-and-binding)
+defines. Registered analyses already follow that rule through the capability
+family. The structural family below describes the current implementation for
+sections and categories until their adoption lands.
+
 ## Owner and exact claim
 
 **Capability Catalog Search** owns this exact claim:
@@ -232,7 +241,10 @@ The search population has two explicit families:
 
 A capability-family resource is searchable only when the composed graph
 proves that it is reachable from an executable registered route and at least
-one production consumer binding. A structural-family resource is searchable
+one production consumer binding. A registered analysis is reachable when a
+binding of its operation's route exposes it, under the
+[selection rule](inspection-capability-composition.md#host-binding) of
+Inspection Capability Composition. A structural-family resource is searchable
 only when its catalog meets the admission rule of the structural catalog
 population. No resource is searchable by any other path.
 
@@ -253,6 +265,7 @@ that promises a next production gesture.
 ### Structural catalog population
 
 Structural sections and categories are not composed capability resources.
+Before [#10700](https://github.com/richlander/dotnet-inspect/issues/10700),
 Inspection Capability Composition keeps command-local section catalogs
 outside the graph rather than wrapping them, and the composed graph has no
 route whose Content is a Library section. Those resources are nonetheless
@@ -366,6 +379,18 @@ The search adapter selects these fields explicitly for each adopted descriptor
 family. It does not use reflection, property enumeration, serializer metadata,
 display-object inspection, or rendered text.
 
+For a registered analysis, the projected fields are:
+
+1. its owner-issued analysis identity, as its owner identity, and its name;
+2. its canonical Resource Explanation path, `analyses/<identity>`;
+3. the owner-issued title of each Finding it issues, from its explained
+   `findings` fact; and
+4. the identity and name of its owning route and of the bindings that
+   expose it.
+
+An analysis has no summary. Its revision, cost, surfaces, and Finding
+descriptor identities do not participate.
+
 For a structural Section or Category, the projected fields are:
 
 1. its owner-issued name, the exact name that selects it, as its owner
@@ -413,7 +438,7 @@ Search-term provenance is ordered from strongest to weakest:
 2. owner-issued example value;
 3. canonical resource path;
 4. owner-issued resource name;
-5. owner-issued summary; and
+5. owner-issued summary or issued Finding title; and
 6. related route or production-binding identity or name.
 
 This order breaks equal similarity scores. It does not change the similarity
@@ -560,7 +585,9 @@ and `IsTruncated` is true exactly when `MatchCount > ReturnedCount`.
 
 Exactly one of `ResourceIdentity` and `StructuralIdentity` is present.
 A capability-family result carries its composed
-`InspectionCapabilityResourceIdentity`. A structural result carries its
+`InspectionCapabilityResourceIdentity`. An analysis result has kind
+`Analysis`, the Compare route as its owning route, and the bindings that
+expose it. A structural result carries its
 catalog name and its typed Discovery resource identity, with `ResourceKind`
 `Section` or `Category`. A structural result has one owning route, the Route
 its host admitted, and the admitted Bindings whose Resources contain it, in
@@ -846,6 +873,10 @@ publish a partially ranked prefix as complete.
 | A text of several segments with no search word uses the whole-text rule | Implemented: host-neutral test reporting the `0.6` threshold |
 | A phrase below `0.25` is complete empty | Implemented: host-neutral zero-match phrase test |
 | The routing question "Does this library have namespace dependency cycles?" ranks Dependency Structure first | Implemented: CLI facade theory with the verbatim question and two shorter phrases |
+| A host searches every analysis its bindings expose, with its owning route and binding | Implemented: the CLI test finds every analysis `diff --analysis` exposes, with only that binding and the Compare route, and follows each path through exact explanation |
+| An analysis matches on its identity, path, and issued Finding titles, and a Finding-title word is context | Implemented: host-neutral term-provenance and weighting tests over Diff's registrations |
+| An analysis no binding exposes is not a candidate | Implemented: host-neutral candidate-count test |
+| `string literal diff` and `allocation changes` rank the analysis first | Implemented: CLI facade theory |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -880,6 +911,12 @@ implementation; this adoption adds no new matching algorithm.
 7. Score phrases word by word with heading weights
    ([#10568](https://github.com/richlander/dotnet-inspect/issues/10568)).
    **Complete.**
+
+8. Admit by registration plus binding over one composed graph
+   ([#10700](https://github.com/richlander/dotnet-inspect/issues/10700)).
+   Analyses join first. The structural population family retires when
+   structural catalogs register in the graph. **Complete for analyses;
+   planned for structural catalogs.**
 
 Each slice lands with its own production consumer. A search implementation
 over a synthetic test-only registry does not complete this design.

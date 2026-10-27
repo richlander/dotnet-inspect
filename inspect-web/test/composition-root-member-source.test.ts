@@ -21,6 +21,7 @@ import {
   sourceReloadKind,
   sourceRequestNeedsLoad,
   spotlightCandidateSignature,
+  setMemberViewFacetCatalog,
   workspaceCoordinatesMatch,
 } from "../src/data.ts";
 import {
@@ -833,12 +834,26 @@ test("every overload-specific member loader leaves a multi-overload picker inert
 // compiler could not check in that direction. This is the gate for it deriving instead:
 // restoring a hand-written list makes a catalog addition stop appearing here.
 test("the full member-section roster is derived from the catalog, not restated", () => {
+  setMemberViewFacetCatalog([
+    { id: "member.overview", kind: "Member", title: "Overview", order: 100 },
+    { id: "member.call-graph", kind: "Member", title: "Call graph", order: 200 },
+    { id: "member.facts", kind: "Member", title: "Facts", order: 300 },
+    { id: "member.source", kind: "Member", title: "Source", order: 400 },
+    {
+      id: "member.annotated-source",
+      kind: "Member",
+      title: "Annotated source",
+      order: 500,
+    },
+    { id: "member.compare", kind: "Member", title: "Compare", order: 600 },
+  ]);
+  const definitions = memberSectionDefinitions();
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }),
-    memberSectionDefinitions.map(([id]) => id));
+    definitions.map(([id]) => id));
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}] }),
-    memberSectionDefinitions.map(([id]) => id));
+    definitions.map(([id]) => id));
 });
 
 test("source requests carry exact type and member identities", () => {

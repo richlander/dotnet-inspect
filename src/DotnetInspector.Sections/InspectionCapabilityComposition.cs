@@ -84,6 +84,18 @@ public sealed record InspectionRouteDescriptor
     public string Summary { get; }
 }
 
+/// <summary>
+/// How a host-neutral route executes. A Query Space route executes through its
+/// Query Space binding and carries the Query Space gates; an inspection route
+/// executes its typed entry point directly.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<InspectionRouteExecution>))]
+public enum InspectionRouteExecution
+{
+    QuerySpace,
+    Inspection,
+}
+
 public enum InspectionQueryTermRelationshipKind
 {
     RequiredContext,
@@ -248,20 +260,47 @@ public abstract class InspectionRouteRegistration
     private protected InspectionRouteRegistration(
         InspectionRouteDescriptor descriptor,
         InspectionDocumentRegistration document,
-        QuerySpaceBinding querySpace,
+        QuerySpaceBinding? querySpace,
         IEnumerable<InspectionQueryTermRelationship>?
             queryTermRelationships,
         IEnumerable<InspectionQueryTermRelatedOperation>?
             queryTermRelatedOperations,
         IEnumerable<InspectionQueryTermPresentation>?
-            queryTermPresentations)
+            queryTermPresentations,
+        AnalysisOperationDefinition? analysisOperation = null)
     {
         Descriptor = descriptor
             ?? throw new ArgumentNullException(nameof(descriptor));
         Document = document
             ?? throw new ArgumentNullException(nameof(document));
-        QuerySpace = querySpace
-            ?? throw new ArgumentNullException(nameof(querySpace));
+        QuerySpace = querySpace;
+        AnalysisOperation = analysisOperation;
+        QueryTermRelationships =
+        [
+            .. queryTermRelationships ?? [],
+        ];
+        QueryTermRelatedOperations =
+        [
+            .. queryTermRelatedOperations ?? [],
+        ];
+        QueryTermPresentations =
+        [
+            .. queryTermPresentations ?? [],
+        ];
+        if (querySpace is null)
+        {
+            if (!QueryTermRelationships.IsEmpty
+                || !QueryTermRelatedOperations.IsEmpty
+                || !QueryTermPresentations.IsEmpty)
+            {
+                throw new ArgumentException(
+                    $"Inspection route '{descriptor.Identity}' has no Query "
+                    + "Space, so it cannot declare query-term relationships, "
+                    + "related operations, or presentations.",
+                    nameof(querySpace));
+            }
+            return;
+        }
 
         QuerySpaceResultContractDescriptor? rowsContract =
             querySpace.Descriptor.ResultContracts.SingleOrDefault(
@@ -281,18 +320,6 @@ public abstract class InspectionRouteRegistration
                 nameof(querySpace));
         }
 
-        QueryTermRelationships =
-        [
-            .. queryTermRelationships ?? [],
-        ];
-        QueryTermRelatedOperations =
-        [
-            .. queryTermRelatedOperations ?? [],
-        ];
-        QueryTermPresentations =
-        [
-            .. queryTermPresentations ?? [],
-        ];
         HashSet<string> queryTerms =
             querySpace.Descriptor.Operation.Terms
                 .Select(static term => term.Identity)
@@ -384,7 +411,19 @@ public abstract class InspectionRouteRegistration
 
     public InspectionDocumentRegistration Document { get; }
 
-    public QuerySpaceBinding QuerySpace { get; }
+    /// <summary>The route's Query Space binding; null for an inspection route.</summary>
+    public QuerySpaceBinding? QuerySpace { get; }
+
+    /// <summary>
+    /// The analysis operation this route runs, whose registered analyses are
+    /// the route's resources; null when the route runs no analysis set.
+    /// </summary>
+    public AnalysisOperationDefinition? AnalysisOperation { get; }
+
+    public InspectionRouteExecution Execution =>
+        QuerySpace is null
+            ? InspectionRouteExecution.Inspection
+            : InspectionRouteExecution.QuerySpace;
 
     public ImmutableArray<InspectionQueryTermRelationship>
         QueryTermRelationships { get; }
@@ -422,10 +461,29 @@ public sealed class InspectionRouteRegistration<TRequest, TContent> :
         : base(
             descriptor,
             document,
-            querySpace,
+            querySpace
+                ?? throw new ArgumentNullException(nameof(querySpace)),
             queryTermRelationships,
             queryTermRelatedOperations,
             queryTermPresentations)
+    {
+        _execute = execute
+            ?? throw new ArgumentNullException(nameof(execute));
+    }
+
+    /// <summary>
+    /// An inspection route: typed execution without a Query Space, optionally
+    /// running one analysis operation.
+    /// </summary>
+    public InspectionRouteRegistration(
+        InspectionRouteDescriptor descriptor,
+        InspectionDocumentRegistration<TContent> document,
+        Func<
+            TRequest,
+            CancellationToken,
+            ValueTask<InspectionEnvelope<TContent>>> execute,
+        AnalysisOperationDefinition? analysisOperation = null)
+        : base(descriptor, document, null, null, null, null, analysisOperation)
     {
         _execute = execute
             ?? throw new ArgumentNullException(nameof(execute));
@@ -477,7 +535,8 @@ public abstract class InspectionConsumerBinding
         InspectionConsumerDescriptor descriptor,
         InspectionRouteRegistration route,
         IEnumerable<string> exposedQueryTerms,
-        IEnumerable<string>? inputRules = null)
+        IEnumerable<string>? inputRules = null,
+        IEnumerable<string>? exposedAnalyses = null)
     {
         Descriptor = descriptor
             ?? throw new ArgumentNullException(nameof(descriptor));
@@ -506,6 +565,23 @@ public abstract class InspectionConsumerBinding
                 + "than once.",
                 nameof(exposedQueryTerms));
         }
+        ExposedAnalyses =
+        [
+            .. (exposedAnalyses ?? [])
+                .Select(static identity =>
+                {
+                    ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+                    return identity;
+                }),
+        ];
+        if (ExposedAnalyses.Distinct(StringComparer.Ordinal).Count()
+            != ExposedAnalyses.Length)
+        {
+            throw new ArgumentException(
+                "A consumer binding cannot expose the same analysis more "
+                + "than once.",
+                nameof(exposedAnalyses));
+        }
     }
 
     public InspectionConsumerDescriptor Descriptor { get; }
@@ -513,6 +589,12 @@ public abstract class InspectionConsumerBinding
     public InspectionRouteRegistration Route { get; }
 
     public ImmutableArray<string> ExposedQueryTerms { get; }
+
+    /// <summary>
+    /// The analysis identities this binding selects for its route's analysis
+    /// operation, in product order; empty when it selects none.
+    /// </summary>
+    public ImmutableArray<string> ExposedAnalyses { get; }
 
     /// <summary>Consumer-owned input lowering rules; empty means unregistered.</summary>
     public ImmutableArray<string> InputRules { get; }
@@ -526,8 +608,9 @@ public sealed class InspectionConsumerBinding<TRequest, TContent> :
         InspectionConsumerDescriptor descriptor,
         InspectionRouteRegistration<TRequest, TContent> route,
         IEnumerable<string> exposedQueryTerms,
-        IEnumerable<string>? inputRules = null)
-        : base(descriptor, route, exposedQueryTerms, inputRules)
+        IEnumerable<string>? inputRules = null,
+        IEnumerable<string>? exposedAnalyses = null)
+        : base(descriptor, route, exposedQueryTerms, inputRules, exposedAnalyses)
     {
     }
 
@@ -670,27 +753,6 @@ public sealed class InspectionAnalysisRegistration
             && producer.Participation.Surface == surface);
 }
 
-/// <summary>
-/// One host consumer that selects analyses by identity for one operation,
-/// such as the CLI <c>diff --analysis</c> option.
-/// </summary>
-public sealed class InspectionAnalysisConsumerBinding
-{
-    public InspectionAnalysisConsumerBinding(
-        InspectionConsumerDescriptor descriptor,
-        AnalysisOperationDefinition operation)
-    {
-        Descriptor = descriptor
-            ?? throw new ArgumentNullException(nameof(descriptor));
-        Operation = operation
-            ?? throw new ArgumentNullException(nameof(operation));
-    }
-
-    public InspectionConsumerDescriptor Descriptor { get; }
-
-    public AnalysisOperationDefinition Operation { get; }
-}
-
 public sealed record InspectionCapabilityModule
 {
     public InspectionCapabilityModule(
@@ -700,8 +762,7 @@ public sealed record InspectionCapabilityModule
         IEnumerable<InspectionConsumerBinding>? bindings = null,
         IEnumerable<InspectionProductionAdoptionRequirement>?
             adoptionRequirements = null,
-        IEnumerable<InspectionAnalysisRegistration>? analyses = null,
-        IEnumerable<InspectionAnalysisConsumerBinding>? analysisBindings = null)
+        IEnumerable<InspectionAnalysisRegistration>? analyses = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
         Identity = identity;
@@ -710,7 +771,6 @@ public sealed record InspectionCapabilityModule
         Bindings = [.. bindings ?? []];
         AdoptionRequirements = [.. adoptionRequirements ?? []];
         Analyses = [.. analyses ?? []];
-        AnalysisBindings = [.. analysisBindings ?? []];
     }
 
     public string Identity { get; }
@@ -726,11 +786,6 @@ public sealed record InspectionCapabilityModule
 
     /// <summary>Analysis participation registrations, in product order.</summary>
     public ImmutableArray<InspectionAnalysisRegistration> Analyses { get; }
-
-    public ImmutableArray<InspectionAnalysisConsumerBinding> AnalysisBindings
-    {
-        get;
-    }
 }
 
 public sealed record InspectionProductionAdoptionGap(
@@ -746,7 +801,6 @@ public sealed class InspectionCapabilityCatalog
         ImmutableArray<InspectionConsumerBinding> bindings,
         ImmutableArray<InspectionProductionAdoptionGap> adoptionGaps,
         ImmutableArray<InspectionAnalysisRegistration> analyses,
-        ImmutableArray<InspectionAnalysisConsumerBinding> analysisBindings,
         AnalysisCapabilityCatalog analysisCapabilities)
     {
         Modules = modules;
@@ -755,7 +809,6 @@ public sealed class InspectionCapabilityCatalog
         Bindings = bindings;
         AdoptionGaps = adoptionGaps;
         Analyses = analyses;
-        AnalysisBindings = analysisBindings;
         AnalysisCapabilities = analysisCapabilities;
     }
 
@@ -778,9 +831,20 @@ public sealed class InspectionCapabilityCatalog
     /// </summary>
     public ImmutableArray<InspectionAnalysisRegistration> Analyses { get; }
 
-    public ImmutableArray<InspectionAnalysisConsumerBinding> AnalysisBindings
+    /// <summary>
+    /// The registered analyses a route's analysis operation can dispatch, in
+    /// product order: the route's analysis resources.
+    /// </summary>
+    public ImmutableArray<InspectionAnalysisRegistration> AnalysesOf(
+        InspectionRouteRegistration route)
     {
-        get;
+        ArgumentNullException.ThrowIfNull(route);
+        return route.AnalysisOperation is { } operation
+            ? [
+                .. Analyses.Where(registration =>
+                    operation.CanDispatch(registration.Analysis)),
+            ]
+            : [];
     }
 
     /// <summary>
@@ -849,12 +913,14 @@ public sealed class InspectionCapabilityCatalog
             }
         }
         foreach (IGrouping<string, InspectionRouteRegistration> group
-                 in routes.GroupBy(
-                     static route =>
-                         route.QuerySpace.Descriptor.Identity,
-                     StringComparer.Ordinal))
+                 in routes
+                     .Where(static route => route.QuerySpace is not null)
+                     .GroupBy(
+                         static route =>
+                             route.QuerySpace!.Descriptor.Identity,
+                         StringComparer.Ordinal))
         {
-            QuerySpaceBinding first = group.First().QuerySpace;
+            QuerySpaceBinding first = group.First().QuerySpace!;
             if (group.Any(route =>
                     !ReferenceEquals(route.QuerySpace, first)))
             {
@@ -893,9 +959,10 @@ public sealed class InspectionCapabilityCatalog
             }
 
             HashSet<string> routeTerms =
-                binding.Route.QuerySpace.Descriptor.Operation.Terms
+                binding.Route.QuerySpace?.Descriptor.Operation.Terms
                     .Select(static term => term.Identity)
-                    .ToHashSet(StringComparer.Ordinal);
+                    .ToHashSet(StringComparer.Ordinal)
+                ?? [];
             foreach (string exposedTerm in binding.ExposedQueryTerms)
             {
                 if (!routeTerms.Contains(exposedTerm))
@@ -962,41 +1029,59 @@ public sealed class InspectionCapabilityCatalog
             "analysis");
         var analysisCapabilities = new AnalysisCapabilityCatalog(
             analyses.Select(static analysis => analysis.Analysis));
-        ImmutableArray<InspectionAnalysisConsumerBinding> analysisBindings =
-        [
-            .. moduleArray
-                .SelectMany(static module => module.AnalysisBindings)
-                .OrderBy(
-                    static binding => binding.Descriptor.Identity,
-                    StringComparer.Ordinal),
-        ];
-        EnsureUnique(
-            analysisBindings.Select(static binding => binding.Descriptor.Identity)
-                .Concat(bindings.Select(static binding => binding.Descriptor.Identity)),
-            static identity => identity,
-            "consumer binding");
-        foreach (InspectionAnalysisConsumerBinding binding in analysisBindings)
+        foreach (InspectionRouteRegistration route in routes)
         {
-            if (!analyses.Any(analysis =>
-                    analysis.Analysis.ParticipationFor(binding.Operation.Kind)
-                        is not null))
+            if (route.AnalysisOperation is not { } operation)
+                continue;
+            HashSet<string> dispatchable =
+                analyses
+                    .Where(analysis =>
+                        operation.CanDispatch(analysis.Analysis))
+                    .Select(static analysis => analysis.Analysis.Id.Value)
+                    .ToHashSet(StringComparer.Ordinal);
+            if (dispatchable.Count == 0)
             {
                 throw new ArgumentException(
-                    $"Analysis consumer binding '{binding.Descriptor.Identity}' "
-                    + $"selects {binding.Operation.Kind} analyses, but no "
-                    + "registered analysis participates in that operation.",
+                    $"Inspection route '{route.Descriptor.Identity}' runs "
+                    + $"{operation.Kind} analyses, but no registered analysis "
+                    + "can be dispatched by that operation.",
                     nameof(modules));
             }
-            foreach (string identity in binding.Operation.DefaultSet)
+            foreach (string identity in operation.DefaultSet)
+            {
+                if (!dispatchable.Contains(identity))
+                {
+                    throw new ArgumentException(
+                        $"Inspection route '{route.Descriptor.Identity}' "
+                        + $"defaults to analysis '{identity}', which its "
+                        + "operation cannot dispatch.",
+                        nameof(modules));
+                }
+            }
+        }
+        foreach (InspectionConsumerBinding binding in bindings)
+        {
+            if (binding.ExposedAnalyses.IsEmpty)
+                continue;
+            AnalysisOperationDefinition operation =
+                binding.Route.AnalysisOperation
+                ?? throw new ArgumentException(
+                    $"Inspection consumer binding "
+                    + $"'{binding.Descriptor.Identity}' exposes analyses, but "
+                    + $"route '{binding.Route.Descriptor.Identity}' runs no "
+                    + "analysis operation.",
+                    nameof(modules));
+            foreach (string identity in binding.ExposedAnalyses)
             {
                 if (!analyses.Any(analysis =>
                         analysis.Analysis.Id.Value == identity
-                        && analysis.Analysis.ParticipationFor(
-                            binding.Operation.Kind) is not null))
+                        && operation.CanDispatch(analysis.Analysis)))
                 {
                     throw new ArgumentException(
-                        $"Analysis consumer binding '{binding.Descriptor.Identity}' "
-                        + $"defaults to unregistered analysis '{identity}'.",
+                        $"Inspection consumer binding "
+                        + $"'{binding.Descriptor.Identity}' exposes analysis "
+                        + $"'{identity}' outside route "
+                        + $"'{binding.Route.Descriptor.Identity}'.",
                         nameof(modules));
                 }
             }
@@ -1009,7 +1094,6 @@ public sealed class InspectionCapabilityCatalog
             bindings,
             gaps,
             analyses,
-            analysisBindings,
             analysisCapabilities);
     }
 

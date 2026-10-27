@@ -79,12 +79,11 @@ internal static class MemberCodeProvider
         // Sections that require a single selected method (IL, decompiled source, etc.)
         // are skipped when no overload index is provided. Callers works across all overloads
         // and is handled separately in PopulateIndexSections.
-        if (!overloadIndex.HasValue)
+        if (!overloadIndex.HasValue
+            || !RequestsMemberCode(request))
             return results;
 
-        var selectedAssembly = RequestsMemberCode(request)
-            ? sourceAssembly
-            : null;
+        ResolvedAssemblyReference? selectedAssembly = sourceAssembly;
 
         // Read metadata/IL through the assembly seam; decompiler-backed sections
         // still own their symbol-aware MetadataSource below.

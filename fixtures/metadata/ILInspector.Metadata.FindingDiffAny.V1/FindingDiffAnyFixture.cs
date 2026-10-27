@@ -81,6 +81,10 @@ public class PublicMemberAdded
     public int Value(int x) => x + 1;
 }
 
+public abstract class AbstractMemberAdded
+{
+}
+
 public class MethodConstraint
 {
     public void Value<T>() where T : class { }
@@ -300,6 +304,14 @@ public class MixedAccessorPropertyNarrowerAccessorMoves
 public class AccessorProtectedToProtectedInternal
 {
     public int Value { get; protected set; }
+}
+
+// A setter becomes init-only: a caller that assigns the property after
+// construction breaks, and each side spells its own accessor (#10679, from
+// ASP.NET Core's ValidateContext.ValidationOptions).
+public class SetterBecomesInit
+{
+    public required int Value { get; set; }
 }
 
 // Changes wholly outside the API axis.

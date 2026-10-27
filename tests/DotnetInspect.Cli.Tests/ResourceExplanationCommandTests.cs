@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspector.InspectionContracts;
 using DotnetInspector.Networking;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using QuerySpace;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
@@ -1083,6 +1084,106 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task DiffAnalysisRoute_ExplainsAsAnInspectionRouteBoundToDiff()
+    {
+        Assert.Contains(
+            DiffAnalysisCommandCapability.CompareBinding,
+            DiffAnalysisCommandCapability.Catalog.Bindings);
+        Assert.Same(
+            DiffAnalysisCatalog.Route,
+            DiffAnalysisCommandCapability.CompareBinding.Route);
+
+        var route = await RunAsync(
+            "explain",
+            "diff-analysis/routes/compare",
+            "--json");
+
+        Assert.Equal(0, route.ExitCode);
+        Assert.Empty(route.Error);
+        Assert.Contains("\"execution\":\"inspection\"", route.Output);
+        Assert.Contains("diff-analysis/bindings/cli", route.Output);
+
+        var document = await RunAsync("explain", "diff-analysis", "--json");
+
+        Assert.Equal(0, document.ExitCode);
+        using JsonDocument exact = JsonDocument.Parse(document.Output);
+        Assert.Equal(
+            "diff-analysis",
+            exact.RootElement.GetProperty("path").GetString());
+    }
+
+    [Fact]
+    public async Task Search_AdmitsEveryAnalysisDiffBinds()
+    {
+        var search = await RunAsync(
+            "explain",
+            "diff analyses",
+            "-n",
+            "100",
+            "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement[] analyses =
+        [
+            .. document.RootElement
+                .GetProperty("results")
+                .EnumerateArray()
+                .Where(static result =>
+                    result.GetProperty("resource_kind").GetString()
+                        == "Analysis"),
+        ];
+        Assert.Equal(
+            DiffAnalysisCommandCapability.Identities
+                .Select(static identity => "analyses/" + identity)
+                .Order(StringComparer.Ordinal),
+            analyses
+                .Select(static result =>
+                    result.GetProperty("resource_path").GetString()!)
+                .Order(StringComparer.Ordinal));
+        foreach (JsonElement analysis in analyses)
+        {
+            Assert.Equal(
+                "diff --analysis",
+                Assert.Single(
+                        analysis.GetProperty("production_bindings")
+                            .EnumerateArray())
+                    .GetProperty("gesture")
+                    .GetString());
+            Assert.Equal(
+                "diff-analysis/routes/compare",
+                Assert.Single(
+                        analysis.GetProperty("owning_routes")
+                            .EnumerateArray())
+                    .GetProperty("resource_path")
+                    .GetString());
+            var exact = await RunAsync(
+                "explain",
+                analysis.GetProperty("resource_path").GetString()!,
+                "--json");
+            Assert.Equal(0, exact.ExitCode);
+        }
+    }
+
+    [Theory]
+    [InlineData("string literal diff", "analyses/string-literals")]
+    [InlineData("allocation changes", "analyses/allocation")]
+    public async Task Phrase_RanksTheAnalysisFirst(string text, string path)
+    {
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        Assert.Equal(
+            path,
+            document.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("resource_path")
+                .GetString());
+    }
+
+    [Fact]
     public async Task BareExplain_DefaultsToTheRoutingTableAsTsv()
     {
         // Explain is primarily for agents, so its starting point is the
@@ -1105,7 +1206,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 "operation\toperations/diff-analysis\tDiff analyses\t",
                 StringComparison.Ordinal)
                 && line.Contains(
-                    "\tlibrary, type, member\tanalyses\t",
+                    "\tlibrary, type, member\tdiff-analysis, analyses\t",
                     StringComparison.Ordinal));
         Assert.DoesNotContain("# Explain", result.Output);
     }
@@ -1160,7 +1261,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "| operation | operations/diff-analysis | Diff analyses |",
             result.Output);
         Assert.Contains(
-            "| library, type, member | analyses |",
+            "| library, type, member | diff-analysis, analyses |",
             result.Output);
         Assert.Contains(
             "| reference | references/vocabularies | Value vocabularies |",

@@ -16,8 +16,10 @@ internal static partial class WorkflowContract
     [
         "inspect-web-platform",
         "inspect-web-facades",
-        "inspect-web-msdl-tests",
     ];
+
+    private const string InspectWebDotnetupJob = "inspect-web-msdl-tests";
+    private const string InspectWebDotnetupStep = "Install .NET with dotnetup";
 
     internal static WorkflowContractResult Load(
         string repository,
@@ -79,6 +81,7 @@ internal static partial class WorkflowContract
         ValidateInspectWebConsolidatedChecks(jobs);
         ValidateInspectWebManagedTests(jobs);
         ValidateInspectWebSdk(jobs);
+        ValidateInspectWebDotnetup(jobs);
         ValidatePackageManifestVerifierBuild(jobs);
         ValidateTlaJob(jobs);
         ValidateLeanJob(jobs);
@@ -385,6 +388,67 @@ internal static partial class WorkflowContract
         {
             throw new InvalidOperationException(
                 "Browser engine coverage belongs in daily Deep Inspect.");
+        }
+    }
+
+    private static void ValidateInspectWebDotnetup(YamlMappingNode jobs)
+    {
+        string context = $"jobs.{InspectWebDotnetupJob}";
+        YamlMappingNode job = GetRequiredMapping(jobs, InspectWebDotnetupJob, "jobs");
+        RequireAbsent(job, "continue-on-error", context);
+        RequireAbsent(job, "defaults", context);
+        RequireExactScalarValues(
+            GetRequiredMapping(job, "env", context),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["DOTNET_ROOT"] = "${{ github.workspace }}/artifacts/dotnet",
+                ["DOTNET_DOTNETUP_DATA_DIR"] =
+                    "${{ github.workspace }}/artifacts/dotnetup-data",
+            },
+            $"{context}.env");
+        YamlMappingNode[] steps = GetRequiredSequence(job, "steps", context)
+            .Children
+            .Select(node => RequireMapping(node, $"{context} step"))
+            .ToArray();
+        if (steps.Any(step => GetOptionalScalar(step, "uses")?.StartsWith(
+                "actions/setup-dotnet@",
+                StringComparison.Ordinal) == true))
+        {
+            throw new InvalidOperationException(
+                $"{context} must install .NET with dotnetup, not setup-dotnet.");
+        }
+        int installIndex = Array.FindIndex(
+            steps,
+            step => GetOptionalScalar(step, "name") == InspectWebDotnetupStep);
+        int testIndex = Array.FindIndex(
+            steps,
+            step => GetOptionalScalar(step, "name") == "Test Inspect Web managed API");
+        if (installIndex < 0
+            || testIndex < installIndex
+            || steps.Count(step =>
+                GetOptionalScalar(step, "name") == InspectWebDotnetupStep) != 1)
+        {
+            throw new InvalidOperationException(
+                $"{context} must run {InspectWebDotnetupStep} once, before its tests.");
+        }
+        YamlMappingNode install = steps[installIndex];
+        RequireScalarValue(install, "shell", "bash", $"{context} {InspectWebDotnetupStep}");
+        string run = GetRequiredScalar(install, "run", $"{context} {InspectWebDotnetupStep}");
+        foreach (string required in (string[])
+            [
+                "set -euo pipefail",
+                "sdk install 11.0.100-rc.1.26425.128",
+                "runtime install aspnetcore@10.0",
+                "--install-path \"$DOTNET_ROOT\"",
+                "echo \"$DOTNET_ROOT\" >> \"$GITHUB_PATH\"",
+                "test \"$(\"$DOTNET_ROOT/dotnet\" --version)\" = 11.0.100-rc.1.26425.128",
+            ])
+        {
+            if (!run.Contains(required, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"{context} {InspectWebDotnetupStep} must contain: {required}");
+            }
         }
     }
 

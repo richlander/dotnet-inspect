@@ -73,10 +73,18 @@ The immutable request-set reference planner now validates the complete set
 before acquisition, retains caller association and owner resource identities,
 and groups only exact owner-issued resource/source pairs. Method Query Source
 is the first source consumer: it issues compatible source bindings, preserves
-terminal-specialized lanes, and records one physical all-MethodDef traversal
-beside each request's independent result, outcome, source completion, and
-Producer Planning receipt. Incompatible or sparse requests remain separate;
+terminal-specialized lanes, and records one physical all-MethodDef or
+identical exact-MethodDef traversal beside each request's independent result,
+outcome, source completion, and Producer Planning receipt. Incompatible
+requests, distinct sparse breadth, and exact-TypeDef breadth remain separate;
 sharing is never required for acceptance.
+
+IL-offset semantic preparation is the first production adopter for an
+identical exact-MethodDef request set. Its allocation, safety, and cost Rows
+associations retain independent results and receipts while one source group
+serves the selected combination. The Method Query Source owner constructs the
+structural requests through Analysis-owned `ExactMethodSemanticAnalysis`;
+Research consumes detached results rather than depending on QuerySpace.
 
 Method Classification is the first mixed-terminal production adopter. Its
 session-backed query lowers independent analyzer Rows, Count, Exists, and Head
