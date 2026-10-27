@@ -290,18 +290,16 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "References", EmptyText = "No references.")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
         (_data.AssemblyReferenceDisplayOrder
-            ?? _data.AssemblyReferenceInspection
-                .PayloadsForRendering()
-                .OrderBy(r => r.Name, StringComparer.Ordinal)
-                .ToArray())
-            .Select(r => new ReferenceRow(
+            ?? (_data.LibraryReferenceInspectionEnvelope?.Content
+                as LibraryReferenceInspectionOutcome.Available)?.References)
+            ?.Select(r => new ReferenceRow(
                 r.Name,
                 r.Version,
                 LibraryViewText.Field(r.PublicKeyToken ?? "-")))
             .ToList() is { Count: > 0 } list
                 ? list
-                : _data.AssemblyReferenceInspection is { } inspection
-                  && inspection.Failure() is null
+                : _data.LibraryReferenceInspectionEnvelope?.Content
+                    is LibraryReferenceInspectionOutcome.Available
                     ? []
                     : null;
 
