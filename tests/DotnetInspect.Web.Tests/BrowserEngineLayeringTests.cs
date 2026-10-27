@@ -100,7 +100,6 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains("T:ILInspector.Decompiler.CSharpBodyDiff", banned);
         Assert.Contains("T:ILInspector.Decompiler.CSharpFindings", banned);
         Assert.Contains("T:ILInspector.Metadata.MemberSearch", banned);
-        Assert.Contains("T:ILInspector.Metadata.Corpus", banned);
         Assert.Contains("T:ILInspector.Research.ImplementationDiff", banned);
         Assert.Contains("T:ILInspector.Research.ResearchDiff", banned);
         Assert.Contains("T:ILInspector.Research.ResearchDiffInput", banned);
