@@ -152,7 +152,9 @@ Nested Types counts every immediate NestedClass child, regardless of
 accessibility, hidden or compiler-generated classification, or host admission
 options such as `--all`. It does not recurse: a deeper descendant contributes
 to its immediate declaring Type's Count, not every ancestor's Count. The
-scalar does not add nested-Type Rows or classify nested Types as MemberGroups.
+Signature carries zero explicitly; fixed-field presentation may omit that row
+as it does for zero Interfaces. The scalar does not add nested-Type Rows or
+classify nested Types as MemberGroups.
 
 The Base fact is absent only when the Type has no base or the established
 projection omits its runtime-category base. It preserves every base spelling
