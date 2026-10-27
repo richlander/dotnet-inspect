@@ -90,7 +90,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
-    public async Task InspectAsync_CacheHitRefreshesSharedTargetSelection()
+    public async Task InspectAsync_CacheHitRefreshesTargetWithoutErasingToolClassification()
     {
         PersistentCache.Initialize(
             "dotnet-inspect-test",
@@ -98,6 +98,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         const string PackageId = "Selection.Cache";
         const string Version = "1.0.0";
         const string Producer = "selection-cache-producer";
+        Directory.CreateDirectory(
+            Path.Combine(_root, "tools", "net8.0", "any"));
         var authority = new ConfiguredPackageAuthority(
             new NuGetFetch.PackageSource(
                 "selection-cache",
@@ -134,7 +136,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             throw new InvalidOperationException(
                 "This inspection does not request remote metadata.")));
 
-        _ = await PackageInspector.InspectAsync(
+        InspectionResult cold = await PackageInspector.InspectAsync(
             resolution,
             PackageId,
             Version,
@@ -143,6 +145,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             nuspec,
             client,
             new VerboseLogger(enabled: false));
+        Assert.True(cold.IsToolPackage);
         Assert.NotNull(PackageIndexCache.TryGet(Subject(resolution)));
 
         InspectionResult cached = await PackageInspector.InspectAsync(
@@ -168,6 +171,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 Assert.IsType<DeclaredPackageDependencyGroup>(
                     available.Dependencies.SelectedGroup)
                     .Dependencies).Id);
+        Assert.Equal(cold.IsToolPackage, cached.IsToolPackage);
     }
 
     [Fact]

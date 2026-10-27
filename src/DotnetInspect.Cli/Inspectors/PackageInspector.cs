@@ -530,10 +530,14 @@ internal static class PackageInspector
             } license
                 ? license.Value
                 : null;
-        result.PackageTypes = manifest.PackageTypes.IsEmpty
-            ? null
-            : [.. manifest.PackageTypes];
-        result.IsToolPackage = manifest.IsToolPackage;
+        bool hasDeclaredPackageTypes = !manifest.PackageTypes.IsEmpty;
+        result.PackageTypes = hasDeclaredPackageTypes
+            ? [.. manifest.PackageTypes]
+            : null;
+        if (hasDeclaredPackageTypes)
+        {
+            result.IsToolPackage = manifest.IsToolPackage;
+        }
         result.ReadmeFile = manifest.ReadmeFile;
         result.RejectedDependencyIdentifierObservations =
             manifest.DependencyDeclarations
