@@ -522,7 +522,9 @@ public class SourceLinkQueryServiceTests
                     $"/src/{index}.cs",
                     url: $"https://example.test/src/{index}.cs")),
         ];
-        var handler = new GatedHeadHandler(documents.Length);
+        var handler = new GatedResponseHandler(
+            documents.Length,
+            _ => new HttpResponseMessage(HttpStatusCode.OK));
         using var client = new HttpClient(handler);
 
         Task<SourceAvailabilitySummary> audit = SourceAvailabilityService.InspectAsync(
@@ -667,6 +669,63 @@ public class SourceLinkQueryServiceTests
     }
 
     [Fact]
+    public async Task Integrity_RefillsBoundedWindowWhenAnyBodyCompletes()
+    {
+        const int MaximumConcurrentVerifications = 16;
+        byte[] body = "exact source"u8.ToArray();
+        string checksum = Convert.ToHexString(SHA256.HashData(body));
+        SourceDocumentObservation[] documents =
+        [
+            .. Enumerable.Range(0, MaximumConcurrentVerifications + 1)
+                .Select(index => Document(
+                    $"/src/{index}.cs",
+                    url: $"https://example.test/src/{index}.cs",
+                    checksum: checksum)),
+        ];
+        var handler = new GatedResponseHandler(
+            documents.Length,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+            });
+        using var client = new HttpClient(handler);
+
+        Task<SourceIntegritySummary> audit = SourceIntegrityService.InspectAsync(
+            documents,
+            client,
+            cancellationToken: TestContext.Current.CancellationToken);
+        try
+        {
+            await handler.WaitUntilEnteredAsync(
+                Enumerable.Range(0, MaximumConcurrentVerifications),
+                TestContext.Current.CancellationToken);
+            Assert.False(handler.HasEntered(MaximumConcurrentVerifications));
+
+            handler.Complete(1);
+            await handler.WaitUntilEnteredAsync(
+                [MaximumConcurrentVerifications],
+                TestContext.Current.CancellationToken);
+            Assert.False(handler.HasCompleted(0));
+
+            handler.CompleteAll();
+            SourceIntegritySummary result = await audit;
+
+            Assert.Equal(MaximumConcurrentVerifications, handler.MaximumActive);
+            Assert.Equal(documents.Length, result.Verified);
+            Assert.Equal(0, result.Mismatched);
+            Assert.Equal(0, result.Unverifiable);
+        }
+        finally
+        {
+            handler.CompleteAll();
+            Task settlement = audit;
+            await settlement.ConfigureAwait(
+                ConfigureAwaitOptions.SuppressThrowing
+                | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+    }
+
+    [Fact]
     public async Task Integrity_UnexpectedFailureEscapesTheAudit()
     {
         const string Url = "https://example.test/source.cs";
@@ -746,7 +805,10 @@ public class SourceLinkQueryServiceTests
         }
     }
 
-    private sealed class GatedHeadHandler(int count) : HttpMessageHandler
+    private sealed class GatedResponseHandler(
+        int count,
+        Func<HttpRequestMessage, HttpResponseMessage> respond)
+        : HttpMessageHandler
     {
         private readonly Gate[] _gates =
             Enumerable.Range(0, count).Select(_ => new Gate()).ToArray();
@@ -797,10 +859,9 @@ public class SourceLinkQueryServiceTests
             try
             {
                 await gate.Finish.Task.WaitAsync(cancellationToken);
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    RequestMessage = request,
-                };
+                HttpResponseMessage response = respond(request);
+                response.RequestMessage ??= request;
+                return response;
             }
             finally
             {

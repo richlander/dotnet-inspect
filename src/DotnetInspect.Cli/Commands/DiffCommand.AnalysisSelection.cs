@@ -457,17 +457,17 @@ public partial class DiffCommand
         }
         return
         [
-            .. RunAnalysisSet(
-                    "Diff",
-                    fromPaths,
-                    toPaths,
-                    fromSurface,
-                    toSurface,
-                    fromVersion,
-                    toVersion,
-                    planned,
-                    plan,
-                    DiffAnalysisInspection.Execute)
+            .. DiffAnalysisInspection.Execute(
+                    CreateAnalysisSetRequest(
+                        "Diff",
+                        fromPaths,
+                        toPaths,
+                        fromSurface,
+                        toSurface,
+                        fromVersion,
+                        toVersion,
+                        planned,
+                        plan))
                 .Content.Transitions
                 .GetValueOrDefault()
                 .Select(ToView),
@@ -497,7 +497,7 @@ public partial class DiffCommand
     /// producer once, and projects each outcome's transitions. A target
     /// resolution failure throws before any producer runs.
     /// </summary>
-    static InspectionEnvelope<T> RunAnalysisSet<T>(
+    static DiffAnalysisInspectionRequest CreateAnalysisSetRequest(
         string name,
         IReadOnlyList<string> fromPaths,
         IReadOnlyList<string> toPaths,
@@ -507,7 +507,6 @@ public partial class DiffCommand
         string toVersion,
         DiffOptions options,
         DiffAnalysisPlan plan,
-        Func<DiffAnalysisInspectionRequest, InspectionEnvelope<T>> execute,
         DiffBodyPopulation? bodies = null,
         ResearchComparison? exactBodySignals = null)
     {
@@ -626,15 +625,14 @@ public partial class DiffCommand
                     options,
                     literal)
                 : null);
-        return execute(
-            new DiffAnalysisInspectionRequest(
-                name,
-                fromVersion,
-                toVersion,
-                DiffAnalysisCommandCapability.Catalog,
-                selection,
-                input,
-                DocumentViews(plan.Views)));
+        return new DiffAnalysisInspectionRequest(
+            name,
+            fromVersion,
+            toVersion,
+            DiffAnalysisCommandCapability.Catalog,
+            selection,
+            input,
+            DocumentViews(plan.Views));
     }
 
     /// <summary>
@@ -736,19 +734,19 @@ public partial class DiffCommand
         {
             if (plan.Views is [var summary] && summary == DiffSections.Summary.Name)
                 return await Execute(
-                    DiffAnalysisInspection.ExecuteSummaryTable,
+                    DiffAnalysisInspection.SummaryTable,
                     inspection => WriteTable(
                         inspection, DiffAnalysisOutput.WriteSummaryRows),
                     DiffAnalysisOutput.SummaryTableJsonContract);
             if (plan.Views is [var transitions] && transitions == DiffSections.Transitions.Name)
                 return await Execute(
-                    DiffAnalysisInspection.ExecuteTransitionsTable,
+                    DiffAnalysisInspection.TransitionsTable,
                     inspection => WriteTable(
                         inspection, DiffAnalysisOutput.WriteTransitionRows),
                     DiffAnalysisOutput.TransitionsTableJsonContract);
         }
         return await Execute(
-            DiffAnalysisInspection.Execute,
+            static document => document,
             inspection => WriteAnalysisSet(
                 inputs.Name,
                 inputs.FromSurface,
@@ -777,7 +775,7 @@ public partial class DiffCommand
         }
 
         async Task<int> Execute<T>(
-            Func<DiffAnalysisInspectionRequest, InspectionEnvelope<T>> execute,
+            Func<InspectionEnvelope<DiffAnalysisDocument>, InspectionEnvelope<T>> project,
             Func<InspectionEnvelope<T>, int> write,
             InspectionEnvelopeJsonContract<T> contract)
         {
@@ -785,50 +783,41 @@ public partial class DiffCommand
             {
                 bool packageEndpoints = inputs.From.PackageScope is not null;
                 return Complete(
-                    RunAnalysisSet(
-                        inputs.Name,
-                        packageEndpoints ? [] : inputs.FromPaths,
-                        packageEndpoints ? [] : inputs.ToPaths,
-                        inputs.FromSurface,
-                        inputs.ToSurface,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
-                        options,
-                        plan,
-                        execute,
-                        exactBodySignals: exactBodySignals));
+                    await RunAsync(
+                        CreateAnalysisSetRequest(
+                            inputs.Name,
+                            packageEndpoints ? [] : inputs.FromPaths,
+                            packageEndpoints ? [] : inputs.ToPaths,
+                            inputs.FromSurface,
+                            inputs.ToSurface,
+                            inputs.FromVersion,
+                            inputs.ToVersion,
+                            options,
+                            plan,
+                            exactBodySignals: exactBodySignals),
+                        cancellationToken));
             }
 
             // A package endpoint scope has no extracted files. An API-only set
             // reads only its merged surface; a set that reads method bodies
-            // reads its implementation participants.
+            // reads its implementation participants, and runs inside their
+            // lifetime.
             InspectionEnvelope<T> run = inputs.From.PackageScope is null
-                ? RunAnalysisSet(
-                    inputs.Name,
-                    inputs.FromPaths,
-                    inputs.ToPaths,
-                    inputs.FromSurface,
-                    inputs.ToSurface,
-                    inputs.FromVersion,
-                    inputs.ToVersion,
-                    options,
-                    plan,
-                    execute)
-                : DiffAnalysisCatalog.ReadsOnlyApiSurface(plan.Selection)
-                    ? RunAnalysisSet(
+                ? await RunAsync(
+                    CreateAnalysisSetRequest(
                         inputs.Name,
-                        [],
-                        [],
+                        inputs.FromPaths,
+                        inputs.ToPaths,
                         inputs.FromSurface,
                         inputs.ToSurface,
                         inputs.FromVersion,
                         inputs.ToVersion,
                         options,
-                        plan,
-                        execute)
-                    : await WithBodyPopulationAsync(
-                        inputs,
-                        bodied => RunAnalysisSet(
+                        plan),
+                    cancellationToken)
+                : DiffAnalysisCatalog.ReadsOnlyApiSurface(plan.Selection)
+                    ? await RunAsync(
+                        CreateAnalysisSetRequest(
                             inputs.Name,
                             [],
                             [],
@@ -837,11 +826,32 @@ public partial class DiffCommand
                             inputs.FromVersion,
                             inputs.ToVersion,
                             options,
-                            plan,
-                            execute,
-                            bodied.Bodies),
+                            plan),
+                        cancellationToken)
+                    : await WithBodyPopulationAsync(
+                        inputs,
+                        (bodied, token) => RunAsync(
+                            CreateAnalysisSetRequest(
+                                inputs.Name,
+                                [],
+                                [],
+                                inputs.FromSurface,
+                                inputs.ToSurface,
+                                inputs.FromVersion,
+                                inputs.ToVersion,
+                                options,
+                                plan,
+                                bodied.Bodies),
+                            token),
                         cancellationToken);
             return Complete(run);
+
+            async ValueTask<InspectionEnvelope<T>> RunAsync(
+                DiffAnalysisInspectionRequest request,
+                CancellationToken token) =>
+                project(
+                    await DiffAnalysisCommandCapability.CompareBinding
+                        .ExecuteAsync(request, token));
 
             int Complete(InspectionEnvelope<T> completed)
             {

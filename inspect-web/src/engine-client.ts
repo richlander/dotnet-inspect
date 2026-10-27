@@ -168,6 +168,7 @@ type CatalogOperations =
   | "listEcosystems"
   | "listHomeDemos"
   | "listLibraryViewFacets"
+  | "listMemberViewFacets"
   | "listTypeViewFacets"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"

@@ -28,6 +28,9 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.PrivateFieldAdded", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.PrivateCalleeChanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.PublicMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    // The setter's MethodDef signature gains modreq(IsExternalInit), so the Body axis
+    // compares a changed method as well.
+    [InlineData("FindingDiffAnyFixture.SetterBecomesInit", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.MethodConstraint", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ConstraintType", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ConstantValue", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
@@ -413,7 +416,9 @@ public sealed class FindingDiffAnyTests
 
     // A property's accessibility is the widest of its accessors'
     // (docs/design/api-population-scope.md). Moving the widest accessor reports the
-    // signature change and the property's accessibility move by external reach.
+    // signature change and the property's accessibility move. The signature differs only in
+    // its accessor spelling, so it is classified by each accessor's own external reach: the
+    // getter narrows or widens and the setter stays protected, as the move does.
     [Theory]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis, "FindingDiffAnyFixture.MixedAccessorPropertyPublicToProtected", "int Value { get; protected set; }", "int Value { get; set; }", "public", "protected", ChangeClassification.Breaking)]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis, "FindingDiffAnyFixture.MixedAccessorPropertyProtectedToPublic", "int Value { get; set; }", "int Value { get; protected set; }", "protected", "public", ChangeClassification.Additive)]
@@ -437,7 +442,7 @@ public sealed class FindingDiffAnyTests
         ApiChange signature = Assert.Single(
             type.Changes,
             change => change.Kind == ChangeKind.MemberSignatureChanged);
-        Assert.Equal(ChangeClassification.Breaking, signature.Classification);
+        Assert.Equal(classification, signature.Classification);
         Assert.Equal(oldSignature, signature.OldValue);
         Assert.Equal(newSignature, signature.NewValue);
         ApiChange move = Assert.Single(
@@ -451,7 +456,8 @@ public sealed class FindingDiffAnyTests
     }
 
     // Only the narrower accessor moves; the widest, and so the property's accessibility,
-    // stays public, and the signature row alone reports the move.
+    // stays public, and the signature row alone reports the move. The setter leaves the
+    // externally reachable population, so the row stays Breaking.
     [Theory]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
     [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
@@ -468,6 +474,189 @@ public sealed class FindingDiffAnyTests
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
         Assert.Equal("int Value { get; protected set; }", change.OldValue);
         Assert.Equal("int Value { get; private set; }", change.NewValue);
+    }
+
+    // The setter moves between accessibilities with the same external reach, so the
+    // signature change is NonBreaking in every scope.
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public, "FindingDiffAnyFixture.AccessorProtectedToProtectedInternal", "int Value { get; protected set; }", "int Value { get; protected internal set; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "FindingDiffAnyFixture.AccessorProtectedToProtectedInternal", "int Value { get; protected set; }", "int Value { get; protected internal set; }")]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "FindingDiffAnyFixture.AccessorProtectedToProtectedInternal", "int Value { get; protected set; }", "int Value { get; protected internal set; }")]
+    public void AccessorSpellingChange_WithTheSameReach_IsNonBreaking(
+        ApiSurfaceExtractionScope scope,
+        string typeName,
+        string oldSignature,
+        string newSignature)
+    {
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(scope);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+        Assert.Equal(oldSignature, change.OldValue);
+        Assert.Equal(newSignature, change.NewValue);
+    }
+
+    // A setter that moves from internal to private reaches no other assembly on either side,
+    // so the signature change is NonBreaking in every scope. Finding Diff Any's API census
+    // reports such a Type unchanged, so this shape is compiled here rather than added to its
+    // fixture pair, whose soundness gate would reject the comparison's row.
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public)]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    public void AccessorSpellingChange_OutsideExternalReach_IsNonBreaking(ApiSurfaceExtractionScope scope)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface("public class C { public int Value { get; internal set; } }", scope),
+            CompiledSurface("public class C { public int Value { get; private set; } }", scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(Assert.Single(comparison.ApiDiff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+        Assert.Equal("int Value { get; internal set; }", change.OldValue);
+        Assert.Equal("int Value { get; private set; }", change.NewValue);
+    }
+
+    // An accessor that becomes init changes its spelled kind, and the signature text spells
+    // no declaration modifier, so neither that nor a property whose static, sealed, override,
+    // or virtual modifiers change is an accessor spelling change; each stays Breaking
+    // (docs/design/api-population-scope.md#the-diffs-api-axis-population).
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public, "public int Value { get; protected set; }", "public int Value { get; init; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public int Value { get; protected set; }", "public int Value { get; init; }")]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "public int Value { get; protected set; }", "public int Value { get; init; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public int Value { get; protected set; }", "public int Value { get; protected internal init; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public int Value { get; protected set; }", "public static int Value { get; protected internal set; }")]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public static int Value { get; protected set; }", "public int Value { get; set; }")]
+    public void AccessorSpellingChange_WithInitOrStaticChange_IsBreaking(
+        ApiSurfaceExtractionScope scope,
+        string oldProperty,
+        string newProperty)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface($"public class C {{ {oldProperty} }}", scope),
+            CompiledSurface($"public class C {{ {newProperty} }}", scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(
+            Assert.Single(comparison.ApiDiff.TypeDiffs).Changes,
+            change => change.Kind == ChangeKind.MemberSignatureChanged);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+    }
+
+    // Roslyn emits a private accessor of a virtual property as a non-virtual method, so its
+    // method modifiers follow its accessibility; the property's declaration modifiers do not
+    // change, so the accessor's reach classifies the signature row.
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public, "public virtual int Value { get; private set; }", "public virtual int Value { get; protected set; }", ChangeClassification.Additive)]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "public virtual int Value { get; private set; }", "public virtual int Value { get; protected set; }", ChangeClassification.Additive)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "public virtual int Value { get; private set; }", "public virtual int Value { get; protected set; }", ChangeClassification.Additive)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "public virtual int Value { get; private set; }", "public virtual int Value { get; internal set; }", ChangeClassification.NonBreaking)]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis, "protected virtual int Value { get; private set; }", "protected virtual int Value { get; set; }", ChangeClassification.Additive)]
+    public void AccessorSpellingChange_OnAVirtualPropertysPrivateAccessor_IsClassifiedByReach(
+        ApiSurfaceExtractionScope scope,
+        string oldProperty,
+        string newProperty,
+        ChangeClassification expected)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface($"public class C {{ {oldProperty} }}", scope),
+            CompiledSurface($"public class C {{ {newProperty} }}", scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(
+            Assert.Single(comparison.ApiDiff.TypeDiffs).Changes,
+            change => change.Kind == ChangeKind.MemberSignatureChanged);
+        Assert.Equal(expected, change.Classification);
+    }
+
+    // A base Type B carries the property each side of C overrides or hides, so only C's
+    // declaration modifiers and accessor spelling change.
+    [Theory]
+    [InlineData(
+        "public class B { public virtual int V { get; protected set; } } public class C : B { public override int V { get; protected set; } }",
+        "public class B { public virtual int V { get; set; } } public class C : B { public sealed override int V { get; set; } }")]
+    [InlineData(
+        "public class B { public virtual int V { get; protected set; } } public class C : B { public override int V { get; protected set; } }",
+        "public class B { public virtual int V { get; protected internal set; } } public class C : B { public new virtual int V { get; protected internal set; } }")]
+    public void AccessorSpellingChange_WithOverrideModifierChange_IsBreaking(string oldSource, string newSource)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface(oldSource, ApiSurfaceExtractionScope.ApiAxis),
+            CompiledSurface(newSource, ApiSurfaceExtractionScope.ApiAxis),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(
+            Assert.Single(comparison.ApiDiff.TypeDiffs, diff => diff.TypeFullName == "C").Changes,
+            change => change.Kind == ChangeKind.MemberSignatureChanged);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+    }
+
+    static ApiSurface CompiledSurface(string source, ApiSurfaceExtractionScope scope)
+    {
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "AccessorSpelling",
+            [CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken)],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        Microsoft.CodeAnalysis.Emit.EmitResult result =
+            compilation.Emit(image, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
+        image.Position = 0;
+        using var reader = new PEReader(image);
+        return ApiSurfaceExtractor.Extract(reader, scope);
+    }
+
+    // A setter that becomes init is one Breaking signature row in every scope, and each
+    // side spells its own accessor (#10679, docs/design/api-population-scope.md).
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public)]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    public void SetterBecomingInit_IsOneBreakingSignatureRow(ApiSurfaceExtractionScope scope)
+    {
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(scope);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == "FindingDiffAnyFixture.SetterBecomesInit");
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+        Assert.Equal("required int Value { get; set; }", change.OldValue);
+        Assert.Equal("required int Value { get; init; }", change.NewValue);
+    }
+
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public, "public int Value { get; set; }", "public int Value { get; init; }")]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "public int Value { get; private set; }", "public int Value { get; private init; }")]
+    [InlineData(ApiSurfaceExtractionScope.Public, "public int Value { get; init; }", "public int Value { get; set; }")]
+    public void SetInitChange_IsBreakingAndSpellsEachSide(
+        ApiSurfaceExtractionScope scope,
+        string oldProperty,
+        string newProperty)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface($"public class C {{ {oldProperty} }}", scope),
+            CompiledSurface($"public class C {{ {newProperty} }}", scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(Assert.Single(comparison.ApiDiff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+        Assert.Equal(oldProperty["public ".Length..], change.OldValue);
+        Assert.Equal(newProperty["public ".Length..], change.NewValue);
     }
 
     [Fact]
@@ -496,13 +685,14 @@ public sealed class FindingDiffAnyTests
         Assert.True(type.IsHidden);
     }
 
-    // Whether every enclosing Type is ordinary is read from metadata, so a Type selection
-    // that does not project the enclosing Type keeps it
+    // Whether every enclosing Type has the ordinary reach is read from metadata, so a Type
+    // selection that does not project the enclosing Type keeps it. Only reach is inherited:
+    // a hidden enclosing Type does not hide the Types it nests
     // (docs/design/library-api-diff-presentation.md#per-side-facts).
     [Theory]
     [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
     [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
-    public void EnclosingTypesOrdinary_RequiresEveryEnclosingTypePublicAndNotHidden(
+    public void EnclosingTypesOrdinary_RequiresEveryEnclosingTypePublic(
         ApiSurfaceExtractionScope scope)
     {
         const string source = """
@@ -538,8 +728,8 @@ public sealed class FindingDiffAnyTests
         Assert.True(facts["Outer.Protected"]);
         Assert.False(facts["Outer.Protected.InProtected"]);
         Assert.True(facts["Outer.Hidden"]);
-        Assert.False(facts["Outer.Hidden.InHidden"]);
-        Assert.False(facts["HiddenOuter.Inner"]);
+        Assert.True(facts["Outer.Hidden.InHidden"]);
+        Assert.True(facts["HiddenOuter.Inner"]);
     }
 
     [Theory]
