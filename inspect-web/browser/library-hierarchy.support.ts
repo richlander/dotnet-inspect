@@ -3343,8 +3343,118 @@ async function installFacades(
       let homeDemoResolutionOrdinal = 0;
       let homeDemoPreparationOrdinal = 0;
       let homeDemoSurfaceAdmissionOrdinal = 0;
+      function homeDemoCoordinateKey(coordinate) {
+        return JSON.stringify([
+          coordinate.kind,
+          coordinate.id ?? null,
+          coordinate.family ?? null,
+          coordinate.assembly ?? null,
+          coordinate.version,
+          coordinate.framework,
+          coordinate.rid ?? coordinate.runtimeIdentifier ?? null,
+        ]);
+      }
+      function parseHomeDemoDefinitionRecords(
+        scenarioId,
+        definitionRecords,
+      ) {
+        const records = definitionRecords.map((record, index) => {
+          if (typeof record !== "string") {
+            throw new Error(
+              "Definition record " + index + " is not serialized JSON.");
+          }
+          const parsed = JSON.parse(record);
+          if (!parsed || typeof parsed !== "object"
+              || typeof parsed.kind !== "string"
+              || typeof parsed.id !== "string") {
+            throw new Error(
+              "Definition record " + index + " is not valid.");
+          }
+          return parsed;
+        });
+        const byId = new Map(records.map(record => [record.id, record]));
+        const scenario = byId.get(scenarioId);
+        if (scenario?.kind !== "scenario") {
+          throw new Error(
+            "The retained scenario definition is unavailable.");
+        }
+        const workspace = byId.get(scenario.workspace);
+        const navigation = byId.get(scenario.navigation);
+        if (workspace?.kind !== "workspace"
+            || navigation?.kind !== "navigation") {
+          throw new Error(
+            "The retained Workspace definition is incomplete.");
+        }
+        const context = workspace.contexts?.find(
+          candidate => candidate.name === scenario.context);
+        if (!context || !Array.isArray(context.members)
+            || !Array.isArray(navigation.tabs)) {
+          throw new Error(
+            "The retained Workspace context is incomplete.");
+        }
+        const membersByCoordinate = new Map(
+          context.members.map(member => [
+            homeDemoCoordinateKey(member),
+            member,
+          ]));
+        const tabs = navigation.tabs.map(tab => {
+          if (typeof tab.id !== "string" || !tab.coordinate) {
+            throw new Error(
+              "The retained Navigation tab is incomplete.");
+          }
+          const member = membersByCoordinate.get(
+            homeDemoCoordinateKey(tab.coordinate));
+          if (!member) {
+            throw new Error(
+              "The retained Navigation tab is outside its Workspace.");
+          }
+          return { id: tab.id, member };
+        });
+        if (navigation.focus !== null
+            && navigation.focus !== undefined
+            && !tabs.some(tab => tab.id === navigation.focus)) {
+          throw new Error(
+            "The retained Navigation focus is unavailable.");
+        }
+        return {
+          members: [...membersByCoordinate.values()],
+          tabs,
+          activeTabId: navigation.focus ?? null,
+          selectedContextId: context.name,
+        };
+      }
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
+      const homeDemoResultsByCoordinate = new Map();
+      for (const [scenarioId, demo] of Object.entries(
+        homeDemoResolutions)) {
+        const result = homeDemoResults[scenarioId];
+        if (!result?.activation) continue;
+        let definition;
+        try {
+          definition = parseHomeDemoDefinitionRecords(
+            scenarioId,
+            demo.restorationDefinitions);
+        } catch {
+          continue;
+        }
+        for (const member of definition.members) {
+          const packageResult = member.kind === "package"
+            ? result.packages.find(candidate =>
+              candidate.surface.package === member.id
+              && candidate.surface.version === member.version
+              && candidate.surface.activeFramework === member.framework)
+            : result.packages.find(candidate =>
+              candidate.surface.assemblies.some(
+                assembly => assembly.name === member.assembly));
+          if (packageResult) {
+            homeDemoResultsByCoordinate.set(
+              homeDemoCoordinateKey(member),
+              packageResult,
+            );
+          }
+        }
+      }
       let preparedRetainedWorkspace = null;
       const retainedWorkspacePreparations = new Map();
       const retainedWorkspacesByRealization = new Map();
@@ -3674,50 +3784,48 @@ async function installFacades(
         label,
         canonicalLocation,
         scenarioId,
+        definitionRecords,
         canonicalPacket,
       ) {
-        const demo = homeDemoResolutions[scenarioId];
-        const result = homeDemoResults[scenarioId];
-        if (!demo || !result?.activation) return null;
+        const restored = parseHomeDemoDefinitionRecords(
+          scenarioId,
+          definitionRecords);
         const publicationOrdinal = ++nextRetainedPublicationOrdinal;
         const workspaceId = "home-demo-workspace";
-        const packageMembers = demo.workspaceMembers.filter(
+        const packageMembers = restored.members.filter(
           member => member.kind === "package");
-        const platformMembers = demo.workspaceMembers.filter(
+        const platformMembers = restored.members.filter(
           member => member.kind === "platform");
-        const tabs = demo.workspace.tabs.map(tab => ({
+        const tabs = restored.tabs.map(tab => ({
           id: tab.id,
-          kind: tab.kind,
-          source: tab.source,
-          version: tab.version,
-          framework: tab.framework,
-          runtimeIdentifier: tab.runtimeIdentifier,
+          kind: tab.member.kind === "package" ? "package" : "group",
+          source: tab.member.kind === "package"
+            ? tab.member.id
+            : ":Platform",
+          version: tab.member.version,
+          framework: tab.member.framework,
+          runtimeIdentifier:
+            tab.member.rid ?? tab.member.runtimeIdentifier ?? null,
         }));
-        const activeTabId = demo.workspace.activeTabId;
+        const activeTabId = restored.activeTabId;
         const packageResults = Object.fromEntries(
-          packageMembers.map((member, index) => [
-            demo.tabs.find(tab =>
-              tab.member.kind === "package"
-              && tab.member.id === member.id
-              && tab.member.version === member.version
-              && tab.member.framework === member.framework)?.id
-                ?? "package-" + index,
-            result.packages[index],
-          ]));
+          restored.tabs
+            .filter(tab => tab.member.kind === "package")
+            .map(tab => [
+              tab.id,
+              homeDemoResultsByCoordinate.get(
+                homeDemoCoordinateKey(tab.member)),
+            ]));
         const packageSurfaces = Object.fromEntries(
           Object.entries(packageResults).map(([navigationId, packageResult]) =>
             [navigationId, packageResult?.surface]));
-        const platformSurface = (
-          result.packages.find(packageResult =>
-            packageResult.surface.package === result.activation.focusId)
-          ?? result.packages.at(-1))?.surface;
+        const platformSurface = platformMembers.length === 0
+          ? null
+          : homeDemoResultsByCoordinate.get(
+            homeDemoCoordinateKey(platformMembers[0]))?.surface;
         const packageSubjects = packageMembers.map((member, index) => {
-          const navigationId = demo.tabs.find(tab =>
-            tab.member.kind === "package"
-            && tab.member.id === member.id
-            && tab.member.version === member.version
-            && tab.member.framework === member.framework)?.id
-              ?? "package-" + index;
+          const navigationId = restored.tabs.find(tab =>
+            tab.member === member)?.id ?? "package-" + index;
           return {
             navigationId,
             subject: {
@@ -3763,14 +3871,10 @@ async function installFacades(
           };
         });
         const platforms = platformMembers.map((member, index) => ({
-          navigationId: demo.tabs.find(tab =>
-            tab.member.kind === "platform"
-            && tab.member.id === member.id
-            && tab.member.version === member.version
-            && tab.member.framework === member.framework)?.id
-              ?? "platform-" + index,
+          navigationId: restored.tabs.find(tab =>
+            tab.member === member)?.id ?? "platform-" + index,
           contextIndex: 0,
-          family: member.id,
+          family: member.family,
           runtimeIdentifier: null,
           summary: {
             selectedCompileFramework: member.framework,
@@ -3792,12 +3896,12 @@ async function installFacades(
           definition: {
             tabs,
             contexts: [{
-              id: "home-demo-context",
+              id: restored.selectedContextId,
               tabIds: tabs.map(tab => tab.id),
             }],
             registrations: [],
             activeTabId,
-            selectedContextId: "home-demo-context",
+            selectedContextId: restored.selectedContextId,
           },
           navigation: {
             operation: "Initialize",
@@ -3941,6 +4045,16 @@ async function installFacades(
           demo: homeDemoResolutions[id] ?? null,
         };
       }
+      document.addEventListener("remove-home-demo-catalog", () => {
+        homeDemos.splice(0, homeDemos.length);
+        for (const id of Object.keys(homeDemoResolutions)) {
+          delete homeDemoResolutions[id];
+        }
+        for (const id of Object.keys(homeDemoResults)) {
+          delete homeDemoResults[id];
+        }
+        document.documentElement.dataset.homeDemoCatalogRemoved = "true";
+      });
       export function listEcosystems() {
         return { ecosystems: productEcosystems };
       }
@@ -4242,22 +4356,27 @@ async function installFacades(
         if (preparationOrdinal === homeDemoPreparationFailureOrdinal) {
           throw new Error("Fixture product demo preparation failed.");
         }
-        const posting = homeDemoWorkspacePosting(
-          retainedDefinitionId,
-          label,
-          canonicalLocation,
-          scenarioId,
-          null,
-        );
-        if (posting === null) {
+        let posting;
+        try {
+          posting = homeDemoWorkspacePosting(
+            retainedDefinitionId,
+            label,
+            canonicalLocation,
+            scenarioId,
+            definitionRecords,
+            null,
+          );
+        } catch (error) {
           return {
             status: "failed",
             receipt: null,
             preparation: null,
             posting: null,
             failure: {
-              kind: "UnknownDemo",
-              message: "Fixture product demo is unavailable.",
+              kind: "InvalidDefinition",
+              message: error instanceof Error
+                ? error.message
+                : "Fixture product demo definition is invalid.",
             },
           };
         }

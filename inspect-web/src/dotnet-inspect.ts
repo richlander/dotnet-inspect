@@ -3406,6 +3406,26 @@ async function activateManagedRetainedWorkspace(
         }
         render({ synchronizeUrl: false });
       } else {
+        const posting = retainedWorkspacePostings.get(retainedDefinitionId);
+        if (posting === undefined) {
+          throw new Error(
+            "The active retained Workspace omitted its posting.");
+        }
+        const requiresLocationPublication =
+          locationPolicy !== "none"
+          && (posting.canonicalLocation !== location.href
+            || scope() !== "workspace");
+        if (requiresLocationPublication) {
+          const locationIntent = retainedLocationIntents.admitNonBrowser(
+            locationPolicy,
+            installedRetainedLocation,
+            history,
+          );
+          if (!publishRetainedLocationAssociation(
+            posting,
+            locationIntent,
+          )) return;
+        }
         openDefaultWorkspace();
       }
       return;

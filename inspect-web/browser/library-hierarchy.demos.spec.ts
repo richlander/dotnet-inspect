@@ -234,6 +234,24 @@ function homeDemoResolution(
       framework: tab.member.framework,
       runtimeIdentifier: null,
     }));
+  const workspaceId = `${id}-workspace`;
+  const viewId = `${id}-view`;
+  const navigationId = `${id}-navigation`;
+  const coordinates = members.map(member =>
+    member.kind === "platform"
+      ? {
+        kind: "platform",
+        family: member.id,
+        assembly: member.assembly,
+        version: member.version,
+        framework: member.framework,
+      }
+      : {
+        kind: "package",
+        id: member.id,
+        version: member.version,
+        framework: member.framework,
+      });
   return {
     id,
     title: `${focusKind} ${section}`,
@@ -263,7 +281,50 @@ function homeDemoResolution(
       traversalTargetFramework: null,
       hierarchyWorkspacePacket: null,
     },
-    restorationDefinitions: ["{}"],
+    restorationDefinitions: [
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "workspace",
+        id: workspaceId,
+        title: `${focusKind} ${section}`,
+        description: "Typed product demo",
+        contexts: [{
+          name: "demo",
+          framework: focus.member.framework,
+          members: coordinates,
+        }],
+      }),
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "view",
+        id: viewId,
+        type: view.type,
+        memberAnchor: view.memberAnchor,
+        memberKey: view.memberKey,
+        section,
+      }),
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "navigation",
+        id: navigationId,
+        tabs: tabs.map((tab, index) => ({
+          id: tab.id,
+          coordinate: coordinates[index],
+        })),
+        focus: focus.id,
+      }),
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "scenario",
+        id,
+        title: `${focusKind} ${section}`,
+        description: "Typed product demo",
+        workspace: workspaceId,
+        context: "demo",
+        view: viewId,
+        navigation: navigationId,
+      }),
+    ],
   };
 }
 
@@ -853,6 +914,14 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   await expect(page.getByRole("heading", { name: "Demos", exact: true }))
     .toBeVisible();
   await expect(page.locator("[data-workspace-activate]")).toHaveCount(0);
+  await openProductDestination(page, "workspace");
+  await expect(page).toHaveURL(workspaceUrl);
+  await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
+    .toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL("/demos");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL(workspaceUrl);
   await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");
@@ -880,7 +949,7 @@ test("package Methods demo retains all resolved coordinates and restores its exa
   await expect(page.locator("html"))
     .not.toHaveAttribute("data-home-demo-run");
   await expect(page.locator("html"))
-    .toHaveAttribute("data-home-demo-definition-record-count", "1");
+    .toHaveAttribute("data-home-demo-definition-record-count", "4");
   await expect(page.locator("html"))
     .toHaveAttribute(
       "data-home-demo-prepared-subjects",
@@ -909,6 +978,9 @@ test("Methods demo Forward reactivates an inactive retained definition", async (
   await demo.click();
   await expect(page.locator(".inspected-target"))
     .toContainText("Example.Widget");
+  await releaseFacade(page, "remove-home-demo-catalog");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-catalog-removed", "true");
 
   await page.goBack();
   await expect(page).toHaveURL(firstWorkspaceUrl);
@@ -917,6 +989,8 @@ test("Methods demo Forward reactivates an inactive retained definition", async (
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target"))
     .toContainText("Example.Widget");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-resolve-count", "2");
 });
 
 test("Methods demo Workspace Forward restores its active retained destination", async ({
@@ -1251,7 +1325,7 @@ test("Platform Methods demo retains its non-first engine surface while loading f
   )).toBeVisible();
   expect(new URL(publishedUrl).searchParams.has("w")).toBe(true);
   await expect(page.locator("html"))
-    .toHaveAttribute("data-home-demo-definition-record-count", "1");
+    .toHaveAttribute("data-home-demo-definition-record-count", "4");
   await expect(page.locator("html"))
     .toHaveAttribute(
       "data-home-demo-prepared-subjects",

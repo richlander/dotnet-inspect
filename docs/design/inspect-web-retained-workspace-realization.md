@@ -608,6 +608,10 @@ Navigation Consumer remains the sole owner of browser-history push, replace,
 adopt, and traversal realignment, plus atomic result posting and deferred
 effects. This design constrains the realization input to that owner:
 
+- Product Navigation entering the already-active retained definition publishes
+  its canonical Workspace location before presenting the Workspace root. From a
+  routed product such as Demos this is a push, so Back returns to that product
+  rather than leaving its URL attached to Workspace presentation.
 - Back or Forward within the currently active retained definition may apply a
   Navigation transition against that exact active realization.
 - Back or Forward to another retained definition requests fresh activation.
