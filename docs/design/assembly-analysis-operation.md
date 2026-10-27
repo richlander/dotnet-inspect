@@ -536,8 +536,24 @@ plans `ExactMethodAllocationProducer` over that same bounded population.
 Cost-only preparation plans `FocusedMethodCallProducer` and retains only the
 direct-call rows needed by coordinate projection. The three focused inputs
 retain exact source and work receipts; none opens
-`LibraryBodyAnalysisService`. Combined semantic coordinate requests remain on
-the service until their complete result ownership moves.
+`LibraryBodyAnalysisService`. Combined semantic coordinate requests compose
+the requested allocation, safety, and cost producers in one QuerySpace
+request-set operation over the same deduplicated exact MethodDef population.
+Each focused input retains its own source and work receipts. The existing
+Method source does not collapse exact-method requests, so their independently
+bounded source groups remain explicit; this adoption does not claim shared
+physical traversal between those groups.
+
+The real asset for mixed-coordinate adoption is `System.Text.Json` 10.0.0,
+`lib/net10.0/System.Text.Json.dll`. A sparse coordinate population requesting
+allocation plus safety or cost previously entered the whole-library donor
+even though every requested evidence product already had a focused producer.
+The adoption preserves those products and their physical IL coordinates while
+removing donor preparation. Release gates compare mixed projections with the
+existing focused single-context projections, including a real-package
+population and generated async evidence bodies. Exact base/head NativeAOT
+production commands establish end-to-end cost; Count and Exists population
+terminals retain their existing no-analysis path.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first

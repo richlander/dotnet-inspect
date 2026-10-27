@@ -238,7 +238,6 @@ public class SemanticFactsSectionTests
                 options,
                 [method.MetadataToken, method.MetadataToken]);
 
-        Assert.Null(preparation.Input);
         Assert.Null(preparation.AllocationInput);
         Assert.Null(preparation.CostInput);
         Assert.Null(preparation.Failure);
@@ -279,7 +278,6 @@ public class SemanticFactsSectionTests
                 options,
                 [method.MetadataToken, method.MetadataToken]);
 
-        Assert.Null(preparation.Input);
         Assert.Null(preparation.SafetyInput);
         Assert.Null(preparation.CostInput);
         Assert.Null(preparation.Failure);
@@ -321,7 +319,6 @@ public class SemanticFactsSectionTests
                 options,
                 [method.MetadataToken, method.MetadataToken]);
 
-        Assert.Null(preparation.Input);
         Assert.Null(preparation.AllocationInput);
         Assert.Null(preparation.SafetyInput);
         Assert.Null(preparation.Failure);
@@ -347,46 +344,61 @@ public class SemanticFactsSectionTests
                 .UnitsCompleted);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
     public void
-        ILAnalysisPreparation_MixedRequestsRetainLegacyAnalysis()
+        ILAnalysisPreparation_MixedRequestsUseExactMethodSources(
+            bool allocation,
+            bool safety,
+            bool cost)
     {
         MethodInfo method =
             typeof(SemanticFactsFixture).GetMethod(
                 nameof(SemanticFactsFixture.AllSignals))!;
         using var source =
             SourceLinkService.OpenPrefetched(TestAssemblyPath);
-        string[][] sectionSets =
-        [
-            [
-                SectionNames.AllocationContext,
-                SectionNames.SafetyContext,
-            ],
-            [
-                SectionNames.AllocationContext,
-                SectionNames.CostContext,
-            ],
-        ];
-
-        foreach (string[] sections in sectionSets)
+        var sections = new HashSet<string>();
+        if (allocation)
+            sections.Add(SectionNames.AllocationContext);
+        if (safety)
+            sections.Add(SectionNames.SafetyContext);
+        if (cost)
+            sections.Add(SectionNames.CostContext);
+        var options = new LibraryOptions
         {
-            var options = new LibraryOptions
-            {
-                IncludeSections = [.. sections],
-                Select = [.. sections],
-            };
+            IncludeSections = sections,
+            Select = [.. sections],
+        };
 
-            ILOffsetAnalysisPreparation preparation =
-                ILOffsetQuery.PrepareAnalysis(
-                    source,
-                    options,
-                    [method.MetadataToken]);
+        ILOffsetAnalysisPreparation preparation =
+            ILOffsetQuery.PrepareAnalysis(
+                source,
+                options,
+                [method.MetadataToken, method.MetadataToken]);
 
-            Assert.NotNull(preparation.Input);
-            Assert.Null(preparation.AllocationInput);
-            Assert.Null(preparation.SafetyInput);
-            Assert.Null(preparation.CostInput);
-            Assert.Null(preparation.Failure);
+        Assert.Null(preparation.Failure);
+        Assert.Equal(allocation, preparation.AllocationInput is not null);
+        Assert.Equal(safety, preparation.SafetyInput is not null);
+        Assert.Equal(cost, preparation.CostInput is not null);
+        MethodDefinitionSourceReceipt?[] receipts =
+        [
+            preparation.AllocationInput?.SourceReceipt,
+            preparation.SafetyInput?.SourceReceipt,
+            preparation.CostInput?.SourceReceipt,
+        ];
+        foreach (MethodDefinitionSourceReceipt receipt
+            in receipts.OfType<MethodDefinitionSourceReceipt>())
+        {
+            Assert.Equal(
+                MethodDefinitionSourceBreadthKind.ExactMethods,
+                receipt.Breadth.Kind);
+            Assert.Single(receipt.Breadth.Methods);
+            Assert.Equal(1, receipt.DefinitionsVisited);
+            Assert.Equal(1, receipt.BodiesAcquired);
+            Assert.Equal(0, receipt.ModuleLookups);
         }
     }
 

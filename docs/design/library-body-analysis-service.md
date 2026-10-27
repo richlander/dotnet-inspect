@@ -122,9 +122,9 @@ carries detached allocation occurrences, diagnostics, source receipt, and work
 receipt. The cost-only follow-up plans `FocusedMethodCallProducer`;
 `ILOffsetCostAnalysisInput` carries detached direct-call rows keyed by their
 physical evidence MethodDef, diagnostics, source receipt, and work receipt.
-Direct CLI and Library Address reuse one focused input across every coordinate
+Direct CLI and Library Address reuse focused inputs across every coordinate
 row and do not execute this service. Combined semantic coordinate requests
-still use this service.
+compose the requested producers through one Assembly Analysis request set.
 
 The method-analysis-support prerequisite for exact allocation and optimization
 is tracked by
@@ -143,8 +143,8 @@ while the composed exact bundle publishes direct calls, final signals,
 allocations, and optimization opportunities without constructing this service.
 Allocation-only matched-member requests plan
 `ExactMethodAllocationProducer` and therefore omit call collection, safety,
-signals, and optimization entirely. Cost and combined coordinate requests
-still use this service. Final fallback drainage and deletion remain with #8965
+signals, and optimization entirely. Coordinate requests no longer use this
+service. Final fallback drainage and deletion remain with #8965
 and #9959.
 
 The CLI session adoption moved both path and prefetched-image execution in

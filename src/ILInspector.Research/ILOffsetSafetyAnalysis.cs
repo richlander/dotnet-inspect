@@ -93,8 +93,20 @@ public static class ILOffsetSafetyAnalysis
                     ?? "The IL-offset safety Analysis producer failed.");
         }
 
-        ImmutableArray<ExactMethodAnalysisBody> bodies =
-            producerResult.Value!.Bodies;
+        return CreateInput(
+            moduleVersionId,
+            producerResult.Value!,
+            execution.MethodDefinitionReceipt(),
+            execution.WorkReceipt);
+    }
+
+    internal static ILOffsetSafetyAnalysisInput CreateInput(
+        Guid moduleVersionId,
+        ExactMethodAnalysisProducerResult result,
+        MethodDefinitionSourceReceipt sourceReceipt,
+        WorkReceipt workReceipt)
+    {
+        ImmutableArray<ExactMethodAnalysisBody> bodies = result.Bodies;
         return new(
             moduleVersionId,
             bodies.ToDictionary(
@@ -107,8 +119,8 @@ public static class ILOffsetSafetyAnalysis
                 .. bodies.SelectMany(
                     static body => body.Diagnostics),
             ],
-            execution.MethodDefinitionReceipt(),
-            execution.WorkReceipt);
+            sourceReceipt,
+            workReceipt);
     }
 
     static MethodDefinitionHandle MethodHandle(int token)

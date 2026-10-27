@@ -9,19 +9,17 @@ using ILInspector.Metadata;
 using ILInspector.Research;
 using System.Diagnostics;
 using System.Globalization;
-using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Cli.Commands;
 
 internal sealed record ILOffsetAnalysisPreparation(
-    ILOffsetAnalysisInput? Input,
     ILOffsetAllocationAnalysisInput? AllocationInput,
     ILOffsetSafetyAnalysisInput? SafetyInput,
     ILOffsetCostAnalysisInput? CostInput,
     string? Failure)
 {
     internal static ILOffsetAnalysisPreparation None { get; } =
-        new(null, null, null, null, null);
+        new(null, null, null, null);
 }
 
 internal static class ILOffsetQuery
@@ -147,7 +145,6 @@ internal static class ILOffsetQuery
             capabilities,
             options.PreferRenderedUrls,
             logger.Log,
-            Analysis: analysis.Input,
             AnalysisFailure: analysis.Failure,
             AllowNonBoundaryContextAbsence:
                 allowNonBoundaryContextAbsence,
@@ -186,9 +183,7 @@ internal static class ILOffsetQuery
 
         ILOffsetProjectionCapabilities capabilities =
             ProjectionCapabilities(options);
-        Analysis.LibraryBodyAnalysisFeatures features =
-            AnalysisFeatures(capabilities);
-        if (features == Analysis.LibraryBodyAnalysisFeatures.None)
+        if (!RequiresAnalysis(options))
             return ILOffsetAnalysisPreparation.None;
 
         HashSet<int> bodyScope = [.. methodTokens];
@@ -203,7 +198,6 @@ internal static class ILOffsetQuery
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Borrow(context);
                 return new(
-                    Input: null,
                     AllocationInput: ILOffsetAllocationAnalysis.Execute(
                         session,
                         context.AssemblyPathOrNull
@@ -220,7 +214,6 @@ internal static class ILOffsetQuery
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Borrow(context);
                 return new(
-                    Input: null,
                     AllocationInput: null,
                     SafetyInput: ILOffsetSafetyAnalysis.Execute(
                         session,
@@ -237,7 +230,6 @@ internal static class ILOffsetQuery
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Borrow(context);
                 return new(
-                    Input: null,
                     AllocationInput: null,
                     SafetyInput: null,
                     CostInput: ILOffsetCostAnalysis.Execute(
@@ -249,22 +241,20 @@ internal static class ILOffsetQuery
                     Failure: null);
             }
 
-            Analysis.LibraryBodyAnalysisExecution execution =
-                Analysis.LibraryBodyAnalysisService.ExecuteImage(
+            using AssemblyInspectionSession mixedSession =
+                AssemblyInspectionSession.Borrow(context);
+            ILOffsetSemanticAnalysisInput input =
+                ILOffsetSemanticAnalysis.Execute(
+                    mixedSession,
                     context.AssemblyPathOrNull
                         ?? "IL-offset assembly",
-                    context.GetPrefetchedImage(),
-                    Analysis.LibraryBodyAnalysisRequest.Create(
-                        features,
-                        bodyScope));
+                    context.ModuleVersionId(),
+                    bodyScope,
+                    capabilities);
             return new(
-                new ILOffsetAnalysisInput(
-                    execution.Allocations,
-                    execution.Safety,
-                    execution.CallGraph),
-                AllocationInput: null,
-                SafetyInput: null,
-                CostInput: null,
+                input.Allocation,
+                input.Safety,
+                input.Cost,
                 Failure: null);
         }
         catch (Exception ex) when (ex is BadImageFormatException
@@ -274,7 +264,6 @@ internal static class ILOffsetQuery
             or UnauthorizedAccessException)
         {
             return new(
-                Input: null,
                 AllocationInput: null,
                 SafetyInput: null,
                 CostInput: null,
@@ -287,9 +276,11 @@ internal static class ILOffsetQuery
         LibraryOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return AnalysisFeatures(
-                ProjectionCapabilities(options))
-            != Analysis.LibraryBodyAnalysisFeatures.None;
+        return (ProjectionCapabilities(options)
+                & (ILOffsetProjectionCapabilities.AllocationContext
+                    | ILOffsetProjectionCapabilities.SafetyContext
+                    | ILOffsetProjectionCapabilities.CostContext))
+            != 0;
     }
 
     internal static string FormatFailure(ILOffsetProjectionFailure? failure)
@@ -328,27 +319,6 @@ internal static class ILOffsetQuery
         if (RequiresCostContext(options))
             capabilities |= ILOffsetProjectionCapabilities.CostContext;
         return capabilities;
-    }
-
-    static Analysis.LibraryBodyAnalysisFeatures AnalysisFeatures(
-        ILOffsetProjectionCapabilities capabilities)
-    {
-        Analysis.LibraryBodyAnalysisFeatures features =
-            Analysis.LibraryBodyAnalysisFeatures.None;
-        if ((capabilities
-                & ILOffsetProjectionCapabilities.AllocationContext)
-            != 0)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
-        }
-        if ((capabilities
-                & (ILOffsetProjectionCapabilities.SafetyContext
-                    | ILOffsetProjectionCapabilities.CostContext))
-            != 0)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
-        }
-        return features;
     }
 
     static bool RequiresOnlySafety(

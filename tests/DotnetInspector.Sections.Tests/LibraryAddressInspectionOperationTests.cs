@@ -3,12 +3,14 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using ILInspector.SourceLink;
 using QuerySpace.Composition;
 using QuerySpace.Rows;
 
@@ -406,6 +408,127 @@ public sealed class LibraryAddressInspectionOperationTests
             cost.Operation,
             StringComparison.Ordinal);
         Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task MixedSemanticPopulationMatchesRealImplementationEvidence()
+    {
+        byte[] implementation =
+            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
+        using var peReader = new PEReader(
+            new MemoryStream(implementation, writable: false));
+        MetadataReader metadata = peReader.GetMetadataReader();
+        int[] tokens =
+        [
+            .. metadata.TypeDefinitions
+                .Where(handle =>
+                {
+                    TypeDefinition type = metadata.GetTypeDefinition(handle);
+                    string name = metadata.GetString(type.Name);
+                    return name == "JsonEncodedText"
+                        || name.StartsWith(
+                            "<FlushAsync>",
+                            StringComparison.Ordinal);
+                })
+                .SelectMany(handle =>
+                    metadata.GetTypeDefinition(handle).GetMethods())
+                .Where(handle =>
+                    metadata.GetMethodDefinition(handle)
+                        .RelativeVirtualAddress != 0)
+                .Select(handle => MetadataTokens.GetToken(handle)),
+        ];
+        Assert.NotEmpty(tokens);
+        LibraryBodyAnalysisExecution legacy =
+            LibraryBodyAnalysisService.ExecuteImage(
+                "System.Text.Json 10.0.0 mixed coordinates",
+                [.. implementation],
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.Allocations
+                        | LibraryBodyAnalysisFeatures.MethodEvidence,
+                    new HashSet<int>(tokens)));
+        var coordinates = tokens
+            .Select(token => (Token: token, Offset: 0))
+            .Concat(legacy.Allocations.Occurrences.SelectMany(
+                pair => pair.Value.Select(
+                    occurrence => (
+                        Token: pair.Key,
+                        Offset: occurrence.ILOffset))))
+            .Concat(legacy.Safety.Occurrences.SelectMany(
+                pair => pair.Value.Select(
+                    occurrence => (
+                        Token: pair.Key,
+                        Offset: occurrence.ILOffset))))
+            .Concat(legacy.CallGraph.DirectCalls.Select(
+                call => (
+                    Token: call.EvidenceMethod.MetadataToken,
+                    Offset: call.ILOffset)))
+            .Distinct()
+            .OrderBy(coordinate => coordinate.Token)
+            .ThenBy(coordinate => coordinate.Offset)
+            .ToArray();
+        const ILOffsetProjectionCapabilities capabilities =
+            ILOffsetProjectionCapabilities.AllocationContext
+                | ILOffsetProjectionCapabilities.SafetyContext
+                | ILOffsetProjectionCapabilities.CostContext;
+        LibraryAddressPopulationRecord[] records =
+        [
+            .. coordinates.Select((coordinate, index) =>
+                new LibraryAddressPopulationRecord.Coordinate(
+                    index + 1,
+                    $"0x{coordinate.Token:X8}+0x{coordinate.Offset:X}",
+                    label: null,
+                    coordinate.Token,
+                    coordinate.Offset)),
+        ];
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(implementation));
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(
+                library,
+                new LibraryAddressIntent.Population(records, capabilities));
+        LibraryAddressPopulationResult population =
+            Assert.IsType<LibraryAddressDocument.Population>(
+                Assert.IsType<LibraryAddressInspectionOutcome.Completed>(
+                    envelope.Content).Document).Result;
+        Assert.True(population.IsComplete);
+        Assert.Equal(records.Length, population.Rows.Length);
+        Assert.Empty(envelope.Diagnostics);
+        using var source = SourceLinkService.OpenPrefetched(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "LibraryOverview",
+                "System.Text.Json.dll"));
+        var analysis = new ILOffsetAnalysisInput(
+            legacy.Allocations,
+            legacy.Safety,
+            legacy.CallGraph);
+        foreach (LibraryAddressPopulationRow row in population.Rows)
+        {
+            var actual =
+                Assert.IsType<LibraryAddressPopulationRow.Resolved>(row);
+            ILOffsetProjectionOutcome expected =
+                ResearchViews.ProjectILOffset(
+                    new(
+                        source,
+                        actual.MethodToken,
+                        actual.ILOffset,
+                        capabilities,
+                        Analysis: analysis));
+            Assert.True(expected.Succeeded);
+            Assert.Equal(
+                JsonSerializer.Serialize(expected.Projection),
+                JsonSerializer.Serialize(actual.Projection));
+        }
+        Assert.Contains(
+            population.Rows.Cast<LibraryAddressPopulationRow.Resolved>(),
+            row => row.Projection.AllocationContext is { Count: > 0 });
+        Assert.Contains(
+            population.Rows.Cast<LibraryAddressPopulationRow.Resolved>(),
+            row => row.Projection.CostContext is { Count: > 0 });
     }
 
     [Fact]

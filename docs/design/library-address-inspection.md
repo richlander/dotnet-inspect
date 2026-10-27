@@ -55,9 +55,10 @@ Method Query Source request. Allocation-only work plans
 `ExactMethodAllocationProducer`; it does not collect safety, calls, signals,
 or optimization evidence. Cost-only work plans
 `FocusedMethodCallProducer` and retains direct-call evidence keyed by physical
-MethodDef. Combined semantic requests continue to use
-`LibraryBodyAnalysisService` over the retained immutable image until those
-complete products move to focused owners.
+MethodDef. Combined semantic requests compose only their requested focused
+producers through one Assembly Analysis request-set operation over the same
+deduplicated exact MethodDefs. Each input retains its source and work receipts;
+no coordinate preparation uses `LibraryBodyAnalysisService`.
 
 ## Portable intent
 

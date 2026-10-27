@@ -93,8 +93,20 @@ public static class ILOffsetAllocationAnalysis
                     ?? "The IL-offset allocation Analysis producer failed.");
         }
 
-        ImmutableArray<ExactMethodAllocationBody> bodies =
-            producerResult.Value!.Bodies;
+        return CreateInput(
+            moduleVersionId,
+            producerResult.Value!,
+            execution.MethodDefinitionReceipt(),
+            execution.WorkReceipt);
+    }
+
+    internal static ILOffsetAllocationAnalysisInput CreateInput(
+        Guid moduleVersionId,
+        ExactMethodAllocationProducerResult result,
+        MethodDefinitionSourceReceipt sourceReceipt,
+        WorkReceipt workReceipt)
+    {
+        ImmutableArray<ExactMethodAllocationBody> bodies = result.Bodies;
         return new(
             moduleVersionId,
             bodies.ToDictionary(
@@ -104,8 +116,8 @@ public static class ILOffsetAllocationAnalysis
                 .. bodies.SelectMany(
                     static body => body.Diagnostics),
             ],
-            execution.MethodDefinitionReceipt(),
-            execution.WorkReceipt);
+            sourceReceipt,
+            workReceipt);
     }
 
     static MethodDefinitionHandle MethodHandle(int token)

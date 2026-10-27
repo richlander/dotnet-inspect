@@ -1,10 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.ExceptionServices;
-using System.Runtime.InteropServices;
 using System.Text;
 
 using DotnetInspector.Libraries;
-using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using ILInspector.SourceLink;
@@ -252,7 +250,6 @@ public static class LibraryAddressInspectionOperation
             else
             {
                 AnalysisPreparation analysis = PrepareAnalysis(
-                    snapshot.Assembly,
                     source.Context,
                     point.Capabilities,
                     [point.MethodToken],
@@ -369,7 +366,6 @@ public static class LibraryAddressInspectionOperation
                         .Select(static record => record.MethodToken),
                 ];
                 AnalysisPreparation analysis = PrepareAnalysis(
-                    snapshot.Assembly,
                     source.Context,
                     population.Capabilities,
                     methodTokens,
@@ -772,15 +768,15 @@ public static class LibraryAddressInspectionOperation
     }
 
     private static AnalysisPreparation PrepareAnalysis(
-        byte[] assembly,
         PdbContext context,
         ILOffsetProjectionCapabilities capabilities,
         IEnumerable<int> methodTokens,
         CancellationToken cancellationToken)
     {
-        LibraryBodyAnalysisFeatures features =
-            AnalysisFeatures(capabilities);
-        if (features is LibraryBodyAnalysisFeatures.None)
+        if ((capabilities
+                & (ILOffsetProjectionCapabilities.AllocationContext
+                    | ILOffsetProjectionCapabilities.SafetyContext
+                    | ILOffsetProjectionCapabilities.CostContext)) == 0)
             return AnalysisPreparation.None;
 
         HashSet<int> bodyScope = [.. methodTokens];
@@ -795,7 +791,6 @@ public static class LibraryAddressInspectionOperation
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Borrow(context);
                 return new(
-                    Input: null,
                     AllocationInput: ILOffsetAllocationAnalysis.Execute(
                         session,
                         "Library Address implementation",
@@ -812,7 +807,6 @@ public static class LibraryAddressInspectionOperation
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Borrow(context);
                 return new(
-                    Input: null,
                     AllocationInput: null,
                     SafetyInput: ILOffsetSafetyAnalysis.Execute(
                         session,
@@ -829,7 +823,6 @@ public static class LibraryAddressInspectionOperation
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Borrow(context);
                 return new(
-                    Input: null,
                     AllocationInput: null,
                     SafetyInput: null,
                     CostInput: ILOffsetCostAnalysis.Execute(
@@ -841,24 +834,21 @@ public static class LibraryAddressInspectionOperation
                     Failure: null);
             }
 
-            ImmutableArray<byte> image =
-                ImmutableCollectionsMarshal.AsImmutableArray(assembly);
-            LibraryBodyAnalysisExecution execution =
-                LibraryBodyAnalysisService.ExecuteImage(
+            using AssemblyInspectionSession mixedSession =
+                AssemblyInspectionSession.Borrow(context);
+            ILOffsetSemanticAnalysisInput input =
+                ILOffsetSemanticAnalysis.Execute(
+                    mixedSession,
                     "Library Address implementation",
-                    image,
-                    LibraryBodyAnalysisRequest.Create(
-                        features,
-                        bodyScope));
+                    context.ModuleVersionId(),
+                    bodyScope,
+                    capabilities,
+                    cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             return new(
-                new ILOffsetAnalysisInput(
-                    execution.Allocations,
-                    execution.Safety,
-                    execution.CallGraph),
-                AllocationInput: null,
-                SafetyInput: null,
-                CostInput: null,
+                input.Allocation,
+                input.Safety,
+                input.Cost,
                 Failure: null);
         }
         catch (Exception exception) when (
@@ -869,7 +859,6 @@ public static class LibraryAddressInspectionOperation
                 or UnauthorizedAccessException)
         {
             return new(
-                Input: null,
                 AllocationInput: null,
                 SafetyInput: null,
                 CostInput: null,
@@ -897,7 +886,6 @@ public static class LibraryAddressInspectionOperation
                     ilOffset,
                     capabilities,
                     BrowsableUrls: browsableUrls,
-                    Analysis: analysis.Input,
                     AnalysisFailure: analysis.Failure,
                     AllowNonBoundaryContextAbsence:
                         allowNonBoundaryContextAbsence,
@@ -906,27 +894,6 @@ public static class LibraryAddressInspectionOperation
                     CostAnalysis: analysis.CostInput));
         cancellationToken.ThrowIfCancellationRequested();
         return outcome;
-    }
-
-    private static LibraryBodyAnalysisFeatures AnalysisFeatures(
-        ILOffsetProjectionCapabilities capabilities)
-    {
-        LibraryBodyAnalysisFeatures features =
-            LibraryBodyAnalysisFeatures.None;
-        if ((capabilities
-                & ILOffsetProjectionCapabilities.AllocationContext)
-            != 0)
-        {
-            features |= LibraryBodyAnalysisFeatures.Allocations;
-        }
-        if ((capabilities
-                & (ILOffsetProjectionCapabilities.SafetyContext
-                    | ILOffsetProjectionCapabilities.CostContext))
-            != 0)
-        {
-            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
-        }
-        return features;
     }
 
     private static bool RequiresOnlySafety(
@@ -1289,14 +1256,13 @@ public static class LibraryAddressInspectionOperation
         };
 
     private sealed record AnalysisPreparation(
-        ILOffsetAnalysisInput? Input,
         ILOffsetAllocationAnalysisInput? AllocationInput,
         ILOffsetSafetyAnalysisInput? SafetyInput,
         ILOffsetCostAnalysisInput? CostInput,
         string? Failure)
     {
         internal static AnalysisPreparation None { get; } =
-            new(null, null, null, null, null);
+            new(null, null, null, null);
     }
 
     private abstract record SnapshotOutcome

@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
@@ -181,6 +182,108 @@ public class ILOffsetProjectionProducerTests
             cost.WorkReceipt.For(
                 FocusedMethodCallProducer.Instance)
                 .UnitsCompleted);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void
+        ProjectILOffset_MixedExactEvidenceMatchesLegacyAtPhysicalCoordinates()
+    {
+        string path =
+            typeof(ILOffsetProjectionProducerTests).Assembly.Location;
+        MethodInfo allocationMethod =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(Allocate),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo safetyMethod =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(Stackalloc),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo asyncMethod =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(CallVirtualAsync),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        LibraryBodyAnalysisExecution legacy =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.Allocations
+                        | LibraryBodyAnalysisFeatures.MethodEvidence));
+        DirectCall call = Assert.Single(
+            legacy.CallGraph.DirectCalls,
+            candidate => candidate.Caller.MetadataToken
+                    == asyncMethod.MetadataToken
+                && candidate.EvidenceMethod != candidate.Caller
+                && candidate.Callee.Name
+                    == nameof(OffsetVirtualTarget.Compute));
+        (int Token, int Offset)[] coordinates =
+        [
+            (allocationMethod.MetadataToken,
+                Assert.Single(legacy.Allocations.Occurrences[
+                    allocationMethod.MetadataToken]).ILOffset),
+            (safetyMethod.MetadataToken,
+                Assert.Single(
+                    legacy.Safety.Occurrences[safetyMethod.MetadataToken],
+                    occurrence => occurrence.Kind == UnsafetyKind.StackAlloc)
+                    .ILOffset),
+            (call.EvidenceMethod.MetadataToken, call.ILOffset),
+            (allocationMethod.MetadataToken, 0),
+        ];
+        using var source = SourceLinkService.OpenPrefetched(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(source.Context);
+        const ILOffsetProjectionCapabilities capabilities =
+            ILOffsetProjectionCapabilities.AllocationContext
+                | ILOffsetProjectionCapabilities.SafetyContext
+                | ILOffsetProjectionCapabilities.CostContext;
+        ILOffsetSemanticAnalysisInput input =
+            ILOffsetSemanticAnalysis.Execute(
+                session,
+                "IL-offset mixed evidence test",
+                source.Context.ModuleVersionId(),
+                coordinates.Select(coordinate => coordinate.Token),
+                capabilities,
+                TestContext.Current.CancellationToken);
+
+        foreach ((int token, int offset) in coordinates)
+        {
+            ILOffsetProjectionOutcome expected =
+                ResearchViews.ProjectILOffset(
+                    new(
+                        source,
+                        token,
+                        offset,
+                        capabilities,
+                        Analysis: AnalysisInput(legacy)));
+            ILOffsetProjectionOutcome actual =
+                ResearchViews.ProjectILOffset(
+                    new(
+                        source,
+                        token,
+                        offset,
+                        capabilities,
+                        AllocationAnalysis: input.Allocation,
+                        SafetyAnalysis: input.Safety,
+                        CostAnalysis: input.Cost));
+            Assert.True(expected.Succeeded);
+            Assert.True(actual.Succeeded);
+            Assert.Equal(
+                JsonSerializer.Serialize(expected.Projection),
+                JsonSerializer.Serialize(actual.Projection));
+        }
+
+        foreach (MethodDefinitionSourceReceipt receipt in
+            new[]
+            {
+                input.Allocation!.SourceReceipt,
+                input.Safety!.SourceReceipt,
+                input.Cost!.SourceReceipt,
+            })
+        {
+            Assert.Equal(3, receipt.DefinitionsVisited);
+            Assert.Equal(3, receipt.BodiesAcquired);
+            Assert.Equal(0, receipt.ModuleLookups);
+        }
     }
 
     [Fact]
