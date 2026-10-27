@@ -54,6 +54,7 @@ public enum CapabilityCatalogSearchMatchSource
     Summary,
     RelatedRoute,
     ProductionBinding,
+    IssuedFinding,
 }
 
 [JsonConverter(
@@ -67,6 +68,7 @@ public enum CapabilityCatalogSearchResourceKind
     ConsumerBinding,
     Section,
     Category,
+    Analysis,
 }
 
 public sealed record CapabilityCatalogSearchRoute(
@@ -346,6 +348,8 @@ public static class CapabilityCatalogSearch
                                 term)))),
             .. capabilityCatalog.Bindings.Select(
                 ResourceExplanationCatalog.ConsumerBindingIdentity),
+            .. capabilityCatalog.Analyses.Select(
+                ResourceExplanationCatalog.AnalysisIdentity),
         ];
         IReadOnlyDictionary<
             QuerySpace.Explanation.ExplanationResourceKey,
@@ -409,6 +413,16 @@ public static class CapabilityCatalogSearch
                     binding.Route.Document),
                 binding,
                 binding.Route);
+            foreach (string exposedAnalysis in binding.ExposedAnalyses)
+            {
+                AddAvailableResource(
+                    ResourceExplanationCatalog.AnalysisIdentity(
+                        catalog.Analyses.Single(registration =>
+                            registration.Analysis.Id.Value
+                            == exposedAnalysis)),
+                    binding,
+                    binding.Route);
+            }
             if (binding.Route.QuerySpace is not { } querySpace)
                 continue;
             AddAvailableResource(
@@ -834,6 +848,18 @@ public static class CapabilityCatalogSearch
                         resource,
                         "summary")
                     : null;
+            if (identity.Kind == InspectionCapabilityResourceKind.Analysis)
+            {
+                foreach (string finding in ResourceExplanationVocabulary.Texts(
+                             resource,
+                             "findings"))
+                {
+                    AddTerms(
+                        terms,
+                        finding,
+                        CapabilityCatalogSearchMatchSource.IssuedFinding);
+                }
+            }
             ImmutableArray<string> canonicalKeys =
                 identity.Kind == InspectionCapabilityResourceKind.QueryFacet
                     ? [
@@ -1060,7 +1086,8 @@ public static class CapabilityCatalogSearch
             CapabilityCatalogSearchMatchSource.ExampleValue => 1,
             CapabilityCatalogSearchMatchSource.ResourcePath => 2,
             CapabilityCatalogSearchMatchSource.ResourceName => 3,
-            CapabilityCatalogSearchMatchSource.Summary => 4,
+            CapabilityCatalogSearchMatchSource.Summary
+                or CapabilityCatalogSearchMatchSource.IssuedFinding => 4,
             CapabilityCatalogSearchMatchSource.RelatedRoute
                 or CapabilityCatalogSearchMatchSource.ProductionBinding => 5,
             _ => throw new ArgumentOutOfRangeException(
@@ -1083,6 +1110,8 @@ public static class CapabilityCatalogSearch
                 CapabilityCatalogSearchResourceKind.QueryFacet,
             InspectionCapabilityResourceKind.ConsumerBinding =>
                 CapabilityCatalogSearchResourceKind.ConsumerBinding,
+            InspectionCapabilityResourceKind.Analysis =>
+                CapabilityCatalogSearchResourceKind.Analysis,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(kind),
                 kind,

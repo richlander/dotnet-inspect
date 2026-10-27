@@ -1113,6 +1113,77 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Search_AdmitsEveryAnalysisDiffBinds()
+    {
+        var search = await RunAsync(
+            "explain",
+            "diff analyses",
+            "-n",
+            "100",
+            "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement[] analyses =
+        [
+            .. document.RootElement
+                .GetProperty("results")
+                .EnumerateArray()
+                .Where(static result =>
+                    result.GetProperty("resource_kind").GetString()
+                        == "Analysis"),
+        ];
+        Assert.Equal(
+            DiffAnalysisCommandCapability.Identities
+                .Select(static identity => "analyses/" + identity)
+                .Order(StringComparer.Ordinal),
+            analyses
+                .Select(static result =>
+                    result.GetProperty("resource_path").GetString()!)
+                .Order(StringComparer.Ordinal));
+        foreach (JsonElement analysis in analyses)
+        {
+            Assert.Equal(
+                "diff --analysis",
+                Assert.Single(
+                        analysis.GetProperty("production_bindings")
+                            .EnumerateArray())
+                    .GetProperty("gesture")
+                    .GetString());
+            Assert.Equal(
+                "diff-analysis/routes/compare",
+                Assert.Single(
+                        analysis.GetProperty("owning_routes")
+                            .EnumerateArray())
+                    .GetProperty("resource_path")
+                    .GetString());
+            var exact = await RunAsync(
+                "explain",
+                analysis.GetProperty("resource_path").GetString()!,
+                "--json");
+            Assert.Equal(0, exact.ExitCode);
+        }
+    }
+
+    [Theory]
+    [InlineData("string literal diff", "analyses/string-literals")]
+    [InlineData("allocation changes", "analyses/allocation")]
+    public async Task Phrase_RanksTheAnalysisFirst(string text, string path)
+    {
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        Assert.Equal(
+            path,
+            document.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("resource_path")
+                .GetString());
+    }
+
+    [Fact]
     public async Task BareExplain_DefaultsToTheRoutingTableAsTsv()
     {
         // Explain is primarily for agents, so its starting point is the
