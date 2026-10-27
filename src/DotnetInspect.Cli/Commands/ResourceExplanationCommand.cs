@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using Markout;
 
@@ -159,6 +160,7 @@ public static partial class ResourceExplanationCommand
                     ResourceExplanationCatalog.CreateWorkspaceComponents(),
                 "package-query" => CreatePackageQueryExplanation(),
                 "package-files" => CreatePackageFilesExplanation(),
+                "diff-analysis" => CreateDiffAnalysisExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
                     CreateAnalysisExplanation(),
                 ResourceExplanationCatalog.VocabulariesCollectionSegment =>
@@ -356,6 +358,12 @@ public static partial class ResourceExplanationCommand
             PackageFileInventoryCapabilityResourcePaths.Create(catalog));
     }
 
+    private static ResourceExplanationCatalog CreateDiffAnalysisExplanation() =>
+        ResourceExplanationCatalog.CreateCapabilities(
+            DiffAnalysisCommandCapability.Catalog,
+            DiffAnalysisCapabilityResourcePaths.Create(
+                DiffAnalysisCommandCapability.Catalog));
+
     private static (
         InspectionCapabilityCatalog Catalog,
         ResourceExplanationCatalog Explanation)
@@ -372,6 +380,8 @@ public static partial class ResourceExplanationCommand
                     PackageQueryCommandCapability.Module,
                     PackageFileInventoryCapability.ProductModule,
                     PackageFileInventoryCommandCapability.Module,
+                    DiffAnalysisCatalog.ProductModule,
+                    DiffAnalysisCommandCapability.Module,
                 ]);
         ResourceExplanationCatalog explanation =
             ResourceExplanationCatalog.CreateCapabilities(
@@ -381,6 +391,8 @@ public static partial class ResourceExplanationCommand
                         packageQuery),
                     .. PackageFileInventoryCapabilityResourcePaths.Create(
                         packageFiles),
+                    .. DiffAnalysisCapabilityResourcePaths.Create(
+                        DiffAnalysisCommandCapability.Catalog),
                 ]);
         return (catalog, explanation);
     }

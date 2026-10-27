@@ -515,6 +515,7 @@ public sealed partial class ResourceExplanationCatalog
         [
             .. catalog.Routes
                 .Select(static route => route.QuerySpace)
+                .OfType<QuerySpaceBinding>()
                 .DistinctBy(
                     static querySpace =>
                         querySpace.Descriptor.Identity,
@@ -600,8 +601,8 @@ public sealed partial class ResourceExplanationCatalog
         {
             InspectionCapabilityResourceIdentity identity =
                 RouteIdentity(route);
-            QuerySpaceOperationScopeDescriptor operation =
-                route.QuerySpace.Descriptor.Operation;
+            QuerySpaceOperationScopeDescriptor? operation =
+                route.QuerySpace?.Descriptor.Operation;
             snapshots.Add(
                 Snapshot(
                     paths[identity],
@@ -625,18 +626,31 @@ public sealed partial class ResourceExplanationCatalog
                         ResourceExplanationVocabulary.TextFact(
                             ResourceExplanationVocabulary
                                 .HostNeutralRouteType,
+                            "execution",
+                            route.Execution switch
+                            {
+                                InspectionRouteExecution.QuerySpace =>
+                                    "query-space",
+                                InspectionRouteExecution.Inspection =>
+                                    "inspection",
+                                _ => throw new InvalidOperationException(
+                                    "Unknown route execution kind."),
+                            }),
+                        DescriptionFact(
+                            ResourceExplanationVocabulary
+                                .HostNeutralRouteType,
                             "subject-role",
-                            operation.SubjectRole),
-                        ResourceExplanationVocabulary.TextFact(
+                            operation?.SubjectRole),
+                        DescriptionFact(
                             ResourceExplanationVocabulary
                                 .HostNeutralRouteType,
                             "result-grain",
-                            operation.ResultGrain),
-                        ResourceExplanationVocabulary.TextFact(
+                            operation?.ResultGrain),
+                        DescriptionFact(
                             ResourceExplanationVocabulary
                                 .HostNeutralRouteType,
                             "profile",
-                            operation.Profile),
+                            operation?.Profile),
                         ResourceExplanationVocabulary.TextFact(
                             ResourceExplanationVocabulary
                                 .HostNeutralRouteType,
@@ -651,8 +665,9 @@ public sealed partial class ResourceExplanationCatalog
                         {
                             ["produces"] =
                                 [keys[DocumentIdentity(route.Document)]],
-                            ["query-surface"] =
-                                [keys[QuerySpaceIdentity(route.QuerySpace)]],
+                            ["query-surface"] = route.QuerySpace is null
+                                ? []
+                                : [keys[QuerySpaceIdentity(route.QuerySpace)]],
                             ["consumer-binding"] = catalog.Bindings
                                 .Where(binding =>
                                     ReferenceEquals(binding.Route, route))
@@ -940,14 +955,14 @@ public sealed partial class ResourceExplanationCatalog
                                 exposed =>
                                 {
                                     QuerySpaceOperationTermDescriptor term =
-                                        binding.Route.QuerySpace.Descriptor
+                                        binding.Route.QuerySpace!.Descriptor
                                             .Operation.Terms.Single(
                                                 candidate =>
                                                     candidate.Identity
                                                     == exposed);
                                     return keys[
                                         QueryFacetIdentity(
-                                            binding.Route.QuerySpace,
+                                            binding.Route.QuerySpace!,
                                             term)];
                                 }),
                         })));
@@ -1927,13 +1942,13 @@ public sealed partial class ResourceExplanationCatalog
                 + "Workspace projection."));
     }
 
-    internal static InspectionCapabilityResourceIdentity DocumentIdentity(
+    public static InspectionCapabilityResourceIdentity DocumentIdentity(
         InspectionDocumentRegistration document) =>
         new(
             InspectionCapabilityResourceKind.Document,
             document.Descriptor.Identity);
 
-    internal static InspectionCapabilityResourceIdentity RouteIdentity(
+    public static InspectionCapabilityResourceIdentity RouteIdentity(
         InspectionRouteRegistration route) =>
         new(
             InspectionCapabilityResourceKind.Route,
@@ -1960,7 +1975,7 @@ public sealed partial class ResourceExplanationCatalog
             InspectionCapabilityResourceKind.RelatedOperation,
             operation.Id.Value);
 
-    internal static InspectionCapabilityResourceIdentity
+    public static InspectionCapabilityResourceIdentity
         ConsumerBindingIdentity(
             InspectionConsumerBinding binding) =>
         new(
