@@ -2514,6 +2514,15 @@ RetainedWorkspaceActivationController {
   return retainedWorkspaceActivation;
 }
 
+function currentRetainedDefinitionPosting():
+BrowserRetainedWorkspacePosting | null {
+  const activeDefinitionId =
+    retainedWorkspaceActivation?.state.activeDefinitionId;
+  return activeDefinitionId === null || activeDefinitionId === undefined
+    ? null
+    : retainedWorkspacePostings.get(activeDefinitionId) ?? null;
+}
+
 function parkActiveCompatibilityWorkspace(): void {
   const activeId = retainedWorkspaces.activeWorkspaceId;
   if (activeId === null) return;
@@ -3375,7 +3384,12 @@ async function activateManagedRetainedWorkspace(
           throw new Error(
             "The active retained product demo omitted its posting.");
         }
-        if (!retainedHomeDemoPresentationInstalled(posting)) {
+        const requiresLocationPublication =
+          locationPolicy !== "none"
+          && (posting.canonicalLocation !== location.href
+            || scope() !== "workspace");
+        if (!retainedHomeDemoPresentationInstalled(posting)
+          || requiresLocationPublication) {
           const locationIntent = retainedLocationIntents.admitNonBrowser(
             locationPolicy,
             installedRetainedLocation,
@@ -3393,6 +3407,26 @@ async function activateManagedRetainedWorkspace(
         }
         render({ synchronizeUrl: false });
       } else {
+        const posting = retainedWorkspacePostings.get(retainedDefinitionId);
+        if (posting === undefined) {
+          throw new Error(
+            "The active retained Workspace omitted its posting.");
+        }
+        const requiresLocationPublication =
+          locationPolicy !== "none"
+          && (posting.canonicalLocation !== location.href
+            || scope() !== "workspace");
+        if (requiresLocationPublication) {
+          const locationIntent = retainedLocationIntents.admitNonBrowser(
+            locationPolicy,
+            installedRetainedLocation,
+            history,
+          );
+          if (!publishRetainedLocationAssociation(
+            posting,
+            locationIntent,
+          )) return;
+        }
         openDefaultWorkspace();
       }
       return;
@@ -3557,7 +3591,7 @@ async function retainedDefinitionInitialPresentation(
   ]["definitions"][number],
 ): Promise<RetainedDefinitionInitialPresentation> {
   if ("homeDemo" in definition && definition.homeDemo !== undefined) {
-    const demo = await resolveProductHomeDemo(definition.homeDemo.id);
+    const demo = definition.homeDemo;
     if (demo.view.section !== "Methods") {
       throw new Error(
         `Retained product home demo '${demo.id}' requires unsupported section '${demo.view.section ?? "(none)"}'.`,
@@ -3698,6 +3732,9 @@ async function deleteManagedRetainedWorkspace(
   const controller = requireRetainedWorkspaceActivation();
   const wasActive =
     controller.state.activeDefinitionId === retainedDefinitionId;
+  const incumbentRealizationId = wasActive
+    ? retainedWorkspacePostings.get(retainedDefinitionId)?.realizationId ?? null
+    : null;
   const definitionIndex = controller.state.definitions.findIndex(
     definition => definition.id === retainedDefinitionId);
   const successor = definitionIndex < 0
@@ -3723,42 +3760,73 @@ async function deleteManagedRetainedWorkspace(
       history,
     )
     : null;
-  await controller.delete(
-    retainedDefinitionId,
-    successor && successorInitialPresentation && locationIntent
-    ? {
-      successorDefinitionId: successor.id,
-      acceptSuccessor: () =>
-        navigationSequence.isCurrent(navigationSeq)
-        && retainedLocationIntents.currentIntentId === locationIntent.id,
-      completeSuccessor: posting =>
-        installRetainedDefinitionPosting(
-          posting,
-          locationIntent,
-          successorInitialPresentation,
-          navigationSeq),
-      isSuccessorPresentationCurrent: posting =>
-        navigationSequence.isCurrent(navigationSeq)
-        && retainedLocationPresentationCurrent(
-          locationIntent,
-          posting.canonicalLocation,
-        ),
-    }
-    : compatibilitySuccessor && locationIntent
+  try {
+    await controller.delete(
+      retainedDefinitionId,
+      successor && successorInitialPresentation && locationIntent
       ? {
+        successorDefinitionId: successor.id,
+        acceptSuccessor: () =>
+          navigationSequence.isCurrent(navigationSeq)
+          && retainedLocationIntents.currentIntentId === locationIntent.id,
+        completeSuccessor: posting =>
+          installRetainedDefinitionPosting(
+            posting,
+            locationIntent,
+            successorInitialPresentation,
+            navigationSeq),
+        isSuccessorPresentationCurrent: posting =>
+          navigationSequence.isCurrent(navigationSeq)
+          && retainedLocationPresentationCurrent(
+            locationIntent,
+            posting.canonicalLocation,
+          ),
+      }
+      : compatibilitySuccessor && locationIntent
+        ? {
+          successorDefinitionId: null,
+          completeDeactivation: () => {
+            if (!activateRetainedWorkspaceProjection(
+              compatibilitySuccessor.id,
+              false,
+            )) {
+              throw new Error(
+                "The compatibility Workspace is no longer available.",
+              );
+            }
+            const association: InstalledLocationAssociation = {
+              identity: Symbol(compatibilitySuccessor.id),
+              canonicalLocation: activeWorkspaceUrl ?? "/demos",
+              historyState: withRetainedWorkspaceHistoryId(history.state),
+            };
+            const effect = retainedLocationIntents.classify(locationIntent, {
+              outcome: "applied",
+              synchronization: "current",
+              association,
+            });
+            if (!retainedLocationIntents.publish(effect, history)) {
+              throw new Error(
+                "The compatibility successor location intent was superseded.",
+              );
+            }
+            installedRetainedLocation = null;
+          },
+        }
+      : {
         successorDefinitionId: null,
         completeDeactivation: () => {
-          if (!activateRetainedWorkspaceProjection(
-            compatibilitySuccessor.id,
-            false,
-          )) {
-            throw new Error(
-              "The compatibility Workspace is no longer available.",
-            );
-          }
+          state.error = "";
+          state.errorTitle = "";
+          state.errorDetail = "";
+          state.retryAction = null;
+          state.workspaceSubjectOpen = true;
+          state.atPackageRoot = true;
+          state.atLibraryRoot = false;
+          activeWorkspaceUrl = "/demos";
+          if (locationIntent === null) return undefined;
           const association: InstalledLocationAssociation = {
-            identity: Symbol(compatibilitySuccessor.id),
-            canonicalLocation: activeWorkspaceUrl ?? "/demos",
+            identity: Symbol("no-workspace"),
+            canonicalLocation: "/demos",
             historyState: withRetainedWorkspaceHistoryId(history.state),
           };
           const effect = retainedLocationIntents.classify(locationIntent, {
@@ -3768,44 +3836,28 @@ async function deleteManagedRetainedWorkspace(
           });
           if (!retainedLocationIntents.publish(effect, history)) {
             throw new Error(
-              "The compatibility successor location intent was superseded.",
+              "The no-Workspace location intent was superseded.",
             );
           }
           installedRetainedLocation = null;
+          return undefined;
         },
-      }
-    : {
-      successorDefinitionId: null,
-      completeDeactivation: () => {
-        state.error = "";
-        state.errorTitle = "";
-        state.errorDetail = "";
-        state.retryAction = null;
-        state.workspaceSubjectOpen = true;
-        state.atPackageRoot = true;
-        state.atLibraryRoot = false;
-        activeWorkspaceUrl = "/demos";
-        if (locationIntent === null) return undefined;
-        const association: InstalledLocationAssociation = {
-          identity: Symbol("no-workspace"),
-          canonicalLocation: "/demos",
-          historyState: withRetainedWorkspaceHistoryId(history.state),
-        };
-        const effect = retainedLocationIntents.classify(locationIntent, {
-          outcome: "applied",
-          synchronization: "current",
-          association,
-        });
-        if (!retainedLocationIntents.publish(effect, history)) {
-          throw new Error(
-            "The no-Workspace location intent was superseded.",
-          );
-        }
-        installedRetainedLocation = null;
-        return undefined;
       },
-    },
-  );
+    );
+  } catch (error) {
+    const incumbentPreserved =
+      wasActive
+      && incumbentRealizationId !== null
+      && controller.state.activeDefinitionId === retainedDefinitionId
+      && retainedWorkspacePostings.get(retainedDefinitionId)?.realizationId
+        === incumbentRealizationId
+      && controller.state.definitions.some(
+        definition => definition.id === retainedDefinitionId,
+      );
+    if (!navigationSequence.isCurrent(navigationSeq)
+      && incumbentPreserved) return;
+    throw error;
+  }
   if (!controller.state.definitions.some(
     definition => definition.id === retainedDefinitionId,
   )) {
@@ -9896,7 +9948,8 @@ function renderCore(options: RenderOptions) {
     restorePackageRouteReturnFocus();
     return;
   }
-  if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
+  if (state.workspaceSubjectOpen
+    && isProductHomeDemosPath(location.pathname)) {
     renderProductDemosPage();
     if (state.settings) {
       document.querySelector<HTMLElement>("#settings-title")
@@ -18751,14 +18804,6 @@ async function buildStateUrl(base = location.href): Promise<URL> {
     : new URL(base);
 }
 
-function retainedWorkspaceProductDestinationUrl(): URL | null {
-  const posting = activeRetainedWorkspacePosting;
-  if (posting === null || posting.canonicalPacket === null) return null;
-  const destination = new URL(posting.canonicalLocation, location.href);
-  destination.hash = "workspace";
-  return destination;
-}
-
 async function buildShareUrl(base = location.href): Promise<URL> {
   if (state.workspaceFeedUrl)
     return new URL(state.workspaceFeedUrl);
@@ -19829,12 +19874,6 @@ function runHomeDemo(kind: ProductHomeDemoId) {
 
 type HomeDemoLocationPolicy = "push" | "replace";
 
-function homeDemoCanonicalLocation(kind: ProductHomeDemoId): string {
-  const url = new URL("/demos", location.origin);
-  url.searchParams.set("demo", kind);
-  return url.toString();
-}
-
 function routedHomeDemoId(): ProductHomeDemoId | null {
   if (!isProductHomeDemosPath(location.pathname)) return null;
   const value = new URL(location.href).searchParams.get("demo");
@@ -19892,10 +19931,23 @@ async function activateMethodsHomeDemo(
   navigationSeq: number,
 ): Promise<void> {
   const controller = requireRetainedWorkspaceActivation();
-  const destination = homeDemoCanonicalLocation(demo.id);
   let definitionId: string | null = null;
   let locationIntent: LocationIntentDeclaration | null = null;
   try {
+    const encodedLocation = await engineClient.catalog.encodeWorkspaceShareState(
+      demo.workspace,
+    );
+    if (!encodedLocation.succeeded || encodedLocation.packet === null) {
+      throw new Error(
+        encodedLocation.failure?.message
+          ?? "The product demo view could not be serialized.",
+      );
+    }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    const destinationUrl = new URL("/", location.origin);
+    destinationUrl.searchParams.set("w", encodedLocation.packet);
+    destinationUrl.hash = "workspace";
+    const destination = destinationUrl.toString();
     const admittedLocationIntent = retainedLocationIntents.admitNonBrowser(
       locationPolicy,
       installedRetainedLocation,
@@ -19905,7 +19957,7 @@ async function activateMethodsHomeDemo(
     const definition = controller.retain({
       label: demo.title,
       canonicalLocation: destination,
-      homeDemo: { id: demo.id },
+      homeDemo: demo,
     });
     definitionId = definition.id;
     issuedManagedRetainedDefinitionIds.add(definition.id);
@@ -20521,7 +20573,9 @@ function goHome(): boolean {
 function currentProductDestination(): ProductDestination | null {
   if (isDiagnosticsPath(location.pathname) || state.credits) return null;
   if (isProductEcosystemsPath(location.pathname)) return "ecosystems";
-  if (isProductHomeDemosPath(location.pathname)) return "demos";
+  if (state.workspaceSubjectOpen
+    && !state.home
+    && isProductHomeDemosPath(location.pathname)) return "demos";
   if (state.packageQueryOpen) return "query";
   if (state.packageActivityOpen) return "activity";
   if (state.workspaceSubjectOpen && !state.home) return "workspace";
@@ -20535,7 +20589,7 @@ function productNavigationUnavailableReason(
   if (destination === "workspace"
     && state.package === null
     && state.platformSelection === null
-    && activeRetainedWorkspacePosting === null) {
+    && currentRetainedDefinitionPosting() === null) {
     return "No workspace is open";
   }
   if (destination !== "query" && destination !== "activity") return null;
@@ -20559,7 +20613,8 @@ function productNavigationOwnsFocus(): boolean {
 }
 
 function navigateProductDestination(destination: ProductDestination): void {
-  if (destination === currentProductDestination()) {
+  if (destination === currentProductDestination()
+    && (destination !== "workspace" || scope() === "workspace")) {
     focusProductNavigationButton();
     return;
   }
@@ -22037,13 +22092,56 @@ async function openWorkspaceProductDestination(): Promise<{
   readonly restoreDestinationFocus: boolean;
 } | null> {
   const pkg = state.package;
+  const retainedPosting = currentRetainedDefinitionPosting();
   if (!pkg && !state.platformSelection
-    && activeRetainedWorkspacePosting === null) return null;
+    && retainedPosting === null) return null;
   const fallbackPackage = pkg?.source.kind === "platform" ? null : pkg;
 
   dismissModalsForRoutedNavigation();
   const navigationSeq = navigationSequence.begin();
   const initiatingFocusGeneration = documentFocusGeneration;
+  if (retainedPosting !== null) {
+    try {
+      await activateManagedRetainedWorkspace(
+        retainedPosting.retainedDefinitionId,
+        "push",
+        navigationSeq,
+      );
+    } catch (error) {
+      if (navigationSequence.isCurrent(navigationSeq)) {
+        reportProductNavigationFailure(
+          "workspace",
+          error,
+          navigationSeq,
+          initiatingFocusGeneration,
+          true,
+        );
+      }
+      return null;
+    }
+    if (!navigationSequence.isCurrent(navigationSeq)) return null;
+    discardPackageQueryTermEditors();
+    state.packageQueryOpen = false;
+    state.packageActivityOpen = false;
+    packageQueryController.cancel();
+    packageChangesController.cancel("disposed");
+    state.packageQueryNavigationError = "";
+    state.credits = false;
+    state.home = false;
+    spotlight.reset();
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.selectedOverloadIndex = null;
+    render();
+    return {
+      navigationSeq,
+      focusGeneration: null,
+      restoreDestinationFocus: false,
+    };
+  }
   const routeState = {
     packageQueryOpen: state.packageQueryOpen,
     packageActivityOpen: state.packageActivityOpen,
@@ -22066,10 +22164,7 @@ async function openWorkspaceProductDestination(): Promise<{
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
-  const retainedDestination = retainedWorkspaceProductDestinationUrl();
-  const projection = retainedDestination === null
-    ? buildStateUrl()
-    : Promise.resolve(retainedDestination);
+  const projection = buildStateUrl();
   Object.assign(state, routeState);
 
   let projected: URL | null = null;
@@ -27273,11 +27368,7 @@ function applyMethodsHomeDemoSelection(
     throw new Error(
       `Product home demo '${demo.id}' is not an unscoped Methods view.`);
   }
-  const focus = demo.tabs[demo.focusTabIndex];
-  if (focus === undefined) {
-    throw new Error(
-      `Product home demo '${demo.id}' has no focused navigation tab.`);
-  }
+  const focus = methodsHomeDemoFocus(demo);
   const packageModel = state.package;
   if (packageModel === null) {
     throw new Error(
@@ -27323,6 +27414,17 @@ function applyMethodsHomeDemoSelection(
   );
 }
 
+function methodsHomeDemoFocus(
+  demo: BrowserHomeDemoResolved,
+): BrowserHomeDemoResolved["tabs"][number] {
+  const focus = demo.tabs[demo.focusTabIndex];
+  if (focus === undefined) {
+    throw new Error(
+      `Product home demo '${demo.id}' has no focused navigation tab.`);
+  }
+  return focus;
+}
+
 async function installMethodsHomeDemoPosting(
   posting: BrowserRetainedWorkspacePosting,
   demo: BrowserHomeDemoResolved,
@@ -27334,11 +27436,16 @@ async function installMethodsHomeDemoPosting(
     || retainedLocationIntents.currentIntentId !== locationIntent.id) {
     return false;
   }
+  if (currentRetainedDefinitionPosting()?.realizationId
+      !== posting.realizationId) {
+    throw new Error(
+      "A newer retained Workspace replaced this product demo.");
+  }
   const models = await loadRetainedWorkspaceModels(
     engineClient.catalog,
     posting,
   );
-  if (activeRetainedWorkspacePosting?.realizationId
+  if (currentRetainedDefinitionPosting()?.realizationId
       !== posting.realizationId) {
     throw new Error(
       "A newer retained Workspace replaced this product demo.");
@@ -27347,7 +27454,14 @@ async function installMethodsHomeDemoPosting(
     || retainedLocationIntents.currentIntentId !== locationIntent.id) {
     return false;
   }
-  installRetainedWorkspaceModels(posting, models, null, false);
+  const focus = methodsHomeDemoFocus(demo);
+  installRetainedWorkspaceModels(
+    posting,
+    models,
+    null,
+    false,
+    focus.id,
+  );
   if (!publishRetainedLocationAssociation(
     posting,
     locationIntent,
@@ -28224,6 +28338,7 @@ function installRetainedWorkspaceModels(
   models: RetainedWorkspaceModels,
   workspaceFeedUrl: string | null,
   renderAfterInstall = true,
+  selectedNavigationId?: string,
 ): void {
   const allModels = [
     ...models.packages.map(item => item.packageModel),
@@ -28240,14 +28355,33 @@ function installRetainedWorkspaceModels(
     createNavigationDescriptorPresentation(posting);
   retainedWorkspaceInitialDetailAuthority = null;
   installedRetainedLocation = null;
-  const activeTab = posting.definition.activeTabId === null
+  const activeTabId =
+    selectedNavigationId ?? posting.definition.activeTabId;
+  const activeTab = activeTabId === null
     ? null
     : posting.definition.tabs.find(
-        tab => tab.id === posting.definition.activeTabId);
+        tab => tab.id === activeTabId);
+  if (activeTabId !== null && activeTab === undefined) {
+    throw new Error(
+      "The retained Workspace selected an unavailable navigation tab.");
+  }
   const activePackageSubjectId =
     posting.navigation.snapshot.activePackage;
-  const activePackage = models.packages.find(item =>
-    item.consumerPackageSubjectId === activePackageSubjectId)?.packageModel
+  const explicitlySelected = selectedNavigationId === undefined
+    ? null
+    : models.packages.find(item =>
+        item.navigationId === selectedNavigationId)?.packageModel
+      ?? models.platforms.find(item =>
+        item.navigationId === selectedNavigationId)?.packageModel
+      ?? null;
+  if (selectedNavigationId !== undefined
+      && explicitlySelected === null) {
+    throw new Error(
+      "The retained product demo did not publish its focused surface.");
+  }
+  const activePackage = explicitlySelected
+    ?? models.packages.find(item =>
+      item.consumerPackageSubjectId === activePackageSubjectId)?.packageModel
     ?? (activeTab?.kind === "package"
     ? models.packages.find(item =>
         item.packageModel.id.toLowerCase() === activeTab.source.toLowerCase()
@@ -29454,7 +29588,9 @@ window.addEventListener("popstate", () => {
             initial.homeDemo,
             locationIntent,
             navigationSeq,
-            posting.canonicalLocation === location.href ? "exact" : "changed",
+            posting.canonicalLocation === location.href
+              ? "exact"
+              : "changed",
           );
           if (!installed) return;
         } else {
