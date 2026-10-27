@@ -61,6 +61,32 @@ The neighboring case is a dependency supplied by the active Platform. Its
 route remains a Platform destination and no redundant Package Root or Package
 assembly participant is fabricated.
 
+### Dependencies without selected compile assemblies
+
+The reported `Microsoft.Azure.SignalR@1.33.1` `net8.0` call graph for
+`Microsoft.AspNetCore.Builder.AzureSignalRApplicationBuilderExtensions`
+failed while preparing its dependency assembly context: a routed Package
+binding without selected compile assemblies reached the selected-only
+package-role boundary. The package is pinned in the Services test population.
+
+The regression uses the existing compiled caller and target fixtures alongside
+a dependency with an explicit `ref/net11.0/_._` group or no compile assets. It
+must retain that dependency's Package route without admitting it to the assembly
+context, while preserving the caller-to-target graph edge. Before this fix, the
+exact package scenario reproduced the selected-binding exception with:
+
+```bash
+dotnet-inspect graph calls \
+  Microsoft.AspNetCore.Builder.AzureSignalRApplicationBuilderExtensions \
+  UseAzureSignalR \
+  --root-package Microsoft.Azure.SignalR@1.33.1 --root-tfm net8.0 \
+  --tfm net11.0 --baseline nothing --depth 2 --max-nodes 30 --json
+```
+
+With selected-only graph bindings, this command returns the graph successfully.
+Existing traversal, correspondence, and external-boundary incompleteness remain
+visible as warnings; this fix does not claim complete dependency resolution.
+
 ## Request
 
 One `PackageDependencyMemberCallGraphRequest` carries:
@@ -177,9 +203,13 @@ already present in the Scope do not enter this demand.
 
 The operation prepares one
 `PackageAssemblyContextCompletion` and one demand-local projection from those
-exact bindings. The implementation role is the call-graph analysis universe
-when it exists. Packages whose selected `lib/` assets serve both roles use the
-shared surface role. Reference-only assets remain visible in detached route
+exact bindings with selected compile assemblies. A Package without selected
+compile assemblies remains in the Workspace and detached route evidence but
+contributes no assembly-context participant. This does not select a different
+package version or fall back to another compile group. The implementation role
+is the call-graph analysis universe when it exists. Packages whose selected
+`lib/` assets serve both roles use the shared surface role. Reference-only
+assets remain visible in detached route
 evidence but cannot manufacture implementation bodies.
 
 The exact focus must identify one implementation participant belonging to the

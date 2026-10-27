@@ -39,10 +39,17 @@ public sealed partial class PackageHouseExecutionTests
             "IntrinsicCoreLibrary",
             "System.Text.Json.dll");
 
-    [Fact]
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("ref/net11.0/_._", "net11.0")]
+    [InlineData("content/README.txt", null)]
     public async Task
-        DependencyMemberCallGraphInspectionPreparesTraversalAndReturnsEnvelope()
+        DependencyMemberCallGraphInspectionPreparesTraversalAndReturnsEnvelope(
+            string? unselectedEntryPath,
+            string? selectedTargetFramework)
     {
+        const string unselectedPackage = "callgraph.unselected";
+        bool includeUnselectedPackage = unselectedEntryPath is not null;
         await using HouseEnvironment environment =
             HouseEnvironment.CreateForAnyPackage(
                 new SourceBehavior(
@@ -52,9 +59,26 @@ public sealed partial class PackageHouseExecutionTests
                         (
                             "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
                             File.ReadAllBytes(CallGraphTargetPath)),
-                    ]));
+                    ],
+                    PayloadContentEntriesByPackageId:
+                        new Dictionary<
+                            string,
+                            IReadOnlyList<(string EntryPath, byte[] Content)>>
+                        {
+                            [unselectedPackage] =
+                            [
+                                (
+                                    unselectedEntryPath ?? "ref/net11.0/_._",
+                                    []),
+                            ],
+                        }));
         PackageRootBinding rootBinding = CallGraphRootBinding(
-            (CallGraphTargetPackage, RouteVersion));
+            includeUnselectedPackage
+                ? [
+                    (CallGraphTargetPackage, RouteVersion),
+                    (unselectedPackage, RouteVersion),
+                ]
+                : [(CallGraphTargetPackage, RouteVersion)]);
         PackageHouseOperation realizationOperation =
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize);
@@ -107,11 +131,33 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             MemberCallGraphFocalLength.Everything,
             available.Document.FocalScope.FocalLength);
+        Assert.Equal(
+            includeUnselectedPackage ? 2 : 1,
+            available.Document.Routes.Length);
         PackageDependencyMemberCallGraphInspectionDestination.Package
             destination =
             Assert.IsType<
                 PackageDependencyMemberCallGraphInspectionDestination.Package>(
-                Assert.Single(available.Document.Routes).Destination);
+                Assert.Single(
+                    available.Document.Routes,
+                    route => route.Subject.TargetPackageId
+                        == CallGraphTargetPackage).Destination);
+        if (includeUnselectedPackage)
+        {
+            var unselectedDestination =
+                Assert.IsType<
+                    PackageDependencyMemberCallGraphInspectionDestination.Package>(
+                    Assert.Single(
+                        available.Document.Routes,
+                        route => route.Subject.TargetPackageId
+                            == unselectedPackage).Destination);
+            Assert.Equal(
+                unselectedPackage,
+                unselectedDestination.Descriptor.PackageId);
+            Assert.Equal(
+                selectedTargetFramework,
+                unselectedDestination.Descriptor.SelectedTargetFramework);
+        }
         Assert.Equal(
             CallGraphTargetPackage,
             destination.Descriptor.PackageId);
@@ -167,7 +213,9 @@ public sealed partial class PackageHouseExecutionTests
             envelope.Diagnostics.Select(
                 diagnostic => diagnostic.Correspondence!.ToString()));
         Assert.Equal(
-            [CallGraphTargetPackage],
+            includeUnselectedPackage
+                ? [CallGraphTargetPackage, unselectedPackage]
+                : [CallGraphTargetPackage],
             environment.Clients[0].PayloadPackageIds);
         await environment.AssertRootSettledAsync();
     }

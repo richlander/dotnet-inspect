@@ -1184,7 +1184,8 @@ public static class PackageDependencyMemberCallGraphOperation
         {
             if (!candidates.TryGetValue(
                     occurrence.Occurrence.Identity,
-                    out PackageRootBinding? binding))
+                    out PackageRootBinding? binding)
+                || binding.Root.AssetSelection is not { IsSelected: true })
             {
                 continue;
             }
