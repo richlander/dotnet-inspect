@@ -179,11 +179,12 @@ type CatalogOperationName =
   | "explainResources"
   | "describeWorkspaceComponents"
   | "explainWorkspaceComponent"
+  | "findIndexedTypes"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
-  | "prepareHomeDemoWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
+  | "prepareRetainedWorkspaceDefinitionFromRecords"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
   | "recordRetainedWorkspaceNavigationPosting"
   | "resolveHomeDemo"
@@ -2040,6 +2041,14 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   catalog: {
+    findIndexedTypes: valueOperation(
+      "ordinary-catalog-find-indexed-types",
+      5,
+      (
+        facades,
+        ...args: Parameters<CatalogFacade["findIndexedTypes"]>
+      ) => facades.catalog.findIndexedTypes(...args),
+    ),
     abandonRetainedWorkspaceNavigation: valueOperation(
       "ordinary-catalog-abandon-retained-workspace-navigation",
       6,
@@ -2285,29 +2294,6 @@ export const engineWorkerOrdinaryOperations = {
         }
       },
     ),
-    prepareHomeDemoWorkspaceDefinition: valueOperation(
-      "ordinary-catalog-prepare-home-demo-workspace-definition",
-      4,
-      (
-        facades,
-        ...args: Parameters<
-          CatalogFacade["prepareHomeDemoWorkspaceDefinition"]
-        >
-      ) => facades.catalog.prepareHomeDemoWorkspaceDefinition(...args),
-      async (facades, result) => {
-        if (result.status !== "prepared" || result.receipt === null) return;
-        const cancellation =
-          await facades.catalog.cancelRetainedWorkspaceActivation(
-            result.receipt,
-          );
-        if (cancellation.status === "failed") {
-          throw new Error(
-            cancellation.failure?.message
-              ?? "Rejected product home demo Workspace preparation could not be cleaned up.",
-          );
-        }
-      },
-    ),
     preparePackageQueryWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-package-query-workspace-definition",
       5,
@@ -2340,6 +2326,31 @@ export const engineWorkerOrdinaryOperations = {
           CatalogFacade["prepareRetainedWorkspaceDefinition"]
         >
       ) => facades.catalog.prepareRetainedWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected retained Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
+    ),
+    prepareRetainedWorkspaceDefinitionFromRecords: valueOperation(
+      "ordinary-catalog-prepare-retained-workspace-definition-from-records",
+      5,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareRetainedWorkspaceDefinitionFromRecords"]
+        >
+      ) => facades.catalog.prepareRetainedWorkspaceDefinitionFromRecords(
+        ...args,
+      ),
       async (facades, result) => {
         if (result.status !== "prepared" || result.receipt === null) return;
         const cancellation =
@@ -2859,6 +2870,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     catalog: {
+      findIndexedTypes: bind(
+        engineWorkerOrdinaryOperations.catalog.findIndexedTypes,
+      ),
       abandonRetainedWorkspaceNavigation: bind(
         engineWorkerOrdinaryOperations.catalog
           .abandonRetainedWorkspaceNavigation,
@@ -2954,10 +2968,6 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.catalog
           .prepareEcosystemWorkspaceDefinition,
       ),
-      prepareHomeDemoWorkspaceDefinition: bind(
-        engineWorkerOrdinaryOperations.catalog
-          .prepareHomeDemoWorkspaceDefinition,
-      ),
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .preparePackageQueryWorkspaceDefinition,
@@ -2965,6 +2975,10 @@ export function bindEngineWorkerOrdinaryClient(
       prepareRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .prepareRetainedWorkspaceDefinition,
+      ),
+      prepareRetainedWorkspaceDefinitionFromRecords: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareRetainedWorkspaceDefinitionFromRecords,
       ),
       prepareRetainedWorkspaceDefinitionWithCredentials: bind(
         engineWorkerOrdinaryOperations.catalog

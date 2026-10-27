@@ -2392,7 +2392,7 @@ folders, and resolved framework/RID correspondence are gated by
 and `PackageRootBinding_SourceRuntimeRequiresFramework`.
 Neutral-library compile fallback and RID-specific implementation
 correspondence are gated by
-`RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` and
+`RidSpecificImplementation_ReplacesWholeNeutralImplementationGroup` and
 `RidSpecificImplementation_UsesSeparateNeutralCompileRole`; Browser adoption
 is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 

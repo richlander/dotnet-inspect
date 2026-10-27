@@ -489,10 +489,11 @@ changed.
 
 Adoption status: `--offline` is the only network prohibition in code. Network
 telemetry observes requests and never blocks them, so any producer that needs
-PDB facts may acquire a missing PDB outside `--offline`. Today the CLI requests
-`PdbAcquire` when a PDB-dependent section is selected exactly, at `-v:d`, or by
-explicit effective discovery; the gesture that selects such a section moves to
-facet selection under the
+PDB facts may acquire a missing PDB outside `--offline`. The CLI requests
+`PdbAcquire` through PDB-dependent selection or explicit effective discovery;
+some remaining paths also request it at `-v:d`. The Member detail and Library
+audit exceptions below require selecting gestures for their acquisition paths.
+The gesture that selects such a section moves to facet selection under the
 [CLI verbosity retirement](cli-verbosity-retirement.md). Package descriptions
 already show by default; a single type's docs do not yet.
 
@@ -594,6 +595,31 @@ section preservation, typed-query lowering, unrelated selection, and overload
 scope against this real declaration. Existing `LocalRepoSourceProjectionTests` retain the
 positive CLI PDB Source and Source Locations canaries. These gates establish
 request decisions and offline production behavior, not network-transfer counts.
+
+### Library audit PDB requests
+
+The CLI Library audit plan requests acquisition of a missing PDB only for
+explicitly selected PDB-dependent sections. Detailed verbosity, including
+internal promotion, does not request audit PDB acquisition. Resolved section,
+category, and glob selections retain their existing decisions. Explicit local
+source diagnostics retain cache-only reads; unrelated selections request none
+of these audit capabilities.
+
+This is step 5 preparation for the Library audit path. Existing automatic
+Normal/Detailed embedded, adjacent, and cached PDB reads remain unchanged.
+Selected query prerequisites, effective discovery, source-content admission,
+Type paths, and shared House operations keep their existing contracts. This
+claim does not prohibit symbol acquisition through another selected operation.
+
+The motivating asset is dotnet-inspect at `cec0846b2`,
+[`MemberTextSlicer.cs`](https://github.com/richlander/dotnet-inspect/blob/cec0846b2/src/CSharpText.MemberSlicing/MemberTextSlicer.cs),
+compiled as `CSharpText.MemberSlicing.dll` with its matching Portable PDB.
+Its Library exposes Symbols and Signals; the former audit plan requests a
+missing PDB at Detailed without explicit selection. Release
+`SectionPipelineTests.LibrarySourcePlan_*` gates the changed request decision,
+original gesture provenance, explicit selections, and preserved local reads.
+Offline CLI canaries against this compiled Library and PDB establish retained
+local output, not physical network-transfer counts.
 
 ## Projection
 

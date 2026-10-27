@@ -12,9 +12,11 @@ policy, tracked by
 The exact claim is:
 
 > Given one exact Package selection whose target-framework request is already
-> fixed and whose implementation Library must come from RID-qualified runtime
+> fixed and whose implementation inventory contains RID-qualified runtime
 > assets, choose one canonical Selection RID or return typed non-success before
-> Package Asset Selection issues the implementation population.
+> Package Asset Selection issues the implementation population. A neutral
+> `lib/<tfm>` implementation is fallback and does not suppress an eligible
+> `runtimes/<rid>/lib/<tfm>` population.
 
 This owner chooses the RID used by one package-local Selection coordinate. It
 does not enumerate package entries, select target frameworks, issue asset
@@ -30,10 +32,14 @@ evidence.
 
 ## Product rule
 
-Runtime-population choice applies only when an operation requires
-implementation bytes and no neutral implementation population answers the
-request. Compile/API operations retain their compile population and do not
-invoke this policy merely because runtime folders exist.
+Runtime-population choice applies when an operation requires implementation
+bytes and the lower owner reports at least one eligible runtime implementation
+population. A neutral `lib/<tfm>` implementation is the runtime fallback; it
+does not answer the request in place of an eligible
+`runtimes/<rid>/lib/<tfm>` population. The selected RID-specific group supplies
+the whole managed implementation population; it is not merged per assembly
+with neutral `lib`. Compile/API operations retain their compile population and
+do not invoke this policy merely because runtime folders exist.
 
 An explicit product gesture or exact retained Package coordinate supplies an
 exact Selection RID. Without that authority:
@@ -66,8 +72,10 @@ decisions:
 
 - an omitted target framework uses PackageHouse's owner-issued
   `HighestAvailable` policy;
-- an omitted RID is irrelevant while a neutral implementation population
-  answers the request; and
+- runtime-population eligibility is then evaluated against that effective
+  selected framework, while the original omitted request remains distinct;
+- an omitted RID is irrelevant when the lower owner reports no eligible runtime
+  implementation population; and
 - when RID qualification is required, the zero, sole, product-default, and
   ambiguity rules above choose or reject the Selection RID.
 
@@ -230,13 +238,13 @@ uniquely common RID, or choose unrelated per-endpoint RIDs. The user changes
 the one Package Selection RID through the Package coordinate inventory when a
 different common population is wanted.
 
-If the current Package endpoint uses a neutral implementation population but a
-comparison endpoint requires RID qualification, the Package-owned comparison
-target uses the retained explicit RID when present and otherwise the product
-default `linux-x64`. Package projects that effective comparison RID across its
-host boundary; adopters consume the owner-issued value rather than restating
-the product default. The choice does not derive authority from the baseline
-endpoint.
+If the current Package endpoint has no eligible runtime implementation
+population but a comparison endpoint requires RID qualification, the
+Package-owned comparison target uses the retained explicit RID when present and
+otherwise the product default `linux-x64`. Package projects that effective
+comparison RID across its host boundary; adopters consume the owner-issued
+value rather than restating the product default. The choice does not derive
+authority from the baseline endpoint.
 
 Compile/API comparison modes continue to use compile populations and do not
 adopt this policy. The Compare owner classifies which modes require
@@ -253,7 +261,14 @@ nuget.org packages at their latest stable versions:
   `runtimes/<rid>/lib/<tfm>`; and
 - every runtime-only package had exactly one eligible RID.
 
-That survey found no maintained package with no neutral `lib` population and
+The original policy treated the first group as neutral and therefore did not
+offer its runtime inventory. `System.DirectoryServices.Protocols`
+`11.0.0-rc.1.26425.128` demonstrates why that is incorrect: portable restore
+retains `lib/net11.0` as fallback while publishing Linux, macOS, and Windows
+assemblies as `runtimeTargets`; RID-specific restores select the matching
+runtime assembly. Issue #10726 records the exact restore observations.
+
+The survey found no maintained package with no neutral `lib` population and
 several managed runtime populations. The published one-RID layouts
 `Microsoft.NETCore.App.Runtime.linux-x64@10.0.12` and
 `runtime.unix.System.Private.Uri@4.3.0` ground the runtime-directory and
@@ -298,9 +313,9 @@ The shared policy is gated by
 - lower-owner failure preservation; and
 - rejection of a lower receipt that already carries an exact RID.
 
-The Package Navigation Release gates cover neutral bypass, product-ordered RID
-rows beneath TFMs, active retained identity, ambiguity with no active row, and
-exact Root reopening.
+The Package Navigation Release gates cover neutral fallback with a RID-specific
+population, product-ordered RID rows beneath TFMs, active retained identity,
+ambiguity with no active row, and exact Root reopening.
 
 The Source Release gates cover exact RID retention in Browser request
 composition and Worker transport, exact-RID scope reopening before Type,
@@ -350,7 +365,8 @@ This owner does not define:
   fallback;
 - target-framework parsing, compatibility, or selection;
 - Package Asset Selection inventory construction or population issuance;
-- neutral implementation overlays or compile population policy;
+- lower-owner neutral/runtime population construction or compile population
+  policy;
 - exact Library choice inside an issued population;
 - PDB, SourceLink, decompilation, Source equivalence, or Source presentation;
 - comparison mode applicability, endpoint Library correspondence, diff or
