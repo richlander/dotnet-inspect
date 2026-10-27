@@ -319,11 +319,16 @@ export function renderTypeRelations(
       (occurrenceCounts.get(occurrence.relation_id) ?? 0) + 1);
   }
   const colorsBySubject = new Map<number, string[]>();
+  const colorCounts = new Map<string, number>();
   for (const annotation of document.annotations) {
     if (annotation.target.kind !== "Subject") continue;
     const existing = colorsBySubject.get(annotation.target.id) ?? [];
     existing.push(annotation.descriptor.id);
     colorsBySubject.set(annotation.target.id, existing);
+    colorCounts.set(
+      annotation.descriptor.id,
+      (colorCounts.get(annotation.descriptor.id) ?? 0) + 1,
+    );
   }
   const visible = document.relations.slice(0, 50);
   const rows = visible.map(relation => {
@@ -370,34 +375,71 @@ export function renderTypeRelations(
     outcome =>
       outcome.coverage.unavailable > 0
       || outcome.coverage.limited > 0);
-  const colorWarning = incompleteColors.length
-    ? `<div class="metadata-warning"><strong>⚠ Compatibility color evidence is partial</strong><ul>${
-        incompleteColors.map(outcome =>
-          `<li><code>${escapeHtml(outcome.family)}</code>: `
-          + `${outcome.coverage.examined} of `
-          + `${outcome.coverage.considered} examined`
-          + (outcome.coverage.unavailable > 0
-            ? `; ${outcome.coverage.unavailable} unavailable`
-            : "")
-          + (outcome.coverage.limited > 0
-            ? `; ${outcome.coverage.limited} limited`
-            : "")
-          + "</li>").join("")
-      }</ul></div>`
-    : "";
+  const colorIsPartial = incompleteColors.length > 0;
+  const colorTargets = colorsBySubject.size;
+  const colorSummary = document.color_outcomes.map(outcome => {
+    const label = outcome.family === "member.requires-unreferenced-code"
+      ? "RUC"
+      : outcome.family === "member.requires-dynamic-code"
+        ? "RDC"
+        : outcome.family === "member.requires-assembly-files"
+          ? "RAF"
+          : outcome.family;
+    return `<span title="${escapeHtml(outcome.family)}">`
+      + `${escapeHtml(label)} ${colorCounts.get(outcome.family) ?? 0}</span>`;
+  }).join("");
+  const colorCoverage = document.color_outcomes.reduce(
+    (total, outcome) => ({
+      considered: total.considered + outcome.coverage.considered,
+      examined: total.examined + outcome.coverage.examined,
+    }),
+    { considered: 0, examined: 0 },
+  );
   const count = document.terminal.value ?? document.relations.length;
   return section(`
     <div class="section-title">
       <h2>Outgoing calls</h2>
       <span>${count} logical · ${document.occurrences.length} physical</span>
     </div>
-    ${relationshipIsPartial
-      ? `<div class="metadata-warning"><strong>⚠ Call evidence is partial</strong>`
-        + `<p>${coverage.examined} of ${coverage.considered} candidates examined; `
-        + `${coverage.unavailable} unavailable; `
-        + `${coverage.limited} limited.</p></div>`
-      : ""}
-    ${colorWarning}
+    <div class="type-relations-signals" role="list" aria-label="Outgoing call signals">
+      <div class="type-relations-signal type-relations-signal-calls" role="listitem">
+        <span class="type-relations-signal-icon" aria-hidden="true"></span>
+        <span class="type-relations-signal-body">
+          <strong>${count}</strong>
+          <span>logical calls</span>
+          <small>distinct caller → callee edges</small>
+        </span>
+      </div>
+      <div class="type-relations-signal type-relations-signal-sites" role="listitem">
+        <span class="type-relations-signal-icon" aria-hidden="true"></span>
+        <span class="type-relations-signal-body">
+          <strong>${document.occurrences.length}</strong>
+          <span>physical sites</span>
+          <small>observed IL call sites</small>
+        </span>
+      </div>
+      <div class="type-relations-signal type-relations-signal-evidence ${
+        relationshipIsPartial ? "is-partial" : "is-complete"
+      }" role="listitem">
+        <span class="type-relations-signal-icon" aria-hidden="true"></span>
+        <span class="type-relations-signal-body">
+          <strong>${relationshipIsPartial ? "Partial" : "Complete"}</strong>
+          <span>call evidence</span>
+          <small>${coverage.examined} of ${coverage.considered} candidates examined</small>
+        </span>
+      </div>
+      <div class="type-relations-signal type-relations-signal-colors ${
+        colorIsPartial ? "is-partial" : "is-complete"
+      }" role="listitem">
+        <span class="type-relations-signal-icon" aria-hidden="true"></span>
+        <span class="type-relations-signal-body">
+          <strong>${colorTargets}</strong>
+          <span>compatibility target${colorTargets === 1 ? "" : "s"}</span>
+          <small>${colorIsPartial ? "Partial" : "Complete"} · ${colorCoverage.examined} of ${colorCoverage.considered} checks</small>
+          <span class="type-relations-color-summary">${colorSummary}</span>
+        </span>
+      </div>
+    </div>
     ${rows
       ? `<ol class="type-relations-list">${rows}</ol>`
       : relationshipIsPartial

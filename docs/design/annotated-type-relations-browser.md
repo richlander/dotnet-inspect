@@ -106,7 +106,10 @@ reshape, filter, order, limit, or count semantic rows.
 ## Presentation
 
 The initial presentation is a compact Type Metadata section, not another
-workspace tab or a graph mode. It shows:
+workspace tab or a graph mode. A signal strip first orients the user with
+distinct icons and values for logical call edges, physical IL sites, call
+evidence completion, and compatibility-color evidence. The detailed projection
+then shows:
 
 - logical outgoing-call count and completion;
 - logical target rows in canonical document order;

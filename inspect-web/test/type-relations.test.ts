@@ -197,12 +197,14 @@ test("available rendering exposes physical evidence, colors, and limits", () => 
   assert.match(html, /Example\.Target\.Run/);
   assert.match(html, /2 occurrences/);
   assert.match(html, /member\.requires-dynamic-code/);
-  assert.match(html, /Call evidence is partial/);
-  assert.match(html, /2 of 3 candidates examined; 0 unavailable; 1 limited/);
-  assert.match(html, /Compatibility color evidence is partial/);
-  assert.match(
-    html,
-    /member\.requires-dynamic-code<\/code>: 2 of 3 examined; 1 limited/);
+  assert.match(html, /type-relations-signal-calls/);
+  assert.match(html, /1<\/strong>\s*<span>logical calls/);
+  assert.match(html, /2<\/strong>\s*<span>physical sites/);
+  assert.match(html, /Partial<\/strong>\s*<span>call evidence/);
+  assert.match(html, /2 of 3 candidates examined/);
+  assert.match(html, /1<\/strong>\s*<span>compatibility target/);
+  assert.match(html, /Partial · 2 of 3 checks/);
+  assert.match(html, /RDC 1/);
 });
 
 test("partial empty rendering does not claim that no outgoing calls exist", () => {
@@ -216,7 +218,7 @@ test("partial empty rendering does not claim that no outgoing calls exist", () =
     escapeHtml: String,
   });
 
-  assert.match(html, /Call evidence is partial/);
+  assert.match(html, /Partial<\/strong>\s*<span>call evidence/);
   assert.match(
     html,
     /No outgoing calls were resolved from the available evidence/);
