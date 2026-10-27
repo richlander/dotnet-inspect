@@ -93,20 +93,8 @@ public static class ILOffsetCostAnalysis
                     ?? "The IL-offset cost Analysis producer failed.");
         }
 
-        return CreateInput(
-            moduleVersionId,
-            producerResult.Value!,
-            execution.MethodDefinitionReceipt(),
-            execution.WorkReceipt);
-    }
-
-    internal static ILOffsetCostAnalysisInput CreateInput(
-        Guid moduleVersionId,
-        FocusedMethodCallProducerResult result,
-        MethodDefinitionSourceReceipt sourceReceipt,
-        WorkReceipt workReceipt)
-    {
-        ImmutableArray<FocusedMethodCallBody> bodies = result.Bodies;
+        ImmutableArray<FocusedMethodCallBody> bodies =
+            producerResult.Value!.Bodies;
         return new(
             moduleVersionId,
             bodies
@@ -121,8 +109,8 @@ public static class ILOffsetCostAnalysis
                 .. bodies.SelectMany(
                     static body => body.Diagnostics),
             ],
-            sourceReceipt,
-            workReceipt);
+            execution.MethodDefinitionReceipt(),
+            execution.WorkReceipt);
     }
 
     static MethodDefinitionHandle MethodHandle(int token)

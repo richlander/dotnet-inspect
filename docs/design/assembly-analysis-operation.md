@@ -537,12 +537,12 @@ Cost-only preparation plans `FocusedMethodCallProducer` and retains only the
 direct-call rows needed by coordinate projection. The three focused inputs
 retain exact source and work receipts; none opens
 `LibraryBodyAnalysisService`. Combined semantic coordinate requests compose
-the requested allocation, safety, and cost producers in one QuerySpace
-request-set operation over the same deduplicated exact MethodDef population.
-Each focused input retains its own source and work receipts. The existing
-Method source does not collapse exact-method requests, so their independently
-bounded source groups remain explicit; this adoption does not claim shared
-physical traversal between those groups.
+the requested allocation, safety, and cost inputs through those existing
+direct source operations over the same deduplicated exact MethodDef population.
+Each focused input retains its own source and work receipts. The Method source
+does not collapse exact-method requests, so these independently bounded
+operations do not claim shared physical traversal. Research composes their
+typed inputs without introducing a QuerySpace dependency or a second planner.
 
 The real asset for mixed-coordinate adoption is `System.Text.Json` 10.0.0,
 `lib/net10.0/System.Text.Json.dll`. A sparse coordinate population requesting

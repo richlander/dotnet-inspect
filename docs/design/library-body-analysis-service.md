@@ -124,7 +124,8 @@ receipt. The cost-only follow-up plans `FocusedMethodCallProducer`;
 physical evidence MethodDef, diagnostics, source receipt, and work receipt.
 Direct CLI and Library Address reuse focused inputs across every coordinate
 row and do not execute this service. Combined semantic coordinate requests
-compose the requested producers through one Assembly Analysis request set.
+compose only the requested inputs through the same direct Assembly Analysis
+operations, retaining independently bounded source and work receipts.
 
 The method-analysis-support prerequisite for exact allocation and optimization
 is tracked by
