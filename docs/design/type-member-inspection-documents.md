@@ -139,6 +139,7 @@ smallest complete fact set for the established fixed `Type Info` record:
 | Base | The complete source Type shape and presentation evidence for the Base row when the established projection includes one. |
 | Type parameters | Every parameter needed to spell the selected root-to-leaf Type, in defining-segment and metadata order, with its exact name, variance, ordered keyword constraints, and ordered Type constraints. |
 | Interfaces | The direct implemented-interface Count. |
+| Nested Types | The Count of TypeDefs whose direct declaring Type is the selected TypeDef. |
 
 Complete is relative to that fixed scalar question. Type Signature does not
 include implemented-interface identities, attributes that do not affect these
@@ -146,6 +147,12 @@ facts, Member declarations or Counts, derived Types, documentation, source,
 metrics, Analysis, or another attachment. Library, Package, Version, TFM, and
 Source are acquisition context composed beside the Signature; they are not
 Type declaration facts.
+
+Nested Types counts every immediate NestedClass child, regardless of
+accessibility, hidden or compiler-generated classification, or host admission
+options such as `--all`. It does not recurse: a deeper descendant contributes
+to its immediate declaring Type's Count, not every ancestor's Count. The
+scalar does not add nested-Type Rows or classify nested Types as MemberGroups.
 
 The Base fact is absent only when the Type has no base or the established
 projection omits its runtime-category base. It preserves every base spelling
@@ -555,8 +562,8 @@ The complete Type Signature adoption tracked by #10169 has four focused steps:
    that design step.
 2. Land the independently owned
    [Metadata declaration-evidence](metadata-type-declaration-evidence.md) slice
-   that supplies every required base and constraint Type shape without
-   widening Name requests.
+   that supplies every required base and constraint Type shape and immediate
+   nested-Type Count without widening Name requests.
 3. Adopt that result in exact CLI `Type Info`, preserve every established
    projection, and retire the post-inspection admission and rich rerun.
 4. Use the same host-neutral result for Browser/Wasm Type subject facts when
@@ -633,6 +640,10 @@ Implementation slices must add Release gates proving:
 - Type parameters are assigned once to their introducing segment, pseudo
   constraints are not duplicated, and constraint ordering matches the
   established projection;
+- Nested Types counts every immediate NestedClass child exactly once,
+  independent of accessibility, hidden or compiler-generated classification,
+  `--all`, and deeper descendants; malformed relationship evidence remains
+  visible non-success;
 - Package, Library, and Type Name requests do not acquire referenced Signature
   Types merely because Signature can answer the selected scalar subject;
 - exact-base/head NativeAOT evidence covers a zero-constraint Type and a Type
