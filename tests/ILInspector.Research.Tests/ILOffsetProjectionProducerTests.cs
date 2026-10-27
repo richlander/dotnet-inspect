@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using ILInspector.Analysis;
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
@@ -181,6 +182,90 @@ public class ILOffsetProjectionProducerTests
             cost.WorkReceipt.For(
                 FocusedMethodCallProducer.Instance)
                 .UnitsCompleted);
+    }
+
+    [Fact]
+    public void
+        ILOffsetSemanticAnalysis_MixedProductsShareOneExactAsyncMethodGroup()
+    {
+        MethodInfo kickoff =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(CallVirtualAsync),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo method = kickoff
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!
+            .StateMachineType
+            .GetMethod(
+                nameof(IAsyncStateMachine.MoveNext),
+                BindingFlags.Instance
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Public)!;
+        using var source = SourceLinkService.OpenPrefetched(
+            typeof(ILOffsetProjectionProducerTests)
+                .Assembly.Location);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(source.Context);
+
+        ILOffsetSemanticAnalysisResult semantic =
+            ILOffsetSemanticAnalysis.Execute(
+                session,
+                "IL-offset mixed semantic test",
+                source.Context.ModuleVersionId(),
+                [method.MetadataToken, method.MetadataToken],
+                ILOffsetProjectionCapabilities.AllocationContext
+                    | ILOffsetProjectionCapabilities.SafetyContext
+                    | ILOffsetProjectionCapabilities.CostContext,
+                TestContext.Current.CancellationToken);
+
+        ILOffsetAllocationAnalysisInput allocation =
+            Assert.IsType<ILOffsetAllocationAnalysisInput>(
+                semantic.Allocation);
+        ILOffsetSafetyAnalysisInput safety =
+            Assert.IsType<ILOffsetSafetyAnalysisInput>(
+                semantic.Safety);
+        ILOffsetCostAnalysisInput cost =
+            Assert.IsType<ILOffsetCostAnalysisInput>(
+                semantic.Cost);
+        DirectCall call = Assert.Single(
+            cost.Calls[method.MetadataToken],
+            call => call.Callee.Name
+                    == nameof(OffsetVirtualTarget.Compute));
+        Assert.Equal(
+            method.MetadataToken,
+            call.EvidenceMethod.MetadataToken);
+        Assert.Equal(3, semantic.SourceGroupReceipt.LaneReceipts.Length);
+        Assert.Single(
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.MethodsSelected.Ranges);
+        Assert.Equal(
+            1,
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.MethodsSelected.Count);
+        Assert.Equal(
+            1,
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.BodiesAcquired.Count);
+        Assert.Equal(
+            1,
+            semantic.SourceGroupReceipt
+                .PhysicalCoverage.InstructionWork
+                .LazyRetainedSourcesOpened);
+        Assert.All(
+            new[]
+            {
+                allocation.SourceReceipt,
+                safety.SourceReceipt,
+                cost.SourceReceipt,
+            },
+            receipt =>
+            {
+                Assert.Equal(
+                    MethodDefinitionSourceBreadthKind.ExactMethods,
+                    receipt.Breadth.Kind);
+                Assert.Single(receipt.Breadth.Methods);
+                Assert.Equal(1, receipt.DefinitionsVisited);
+                Assert.Equal(1, receipt.BodiesAcquired);
+            });
     }
 
     [Fact]

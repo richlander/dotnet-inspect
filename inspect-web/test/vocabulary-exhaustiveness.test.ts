@@ -53,8 +53,8 @@ const widenings = [
   {
     vocabulary: "LibraryLens",
     file: "data.ts",
-    find: '  "metadata",\n] as const;\n\nexport type TypeLens',
-    replace: '  "metadata",\n  "probe-library-lens",\n] as const;\n\nexport type TypeLens',
+    find: '  "metadata",\n] as const;\n\nconst memberSectionRoutes',
+    replace: '  "metadata",\n  "probe-library-lens",\n] as const;\n\nconst memberSectionRoutes',
     token: "probe-library-lens",
     dispatches: [
       "libraryLensDefinitions",
@@ -65,8 +65,8 @@ const widenings = [
   {
     vocabulary: "MemberSection",
     file: "data.ts",
-    find: '  ["compare", "Compare"],\n] as const;',
-    replace: '  ["compare", "Compare"],\n  ["probe-member-section", "Probe"],\n] as const;',
+    find: '  "compare",\n] as const;\n\nexport type TypeLens',
+    replace: '  "compare",\n  "probe-member-section",\n] as const;\n\nexport type TypeLens',
     token: "probe-member-section",
     dispatches: [
       "loadMemberSectionContent",
