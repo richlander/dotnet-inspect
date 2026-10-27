@@ -102,14 +102,60 @@ public enum ApiMemberAnchorKind
     Event,
 }
 
-public sealed record ApiMemberHandle(
-    ApiType Type,
-    ApiMember Member,
-    MemberAnchor? Anchor)
+/// <summary>
+/// One API member as the member comparison pairs it, and as a change row names it.
+/// </summary>
+/// <remarks>
+/// Pairing reads only <see cref="CanonicalSignature"/>. The rest of
+/// <see cref="Anchor"/>, its fingerprint and stable selector, is output identity
+/// (docs/design/finding-producers.md#7-compare-typed-facts-spell-at-presentation), so a
+/// handle the comparison creates derives it on first read and keeps it. The derivation
+/// reads only the detached canonical signature, type anchor name, and member model it
+/// captured, never a metadata reader, and equals the anchor
+/// <see cref="ApiMemberIdentity.CreateAnchor(ApiType, ApiMember, string)"/> builds.
+/// Equality and hashing read <see cref="Anchor"/>, as they did when it was positional.
+/// </remarks>
+public sealed record ApiMemberHandle
 {
+    MemberAnchor? _anchor;
+    DeferredAnchor? _deferred;
+
+    public ApiMemberHandle(
+        ApiType Type,
+        ApiMember Member,
+        MemberAnchor? Anchor)
+    {
+        this.Type = Type;
+        this.Member = Member;
+        _anchor = Anchor;
+    }
+
+    internal ApiMemberHandle(
+        ApiType type,
+        ApiMember member,
+        string canonicalSignature,
+        string typeAnchorName)
+    {
+        Type = type;
+        Member = member;
+        _deferred = new DeferredAnchor(member, canonicalSignature, typeAnchorName);
+    }
+
+    public ApiType Type { get; init; }
+    public ApiMember Member { get; init; }
+    public MemberAnchor? Anchor
+    {
+        get => _anchor ??= _deferred?.Create();
+        init
+        {
+            _anchor = value;
+            _deferred = null;
+        }
+    }
+
     public string TypeFullName => Type.FullName;
     public string MemberName => Member.Name;
-    public string? CanonicalSignature => Anchor?.CanonicalSignature;
+    public string? CanonicalSignature => _anchor?.CanonicalSignature ?? _deferred?.CanonicalSignature;
     public string? Fingerprint => Anchor?.Fingerprint;
     public string? StableSelector => Anchor?.StableSelector;
     public ApiMemberAnchorKind AnchorKind => Member.Kind switch
@@ -127,6 +173,35 @@ public sealed record ApiMemberHandle(
             $"API member kind '{Member.Kind}' has no anchor kind."),
     };
     public string Identity => StableSelector ?? CanonicalSignature ?? Member.Signature ?? $"{Member.Kind}:{Member.Name}";
+
+    public void Deconstruct(out ApiType Type, out ApiMember Member, out MemberAnchor? Anchor)
+    {
+        Type = this.Type;
+        Member = this.Member;
+        Anchor = this.Anchor;
+    }
+
+    public bool Equals(ApiMemberHandle? other)
+        => ReferenceEquals(this, other)
+            || other is not null
+                && EqualityComparer<ApiType>.Default.Equals(Type, other.Type)
+                && EqualityComparer<ApiMember>.Default.Equals(Member, other.Member)
+                && EqualityComparer<MemberAnchor?>.Default.Equals(Anchor, other.Anchor);
+
+    public override int GetHashCode()
+        => HashCode.Combine(Type, Member, Anchor);
+
+    /// <summary>
+    /// The inputs a deferred anchor is derived from, captured when the handle is created
+    /// so a later <c>with</c> on <see cref="Type"/> or <see cref="Member"/> cannot change it.
+    /// </summary>
+    sealed class DeferredAnchor(ApiMember member, string canonicalSignature, string typeAnchorName)
+    {
+        public string CanonicalSignature { get; } = canonicalSignature;
+
+        public MemberAnchor Create()
+            => ApiMemberIdentity.CreateAnchor(typeAnchorName, member, CanonicalSignature);
+    }
 }
 
 public sealed record ApiChangeSubject(
@@ -154,6 +229,19 @@ public sealed record ApiChangeSubject(
             newType is null ? null : new ApiTypeHandle(newType),
             oldType is null || oldMember is null ? null : ApiMemberIdentity.CreateHandle(oldType, oldMember),
             newType is null || newMember is null ? null : ApiMemberIdentity.CreateHandle(newType, newMember));
+
+    /// <summary>
+    /// A Member subject over the handles the member comparison paired, which already carry
+    /// each side's identity; equal to <see cref="Member(ApiType?, ApiMember?, ApiType?, ApiMember?)"/>
+    /// over the same types and members.
+    /// </summary>
+    public static ApiChangeSubject Member(ApiMemberHandle? oldMember, ApiMemberHandle? newMember)
+        => new(
+            ApiChangeSubjectKind.Member,
+            oldMember is null ? null : new ApiTypeHandle(oldMember.Type),
+            newMember is null ? null : new ApiTypeHandle(newMember.Type),
+            oldMember,
+            newMember);
 }
 
 [Flags]
@@ -632,16 +720,14 @@ public static class ApiDiffAnalyzer
     }
 
     internal static void CompareMemberTypeParameterConstraints(
-        ApiType oldType,
-        ApiType newType,
-        ApiMember oldMember,
-        ApiMember newMember,
+        ApiMemberHandle oldHandle,
+        ApiMemberHandle newHandle,
         List<ApiChange> changes)
     {
         IReadOnlyList<TypeParameter>? oldParameters =
-            oldMember.SignatureModel?.TypeParameters;
+            oldHandle.Member.SignatureModel?.TypeParameters;
         IReadOnlyList<TypeParameter>? newParameters =
-            newMember.SignatureModel?.TypeParameters;
+            newHandle.Member.SignatureModel?.TypeParameters;
         if (oldParameters is null
             || newParameters is null
             || oldParameters.Count != newParameters.Count)
@@ -649,12 +735,7 @@ public static class ApiDiffAnalyzer
             return;
         }
 
-        ApiChangeSubject subject =
-            ApiChangeSubject.Member(
-                oldType,
-                oldMember,
-                newType,
-                newMember);
+        var subject = new ApiChangeSubjectSource(oldHandle, newHandle);
         for (int index = 0; index < oldParameters.Count; index++)
         {
             CompareTypeParameterConstraints(
@@ -668,7 +749,7 @@ public static class ApiDiffAnalyzer
     static void CompareTypeParameterConstraints(
         TypeParameter oldParameter,
         TypeParameter newParameter,
-        ApiChangeSubject subject,
+        ApiChangeSubjectSource subject,
         List<ApiChange> changes)
     {
         var oldConstraints = new HashSet<string>(
@@ -692,7 +773,7 @@ public static class ApiDiffAnalyzer
                     $"Generic parameter '{newParameter.Name}' added constraints: "
                         + string.Join(", ", added),
                     NewValue: string.Join(", ", added),
-                    Subject: subject));
+                    Subject: subject.Create()));
         }
 
         if (removed.Count > 0)
@@ -704,12 +785,15 @@ public static class ApiDiffAnalyzer
                     $"Generic parameter '{newParameter.Name}' removed constraints: "
                         + string.Join(", ", removed),
                     OldValue: string.Join(", ", removed),
-                    Subject: subject));
+                    Subject: subject.Create()));
         }
     }
 
-    internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes, bool compareTransitions)
+    internal static void CompareMemberModifiers(ApiMemberHandle oldHandle, ApiMemberHandle newHandle, List<ApiChange> changes, bool compareTransitions)
     {
+        ApiMember oldMember = oldHandle.Member;
+        ApiMember newMember = newHandle.Member;
+        var subject = new ApiChangeSubjectSource(oldHandle, newHandle);
         if (compareTransitions)
         {
             CompareAccessibility(
@@ -717,7 +801,7 @@ public static class ApiDiffAnalyzer
                 newMember.Accessibility,
                 ChangeKind.MemberAccessibilityChanged,
                 $"Member '{oldMember.Name}'",
-                ApiChangeSubject.Member(oldType, oldMember, newType, newMember),
+                subject,
                 changes);
             CompareStatus(
                 new ApiStatus(
@@ -733,7 +817,7 @@ public static class ApiDiffAnalyzer
                 ChangeKind.MemberHiddenChanged,
                 ChangeKind.MemberObsoleteChanged,
                 $"Member '{oldMember.Name}'",
-                ApiChangeSubject.Member(oldType, oldMember, newType, newMember),
+                subject,
                 changes);
         }
 
@@ -744,7 +828,7 @@ public static class ApiDiffAnalyzer
                 $"Member '{oldMember.Name}' is no longer virtual",
                 GetMemberKey(oldMember).ToString(),
                 GetMemberKey(newMember).ToString(),
-                Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
+                Subject: subject.Create()));
         }
 
         // Abstract added
@@ -754,7 +838,7 @@ public static class ApiDiffAnalyzer
                 $"Member '{oldMember.Name}' was made abstract",
                 GetMemberKey(oldMember).ToString(),
                 GetMemberKey(newMember).ToString(),
-                Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
+                Subject: subject.Create()));
         }
 
         // Enum value changed
@@ -764,7 +848,7 @@ public static class ApiDiffAnalyzer
             changes.Add(new ApiChange(ChangeKind.EnumValueChanged, ChangeClassification.PotentiallyBreaking,
                 $"Enum member '{oldMember.Name}' value changed from {oldMember.EnumValue} to {newMember.EnumValue}",
                 oldMember.EnumValue.Value.ToString(), newMember.EnumValue.Value.ToString(),
-                Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
+                Subject: subject.Create()));
         }
     }
 
@@ -782,7 +866,7 @@ public static class ApiDiffAnalyzer
         string? newAccessibility,
         ChangeKind kind,
         string subjectText,
-        ApiChangeSubject subject,
+        ApiChangeSubjectSource subject,
         List<ApiChange> changes)
     {
         string oldText = string.IsNullOrEmpty(oldAccessibility) ? "public" : oldAccessibility;
@@ -807,7 +891,7 @@ public static class ApiDiffAnalyzer
             $"{subjectText} accessibility {verb} from '{oldText}' to '{newText}'",
             oldText,
             newText,
-            Subject: subject));
+            Subject: subject.Create()));
     }
 
     /// <summary>
@@ -958,7 +1042,7 @@ public static class ApiDiffAnalyzer
         ChangeKind hiddenKind,
         ChangeKind obsoleteKind,
         string subjectText,
-        ApiChangeSubject subject,
+        ApiChangeSubjectSource subject,
         List<ApiChange> changes)
     {
         if (oldStatus.IsHidden != newStatus.IsHidden)
@@ -972,7 +1056,7 @@ public static class ApiDiffAnalyzer
                 HiddenText(oldStatus.IsHidden),
                 HiddenText(newStatus.IsHidden),
                 ApiChangeCategory.Status,
-                subject));
+                subject.Create()));
         }
 
         string? oldMessage = oldStatus.IsObsolete ? oldStatus.ObsoleteMessage : null;
@@ -1006,7 +1090,7 @@ public static class ApiDiffAnalyzer
             oldText,
             newText,
             ApiChangeCategory.Status,
-            subject));
+            subject.Create()));
     }
 
     static string HiddenText(bool isHidden)
@@ -1059,7 +1143,7 @@ public static class ApiDiffAnalyzer
         ChangeKind addedKind,
         ChangeKind removedKind,
         string subject,
-        ApiChangeSubject structuredSubject)
+        ApiChangeSubjectSource structuredSubject)
     {
         var oldSet = new HashSet<string>(oldAttributes, StringComparer.Ordinal);
         var newSet = new HashSet<string>(newAttributes, StringComparer.Ordinal);
@@ -1072,7 +1156,7 @@ public static class ApiDiffAnalyzer
                 $"{subject} attribute '{removed}' was removed",
                 OldValue: removed,
                 Category: ApiChangeCategory.Attribute,
-                Subject: structuredSubject));
+                Subject: structuredSubject.Create()));
         }
 
         foreach (var added in newSet.Except(oldSet).Order(StringComparer.Ordinal))
@@ -1083,8 +1167,34 @@ public static class ApiDiffAnalyzer
                 $"{subject} attribute '{added}' was added",
                 NewValue: added,
                 Category: ApiChangeCategory.Attribute,
-                Subject: structuredSubject));
+                Subject: structuredSubject.Create()));
         }
+    }
+
+    /// <summary>
+    /// The subject of the rows one comparison may emit, created only when a row is: a Type
+    /// subject as given, or a Member subject over the two paired handles. Each emitted row
+    /// gets the subject an eager construction gave it, equal in value.
+    /// </summary>
+    internal readonly struct ApiChangeSubjectSource
+    {
+        readonly ApiChangeSubject? _subject;
+        readonly ApiMemberHandle? _oldMember;
+        readonly ApiMemberHandle? _newMember;
+
+        public ApiChangeSubjectSource(ApiMemberHandle oldMember, ApiMemberHandle newMember)
+        {
+            _oldMember = oldMember;
+            _newMember = newMember;
+        }
+
+        ApiChangeSubjectSource(ApiChangeSubject subject) => _subject = subject;
+
+        public static implicit operator ApiChangeSubjectSource(ApiChangeSubject subject)
+            => new(subject);
+
+        public ApiChangeSubject Create()
+            => _subject ?? ApiChangeSubject.Member(_oldMember, _newMember);
     }
 
     internal static bool IncludesSignature(ApiDiffOptions options)
