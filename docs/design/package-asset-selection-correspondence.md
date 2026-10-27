@@ -26,6 +26,9 @@ spellings fail closed unless an available slice matches the spelling exactly.
 When an owner-default compile selection feeds runtime-population choice, its
 already-selected effective framework bounds runtime eligibility; the original
 omitted request remains separate Root correspondence.
+Exact host reopening preserves the same eligibility input: an original
+explicit framework when present, otherwise the owner-selected effective
+compile framework.
 Neutral and platform-qualified slices follow the same conservative platform
 rule as runtime asset selection: a neutral target does not admit a
 platform-specific slice, while a platform target admits its exact platform and
@@ -242,6 +245,7 @@ dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
 | Runtime evaluation retains every applicable RID population in stable ordinal order without shrinking for an explicit RID | `EvaluateSingleRuntime_RetainsCompleteOrderedPopulationInventory`, `MultipleRuntimeIdentifiersRemainTypedNonSuccess`, and `RuntimeOwnerDefaultDoesNotMergeMultipleRids` |
 | PackageHouse preserves the complete runtime-population inventory through named implementation narrowing | `RuntimeExactTargetWithoutRidInfersSingleRid` |
 | Owner-default runtime inventory is bounded by the selected effective framework while the original request remains omitted, including through exact Browser Root reopening | `RuntimePopulationSelectionExcludesRuntimeAboveOwnerDefaultFramework` and `PackageSummary_OwnerDefaultRuntimeEligibilitySurvivesExactRootReopening` |
+| Explicit runtime inventory retains the original target through compatible compile fallback and exact Browser Root reopening | `PackageSummary_ExplicitRuntimeEligibilitySurvivesCompatibleCompileFallbackReopening` |
 | Native-only RID folders do not participate in runtime Library inference | `SelectSingleRuntime_IgnoresNativeOnlyRids` |
 | Invalid implementation selection retains complete candidate inventory | `Selection_CaseCollidingImplementationPathsAreRejected` |
 | An applicable exact-RID group wholly replaces neutral implementation fallback, including when it targets a lower compatible framework | `Select_RuntimePopulationReplacesTheNeutralImplementationGroup`, `Select_CompatibleRuntimePopulationOutranksNewerNeutralGroup`, `RuntimePopulationSelectionUsesCompatibleRuntimeGroupOverNewerNeutralFallback`, and `RidSpecificImplementation_ReplacesWholeNeutralImplementationGroup` |
