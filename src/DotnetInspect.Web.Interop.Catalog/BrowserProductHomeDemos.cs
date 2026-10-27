@@ -38,6 +38,12 @@ internal static class BrowserProductHomeDemos
         var navigation = scenario.Navigation
             ?? throw new InspectionDefinitionException(
                 $"Home demo '{scenario.ScenarioId}' has no navigation.");
+        BrowserHomeDemoView browserView = new(
+            view.Library,
+            view.Type,
+            view.MemberAnchor,
+            view.MemberKey,
+            view.Section);
 
         return new BrowserHomeDemoResolved(
             scenario.ScenarioId,
@@ -46,12 +52,87 @@ internal static class BrowserProductHomeDemos
             [.. selected.Members.Select(ToMember)],
             [.. navigation.Tabs.Select(ToTab)],
             navigation.FocusIndex,
-            new BrowserHomeDemoView(
-                view.Library,
-                view.Type,
-                view.MemberAnchor,
-                view.MemberKey,
-                view.Section));
+            browserView,
+            ToShareState(scenario, selected, navigation, browserView),
+            [
+                .. selection.RestorationRequest.Records.Select(
+                    InspectionDefinitionJson.Serialize),
+            ]);
+    }
+
+    private static BrowserWorkspaceShareState ToShareState(
+        ResolvedScenario scenario,
+        ResolvedWorkspaceContext selected,
+        ResolvedNavigation navigation,
+        BrowserHomeDemoView view)
+    {
+        BrowserWorkspaceShareTab[] tabs;
+        string activeTabId;
+        if (selected.Members.All(static member =>
+                member is WorkspaceMemberCoordinate.PackageMember))
+        {
+            tabs =
+            [
+                .. navigation.Tabs.Select(static tab =>
+                {
+                    BrowserHomeDemoMember member = ToMember(tab.Coordinate);
+                    return new BrowserWorkspaceShareTab(
+                        tab.Id,
+                        "package",
+                        member.Id,
+                        member.Version,
+                        member.Framework,
+                        RuntimeIdentifier: null);
+                }),
+            ];
+            activeTabId = navigation.FocusTabId;
+        }
+        else if (selected.Members.All(static member =>
+                     member is WorkspaceMemberCoordinate.PlatformMember))
+        {
+            BrowserHomeDemoMember focus =
+                ToMember(navigation.Tabs[navigation.FocusIndex].Coordinate);
+            tabs =
+            [
+                new BrowserWorkspaceShareTab(
+                    navigation.FocusTabId,
+                    "group",
+                    ":Platform",
+                    focus.Version,
+                    focus.Framework,
+                    RuntimeIdentifier: null),
+            ];
+            activeTabId = navigation.FocusTabId;
+        }
+        else
+        {
+            throw new InspectionDefinitionException(
+                $"Home demo '{scenario.ScenarioId}' browser Workspace must contain only Package or only Platform members.");
+        }
+
+        string? section = view.Section switch
+        {
+            ProductDemoSections.Methods => null,
+            ProductDemoSections.CallGraph => "call-graph",
+            _ => view.Section,
+        };
+        return new BrowserWorkspaceShareState(
+            tabs,
+            [new BrowserWorkspaceShareContext(
+                selected.Name,
+                [.. tabs.Select(static tab => tab.Id)])],
+            activeTabId,
+            selected.Name,
+            new BrowserWorkspaceShareView(
+                Lens: "api",
+                Type: view.Type,
+                MemberAnchor: view.MemberAnchor,
+                MemberSignature: null,
+                Section: section,
+                Libraries: view.Library is null ? [] : [view.Library],
+                SourceView: null,
+                Comparison: null),
+            scenario.WorkspacePlan?.TraversalTargetPolicy.TargetFramework);
     }
 
     internal static BrowserHomeDemoRunPlan ToRunPlan(
