@@ -77,6 +77,19 @@ public sealed class FindingDiffAnyTypeMemberTests
     }
 
     [Fact]
+    public void MethodImplRows_AreResidualRatherThanOwnedByTheirBodyReference()
+    {
+        using var before = Open(FixtureCatalog.MetadataFindingDiffAnyPair.OldAssemblyPath());
+        using var after = Open(FixtureCatalog.MetadataFindingDiffAnyPair.NewAssemblyPath());
+        FindingDiffAnyTypeMembers result = new FindingDiffAnyTypePairing(before, after)
+            .Members("FindingDiffAnyFixture.MemberFoldMethodImpl");
+        // Both interfaces and the Type declaration stay the same. The explicit
+        // implementation moves between interfaces, changing MethodImpl rows.
+        Assert.Equal(FindingDiffAnyState.Changed, result.ResidualApi);
+        Assert.Equal(FindingDiffAnyState.Unchanged, result.ResidualBody);
+    }
+
+    [Fact]
     public void HiddenType_MarksEveryPublicMemberOnApi()
     {
         using var before = Open(FixtureCatalog.MetadataFindingDiffAnyPair.OldAssemblyPath());

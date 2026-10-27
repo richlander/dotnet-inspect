@@ -118,6 +118,10 @@ public sealed partial class FindingDiffAnyTypePairing
                 bool nested = false;
                 while (parts.Read())
                 {
+                    // A named Type owner is interned as Ref. It is the owner
+                    // part just as a nested Key is; later parts are payload.
+                    if (parts.Kind == SymbolKeyPartKind.Ref)
+                        return _residual;
                     if (parts.Kind != SymbolKeyPartKind.Key)
                         continue;
                     key = parts.Key;

@@ -239,9 +239,10 @@ public sealed class LibraryApiDiffCommandTests
         // becoming init adds one breaking signature change (#10679), and the abstract
         // method added without a body adds one additive row. The Member-fold cases
         // add two breaking rows (enum storage and marker interface) and one
-        // additive property row and one non-breaking row.
-        Assert.Equal(37, summary.GetProperty("breakingCount").GetInt32());
-        Assert.Equal(20, summary.GetProperty("additiveCount").GetInt32());
+        // additive property row and one non-breaking row. Moving an explicit
+        // implementation between interfaces adds one breaking and one additive row.
+        Assert.Equal(38, summary.GetProperty("breakingCount").GetInt32());
+        Assert.Equal(21, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
         Assert.Equal(18, summary.GetProperty("nonBreakingCount").GetInt32());
     }
@@ -400,7 +401,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(OutsideNote, namesError.Trim());
         Assert.Equal(OutsideNote, tableError.Trim());
         // Summary counts describe the displayed rows.
-        Assert.Contains("32 breaking, 20 additive, 6 non-breaking across 46 types", output);
+        Assert.Contains("33 breaking, 21 additive, 6 non-breaking across 47 types", output);
 
         // The unprojected document keeps the complete API axis population.
         using JsonDocument document = await FindingDiffAnyJson();
@@ -431,9 +432,9 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(
             (int)DotnetInspector.Queries.ApiSurfaceScope.ApiAxis,
             root.GetProperty("after").GetProperty("scope").GetInt32());
-        // 46 displayed Types plus the seven whose one row is outside the ordinary
+        // 47 displayed Types plus the seven whose one row is outside the ordinary
         // population; the CLI JSON spells a nested Type with '+'.
-        Assert.Equal(53, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
+        Assert.Equal(54, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
         JsonElement nested = Subject(document, "FindingDiffAnyFixture.NestedPublicToProtected+Nested");
         JsonElement after = nested.GetProperty("comparison").GetProperty("after");
         Assert.False(after.GetProperty("status").GetProperty("isOrdinary").GetBoolean());

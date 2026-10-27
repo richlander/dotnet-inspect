@@ -462,3 +462,12 @@ public class MemberFoldInternalAttribute
 {
     internal int Value() => 1;
 }
+
+public interface IMemberFoldA { void M(); }
+public interface IMemberFoldB { void M(); }
+
+public class MemberFoldMethodImpl : IMemberFoldA, IMemberFoldB
+{
+    public void M() { }
+    void IMemberFoldA.M() { }
+}
