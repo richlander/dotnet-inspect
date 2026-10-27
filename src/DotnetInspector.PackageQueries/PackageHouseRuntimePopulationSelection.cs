@@ -33,8 +33,8 @@ public sealed class PackageHouseRuntimePopulationSelection
     public PackageRootBinding Binding { get; }
 
     /// <summary>
-    /// The typed shared-policy result, or <see langword="null"/> when a neutral
-    /// implementation population answers the request or no RID inventory exists.
+    /// The typed shared-policy result, or <see langword="null"/> when no RID
+    /// implementation inventory exists.
     /// </summary>
     public PackageRuntimePopulationChoiceResult? Choice { get; }
 }
@@ -66,8 +66,7 @@ public static class PackageHouseRuntimePopulationSelector
             PackageAssetSelector.EvaluateSingleRuntime(
                 settlement.Payload.Content,
                 compileReceipt.RequestedTargetFramework);
-        if (HasNeutralImplementation(compileReceipt.Selection)
-            || runtimeReceipt.AvailableRuntimePopulations.Count == 0)
+        if (runtimeReceipt.AvailableRuntimePopulations.Count == 0)
         {
             return new(
                 contribution.Binding,
@@ -118,11 +117,6 @@ public static class PackageHouseRuntimePopulationSelector
             selectedBinding,
             choice);
     }
-
-    private static bool HasNeutralImplementation(
-        PackageCompileAssetSelection selection) =>
-        selection.ImplementationAssets.Any(
-            static asset => asset.RuntimeIdentifier is null);
 
     private static string? OriginalRequestedFramework(
         PackageHouseTargetContext? target) =>

@@ -7,7 +7,7 @@ namespace DotnetInspector.Services.Tests;
 public sealed partial class PackageHouseExecutionTests
 {
     [Fact]
-    public async Task RuntimePopulationSelectionBypassesNeutralImplementation()
+    public async Task RuntimePopulationSelectionPrefersRuntimeOverlayToNeutralFallback()
     {
         await using HouseEnvironment environment =
             HouseEnvironment.CreateNuGetOrg(
@@ -29,9 +29,22 @@ public sealed partial class PackageHouseExecutionTests
                 contribution,
                 new PackageRuntimePopulationAuthority.None());
 
-        Assert.Null(selection.Choice);
-        Assert.Same(contribution.Binding, selection.Binding);
-        Assert.Null(selection.Binding.Coordinate.RuntimeIdentifier);
+        var selected = Assert.IsType<
+            PackageRuntimePopulationChoiceResult.Selected>(
+                selection.Choice);
+        Assert.Equal("linux-x64", selected.RuntimeIdentifier);
+        Assert.Equal(
+            ["linux-x64"],
+            selected.AvailableRuntimeIdentifiers);
+        Assert.Equal(
+            "linux-x64",
+            selection.Binding.Coordinate.RuntimeIdentifier);
+        PackageCompileAssetSelection assetSelection =
+            Assert.IsType<PackageCompileAssetSelection>(
+                selection.Binding.Root.AssetSelection);
+        Assert.Equal(
+            $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
+            Assert.Single(assetSelection.ImplementationAssets).Path);
         await environment.AssertRootSettledAsync();
     }
 

@@ -586,6 +586,7 @@ public sealed partial class BrowserEngineBoundaryTests
         byte[] archive = PackageEntries(
             ($"{id}.nuspec", Encoding.UTF8.GetBytes(
                 $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"lib/net11.0/{id}.dll", assembly),
             ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly),
             ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly));
         await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
