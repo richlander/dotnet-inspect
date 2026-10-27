@@ -318,17 +318,20 @@ public sealed class DeclarationCensusAgreementTests
                 Assert.True(
                     Decision(state.Api) == api.Decision,
                     $"{state.FullName} API: walk {state.Api}, lockstep {api.Decision} after {api.OldAtoms}/{api.NewAtoms} facts");
-                // The walk's Body axis is the declaration facts and the IL: a
-                // Body Unchanged has equal declaration facts, and a Body Changed
-                // has unequal declaration facts exactly when the walk's first
-                // Body difference is a declaration fact rather than a method's IL.
+                // The walk's Body axis is the declaration facts, the presence of
+                // bodies, and the IL: a Body Unchanged has equal declaration
+                // facts, and a Body Changed has unequal declaration facts exactly
+                // when the walk's first Body difference is a declaration fact
+                // rather than a body present on one side only or a method's IL.
                 if (state.Body == FindingDiffAnyState.Unchanged)
                     Assert.Equal(FindingExistsDecision.Unchanged, body.Decision);
                 if (state.Body == FindingDiffAnyState.Changed && uniqueNames.Contains(state.FullName))
                 {
                     (_, string? explained) = FindingDiffAny.Explain(before, after, state.FullName);
                     Assert.NotNull(explained);
-                    bool declarationsDiffer = !explained.StartsWith("IL ", StringComparison.Ordinal);
+                    bool declarationsDiffer = !explained.StartsWith("IL ", StringComparison.Ordinal)
+                        && !explained.StartsWith("- body ", StringComparison.Ordinal)
+                        && !explained.StartsWith("+ body ", StringComparison.Ordinal);
                     Assert.True(
                         declarationsDiffer == (body.Decision == FindingExistsDecision.Changed),
                         $"{state.FullName} Body: walk's first difference {explained.ReplaceLineEndings(" ")}, lockstep {body.Decision}");
