@@ -3077,23 +3077,15 @@ public partial class LibraryCommand
         RowSelectionIntent<string>? intent)
     {
         if (intent is null
-            || inspection.AssemblyReferenceInspection?.Value
-                is not FindingInspection<AssemblyReference>.Complete complete)
+            || inspection.LibraryReferenceInspectionEnvelope?.Content
+                is not LibraryReferenceInspectionOutcome.Available available)
         {
             return true;
         }
 
-        AssemblyReference[] references =
-        [
-            .. complete.Findings
-                .Select(static finding => finding.Payload)
-                .OrderBy(
-                    static reference => reference.Name,
-                    StringComparer.Ordinal),
-        ];
         if (!CliSemanticRowSelection.TrySelect(
                 intent,
-                references,
+                available.References,
                 "Library references",
                 failure =>
                     $"Library reference row selection stage "
@@ -3101,14 +3093,29 @@ public partial class LibraryCommand
                     + $"{failure.Failure.RequiredPosition}, but only "
                     + $"{failure.Failure.AvailableCount} direct reference "
                     + $"{(failure.Failure.AvailableCount == 1 ? "row is" : "rows are")} available.",
-                out IReadOnlyList<AssemblyReference> selected))
+                out IReadOnlyList<AssemblyReferenceRow> selected))
         {
             return false;
         }
 
         inspection.AssemblyReferenceDisplayOrder = selected;
         if (inspection.AssemblyInfo is not null)
-            inspection.AssemblyInfo.References = [.. selected];
+        {
+            inspection.AssemblyInfo.References =
+            [
+                .. selected.Select(
+                    static reference => new AssemblyReference(
+                        reference.Name,
+                        reference.Version,
+                        string.Equals(
+                            reference.Culture,
+                            "neutral",
+                            StringComparison.Ordinal)
+                                ? null
+                                : reference.Culture,
+                        reference.PublicKeyToken)),
+            ];
+        }
         return true;
     }
 
