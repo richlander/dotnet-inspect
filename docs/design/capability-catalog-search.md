@@ -261,6 +261,7 @@ that promises a next production gesture.
 ### Structural catalog population
 
 Structural sections and categories are not composed capability resources.
+Before [#10700](https://github.com/richlander/dotnet-inspect/issues/10700),
 Inspection Capability Composition keeps command-local section catalogs
 outside the graph rather than wrapping them, and the composed graph has no
 route whose Content is a Library section. Those resources are nonetheless
