@@ -224,7 +224,6 @@ internal sealed class ApiMemberAnalysisInspection
         out string? error)
     {
         using PdbContext context = _targetAssembly is null
-            || File.Exists(_assemblyPath)
             ? PdbContext.OpenMetadataOnly(_assemblyPath)
             : PdbContext.OpenMetadataOnly(_targetAssembly);
         return context.ResolveExceptionRegions(methodToken, out error);
