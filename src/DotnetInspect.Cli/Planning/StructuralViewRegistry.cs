@@ -1244,7 +1244,7 @@ public static class StructuralViewRegistry
             if (DetailedDiscoverOutput.Validate(detailedRequest) != 0)
                 return 1;
 
-            DiscoveryDocumentFactory.Projection? detailedProjection =
+            StructuralDiscoveryProjection? detailedProjection =
                 DiscoveryDocumentFactory.CreateProjection(
                     CatalogPathName(route.Catalog),
                     request.Discover,
@@ -1297,7 +1297,7 @@ public static class StructuralViewRegistry
             || request.SelectDefault)
             schema = FilterSchema(schema, selectedSections);
 
-        DiscoveryDocumentFactory.Projection? discoveryProjection = null;
+        StructuralDiscoveryProjection? discoveryProjection = null;
         if (projection.OutputCapabilities is not null)
         {
             discoveryProjection =

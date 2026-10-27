@@ -254,7 +254,7 @@ public static partial class ResourceExplanationCommand
     /// so a section any of those commands can address is explained once
     /// under the catalog root.
     /// </summary>
-    private static DiscoveryDocumentFactory.Projection?
+    private static StructuralDiscoveryProjection?
         CreateStructuralProjection(
             InspectionCatalogIdentity catalogIdentity,
             StructuralViewIdentity[] views) =>
@@ -262,7 +262,7 @@ public static partial class ResourceExplanationCommand
             StructuralViewRegistry.ProjectCatalog(
                 Routes(catalogIdentity, views)));
 
-    private static DiscoveryDocumentFactory.Projection?
+    private static StructuralDiscoveryProjection?
         CreateDiscoveryProjection(StructuralSchemaProjection projection)
     {
         string catalog =
@@ -800,7 +800,7 @@ public static partial class ResourceExplanationCommand
     private static CapabilityCatalogSearchStructuralCatalog
         StructuralSearchCatalog(
             InspectionCatalogIdentity identity,
-            DiscoveryDocumentFactory.Projection structural,
+            StructuralDiscoveryProjection structural,
             IEnumerable<CapabilityCatalogSearchStructuralBinding> bindings)
     {
         string root = StructuralViewRegistry.CatalogPathName(identity);
