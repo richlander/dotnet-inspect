@@ -15,8 +15,9 @@ admission, lifetime, and typed rejection. The inspection consumes those
 owner-issued outcomes; it does not reopen a Library or reinterpret metadata.
 
 This owner is introduced by #10727 as slice 2/4 of #10635. The CLI References
-section is the bounded first adopter. Inspect Web adoption remains the next
-independently reviewable slice.
+section is the bounded first adopter. #10759 makes Inspect Web the second
+adopter while retaining Browser-owned destination resolution, icons, graph,
+navigation, interaction, and rendering.
 
 ## Content
 
@@ -60,8 +61,9 @@ Authored duplicate and case-distinct identities prove deterministic
 full-identity ordering without deduplication.
 
 The shared gate covers populated, empty, rejected, failed, ordering, envelope,
-and source-generated JSON behavior. The first-adopter gate proves CLI
-References rendering and row selection consume owner-issued rows.
+and source-generated JSON behavior. The adopter gates prove CLI References
+rendering and row selection and Inspect Web References presentation consume
+the same owner-issued rows.
 
 ## Non-claims
 

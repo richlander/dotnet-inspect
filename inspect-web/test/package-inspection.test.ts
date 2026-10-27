@@ -10,6 +10,7 @@ import {
   type PackageDependenciesState,
   type PackageInspectionDependencies,
   type PackageInspectionState,
+  type LibraryReferenceInspectionEnvelope,
   type PackageIntegrationsState,
   type PackageMetadataState,
   type PackageOpportunitiesState,
@@ -24,6 +25,7 @@ import {
   type AppTypeSurface,
 } from "../src/package-acquisition.ts";
 import type {
+  AssemblyReferenceRow,
   BrowserPackageDependencies,
   BrowserPackageVulnerabilityResult,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -36,6 +38,7 @@ import type { PackageMetadata } from "../src/metadata-viewer.ts";
 import {
   dateTimeOffsetString,
 } from "./date-time-offset-string-fixture.ts";
+import { packageInertStringFixture } from "./inert-string-fixture.ts";
 
 const selectedCompileLibrary = {
   status: "Selected" as const,
@@ -81,6 +84,7 @@ function inspectionState(
     libraryLens: "overview",
     packageMetadataRoot: "cli",
     packageDependencies: { status: "idle" },
+    libraryReferences: { status: "idle" },
     packageVulnerabilities: { status: "idle" },
     workspaceDependencies: {},
     workspaceDependencyErrors: {},
@@ -132,6 +136,23 @@ function dependencyResult(
     dependencyGroupError: error,
     platformReferenceError: null,
     compileLibrary: selectedCompileLibrary,
+  };
+}
+
+function libraryReferenceResult(
+  references: readonly AssemblyReferenceRow[] = [],
+): LibraryReferenceInspectionEnvelope {
+  return {
+    content: { outcome: "available", references },
+    share: {
+      kind: "nonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "",
+      reason: packageInertStringFixture(
+        "Library reference inspection is not projectable."),
+    },
+    diagnostics: [],
   };
 }
 
@@ -468,6 +489,7 @@ function inspectionDependencies(
   return {
     state,
     queryDependencies: async packageItem => dependencyResult(packageItem.id),
+    queryLibraryReferences: async () => libraryReferenceResult(),
     queryVulnerabilities: async () => vulnerabilityResult(),
     queryPackageIntegrations: async () => integrationsResult(),
     queryPlatformIntegrations: async () => integrationsResult(),
@@ -587,7 +609,7 @@ test("library metrics do not widen into dependency analysis", async () => {
 });
 
 test("Library References does not acquire other workspace dependencies", async () => {
-  const selected = packageModel();
+  const selected = packageModel({ runtimeIdentifier: "browser-wasm" });
   const other = packageModel({ id: "Other.Package" });
   const state = inspectionState({
     packages: [selected, other],
@@ -597,13 +619,66 @@ test("Library References does not acquire other workspace dependencies", async (
   const calls: string[] = [];
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
-      queryDependencies: async pkg => {
-        calls.push(`${pkg.id}#${pkg.assemblyId}`);
-        return dependencyResult(pkg.id);
+      queryLibraryReferences: async pkg => {
+        calls.push(
+          `${pkg.id}#${pkg.assemblyId}@${pkg.runtimeIdentifier ?? ""}`);
+        return libraryReferenceResult();
       },
     }));
-  await coordinator.loadDependencies(selected, "library:references");
-  assert.deepEqual(calls, ["Example.Package#example-package"]);
+  await coordinator.loadLibraryReferences(selected, "library:references");
+  assert.deepEqual(
+    calls,
+    ["Example.Package#example-package@browser-wasm"]);
+  assert.deepEqual(state.packageDependencies, { status: "idle" });
+  assert.deepEqual(state.workspaceDependencies, {});
+});
+
+test("Library References replaces retained rows before a new Library settles", async () => {
+  const first = deferred<LibraryReferenceInspectionEnvelope>();
+  const second = deferred<LibraryReferenceInspectionEnvelope>();
+  const requests = [first, second];
+  const selected = packageModel();
+  const state = inspectionState({ packages: [selected] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryLibraryReferences: async () => requests.shift()!.promise,
+    }));
+
+  const firstLoad =
+    coordinator.loadLibraryReferences(selected, "library:first");
+  assert.deepEqual(state.libraryReferences, {
+    status: "loading",
+    request: { key: "library:first" },
+  });
+
+  const secondLoad =
+    coordinator.loadLibraryReferences(selected, "library:second");
+  assert.deepEqual(state.libraryReferences, {
+    status: "loading",
+    request: { key: "library:second" },
+  });
+
+  const current = libraryReferenceResult([{
+    name: "Current.Reference",
+    version: "1.0.0.0",
+    culture: null,
+    publicKeyToken: null,
+  }]);
+  second.resolve(current);
+  await secondLoad;
+  first.resolve(libraryReferenceResult([{
+    name: "Retired.Reference",
+    version: "1.0.0.0",
+    culture: null,
+    publicKeyToken: null,
+  }]));
+  await firstLoad;
+
+  assert.deepEqual(state.libraryReferences, {
+    status: "ready",
+    key: "library:second",
+    result: current,
+  });
 });
 
 test("dependency queries scope a truncated package to its selected compile asset", async () => {

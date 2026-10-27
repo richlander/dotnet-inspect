@@ -1106,7 +1106,9 @@ async function installFacades(
             diagnostics: [],
           },
           documents: surface.documents,
+          implementationComparisonRuntimeIdentifier: "browser-wasm",
           defaultLibraryId: surface.defaultAssemblyId,
+          runtimePopulation: null,
           surface: {
           ...surfaceFor(id, version, framework),
           package: id,
@@ -1506,6 +1508,54 @@ async function installFacades(
               }))
             : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
           compileLibrary: surface.compileLibrary
+        };
+      }
+      export async function queryLibraryReferences(id, version, framework, asset) {
+        document.documentElement.dataset.referenceRequest = asset;
+        const surface = surfaceFor(id, version, framework);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        const scenario = ${JSON.stringify(references)};
+        if (scenario === "deferred") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-references-ready:" + asset, resolve, { once: true }));
+        }
+        if (scenario === "query-error") throw new Error("Reference query unavailable.");
+        const rows = scenario === "empty" ? [] : scenario === "workspace-library"
+          ? [{
+              name: "Reference.Target", version: "1.0.0.0",
+              culture: "neutral", publicKeyToken: null
+            }]
+          : scenario === "external-supplier"
+          ? [{
+              name: "Reference.Target", version: "1.0.0.0",
+              culture: "neutral", publicKeyToken: null
+            }]
+          : scenario === "long"
+          ? Array.from({ length: 80 }, (_, index) => ({
+              name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
+              version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
+              publicKeyToken: "0123456789abcdef"
+            }))
+          : [{
+              name: selected.name + ".Dependency", version: "1.0.0.0",
+              culture: null, publicKeyToken: null
+            }];
+        return {
+          content: scenario === "inspection-error"
+            ? {
+                outcome: "rejected",
+                reason: {
+                  kind: "InvalidImage",
+                  detail: "Cannot decode AssemblyRef."
+                }
+              }
+            : { outcome: "available", references: rows },
+          share: {
+            kind: "nonProjectable", fullUrl: null, packet: null, path: "",
+            reason: "Library reference inspection is not projectable."
+          },
+          diagnostics: []
         };
       }
       export async function queryReferencePackageSuppliers(id, version, framework, asset) {
