@@ -28,7 +28,7 @@ It consumes and does not redefine:
 | [API population scope](api-population-scope.md) | The ordinary and widened API populations; this document changes which one a comparison uses |
 | [Diff observability](diff-observability.md) | A reported change has a view; over-reporting stays within observability |
 | [IL diff canonicalization](il-diff-canonicalization.md) | Canonical body equality, and a failed inspection for an endpoint it cannot decode |
-| [Finding Diff Any](finding-diff-any.md) | Today's Exists provision: its census, identity, axes, and Type level |
+| [Finding Diff Any](finding-diff-any.md) | Exists at Library, Type, and Member scope, with its provisions: its census, identity, axes, and Type level |
 | [Annotated Type Map](annotated-type-map.md) | The per-Member differences of a Type |
 | [Annotated Source diff document](annotated-source-diff-document.md) | The complete diff of one Member |
 | [Symbol Key](symbol-key.md) | Byte-exact symbolic identity |
@@ -275,11 +275,17 @@ Finding Diff Any is today's lockstep Exists provision. The [symbolic-identity
 spike](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6253951916)
 measured the complete IL diff's own code, with symbolic identity, at 0.67 to
 1.19 times Finding Diff Any's Body cost on six pairs, with every method pair
-agreeing. Finding Diff Any's Body IL walk is therefore deleted once the shared
-code meets the latency bar below. Its censuses remain: the API census as the API
-axis's Exists provision, because the surface model costs about ten times more,
-and the Body declaration census, which compares the Body axis's declaration
-facts. Both are owned by the diff owner as the first stages of their axes.
+agreeing. Meeting the latency bar below is therefore necessary to delete
+Finding Diff Any's Body IL walk. Deletion also requires Finding census's [Cost
+gate](finding-census.md#gates), which runs lockstep beside the walk itself and
+deletes the walk only when lockstep matches or beats it on every reported
+number; both must hold. Finding census step 2b measured lockstep under that
+gate and kept the walk ([what remains of the
+gap](finding-census.md#what-remains-of-the-gap)). Its censuses remain: the API
+census as the API axis's Exists provision, because the surface model costs
+about ten times more, and the Body declaration census, which compares the Body
+axis's declaration facts. Both are owned by the diff owner as the first stages
+of their axes.
 
 ## Latency bar
 
@@ -298,13 +304,13 @@ facts. Both are owned by the diff owner as the first stages of their axes.
     were 144, 22, 28, 24, 105, and 323 ms in the order above. The baseline
     binary is kept for later measurements after the walk is deleted.
 
-Exists is distinct from Rows by the structural rule, not by a ratio at
-Library scope: most Types in a pair are unchanged and proving that is the
-dominant cost, so early exit saves little there. The distinction that matters
-is between rungs 1 and 2, which never explain, and rungs 3 and 4, which build
-facts or models for the Types and Members a user opens, or once per version
-when a host retains maps. The numeric rule
-is the gate for replacing a provision.
+Exists is distinct from Rows by the structural rule, not by a ratio at Library
+scope: most Types in a pair are unchanged and proving that is the dominant
+cost, so early exit saves little there. The distinction that matters is between
+rungs 1 and 2, which never explain, and rungs 3 and 4, which build facts or
+models for the Types and Members a user opens, or once per version when a host
+retains maps. The numeric rule is necessary for replacing a provision, and
+Finding census's [Cost gate](finding-census.md#gates) must hold as well.
 
 ## Changes to consumed owners
 
@@ -343,8 +349,8 @@ Each step is its own focused effort:
 3. **Shared Body Exists.** The complete IL diff takes symbolic identity
    ([#9918](https://github.com/richlander/dotnet-inspect/issues/9918)) and a
    lockstep comparison without materialized instructions, then meets the latency
-   bar with the Body declaration census included; Finding Diff Any's Body IL
-   walk is deleted.
+   bar with the Body declaration census included and Finding census's [Cost
+   gate](finding-census.md#gates); Finding Diff Any's Body IL walk is deleted.
 4. **Census ownership.** The API census moves under the API comparison, and
    the Body declaration census under the Body comparison, as each axis's
    first stage, so each axis has one owner.

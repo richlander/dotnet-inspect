@@ -143,27 +143,30 @@ public static partial class MemberCommand
 
         if (resolvedSource is null
             && loadedSurface is null
-            && TryCreateSharedDefaultMemberRequest(
+            && TryCreateSharedMemberRequest(
                 options,
-                out ExactTypeInspectionRequest? exactTypeRequest))
+                plan,
+                out ExactTypeInspectionRequest? exactTypeRequest,
+                out SharedMemberPackageDemand packageDemand))
         {
             int? exactMemberExitCode =
                 await (packageHouse is null
-                    ? ExecuteSharedDefaultMemberAsync(
+                    ? ExecuteSharedMemberAsync(
                         options,
                         plan,
                         exactTypeRequest,
+                        packageDemand,
                         CancellationToken.None)
-                    : ExecuteSharedDefaultMemberAsync(
+                    : ExecuteSharedMemberAsync(
                         options,
                         plan,
                         exactTypeRequest,
+                        packageDemand,
                         packageHouse,
                         (issuePackageOperation
                             ?? throw new InvalidOperationException(
-                                "An injected default-Member PackageHouse "
-                                    + "requires a source-operation issuer."))(
-                            CancellationToken.None),
+                                "An injected Member PackageHouse requires "
+                                    + "a source-operation issuer.")),
                         CancellationToken.None))
                 .ConfigureAwait(false);
             if (exactMemberExitCode is { } completed)
@@ -2702,19 +2705,17 @@ public static partial class MemberCommand
 
     internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
+        if (options.IncludeSections is not { Count: > 0 })
+            return false;
+
         var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
-        if (sections.Overlaps(
+        return sections.Overlaps(
                 [
                     SectionNames.Source,
                     SectionNames.PdbSource,
                     SectionNames.SourceDiff,
-                ]))
-            return true;
-
-        bool pdbAuthorized = options.IncludeSections is { Count: > 0 }
-                             || options.Verbosity >= Verbosity.Detailed;
-        return pdbAuthorized
-               && sections.Overlaps(MemberSourceResolutionSectionNames);
+                ])
+            || sections.Overlaps(MemberSourceResolutionSectionNames);
     }
 
     internal static bool AuthorizesMemberSourceResolution(

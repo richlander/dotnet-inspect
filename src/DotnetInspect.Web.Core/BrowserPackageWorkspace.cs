@@ -6160,6 +6160,14 @@ internal sealed class BrowserPackageCoordinate
         Binding?.Coordinate.RuntimeIdentifier
         ?? Root.RequestedRuntimeIdentifier;
 
+    public string ImplementationComparisonRuntimeIdentifier =>
+        RuntimeIdentifier
+            ?? (RuntimePopulationChoice
+                is PackageRuntimePopulationChoiceResult.Selected selected
+                    ? selected.RuntimeIdentifier
+                    : PackageRuntimePopulationChoice
+                        .ProductDefaultRuntimeIdentifier);
+
     /// <summary>
     /// The source-associated coordinate this workspace answers for. Each component is
     /// length-prefixed so caller-controlled framework text cannot alter key boundaries.

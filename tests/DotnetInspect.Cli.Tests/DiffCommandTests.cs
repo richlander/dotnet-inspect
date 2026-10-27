@@ -3086,20 +3086,20 @@ public class DiffCommandTests
                 before, after, [], [], new HashSet<string>(["Sample.Widget"]),
                 ["Sample.Widget"], null, null),
             DiffAnalysisDocumentViews.Summary);
-        var summary = DiffAnalysisInspection.ExecuteSummaryTable(request);
         var summaryDocument = DiffAnalysisInspection.Execute(request);
+        var summary = DiffAnalysisInspection.SummaryTable(summaryDocument);
         Assert.Equal(summaryDocument.Content.Summary!.Value.ToArray(), summary.Content.Rows.ToArray());
         Assert.Equal(summaryDocument.Diagnostics.ToArray(), summary.Diagnostics.ToArray());
         Assert.Contains(summary.Diagnostics, diagnostic =>
             diagnostic.Severity == InspectionDiagnosticSeverity.Error);
 
         request = request with { Views = DiffAnalysisDocumentViews.Transitions };
-        var transitions = DiffAnalysisInspection.ExecuteTransitionsTable(request);
         var transitionsDocument = DiffAnalysisInspection.Execute(request);
+        var transitions = DiffAnalysisInspection.TransitionsTable(transitionsDocument);
         Assert.Equal(transitionsDocument.Content.Transitions!.Value.ToArray(), transitions.Content.Rows.ToArray());
         Assert.Equal(transitionsDocument.Diagnostics.ToArray(), transitions.Diagnostics.ToArray());
         Assert.Throws<ArgumentException>(() =>
-            DiffAnalysisInspection.ExecuteSummaryTable(request));
+            DiffAnalysisInspection.SummaryTable(transitionsDocument));
     }
 
     [Fact]

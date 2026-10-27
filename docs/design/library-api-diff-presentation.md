@@ -476,12 +476,14 @@ occupied side of a Type subject, a member relation, and a compatibility change
 subject has it. JSON serializes it as `status`.
 
 - A Type side is **ordinary** when it is public or nested public, not hidden,
-  and every enclosing Type is public or nested public and not hidden.
-  Extraction records the enclosing fact from metadata
-  (`ApiType.EnclosingTypesOrdinary`, with the hidden rule of `IsHidden`), so
-  it holds when a [Type selection](#type-scoped-comparison) does not project
-  the enclosing Type. A public nested Type of a protected, internal, or hidden
-  Type is not ordinary.
+  and every enclosing Type is public or nested public. Extraction records the
+  enclosing fact from metadata (`ApiType.EnclosingTypesOrdinary`), so it holds
+  when a [Type selection](#type-scoped-comparison) does not project the
+  enclosing Type. A public nested Type of a protected or internal Type is not
+  ordinary. Hidden status is a fact of each declaration: `EditorBrowsable` is a
+  presentation statement, weaker than `Obsolete`, and nesting does not pass it
+  on, so a public nested Type of a hidden Type is ordinary unless it is hidden
+  itself (decided 2026-10-25, #10642).
 - A Member side is ordinary when it is public, not hidden, and its declaring
   Type side is ordinary.
 - `IsHidden` and `IsObsolete` are the
@@ -602,12 +604,14 @@ transitions; the complete JSON grows from 5.6 MB to 6.8 MB.
 
 - `LibraryApiDiffPresentationTests` gate each state's derivation, each side's
   ordinary fact (a public to protected move, hidden and protected Members, a
-  public nested Type of a hidden Type, and an obsolete Member), Type status on
+  public nested Type of a hidden Type, which stays ordinary, and an obsolete
+  Member), Type status on
   both sides, a nested Type's ordinary fact under a Type selection, and the
   outside count for each scope. `FindingDiffAnyTests` gate the recorded
   enclosing fact under public, protected, and hidden enclosing Types.
 - `LibraryApiDiffCommandTests` gate `-t` naming a nested Type, by simple and
-  `Outer+Nested` name, and a public Type nested in a hidden Type under `-t`.
+  `Outer+Nested` name, and a public Type nested in a hidden Type under `-t`,
+  which shows its rows.
 - `LibraryApiDiffCommandTests` gate the default text for each state, a public
   to protected row, an obsolete Type and Member marked, the note and absence of
   rows outside the ordinary population in Markout, name-only, and table
