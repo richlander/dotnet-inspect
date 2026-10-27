@@ -72,6 +72,8 @@ decisions:
 
 - an omitted target framework uses PackageHouse's owner-issued
   `HighestAvailable` policy;
+- runtime-population eligibility is then evaluated against that effective
+  selected framework, while the original omitted request remains distinct;
 - an omitted RID is irrelevant when the lower owner reports no eligible runtime
   implementation population; and
 - when RID qualification is required, the zero, sole, product-default, and

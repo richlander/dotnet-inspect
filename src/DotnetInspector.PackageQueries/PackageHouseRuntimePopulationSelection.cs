@@ -62,10 +62,13 @@ public static class PackageHouseRuntimePopulationSelector
 
         PackageCompileAssetSelectionReceipt compileReceipt =
             contribution.SelectionReceipt;
+        string? runtimeTargetFramework =
+            compileReceipt.RequestedTargetFramework
+            ?? compileReceipt.Selection.TargetFramework;
         PackageAssetSelectionReceipt runtimeReceipt =
             PackageAssetSelector.EvaluateSingleRuntime(
                 settlement.Payload.Content,
-                compileReceipt.RequestedTargetFramework);
+                runtimeTargetFramework);
         if (runtimeReceipt.AvailableRuntimePopulations.Count == 0)
         {
             return new(

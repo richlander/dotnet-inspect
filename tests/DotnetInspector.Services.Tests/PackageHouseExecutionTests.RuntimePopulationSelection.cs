@@ -94,6 +94,49 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task
+        RuntimePopulationSelectionExcludesRuntimeAboveOwnerDefaultFramework()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                new SourceBehavior(
+                    [Version],
+                    PayloadEntries:
+                    [
+                        $"lib/net10.0/{PackageId}.dll",
+                        $"runtimes/linux-x64/lib/net11.0/{PackageId}.dll",
+                    ]));
+        (
+            PackageHouseSettlement.Acquired acquired,
+            PackageHouseRootContribution contribution) =
+                await RuntimePopulationContributionAsync(
+                    environment,
+                    PackageHouseTargetContext.OwnerDefault());
+
+        PackageHouseRuntimePopulationSelection selection =
+            PackageHouseRuntimePopulationSelector.Select(
+                acquired,
+                contribution,
+                new PackageRuntimePopulationAuthority.None());
+
+        Assert.Null(selection.Choice);
+        Assert.Null(selection.Binding.Coordinate.Framework);
+        Assert.Null(selection.Binding.Coordinate.RuntimeIdentifier);
+        PackageRootReacquisitionRequest rootRequest =
+            selection.Binding.CreateReacquisitionRequest();
+        Assert.Null(rootRequest.RequestedTargetFramework);
+        Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
+        PackageCompileAssetSelection assetSelection =
+            Assert.IsType<PackageCompileAssetSelection>(
+                selection.Binding.Root.AssetSelection);
+        Assert.Equal("net10.0", assetSelection.ImplementationTargetFramework);
+        Assert.Equal(
+            $"lib/net10.0/{PackageId}.dll",
+            Assert.Single(assetSelection.ImplementationAssets).Path);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task RuntimePopulationSelectionRetainsOwnerDefaultFramework()
     {
         await using HouseEnvironment environment =

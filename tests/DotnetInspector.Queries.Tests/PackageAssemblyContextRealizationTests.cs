@@ -518,6 +518,7 @@ public sealed class PackageAssemblyContextRealizationTests
         var content = new InMemoryPackageContent(
             Archive(
                 ("ref/net10.0/Owner.Default.Split.Receipt.dll", [0x01]),
+                ("ref/net10.0/shadow/Companion.dll", [0x02]),
                 ("lib/net8.0/Owner.Default.Split.Receipt.dll", [0x02])),
             fromCache: false,
             producerKey: "tests");
@@ -557,6 +558,18 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.True(request.HasSelectedImplementationUniverse);
         Assert.False(request.AllowsCompatibleTargetSelection);
         Assert.False(request.UsesCompatibleImplementationSelection);
+        Assert.Equal(
+            [
+                "ref/net10.0/Owner.Default.Split.Receipt.dll",
+                "ref/net10.0/shadow/Companion.dll",
+            ],
+            receipt.Selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            receipt.Selection.Assets.Select(asset => asset.Path),
+            Assert.IsType<PackageCompileAssetSelection>(
+                    reopened.Root.AssetSelection)
+                .Assets
+                .Select(asset => asset.Path));
         Assert.Equal(request, reopened.CreateReacquisitionRequest());
     }
 

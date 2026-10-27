@@ -23,6 +23,9 @@ An absent target selects `HighestAvailable`. An explicit target selects its
 exact slice when available, otherwise the highest compatible slice using
 `TfmResolver`'s version-aware framework and fallback ranks. Unrecognized target
 spellings fail closed unless an available slice matches the spelling exactly.
+When an owner-default compile selection feeds runtime-population choice, its
+already-selected effective framework bounds runtime eligibility; the original
+omitted request remains separate Root correspondence.
 Neutral and platform-qualified slices follow the same conservative platform
 rule as runtime asset selection: a neutral target does not admit a
 platform-specific slice, while a platform target admits its exact platform and
@@ -231,12 +234,14 @@ dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
 | Marker-only and highest-marker packages remain selected-empty inventory | `EmptyReferenceGroup_AloneIsASelectedEmptySlice` and `HighestAvailable_ChoosesHigherEmptySliceOverLowerLibrarySlice` |
 | Marker suppression is framework-local and real references win | `EmptyReferenceGroup_InALowerSliceDoesNotSuppressSelectedHigherSlice` and `EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework` |
 | Compile and implementation slices reduce separately | `CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately` |
+| Compatible implementation reconstruction preserves nested compile candidates | `CompatibleImplementation_PreservesNestedCompileAssets` and `PackageRootBinding_OwnerDefaultPreservesImplementationUniverseTarget` |
 | Direct root `lib` assets form the framework-agnostic fallback and retain implementation correspondence | `RootLibraryAssets_FormFrameworkAgnosticCompileSlice`, `ExactTargetRootFallbackPreservesRootImplementationCounterpart`, `Select_RootLibraryIsFrameworkAgnosticFallback`, `Select_FrameworkSpecificFolderOutranksRootLibrary`, and `LibraryInventory_RootLibraryUsesAnySliceAndSameImplementationEntry` |
 | The framework-agnostic fallback does not admit unrecognized target spellings | `Select_RootLibraryDoesNotMakeAnUnrecognizedTargetApplicable` |
 | Owner-default runtime selection implies one RID and one target slice without mixing neutral, native, or unrelated assets | `SelectSingleRuntime_InfersOneRidAndHighestRuntimeSlice`, `SelectSingleRuntime_ExplicitTargetUsesOneCompatibleRuntimeSlice`, `RuntimeOwnerDefaultRealizeInfersSingleRidAndHighestTarget`, and `RuntimeExactTargetWithoutRidInfersSingleRid` |
 | Owner-default runtime selection never merges RIDs or case-colliding assets; an explicit RID selects only itself | `SelectSingleRuntime_RequiresAnExplicitRidForMultipleRids`, `SelectSingleRuntime_ReportsCaseCollidingAssetsAsAmbiguous`, `SelectSingleRuntime_ExplicitRidDoesNotMergeOtherRids`, and `RuntimeOwnerDefaultDoesNotMergeMultipleRids` |
 | Runtime evaluation retains every applicable RID population in stable ordinal order without shrinking for an explicit RID | `EvaluateSingleRuntime_RetainsCompleteOrderedPopulationInventory`, `MultipleRuntimeIdentifiersRemainTypedNonSuccess`, and `RuntimeOwnerDefaultDoesNotMergeMultipleRids` |
 | PackageHouse preserves the complete runtime-population inventory through named implementation narrowing | `RuntimeExactTargetWithoutRidInfersSingleRid` |
+| Owner-default runtime inventory is bounded by the selected effective framework while the original request remains omitted | `RuntimePopulationSelectionExcludesRuntimeAboveOwnerDefaultFramework` |
 | Native-only RID folders do not participate in runtime Library inference | `SelectSingleRuntime_IgnoresNativeOnlyRids` |
 | Invalid implementation selection retains complete candidate inventory | `Selection_CaseCollidingImplementationPathsAreRejected` |
 | An applicable exact-RID group wholly replaces neutral implementation fallback, including when it targets a lower compatible framework | `Select_RuntimePopulationReplacesTheNeutralImplementationGroup`, `Select_CompatibleRuntimePopulationOutranksNewerNeutralGroup`, `RuntimePopulationSelectionUsesCompatibleRuntimeGroupOverNewerNeutralFallback`, and `RidSpecificImplementation_ReplacesWholeNeutralImplementationGroup` |

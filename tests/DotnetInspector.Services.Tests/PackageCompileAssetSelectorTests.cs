@@ -771,6 +771,33 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void CompatibleImplementation_PreservesNestedCompileAssets()
+    {
+        IPackageContent content = InMemory(
+            "ref/net10.0/Example.dll",
+            "ref/net10.0/shadow/Companion.dll",
+            "runtimes/linux-x64/lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.SelectForCompatibleImplementation(
+                content,
+                "Example",
+                "net10.0",
+                "net8.0",
+                "linux-x64");
+
+        Assert.Equal(
+            [
+                "ref/net10.0/Example.dll",
+                "ref/net10.0/shadow/Companion.dll",
+            ],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net8.0/Example.dll",
+            Assert.Single(selection.ImplementationAssets).Path);
+    }
+
+    [Fact]
     public void EmptyReferenceGroup_IncompatibleFamily_PreservesLibraryFallback()
     {
         IPackageContent content = InMemory(
