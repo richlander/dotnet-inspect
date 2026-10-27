@@ -1,6 +1,6 @@
 # Inspect Web
 
-Inspect Web is the Library-first, keyboard-driven browser experience for
+Inspect Web is the keyboard-driven browser experience for
 `dotnet-inspect`. Its organising rule is:
 
 > **Every interaction that inspects an assembly runs inside a workspace, through
@@ -9,16 +9,17 @@ Inspect Web is the Library-first, keyboard-driven browser experience for
 > never answered by opening a session, a metadata source, an analysis index,
 > or a retained image descriptor.
 
-Opening a package without an explicit destination starts at Library Overview
-using the product-selected First Library. `All libraries` is an explicit
-opt-in; Package remains available one level up with its complete Library
-inventory. The initial package Summary reads directory inventory, and Library
-Overview then requests only that exact Library, so ranged acquisition need not
-fetch sibling Library bodies. A later `All libraries` or Package-wide Type
-gesture may explicitly request the broad surface.
+Opening a package without an explicit destination starts at Package Overview
+with its complete Library inventory. Library navigation is explicit and uses
+the product-selected First Library when no exact Library is specified.
+`All libraries` is an explicit opt-in. The initial package Summary reads
+directory inventory, and an exact Library Overview requests only that Library,
+so ranged acquisition need not fetch sibling Library bodies. A later
+`All libraries` or Package-wide Type gesture may explicitly request the broad
+surface.
 
 Explicit links and restored workspace history keep their selected subjects and
-inspectors. A failed First Library remains selected with its failure visible
+inspectors. A failed selected Library remains selected with its failure visible
 rather than silently selecting a sibling. Packages with no admitted Libraries
 remain at Package with the reason visible.
 Selecting an explicitly empty compile framework opens Package Overview and
