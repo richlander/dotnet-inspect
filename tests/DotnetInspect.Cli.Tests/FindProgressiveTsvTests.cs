@@ -516,8 +516,11 @@ public class FindProgressiveTsvTests
         Assert.Equal("Contoso.Healthy", candidate.PackageId);
     }
 
-    [Fact]
-    public async Task EcosystemPrefixEnumerationYieldsBeforeNextSourcePage()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EcosystemPrefixEnumerationYieldsBeforeNextSourcePage(
+        bool fillRowWindow)
     {
         var handler = new PagedPrefixSourceHandler();
         using var client = new HttpClient(handler);
@@ -526,9 +529,14 @@ public class FindProgressiveTsvTests
         {
             SourceOptions = new NuGetSourceOptions
             {
-                Sources = ["https://paged.example/v3/index.json"],
+                Sources =
+                [
+                    "https://paged.example/v3/index.json",
+                    "https://unsearched.example/v3/index.json",
+                ],
             },
-            Limit = 1,
+            Limit = fillRowWindow ? 1 : 5,
+            MaximumEcosystemPrefixPackages = 1,
         };
         var layers =
             FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
@@ -549,17 +557,26 @@ public class FindProgressiveTsvTests
                 context,
                 token),
             (candidate, _, _) => Task.FromResult(
-                new EcosystemFindBlock<string>(candidate.PackageId, 1)));
+                new EcosystemFindBlock<string>(
+                    candidate.PackageId, fillRowWindow ? 1 : 0)));
 
         EcosystemFindSearchSummary<string> result =
             await session.ExecuteAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(EcosystemFindCompletion.RowLimitReached,
+        Assert.Equal(fillRowWindow
+                ? EcosystemFindCompletion.RowLimitReached
+                : EcosystemFindCompletion.CandidateLimitReached,
             result.Completion);
-        Assert.Equal(
-            "Aspire.First",
-            Assert.Single(result.PrefixBlocks).Content);
+        if (fillRowWindow)
+            Assert.Equal("Aspire.First", Assert.Single(result.PrefixBlocks).Content);
+        else
+        {
+            Assert.Empty(result.PrefixBlocks);
+            Assert.True(result.Incomplete);
+            Assert.Contains("Aspire.", result.Unsearched);
+        }
         Assert.Equal(1, handler.SearchRequests);
+        Assert.Equal(1, handler.SourceRequests);
     }
 
     [Fact]
@@ -811,6 +828,7 @@ public class FindProgressiveTsvTests
     private sealed class PagedPrefixSourceHandler : HttpMessageHandler
     {
         public int SearchRequests { get; private set; }
+        public int SourceRequests { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -820,6 +838,7 @@ public class FindProgressiveTsvTests
             string content;
             if (uri.AbsolutePath == "/v3/index.json")
             {
+                SourceRequests++;
                 content =
                     """
                     {"resources":[{"@id":"https://paged.example/v3/query","@type":"SearchQueryService"}]}
