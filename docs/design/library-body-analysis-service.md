@@ -334,6 +334,12 @@ supplies candidates from metadata, so the two issue the same target.
 
 The first production consumer is the Library Metrics relationship projection.
 Library Dependency Structure is the second.
+`AssemblyContextLibraryDependencyStructureQuery` acquires that complete
+focused result directly from its retained image snapshot, builds the detached
+Research document, and releases call-graph caches. It no longer opens
+`LibraryBodyAnalysisService` or constructs a reference-binding resolver; the
+published target origins and same-module resolution already contain every
+fact the document consumes.
 
 `LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
 publishes Analysis's declared-source association for any method, including
