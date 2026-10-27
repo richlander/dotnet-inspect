@@ -35,7 +35,8 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
         Assert.Equal("available", root.GetProperty("content").GetProperty("outcome").GetString());
         JsonElement document = root.GetProperty("content").GetProperty("document");
         Assert.True(document.GetProperty("summary").GetProperty("changedTypeCount").GetInt32() > 0);
-        Assert.NotEmpty(document.GetProperty("comparison").GetProperty("subjects").EnumerateArray());
+        Assert.NotEmpty(document.GetProperty("rows").EnumerateArray());
+        Assert.False(document.TryGetProperty("comparison", out _));
         Assert.Equal(JsonValueKind.Number, document.GetProperty("before").GetProperty("scope").ValueKind);
         Assert.Contains("TypeDefinitionOnly", document.GetRawText());
         Assert.Equal("nonProjectable", root.GetProperty("share").GetProperty("kind").GetString());
@@ -64,8 +65,7 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
         Assert.Equal("available", content.GetProperty("outcome").GetString());
         Assert.Equal(0, content.GetProperty("document").GetProperty("summary")
             .GetProperty("changedTypeCount").GetInt32());
-        Assert.Empty(content.GetProperty("document").GetProperty("comparison")
-            .GetProperty("subjects").EnumerateArray());
+        Assert.Empty(content.GetProperty("document").GetProperty("rows").EnumerateArray());
     }
 
     [Theory]

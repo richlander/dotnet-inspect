@@ -11,7 +11,6 @@ namespace DotnetInspector.Presentation;
     [
         typeof(InertStringJsonConverter),
         typeof(LibraryApiDiffEndpointIssueJsonConverter),
-        typeof(LibraryApiTypeComparisonDocumentJsonConverter),
         typeof(LibraryApiTypeTableOutcomeJsonConverter),
         typeof(LibraryApiChangesTableOutcomeJsonConverter),
         typeof(LibraryApiTypeDocumentOutcomeJsonConverter),

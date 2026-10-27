@@ -525,9 +525,9 @@ when at least one of its rows does. Summary counts and the `--breaking` and
 `--additive` filters apply to those rows. When rows are left out, stderr
 carries one note: how many rows the type and classification selections keep
 outside the ordinary population. A row is counted once for each changed Type
-that holds it. The Document's `comparison` retains the complete comparison
-evidence, including status and state; its `rows` are the selected population.
-There is no new option.
+that holds it. The Document's `rows` retain the selected evidence, including
+status and state, without a duplicate complete comparison. The existing
+`--all` option includes changes outside the ordinary population.
 
 An obsolete Type is marked by `[Obsolete]` after its name in a Type column,
 heading, or summary row. A row about an obsolete Member, other than its own
@@ -730,15 +730,20 @@ The representation is selected before presentation execution. Table returns
 only the ordered typed rows and never constructs the Library API Document,
 comparison-document context, or aggregate summary. Shared exact per-Type and
 member comparison facts remain the evidence substrate. Document retains the same
-selected rows, endpoint context, complete comparison evidence, and structured
+selected rows, endpoint context, and structured
 summary. Summary scope is the selected Types and their retained compatibility
 facts **before the presentation row window**. Compatibility facts and member
 relations held by multiple Type subjects count once by occurrence identity;
 member counts cover ordinary changed members on selected Types, not just
-compatibility-classified rows. The complete comparison is supporting evidence,
-not the selected row population. Document also exposes the typed
+compatibility-classified rows. Document does not repeat the complete comparison
+tree or retain a second unselected population. Type rows carry Before/After
+identity and status, pair kind, and their selected classified/unclassified
+evidence, not a second copy of the complete per-Type comparison. Detailed rows
+carry the same selected evidence at their own grain. Document also exposes the typed
 `outsideOrdinaryRowCount` after Type/classification selection and before the
 row window; both representations disclose the same exclusion diagnostic.
+Use `--all` to include protected and hidden changes in both representations;
+JSON does not silently broaden the selected population.
 Aggregate counts use the portable/Browser
 occurrence semantics rather than counting a cross-Type fact twice merely
 because it appears under both Type subjects.

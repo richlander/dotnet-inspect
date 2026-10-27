@@ -53,6 +53,42 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
+    public async Task Representations_DocumentsRetainSelectedEvidenceWithoutComparisonCopies()
+    {
+        AssemblyContextApiComparisonResult comparison = await Compare(
+            FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
+            FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
+        var selection = new LibraryApiChangesSelection(
+            new(name => name.EndsWith(".MethodConstraintChange", StringComparison.Ordinal)),
+            [ChangeClassification.Breaking]);
+        var document = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeChangeRow>>.Available>(
+            LibraryApiChangesInspection.TypeDocument(comparison, selection).Content).Content;
+        LibraryApiTypeChangeRow row = Assert.Single(document.Rows);
+        Assert.NotNull(row.Before);
+        Assert.NotNull(row.After);
+        Assert.Equal(ChangeClassification.Breaking, Assert.Single(row.Changes).Classification);
+        Assert.Empty(row.Unclassified);
+        Assert.Equal(1, document.Summary.ChangedTypeCount);
+        Assert.Equal(1, document.Summary.BreakingCount);
+        Assert.Equal(0, document.Summary.AdditiveCount);
+
+        using JsonDocument json = JsonDocument.Parse(
+            JsonSerializer.Serialize(document, LibraryApiChangesJsonContext.Default.TypeDocument));
+        Assert.False(json.RootElement.TryGetProperty("comparison", out _));
+        JsonElement serializedRow = Assert.Single(json.RootElement.GetProperty("rows").EnumerateArray());
+        Assert.False(serializedRow.TryGetProperty("comparison", out _));
+        Assert.Single(serializedRow.GetProperty("changes").EnumerateArray());
+
+        var changes = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiChangeRow>>.Available>(
+            LibraryApiChangesInspection.ChangesDocument(comparison, selection).Content).Content;
+        Assert.Equal(document.Summary, changes.Summary);
+        using JsonDocument detailedJson = JsonDocument.Parse(
+            JsonSerializer.Serialize(changes, LibraryApiChangesJsonContext.Default.ChangesDocument));
+        Assert.False(detailedJson.RootElement.TryGetProperty("comparison", out _));
+        Assert.Single(detailedJson.RootElement.GetProperty("rows").EnumerateArray());
+    }
+
+    [Fact]
     public async Task Representations_ShareOrdinarySelectionExclusionsAndClassifications()
     {
         FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
@@ -63,7 +99,7 @@ public sealed class LibraryApiDiffPresentationTests
         var rows = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiChangeRow>>.Available>(
             table.Content).Content.Rows;
         Assert.Contains(table.Diagnostics, diagnostic => diagnostic.Code == "diff.outside-ordinary");
-        Assert.Equal(8,
+        Assert.Equal(7,
             Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiChangeRow>>.Available>(
                 document.Content).Content.OutsideOrdinaryRowCount);
         Assert.Equal(table.Diagnostics.Select(diagnostic => diagnostic.Summary.ToString()),

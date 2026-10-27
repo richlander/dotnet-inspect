@@ -2318,8 +2318,10 @@ Every `--json` request now serializes a typed Document outcome, including
 filtered requests and `-S Changes --json`; the old display-oriented
 `{changes: ...}` projection is retired on this route. `document.rows` contains
 the selected ordered rows, `document.summary` contains native numeric counts
-for the selected population before `--rows`, and `document.comparison` retains
-the complete supporting evidence. Use `--envelope` for that same Content plus
+for the selected population before `--rows`, and endpoint context identifies
+the comparison. Documents do not repeat the complete comparison tree or a
+second unselected population. Use `--all` to include protected and hidden
+changes in either Table or Document output. Use `--envelope` for that same Content plus
 Share and diagnostics (CLI envelope schema 2). `--compact` controls JSON
 whitespace. For example:
 

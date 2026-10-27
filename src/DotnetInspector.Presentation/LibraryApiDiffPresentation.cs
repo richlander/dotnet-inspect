@@ -893,9 +893,12 @@ public static class LibraryApiDiffPresentationAdapter
                         LibraryApiChangesInspection.Summarize(
                             types.Select(subject =>
                                 new LibraryApiTypeChangeRow(
-                                    subject.Identifier, subject.Display, subject.Comparison,
+                                    subject.Identifier, subject.Display,
+                                    subject.Comparison.Before, subject.Comparison.After,
+                                    subject.Comparison.PairKind,
                                     subject.Comparison.CompatibilityChanges,
                                     [])),
+                            types,
                             ordinaryOnly: false),
                         CreateComparison(before, types))),
             static unavailable => unavailable,

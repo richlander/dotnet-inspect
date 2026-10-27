@@ -38,7 +38,7 @@ internal static class LibraryApiDiffOutput
         WriteRows(["Change", "Type", "Detail"], ["change", "type", "detail"],
             table.Rows.Select(type => new[]
             {
-                type.Comparison.PairKind switch
+                type.PairKind switch
                 {
                     LibraryApiTypePairKind.Added => "+",
                     LibraryApiTypePairKind.Removed => "-",
@@ -47,7 +47,7 @@ internal static class LibraryApiDiffOutput
                     _ => "~",
                 },
                 MarkObsolete(TypeMatcher.GetSimpleName(type.Display), type),
-                type.Comparison.PairKind switch
+                type.PairKind switch
                 {
                     LibraryApiTypePairKind.Added => "added",
                     LibraryApiTypePairKind.Removed => "removed",
@@ -226,7 +226,7 @@ internal static class LibraryApiDiffOutput
     const string ObsoleteMarker = "[Obsolete]";
 
     private static bool IsObsolete(LibraryApiTypeChangeRow type)
-        => (type.Comparison.After ?? type.Comparison.Before)!.Status.IsObsolete;
+        => (type.After ?? type.Before)!.Status.IsObsolete;
 
     private static string MarkObsolete(string text, LibraryApiTypeChangeRow type)
         => IsObsolete(type) ? $"{text} {ObsoleteMarker}" : text;

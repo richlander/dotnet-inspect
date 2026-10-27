@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
-using Inspector.Findings;
 using Markout;
 
 namespace DotnetInspector.Presentation;
@@ -21,7 +20,9 @@ public sealed record LibraryApiChangesSelection(
 public sealed record LibraryApiTypeChangeRow(
     string Identifier,
     string Display,
-    LibraryApiTypeDiff Comparison,
+    LibraryApiTypeIdentity? Before,
+    LibraryApiTypeIdentity? After,
+    LibraryApiTypePairKind PairKind,
     ImmutableArray<LibraryApiCompatibilityChange> Changes,
     ImmutableArray<LibraryApiUnclassifiedEvidence> Unclassified);
 
@@ -51,7 +52,6 @@ public sealed record LibraryApiChangesDocument<TRow>(
     LibraryApiDiffEndpointSummary Before,
     LibraryApiDiffEndpointSummary After,
     LibraryApiDiffSummary Summary,
-    ComparisonDocument<LibraryApiTypeDiff> Comparison,
     ImmutableArray<TRow> Rows,
     int OutsideOrdinaryRowCount)
 {
@@ -85,15 +85,13 @@ public static class LibraryApiChangesInspection
         TypeDocument(AssemblyContextApiComparisonResult result, LibraryApiChangesSelection selection)
         => Execute(result, selection, static (before, after, types, rows, all, outside) =>
             new LibraryApiChangesDocument<LibraryApiTypeChangeRow>(
-                before, after, Summarize(all, Ordinary(before, after)),
-                LibraryApiDiffPresentationAdapter.CreateComparison(before, types), rows, outside));
+                before, after, Summarize(all, types, Ordinary(before, after)), rows, outside));
 
     public static InspectionEnvelope<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiChangeRow>>>
         ChangesDocument(AssemblyContextApiComparisonResult result, LibraryApiChangesSelection selection)
         => Execute(result, selection, static (before, after, types, rows, all, outside) =>
             new LibraryApiChangesDocument<LibraryApiChangeRow>(
-                before, after, Summarize(all, Ordinary(before, after)),
-                LibraryApiDiffPresentationAdapter.CreateComparison(before, types), rows, outside), DetailedRows);
+                before, after, Summarize(all, types, Ordinary(before, after)), rows, outside), DetailedRows);
 
     private static InspectionEnvelope<LibraryApiChangesOutcome<T>> Execute<T>(
         AssemblyContextApiComparisonResult result,
@@ -170,7 +168,8 @@ public static class LibraryApiChangesInspection
                 outside += changes.Count(change => !change.IsOrdinary)
                     + unclassified.Count(evidence => !evidence.IsOrdinary);
             var row = new LibraryApiTypeChangeRow(
-                subject.Identifier, subject.Display, subject.Comparison,
+                subject.Identifier, subject.Display,
+                subject.Comparison.Before, subject.Comparison.After, subject.Comparison.PairKind,
                 [.. changes.Where(change => !ordinaryOnly || change.IsOrdinary)],
                 [.. unclassified.Where(evidence => !ordinaryOnly || evidence.IsOrdinary)]);
             if (!row.Changes.IsEmpty || !row.Unclassified.IsEmpty)
@@ -183,7 +182,7 @@ public static class LibraryApiChangesInspection
             Note("diff.outside-ordinary",
                 $"{outside} API change {(outside == 1 ? "row is" : "rows are")} outside the ordinary "
                 + "population (protected or hidden declarations) and not shown; "
-                + "unprojected --json reports the complete comparison.");
+                + "use --all to include them.");
         return (rows.ToImmutable(), outside);
 
         void Note(string code, string message)
@@ -197,7 +196,7 @@ public static class LibraryApiChangesInspection
         foreach (LibraryApiTypeChangeRow type in types)
         {
             var identity = new LibraryApiChangedType(
-                type.Identifier, type.Display, type.Comparison.Before, type.Comparison.After);
+                type.Identifier, type.Display, type.Before, type.After);
             foreach (LibraryApiCompatibilityChange change in type.Changes)
                 rows.Add(new LibraryApiChangeRow.Classified(identity, change));
             foreach (LibraryApiUnclassifiedEvidence evidence in type.Unclassified)
@@ -208,6 +207,7 @@ public static class LibraryApiChangesInspection
 
     internal static LibraryApiDiffSummary Summarize(
         IEnumerable<LibraryApiTypeChangeRow> types,
+        ImmutableArray<LibraryApiDiffTypeEvidence> evidence,
         bool ordinaryOnly)
     {
         LibraryApiTypeChangeRow[] rows = [.. types];
@@ -215,16 +215,20 @@ public static class LibraryApiChangesInspection
         var changes = new HashSet<LibraryApiCompatibilityChange>(ReferenceEqualityComparer.Instance);
         var members = new HashSet<string>(StringComparer.Ordinal);
         foreach (LibraryApiTypeChangeRow row in rows)
-        {
             changes.UnionWith(row.Changes);
-            foreach (LibraryApiMemberDiff member in row.Comparison.Members)
+        var selectedTypes = rows.Select(row => row.Identifier).ToHashSet(StringComparer.Ordinal);
+        foreach (LibraryApiDiffTypeEvidence type in evidence)
+        {
+            if (!selectedTypes.Contains(type.Identifier))
+                continue;
+            foreach (LibraryApiMemberDiff member in type.Comparison.Members)
                 if (!ordinaryOnly || member.Relation.IsOrdinary)
                     members.Add(member.Relation.Identifier);
         }
         return new(
             rows.Length,
-            rows.Count(row => row.Comparison.PairKind == LibraryApiTypePairKind.Added),
-            rows.Count(row => row.Comparison.PairKind == LibraryApiTypePairKind.Removed),
+            rows.Count(row => row.PairKind == LibraryApiTypePairKind.Added),
+            rows.Count(row => row.PairKind == LibraryApiTypePairKind.Removed),
             members.Count,
             changes.Count(change => change.Classification == ChangeClassification.Breaking),
             changes.Count(change => change.Classification == ChangeClassification.Additive),
