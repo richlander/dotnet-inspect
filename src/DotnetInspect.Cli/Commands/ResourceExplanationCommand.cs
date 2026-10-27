@@ -241,9 +241,10 @@ public static partial class ResourceExplanationCommand
         InspectionCatalogIdentity catalogIdentity,
         StructuralViewIdentity[] views) =>
         CreateStructuralProjection(catalogIdentity, views) is { } structural
-            ? ResourceExplanationCatalog.CreateStructural(
-                structural.Document,
-                structural.ResourcePaths)
+            ? ResourceExplanationCatalog.CreateCapabilities(
+                InspectionCapabilityCatalog.Create(
+                    [StructuralCatalogCapability.CreateModule(structural)]),
+                [])
             : null;
 
     /// <summary>
@@ -310,10 +311,8 @@ public static partial class ResourceExplanationCommand
             foreach (StructuralRoute route in Routes(identity, views))
             {
                 StructuralSchemaProjection projection = StructuralViewRegistry.Project(route);
-                StructuralDiscoveryProjection addressed = CreateDiscoveryProjection(projection)
-                    ?? throw new InvalidOperationException("The structural view could not be built.");
                 bindings.Add(StructuralBinding(
-                    registration, route, bindings.Count == 0, projection, addressed.Document));
+                    registration, route, bindings.Count == 0, projection));
             }
             modules.Add(product);
             modules.Add(new InspectionCapabilityModule(
@@ -773,8 +772,7 @@ public static partial class ResourceExplanationCommand
             InspectionStructuralCatalogRegistration catalog,
             StructuralRoute route,
             bool isFirst,
-            StructuralSchemaProjection projection,
-            DiscoveryDocument addressed)
+            StructuralSchemaProjection projection)
     {
         string root = StructuralViewRegistry.CatalogPathName(route.Catalog);
         string name = isFirst ? root : $"{root}-{route.View.ViewMode}";
@@ -787,7 +785,7 @@ public static partial class ResourceExplanationCommand
                 "dotnet-inspect CLI",
                 $"{route.View.DestinationCommand} -S"),
             catalog,
-            addressed.Resources
+            catalog.Document.Resources
                 .Select(static resource => resource.Identity)
                 .Where(resource => resource.Kind switch
                 {
