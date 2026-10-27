@@ -139,7 +139,10 @@ public enum EcosystemFindIndexedCompletion
 public sealed record EcosystemFindIndexedOutcome<T>(
     IReadOnlyList<EcosystemFindBlock<T>> Blocks,
     EcosystemFindIndexedCompletion Completion,
-    IReadOnlyList<EcosystemFindSourceFailure> Failures);
+    IReadOnlyList<EcosystemFindSourceFailure> Failures)
+{
+    public IReadOnlyList<WorkspaceEcosystemRegistrationId> EvaluatedIndexes { get; init; } = [];
+}
 
 /// <summary>A single-use capability issued by exactly one staged session.</summary>
 public sealed class EcosystemFindPrefixContinuation<T>
@@ -196,6 +199,10 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
     private bool _failures;
     private bool _incomplete;
     private int _rows;
+    private List<EcosystemFindWorkEvidence>? _workEvidence;
+    private List<EcosystemFindPageEvidence>? _pageEvidence;
+    private int _prefixCandidatesEvaluated;
+    private IReadOnlyList<WorkspaceEcosystemRegistrationId> _evaluatedIndexes = [];
 
     public EcosystemFindSearchSession(
         EcosystemFindSearchRequest request,
@@ -278,6 +285,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                     {
                         var source = await _bounded(
                             layer with { CorePackageId = core.PackageId }, token);
+                        RecordWork("Bounded", core.PackageId, source);
                         source = source with
                         {
                             Memberships = PackageMemberships(core.PackageId),
@@ -303,7 +311,10 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                 };
             }
             else
+            {
                 block = await _bounded(layer, token);
+                RecordWork("Bounded", layer.Registration.Id.Value, block);
+            }
             Accept(block with
             {
                 Ecosystem = Request.Layers[index].Registration.Id,
@@ -372,6 +383,8 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                 .WithCancellation(token))
             {
                 token.ThrowIfCancellationRequested();
+                _pageEvidence?.Add(new(
+                    prefix.Prefix, page.Candidates.Count, page.Completion));
                 if (page.Completion == EcosystemFindPrefixPageCompletion.Failed)
                 {
                     _failures = _incomplete = true;
@@ -401,10 +414,13 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                             [.. Request.Prefixes.Skip(index).Select(source => source.Prefix)]);
                     }
                     candidates++;
+                    _prefixCandidatesEvaluated++;
                     WorkspaceEcosystemRegistrationId[] memberships =
                         PackageMemberships(item.PackageId);
                     EcosystemFindBlock<T> block =
                         await _candidate(item, memberships, token);
+                    if (_workEvidence is not null)
+                        RecordWork("Prefix", $"{item.PackageId}@{item.Version}", block);
                     EcosystemFindBlock<T> attributed = block with
                     {
                         Candidate = item,
@@ -502,6 +518,13 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             throw new InvalidOperationException(
                 "Indexed Find exceeded its row window.");
         }
+        _workEvidence?.Add(new(
+            "Indexed", "index evaluator", indexedRows,
+            indexed.Failures.Count > 0
+                || indexed.Blocks.Any(block => block.HasFailures),
+            indexed.Blocks.Any(block => block.Incomplete)));
+        if (_workEvidence is not null)
+            _evaluatedIndexes = indexed.EvaluatedIndexes;
         foreach (EcosystemFindSourceFailure failure in indexed.Failures)
             _sourceFailures.Add(failure);
         if (indexed.Failures.Count > 0)
@@ -533,6 +556,37 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         return bounded.Completed ?? await bounded.Continuation!.ResumeAsync(
             bounded.Continuation.MaximumRemainingRows, cancellationToken);
     }
+
+    public async Task<(
+        EcosystemFindSearchSummary<T> Summary,
+        EcosystemFindSearchEvidence Evidence)> ExecuteWithEvidenceAsync(
+            CancellationToken cancellationToken = default)
+    {
+        if (_started)
+            throw new InvalidOperationException("Evidence must be requested before execution.");
+        _workEvidence = [];
+        _pageEvidence = [];
+        EcosystemFindSearchSummary<T> summary =
+            await ExecuteAsync(cancellationToken).ConfigureAwait(false);
+        return (summary, new(
+            new(Request.Identity, Request.Question,
+                [.. Request.Layers.Select(layer => new EcosystemFindRegistrationEvidence(
+                    layer.Registration.Id.Value, layer.Platform,
+                    [.. layer.Registration.CorePackages.Select(core => core.PackageId)],
+                    [.. layer.Registration.Populations
+                        .OfType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>()
+                        .Select(population => population.Prefix.Prefix)]))],
+                [.. Request.PrefixDemand.Select(id => id.Value)],
+                [.. Request.Prefixes.Select(prefix => prefix.Prefix)],
+                Request.MaximumPrefixPackages, Request.MaximumRows),
+            [.. _evaluatedIndexes.Select(id => id.Value)],
+            [.. _workEvidence], [.. _pageEvidence],
+            _prefixCandidatesEvaluated));
+    }
+
+    private void RecordWork(string phase, string source, EcosystemFindBlock<T> block) =>
+        _workEvidence?.Add(new(
+            phase, source, block.RowCount, block.HasFailures, block.Incomplete));
 
     private void Accept(EcosystemFindBlock<T> block,
         List<EcosystemFindBlock<T>> destination, CancellationToken token)

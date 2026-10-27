@@ -9,6 +9,7 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
 using InertText;
 
@@ -113,6 +114,126 @@ public class FindProgressiveTsvTests
             result.Error,
             StringComparison.Ordinal);
     }
+
+#if DEBUG
+    [Theory]
+    [InlineData(false, ".AddRedis")]
+    [InlineData(true, ".AddRedis")]
+    [InlineData(false, "AddRedis")]
+    public async Task EvidenceSidecarPreservesIndexedOutputAndExplainsAvoidedWork(
+        bool workspace, string pattern)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"find-evidence-{Guid.NewGuid():N}.json");
+        try
+        {
+            string[] selection = ["--ecosystem", "aspire"];
+            if (workspace)
+            {
+                string packet = WorkspaceSharePacketCodec.Encode(
+                    WorkspaceSharePacketCodec.ParseJson(
+                        """{"f":3,"t":[],"g":[],"r":[["e","ecosystem.aspire",[],[],[["p","Aspire."]]]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""",
+                        TestContext.Current.CancellationToken));
+                selection = ["--workspace", packet];
+            }
+            string[] args =
+            [
+                "--offline", "find", pattern, .. selection,
+                "-n", "1", "--tsv",
+            ];
+            var ordinary = await Run(args);
+            var enriched = await Run([.. args, "--evidence-envelope", path]);
+
+            Assert.Equal(ordinary.ExitCode, enriched.ExitCode);
+            Assert.Equal(ordinary.Output, enriched.Output);
+            using var document = JsonDocument.Parse(
+                await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            JsonElement root = document.RootElement;
+            Assert.Equal("ecosystem-find", root.GetProperty("result_kind").GetString());
+            Assert.Equal("RowLimitReached", root.GetProperty("content").GetProperty("completion").GetString());
+            Assert.NotEmpty(root.GetProperty("content").GetProperty("unsearched").EnumerateArray());
+            Assert.True(root.TryGetProperty("share", out _));
+            Assert.True(root.TryGetProperty("diagnostics", out _));
+            JsonElement search = root.GetProperty("evidence").GetProperty("search");
+            Assert.Equal(0, search.GetProperty("prefix_candidates_evaluated").GetInt32());
+            Assert.Contains(search.GetProperty("evaluated_indexes").EnumerateArray(),
+                index => index.GetString() == "ecosystem.aspire");
+            Assert.Equal("Indexed", Assert.Single(search.GetProperty("work").EnumerateArray())
+                .GetProperty("phase").GetString());
+            Assert.Empty(search.GetProperty("pages").EnumerateArray());
+            Assert.Contains("does not issue House transfer receipts",
+                root.GetProperty("evidence").GetProperty("acquisition_receipts_unavailable_reason").GetString());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task EvidenceRejectsExplicitPrefixBeforeBindingIt()
+    {
+        var result = await Run(
+            "--offline", "find", "Thing", "--package-prefix", "Contoso.",
+            "--evidence-envelope", "unused.json");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("explicit --package-prefix expansion", result.Error);
+        Assert.DoesNotContain("offline mode", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("-")]
+    [InlineData("")]
+    public async Task EvidenceRejectsInvalidDestinationBeforeSearch(string path)
+    {
+        var result = await Run(
+            "find", "Thing", "--ecosystem", "aspire", "--evidence-envelope", path);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("--evidence-envelope requires", result.Error);
+        Assert.DoesNotContain("Searching", result.Error);
+    }
+
+    [Fact]
+    public async Task EvidencePublicationFailureIsNonzeroWithoutSuppressingOrdinaryOutput()
+    {
+        string path = Path.Combine(Path.GetTempPath(), new string('x', 256) + ".json");
+        var result = await Run(
+            "--offline", "find", ".AddRedis", "--ecosystem", "aspire",
+            "-n", "1", "--evidence-envelope", path);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("Aspire.Hosting.Redis@13.6.3", result.Output);
+        Assert.Contains("Evidence envelope publication failed", result.Error);
+    }
+
+    [Fact]
+    public async Task EvidenceIsDiscoverableButNotAvailableForDiscovery()
+    {
+        var help = await Run("find", "--help");
+        Assert.Contains("--evidence-envelope", help.Output);
+        var discovery = await Run(
+            "find", "Thing", "--ecosystem", "aspire",
+            "-D", "--evidence-envelope", "unused.json");
+        Assert.Equal(1, discovery.ExitCode);
+        Assert.Empty(discovery.Output);
+        Assert.Contains("not discovery", discovery.Error);
+    }
+#else
+    [Fact]
+    public async Task ReleaseDoesNotAdvertiseOrAcceptEvidence()
+    {
+        var help = await Run("find", "--help");
+        Assert.DoesNotContain("--evidence-envelope", help.Output);
+        var invocation = await Run(
+            "find", "Thing", "--ecosystem", "aspire",
+            "--evidence-envelope", "unused.json");
+        Assert.NotEqual(0, invocation.ExitCode);
+        Assert.Contains("Unrecognized", invocation.Error);
+    }
+#endif
 
     [Fact]
     public async Task IndexedTypeFilterAppliesBeforeRowLimit()
