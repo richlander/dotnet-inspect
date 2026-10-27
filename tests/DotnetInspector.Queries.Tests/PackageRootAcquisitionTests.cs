@@ -603,6 +603,49 @@ public sealed class PackageRootAcquisitionTests
     }
 
     [Fact]
+    public async Task
+        ExactRuntimeOnlyRequest_ReacquiresNullPopulationTargetThroughToken()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store =
+            await CachedStoreAsync(RuntimeOnlyPackage());
+        PackageRootHouseExecution options = Options(http, store);
+        PackageRootReacquisitionRequest request = Request(
+            "net10.0",
+            "linux-x64",
+            "net10.0",
+            "linux-x64",
+            compileTargetFramework: "net10.0",
+            ownerDefaultTarget: true,
+            retainsUnboundedRuntimePopulation: true);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var acquired =
+            Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+                await PackageRootAcquisition.AcquireAsync(
+                    decoded,
+                    options,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(decoded, acquired.Request);
+        Assert.Null(acquired.Request.RequestedTargetFramework);
+        Assert.Equal(
+            "net10.0",
+            acquired.Request.CompileTargetFramework);
+        Assert.Equal(
+            "net10.0",
+            acquired.Request.SelectionTargetFramework);
+        Assert.Null(
+            acquired.Request.RuntimePopulationTargetFramework);
+        Assert.Equal(
+            decoded.Encode(),
+            acquired.Request.Encode());
+    }
+
+    [Fact]
     public async Task PortableConfiguredProducer_ReacquiresWithoutChangingContentKey()
     {
         using IPackageSourceClient source =
@@ -1744,6 +1787,34 @@ public sealed class PackageRootAcquisitionTests
                 .CreateEntry($"lib/{framework}/{AssemblyName}.dll")
                 .Open();
             stream.Write(image, 0, image.Length);
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] RuntimeOnlyPackage()
+    {
+        byte[] image = IntegrationAssembly();
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream linux = archive
+                .CreateEntry(
+                    $"runtimes/linux-x64/lib/net10.0/{AssemblyName}.dll")
+                .Open())
+            {
+                linux.Write(image);
+            }
+            using (Stream windows = archive
+                .CreateEntry(
+                    $"runtimes/win-x64/lib/net11.0/{AssemblyName}.dll")
+                .Open())
+            {
+                windows.Write(image);
+            }
         }
 
         return buffer.ToArray();

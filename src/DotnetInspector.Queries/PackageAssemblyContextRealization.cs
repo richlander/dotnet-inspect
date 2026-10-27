@@ -316,7 +316,9 @@ public sealed class PackageRootBinding
         string? acquisitionFramework,
         string? requestedTargetFramework,
         string? coordinateProducer = null,
-        string? displayPackageId = null)
+        string? displayPackageId = null,
+        PackageRootReacquisitionRequest?
+            retainedRuntimePopulationRequest = null)
     {
         ValidateSourceSelectionReceipt(payload, receipt);
         if (receipt.RequestedRuntimeIdentifier is not null
@@ -348,7 +350,12 @@ public sealed class PackageRootBinding
                 ReceiptUsesCompatibleImplementationSelection(receipt),
             allowsCompatibleTargetSelection:
                 receipt.Policy
-                    == PackageCompileAssetSelectionPolicy.ExplicitTarget);
+                    == PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            runtimePopulationTargetFramework:
+                retainedRuntimePopulationRequest?
+                    .RuntimePopulationTargetFramework,
+            retainsRuntimePopulationTargetFramework:
+                retainedRuntimePopulationRequest is not null);
     }
 
     /// <summary>

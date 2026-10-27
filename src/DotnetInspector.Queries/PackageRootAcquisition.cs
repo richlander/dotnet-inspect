@@ -1183,7 +1183,8 @@ public static class PackageRootAcquisition
                 realization.Receipt,
                 acquisitionFramework,
                 requestedTargetFramework,
-                expected?.Coordinate.Producer);
+                expected?.Coordinate.Producer,
+                retainedRuntimePopulationRequest: expected);
         PackageRootReacquisitionRequest issued =
             binding.CreateReacquisitionRequest();
         if (expected is not null && !expected.Equals(issued))

@@ -1020,6 +1020,22 @@ public sealed partial class BrowserEngineBoundaryTests
         var handler = new GalleryPackageHandler(id, "1.0.0", archive);
         using IPackageSourceClient source = Gallery(handler);
 
+        BrowserPackageRealization explicitRealization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net10.0",
+                    source,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Equal(
+            "net10.0",
+            explicitRealization.Coordinate.Binding!
+                .CreateReacquisitionRequest()
+                .RuntimePopulationTargetFramework);
+
         BrowserPackageRealization realization = Assert.IsType<
             BrowserPackageRealizationResult.Realized>(
                 await BrowserPackageWorkspace.RealizeWithSettlementAsync(
