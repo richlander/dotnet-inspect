@@ -1278,7 +1278,7 @@ test("production Integrations keeps deferred Library results out of the incoming
 async function openReferences(page: Page) {
   await page.goto(root);
   await selectLibrary(page, core.id);
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(inspectorTab(page, "data-library-lens", "references"))
     .toHaveAttribute("aria-selected", "true");
 }

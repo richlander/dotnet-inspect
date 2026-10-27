@@ -11815,8 +11815,6 @@ function renderLibraryReferences() {
   const data = fresh && dependenciesState.status === "ready"
     ? dependenciesState.result
     : null;
-  const library = selectedLibrary();
-  const pkg = currentPackage();
   const references =
     data?.assemblyReferences
       && typeof data.assemblyReferences !== "string"
@@ -11833,9 +11831,6 @@ function renderLibraryReferences() {
   const packagesByKey = new Map(state.packages.map(candidatePackage =>
     [packageIdentityKey(candidatePackage), candidatePackage]));
   return renderLibraryReferencesSurface({
-    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
-    assetPath: library?.asset ?? "",
-    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
     loading: dependenciesState.status === "loading" && fresh,
     error: dependenciesState.status === "failed" && fresh
       ? dependenciesState.error
