@@ -1480,7 +1480,7 @@ public partial class PackageCommand
             observedInspection = result;
 
             if (!effectiveDiscovery
-                && RequestsSelectedOrDiscoveredSection(
+                && RequestsSelectedDiscoveredOrAutomaticSection(
                     producerOptions,
                     PackageSections.Dependencies,
                     pipeline)

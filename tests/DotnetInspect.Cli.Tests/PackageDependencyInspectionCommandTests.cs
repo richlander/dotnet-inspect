@@ -83,6 +83,37 @@ public sealed class PackageDependencyInspectionCommandTests
     }
 
     [Fact]
+    public async Task DetailedRejectedDependencySectionFailsVisibly()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-dependency-command-").FullName;
+        try
+        {
+            string archive = Path.Combine(directory, "rejected.nupkg");
+            WritePackage(
+                archive,
+                """
+                <dependency id="evil/../other" version="[1.0.0]" />
+                """);
+
+            var result = await RunPackagesAsync(
+                [archive],
+                "-v:d");
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                "Error: The package dependency manifest was rejected.",
+                result.Error.Trim());
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RejectedIdentifierObservationRetainsPackageMetadata()
     {
         string directory = Directory.CreateTempSubdirectory(
@@ -245,6 +276,41 @@ public sealed class PackageDependencyInspectionCommandTests
         }
     }
 
+    [Fact]
+    public async Task DetailedMissingManifestFailsVisibleDependencies()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-dependency-command-").FullName;
+        try
+        {
+            string archive = Path.Combine(directory, "no-manifest.nupkg");
+            using (ZipArchive package = ZipFile.Open(
+                archive,
+                ZipArchiveMode.Create))
+            {
+                using StreamWriter content = new(
+                    package.CreateEntry("content/readme.txt").Open(),
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                content.Write("package content without a manifest");
+            }
+
+            var result = await RunPackagesAsync(
+                [archive],
+                "-v:d");
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                "Error: The package manifest is unavailable; dependencies were not projected.",
+                result.Error.Trim());
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("--json")]
     [InlineData("--count")]
@@ -273,6 +339,44 @@ public sealed class PackageDependencyInspectionCommandTests
                 "-S",
                 "Dependencies",
                 format);
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                "Error: The package dependency manifest was rejected.",
+                result.Error.Trim());
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MultiPackageDetailedJsonRejectedDependenciesFailBeforeOutput()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-dependency-command-").FullName;
+        try
+        {
+            string valid = Path.Combine(directory, "valid.nupkg");
+            string invalid = Path.Combine(directory, "invalid.nupkg");
+            WritePackage(
+                valid,
+                """
+                <dependency id="Example.Dependency" version="[1.0.0]" />
+                """);
+            WritePackage(
+                invalid,
+                """
+                <dependency id="evil/../other" version="[1.0.0]" />
+                """);
+
+            var result = await RunPackagesAsync(
+                [valid, invalid],
+                "-v:d",
+                "--json");
 
             Assert.Equal(1, result.ExitCode);
             Assert.Empty(result.Output);

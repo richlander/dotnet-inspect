@@ -100,7 +100,7 @@ public partial class PackageCommand
                 sourceQueryPlan);
             if (result == null)
                 return 1;
-            if (RequestsSelectedOrDiscoveredSection(
+            if (RequestsSelectedDiscoveredOrAutomaticSection(
                     producerOptions,
                     PackageSections.Dependencies,
                     pipeline)
