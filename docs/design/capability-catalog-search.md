@@ -22,6 +22,14 @@ implemented for the CLI, which admits its six explained structural catalogs.
 [#10568](https://github.com/richlander/dotnet-inspect/issues/10568) is
 implemented in the host-neutral operation, so both hosts receive it.
 
+[#10700](https://github.com/richlander/dotnet-inspect/issues/10700) plans to
+replace the per-family [search population](#search-population) with one
+admission rule: search admits every resource that is registered in the
+composed graph and that the current host binds, as
+[Inspection Capability Composition](inspection-capability-composition.md#registration-execution-and-binding)
+defines. The families below describe the current implementation until that
+adoption lands.
+
 ## Owner and exact claim
 
 **Capability Catalog Search** owns this exact claim:
@@ -880,6 +888,11 @@ implementation; this adoption adds no new matching algorithm.
 7. Score phrases word by word with heading weights
    ([#10568](https://github.com/richlander/dotnet-inspect/issues/10568)).
    **Complete.**
+
+8. Admit by registration plus binding over one composed graph
+   ([#10700](https://github.com/richlander/dotnet-inspect/issues/10700)).
+   Analyses join first. The structural population family retires when
+   structural catalogs register in the graph. **Planned.**
 
 Each slice lands with its own production consumer. A search implementation
 over a synthetic test-only registry does not complete this design.
