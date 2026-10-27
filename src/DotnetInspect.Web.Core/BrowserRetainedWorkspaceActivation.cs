@@ -13,9 +13,40 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
-    CompleteRestorationRequestBasis RestorationRequest,
+    BrowserRetainedWorkspaceInput Input,
     IReadOnlyDictionary<string, PackageSourceCredential> PackageSourceCredentials)
 {
+    internal BrowserRetainedWorkspaceActivationRequest(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        CompleteRestorationRequestBasis restorationRequest,
+        IReadOnlyDictionary<string, PackageSourceCredential> packageSourceCredentials)
+        : this(
+            retainedDefinitionId,
+            label,
+            canonicalLocation,
+            new BrowserRetainedWorkspaceInput.Restoration(restorationRequest),
+            packageSourceCredentials)
+    {
+    }
+
+    internal BrowserRetainedWorkspaceActivationRequest(
+        string retainedDefinitionId,
+        string label,
+        string canonicalLocation,
+        BrowserRetainedWorkspaceInput input)
+        : this(
+            retainedDefinitionId,
+            label,
+            canonicalLocation,
+            input,
+            new ReadOnlyDictionary<string, PackageSourceCredential>(
+                new Dictionary<string, PackageSourceCredential>(
+                    StringComparer.Ordinal)))
+    {
+    }
+
     internal BrowserRetainedWorkspaceActivationRequest(
         string retainedDefinitionId,
         string label,
@@ -74,9 +105,11 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
     internal string CanonicalLocation { get; } =
         RequireText(CanonicalLocation, nameof(CanonicalLocation));
 
-    internal CompleteRestorationRequestBasis RestorationRequest { get; } =
-        RestorationRequest
-        ?? throw new ArgumentNullException(nameof(RestorationRequest));
+    internal BrowserRetainedWorkspaceInput Input { get; } =
+        Input ?? throw new ArgumentNullException(nameof(Input));
+
+    internal CompleteRestorationRequestBasis? RestorationRequest =>
+        (Input as BrowserRetainedWorkspaceInput.Restoration)?.Request;
 
     internal IReadOnlyDictionary<string, PackageSourceCredential>
         PackageSourceCredentials
@@ -88,7 +121,7 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
         + $"{nameof(RetainedDefinitionId)} = {RetainedDefinitionId}, "
         + $"{nameof(Label)} = {Label}, "
         + $"{nameof(CanonicalLocation)} = {CanonicalLocation}, "
-        + $"{nameof(RestorationRequest)} = {RestorationRequest}, "
+        + $"{nameof(Input)} = {Input.GetType().Name}, "
         + $"{nameof(PackageSourceCredentials)} = <redacted> }}";
 
     static string RequireText(string value, string paramName)
@@ -157,11 +190,9 @@ internal sealed class BrowserRetainedNavigationPreparation
     }
 
     internal static BrowserRetainedNavigationPreparation Create(
-        CompleteRestorationExecutionOptions options,
-        CompleteRestorationReadyProjection ready)
+        CompleteRestorationExecutionOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(ready);
         return new(
             options.FacetAvailability,
             options.PackageSurfaceLimits);
@@ -431,12 +462,10 @@ internal sealed record BrowserRetainedWorkspacePosting(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
-    CompleteRestorationRequestBasis RestorationRequest,
-    CompleteRestorationProjection Projection,
+    BrowserRetainedWorkspaceOrigin Origin,
     InspectionWorkspaceIdentity Realization,
     string RealizationId,
     long PublicationOrdinal,
-    CommittedScenarioDefinitionSet? Definition,
     NavigationConsumerResult Navigation,
     ImmutableArray<BrowserRetainedWorkspacePackagePresentation> Packages,
     ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms,
@@ -445,8 +474,20 @@ internal sealed record BrowserRetainedWorkspacePosting(
     BrowserNavigationStateSlot NavigationState,
     BrowserRetainedNavigationPreparation NavigationPreparation)
 {
+    internal CompleteRestorationRequestBasis? RestorationRequest =>
+        (Origin as BrowserRetainedWorkspaceOrigin.Restored)?.Request;
+
+    internal CommittedScenarioDefinitionSet? Definition =>
+        (Origin as BrowserRetainedWorkspaceOrigin.Restored)?.Definition;
+
+    internal CompleteRestorationProjection? Projection =>
+        (Origin as BrowserRetainedWorkspaceOrigin.Restored)?.Projection;
+
     internal string? CanonicalPacket =>
-        Projection is CompleteRestorationProjection.Projectable projectable
+        Origin is BrowserRetainedWorkspaceOrigin.Restored
+        {
+            Projection: CompleteRestorationProjection.Projectable projectable,
+        }
             ? projectable.CanonicalPacket
             : null;
 }
@@ -555,14 +596,21 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
     string RetainedDefinitionId,
     string Label,
     string CanonicalLocation,
-    CompleteRestorationRequestBasis RestorationRequest,
-    CompleteRestorationProjection Projection,
-    CommittedScenarioDefinitionSet? Definition,
+    BrowserRetainedWorkspaceOrigin Origin,
     NavigationOperationInitialization Navigation,
     ImmutableArray<BrowserRetainedWorkspacePackagePresentation> Packages,
     ImmutableArray<BrowserRetainedWorkspacePlatformPresentation> Platforms,
     BrowserRetainedNavigationPreparation NavigationPreparation)
 {
+    internal CompleteRestorationRequestBasis? RestorationRequest =>
+        (Origin as BrowserRetainedWorkspaceOrigin.Restored)?.Request;
+
+    internal CompleteRestorationProjection? Projection =>
+        (Origin as BrowserRetainedWorkspaceOrigin.Restored)?.Projection;
+
+    internal CommittedScenarioDefinitionSet? Definition =>
+        (Origin as BrowserRetainedWorkspaceOrigin.Restored)?.Definition;
+
     internal static BrowserRetainedWorkspacePostingDraft Create(
         BrowserRetainedWorkspaceActivationRequest request,
         CompleteWorkspaceActivation workspace,
@@ -572,8 +620,13 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(ready);
+        CompleteRestorationRequestBasis restorationRequest =
+            request.Input is BrowserRetainedWorkspaceInput.Restoration restoration
+                ? restoration.Request
+                : throw new InvalidOperationException(
+                    "Complete restoration requires a restoration input.");
         bool exactRequest = (
-                request.RestorationRequest,
+                restorationRequest,
                 workspace.Request)
             switch
         {
@@ -603,7 +656,7 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
             throw new InvalidOperationException(
                 "The completed Workspace did not retain the activation request.");
         }
-        ValidatePackageTypePreparation(request.RestorationRequest, workspace);
+        ValidatePackageTypePreparation(restorationRequest, workspace);
         if (workspace.Snapshot.Navigation.Result.Consumer.Authority is null)
         {
             throw new InvalidOperationException(
@@ -643,9 +696,10 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
             request.RetainedDefinitionId,
             request.Label,
             request.CanonicalLocation,
-            request.RestorationRequest,
-            workspace.Projection,
-            definition,
+            new BrowserRetainedWorkspaceOrigin.Restored(
+                restorationRequest,
+                workspace.Projection,
+                definition),
             workspace.Snapshot.Navigation,
             [
                 .. inventory.Packages.Select(
@@ -671,7 +725,7 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                             platform.RuntimeIdentifier,
                             BrowserPlatformSurfaceProjection.Project(platform))),
             ],
-            BrowserRetainedNavigationPreparation.Create(options, ready));
+            BrowserRetainedNavigationPreparation.Create(options));
     }
 
     static void ValidatePackageTypePreparation(
@@ -707,12 +761,10 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
             RetainedDefinitionId,
             Label,
             CanonicalLocation,
-            RestorationRequest,
-            Projection,
+            Origin,
             realization,
             realizationId,
             publicationOrdinal,
-            Definition,
             navigationState.Initialization,
             Packages,
             Platforms,
@@ -737,14 +789,13 @@ internal sealed class BrowserPreparedWorkspaceActivation
         BrowserWorkspaceRealizationCandidate candidate,
         CompleteWorkspaceActivation workspace,
         BrowserRetainedWorkspacePostingDraft posting)
+        : this(
+            host,
+            candidate,
+            workspace?.Intent ?? throw new ArgumentNullException(nameof(workspace)),
+            posting)
     {
-        _host = host ?? throw new ArgumentNullException(nameof(host));
-        _candidate = candidate
-            ?? throw new ArgumentNullException(nameof(candidate));
-        Workspace = workspace
-            ?? throw new ArgumentNullException(nameof(workspace));
-        Posting = posting
-            ?? throw new ArgumentNullException(nameof(posting));
+        ArgumentNullException.ThrowIfNull(workspace);
         if (!ReferenceEquals(
                 candidate.Realization,
                 workspace.Workspace))
@@ -764,9 +815,46 @@ internal sealed class BrowserPreparedWorkspaceActivation
         }
     }
 
-    internal CompleteWorkspaceActivation Workspace { get; }
+    internal BrowserPreparedWorkspaceActivation(
+        BrowserWorkspaceRealizationHost host,
+        BrowserWorkspaceRealizationCandidate candidate,
+        CompleteRestorationIntentIdentity intent,
+        BrowserRetainedWorkspacePostingDraft posting)
+    {
+        _host = host ?? throw new ArgumentNullException(nameof(host));
+        _candidate = candidate
+            ?? throw new ArgumentNullException(nameof(candidate));
+        Intent = intent ?? throw new ArgumentNullException(nameof(intent));
+        Posting = posting
+            ?? throw new ArgumentNullException(nameof(posting));
+    }
+
+    internal CompleteRestorationIntentIdentity Intent { get; }
 
     internal BrowserRetainedWorkspacePostingDraft Posting { get; }
+
+    internal static async ValueTask<CompleteRestorationFailure?> SettleCandidateAsync(
+        BrowserWorkspaceRealizationHost host,
+        BrowserWorkspaceRealizationCandidate candidate)
+    {
+        BrowserWorkspaceRealizationCandidateRetirementResult retirement =
+            host.AbandonCandidate(candidate);
+        if (retirement
+            is BrowserWorkspaceRealizationCandidateRetirementResult.Rejected rejected
+            && rejected.Reason != WorkspaceRealizationCandidateRejection.StaleCandidate)
+        {
+            return new CompleteRestorationFailure.CleanupFailed(
+                $"The unpublished Browser Workspace could not retire: {rejected.Reason}.");
+        }
+
+        WorkspaceRealizationSettlement settlement =
+            await candidate.Settlement.ConfigureAwait(false);
+        return settlement.Succeeded
+            ? null
+            : new CompleteRestorationFailure.CleanupFailed(
+                "The unpublished Browser Workspace could not be settled after "
+                    + $"{settlement.Reason}.");
+    }
 
     internal bool IsPending
     {
@@ -1159,14 +1247,13 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
         bool awaitingConsumerCompletion = false;
         try
         {
-            CompleteRestorationResult<BrowserPreparedWorkspaceActivation>
-                result = await RestoreAsync(intent, cancellationToken)
+            BrowserWorkspaceConstructionResult
+                result = await PrepareActivationAsync(intent, cancellationToken)
                     .ConfigureAwait(false);
             if (result
-                is CompleteRestorationResult<
-                    BrowserPreparedWorkspaceActivation>.Activated activated)
+                is BrowserWorkspaceConstructionResult.Prepared prepared)
             {
-                preparedActivation = activated.Activation;
+                preparedActivation = prepared.Activation;
                 if (!intent.PublishPrepared(preparedActivation.Posting)
                     || !await intent.WaitForCommitAsync().ConfigureAwait(false))
                 {
@@ -1198,7 +1285,7 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 BrowserRetainedWorkspaceActivationResult activation =
                     await CommitPreparedAsync(
                         intent,
-                        activated,
+                        preparedActivation,
                         requiredIncumbent: null)
                     .ConfigureAwait(false);
                 if (activation
@@ -1211,15 +1298,13 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
             }
             BrowserRetainedWorkspaceActivationResult completed = result switch
             {
-                CompleteRestorationResult<
-                        BrowserPreparedWorkspaceActivation>.Superseded =>
+                BrowserWorkspaceConstructionResult.Superseded =>
                     new BrowserRetainedWorkspaceActivationResult.Superseded(),
-                CompleteRestorationResult<
-                        BrowserPreparedWorkspaceActivation>.Failed failed =>
+                BrowserWorkspaceConstructionResult.Failed failed =>
                     new BrowserRetainedWorkspaceActivationResult.Failed(
                         failed.Failure),
                 _ => throw new InvalidOperationException(
-                    "Complete restoration returned an unsupported Browser outcome."),
+                    "Workspace construction returned an unsupported Browser outcome."),
             };
             intent.CompletePreparation(completed);
             return completed;
@@ -2224,7 +2309,6 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
 
         BrowserRetainedWorkspaceCommitResult commit = TryCommit(
             authority.Intent,
-            request.Activation.Workspace,
             request.Activation,
             authority.SourcePosting);
         return commit switch
@@ -2262,21 +2346,18 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
 
     internal BrowserRetainedWorkspaceCommitResult TryCommit(
         BrowserRetainedWorkspaceActivationIntent intent,
-        CompleteWorkspaceActivation workspace,
         BrowserPreparedWorkspaceActivation prepared,
         BrowserRetainedWorkspacePosting? requiredIncumbent)
     {
         ArgumentNullException.ThrowIfNull(intent);
-        ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(prepared);
         BrowserRetainedWorkspacePostingDraft draft =
             prepared.Posting;
-        if (!ReferenceEquals(prepared.Workspace, workspace))
+        if (!ReferenceEquals(prepared.Intent, intent.Identity))
         {
             throw new ArgumentException(
-                "The prepared Browser posting belongs to a different "
-                    + "complete Workspace.",
-                nameof(workspace));
+                "The prepared Browser posting belongs to a different activation intent.",
+                nameof(prepared));
         }
 
         lock (_gate)
@@ -2346,8 +2427,13 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
             BrowserRetainedWorkspaceActivationIntent intent,
             CancellationToken cancellationToken)
     {
+        CompleteRestorationRequestBasis restorationRequest =
+            intent.Request.Input is BrowserRetainedWorkspaceInput.Restoration restoration
+                ? restoration.Request
+                : throw new InvalidOperationException(
+                    "Complete restoration requires a restoration input.");
         CompleteRestorationPreparationResult preparation =
-            intent.Request.RestorationRequest switch
+            restorationRequest switch
             {
                 CompleteRestorationRequestBasis.PacketInput packet =>
                     CompleteRestorationPreparation.FromPacket(
@@ -2405,25 +2491,12 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
 
     async Task<BrowserRetainedWorkspaceActivationResult> CommitPreparedAsync(
         BrowserRetainedWorkspaceActivationIntent intent,
-        CompleteRestorationResult<
-            BrowserPreparedWorkspaceActivation>.Activated activated,
+        BrowserPreparedWorkspaceActivation prepared,
         BrowserRetainedWorkspacePosting? requiredIncumbent)
     {
-        if (!ReferenceEquals(
-                activated.Workspace.Intent,
-                intent.Identity)
-            || !ReferenceEquals(
-                activated.Activation.Workspace,
-                activated.Workspace))
-        {
-            throw new InvalidOperationException(
-                "Browser activation returned a different restoration intent or Workspace.");
-        }
-
         BrowserRetainedWorkspaceCommitResult commit = TryCommit(
             intent,
-            activated.Workspace,
-            activated.Activation,
+            prepared,
             requiredIncumbent);
         if (commit
             is BrowserRetainedWorkspaceCommitResult.Committed committed)
@@ -2433,7 +2506,7 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
         }
 
         BrowserRetainedWorkspaceNonPostingResult cleanup =
-            await activated.Activation.SettleAsync().ConfigureAwait(false);
+            await prepared.SettleAsync().ConfigureAwait(false);
         if (cleanup.Failure is not null)
         {
             return new BrowserRetainedWorkspaceActivationResult.Failed(
@@ -2809,7 +2882,8 @@ internal sealed class BrowserCompleteRestorationHost(
         catch (Exception failure)
         {
             CompleteRestorationFailure? cleanup =
-                await SettleCandidateAsync(prepared.Candidate)
+                await BrowserPreparedWorkspaceActivation.SettleCandidateAsync(
+                    host, prepared.Candidate)
                     .ConfigureAwait(false);
             if (cleanup is not null)
             {
@@ -2825,7 +2899,8 @@ internal sealed class BrowserCompleteRestorationHost(
                 preparedWorkspace)
         {
             CompleteRestorationFailure? cleanup =
-                await SettleCandidateAsync(prepared.Candidate)
+                await BrowserPreparedWorkspaceActivation.SettleCandidateAsync(
+                    host, prepared.Candidate)
                     .ConfigureAwait(false);
             if (cleanup is not null)
             {
@@ -2855,7 +2930,8 @@ internal sealed class BrowserCompleteRestorationHost(
             is not WorkspaceRealizationCandidateCompletionResult.Ready ready)
         {
             CompleteRestorationFailure? cleanup =
-                await SettleCandidateAsync(prepared.Candidate)
+                await BrowserPreparedWorkspaceActivation.SettleCandidateAsync(
+                    host, prepared.Candidate)
                     .ConfigureAwait(false);
             if (cleanup is not null)
             {
@@ -2878,7 +2954,8 @@ internal sealed class BrowserCompleteRestorationHost(
                 preparedWorkspace.Activation.Snapshot.Definition))
         {
             CompleteRestorationFailure? cleanup =
-                await SettleCandidateAsync(prepared.Candidate)
+                await BrowserPreparedWorkspaceActivation.SettleCandidateAsync(
+                    host, prepared.Candidate)
                     .ConfigureAwait(false);
             return cleanup is null
                 ? Failed(
@@ -2895,7 +2972,8 @@ internal sealed class BrowserCompleteRestorationHost(
         catch (Exception failure)
         {
             CompleteRestorationFailure? cleanup =
-                await SettleCandidateAsync(prepared.Candidate)
+                await BrowserPreparedWorkspaceActivation.SettleCandidateAsync(
+                    host, prepared.Candidate)
                     .ConfigureAwait(false);
             if (cleanup is not null)
             {
@@ -2914,31 +2992,6 @@ internal sealed class BrowserCompleteRestorationHost(
                     preparedWorkspace.Activation,
                     posting),
                 preparedWorkspace.Activation);
-    }
-
-    async ValueTask<CompleteRestorationFailure?> SettleCandidateAsync(
-        BrowserWorkspaceRealizationCandidate candidate)
-    {
-        BrowserWorkspaceRealizationCandidateRetirementResult retirement =
-            host.AbandonCandidate(candidate);
-        if (retirement
-            is BrowserWorkspaceRealizationCandidateRetirementResult.Rejected
-                rejected
-            && rejected.Reason
-                != WorkspaceRealizationCandidateRejection.StaleCandidate)
-        {
-            return new CompleteRestorationFailure.CleanupFailed(
-                $"The unpublished Browser Workspace could not retire: "
-                    + $"{rejected.Reason}.");
-        }
-
-        WorkspaceRealizationSettlement settlement =
-            await candidate.Settlement.ConfigureAwait(false);
-        return settlement.Succeeded
-            ? null
-            : new CompleteRestorationFailure.CleanupFailed(
-                "The unpublished Browser Workspace could not be settled after "
-                    + $"{settlement.Reason}.");
     }
 
     static CompleteRestorationHostResult<
