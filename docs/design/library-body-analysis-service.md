@@ -78,11 +78,19 @@ delegated its leverage and local graph members to the same results; it no
 longer owned a second implementation.
 
 The call-graph adoption moves pairwise direct-use acquisition and bounded local
-root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries and
-`AssemblyPairClusterRootPathQuery` execute the same focused snapshot-bound
-Analysis operation and consume its detached result directly; root-path
-analysis no longer opens `LibraryBodyAnalysisService`. Existing pair
-completion, path limits, diagnostics, and output remain unchanged.
+root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries retain
+the complete focused call-graph operation.
+`AssemblyPairClusterRootPathQuery` instead executes a root-path producer whose
+Method Query Source declaration requests semantic identity, caller safety
+contracts, managed bodies, and resolved call operands. It does not request
+typed call targets, local signatures, allocation multiplicity, loop
+classification, body signals, exception classification, or general
+method-analysis resolution. The detached result preserves the declared-method
+inventory, generated-body attribution, local caller/callee identity, and each
+physical evidence method, IL offset, operand token, call kind, opcode, and
+return address required by bounded path analysis. Existing pair completion,
+path limits, diagnostics, and rendered output remain unchanged, and root-path
+analysis no longer opens `LibraryBodyAnalysisService`.
 
 The group-wide call-census adoption uses the same focused execution boundary.
 `AssemblyContextCallCensusQuery` acquires every available participant from one
@@ -1429,10 +1437,13 @@ changes evidence ownership, not output shape or host rendering.
 The root-path call-graph slice moves
 `AssemblyPairClusterRootPathQuery` participant acquisition and
 `LibraryBodyRootPathAnalysis` onto `LibraryCallGraphAnalysisResult`. The query
-reuses the same snapshot-bound focused operation as pairwise call-use
-acquisition and passes its detached result to the bounded path operation. The
-wider member Research projection retains its current unrelated evidence but
-passes its associated call-graph result to root-path analysis.
+uses a separate snapshot-bound producer for the narrower root-path evidence
+contract and passes its detached result to the bounded path operation. Method
+Query Source resolves IL-ordered call operands and definition tokens without
+also acquiring typed targets, local signatures, allocation facts, body
+signals, or exception classification. The wider member Research projection
+retains its current unrelated evidence but passes its associated call-graph
+result to root-path analysis.
 
 The following slice shares that participant-analysis path with
 `AssemblyContextCallCensusQuery`. Analysis publishes one generation-bound
@@ -1590,14 +1601,14 @@ CallTreeNode callees = graph.BuildCallTree(methodToken);
 Inspect Web continues to receive owner-typed query exports. The browser host
 remains compiler-banned from calling the Analysis service directly; Workspace
 queries own service execution and project its evidence.
-The cluster root-path query follows the same request/service shape for
-`MethodEvidence` and passes the resulting `LibraryCallGraphAnalysisResult`
-directly to bounded path analysis; its existing section and CLI continue to own
-composition and presentation. `MethodBodyInspectionSession` similarly
-translates command capability and scope policy into one request, delegates path
-or prefetched-image execution to the service, retains the returned execution
-for the command, and creates its detached compatibility index only when an
-unmigrated consumer requests it.
+The cluster root-path query follows the same request/service shape with its
+root-path-specific QuerySpace work description and passes the resulting
+`LibraryCallGraphAnalysisResult` directly to bounded path analysis; its
+existing section and CLI continue to own composition and presentation.
+`MethodBodyInspectionSession` similarly translates command capability and
+scope policy into one request, delegates path or prefetched-image execution to
+the service, and retains the returned focused execution for the command. The
+compatibility index no longer exists.
 
 ## Evidence
 

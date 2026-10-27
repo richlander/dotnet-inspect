@@ -165,7 +165,7 @@ public static class AssemblyPairClusterRootPathQuery
                     reader,
                     limits.PublicRoots);
             Analysis.LibraryCallGraphAnalysisResult callGraph =
-                AssemblyContextCallGraphAnalysis.Analyze(
+                AssemblyContextCallGraphAnalysis.AnalyzeRootPaths(
                     snapshot,
                     cluster.Identity.Source);
             if (roots.ModuleVersionId

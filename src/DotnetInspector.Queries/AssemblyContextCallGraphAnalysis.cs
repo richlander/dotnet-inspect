@@ -33,6 +33,11 @@ internal static class AssemblyContextCallGraphAnalysis
     static readonly LibraryCallGraphProducer Producer =
         LibraryCallGraphProducer.Instance;
 
+    static readonly LibraryCallGraphProducer
+        .LibraryRootPathCallGraphProducer RootPathProducer =
+            LibraryCallGraphProducer
+                .LibraryRootPathCallGraphProducer.Instance;
+
     static readonly WorkDescription Work =
         ProducerPlanner.Plan(
         [
@@ -43,6 +48,17 @@ internal static class AssemblyContextCallGraphAnalysis
             ? accepted.Description
             : throw new ProducerContractException(
                 "The library Call Graph request must plan.");
+
+    static readonly WorkDescription RootPathWork =
+        ProducerPlanner.Plan(
+        [
+            new ProducerRequest(
+                RootPathProducer,
+                ProducerTerminal.Rows),
+        ]) is ProducerPlanResult.Accepted accepted
+            ? accepted.Description
+            : throw new ProducerContractException(
+                "The library root-path Call Graph request must plan.");
 
     internal static AssemblyContextCallGraphAnalysisResult Execute(
         AssemblyContextGroup group,
@@ -105,14 +121,85 @@ internal static class AssemblyContextCallGraphAnalysis
 
     internal static Analysis.LibraryCallGraphAnalysisResult Analyze(
         AssemblyImageSnapshot snapshot,
+        AssemblyContextSubject subject) =>
+        Analyze(snapshot, subject, Producer, Work);
+
+    internal static Analysis.LibraryCallGraphAnalysisResult AnalyzeRootPaths(
+        AssemblyImageSnapshot snapshot,
         AssemblyContextSubject subject)
+    {
+        MethodDefinitionSourceRequest<
+            LibraryRootPathCallGraphProducerResult> request =
+                MethodDefinitionSourceRequest<
+                    LibraryRootPathCallGraphProducerResult>.Create(
+                        RootPathWork,
+                        RootPathProducer,
+                        MethodDefinitionSourceBreadth
+                            .AllDefinitions
+                            .IncludeGeneratedExecutionBodies());
+        var operation =
+            AssemblyAnalysisOperation<
+                LibraryRootPathCallGraphProducerResult>.Create(
+                    AssemblyContextAnalysisSource.Name(subject),
+                    request.AsAssemblyAnalysisSource());
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(snapshot);
+        AssemblyAnalysisServiceResult<
+            LibraryRootPathCallGraphProducerResult> serviceResult =
+                session.SnapshotOperation(
+                    operation,
+                    access =>
+                        AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access));
+        if (serviceResult
+            is AssemblyAnalysisServiceResult<
+                LibraryRootPathCallGraphProducerResult>.Rejected rejected)
+        {
+            throw new BadImageFormatException(
+                "The library root-path Call Graph operation was rejected: "
+                + $"{rejected.Kind}.");
+        }
+
+        AssemblyAnalysisExecution<
+            LibraryRootPathCallGraphProducerResult> execution =
+                ((AssemblyAnalysisServiceResult<
+                    LibraryRootPathCallGraphProducerResult>.Completed)
+                        serviceResult)
+                .Execution;
+        ProducerResult<
+            LibraryRootPathCallGraphProducerResult> producerResult =
+                execution.ResultOf(RootPathProducer);
+        MethodDefinitionSourceReceipt sourceReceipt =
+            execution.MethodDefinitionReceipt();
+        if (!producerResult.HasValue)
+        {
+            throw new BadImageFormatException(
+                producerResult.Failure?.Message
+                    ?? producerResult.Critical?.Message
+                    ?? "The library root-path Call Graph producer failed.");
+        }
+
+        return Analysis.LibraryCallGraphAnalysisResult
+            .FromRootPathProducer(
+                operation.SourceName,
+                producerResult.Value!,
+                sourceReceipt,
+                execution.WorkReceipt);
+    }
+
+    static Analysis.LibraryCallGraphAnalysisResult Analyze(
+        AssemblyImageSnapshot snapshot,
+        AssemblyContextSubject subject,
+        LibraryCallGraphProducer producer,
+        WorkDescription work)
     {
         MethodDefinitionSourceRequest<
             LibraryCallGraphProducerResult> request =
                 MethodDefinitionSourceRequest<
                     LibraryCallGraphProducerResult>.Create(
-                        Work,
-                        Producer,
+                        work,
+                        producer,
                         MethodDefinitionSourceBreadth
                             .AllDefinitions
                             .IncludeGeneratedExecutionBodies());
@@ -147,7 +234,7 @@ internal static class AssemblyContextCallGraphAnalysis
                         serviceResult)
                 .Execution;
         ProducerResult<LibraryCallGraphProducerResult> producerResult =
-            execution.ResultOf(Producer);
+            execution.ResultOf(producer);
         MethodDefinitionSourceReceipt sourceReceipt =
             execution.MethodDefinitionReceipt();
         if (!producerResult.HasValue)
