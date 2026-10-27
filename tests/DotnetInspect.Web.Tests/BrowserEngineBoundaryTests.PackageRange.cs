@@ -679,6 +679,8 @@ public sealed partial class BrowserEngineBoundaryTests
         byte[] archive = PackageEntries(
             ($"{id}.nuspec", Encoding.UTF8.GetBytes(
                 $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"lib/net11.0/{id}.dll", assembly),
+            ($"lib/net9.0/{id}.dll", assembly),
             ($"runtimes/osx-arm64/lib/net9.0/{id}.dll", assembly),
             ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly));
         await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
@@ -710,6 +712,35 @@ public sealed partial class BrowserEngineBoundaryTests
             ["net11.0", "net9.0"],
             Assert.IsType<string[]>(
                 summary.PackageInfo!.Content.AvailableTargetFrameworks));
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net11.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        string rootRequest = realization.Coordinate.Binding!
+            .CreateReacquisitionRequest()
+            .Encode();
+
+        BrowserPackageRootLoadResult root =
+            Assert.IsType<BrowserPackageRootLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageRoot(rootRequest),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageRootLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Ambiguous,
+            root.RuntimePopulation!.Status);
+        Assert.Equal(
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers,
+            root.RuntimePopulation.AvailableRuntimeIdentifiers);
+        Assert.Equal(
+            summary.ImplementationComparisonRuntimeIdentifier,
+            root.ImplementationComparisonRuntimeIdentifier);
     }
 
     [Fact]
