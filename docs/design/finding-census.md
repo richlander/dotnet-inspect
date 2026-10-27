@@ -827,7 +827,8 @@ test class gates its cursor:
    and through two independent ones, Exists on the API axis equals the
    walk's API state and Exists on the Body declaration facts equals the
    walk's declaration census equality (a Body `Changed` whose first
-   difference `Explain` names is a declaration fact, not a method's IL); the
+   difference `Explain` names is a declaration fact, not a body present on
+   one side only or a method's IL); the
    identity-set comparison of two drained censuses has a non-Present pair
    exactly when Exists is Changed; a real image against itself is Unchanged
    on every Type with equal atom counts; and fault order over the

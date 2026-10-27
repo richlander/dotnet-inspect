@@ -300,23 +300,28 @@ public static class FindingDiffAny
             return false;
 
         // Equal censuses declare the same non-public members. A method with a
-        // body on one side only is a difference without reading its IL; the
-        // after side is searched for one only when some method went unpaired.
-        int paired = 0;
+        // body on one side only is a difference decided before any IL is read,
+        // so a body that cannot be decoded never hides it: the pairs are
+        // collected first, and the after side is searched for an unpaired body
+        // only when some method went unpaired.
+        List<(MethodDefinitionHandle A, MethodDefinitionHandle B)> pairs = work.Pairs;
+        pairs.Clear();
         foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
         {
-            if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
-            {
-                if (a.Md.GetMethodDefinition(methodA).RelativeVirtualAddress != 0)
-                    return false;
-                continue;
-            }
-            paired++;
+            if (methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
+                pairs.Add((methodA, methodB));
+            else if (a.Md.GetMethodDefinition(methodA).RelativeVirtualAddress != 0)
+                return false;
+        }
+        if (pairs.Count != methodsB.Count && OneSidedBody(b, methodsB, methodsA) is not null)
+            return false;
+        foreach ((MethodDefinitionHandle methodA, MethodDefinitionHandle methodB) in pairs)
+        {
             work.Bodies++;
             if (!BodyEqual(a, methodA, b, methodB, work))
                 return false;
         }
-        return paired == methodsB.Count || OneSidedBody(b, methodsB, methodsA) is null;
+        return true;
     }
 
     /// <summary>
@@ -934,6 +939,9 @@ public static class FindingDiffAny
         public long IlBytes;
 
         public BodyWalk Walk { get; } = new();
+
+        /// <summary>One unit's paired methods, reused across units so that pairing allocates nothing.</summary>
+        public List<(MethodDefinitionHandle A, MethodDefinitionHandle B)> Pairs { get; } = [];
 
         /// <summary>The Body provision in place of the walk, or null for the walk.</summary>
         public FindingDiffAnyBodyReader? BodyReader { get; init; }

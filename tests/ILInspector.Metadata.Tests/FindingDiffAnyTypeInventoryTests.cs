@@ -102,6 +102,23 @@ public sealed class FindingDiffAnyTypeInventoryTests
         Assert.Equal(inventory.BodyFactsBefore, inventory.BodyFactsAfter);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OneSidedBody_IsDecidedBeforeAnUndecodableBody(bool removed)
+    {
+        // M's body is an undefined opcode, which leaves a paired body
+        // Indeterminate; a method with a body on one side only is decided
+        // without reading IL, so the Library level and the inventory both
+        // read Changed rather than stopping at M.
+        byte[] undefined = [0x24, 0x2A];
+        TypeSpec two = new("N", "C", null, undefined, Methods: ["M", removed ? "Removed" : "Added"]);
+        TypeSpec one = new("N", "C", null, undefined);
+        FindingDiffAnyTypeInventory inventory = removed ? Inventory([two], [one]) : Inventory([one], [two]);
+        Assert.Equal(FindingDiffAnyState.Changed, inventory.Body);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Assert.Single(inventory.Bodies).Body);
+    }
+
     [Fact]
     public void RemovedMethodOnAHiddenType_IsABodyFactOnTheBeforeSide()
     {
