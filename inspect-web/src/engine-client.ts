@@ -164,6 +164,7 @@ type CatalogOperations =
   | "explainResources"
   | "describeWorkspaceComponents"
   | "explainWorkspaceComponent"
+  | "findIndexedTypes"
   | "inspectVocabulary"
   | "listEcosystems"
   | "listHomeDemos"
