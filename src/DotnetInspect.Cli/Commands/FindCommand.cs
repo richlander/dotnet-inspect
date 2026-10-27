@@ -1202,16 +1202,17 @@ public partial class FindCommand
     }
 
     private static EcosystemFindPrefixPageCompletion PrefixCompletion(
-        PrefixSearchCompletion? completion) =>
-        completion is null
-            ? EcosystemFindPrefixPageCompletion.Continuing
-            : completion == PrefixSearchCompletion.ClientPageLimitReached
-            ? EcosystemFindPrefixPageCompletion.ClientPageLimit
-            : completion == PrefixSearchCompletion.SourcePageLimitReached
-                ? EcosystemFindPrefixPageCompletion.SourcePageLimit
-                : completion == PrefixSearchCompletion.TakeReached
-                    ? EcosystemFindPrefixPageCompletion.RequestedLimit
-                    : EcosystemFindPrefixPageCompletion.Exhausted;
+        PrefixSearchCompletion? completion) => completion switch
+        {
+            null => EcosystemFindPrefixPageCompletion.Continuing,
+            PrefixSearchCompletion.ClientPageLimitReached =>
+                EcosystemFindPrefixPageCompletion.ClientPageLimit,
+            PrefixSearchCompletion.SourcePageLimitReached =>
+                EcosystemFindPrefixPageCompletion.SourcePageLimit,
+            PrefixSearchCompletion.TakeReached =>
+                EcosystemFindPrefixPageCompletion.RequestedLimit,
+            _ => EcosystemFindPrefixPageCompletion.Exhausted,
+        };
 
     private static async Task<PrefixFindResult> EvaluatePrefixCandidateAsync(
         FindOptions options,
