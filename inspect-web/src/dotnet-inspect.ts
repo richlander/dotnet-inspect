@@ -6432,14 +6432,11 @@ function selectedTypeMetadataLibraryIdentity() {
     : "";
 }
 
-function selectDefaultPackageSubject(pkg: AppPackage) {
+function selectDefaultPackageSubject() {
   state.workspaceSubjectOpen = false;
-  state.atLibraryRoot =
-    packageLibrariesForModel(pkg).some(library => library.id === pkg.assemblyId);
-  state.atPackageRoot = !state.atLibraryRoot;
-  state.libraryScope = state.atLibraryRoot
-    ? new Set([pkg.assemblyId])
-    : null;
+  state.atLibraryRoot = false;
+  state.atPackageRoot = true;
+  state.libraryScope = null;
   state.packageLens = "overview";
   state.libraryLens = "overview";
 }
@@ -6802,7 +6799,7 @@ function selectWorkspacePackage(
     const firstLibrary = packageLibraries()[0];
     state.libraryScope = firstLibrary ? new Set([firstLibrary.id]) : null;
   } else {
-    selectDefaultPackageSubject(packageModel);
+    selectDefaultPackageSubject();
   }
   state.selectedTypeId = defaultVisibleTypeId(packageModel);
   reconcileAccessibilityFilter(
@@ -26747,7 +26744,7 @@ async function loadPackage(
     );
     const deep = options.location;
     if (isEmptyPackageFramework(packageModel)) {
-      selectDefaultPackageSubject(packageModel);
+      selectDefaultPackageSubject();
     } else if (deep) {
       const libraryFailure = applyLoadedPackageLibraryScope(
         packageModel,
@@ -26755,7 +26752,7 @@ async function loadPackage(
       if (libraryFailure) appendQueryNotice(libraryFailure);
       applyLocationView(deep);
     } else if (!options.replacePackage) {
-      selectDefaultPackageSubject(packageModel);
+      selectDefaultPackageSubject();
     } else {
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
@@ -28035,8 +28032,11 @@ function applyLocationView(loc: ParsedLocation) {
     && !loc.atPackageRoot && !loc.type && !loc.member && !loc.lens) {
     if (loc.library) {
       state.atLibraryRoot = true;
+    } else if (loc.atLibraryRoot
+      && packageLibrariesForModel(pkg).some(library => library.id === pkg.assemblyId)) {
+      state.libraryScope = new Set([pkg.assemblyId]);
     } else {
-      selectDefaultPackageSubject(pkg);
+      selectDefaultPackageSubject();
     }
   }
   state.packageLens = loc.packageLens || "overview";
