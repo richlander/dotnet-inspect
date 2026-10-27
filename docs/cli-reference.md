@@ -762,6 +762,12 @@ answer the request. The
 [network policy](design/progressive-disclosure.md#network-policy) owns this
 rule and its adoption status.
 
+For Library audit, `-v:d` alone does not request acquisition of a missing PDB.
+Select a PDB-dependent audit section, such as `-S Symbols` or `-S Signals`,
+for that request. Normal and Detailed retain embedded, adjacent, and cached
+PDB reads. Independently selected queries keep their own requirements; see
+[Library audit PDB requests](design/progressive-disclosure.md#library-audit-pdb-requests).
+
 `--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.

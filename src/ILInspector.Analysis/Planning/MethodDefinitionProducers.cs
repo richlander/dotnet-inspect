@@ -128,6 +128,13 @@ public enum MethodDefinitionLayers
     /// does not decode calls or imply <see cref="CallTargets"/>.
     /// </summary>
     LocalSignature = 131072,
+
+    /// <summary>
+    /// Per-method resolved call operands in IL order. It implies
+    /// <see cref="Body"/> but does not resolve same-module targets, local
+    /// signatures, or field operands.
+    /// </summary>
+    CallOperands = 262144,
 }
 
 /// <summary>
@@ -155,8 +162,8 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
                     | MethodDefinitionLayers.Declaration
                     | MethodDefinitionLayers.Body
                     | MethodDefinitionLayers.CallTargets
-                : layers.HasFlag(
-                    MethodDefinitionLayers.LocalSignature)
+                : layers.HasFlag(MethodDefinitionLayers.LocalSignature)
+                    || layers.HasFlag(MethodDefinitionLayers.CallOperands)
                     ? layers
                         | MethodDefinitionLayers.Declaration
                         | MethodDefinitionLayers.Body
@@ -937,6 +944,29 @@ public readonly ref struct MethodDefinitionView
         return _unit.GetCalls(instructions);
     }
 
+    /// <summary>
+    /// The unit's IL-ordered call operands with resolved member identity,
+    /// without same-module target resolution.
+    /// </summary>
+    internal MethodCallOperandSites GetCallOperands(
+        MethodInstructions instructions)
+    {
+        ArgumentNullException.ThrowIfNull(instructions);
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallOperandsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare Method call-operand "
+                + "support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallOperandsUnit,
+            Token,
+            ref producer.CallOperandUses);
+        return _unit.GetCallOperands(instructions);
+    }
+
     /// <summary>The unit's decoded local-signature facts.</summary>
     internal MethodLocalSignature GetLocalSignature()
     {
@@ -1412,6 +1442,10 @@ internal struct MethodDefinitionUnit(
     MethodSemanticIdentityResult? _semanticIdentityResult;
     MethodSemanticIdentityWork _semanticIdentityWork;
     MethodDefinitionSourceCoverageBuilder? _semanticIdentityReadBy;
+    MethodCallOperandSites? _callOperands;
+    MethodCallMetadataWork _callOperandsWork =
+        MethodCallMetadataWork.Empty;
+    MethodDefinitionSourceCoverageBuilder? _callOperandsReadBy;
     MethodCallSites? _calls;
     MethodCallMetadataWork _callsWork =
         MethodCallMetadataWork.Empty;
@@ -1539,6 +1573,9 @@ internal struct MethodDefinitionUnit(
         _semanticIdentityResult = null;
         _semanticIdentityWork = MethodSemanticIdentityWork.Empty;
         _semanticIdentityReadBy = null;
+        _callOperands = null;
+        _callOperandsWork = MethodCallMetadataWork.Empty;
+        _callOperandsReadBy = null;
         _calls = null;
         _callsWork = MethodCallMetadataWork.Empty;
         _callTargetWork = default;
@@ -1645,23 +1682,24 @@ internal struct MethodDefinitionUnit(
         return _semanticIdentityResult;
     }
 
-    public MethodCallSites GetCalls(MethodInstructions instructions)
+    public MethodCallOperandSites GetCallOperands(
+        MethodInstructions instructions)
     {
-        if (_calls is null)
+        if (_callOperands is null)
         {
             MethodCallMetadataLookup calls =
                 BeginMethodCallQuery(out MethodCallMetadataWork before);
-            MethodCallOperandSites operandResult;
             try
             {
-                operandResult = calls.ReadCalls(
+                _callOperands = calls.ReadCalls(
                     TypeDefinition,
                     MethodDefinition,
                     instructions);
             }
             finally
             {
-                _callsWork = calls.RecordedWork.Since(before);
+                _callOperandsWork =
+                    calls.RecordedWork.Since(before);
                 EndMethodCallQuery(
                     calls,
                     before,
@@ -1669,6 +1707,42 @@ internal struct MethodDefinitionUnit(
                     localSignatureReads: 0,
                     fieldOperandReads: 0);
             }
+        }
+        else
+        {
+            _physicalSourceCoverage.RecordMethodCallQuery(
+                MethodHandle,
+                MethodCallMetadataWork.Empty,
+                callReads: 1,
+                localSignatureReads: 0,
+                fieldOperandReads: 0);
+            if (_requestSourceCoverage is { } request
+                && !ReferenceEquals(request, _physicalSourceCoverage))
+            {
+                request.RecordMethodCallQuery(
+                    MethodHandle,
+                    ReferenceEquals(
+                        request,
+                        _callOperandsReadBy)
+                        ? MethodCallMetadataWork.Empty
+                        : _callOperandsWork,
+                    callReads: 1,
+                    localSignatureReads: 0,
+                    fieldOperandReads: 0);
+            }
+        }
+
+        _callOperandsReadBy = _requestSourceCoverage;
+        return _callOperands.Value;
+    }
+
+    public MethodCallSites GetCalls(MethodInstructions instructions)
+    {
+        if (_calls is null)
+        {
+            MethodCallOperandSites operandResult =
+                GetCallOperands(instructions);
+            _callsWork = _callOperandsWork;
 
             var targetWork =
                 ImmutableArray.CreateBuilder<SameModuleCallTargetWork>(

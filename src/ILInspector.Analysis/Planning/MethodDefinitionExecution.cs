@@ -221,6 +221,7 @@ public sealed class MethodDefinitionExecution
             callTargetsDeclared |= state.HasCallTargetLayer;
             methodCallsDeclared |=
                 state.HasCallsLayer
+                || state.HasCallOperandsLayer
                 || state.HasLocalSignatureLayer;
             semanticIdentityDeclared |= state.HasSemanticIdentityLayer;
             methodAnalysisDeclared |= state.HasMethodAnalysisLayer;
@@ -609,6 +610,7 @@ public sealed class MethodDefinitionExecution
             lanes.Any(static lane => lane._states.Any(
                 static state =>
                     state.HasCallsLayer
+                    || state.HasCallOperandsLayer
                     || state.HasLocalSignatureLayer))
                 ? new MethodCallMetadataSupport(reader)
                 : null;
@@ -655,6 +657,7 @@ public sealed class MethodDefinitionExecution
                 if (lane._states.Any(
                         static state =>
                             state.HasCallsLayer
+                            || state.HasCallOperandsLayer
                             || state.HasLocalSignatureLayer))
                 {
                     lane._methodCalls = methodCalls;
@@ -2395,6 +2398,13 @@ public sealed class MethodDefinitionExecution
                     state.CallsUses));
             }
 
+            if (state.HasCallOperandsLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.CallOperands),
+                    state.CallOperandUses));
+            }
+
             if (state.HasLocalSignatureLayer)
             {
                 layers.Add(new ProducerLayerParticipation(
@@ -2609,6 +2619,9 @@ public sealed class MethodDefinitionExecution
         public bool HasCallsLayer { get; } =
             (layers & MethodDefinitionLayers.Calls) != 0;
 
+        public bool HasCallOperandsLayer { get; } =
+            (layers & MethodDefinitionLayers.CallOperands) != 0;
+
         public bool HasLocalSignatureLayer { get; } =
             (layers & MethodDefinitionLayers.LocalSignature) != 0;
 
@@ -2675,6 +2688,11 @@ public sealed class MethodDefinitionExecution
         public int CallsUses;
 
         public int LastCallsUnit;
+
+        /// <summary>Units whose resolved call operands were read.</summary>
+        public int CallOperandUses;
+
+        public int LastCallOperandsUnit;
 
         /// <summary>Units whose local-signature support was read.</summary>
         public int LocalSignatureUses;

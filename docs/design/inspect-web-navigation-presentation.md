@@ -758,10 +758,11 @@ Library Metadata does not repeat Package Version or Framework controls.
 The RID inventory follows the same Package-coordinate transition model. Its
 active row is the exact RID retained by the current coordinate. An ambiguous
 choice shows the complete inventory with no active row until the user selects
-one. Packages whose neutral implementation population answers the request show
-no RID inventory. Changing the RID replaces every derived Library, Type,
-Member, Source, and implementation-Compare result rather than mutating one of
-those descendants in place.
+one. Packages with no eligible runtime implementation population show no RID
+inventory; a neutral `lib` fallback does not suppress eligible runtime
+overlays. Changing the RID replaces every derived Library, Type, Member, Source,
+and implementation-Compare result rather than mutating one of those descendants
+in place.
 
 The persistent subject path discloses that exact active framework after the
 Package name across Package, Library, Type, and Member. The qualifier is

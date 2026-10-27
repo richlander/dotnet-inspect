@@ -518,6 +518,7 @@ public sealed class PackageAssemblyContextRealizationTests
         var content = new InMemoryPackageContent(
             Archive(
                 ("ref/net10.0/Owner.Default.Split.Receipt.dll", [0x01]),
+                ("ref/net10.0/shadow/Companion.dll", [0x02]),
                 ("lib/net8.0/Owner.Default.Split.Receipt.dll", [0x02])),
             fromCache: false,
             producerKey: "tests");
@@ -557,6 +558,18 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.True(request.HasSelectedImplementationUniverse);
         Assert.False(request.AllowsCompatibleTargetSelection);
         Assert.False(request.UsesCompatibleImplementationSelection);
+        Assert.Equal(
+            [
+                "ref/net10.0/Owner.Default.Split.Receipt.dll",
+                "ref/net10.0/shadow/Companion.dll",
+            ],
+            receipt.Selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            receipt.Selection.Assets.Select(asset => asset.Path),
+            Assert.IsType<PackageCompileAssetSelection>(
+                    reopened.Root.AssetSelection)
+                .Assets
+                .Select(asset => asset.Path));
         Assert.Equal(request, reopened.CreateReacquisitionRequest());
     }
 
@@ -1730,7 +1743,7 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Equal(
             "runtimes/linux-x64/lib/net11.0/Rid.Sample.dll",
             implementation.Asset.Path);
-        Assert.Contains(
+        Assert.DoesNotContain(
             realization.ImplementationParticipants,
             candidate =>
                 candidate.Asset.Path
@@ -2334,18 +2347,18 @@ public sealed class PackageAssemblyContextRealizationTests
     [Fact]
     public async Task ArtifactBackedPackageRealization_ReusesAdmissionFactsAcrossRoles()
     {
-        byte[] surface = IntegrationAssembly("Artifact.Primary", "SurfaceType");
-        byte[] implementation = IntegrationAssembly("Artifact.Primary", "ImplementationType");
+        byte[] primary = IntegrationAssembly("Artifact.Primary", "PrimaryType");
         byte[] shared = IntegrationAssembly("Artifact.Shared", "SharedType");
+        byte[] implementationOnly =
+            IntegrationAssembly("Artifact.Extra", "ImplementationType");
         const string sharedPath = "lib/net11.0/Artifact.Shared.dll";
         var content = new TrackingPackageContent(
-            ("lib/net11.0/Artifact.Primary.dll", surface),
+            ("lib/net11.0/Artifact.Primary.dll", primary),
             (sharedPath, shared),
-            ("runtimes/linux-x64/lib/net11.0/Artifact.Primary.dll", implementation));
+            ("lib/net11.0/shadow/Artifact.Extra.dll", implementationOnly));
         PackageRootBinding binding = Binding(
             "Artifact.Projection.Sample",
-            content,
-            runtimeIdentifier: "linux-x64");
+            content);
         await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             await workspace.RealizePackageAssemblyContextRolesAsync(

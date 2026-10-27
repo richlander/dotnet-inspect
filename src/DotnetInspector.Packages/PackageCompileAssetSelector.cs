@@ -318,7 +318,7 @@ public static class PackageCompileAssetSelector
             requestedTargetFramework,
             runtimeIdentifier,
             implementationTargetFramework,
-            includeNestedCompileAssets: false,
+            includeNestedCompileAssets: true,
             allowCompatibleFallback: true);
     }
 

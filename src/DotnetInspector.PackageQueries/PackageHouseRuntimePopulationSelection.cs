@@ -33,8 +33,8 @@ public sealed class PackageHouseRuntimePopulationSelection
     public PackageRootBinding Binding { get; }
 
     /// <summary>
-    /// The typed shared-policy result, or <see langword="null"/> when a neutral
-    /// implementation population answers the request or no RID inventory exists.
+    /// The typed shared-policy result, or <see langword="null"/> when no RID
+    /// implementation inventory exists.
     /// </summary>
     public PackageRuntimePopulationChoiceResult? Choice { get; }
 }
@@ -62,12 +62,14 @@ public static class PackageHouseRuntimePopulationSelector
 
         PackageCompileAssetSelectionReceipt compileReceipt =
             contribution.SelectionReceipt;
+        string? runtimeTargetFramework =
+            compileReceipt.RequestedTargetFramework
+            ?? compileReceipt.Selection.TargetFramework;
         PackageAssetSelectionReceipt runtimeReceipt =
             PackageAssetSelector.EvaluateSingleRuntime(
                 settlement.Payload.Content,
-                compileReceipt.RequestedTargetFramework);
-        if (HasNeutralImplementation(compileReceipt.Selection)
-            || runtimeReceipt.AvailableRuntimePopulations.Count == 0)
+                runtimeTargetFramework);
+        if (runtimeReceipt.AvailableRuntimePopulations.Count == 0)
         {
             return new(
                 contribution.Binding,
@@ -97,6 +99,20 @@ public static class PackageHouseRuntimePopulationSelector
                 compileReceipt.Policy,
                 compileReceipt.RequestedTargetFramework,
                 selected.RuntimeIdentifier);
+        if (selectedReceipt.RequestedTargetFramework is null)
+        {
+            // Freeze the owner-selected highest framework for the RID-qualified
+            // Root while retaining the original omitted-framework request.
+            selectedReceipt =
+                PackageCompileAssetSelector.RetainSelection(
+                    settlement.Payload.Content,
+                    compileReceipt.PackageId,
+                    PackageCompileAssetSelectionPolicy.ExactTarget,
+                    selectedReceipt.Selection,
+                    selectedReceipt.Selection.TargetFramework
+                        ?? selected.SelectedTargetFramework,
+                    selected.RuntimeIdentifier);
+        }
         if (!PackageRootBinding.TryCreateFromSourceSelection(
                 settlement.Payload,
                 selectedReceipt,
@@ -118,11 +134,6 @@ public static class PackageHouseRuntimePopulationSelector
             selectedBinding,
             choice);
     }
-
-    private static bool HasNeutralImplementation(
-        PackageCompileAssetSelection selection) =>
-        selection.ImplementationAssets.Any(
-            static asset => asset.RuntimeIdentifier is null);
 
     private static string? OriginalRequestedFramework(
         PackageHouseTargetContext? target) =>

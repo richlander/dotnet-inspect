@@ -67,8 +67,20 @@ public class LibraryInspection
     [JsonIgnore]
     internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
 
+    private AssemblyReferencesResult? _assemblyReferencesQueryResult;
+    private InspectionEnvelope<LibraryReferenceInspectionOutcome>?
+        _libraryReferenceInspectionEnvelope;
+
     [JsonIgnore]
-    internal AssemblyReferencesResult? AssemblyReferencesQueryResult { get; set; }
+    internal AssemblyReferencesResult? AssemblyReferencesQueryResult
+    {
+        get => _assemblyReferencesQueryResult;
+        set
+        {
+            _assemblyReferencesQueryResult = value;
+            _libraryReferenceInspectionEnvelope = null;
+        }
+    }
 
     [JsonIgnore]
     public InspectionEnvelope<EcosystemDependencyRecognitionOutcome>?
@@ -357,7 +369,18 @@ public class LibraryInspection
     }
 
     [JsonIgnore]
-    internal IReadOnlyList<AssemblyReference>? AssemblyReferenceDisplayOrder
+    internal InspectionEnvelope<LibraryReferenceInspectionOutcome>?
+        LibraryReferenceInspectionEnvelope
+    {
+        get => _libraryReferenceInspectionEnvelope ??=
+            AssemblyReferencesQueryResult is { } result
+                ? LibraryReferenceInspection.Execute(result)
+                : null;
+        set => _libraryReferenceInspectionEnvelope = value;
+    }
+
+    [JsonIgnore]
+    internal IReadOnlyList<AssemblyReferenceRow>? AssemblyReferenceDisplayOrder
     {
         get;
         set;
