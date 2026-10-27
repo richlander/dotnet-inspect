@@ -99,6 +99,62 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        Execute_ExcludedExactTypeDoesNotRecordPhysicalMethodSelection()
+    {
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth.ExactMethods(
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        MethodDefinitionSourceAssociation rows =
+            Association(
+                PInvokeClassificationProducer.Instance,
+                ProducerTerminal.Rows,
+                breadth);
+        MethodDefinitionSourceAssociation count =
+            Association(
+                PInvokeClassificationProducer.Instance,
+                ProducerTerminal.Count,
+                breadth);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([rows, count]),
+                TwoMethodsInExcludedTypeWithFirstBody(
+                    [0x06, 0x2A]));
+
+        Assert.Empty(
+            ResultOf<ClosedQueryResult<ClassifiedMethodRow>>(
+                    execution,
+                    rows)
+                .Value!
+                .Rows);
+        Assert.Equal(
+            0,
+            ResultOf<ClosedQueryResult<ClassifiedMethodRow>>(
+                    execution,
+                    count)
+                .Value!
+                .Count);
+        Assert.Equal(
+            0,
+            execution.ResultOf(rows)
+                .SourceReceipt.DefinitionsVisited);
+        Assert.Equal(
+            0,
+            execution.ResultOf(count)
+                .SourceReceipt.DefinitionsVisited);
+        MethodDefinitionSourceGroupReceipt receipt =
+            Assert.Single(execution.GroupReceipts);
+        Assert.Equal(
+            2,
+            receipt.PhysicalCoverage.DefinitionsExamined.Count);
+        Assert.Equal(
+            0,
+            receipt.PhysicalCoverage.MethodsSelected.Count);
+    }
+
+    [Fact]
     public void Plan_DistinctExactMethodBreadthsRemainSeparate()
     {
         MethodDefinitionSourceAssociation first =

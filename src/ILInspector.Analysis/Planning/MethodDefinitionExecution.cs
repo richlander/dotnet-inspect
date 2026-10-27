@@ -923,6 +923,13 @@ public sealed class MethodDefinitionExecution
                 }
             }
 
+            if (!AnyLaneActiveInScope(
+                    visiting,
+                    laneInScope))
+            {
+                continue;
+            }
+
             unit.MoveToPreviouslyRead(
                 typeHandle,
                 currentTypeDefinition,
