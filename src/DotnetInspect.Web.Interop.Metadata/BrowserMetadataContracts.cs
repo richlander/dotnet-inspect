@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using Wire = DotnetInspect.Web.Interop.Metadata.Wire;
@@ -84,14 +83,6 @@ public sealed record BrowserTypeFindOperationResult(
 public sealed record BrowserTypeFindResult(
     BrowserTypeFindResultStatus Status,
     BrowserTypeFindOperationResult? Operation,
-    string? Reason);
-
-public sealed record BrowserIndexedTypeFindOperationResult(
-    InspectionEnvelope<JsonElement> Find);
-
-public sealed record BrowserIndexedTypeFindResult(
-    BrowserTypeFindResultStatus Status,
-    BrowserIndexedTypeFindOperationResult? Operation,
     string? Reason);
 
 /// <summary>
@@ -648,24 +639,10 @@ internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserTypeFindResult))]
-[JsonSerializable(typeof(BrowserIndexedTypeFindResult))]
 [JsonSerializable(
     typeof(InspectionEnvelope<JsonElement>),
     TypeInfoPropertyName = "JsonInspectionEnvelope")]
 internal sealed partial class BrowserTypeFindJsonContext : JsonSerializerContext;
-
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(
-    typeof(EcosystemFindIndexedIntegrationResult.Type),
-    TypeInfoPropertyName = "IndexedTypeFindContent")]
-[JsonSerializable(
-    typeof(TypeFindPattern.Glob),
-    TypeInfoPropertyName = "TypeFindPatternGlob")]
-[JsonSerializable(
-    typeof(MemberFindPattern.Glob),
-    TypeInfoPropertyName = "MemberFindPatternGlob")]
-internal sealed partial class BrowserIndexedTypeFindContentJsonContext :
-    JsonSerializerContext;
 
 internal static class BrowserMetadataJsonSerialization
 {

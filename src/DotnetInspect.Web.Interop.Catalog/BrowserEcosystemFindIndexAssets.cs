@@ -3,7 +3,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using DotnetInspector.Ecosystems;
 
-namespace DotnetInspect.Web.Interop.Metadata;
+namespace DotnetInspect.Web.Interop.Catalog;
 
 internal abstract record BrowserEcosystemFindIndexAssetLoad
 {

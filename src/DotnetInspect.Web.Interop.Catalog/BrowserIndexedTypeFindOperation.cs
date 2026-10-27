@@ -5,9 +5,9 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 
-namespace DotnetInspect.Web;
+namespace DotnetInspect.Web.Interop.Catalog;
 
-internal sealed record BrowserIndexedTypeFindOperationResult(
+internal sealed record BrowserIndexedTypeFindInspection(
     InspectionEnvelope<EcosystemFindIndexedIntegrationResult.Type> Find);
 
 internal abstract record BrowserIndexedTypeFindExecutionResult
@@ -15,7 +15,7 @@ internal abstract record BrowserIndexedTypeFindExecutionResult
     private protected BrowserIndexedTypeFindExecutionResult() { }
 
     internal sealed record Completed(
-        BrowserIndexedTypeFindOperationResult Result) :
+        BrowserIndexedTypeFindInspection Result) :
         BrowserIndexedTypeFindExecutionResult;
 
     internal sealed record Rejected(string Reason) :
@@ -29,16 +29,17 @@ internal abstract record BrowserIndexedTypeFindExecutionResult
 }
 
 [SupportedOSPlatform("browser")]
-internal sealed class BrowserIndexedTypeFindOperation : IDisposable
+internal sealed class BrowserIndexedTypeFindOperation
 {
     readonly object _gate = new();
     PublicationState? _current;
+    string? _realizationId;
     long _latestGeneration = -1;
-    bool _disposed;
 
     internal BrowserIndexedTypeFindExecutionResult Execute(
         WorkspaceRealizationOperationLease operation,
         IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
+        string realizationId,
         string text,
         int maximumRows,
         long resultGeneration,
@@ -46,15 +47,17 @@ internal sealed class BrowserIndexedTypeFindOperation : IDisposable
     {
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(artifacts);
+        ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
         ArgumentOutOfRangeException.ThrowIfNegative(resultGeneration);
 
         PublicationState publication;
         lock (_gate)
         {
-            if (_disposed)
+            if (_realizationId != realizationId)
             {
-                return new BrowserIndexedTypeFindExecutionResult.Unavailable(
-                    "Indexed Type Find is closed.");
+                _realizationId = realizationId;
+                _latestGeneration = -1;
+                _current = null;
             }
             if (resultGeneration <= _latestGeneration)
             {
@@ -63,7 +66,7 @@ internal sealed class BrowserIndexedTypeFindOperation : IDisposable
             }
 
             _latestGeneration = resultGeneration;
-            publication = new(resultGeneration);
+            publication = new(realizationId, resultGeneration);
             _current = publication;
         }
 
@@ -132,7 +135,7 @@ internal sealed class BrowserIndexedTypeFindOperation : IDisposable
                 cancellationToken: cancellationToken);
         lock (_gate)
         {
-            if (!_disposed && ReferenceEquals(_current, publication))
+            if (ReferenceEquals(_current, publication))
             {
                 return new BrowserIndexedTypeFindExecutionResult.Completed(
                     new(find));
@@ -143,88 +146,17 @@ internal sealed class BrowserIndexedTypeFindOperation : IDisposable
             "A newer indexed Type Find result replaced this operation.");
     }
 
-    public void Dispose()
+    internal void Reset()
     {
         lock (_gate)
         {
-            if (_disposed)
-                return;
-            _disposed = true;
+            _realizationId = null;
+            _latestGeneration = -1;
             _current = null;
         }
     }
 
-    sealed record PublicationState(long Generation);
-}
-
-internal sealed partial class BrowserRetainedWorkspaceActivationOwner
-{
-    BrowserIndexedTypeFindOperation _indexedTypeFind = null!;
-
-    internal async ValueTask<BrowserIndexedTypeFindExecutionResult>
-        FindIndexedTypesAsync(
-            string retainedDefinitionId,
-            string realizationId,
-            IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
-            string text,
-            int maximumRows,
-            long resultGeneration,
-            CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
-        ArgumentNullException.ThrowIfNull(artifacts);
-
-        BrowserRetainedWorkspacePosting posting;
-        BrowserIndexedTypeFindOperation indexedTypeFind;
-        lock (_gate)
-        {
-            if (_active is not { } active
-                || active.RetainedDefinitionId != retainedDefinitionId
-                || active.RealizationId != realizationId)
-            {
-                return new BrowserIndexedTypeFindExecutionResult.Unavailable(
-                    "The requested retained Workspace realization is not active.");
-            }
-            posting = active;
-            indexedTypeFind = _indexedTypeFind;
-        }
-
-        WorkspaceRealizationOperationAdmission admission =
-            await EnterOperationAsync(
-                    retainedDefinitionId,
-                    cancellationToken)
-                .ConfigureAwait(false);
-        if (admission
-            is not WorkspaceRealizationOperationAdmission.Admitted admitted)
-        {
-            return new BrowserIndexedTypeFindExecutionResult.Unavailable(
-                "The active Workspace realization is unavailable.");
-        }
-
-        using WorkspaceRealizationOperationLease operation = admitted.Lease;
-        lock (_gate)
-        {
-            if (!ReferenceEquals(_active, posting)
-                || !ReferenceEquals(_indexedTypeFind, indexedTypeFind))
-            {
-                return new BrowserIndexedTypeFindExecutionResult.Stale(
-                    "The active Workspace realization changed.");
-            }
-        }
-
-        return indexedTypeFind.Execute(
-            operation,
-            artifacts,
-            text,
-            maximumRows,
-            resultGeneration,
-            cancellationToken);
-    }
-
-    void InitializeIndexedTypeFind() =>
-        _indexedTypeFind = new BrowserIndexedTypeFindOperation();
-
-    void DisposeIndexedTypeFind() =>
-        _indexedTypeFind.Dispose();
+    sealed record PublicationState(
+        string RealizationId,
+        long Generation);
 }

@@ -1374,13 +1374,42 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
             string retainedDefinitionId,
             CancellationToken cancellationToken = default)
     {
+        return await EnterOperationCoreAsync(
+                retainedDefinitionId,
+                realizationId: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal async ValueTask<WorkspaceRealizationOperationAdmission>
+        EnterOperationAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
+        return await EnterOperationCoreAsync(
+                retainedDefinitionId,
+                realizationId,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    async ValueTask<WorkspaceRealizationOperationAdmission>
+        EnterOperationCoreAsync(
+            string retainedDefinitionId,
+            string? realizationId,
+            CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
         BrowserWorkspaceRealizationHost host;
         InspectionWorkspaceIdentity expectedRealization;
         BrowserRetainedWorkspacePosting expectedPosting;
         lock (_gate)
         {
-            if (_active?.RetainedDefinitionId != retainedDefinitionId)
+            if (_active?.RetainedDefinitionId != retainedDefinitionId
+                || realizationId is not null
+                    && _active.RealizationId != realizationId)
             {
                 return new WorkspaceRealizationOperationAdmission.Unavailable(
                     WorkspaceRealizationOperationUnavailableReason.NoActiveRealization);

@@ -1,8 +1,6 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
-using DotnetInspector.Ecosystems;
 using DotnetInspector.Sections;
 
 using DotnetInspect.Web;
@@ -12,69 +10,6 @@ namespace DotnetInspect.Web.Interop.Metadata;
 [SupportedOSPlatform("browser")]
 public static partial class MetadataExports
 {
-    [JSExport]
-    public static async Task<string> FindIndexedTypes(
-        string retainedDefinitionId,
-        string realizationId,
-        int resultGeneration,
-        string text,
-        int maximumRows)
-    {
-        BrowserEcosystemFindIndexAssetLoad assets =
-            await BrowserEcosystemFindIndexAssets.LoadAsync()
-                .ConfigureAwait(false);
-        BrowserIndexedTypeFindResult wire;
-        if (assets is BrowserEcosystemFindIndexAssetLoad.Invalid invalid)
-        {
-            wire = new(
-                BrowserTypeFindResultStatus.Unavailable,
-                Operation: null,
-                invalid.Reason);
-        }
-        else
-        {
-            BrowserIndexedTypeFindExecutionResult result =
-                await BrowserRetainedWorkspaceActivationRegistry.Owner
-                    .FindIndexedTypesAsync(
-                        retainedDefinitionId,
-                        realizationId,
-                        ((BrowserEcosystemFindIndexAssetLoad.Available)assets)
-                            .Artifacts,
-                        text,
-                        maximumRows,
-                        resultGeneration)
-                    .ConfigureAwait(false);
-            wire = result switch
-            {
-                BrowserIndexedTypeFindExecutionResult.Completed completed =>
-                    new(
-                        BrowserTypeFindResultStatus.Completed,
-                        ProjectIndexedTypeFindOperation(completed.Result),
-                        Reason: null),
-                BrowserIndexedTypeFindExecutionResult.Rejected rejected =>
-                    new(
-                        BrowserTypeFindResultStatus.Rejected,
-                        Operation: null,
-                        rejected.Reason),
-                BrowserIndexedTypeFindExecutionResult.Unavailable unavailable =>
-                    new(
-                        BrowserTypeFindResultStatus.Unavailable,
-                        Operation: null,
-                        unavailable.Reason),
-                BrowserIndexedTypeFindExecutionResult.Stale stale =>
-                    new(
-                        BrowserTypeFindResultStatus.Stale,
-                        Operation: null,
-                        stale.Reason),
-                _ => throw new InvalidOperationException(
-                    "Indexed Type Find returned an unsupported result."),
-            };
-        }
-        return JsonSerializer.Serialize(
-            wire,
-            BrowserTypeFindJsonContext.Default.BrowserIndexedTypeFindResult);
-    }
-
     [JSExport]
     public static async Task<string> FindTypes(
         string retainedDefinitionId,
@@ -141,23 +76,6 @@ public static partial class MetadataExports
                         activation.Action,
                         activation.Reason)),
             ]);
-
-    internal static BrowserIndexedTypeFindOperationResult
-        ProjectIndexedTypeFindOperation(
-        DotnetInspect.Web.BrowserIndexedTypeFindOperationResult result)
-    {
-        var typeInfo =
-            (JsonTypeInfo<EcosystemFindIndexedIntegrationResult.Type>)
-                BrowserIndexedTypeFindContentJsonContext.Default.GetTypeInfo(
-                    typeof(EcosystemFindIndexedIntegrationResult.Type))!;
-        return new(
-            new InspectionEnvelope<JsonElement>(
-                JsonSerializer.SerializeToElement(
-                    result.Find.Content,
-                    typeInfo),
-                result.Find.Share,
-                result.Find.Diagnostics));
-    }
 
     static BrowserTypeFindActivationSource Source(
         DotnetInspect.Web.BrowserTypeFindActivationSource source) =>

@@ -197,16 +197,6 @@ export interface BrowserHeapListing {
   readonly error: string | null;
 }
 
-export interface BrowserIndexedTypeFindOperationResult {
-  readonly find: InspectionEnvelope<unknown>;
-}
-
-export interface BrowserIndexedTypeFindResult {
-  readonly status: BrowserTypeFindResultStatus;
-  readonly operation: BrowserIndexedTypeFindOperationResult | null;
-  readonly reason: string | null;
-}
-
 export interface BrowserLibraryApiDiffAggregate {
   readonly changedTypeCount: number;
   readonly addedTypeCount: number;
@@ -1365,7 +1355,6 @@ type $ManagedExports = {
           readonly "MetadataExports": {
             readonly "CancelLibraryApiDiff.271973316": (operationId: string, reason: string) => string;
             readonly "CancelLibraryFindingDiffAny.271973316": (operationId: string, reason: string) => string;
-            readonly "FindIndexedTypes.72069702": (retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number) => Promise<string>;
             readonly "FindTypes.2036514267": (retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string) => Promise<string>;
             readonly "QueryGraphMemberSurface.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, runtimeIdentifier: string | null) => Promise<string>;
             readonly "QueryLibraryApiDiff.451505237": (operationId: string, requestJson: string) => Promise<string>;
@@ -1465,18 +1454,6 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "CancelLibraryFindingDiffAny.271973316");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.CancelLibraryFindingDiffAny.271973316\u0027 is not callable.");
-    }
-  }
-  {
-    let value: unknown = exports;
-    value = $ownDataProperty(value, "DotnetInspect");
-    value = $ownDataProperty(value, "Web");
-    value = $ownDataProperty(value, "Interop");
-    value = $ownDataProperty(value, "Metadata");
-    value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "FindIndexedTypes.72069702");
-    if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.FindIndexedTypes.72069702\u0027 is not callable.");
     }
   }
   {
@@ -1876,12 +1853,6 @@ export function cancelLibraryFindingDiffAny(operationId: string, reason: string)
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["CancelLibraryFindingDiffAny.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserLibraryFindingDiffAnyCancellation;
-}
-
-export async function findIndexedTypes(retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number): Promise<BrowserIndexedTypeFindResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["FindIndexedTypes.72069702"](retainedDefinitionId, realizationId, resultGeneration, text, maximumRows);
-  const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserIndexedTypeFindResult;
 }
 
 export async function findTypes(retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string): Promise<BrowserTypeFindResult> {

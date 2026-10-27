@@ -29,12 +29,13 @@ import {
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 import {
+  catalogInertStringFixture,
   inertStringFixture,
-  metadataInertStringFixture,
   packageInertStringFixture,
 } from "./inert-string-fixture.ts";
 import type {
   BrowserEcosystemPackageWorkspaceAdmissionResult,
+  BrowserIndexedTypeFindResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDefinitionState,
   BrowserRetainedWorkspacePackageAdmissionResult,
@@ -43,7 +44,6 @@ import type {
   BrowserSpotlightActionResult,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserIndexedTypeFindResult,
   BrowserTypeFindResult,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import type {
@@ -155,7 +155,6 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("cancelLibraryApiDiff"),
     cancelLibraryFindingDiffAny: () =>
       unexpected("cancelLibraryFindingDiffAny"),
-    findIndexedTypes: () => unexpected("findIndexedTypes"),
     findTypes: () => unexpected("findTypes"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
@@ -284,6 +283,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    findIndexedTypes: () => unexpected("findIndexedTypes"),
     abandonRetainedWorkspaceNavigation: () =>
       unexpected("abandonRetainedWorkspaceNavigation"),
     acknowledgeRetainedWorkspaceNavigation: () =>
@@ -1043,7 +1043,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
           fullUrl: null,
           packet: null,
           path: "indexed-type-find",
-          reason: metadataInertStringFixture(
+          reason: catalogInertStringFixture(
             "Indexed Type Find is not projectable.",
           ),
         },
@@ -1078,16 +1078,16 @@ test("retained Catalog transport preserves compact posting and bounded Package a
   const spotlightActivationArguments: (readonly unknown[])[] = [];
   const state = fixture({
     metadata: {
-      findIndexedTypes: async (...args) => {
-        indexedTypeFindArguments.push(args);
-        return indexedTypeFind;
-      },
       findTypes: async (...args) => {
         typeFindArguments.push(args);
         return typeFind;
       },
     },
     catalog: {
+      findIndexedTypes: async (...args) => {
+        indexedTypeFindArguments.push(args);
+        return indexedTypeFind;
+      },
       activateRetainedWorkspaceDefinition: async () => activation,
       activateSpotlightDestination: async (...args) => {
         spotlightActivationArguments.push(args);
@@ -1130,7 +1130,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     11,
     "JsonSerializer",
   );
-  const indexedFindResult = state.client.metadata.findIndexedTypes(
+  const indexedFindResult = state.client.catalog.findIndexedTypes(
     "definition-exact",
     "realization-exact",
     12,
@@ -2673,7 +2673,6 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     metadata: [
       "cancelLibraryApiDiff",
       "cancelLibraryFindingDiffAny",
-      "findIndexedTypes",
       "findTypes",
       "queryLibraryApiDiff",
       "queryLibraryFindingDiffAny",
@@ -2769,6 +2768,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "encodeWorkspaceShareState",
       "explainVocabularies",
       "explainResources",
+      "findIndexedTypes",
       "describeWorkspaceComponents",
       "explainWorkspaceComponent",
       "observeRetainedWorkspaceSettlement",

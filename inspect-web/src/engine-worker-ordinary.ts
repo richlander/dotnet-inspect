@@ -79,7 +79,6 @@ type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
-  | "findIndexedTypes"
   | "findTypes"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
@@ -180,6 +179,7 @@ type CatalogOperationName =
   | "explainResources"
   | "describeWorkspaceComponents"
   | "explainWorkspaceComponent"
+  | "findIndexedTypes"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
@@ -1326,14 +1326,6 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["cancelLibraryApiDiff"]>
       ) => facades.metadata.cancelLibraryApiDiff(...args),
     ),
-    findIndexedTypes: valueOperation(
-      "ordinary-metadata-find-indexed-types",
-      5,
-      (
-        facades,
-        ...args: Parameters<MetadataFacade["findIndexedTypes"]>
-      ) => facades.metadata.findIndexedTypes(...args),
-    ),
     findTypes: valueOperation(
       "ordinary-metadata-find-types",
       4,
@@ -2049,6 +2041,14 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   catalog: {
+    findIndexedTypes: valueOperation(
+      "ordinary-catalog-find-indexed-types",
+      5,
+      (
+        facades,
+        ...args: Parameters<CatalogFacade["findIndexedTypes"]>
+      ) => facades.catalog.findIndexedTypes(...args),
+    ),
     abandonRetainedWorkspaceNavigation: valueOperation(
       "ordinary-catalog-abandon-retained-workspace-navigation",
       6,
@@ -2622,9 +2622,6 @@ export function bindEngineWorkerOrdinaryClient(
       cancelLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.cancelLibraryApiDiff,
       ),
-      findIndexedTypes: bind(
-        engineWorkerOrdinaryOperations.metadata.findIndexedTypes,
-      ),
       findTypes: bind(
         engineWorkerOrdinaryOperations.metadata.findTypes,
       ),
@@ -2873,6 +2870,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     catalog: {
+      findIndexedTypes: bind(
+        engineWorkerOrdinaryOperations.catalog.findIndexedTypes,
+      ),
       abandonRetainedWorkspaceNavigation: bind(
         engineWorkerOrdinaryOperations.catalog
           .abandonRetainedWorkspaceNavigation,

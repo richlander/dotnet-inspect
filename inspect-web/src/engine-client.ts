@@ -70,7 +70,6 @@ type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 type MetadataOperations =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
-  | "findIndexedTypes"
   | "findTypes"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
@@ -165,6 +164,7 @@ type CatalogOperations =
   | "explainResources"
   | "describeWorkspaceComponents"
   | "explainWorkspaceComponent"
+  | "findIndexedTypes"
   | "inspectVocabulary"
   | "listEcosystems"
   | "listHomeDemos"

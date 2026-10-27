@@ -6,6 +6,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
+using DotnetInspect.Web.Interop.Catalog;
 using Catalog = DotnetInspect.Web.Interop.Catalog;
 using Metadata = DotnetInspect.Web.Interop.Metadata;
 using TypeFindPlan =
@@ -36,7 +37,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
 
         BrowserIndexedTypeFindExecutionResult.Completed completed =
             Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
-                await owner.FindIndexedTypesAsync(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .FindIndexedTypesAsync(
+                    owner,
                     posting.RetainedDefinitionId,
                     posting.RealizationId,
                     [aspire, extensions],
@@ -77,8 +80,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             completed.Result.Find.Share);
         Assert.Empty(completed.Result.Find.Diagnostics);
 
-        Metadata.BrowserIndexedTypeFindOperationResult projected =
-            Metadata.MetadataExports.ProjectIndexedTypeFindOperation(
+        Catalog.BrowserIndexedTypeFindOperationResult projected =
+            Catalog.CatalogExports.ProjectIndexedTypeFindOperation(
                 completed.Result);
         Assert.Same(
             completed.Result.Find.Share,
@@ -109,7 +112,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
 
         BrowserIndexedTypeFindExecutionResult.Completed nonAdmitted =
             Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
-                await owner.FindIndexedTypesAsync(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .FindIndexedTypesAsync(
+                    owner,
                     posting.RetainedDefinitionId,
                     posting.RealizationId,
                     [aspire, extensions],
@@ -136,7 +141,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
 
         BrowserIndexedTypeFindExecutionResult.Completed limited =
             Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
-                await owner.FindIndexedTypesAsync(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .FindIndexedTypesAsync(
+                    owner,
                     posting.RetainedDefinitionId,
                     posting.RealizationId,
                     [aspire, extensions],
@@ -153,12 +160,13 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         canceled.Cancel();
         using WorkspaceRealizationOperationLease operation =
             await EnterAsync(owner, posting.RetainedDefinitionId);
-        using var indexedTypeFind = new BrowserIndexedTypeFindOperation();
+        var indexedTypeFind = new BrowserIndexedTypeFindOperation();
         BrowserIndexedTypeFindExecutionResult.Completed canceledResult =
             Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
                 indexedTypeFind.Execute(
                     operation,
                     [aspire, extensions],
+                    posting.RealizationId,
                     "*",
                     maximumRows: 25,
                     resultGeneration: 0,
@@ -168,7 +176,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             canceledResult.Result.Find.Content.Completion);
 
         Assert.IsType<BrowserIndexedTypeFindExecutionResult.Rejected>(
-            await owner.FindIndexedTypesAsync(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
                 posting.RetainedDefinitionId,
                 posting.RealizationId,
                 [aspire, extensions],
@@ -177,7 +187,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 resultGeneration: 4,
                 TestContext.Current.CancellationToken));
         Assert.IsType<BrowserIndexedTypeFindExecutionResult.Stale>(
-            await owner.FindIndexedTypesAsync(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
                 posting.RetainedDefinitionId,
                 posting.RealizationId,
                 [aspire, extensions],
@@ -200,7 +212,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 "first-indexed-type-find",
                 EcosystemPackIds.Aspire);
         Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
-            await owner.FindIndexedTypesAsync(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
                 first.RetainedDefinitionId,
                 first.RealizationId,
                 [aspire],
@@ -216,7 +230,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 EcosystemPackIds.Aspire);
 
         Assert.IsType<BrowserIndexedTypeFindExecutionResult.Unavailable>(
-            await owner.FindIndexedTypesAsync(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
                 first.RetainedDefinitionId,
                 first.RealizationId,
                 [aspire],
@@ -225,7 +241,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 resultGeneration: 2,
                 TestContext.Current.CancellationToken));
         Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
-            await owner.FindIndexedTypesAsync(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
                 replacement.RetainedDefinitionId,
                 replacement.RealizationId,
                 [aspire],
@@ -242,7 +260,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 includePackagePrefixes: false);
         BrowserIndexedTypeFindExecutionResult.Completed noPrefix =
             Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
-                await owner.FindIndexedTypesAsync(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .FindIndexedTypesAsync(
+                    owner,
                     narrowed.RetainedDefinitionId,
                     narrowed.RealizationId,
                     [aspire],
