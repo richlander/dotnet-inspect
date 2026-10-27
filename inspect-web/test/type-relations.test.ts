@@ -25,6 +25,7 @@ function state(): TypeRelationsState {
 function available(
   relationLimited = 0,
   colorLimited = 0,
+  hasRelations = true,
 ): BrowserAnnotatedTypeRelationsInspection {
   return {
     outcome: "Available",
@@ -33,7 +34,7 @@ function available(
       content: {
         terminal: {
           kind: "Rows",
-          value: 1,
+          value: hasRelations ? 1 : 0,
           is_complete: relationLimited === 0,
         },
         subjects: [
@@ -49,8 +50,10 @@ function available(
             },
           },
         ],
-        relations: [{ id: 4, target_subject_id: 1 }],
-        occurrences: [{ relation_id: 4 }, { relation_id: 4 }],
+        relations: hasRelations ? [{ id: 4, target_subject_id: 1 }] : [],
+        occurrences: hasRelations
+          ? [{ relation_id: 4 }, { relation_id: 4 }]
+          : [],
         annotations: [{
           descriptor: { id: "member.requires-dynamic-code" },
           target: { kind: "Subject", id: 1 },
@@ -200,4 +203,22 @@ test("available rendering exposes physical evidence, colors, and limits", () => 
   assert.match(
     html,
     /member\.requires-dynamic-code<\/code>: 2 of 3 examined; 1 limited/);
+});
+
+test("partial empty rendering does not claim that no outgoing calls exist", () => {
+  const current = state();
+  current.signature = "package/type";
+  current.result = available(1, 0, false);
+
+  const html = renderTypeRelations({
+    signature: "package/type",
+    state: current,
+    escapeHtml: String,
+  });
+
+  assert.match(html, /Call evidence is partial/);
+  assert.match(
+    html,
+    /No outgoing calls were resolved from the available evidence/);
+  assert.doesNotMatch(html, /No outgoing calls found/);
 });

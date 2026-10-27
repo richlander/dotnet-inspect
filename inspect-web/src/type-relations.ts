@@ -398,7 +398,11 @@ export function renderTypeRelations(
         + `${coverage.limited} limited.</p></div>`
       : ""}
     ${colorWarning}
-    ${rows ? `<ol class="type-relations-list">${rows}</ol>` : "<p>No outgoing calls found.</p>"}
+    ${rows
+      ? `<ol class="type-relations-list">${rows}</ol>`
+      : relationshipIsPartial
+        ? "<p>No outgoing calls were resolved from the available evidence.</p>"
+        : "<p>No outgoing calls found.</p>"}
     ${document.relations.length > visible.length
       ? `<p>Showing ${visible.length} of ${document.relations.length} relations.</p>`
       : ""}
