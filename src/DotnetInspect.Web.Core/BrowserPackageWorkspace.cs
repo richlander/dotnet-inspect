@@ -1992,20 +1992,14 @@ internal static class BrowserPackageWorkspace
             AcquiredPackageSourcePayload payload,
             PackageRootBinding binding)
     {
-        if (binding.Root.AssetSelection is not { } selection)
+        if (binding.Root.AssetSelection is null)
             return null;
         PackageAssetSelectionReceipt receipt =
             PackageAssetSelector.EvaluateSingleRuntime(
                 payload.Content,
-                binding.Root.RequestedTargetFramework);
+                binding.Root.AssetSelection.TargetFramework);
         if (receipt.AvailableRuntimePopulations.Count == 0)
             return null;
-        if (binding.Root.RequestedRuntimeIdentifier is null
-            && selection.ImplementationAssets.Any(
-                static asset => asset.RuntimeIdentifier is null))
-        {
-            return null;
-        }
 
         PackageRuntimePopulationAuthority authority =
             binding.Root.RequestedRuntimeIdentifier is { } runtimeIdentifier
