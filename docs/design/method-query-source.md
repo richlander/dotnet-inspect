@@ -64,7 +64,9 @@ request groups remain **unverified**.
 IL-offset semantic preparation is the first identical exact-Method request-set
 adopter. Allocation, safety, and cost remain independent Rows associations,
 while their selected combination shares one physical body and instruction
-source for each deduplicated coordinate MethodDef.
+source for each deduplicated coordinate MethodDef. The Analysis-owned
+`ExactMethodSemanticAnalysis` operation issues those structural requests;
+Research only maps their detached results into coordinate projection inputs.
 
 ## Demo and pathological case
 

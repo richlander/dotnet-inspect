@@ -82,7 +82,9 @@ sharing is never required for acceptance.
 IL-offset semantic preparation is the first production adopter for an
 identical exact-MethodDef request set. Its allocation, safety, and cost Rows
 associations retain independent results and receipts while one source group
-serves the selected combination.
+serves the selected combination. The Method Query Source owner constructs the
+structural requests through Analysis-owned `ExactMethodSemanticAnalysis`;
+Research consumes detached results rather than depending on QuerySpace.
 
 Method Classification is the first mixed-terminal production adopter. Its
 session-backed query lowers independent analyzer Rows, Count, Exists, and Head

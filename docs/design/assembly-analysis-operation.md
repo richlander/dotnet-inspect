@@ -538,7 +538,10 @@ direct-call rows needed by coordinate projection. QuerySpace selects any
 requested combination of allocation, safety, and cost associations over one
 deduplicated exact MethodDef population. Each focused input retains its own
 exact source and work receipt, while the request set records the shared
-physical group; no semantic coordinate request opens
+physical group. Analysis-owned `ExactMethodSemanticAnalysis` constructs and
+executes that request set; Research-owned `ILOffsetSemanticAnalysis` maps its
+detached results into coordinate projection inputs without acquiring a
+QuerySpace dependency. No semantic coordinate request opens
 `LibraryBodyAnalysisService`.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
