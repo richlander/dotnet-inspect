@@ -733,6 +733,8 @@ public sealed partial class PackageHouse
                     plannedContentNarrowing = null;
                 PackageHouseLibraryInventoryResolution?
                     plannedLibraryInventory = null;
+                PackageCompileAssetSelectionReceipt?
+                    plannedCompileSelection = null;
                 PackagePayloadAccess payloadAccess =
                     SelectPayloadAccess(request, payloadAcquisition);
                 ReadOnlyMemory<byte>? libraryPopulationNuspec = null;
@@ -754,11 +756,15 @@ public sealed partial class PackageHouse
                                         out PackageHouseContentNarrowingResolution?
                                             contentNarrowing,
                                         out PackageHouseLibraryInventoryResolution?
-                                            libraryInventory);
+                                            libraryInventory,
+                                        out PackageCompileAssetSelectionReceipt?
+                                            compileSelection);
                                 plannedContentNarrowing =
                                     contentNarrowing;
                                 plannedLibraryInventory =
                                     libraryInventory;
+                                plannedCompileSelection =
+                                    compileSelection;
                                 return selected;
                             },
                             payloadAcquisition.RangedSizeCut)
@@ -905,6 +911,8 @@ public sealed partial class PackageHouse
                     contentNarrowingResolution = null;
                 PackageHouseLibraryInventoryResolution?
                     libraryInventoryResolution = null;
+                PackageCompileAssetSelectionReceipt?
+                    compileSelectionReceipt = null;
                 bool semanticManifestUnavailable = false;
                 string? nuspecEntryPath = null;
                 InertString? nuspecSelectionFailure = null;
@@ -920,6 +928,19 @@ public sealed partial class PackageHouse
                                 entries,
                                 payload.Content.ProducerKey,
                                 payload.Content.GenerationIdentity);
+                        if (request.IsCompileInventory || request.IsCompileLibrary)
+                        {
+                            compileSelectionReceipt =
+                                plannedCompileSelection is not null
+                                && ReferenceEquals(
+                                    plannedCompileSelection.Generation,
+                                    payload.Content.GenerationIdentity)
+                                    ? plannedCompileSelection
+                                    : EvaluateCompileSelection(
+                                        request,
+                                        directory,
+                                        rangedPackageId);
+                        }
                         contentNarrowingResolution =
                             plannedContentNarrowing is null
                             || !ReferenceEquals(
@@ -1450,7 +1471,8 @@ public sealed partial class PackageHouse
                         request,
                         acquisition,
                         payload.Content,
-                        libraryPopulationNuspec);
+                        libraryPopulationNuspec,
+                        compileSelectionReceipt);
                 if (payloadAccess == PackagePayloadAccess.Ranged
                     && realization is
                         PackageHouseRealizationReceipt.LibraryPopulation
@@ -2201,11 +2223,13 @@ public sealed partial class PackageHouse
         IPackageContent directory,
         ReadOnlyMemory<byte>? libraryPopulationNuspec,
         out PackageHouseContentNarrowingResolution? contentNarrowing,
-        out PackageHouseLibraryInventoryResolution? libraryInventory)
+        out PackageHouseLibraryInventoryResolution? libraryInventory,
+        out PackageCompileAssetSelectionReceipt? compileSelection)
     {
         string packageId = coordinate.PackageId;
         contentNarrowing = null;
         libraryInventory = null;
+        compileSelection = null;
         if (request.ContentQuery is { } contentQuery)
         {
             contentNarrowing = ResolveContentNarrowing(
@@ -2215,11 +2239,13 @@ public sealed partial class PackageHouse
                 [.. directory.EnumerateEntries()]);
             if (contentQuery.CompileLibraryTerminal is { } library)
             {
-                PackageCompileAssetSelection selection =
+                compileSelection =
                     EvaluateCompileSelection(
                         request,
                         directory,
-                        packageId).Selection;
+                        packageId);
+                PackageCompileAssetSelection selection =
+                    compileSelection.Selection;
                 IReadOnlyList<PackageCompileAsset> matches = library.Selector.Select(selection);
                 if (matches.Count != 1)
                 {
@@ -2247,12 +2273,16 @@ public sealed partial class PackageHouse
                     [.. directory.EnumerateEntries().Where(PackageEntryPath.IsToolSettingsPath)];
                 if (request.MaterializeCompileAssets)
                 {
+                    compileSelection = EvaluateCompileSelection(
+                        request,
+                        directory,
+                        packageId);
                     PackageRangedSelection selectedAssets =
                         SelectRangedCompileEntries(
                             request,
-                            packageId,
                             directory,
-                            names: null);
+                            names: null,
+                            compileSelection.Selection);
                     return AddRootManifest(
                         new PackageRangedSelection(
                             [
@@ -2726,7 +2756,8 @@ public sealed partial class PackageHouse
     }
 
     /// <summary>
-    /// The realization, evaluated over the materialized content. With named
+    /// Declared compile demands reuse their directory selection; other
+    /// realizations are evaluated over the materialized content. With named
     /// implementation demand the selection keeps only the named
     /// implementation assets, so the receipt names only entries the read
     /// fetched; a name that selects no implementation asset leaves the
@@ -2736,17 +2767,19 @@ public sealed partial class PackageHouse
         PackageHouseRequest request,
         PackageHouseAcquisitionReceipt acquisition,
         IPackageContent content,
-        ReadOnlyMemory<byte>? libraryPopulationNuspec) =>
+        ReadOnlyMemory<byte>? libraryPopulationNuspec,
+        PackageCompileAssetSelectionReceipt? compileSelection) =>
         request.AssetSelection switch
         {
             PackageHouseAssetSelectionKind.Compile =>
                 new PackageHouseRealizationReceipt.Compile(
                     acquisition,
                     NameImplementation(
-                        EvaluateCompileSelection(
-                            request,
-                            content,
-                            acquisition.Candidate.Coordinate.PackageId),
+                        compileSelection
+                            ?? EvaluateCompileSelection(
+                                request,
+                                content,
+                                acquisition.Candidate.Coordinate.PackageId),
                         request.ImplementationNames)),
             PackageHouseAssetSelectionKind.Runtime =>
                 new PackageHouseRealizationReceipt.Runtime(
