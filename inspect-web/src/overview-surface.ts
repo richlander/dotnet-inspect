@@ -23,6 +23,7 @@ interface OverviewEnablement {
 
 export interface TypeOverviewSubject {
   displayName: string;
+  fullName: string;
   namespace: string;
   kind: string;
   accessibility?: string;
@@ -158,7 +159,7 @@ export function renderTypeOverview(options: TypeOverviewOptions): string {
           `<div class="type-overview-relationship" data-type-relationship="interface">
             <span>Implements</span>${relatedTypeHtml(name)}
           </div>`).join("");
-        const empty = base || interfaces
+        const empty = base || interfaces || !projection.complete
           ? ""
           : `<p class="subject-overview-status">No base Type or implemented interfaces.</p>`;
         const incomplete = projection.complete
@@ -170,10 +171,7 @@ export function renderTypeOverview(options: TypeOverviewOptions): string {
         return "";
     }
   })();
-  const fullName = exact?.fullName ?? [
-    subject.namespace,
-    subject.displayName,
-  ].filter(Boolean).join(".");
+  const fullName = exact?.fullName ?? subject.fullName;
   const namespace = exact?.namespace ?? (subject.namespace || "global");
 
   return `<section class="overview-surface type-overview-surface" aria-labelledby="type-overview-title">

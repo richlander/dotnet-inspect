@@ -14083,6 +14083,7 @@ function renderTypeOverviewHtml(item: AppTypeSurface) {
   return renderTypeOverview({
     subject: {
       displayName: typeDisplayName(item),
+      fullName: item.metadataId,
       namespace: item.namespace,
       kind: item.kind,
       accessibility: item.accessibility,

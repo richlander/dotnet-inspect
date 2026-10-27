@@ -145,6 +145,7 @@ test("Type Overview separates direct metadata, rollups, and numeric navigation",
   const html = renderTypeOverview({
     subject: {
       displayName: "JsonDocument",
+      fullName: "System.Text.Json.JsonDocument",
       namespace: "System.Text.Json",
       kind: "class",
       accessibility: "public",
@@ -187,7 +188,8 @@ test("Type Overview separates direct metadata, rollups, and numeric navigation",
 test("Type Overview omits an absent rollup group and keeps metadata failure visible", () => {
   const html = renderTypeOverview({
     subject: {
-      displayName: "Widget",
+      displayName: "Widget<T>",
+      fullName: "Example.Widget`1",
       namespace: "Example",
       kind: "class",
       accessibility: "internal",
@@ -208,12 +210,15 @@ test("Type Overview omits an absent rollup group and keeps metadata failure visi
   assert.match(html, /role="alert"/);
   assert.match(html, /&lt;projection failed&gt;/);
   assert.doesNotMatch(html, /No base Type or implemented interfaces/);
+  assert.match(html, /<code>Example\.Widget`1<\/code>/);
+  assert.doesNotMatch(html, /<code>Example\.Widget&lt;T&gt;<\/code>/);
 });
 
 test("Type Overview preserves singular member navigation and incomplete evidence", () => {
   const html = renderTypeOverview({
     subject: {
       displayName: "Widget",
+      fullName: "Widget",
       namespace: "",
       kind: "struct",
       assembly: "Example",
@@ -242,5 +247,6 @@ test("Type Overview preserves singular member navigation and incomplete evidence
 
   assert.match(html, /data-type-members>1 member<\/button>/);
   assert.match(html, /Type relationship evidence is incomplete/);
+  assert.doesNotMatch(html, /No base Type or implemented interfaces/);
   assert.match(html, /<dt>Namespace<\/dt><dd>global<\/dd>/);
 });
