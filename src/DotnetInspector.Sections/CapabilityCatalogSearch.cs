@@ -330,6 +330,7 @@ public static class CapabilityCatalogSearch
                 ResourceExplanationCatalog.RouteIdentity),
             .. capabilityCatalog.Routes
                 .Select(static route => route.QuerySpace)
+                .OfType<QuerySpaceBinding>()
                 .DistinctBy(
                     static querySpace => querySpace.Descriptor.Identity,
                     StringComparer.Ordinal)
@@ -408,21 +409,22 @@ public static class CapabilityCatalogSearch
                     binding.Route.Document),
                 binding,
                 binding.Route);
+            if (binding.Route.QuerySpace is not { } querySpace)
+                continue;
             AddAvailableResource(
-                ResourceExplanationCatalog.QuerySpaceIdentity(
-                    binding.Route.QuerySpace),
+                ResourceExplanationCatalog.QuerySpaceIdentity(querySpace),
                 binding,
                 binding.Route);
 
             foreach (string exposedTerm in binding.ExposedQueryTerms)
             {
                 QuerySpaceOperationTermDescriptor term =
-                    binding.Route.QuerySpace.Descriptor.Operation.Terms
+                    querySpace.Descriptor.Operation.Terms
                         .Single(candidate =>
                             candidate.Identity == exposedTerm);
                 AddAvailableResource(
                     ResourceExplanationCatalog.QueryFacetIdentity(
-                        binding.Route.QuerySpace,
+                        querySpace,
                         term),
                     binding,
                     binding.Route);

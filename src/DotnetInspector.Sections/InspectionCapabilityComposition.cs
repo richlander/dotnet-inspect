@@ -84,6 +84,18 @@ public sealed record InspectionRouteDescriptor
     public string Summary { get; }
 }
 
+/// <summary>
+/// How a host-neutral route executes. A Query Space route executes through its
+/// Query Space binding and carries the Query Space gates; an inspection route
+/// executes its typed entry point directly.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<InspectionRouteExecution>))]
+public enum InspectionRouteExecution
+{
+    QuerySpace,
+    Inspection,
+}
+
 public enum InspectionQueryTermRelationshipKind
 {
     RequiredContext,
@@ -248,7 +260,7 @@ public abstract class InspectionRouteRegistration
     private protected InspectionRouteRegistration(
         InspectionRouteDescriptor descriptor,
         InspectionDocumentRegistration document,
-        QuerySpaceBinding querySpace,
+        QuerySpaceBinding? querySpace,
         IEnumerable<InspectionQueryTermRelationship>?
             queryTermRelationships,
         IEnumerable<InspectionQueryTermRelatedOperation>?
@@ -260,8 +272,33 @@ public abstract class InspectionRouteRegistration
             ?? throw new ArgumentNullException(nameof(descriptor));
         Document = document
             ?? throw new ArgumentNullException(nameof(document));
-        QuerySpace = querySpace
-            ?? throw new ArgumentNullException(nameof(querySpace));
+        QuerySpace = querySpace;
+        QueryTermRelationships =
+        [
+            .. queryTermRelationships ?? [],
+        ];
+        QueryTermRelatedOperations =
+        [
+            .. queryTermRelatedOperations ?? [],
+        ];
+        QueryTermPresentations =
+        [
+            .. queryTermPresentations ?? [],
+        ];
+        if (querySpace is null)
+        {
+            if (!QueryTermRelationships.IsEmpty
+                || !QueryTermRelatedOperations.IsEmpty
+                || !QueryTermPresentations.IsEmpty)
+            {
+                throw new ArgumentException(
+                    $"Inspection route '{descriptor.Identity}' has no Query "
+                    + "Space, so it cannot declare query-term relationships, "
+                    + "related operations, or presentations.",
+                    nameof(querySpace));
+            }
+            return;
+        }
 
         QuerySpaceResultContractDescriptor? rowsContract =
             querySpace.Descriptor.ResultContracts.SingleOrDefault(
@@ -281,18 +318,6 @@ public abstract class InspectionRouteRegistration
                 nameof(querySpace));
         }
 
-        QueryTermRelationships =
-        [
-            .. queryTermRelationships ?? [],
-        ];
-        QueryTermRelatedOperations =
-        [
-            .. queryTermRelatedOperations ?? [],
-        ];
-        QueryTermPresentations =
-        [
-            .. queryTermPresentations ?? [],
-        ];
         HashSet<string> queryTerms =
             querySpace.Descriptor.Operation.Terms
                 .Select(static term => term.Identity)
@@ -384,7 +409,13 @@ public abstract class InspectionRouteRegistration
 
     public InspectionDocumentRegistration Document { get; }
 
-    public QuerySpaceBinding QuerySpace { get; }
+    /// <summary>The route's Query Space binding; null for an inspection route.</summary>
+    public QuerySpaceBinding? QuerySpace { get; }
+
+    public InspectionRouteExecution Execution =>
+        QuerySpace is null
+            ? InspectionRouteExecution.Inspection
+            : InspectionRouteExecution.QuerySpace;
 
     public ImmutableArray<InspectionQueryTermRelationship>
         QueryTermRelationships { get; }
@@ -422,10 +453,25 @@ public sealed class InspectionRouteRegistration<TRequest, TContent> :
         : base(
             descriptor,
             document,
-            querySpace,
+            querySpace
+                ?? throw new ArgumentNullException(nameof(querySpace)),
             queryTermRelationships,
             queryTermRelatedOperations,
             queryTermPresentations)
+    {
+        _execute = execute
+            ?? throw new ArgumentNullException(nameof(execute));
+    }
+
+    /// <summary>An inspection route: typed execution without a Query Space.</summary>
+    public InspectionRouteRegistration(
+        InspectionRouteDescriptor descriptor,
+        InspectionDocumentRegistration<TContent> document,
+        Func<
+            TRequest,
+            CancellationToken,
+            ValueTask<InspectionEnvelope<TContent>>> execute)
+        : base(descriptor, document, null, null, null, null)
     {
         _execute = execute
             ?? throw new ArgumentNullException(nameof(execute));
@@ -849,12 +895,14 @@ public sealed class InspectionCapabilityCatalog
             }
         }
         foreach (IGrouping<string, InspectionRouteRegistration> group
-                 in routes.GroupBy(
-                     static route =>
-                         route.QuerySpace.Descriptor.Identity,
-                     StringComparer.Ordinal))
+                 in routes
+                     .Where(static route => route.QuerySpace is not null)
+                     .GroupBy(
+                         static route =>
+                             route.QuerySpace!.Descriptor.Identity,
+                         StringComparer.Ordinal))
         {
-            QuerySpaceBinding first = group.First().QuerySpace;
+            QuerySpaceBinding first = group.First().QuerySpace!;
             if (group.Any(route =>
                     !ReferenceEquals(route.QuerySpace, first)))
             {
@@ -893,9 +941,10 @@ public sealed class InspectionCapabilityCatalog
             }
 
             HashSet<string> routeTerms =
-                binding.Route.QuerySpace.Descriptor.Operation.Terms
+                binding.Route.QuerySpace?.Descriptor.Operation.Terms
                     .Select(static term => term.Identity)
-                    .ToHashSet(StringComparer.Ordinal);
+                    .ToHashSet(StringComparer.Ordinal)
+                ?? [];
             foreach (string exposedTerm in binding.ExposedQueryTerms)
             {
                 if (!routeTerms.Contains(exposedTerm))

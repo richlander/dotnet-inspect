@@ -735,9 +735,10 @@ internal static class ResourceExplanationVocabulary
                     TextFact("identity", "Identity"),
                     TextFact("name", "Name"),
                     TextFact("summary", "Summary"),
-                    TextFact("subject-role", "Subject role"),
-                    TextFact("result-grain", "Result grain"),
-                    TextFact("profile", "Profile"),
+                    TextFact("execution", "Execution"),
+                    OptionalTextFact("subject-role", "Subject role"),
+                    OptionalTextFact("result-grain", "Result grain"),
+                    OptionalTextFact("profile", "Profile"),
                     OpaqueExternalIdentityFact(
                         "result-contract",
                         "Result contract"),
