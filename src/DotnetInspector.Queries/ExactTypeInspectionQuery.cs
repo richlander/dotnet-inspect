@@ -947,7 +947,7 @@ internal static class ExactTypeInspectionQuery
         (ImmutableArray<Candidate> matching, string? matchedType) =
             MatchDeclarations(
                 declarations,
-                declarationNames,
+                declarationScan?.Declarations ?? declarations,
                 requestedType,
                 selectionKind,
                 selectedDefinition);
@@ -1562,7 +1562,7 @@ internal static class ExactTypeInspectionQuery
         (ImmutableArray<Candidate> matching, _) =
             MatchDeclarations(
                 scan.Declarations,
-                [.. scan.Names],
+                scan.Declarations,
                 requestedType,
                 selectionKind,
                 selectedDefinition: null);
@@ -1605,72 +1605,42 @@ internal static class ExactTypeInspectionQuery
         string? MatchedType)
         MatchDeclarations(
             ImmutableArray<Candidate> declarations,
-            IReadOnlyList<string> declarationNames,
+            ImmutableArray<Candidate> selectionPopulation,
             string requestedType,
             ExactTypeSelectionKind selectionKind,
             MetadataTypeDefinitionName? selectedDefinition)
     {
-        if (selectedDefinition is not null)
+        MetadataTypeLookupResult<Candidate> lookup =
+            selectedDefinition is not null
+                ? MetadataTypeLookup.Definition(
+                    selectionPopulation,
+                    static candidate => candidate.Definition,
+                    selectedDefinition)
+                : selectionKind == ExactTypeSelectionKind.DefinitionIdentity
+                    ? MetadataTypeLookup.Definition(
+                        selectionPopulation,
+                        static candidate => candidate.Definition,
+                        requestedType)
+                    : MetadataTypeLookup.Query(
+                        selectionPopulation,
+                        static candidate => candidate.Definition,
+                        requestedType);
+        ImmutableArray<Candidate> matching = lookup.Matches;
+        if (selectionPopulation != declarations)
         {
-            ImmutableArray<Candidate> selected =
+            HashSet<MetadataTypeDefinitionName> selectedNames =
+                [.. lookup.Matches.Select(static candidate => candidate.Definition)];
+            matching =
             [
                 .. declarations.Where(candidate =>
-                    candidate.Definition.Equals(
-                        selectedDefinition)),
+                    selectedNames.Contains(candidate.Definition)),
             ];
-            return (
-                selected,
-                selected.IsEmpty ? null : requestedType);
         }
-        if (selectionKind
-            == ExactTypeSelectionKind.DefinitionIdentity)
-        {
-            ImmutableArray<Candidate> selected =
-            [
-                .. declarations.Where(candidate =>
-                    candidate.Definition.ToEscapedFullName().Equals(
-                        requestedType,
-                        StringComparison.Ordinal)),
-            ];
-            return (
-                selected,
-                selected.IsEmpty ? null : requestedType);
-        }
-
-        string? exactName = declarationNames.FirstOrDefault(name =>
-            name.Equals(
-                requestedType,
-                StringComparison.OrdinalIgnoreCase));
-        string[] exactShortNames = exactName is null
-            ? [
-                .. declarationNames.Where(name =>
-                    TypeMatcher.MatchesExactTypeName(
-                        name,
-                        requestedType)),
-            ]
-            : [];
-        string[] matchingNames =
-            exactName is not null
-                ? [exactName]
-                : exactShortNames.Length > 0
-                    ? exactShortNames
-                    :
-            [
-                .. declarationNames.Where(name =>
-                    TypeMatcher.MatchesTypeFilter(
-                        name,
-                        requestedType)),
-            ];
         return (
-            [
-                .. declarations.Where(candidate =>
-                    matchingNames.Contains(
-                        candidate.Definition.ToEscapedFullName(),
-                        StringComparer.OrdinalIgnoreCase)),
-            ],
-            matchingNames.Length == 1
-                ? matchingNames[0]
-                : null);
+            matching,
+            selectedDefinition is not null && !lookup.Matches.IsEmpty
+                ? requestedType
+                : lookup.MatchedName);
     }
 
     static ImmutableArray<Candidate> Declarations(
