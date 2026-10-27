@@ -421,3 +421,44 @@ public class ObsoleteMemberChanged
     [Obsolete("m")]
     public int Value(int before) => before;
 }
+
+// Type-level ownership seams: the Member fold must retain census axes while
+// raising the physical rows that the C# Member population folds.
+public class MemberFoldAddedProperty
+{
+}
+
+public enum MemberFoldEnum : int { One = 1 }
+
+public class MemberFoldEvent
+{
+    public event Action? Changed;
+    public void Raise() => Changed?.Invoke();
+}
+
+public class MemberFoldHidden
+{
+    public int Value() => 1;
+}
+
+internal class MemberFoldBase : Exception
+{
+}
+
+public class MemberFoldMarker : IMemberFoldMarker
+{
+    public void Dispose() { }
+}
+
+public interface IMemberFoldMarker { }
+
+public class MemberFoldStatic
+{
+    static int _value = 1;
+    public static int Value => _value;
+}
+
+public class MemberFoldInternalAttribute
+{
+    internal int Value() => 1;
+}

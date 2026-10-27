@@ -433,3 +433,45 @@ public class ObsoleteMemberChanged
     [Obsolete("m")]
     public int Value(int after) => after;
 }
+
+public class MemberFoldAddedProperty
+{
+    public int Added { get; private set; }
+}
+
+public enum MemberFoldEnum : long { One = 1 }
+
+public class MemberFoldEvent
+{
+    [field: Description("storage")]
+    public event Action? Changed;
+    public void Raise() => Changed?.Invoke();
+}
+
+internal class MemberFoldHidden
+{
+    public int Value() => 1;
+}
+
+internal class MemberFoldBase : SystemException
+{
+}
+
+public class MemberFoldMarker
+{
+    public void Dispose() { }
+}
+
+public interface IMemberFoldMarker { }
+
+public class MemberFoldStatic
+{
+    static int _value = 2;
+    public static int Value => _value;
+}
+
+public class MemberFoldInternalAttribute
+{
+    [Description("implementation")]
+    internal int Value() => 1;
+}
