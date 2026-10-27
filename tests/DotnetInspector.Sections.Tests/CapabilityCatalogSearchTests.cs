@@ -47,6 +47,31 @@ public sealed class CapabilityCatalogSearchTests
     }
 
     [Fact]
+    public void SeparatorJoinedKey_MatchesTheCompleteCanonicalKey()
+    {
+        (InspectionCapabilityCatalog catalog,
+            ResourceExplanationCatalog explanation) = CreateCatalog();
+
+        CapabilityCatalogSearchDocument document =
+            CapabilityCatalogSearch.Search(
+                    catalog,
+                    explanation,
+                    new("library-literal"))
+                .Content;
+
+        Assert.Equal(
+            CapabilityCatalogSearch.PhraseThreshold,
+            document.SimilarityThreshold);
+        CapabilityCatalogSearchResult result = document.Results[0];
+        Assert.Equal(1.0, result.Similarity);
+        Assert.Equal("library-literal", result.MatchedTerm);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.CanonicalKey,
+            result.MatchSource);
+        Assert.False(result.IsSegment);
+    }
+
+    [Fact]
     public void ExampleValue_FindsTheExposedLibraryLiteralFacet()
     {
         (InspectionCapabilityCatalog catalog,

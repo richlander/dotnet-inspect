@@ -572,7 +572,9 @@ public static class PackageInfoMeasurementInspection
         PackageRootBinding root,
         IPackageContent content)
     {
-        PackageCompileAssetSelection selection = root.Root.AssetSelection;
+        PackageCompileAssetSelection selection = root.Root.AssetSelection
+            ?? throw new InvalidOperationException(
+                "Compile-slice measurements require a realized Library selection.");
         if (!PackageHouseCompileSliceMeasurementProjection
                 .TryGetArchiveLength(
                     content,

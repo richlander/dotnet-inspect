@@ -79,7 +79,8 @@ internal sealed record BrowserRetainedWorkspaceActivationRequest(
         ?? throw new ArgumentNullException(nameof(RestorationRequest));
 
     internal IReadOnlyDictionary<string, PackageSourceCredential>
-        PackageSourceCredentials { get; } =
+        PackageSourceCredentials
+    { get; } =
         FreezeCredentials(PackageSourceCredentials);
 
     public override string ToString() =>
@@ -575,28 +576,34 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                 request.RestorationRequest,
                 workspace.Request)
             switch
-            {
-                (CompleteRestorationRequestBasis.PacketInput expected,
-                    CompleteRestorationRequestBasis.PacketInput actual) =>
-                    string.Equals(
-                        expected.Encoded,
-                        actual.Encoded,
-                        StringComparison.Ordinal),
-                (CompleteRestorationRequestBasis.DefinitionInput expected,
-                    CompleteRestorationRequestBasis.DefinitionInput actual) =>
-                    ReferenceEquals(expected, actual),
-                (CompleteRestorationRequestBasis
-                        .RegistrationOnlyEcosystemInput expected,
-                    CompleteRestorationRequestBasis
-                        .RegistrationOnlyEcosystemInput actual) =>
-                    ReferenceEquals(expected, actual),
-                _ => false,
-            };
+        {
+            (CompleteRestorationRequestBasis.PacketInput expected,
+                CompleteRestorationRequestBasis.PacketInput actual) =>
+                string.Equals(
+                    expected.Encoded,
+                    actual.Encoded,
+                    StringComparison.Ordinal),
+            (CompleteRestorationRequestBasis.DefinitionInput expected,
+                CompleteRestorationRequestBasis.DefinitionInput actual) =>
+                ReferenceEquals(expected, actual),
+            (CompleteRestorationRequestBasis
+                    .RegistrationOnlyEcosystemInput expected,
+                CompleteRestorationRequestBasis
+                    .RegistrationOnlyEcosystemInput actual) =>
+                ReferenceEquals(expected, actual),
+            (CompleteRestorationRequestBasis
+                    .RegistrationOnlyEcosystemPackageTypeInput expected,
+                CompleteRestorationRequestBasis
+                    .RegistrationOnlyEcosystemPackageTypeInput actual) =>
+                ReferenceEquals(expected, actual),
+            _ => false,
+        };
         if (!exactRequest)
         {
             throw new InvalidOperationException(
                 "The completed Workspace did not retain the activation request.");
         }
+        ValidatePackageTypePreparation(request.RestorationRequest, workspace);
         if (workspace.Snapshot.Navigation.Result.Consumer.Authority is null)
         {
             throw new InvalidOperationException(
@@ -616,6 +623,9 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                 CompleteRestorationResolvedState.Version5 version5 =>
                     version5.Definitions,
                 CompleteRestorationResolvedState.RegistrationOnlyEcosystem =>
+                    null,
+                CompleteRestorationResolvedState
+                    .RegistrationOnlyEcosystemPackageType =>
                     null,
                 _ => throw new InvalidOperationException(
                     "Unknown complete restoration resolved state."),
@@ -662,6 +672,25 @@ internal sealed record BrowserRetainedWorkspacePostingDraft(
                             BrowserPlatformSurfaceProjection.Project(platform))),
             ],
             BrowserRetainedNavigationPreparation.Create(options, ready));
+    }
+
+    static void ValidatePackageTypePreparation(
+        CompleteRestorationRequestBasis request,
+        CompleteWorkspaceActivation workspace)
+    {
+        if (request
+            is not CompleteRestorationRequestBasis
+                .RegistrationOnlyEcosystemPackageTypeInput expected)
+        {
+            return;
+        }
+        if (!workspace.HasPreparedPackageType(
+                expected.Library,
+                expected.Type))
+        {
+            throw new InvalidOperationException(
+                "The completed Workspace did not retain the exact prepared package-Type subject.");
+        }
     }
 
     internal BrowserRetainedWorkspacePosting Publish(
@@ -880,10 +909,10 @@ internal sealed class BrowserRetainedWorkspaceActivationSession
     internal string Receipt { get; }
 
     internal Task<BrowserRetainedWorkspacePreparationResult> Preparation
-        { get; }
+    { get; }
 
     internal Task<BrowserRetainedWorkspaceActivationResult> Activation
-        { get; }
+    { get; }
 
     internal bool Commit() =>
         _owner?.TryBeginConsumerCommit(_intent!) ?? false;
@@ -1408,7 +1437,8 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
         using WorkspaceRealizationOperationLease operation = admitted.Lease;
 
         BrowserRetainedWorkspacePosting expected;
-        CompleteRestorationRequestBasis.RegistrationOnlyEcosystemInput request;
+        WorkspacePlan plan;
+        WorkspaceEcosystemRegistrationId ecosystemId;
         WorkspaceEcosystemRegistrationDeclaration declaration;
         lock (_gate)
         {
@@ -1420,27 +1450,34 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 return new BrowserEcosystemPackageAdmissionResult.Superseded();
             }
             expected = active;
-            if (active.RestorationRequest
-                is not CompleteRestorationRequestBasis
-                    .RegistrationOnlyEcosystemInput ecosystem)
+            (plan, ecosystemId) = active.RestorationRequest switch
+            {
+                CompleteRestorationRequestBasis
+                    .RegistrationOnlyEcosystemInput ecosystem =>
+                    (ecosystem.Plan, ecosystem.Ecosystem),
+                CompleteRestorationRequestBasis
+                    .RegistrationOnlyEcosystemPackageTypeInput packageType =>
+                    (packageType.Plan, packageType.Ecosystem),
+                _ => (null!, null!),
+            };
+            if (plan is null)
             {
                 return new BrowserEcosystemPackageAdmissionResult.Failed(
                     "The active retained Workspace is not an Ecosystem "
                         + "Workspace.");
             }
-            request = ecosystem;
             WorkspaceRegistration.Ecosystem[] registrations =
             [
-                .. request.Plan.Registrations
+                .. plan.Registrations
                     .OfType<WorkspaceRegistration.Ecosystem>()
                     .Where(candidate =>
-                        candidate.Declaration.Id == request.Ecosystem),
+                        candidate.Declaration.Id == ecosystemId),
             ];
             if (registrations.Length != 1)
             {
                 return new BrowserEcosystemPackageAdmissionResult.Failed(
                     $"The active Workspace does not retain exactly one "
-                        + $"Ecosystem registration '{request.Ecosystem}'.");
+                        + $"Ecosystem registration '{ecosystemId}'.");
             }
             declaration = registrations[0].Declaration;
         }
@@ -1519,7 +1556,7 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                     + $"{package.Version} instead of '{packageId}' {version}.");
         }
         var binding = package.CreateRootBinding(
-            request.Plan.TraversalTargetPolicy.TargetFramework);
+            plan.TraversalTargetPolicy.TargetFramework);
 
         if (!IsCurrentEcosystemRegistration(
                 expected,
@@ -1720,9 +1757,9 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
         WorkspaceRegistrationReadResult registrations =
             operation.Workspace.GetRegistrationSnapshot();
         return registrations is WorkspaceRegistrationReadResult.Available
-            {
-                Revision: var revision,
-            }
+        {
+            Revision: var revision,
+        }
             && revision.EcosystemContributions.Count(contribution =>
                 contribution.Ecosystem.Declaration.Id == declaration.Id
                 && ReferenceEquals(
@@ -2327,6 +2364,13 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                     CompleteRestorationPreparation
                         .FromRegistrationOnlyEcosystem(
                             ecosystem,
+                            intent,
+                            cancellationToken),
+                CompleteRestorationRequestBasis
+                        .RegistrationOnlyEcosystemPackageTypeInput packageType =>
+                    CompleteRestorationPreparation
+                        .FromRegistrationOnlyEcosystemPackageType(
+                            packageType,
                             intent,
                             cancellationToken),
                 _ => throw new InvalidOperationException(

@@ -286,9 +286,9 @@ public sealed class NavigationDescendantLensEvaluationTests
                 workspace,
                 binding);
         PackageCompileAsset firstAsset =
-            binding.Root.AssetSelection.Assets[0];
+            Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Assets[0];
         PackageCompileAsset secondAsset =
-            binding.Root.AssetSelection.Assets[1];
+            Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Assets[1];
         WorkspaceContextMember firstLibrary =
             Library(
                 binding.Coordinate,

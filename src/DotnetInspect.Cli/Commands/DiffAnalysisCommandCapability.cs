@@ -26,9 +26,29 @@ internal static class DiffAnalysisCommandCapability
                 "diff --analysis"),
             DiffAnalysisCatalog.Operation);
 
+    internal const string CompareBindingIdentity =
+        "dotnet-inspect.cli/diff-compare";
+
+    /// <summary>
+    /// The <c>diff --analysis</c> command's binding to Diff's Compare
+    /// inspection route. Every analysis-set run executes through it.
+    /// </summary>
+    internal static InspectionConsumerBinding<
+        DiffAnalysisInspectionRequest,
+        DiffAnalysisDocument> CompareBinding { get; } =
+        new(
+            new(
+                CompareBindingIdentity,
+                InspectionConsumerKind.Cli,
+                "dotnet-inspect CLI",
+                "diff --analysis"),
+            DiffAnalysisCatalog.Route,
+            exposedQueryTerms: []);
+
     internal static InspectionCapabilityModule Module { get; } =
         new(
             ModuleIdentity,
+            bindings: [CompareBinding],
             analysisBindings: [Binding]);
 
     /// <summary>The composed catalog Diff validates and dispatches against.</summary>

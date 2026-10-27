@@ -131,10 +131,12 @@ public sealed class SelectedPropertyAccessorSource
             if (method.IsOverride)
             {
                 var declaration = MetadataDeclarationQuery.GetProperty(reader, type, property);
-                string role = getter ? "get" : "set";
                 // A narrowed accessor cannot supply the inherited property's accessibility.
                 if (declaration.Signature.Accessors.Any(accessor =>
-                    accessor.Kind == role && accessor.Accessibility is not null))
+                    (getter
+                        ? accessor.Kind == "get"
+                        : ApiAccessor.IsSetterKind(accessor.Kind))
+                    && accessor.Accessibility is not null))
                     return null;
             }
 

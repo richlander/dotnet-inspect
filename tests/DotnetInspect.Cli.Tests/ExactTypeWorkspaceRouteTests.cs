@@ -1855,7 +1855,79 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
-    public void DefaultMemberRicherViewsRemainOnCompatibilityPath()
+    public async Task
+        DefiningImplementationMemberRouteRendersIlFromNonNamesakeLibrary()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ApiType).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/ILInspector.Metadata.dll", assembly),
+            ($"lib/{Framework}/ILInspector.Metadata.dll", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName =
+                $"{typeof(ApiType).FullName}."
+                    + $"{nameof(ApiType.Accessibility)}:1",
+            Select = [SectionNames.IL],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("IL_0000: ldarg.0", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationMemberRouteRendersExceptionRegions()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(SingleTypeSurfaceFixture).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(SingleTypeSurfaceFixture).FullName,
+            MemberFilter = [nameof(SingleTypeSurfaceFixture.Overloaded)],
+            OverloadIndex = 1,
+            Select = [SectionNames.ExceptionRegions],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.Contains("\tcatch\t", output, StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(OverflowException),
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberRouteAdmitsOnlyLockedDemandShapes()
     {
         var options = new MemberOptions
         {
@@ -1865,55 +1937,100 @@ public sealed class ExactTypeWorkspaceRouteTests
             ShowDocs = true,
             CompanionOutput = CompanionOutput.None,
         };
+        ResolvedMemberInspectionPlan plan =
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
 
         Assert.True(
-            MemberCommand.TryCreateSharedDefaultMemberRequest(
+            MemberCommand.TryCreateSharedMemberRequest(
                 options,
-                out _));
+                plan,
+                out _,
+                out MemberCommand.SharedMemberPackageDemand defaultDemand));
+        Assert.Equal(
+            MemberCommand.SharedMemberPackageDemand.Surface,
+            defaultDemand);
+        MemberOptions exact = options with
+        {
+            MemberFilter = ["Accessibility"],
+            OverloadIndex = 1,
+        };
         Assert.True(
-            MemberCommand.TryCreateSharedDefaultMemberRequest(
-                options with
-                {
-                    MemberFilter = ["Accessibility"],
-                    OverloadIndex = 1,
-                },
+            MemberCommand.TryCreateSharedMemberRequest(
+                exact,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(exact),
+                out _,
                 out _));
+        foreach (string section in (string[])
+            [
+                SectionNames.IL,
+                SectionNames.ExceptionRegions,
+            ])
+        {
+            MemberOptions implementation = exact with
+            {
+                Select = [section],
+            };
+            Assert.True(
+                MemberCommand.TryCreateSharedMemberRequest(
+                    implementation,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(implementation),
+                    out _,
+                    out MemberCommand.SharedMemberPackageDemand demand));
+            Assert.Equal(
+                MemberCommand.SharedMemberPackageDemand
+                    .DefiningImplementation,
+                demand);
+        }
         Assert.False(
-            MemberCommand.TryCreateSharedDefaultMemberRequest(
+            MemberCommand.TryCreateSharedMemberRequest(
                 options with
                 {
                     DocsExplicitlySet = true,
                 },
+                plan,
+                out _,
+                out _));
+        MemberOptions decompiled = exact with
+        {
+            Select = [SectionNames.DecompiledSource],
+        };
+        Assert.False(
+            MemberCommand.TryCreateSharedMemberRequest(
+                decompiled,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(decompiled),
+                out _,
                 out _));
         Assert.False(
-            MemberCommand.TryCreateSharedDefaultMemberRequest(
-                options with
-                {
-                    IncludeSections =
-                        [SectionNames.DecompiledSource],
-                },
-                out _));
-        Assert.False(
-            MemberCommand.TryCreateSharedDefaultMemberRequest(
+            MemberCommand.TryCreateSharedMemberRequest(
                 options with
                 {
                     JsonOutput = true,
                     FormatExplicitlySet = true,
                 },
+                plan,
+                out _,
                 out _));
         Assert.False(
-            MemberCommand.TryCreateSharedDefaultMemberRequest(
+            MemberCommand.TryCreateSharedMemberRequest(
                 options with
                 {
                     PackagePath = PackageId,
                 },
+                plan,
+                out _,
                 out _));
         Assert.False(
-            MemberCommand.TryCreateSharedDefaultMemberRequest(
+            MemberCommand.TryCreateSharedMemberRequest(
                 options with
                 {
                     Tfm = null,
                 },
+                plan,
+                out _,
                 out _));
     }
 
@@ -1978,6 +2095,33 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackagePayloadAcquisitionPlan.ForContentQueries(
                 (_, _) => store));
         return await TypeCommand.ExecuteAsync(
+            options,
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
+            house,
+            cancellationToken =>
+                root.IssueOperationLease(cancellationToken));
+    }
+
+    static async Task<int> ExecuteEligibleMemberRouteAsync(
+        MemberOptions options,
+        IPackageStore store)
+    {
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        return await MemberCommand.ExecuteAsync(
             options,
             ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
             house,

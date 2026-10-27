@@ -212,9 +212,15 @@ export interface BrowserHomeDemoRunActivation {
   readonly platformContextId: string | null;
 }
 
+export interface BrowserHomeDemoRunPackage {
+  readonly surface: BrowserPackageSurface;
+  readonly runtimeIdentifier: string | null;
+  readonly implementationComparisonRuntimeIdentifier: string | null;
+}
+
 export interface BrowserHomeDemoRunResult {
   readonly found: boolean;
-  readonly packages: ReadonlyArray<BrowserPackageSurface>;
+  readonly packages: ReadonlyArray<BrowserHomeDemoRunPackage>;
   readonly activation: BrowserHomeDemoRunActivation | null;
   readonly callGraph: BrowserCallGraph | null;
 }
@@ -583,6 +589,8 @@ export interface BrowserRetainedWorkspacePackageInventory {
   readonly navigationId: string;
   readonly contextIndex: number;
   readonly consumerPackageSubjectId: string;
+  readonly runtimeIdentifier: string | null;
+  readonly implementationComparisonRuntimeIdentifier: string;
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
   readonly defaultLibrary: BrowserRetainedWorkspacePackageLibraryIdentity | null;
 }
@@ -1022,6 +1030,7 @@ type $ManagedExports = {
             readonly "InspectVocabulary.1310674786": () => string;
             readonly "ListEcosystems.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
+            readonly "ListLibraryViewFacets.1310674786": () => string;
             readonly "ListTypeViewFacets.1310674786": () => string;
             readonly "ObserveRetainedWorkspaceSettlement.976702342": (settlementId: string) => Promise<string>;
             readonly "PrepareEcosystemWorkspaceDefinition.1579276339": (retainedDefinitionId: string, label: string, canonicalLocation: string, ecosystemId: string) => Promise<string>;
@@ -1389,6 +1398,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "ListLibraryViewFacets.1310674786");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListLibraryViewFacets.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
     value = $ownDataProperty(value, "ListTypeViewFacets.1310674786");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ListTypeViewFacets.1310674786\u0027 is not callable.");
@@ -1709,6 +1730,12 @@ export function listHomeDemos(): BrowserHomeDemoCatalog {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ListHomeDemos.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserHomeDemoCatalog;
+}
+
+export function listLibraryViewFacets(): BrowserViewFacetCatalog {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ListLibraryViewFacets.1310674786"]();
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserViewFacetCatalog;
 }
 
 export function listTypeViewFacets(): BrowserViewFacetCatalog {

@@ -119,10 +119,12 @@ receipt independently of the legacy three-result input.
 The allocation-only follow-up plans `ExactMethodAllocationProducer` over the
 same deduplicated MethodDef population. `ILOffsetAllocationAnalysisInput`
 carries detached allocation occurrences, diagnostics, source receipt, and work
-receipt. Direct CLI and Library Address reuse one focused input across every
-coordinate row and do not execute this service. Cost-only and combined
-semantic coordinate requests still use this service because cost requires the
-donor-owned public direct-call rows.
+receipt. The cost-only follow-up plans `FocusedMethodCallProducer`;
+`ILOffsetCostAnalysisInput` carries detached direct-call rows keyed by their
+physical evidence MethodDef, diagnostics, source receipt, and work receipt.
+Direct CLI and Library Address reuse one focused input across every coordinate
+row and do not execute this service. Combined semantic coordinate requests
+still use this service.
 
 The method-analysis-support prerequisite for exact allocation and optimization
 is tracked by

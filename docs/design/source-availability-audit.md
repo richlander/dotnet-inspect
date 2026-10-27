@@ -139,9 +139,12 @@ cacheable evidence, and is not translated into a reusable availability result.
 
 ## Concurrency and ordering
 
-The service performs uncached HEAD operations with a maximum concurrency of 16.
-Completion order does not affect the result: missing authored paths are sorted
-ordinally, and all counts are census totals.
+The service admits uncached documents in census order to a completion-driven
+asynchronous window with at most 16 HEAD operations in flight. Completion of
+any operation refills the window without waiting for earlier operations, and
+the scheduling mechanism does not require parallel threads. Completion order
+does not affect the result: coordinator-owned counts are census totals, and
+missing authored paths are sorted ordinally.
 
 Cache reuse is per resolved URL across audits. Each compiler observation still
 contributes independently to the result counts.

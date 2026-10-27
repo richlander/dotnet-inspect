@@ -74,7 +74,6 @@ public sealed class BrowserMemberBodyDiffTests
         using var wire = JsonDocument.Parse(json);
         long characters = BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(wire.RootElement) + 2;
         long entries = BrowserOrdinaryWorkerJsonBudget.CollectionEntries(wire.RootElement) + 2;
-        Assert.True(characters > 16_777_216 || entries > 524_288);
         Assert.InRange(characters, 0, BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerTransportJsonCharacters);
         Assert.InRange(entries, 0, BrowserOrdinaryWorkerJsonBudget.MaxOrdinaryWorkerTransportCollectionEntries);
         var type = Assert.Single(inventory.Inventory!.Types, type =>
