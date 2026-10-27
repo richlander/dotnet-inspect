@@ -1180,6 +1180,84 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve: complete };
 }
 
+test("local Project uploads use real Wasm, preserve declarations, and return from explicit Package inspection", async ({
+  page, context,
+}) => {
+  const registry = new GalleryFixtureRegistry([healthy]);
+  let dependencyTransfers = 0;
+  await installGalleryRoutes(context, registry, async () => {
+    dependencyTransfers++;
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.locator(".home-search")).not.toHaveClass(/engine-pending/, {
+    timeout: 120_000,
+  });
+  const openFile = async (name: string, buffer: Buffer) => {
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-action="open-library"]').click();
+    await page.locator("#library-open-input").setInputFiles({
+      name, mimeType: "application/octet-stream", buffer,
+    });
+  };
+  const chooseProjectDependencies = async () => {
+    const tab = page.locator("[data-inspector-tab]").filter({ hasText: "Dependencies" });
+    if (await tab.isVisible()) await tab.click();
+    else {
+      await page.locator("[data-navigation-trigger='inspector']").click();
+      await page.locator("#inspector-navigation-menu")
+        .getByRole("menuitemradio", { name: /^Dependencies:/ }).click({ timeout: 10_000 });
+    }
+  };
+  await openFile("DotnetInspect.Cli.csproj",
+    readFileSync(resolve("../src/DotnetInspect.Cli/DotnetInspect.Cli.csproj")));
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("DotnetInspect.Cli.csproj", { timeout: 30_000 });
+  await chooseProjectDependencies();
+  await expect(page.locator("#inspector-panel")).toContainText("Unresolved declaration");
+  await expect(page.locator("#inspector-panel")).toContainText("MSBuild was not evaluated");
+  const authoredIdentity = await currentHistoryWorkspaceId(page);
+  expect(authoredIdentity).not.toBeNull();
+
+  await openFile("project.assets.json", Buffer.from(JSON.stringify({
+    version: 3,
+    targets: { "net11.0": {
+      [`${healthy.packageId}/${healthy.version}`]: { type: "package" },
+    } },
+    projectFileDependencyGroups: { "net11.0": [`${healthy.packageId} >= ${healthy.version}`] },
+    project: { frameworks: { "net11.0": { dependencies: {
+      [healthy.packageId]: { target: "Package", version: `[${healthy.version}, )` },
+    } } } },
+  })));
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("project.assets.json", { timeout: 30_000 });
+  const restoredIdentity = await currentHistoryWorkspaceId(page);
+  expect(restoredIdentity).not.toBe(authoredIdentity);
+  expect(new URL(page.url()).search).toBe("");
+  expect(new URL(page.url()).hash).toBe("");
+  await chooseProjectDependencies();
+  await expect(page.locator("#inspector-panel")).toContainText(healthy.packageId.toLowerCase());
+  expect(dependencyTransfers).toBe(0);
+  await page.getByRole("button", { name: "Inspect Package", exact: true }).click();
+  await expect(page.locator("#inspector-panel h1"))
+    .toHaveText(new RegExp(`^${healthy.packageId.replaceAll(".", "\\.")}$`, "i"),
+      { timeout: 60_000 });
+  expect(dependencyTransfers).toBeGreaterThan(0);
+  await page.goBack();
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("project.assets.json", { timeout: 30_000 });
+  expect(await currentHistoryWorkspaceId(page)).toBe(restoredIdentity);
+  await expect(page.locator("#inspector-panel")).toContainText("No restore or dependency acquisition");
+  await openFile("broken.csproj", Buffer.from("<Project>"));
+  await expect(page.locator("#library-open-error")).toContainText("well-formed XML");
+  await page.locator("#library-open-close").click();
+  await expect(page.locator("#inspector-panel h1")).toContainText("project.assets.json");
+  await openFile("DiffAsmLibA.dll", healthyAssembly);
+  await expect(page.locator("#inspector-panel h1")).toContainText("DiffAsmLibA", { timeout: 30_000 });
+  expect(new URL(page.url()).search).toBe("");
+  expect(new URL(page.url()).hash).toBe("");
+});
+
 test("product navigation discloses startup-dependent destinations", async ({
   context,
   page,
