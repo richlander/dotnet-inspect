@@ -1555,6 +1555,24 @@ public static class FindingDiffAny
             }
         }
 
+        internal SymbolKey<FindingDiffAnyPart> MemberKey(TypeDefinitionHandle declaringType, EntityHandle handle)
+        {
+            if (handle.Kind == HandleKind.PropertyDefinition)
+            {
+                PropertyDefinition property = Md.GetPropertyDefinition((PropertyDefinitionHandle)handle);
+                return PropertyKey(TypeKey(declaringType), property).Detach();
+            }
+            if (handle.Kind == HandleKind.EventDefinition)
+            {
+                EventDefinition value = Md.GetEventDefinition((EventDefinitionHandle)handle);
+                KeyRef type = Key(value.Type);
+                KeyRef owner = TypeKey(declaringType);
+                int mark = Transient.Begin();
+                return Transient.Mark(FindingDiffAnyPart.Event).Key(owner).Name(value.Name).Key(type).End(mark).Detach();
+            }
+            return Key(handle).Detach();
+        }
+
         bool AccessorVisible(
             MethodDefinitionHandle first,
             MethodDefinitionHandle second,

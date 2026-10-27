@@ -32,8 +32,8 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.PublicMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     // A method added without a body is an API fact only.
     [InlineData("FindingDiffAnyFixture.AbstractMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
-    // The setter's MethodDef signature gains modreq(IsExternalInit), so the Body axis
-    // compares a changed method as well.
+    // The setter gains modreq(IsExternalInit), leaving its body unpaired on
+    // each side; Body is Changed without comparing its IL.
     [InlineData("FindingDiffAnyFixture.SetterBecomesInit", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.MethodConstraint", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ConstraintType", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]

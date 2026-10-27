@@ -584,6 +584,20 @@ Demo, share, and initial-location restoration produce a retained definition
 before requesting activation. They do not receive a private alternate
 realization path.
 
+A demo resolves and serializes its complete resource-free Definitions request
+before retention. Its canonical location independently encodes the selected
+view; presentation focus is not part of the restoration definition. Demo
+identity selects catalog content but is neither the retained restoration
+definition nor an alternate history address. Projectable definitions may also
+publish a canonical packet; nonprojectable definitions, including exact
+Platform membership and scanner-bearing ecosystem registrations, retain their
+serialized Definitions request without manufacturing one.
+
+The committed restoration records enter at Workspace root. After exact
+membership is installed, the retained demo presentation selects its saved
+Package or Platform tab and then applies the Type/Methods view. The host does
+not rewrite committed Navigation focus to encode presentation.
+
 ## Browser history
 
 The retained-realization owner supplies resource-free selection intent to
@@ -599,6 +613,10 @@ Navigation Consumer remains the sole owner of browser-history push, replace,
 adopt, and traversal realignment, plus atomic result posting and deferred
 effects. This design constrains the realization input to that owner:
 
+- Product Navigation entering the already-active retained definition publishes
+  its canonical Workspace location before presenting the Workspace root. From a
+  routed product such as Demos this is a push, so Back returns to that product
+  rather than leaving its URL attached to Workspace presentation.
 - Back or Forward within the currently active retained definition may apply a
   Navigation transition against that exact active realization.
 - Back or Forward to another retained definition requests fresh activation.
@@ -757,6 +775,11 @@ Deleting the active definition follows one of two paths:
   completion failure remains visible but cannot preserve active presentation or
   selection after managed authority has been removed. A rejection before
   deactivation begins preserves the incumbent.
+
+The Browser may suppress a displaced active-deletion failure only while the
+exact definition and realization that deletion started from remain current.
+Selecting away and then reselecting the same retained definition creates a
+fresh realization, so the displaced deletion failure remains visible.
 
 Deletion never revives a predecessor or searches for a compatible retained
 scope.
