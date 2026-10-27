@@ -1277,11 +1277,16 @@ effective accessibility, or define a second default. The staged adoption on
 [#10693](https://github.com/richlander/dotnet-inspect/issues/10693)
 owns those facts, the one admission, and the default change. A lookup adoption
 that precedes that change consumes the current admission policy and records
-that transitional policy in its evidence. The canonical transitional population
-is the current exact-Type operation's population, including its suppression
-of hidden public Types; the compact Tree must consume that same population
-until #10693 admits them everywhere. Consumers needing the new shared
-admission depend on #10693's admission-consolidation step, independently of its
+that transitional policy in its evidence. Each caller passes its admission
+scope explicitly: compact Tree/Mermaid retains Public without `--all` and
+IncludeAll with it; Browser definition-identity selection retains its explicit
+non-public scope. No consumer inherits the exact-Type operation's
+`PublicWithNonPublicTypes` default merely by adopting the operation. Within
+equivalent scopes, lookup consumes the same owner-issued hidden-status
+admission; a compact Public query therefore excludes hidden public Types until
+the #10693 default change admits them into that population. Consumers needing
+the new shared admission depend on #10693's admission-consolidation step,
+independently of its
 later default flip. The open question about an internal
 subject with `--only private` stays with that owner; lookup adds no exception.
 
