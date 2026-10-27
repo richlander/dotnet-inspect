@@ -2813,7 +2813,9 @@ async function installRetainedWorkspacePosting(
       packageModel = admittedPackage && packageInventory
         ? createNuGetPackageModelWithDefaultLibrary(
           admittedPackage.surface,
-          packageInventory.defaultLibrary)
+          packageInventory.defaultLibrary,
+          packageInventory.implementationComparisonRuntimeIdentifier,
+          packageInventory.runtimeIdentifier)
         : null;
       platformModel = admittedPlatform
         ? createRuntimePackageModel(admittedPlatform.surface)
@@ -2961,7 +2963,9 @@ async function activateRetainedPackageAction(
     const admitted = await admitRetainedPackage(posting, inventory);
     packageModel = createNuGetPackageModelWithDefaultLibrary(
       admitted.surface,
-      inventory.defaultLibrary);
+      inventory.defaultLibrary,
+      inventory.implementationComparisonRuntimeIdentifier,
+      inventory.runtimeIdentifier);
   } catch (error) {
     const currentPresentation = retainedWorkspacePresentation;
     const currentPosting = activeRetainedWorkspacePosting;
@@ -6987,10 +6991,16 @@ async function activateWorkspacePackageOccurrence(action: string) {
     );
     return;
   }
+  if (!result.implementationComparisonRuntimeIdentifier) {
+    throw new Error(
+      "The activated Package did not supply an implementation comparison runtime identifier.",
+    );
+  }
 
   const packageModel = createWorkspaceOccurrencePackageModel(
     result.package,
     result.runtimeIdentifier,
+    result.implementationComparisonRuntimeIdentifier,
     state.package,
     state.packages);
   retainPackageModel(packageModel);
@@ -18218,7 +18228,9 @@ async function projectManagedNavigationType(
   const admitted = await admitRetainedPackage(updatedPosting, inventory);
   const pkg = createNuGetPackageModelWithDefaultLibrary(
     admitted.surface,
-    inventory.defaultLibrary);
+    inventory.defaultLibrary,
+    inventory.implementationComparisonRuntimeIdentifier,
+    inventory.runtimeIdentifier);
   const matches = pkg.types.filter(type =>
     type.definitionId === selection.definitionId
     && type.assemblyName.toLowerCase()

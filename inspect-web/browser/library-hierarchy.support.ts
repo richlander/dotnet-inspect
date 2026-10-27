@@ -3681,7 +3681,6 @@ async function installFacades(
         if (!demo || !result?.activation) return null;
         const publicationOrdinal = ++nextRetainedPublicationOrdinal;
         const workspaceId = "home-demo-workspace";
-        const focus = demo.tabs[demo.focusTabIndex];
         const packageMembers = demo.workspaceMembers.filter(
           member => member.kind === "package");
         const platformMembers = demo.workspaceMembers.filter(
@@ -3695,7 +3694,7 @@ async function installFacades(
           runtimeIdentifier: tab.runtimeIdentifier,
         }));
         const activeTabId = demo.workspace.activeTabId;
-        const packageSurfaces = Object.fromEntries(
+        const packageResults = Object.fromEntries(
           packageMembers.map((member, index) => [
             demo.tabs.find(tab =>
               tab.member.kind === "package"
@@ -3705,9 +3704,13 @@ async function installFacades(
                 ?? "package-" + index,
             result.packages[index],
           ]));
-        const platformSurface = result.packages.find(surface =>
-          surface.package === result.activation.focusId)
-          ?? result.packages.at(-1);
+        const packageSurfaces = Object.fromEntries(
+          Object.entries(packageResults).map(([navigationId, packageResult]) =>
+            [navigationId, packageResult?.surface]));
+        const platformSurface = (
+          result.packages.find(packageResult =>
+            packageResult.surface.package === result.activation.focusId)
+          ?? result.packages.at(-1))?.surface;
         const packageSubjects = packageMembers.map((member, index) => {
           const navigationId = demo.tabs.find(tab =>
             tab.member.kind === "package"
@@ -3739,10 +3742,14 @@ async function installFacades(
         const activeSubject = activePackage?.subject ?? workspaceSubject;
         const packages = packageSubjects.map((item, index) => {
           const surface = packageSurfaces[item.navigationId];
+          const packageResult = packageResults[item.navigationId];
           return {
             navigationId: item.navigationId,
             contextIndex: 0,
             consumerPackageSubjectId: item.subject.id,
+            runtimeIdentifier: packageResult?.runtimeIdentifier ?? null,
+            implementationComparisonRuntimeIdentifier:
+              packageResult?.implementationComparisonRuntimeIdentifier ?? "",
             summary: {
               selectedCompileFramework: item.member.framework,
               libraryCount: surface?.assemblies.length ?? 0,

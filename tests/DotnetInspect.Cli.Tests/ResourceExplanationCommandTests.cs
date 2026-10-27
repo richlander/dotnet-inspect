@@ -1014,6 +1014,36 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Theory]
+    [InlineData(
+        "Does this library have namespace dependency cycles?",
+        "library/sections/dependency-structure")]
+    [InlineData(
+        "namespace dependency cycles",
+        "library/sections/dependency-structure")]
+    [InlineData("array pool escapes", "library/sections/array-pool-escapes")]
+    public async Task Phrase_RanksTheOwningSectionFirst(
+        string text,
+        string path)
+    {
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        Assert.Equal(
+            0.25,
+            document.RootElement
+                .GetProperty("similarity_threshold")
+                .GetDouble());
+        Assert.Equal(
+            path,
+            document.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("resource_path")
+                .GetString());
+    }
+
+    [Theory]
     [InlineData("files", "package/sections/files", "package -S")]
     [InlineData("delegates", "type/sections/delegates", "type -S")]
     [InlineData("unsafe", "member/sections/unsafe-members", "member -S")]

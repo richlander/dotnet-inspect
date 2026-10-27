@@ -896,6 +896,7 @@ export interface BrowserPackageLoadResult {
   readonly packageChildren: BrowserPackageChildrenInspection | null;
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
   readonly surface: BrowserPackageSurface | null;
+  readonly implementationComparisonRuntimeIdentifier: string;
   readonly defaultLibraryId: string | null;
   readonly runtimePopulation: BrowserPackageRuntimePopulationChoice | null;
 }
@@ -1076,6 +1077,7 @@ export interface BrowserPackageQueryTerm {
 export interface BrowserPackageRootLoadResult {
   readonly packageChildren: BrowserPackageChildrenInspection;
   readonly documents: ReadonlyArray<BrowserPackageDocument>;
+  readonly implementationComparisonRuntimeIdentifier: string;
   readonly defaultLibraryId: string | null;
   readonly runtimePopulation: BrowserPackageRuntimePopulationChoice | null;
 }
@@ -1321,6 +1323,7 @@ export interface BrowserWorkspacePackageOccurrenceActivation {
   readonly superseded: boolean;
   readonly package: BrowserPackageSurface | null;
   readonly runtimeIdentifier: string;
+  readonly implementationComparisonRuntimeIdentifier: string | null;
 }
 
 export interface BrowserWorkspacePackageOccurrenceView {
