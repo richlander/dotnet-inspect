@@ -826,6 +826,180 @@ public sealed class InspectionCapabilityCompositionTests
                 "execution"));
     }
 
+    [Fact]
+    public void AnalysisOperation_RequestsTargetedQuestions()
+    {
+        Assert.Equal(
+            AnalysisQuestionMode.Targeted,
+            DiffAnalysisCatalog.Operation.Mode);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new AnalysisOperationDefinition(
+                AnalysisOperationKind.Compare,
+                AnalysisQuestionMode.Census,
+                ["api"]));
+    }
+
+    [Fact]
+    public void CompareRoute_OwnsTheAnalysesItsOperationDispatches()
+    {
+        InspectionCapabilityCatalog catalog =
+            InspectionCapabilityCatalog.Create(
+                [DiffAnalysisCatalog.ProductModule]);
+
+        Assert.Same(
+            DiffAnalysisCatalog.Operation,
+            DiffAnalysisCatalog.Route.AnalysisOperation);
+        Assert.Equal(
+            catalog.Analyses.Select(static registration =>
+                registration.Analysis.Id.Value),
+            catalog.AnalysesOf(DiffAnalysisCatalog.Route)
+                .Select(static registration =>
+                    registration.Analysis.Id.Value));
+        Assert.Empty(catalog.AnalysesOf(PackageQueryCapability.Route));
+    }
+
+    [Fact]
+    public void AnalysisBinding_SelectsOnlyItsRoutesAnalyses()
+    {
+        var outside = Assert.Throws<ArgumentException>(() =>
+            InspectionCapabilityCatalog.Create(
+            [
+                DiffAnalysisCatalog.ProductModule,
+                new InspectionCapabilityModule(
+                    "test/diff-compare-capability",
+                    bindings: [CompareBinding(["api", "not-an-analysis"])]),
+            ]));
+        Assert.Contains(
+            "exposes analysis 'not-an-analysis' outside route",
+            outside.Message,
+            StringComparison.Ordinal);
+
+        InspectionDocumentRegistration<string> document =
+            Document("test/document");
+        var route = new InspectionRouteRegistration<object, string>(
+            new("test/route", "Test route", "A route with no analyses."),
+            document,
+            static (_, _) => ValueTask.FromResult(
+                new InspectionEnvelope<string>(
+                    "content",
+                    new InspectionShare.NonProjectable("test", "Test."))));
+        var noOperation = Assert.Throws<ArgumentException>(() =>
+            InspectionCapabilityCatalog.Create(
+            [
+                DiffAnalysisCatalog.ProductModule,
+                new InspectionCapabilityModule(
+                    "test/route-capability",
+                    documents: [document],
+                    routes: [route],
+                    bindings:
+                    [
+                        new InspectionConsumerBinding<object, string>(
+                            new(
+                                "test/route-binding",
+                                InspectionConsumerKind.Cli,
+                                "test CLI",
+                                "test"),
+                            route,
+                            exposedQueryTerms: [],
+                            exposedAnalyses: ["api"]),
+                    ]),
+            ]));
+        Assert.Contains(
+            "runs no analysis operation",
+            noOperation.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnalysisExplanation_NamesItsRouteBindingAndFindings()
+    {
+        InspectionCapabilityCatalog catalog =
+            InspectionCapabilityCatalog.Create(
+            [
+                DiffAnalysisCatalog.ProductModule,
+                new InspectionCapabilityModule(
+                    "test/diff-compare-capability",
+                    bindings: [CompareBinding(["api", "string-literals"])]),
+            ]);
+        ResourceExplanationCatalog explanation =
+            ResourceExplanationCatalog.CreateCapabilities(
+                catalog,
+                DiffAnalysisCapabilityResourcePaths.Create(catalog));
+        var bindingPath =
+            DiffAnalysisCapabilityResourcePaths.Document.Append(
+                "bindings",
+                "cli");
+
+        ResourceExplanationRelationship[] literals =
+            Relationships(explanation, "analyses/string-literals");
+        Assert.Equal(
+            ["String literal use"],
+            Texts(
+                ExplainOne(
+                    explanation,
+                    new ResourcePath("analyses/string-literals")),
+                "findings"));
+        Assert.True(HasTargetPath(
+            literals.Single(static relationship =>
+                relationship.Relationship.Value == "route"),
+            DiffAnalysisCapabilityResourcePaths.Route));
+        Assert.True(HasTargetPath(
+            literals.Single(static relationship =>
+                relationship.Relationship.Value == "exposed-by"),
+            bindingPath));
+        Assert.DoesNotContain(
+            Relationships(explanation, "analyses/il"),
+            static relationship =>
+                relationship.Relationship.Value == "exposed-by"
+                && relationship.Targets.Length > 0);
+
+        ResourceExplanationRelationship routeAnalyses =
+            Relationships(
+                    explanation,
+                    DiffAnalysisCapabilityResourcePaths.Route.Value)
+                .Single(static relationship =>
+                    relationship.Relationship.Value == "analysis");
+        Assert.Equal(catalog.Analyses.Length, routeAnalyses.Targets.Length);
+        ResourceExplanationRelationship exposed =
+            Relationships(explanation, bindingPath.Value)
+                .Single(static relationship =>
+                    relationship.Relationship.Value == "exposes-analysis");
+        Assert.Equal(2, exposed.Targets.Length);
+    }
+
+    private static InspectionConsumerBinding<
+        DiffAnalysisInspectionRequest,
+        DiffAnalysisDocument> CompareBinding(
+        IEnumerable<string> exposedAnalyses) =>
+        new(
+            new(
+                "test/diff-compare",
+                InspectionConsumerKind.Cli,
+                "test CLI",
+                "diff --analysis"),
+            DiffAnalysisCatalog.Route,
+            exposedQueryTerms: [],
+            exposedAnalyses: exposedAnalyses);
+
+    private static ResourceExplanationRelationship[] Relationships(
+        ResourceExplanationCatalog explanation,
+        string path)
+    {
+        var resolved =
+            Assert.IsType<ResourcePathResolution.Resolved>(
+                explanation.Resolve(path));
+        return
+        [
+            .. explanation.Explain(
+                    resolved,
+                    new(
+                        depth: 0,
+                        resourceLimit: 8,
+                        relationshipLimit: 64))
+                .Content.Relationships,
+        ];
+    }
+
     private static ResourceExplanationResource ExplainOne(
         ResourceExplanationCatalog explanation,
         ResourcePath path)

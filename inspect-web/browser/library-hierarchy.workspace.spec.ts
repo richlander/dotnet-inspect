@@ -44,17 +44,18 @@ function packageWorkspaceUrl(lens: string) {
 
 for (const preferred of [other, empty]) {
   for (const width of [900, 480]) {
-    test(`implicit package entry selects product-default ${preferred.name} at ${width}px`, async ({ page }) => {
+    test(`implicit package entry opens Package before product-default ${preferred.name} at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await installFacades(page, { ...surface, defaultAssemblyId: preferred.id });
       await page.goto(root.replace("#pkg", ""));
-      await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-      await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
+      await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+      await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
       await page.reload();
-      await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
-      await chooseSubject(page, "package", "Package");
+      await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
       await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
       await chooseSubject(page, "library", "Library");
+      await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
+      await page.reload();
       await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
     });
   }
@@ -138,16 +139,15 @@ for (const incomingPackage of [surface.package, "Second.Package"]) {
       await page.goForward();
       await expect(page.locator(".inspected-target")).toContainText(incomingPackage);
       const defaultLibrary = incomingPackage === surface.package ? other : empty;
-      if (destination === "Package") {
-        await expect(page.locator(".package-overview-surface h1")).toHaveText(incomingPackage);
-      } else if (destination === "Metadata") {
+      if (destination === "Metadata") {
         await expect(inspectorTab(page, "data-library-lens", "metadata"))
           .toHaveAttribute("aria-selected", "true");
         await expect(page.locator("#inspector-panel"))
           .toContainText(`${defaultLibrary.name}.dll`);
       } else {
-        await expect(page.locator(".library-overview-surface h1"))
-          .toHaveText(defaultLibrary.name);
+        await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+        await expect(page.locator(".package-overview-surface h1"))
+          .toHaveText(incomingPackage);
       }
       await page.goBack();
       await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);

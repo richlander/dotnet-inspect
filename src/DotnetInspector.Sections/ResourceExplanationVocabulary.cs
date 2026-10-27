@@ -756,6 +756,10 @@ internal static class ResourceExplanationVocabulary
                         "consumer-binding",
                         "Consumer binding",
                         ConsumerBindingType),
+                    Relationship(
+                        "analysis",
+                        "Analysis",
+                        AnalysisType),
                 ]);
         ExplanationResourceTypeDeclaration relatedOperation =
             Type(
@@ -869,6 +873,10 @@ internal static class ResourceExplanationVocabulary
                         "exposes",
                         "Exposes",
                         QueryFacetType),
+                    Relationship(
+                        "exposes-analysis",
+                        "Exposes analysis",
+                        AnalysisType),
                 ]);
         ExplanationResourceTypeDeclaration analysis =
             Type(
@@ -880,6 +888,7 @@ internal static class ResourceExplanationVocabulary
                     TextFact("name", "Name"),
                     IntegerFact("revision", "Revision"),
                     TextFact("cost", "Cost"),
+                    TextsFact("findings", "Findings", 64),
                     TextsFact("participations", "Participations", 256),
                 ],
                 [
@@ -891,6 +900,14 @@ internal static class ResourceExplanationVocabulary
                         "issues",
                         "Issues",
                         IssuedFindingType),
+                    Relationship(
+                        "route",
+                        "Route",
+                        HostNeutralRouteType),
+                    Relationship(
+                        "exposed-by",
+                        "Exposed by",
+                        ConsumerBindingType),
                 ]);
         ExplanationResourceTypeDeclaration operationSurface =
             Type(
