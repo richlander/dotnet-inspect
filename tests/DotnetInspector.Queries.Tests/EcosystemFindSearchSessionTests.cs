@@ -392,6 +392,78 @@ public class EcosystemFindSearchSessionTests
             result.PrefixCoverage.Select(coverage => coverage.Completion));
     }
 
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(1, null)]
+    [InlineData(0, 5)]
+    [InlineData(1, 5)]
+    public async Task CandidateBoundStopsBeforeNextPageRegardlessOfIndexOverlap(
+        int indexedRows, int? maximumRows)
+    {
+        var layer = Layer("first", null, "Aspire.");
+        int pagesRequested = 0;
+        int candidates = 0;
+        using var session = new EcosystemFindSearchSession<int>(
+            Request([layer], maximumRows, maximumCandidates: 1),
+            (_, _) => Task.FromResult(new EcosystemFindBlock<int>(0, 0)),
+            (_, _, token) => Enumerate(token),
+            (_, _, _) =>
+            {
+                candidates++;
+                return Task.FromResult(new EcosystemFindBlock<int>(0, 0));
+            },
+            indexed: (_, _) => Task.FromResult(
+                new EcosystemFindIndexedOutcome<int>(
+                    indexedRows == 0 ? [] : [new(1, indexedRows)],
+                    EcosystemFindIndexedCompletion.Exhausted,
+                    [])));
+
+        var result = await session.ExecuteAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, pagesRequested);
+        Assert.Equal(1, candidates);
+        Assert.Equal(EcosystemFindCompletion.CandidateLimitReached, result.Completion);
+        Assert.True(result.Incomplete);
+        Assert.Equal(["Aspire."], result.Unsearched);
+        Assert.Equal(EcosystemFindPrefixPageCompletion.CandidateLimitReached,
+            Assert.Single(result.PrefixCoverage).Completion);
+
+        async IAsyncEnumerable<EcosystemFindPrefixPage> Enumerate(
+            [EnumeratorCancellation] CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            pagesRequested++;
+            yield return new(
+                [new("Aspire.Hosting.Redis", "13.6.3")],
+                EcosystemFindPrefixPageCompletion.Continuing);
+            pagesRequested++;
+            yield return new([]);
+            await Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task RequestedCandidateLimitRetainsCurrentPrefixGap()
+    {
+        var layer = Layer("first", null, "Aspire.");
+        using var session = new EcosystemFindSearchSession<int>(
+            Request([layer], maximumCandidates: 1),
+            (_, _) => Task.FromResult(new EcosystemFindBlock<int>(0, 0)),
+            (_, _, token) => Pages(
+                new([new("Aspire.Hosting.Redis", "13.6.3")],
+                    EcosystemFindPrefixPageCompletion.RequestedLimit),
+                token),
+            (_, _, _) => Task.FromResult(new EcosystemFindBlock<int>(0, 0)));
+
+        var result = await session.ExecuteAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(EcosystemFindCompletion.CandidateLimitReached, result.Completion);
+        Assert.True(result.Incomplete);
+        Assert.Equal(["Aspire."], result.Unsearched);
+    }
+
     [Fact]
     public async Task CoreOfFirstEcosystemRetainsDemandedPrefixMembershipOfSecond()
     {

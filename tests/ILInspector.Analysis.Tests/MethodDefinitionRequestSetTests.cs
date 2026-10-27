@@ -53,6 +53,131 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        Execute_IdenticalExactMethodRequestsShareOnePhysicalGroup()
+    {
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth.ExactMethods(
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        MethodDefinitionSourceAssociation rows =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Rows,
+                breadth);
+        MethodDefinitionSourceAssociation count =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                breadth);
+
+        MethodDefinitionSourceRequestSetPlan plan =
+            AcceptedPlan([rows, count]);
+        MethodDefinitionSourceGroupPlan group =
+            Assert.Single(plan.Groups);
+        Assert.Equal(2, group.Lanes.Length);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(plan);
+
+        Assert.Equal(2, ValueOf(execution, rows));
+        Assert.Equal(2, ValueOf(execution, count));
+        MethodDefinitionSourceGroupReceipt receipt =
+            Assert.Single(execution.GroupReceipts);
+        Assert.Equal(2, receipt.LaneReceipts.Length);
+        Assert.Equal(
+            2,
+            receipt.PhysicalCoverage.DefinitionsExamined.Count);
+        Assert.Equal(
+            2,
+            execution.ResultOf(rows)
+                .SourceReceipt.DefinitionsVisited);
+        Assert.Equal(
+            2,
+            execution.ResultOf(count)
+                .SourceReceipt.DefinitionsVisited);
+    }
+
+    [Fact]
+    public void
+        Execute_ExcludedExactTypeDoesNotRecordPhysicalMethodSelection()
+    {
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth.ExactMethods(
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        MethodDefinitionSourceAssociation rows =
+            Association(
+                PInvokeClassificationProducer.Instance,
+                ProducerTerminal.Rows,
+                breadth);
+        MethodDefinitionSourceAssociation count =
+            Association(
+                PInvokeClassificationProducer.Instance,
+                ProducerTerminal.Count,
+                breadth);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([rows, count]),
+                TwoMethodsInExcludedTypeWithFirstBody(
+                    [0x06, 0x2A]));
+
+        Assert.Empty(
+            ResultOf<ClosedQueryResult<ClassifiedMethodRow>>(
+                    execution,
+                    rows)
+                .Value!
+                .Rows);
+        Assert.Equal(
+            0,
+            ResultOf<ClosedQueryResult<ClassifiedMethodRow>>(
+                    execution,
+                    count)
+                .Value!
+                .Count);
+        Assert.Equal(
+            0,
+            execution.ResultOf(rows)
+                .SourceReceipt.DefinitionsVisited);
+        Assert.Equal(
+            0,
+            execution.ResultOf(count)
+                .SourceReceipt.DefinitionsVisited);
+        MethodDefinitionSourceGroupReceipt receipt =
+            Assert.Single(execution.GroupReceipts);
+        Assert.Equal(
+            2,
+            receipt.PhysicalCoverage.DefinitionsExamined.Count);
+        Assert.Equal(
+            0,
+            receipt.PhysicalCoverage.MethodsSelected.Count);
+    }
+
+    [Fact]
+    public void Plan_DistinctExactMethodBreadthsRemainSeparate()
+    {
+        MethodDefinitionSourceAssociation first =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        MethodDefinitionSourceAssociation second =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MetadataTokens.MethodDefinitionHandle(2)));
+
+        MethodDefinitionSourceRequestSetPlan plan =
+            AcceptedPlan([first, second]);
+
+        Assert.Equal(2, plan.Groups.Length);
+        Assert.All(plan.Groups, group => Assert.Single(group.Lanes));
+    }
+
+    [Fact]
     public void Plan_DuplicateAssociationReturnsTypedRejection()
     {
         MethodDefinitionSourceAssociation association =
