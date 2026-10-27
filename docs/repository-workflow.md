@@ -94,10 +94,13 @@ guides those choices without requiring every layer for every capability.
   API. Let its policies choose cache, ranged, or complete acquisition and
   fallback; do not hard-code today's transfer strategy in callers. Optimal
   acquisition policy can change over time.
-- **Bytes and text.** Use
-  [`OpaqueByteRange`](design/inert-bytes.md) for retained assembly and package
-  content and typed domain views for matching. For byte-originated display
-  text, construct `InertUtf8String` at the presentation boundary; project to
+- **Typed data, bytes, and text.** Prefer owner-issued typed facts and narrow
+  [domain views](design/inert-bytes.md#domain-views) at consumer boundaries.
+  Use `OpaqueByteRange` as byte backing for assembly and package content where
+  appropriate, not as a substitute for domain meaning. Do not make consumers
+  parse full-spelled strings to recover facts or components the producer owns.
+  For byte-originated display text, construct `InertUtf8String` at the
+  presentation boundary; project to
   `InertString` only when the sink specifically requires UTF-16/string content.
   Do not use contained presentation spelling as identity or matching input.
 - **Queries.** Compose query-capable scenarios through

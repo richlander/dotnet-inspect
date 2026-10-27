@@ -100,12 +100,42 @@ public sealed class PackageEndpointScopeRequest
 
     /// <summary>
     /// Creates an endpoint whose complete compile-Library population is a
-    /// semantic House content demand.
+    /// semantic House content demand, optionally narrowing its implementation
+    /// role to named assemblies.
     /// </summary>
     public static PackageEndpointScopeRequest ForCompileLibraries(
         PackageSourceCoordinate coordinate,
         string targetFramework,
         PackageAssetDemand assetDemand) =>
+        ForCompileLibrariesCore(
+            coordinate,
+            targetFramework,
+            assetDemand,
+            implementationNames: null);
+
+    /// <summary>
+    /// Creates an aggregate compile-Library endpoint whose implementation role
+    /// is narrowed to the named assemblies.
+    /// </summary>
+    public static PackageEndpointScopeRequest ForCompileLibraries(
+        PackageSourceCoordinate coordinate,
+        string targetFramework,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string> implementationNames)
+    {
+        ArgumentNullException.ThrowIfNull(implementationNames);
+        return ForCompileLibrariesCore(
+            coordinate,
+            targetFramework,
+            assetDemand,
+            implementationNames);
+    }
+
+    static PackageEndpointScopeRequest ForCompileLibrariesCore(
+        PackageSourceCoordinate coordinate,
+        string targetFramework,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames) =>
         new(
             new PackageHouseDemand.Exact(
                 coordinate
@@ -117,7 +147,7 @@ public sealed class PackageEndpointScopeRequest
                         nameof(targetFramework))
                     : targetFramework),
             assetDemand,
-            implementationNames: null,
+            implementationNames,
             librarySelector: null,
             compileLibraries: true);
 
@@ -336,11 +366,18 @@ public sealed class PackageEndpointScope : IAsyncDisposable
                     sourceOperation.RequestTimeout,
                     sourceOperation.OperationTimeout);
             houseRequest = request.CompileLibraries
-                ? PackageHouseRequest.CompileLibraries(
-                    request.Demand,
-                    operation,
-                    request.Target,
-                    request.AssetDemand)
+                ? request.ImplementationNames is null
+                    ? PackageHouseRequest.CompileLibraries(
+                        request.Demand,
+                        operation,
+                        request.Target,
+                        request.AssetDemand)
+                    : PackageHouseRequest.CompileLibraries(
+                        request.Demand,
+                        operation,
+                        request.Target,
+                        request.AssetDemand,
+                        request.ImplementationNames)
                 : request.LibrarySelector is null
                 ? new PackageHouseRequest(
                     request.Demand,

@@ -119,6 +119,9 @@ public static partial class PackageExports
                             packageChildren),
                         BrowserPackageWireProjection.Project(
                             coordinate.Package.Documents()),
+                        BrowserPackageWireProjection
+                            .ImplementationComparisonRuntimeIdentifier(
+                                coordinate),
                         defaultLibraryId)
                     {
                         RuntimePopulation =
@@ -161,6 +164,9 @@ public static partial class PackageExports
                 PackageChildren: null,
                 Documents: [],
                 Surface: null,
+                ImplementationComparisonRuntimeIdentifier:
+                    PackageRuntimePopulationChoice
+                        .ProductDefaultRuntimeIdentifier,
                 RuntimePopulation: null);
         }
 
@@ -202,7 +208,10 @@ public static partial class PackageExports
             BrowserPackageWireProjection.Project(packageChildren),
             BrowserPackageWireProjection.Project(
                 realization.Coordinate.Package.Documents()),
-            surface)
+            surface,
+            BrowserPackageWireProjection
+                .ImplementationComparisonRuntimeIdentifier(
+                realization.Coordinate))
         {
             DefaultLibraryId = defaultLibraryId,
             RuntimePopulation =

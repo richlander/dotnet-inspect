@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -15,11 +16,27 @@ namespace DotnetInspect.Cli.Commands;
 
 public static partial class MemberCommand
 {
-    internal static bool TryCreateSharedDefaultMemberRequest(
+    internal enum SharedMemberPackageDemand
+    {
+        Surface,
+        DefiningImplementation,
+    }
+
+    static readonly HashSet<string> DefiningImplementationSections =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.IL,
+            SectionNames.ExceptionRegions,
+        };
+
+    internal static bool TryCreateSharedMemberRequest(
         MemberOptions options,
-        [NotNullWhen(true)] out ExactTypeInspectionRequest? request)
+        ResolvedMemberInspectionPlan plan,
+        [NotNullWhen(true)] out ExactTypeInspectionRequest? request,
+        out SharedMemberPackageDemand demand)
     {
         request = null;
+        demand = default;
         if (string.IsNullOrWhiteSpace(options.PackagePath)
             || File.Exists(options.PackagePath)
             || options.PackagePath.Contains("::", StringComparison.Ordinal)
@@ -38,9 +55,6 @@ public static partial class MemberCommand
             || options.MemberFilter.Count > 1
             || options.MemberSectionsPreResolved
             || options.ImplicitIncludeSections.Count > 0
-            || options.IncludeSections is not null
-            || options.Select is not null
-            || options.SelectDefault
             || options.Discover is not null
             || options.HasExplicitOutputIntent
             || options.Verbosity is not (
@@ -73,6 +87,23 @@ public static partial class MemberCommand
             return false;
         }
 
+        bool surfaceOnly =
+            options.IncludeSections is null
+            && options.Select is null
+            && !options.SelectDefault;
+        bool definingImplementation =
+            !options.SelectDefault
+            && (options.IncludeSections is { Count: > 0 }
+                || options.Select is { Length: > 0 })
+            && plan.Selection.UnresolvedSelectors.IsEmpty
+            && !plan.Selection.ResolvedSections.IsEmpty
+            && plan.Selection.ResolvedSections.All(
+                DefiningImplementationSections.Contains)
+            && (options.MemberFilter.Count == 1
+                || HasPotentialImpliedMember(options.TypeName));
+        if (!surfaceOnly && !definingImplementation)
+            return false;
+
         (string packageId, string? version) =
             PackageExtractor.ParsePackageReference(options.PackagePath);
         if (string.IsNullOrWhiteSpace(packageId)
@@ -88,6 +119,9 @@ public static partial class MemberCommand
                 version,
                 options.Tfm,
                 options.TypeName);
+            demand = definingImplementation
+                ? SharedMemberPackageDemand.DefiningImplementation
+                : SharedMemberPackageDemand.Surface;
             return true;
         }
         catch (ArgumentException)
@@ -96,10 +130,11 @@ public static partial class MemberCommand
         }
     }
 
-    static async Task<int?> ExecuteSharedDefaultMemberAsync(
+    static async Task<int?> ExecuteSharedMemberAsync(
         MemberOptions options,
         ResolvedMemberInspectionPlan plan,
         ExactTypeInspectionRequest request,
+        SharedMemberPackageDemand demand,
         CancellationToken cancellationToken)
     {
         var logger = new VerboseLogger(options.Verbose);
@@ -113,24 +148,25 @@ public static partial class MemberCommand
                 stores.GetLegacyCompatibleStore,
                 options.SourceOptions,
                 options.Verbose ? logger.Log : null);
-        using PackageSourceOperationLease sourceOperation =
-            composition.IssueSettlementOperation(cancellationToken);
-        return await ExecuteSharedDefaultMemberAsync(
+        return await ExecuteSharedMemberAsync(
                 options,
                 plan,
                 request,
+                demand,
                 house,
-                sourceOperation,
+                composition.IssueSettlementOperation,
                 cancellationToken)
             .ConfigureAwait(false);
     }
 
-    static async Task<int?> ExecuteSharedDefaultMemberAsync(
+    static async Task<int?> ExecuteSharedMemberAsync(
         MemberOptions options,
         ResolvedMemberInspectionPlan plan,
         ExactTypeInspectionRequest request,
+        SharedMemberPackageDemand demand,
         PackageHouse house,
-        PackageSourceOperationLease sourceOperation,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issueSourceOperation,
         CancellationToken cancellationToken)
     {
         try
@@ -153,83 +189,108 @@ public static partial class MemberCommand
                     candidate.MemberSelector;
             }
 
-            return await ExactTypeInspectionOperation
-                .ExecuteFirstAvailableWithLiveTargetAsync<int?>(
-                    requests,
-                    house,
-                    sourceOperation,
-                    ApiSurfaceScope.Public,
-                    async (envelope, target, _) =>
-                    {
-                        if (!envelope.Content.IsAvailable
-                            || target is null)
-                        {
-                            TypeCommand.WriteExactTypeNonSuccess(
-                                envelope.Content,
-                                envelope.Diagnostics);
-                            return 1;
-                        }
+            async ValueTask<int?> UseTargetAsync(
+                InspectionEnvelope<ExactTypeInspectionResult> envelope,
+                SelectedContextExactTypeLiveTarget? target,
+                CancellationToken _)
+            {
+                if (!envelope.Content.IsAvailable
+                    || target is null)
+                {
+                    TypeCommand.WriteExactTypeNonSuccess(
+                        envelope.Content,
+                        envelope.Diagnostics);
+                    return 1;
+                }
 
-                        MemberOptions effectiveOptions = options;
-                        ResolvedMemberInspectionPlan effectivePlan = plan;
-                        if (impliedMembers.TryGetValue(
-                                envelope.Content.RequestedType,
-                                out string? impliedMember))
-                        {
-                            if (!TryMergeImpliedMemberOptions(
-                                options,
-                                impliedMember,
-                                out effectiveOptions))
-                                return 1;
-                            effectivePlan =
-                                ResolvedMemberInspectionPlan
-                                    .FromCompatibilityOptions(
-                                        effectiveOptions);
-                            var (preamble, error) =
-                                ApiCommand.RunPreamble(
-                                    effectiveOptions,
-                                    effectivePlan);
-                            if (error.HasValue)
-                                return error.Value;
-                            effectiveOptions =
-                                (MemberOptions)preamble.Options;
-                        }
+                if (demand
+                        == SharedMemberPackageDemand.DefiningImplementation
+                    && options.MemberFilter.Count == 0
+                    && !impliedMembers.ContainsKey(
+                        envelope.Content.RequestedType))
+                {
+                    return null;
+                }
 
-                        effectiveOptions =
-                            effectiveOptions with { ShowDocs = false };
-                        ExactTypeInspectionRequest selectedRequest =
-                            requests.First(candidate =>
-                                candidate.Type.Equals(
-                                    envelope.Content.RequestedType,
-                                    StringComparison.Ordinal));
-                        TypeCommand.WriteInspectionDiagnostics(
-                            envelope.Diagnostics);
-                        int exitCode =
-                            await WorkspaceTypeInspectionTarget.ExecuteAsync(
+                MemberOptions effectiveOptions = options;
+                ResolvedMemberInspectionPlan effectivePlan = plan;
+                if (impliedMembers.TryGetValue(
+                    envelope.Content.RequestedType,
+                    out string? impliedMember))
+                {
+                    if (!TryMergeImpliedMemberOptions(
+                        options,
+                        impliedMember,
+                        out effectiveOptions))
+                        return 1;
+                    effectivePlan =
+                        ResolvedMemberInspectionPlan
+                            .FromCompatibilityOptions(
+                                effectiveOptions);
+                    var (preamble, error) =
+                        ApiCommand.RunPreamble(
+                            effectiveOptions,
+                            effectivePlan);
+                    if (error.HasValue)
+                        return error.Value;
+                    effectiveOptions =
+                        (MemberOptions)preamble.Options;
+                }
+
+                effectiveOptions =
+                    effectiveOptions with { ShowDocs = false };
+                ExactTypeInspectionRequest selectedRequest =
+                    requests.First(candidate =>
+                        candidate.Type.Equals(
+                            envelope.Content.RequestedType,
+                            StringComparison.Ordinal));
+                TypeCommand.WriteInspectionDiagnostics(
+                    envelope.Diagnostics);
+                int exitCode =
+                    await WorkspaceTypeInspectionTarget.ExecuteAsync(
+                            effectiveOptions,
+                            ExactTypeRenderSource.From(
+                                selectedRequest) with
+                            {
+                                SelectedLibraryPath =
+                                    target.PackageAssetPath,
+                            },
+                            target,
+                            (source, loaded) =>
+                                ExecuteWithShareAsync(
                                     effectiveOptions,
-                                    ExactTypeRenderSource.From(
-                                        selectedRequest) with
-                                    {
-                                        SelectedLibraryPath =
-                                            target.PackageAssetPath,
-                                    },
-                                    target,
-                                    (source, loaded) =>
-                                        ExecuteWithShareAsync(
-                                            effectiveOptions,
-                                            effectivePlan,
-                                            source,
-                                            loaded,
-                                            allowImplicitDocumentation:
-                                                false))
-                                .ConfigureAwait(false);
-                        return exitCode == 0
-                            && envelope.Content.IsComplete
-                                ? 0
-                                : 1;
-                    },
-                    cancellationToken)
-                .ConfigureAwait(false);
+                                    effectivePlan,
+                                    source,
+                                    loaded,
+                                    allowImplicitDocumentation:
+                                        false))
+                        .ConfigureAwait(false);
+                return exitCode == 0
+                    && envelope.Content.IsComplete
+                        ? 0
+                        : 1;
+            }
+
+            return await (demand
+                == SharedMemberPackageDemand.DefiningImplementation
+                ? ExactTypeInspectionOperation
+                    .ExecuteFirstAvailableWithDefiningImplementationTargetAsync<
+                        int?>(
+                        requests,
+                        house,
+                        issueSourceOperation,
+                        ApiSurfaceScope.Public,
+                        UseTargetAsync,
+                        cancellationToken)
+                : ExactTypeInspectionOperation
+                    .ExecuteFirstAvailableWithLiveTargetAsync<int?>(
+                        requests,
+                        house,
+                        issueSourceOperation(cancellationToken),
+                        ApiSurfaceScope.Public,
+                        UseTargetAsync,
+                        cancellationToken)
+            ).ConfigureAwait(false);
         }
         catch (Exception failure)
         {

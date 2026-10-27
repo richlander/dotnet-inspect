@@ -56,7 +56,8 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(3, reloaded.Scope.CallerAssemblies);
         Assert.Equal(initial.CallGraph.Mermaid, reloaded.Mermaid);
         BrowserPackageSurface logging = Assert.Single(initial.Packages,
-            surface => surface.DefaultAssemblyId == "Microsoft.Extensions.Logging");
+            package => package.Surface.DefaultAssemblyId
+                == "Microsoft.Extensions.Logging").Surface;
         BrowserTypeSurface loggingType = Assert.Single(logging.Types,
             type => type.DefinitionId == "Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions");
         BrowserMemberSurface addLogging = Assert.Single(loggingType.Api,

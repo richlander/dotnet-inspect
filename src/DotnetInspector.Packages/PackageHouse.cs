@@ -1043,6 +1043,10 @@ public sealed partial class PackageHouse
                                     .Select(static row =>
                                         row.ImplementationEntry?.Path)
                                     .OfType<string>()
+                                    .Where(path =>
+                                        request.ImplementationNames
+                                            ?.MatchesPath(path)
+                                        ?? true)
                                 : [];
                         selectedSemanticEntries =
                         [
@@ -2285,6 +2289,10 @@ public sealed partial class PackageHouse
                                 .Select(static row =>
                                     row.ImplementationEntry?.Path)
                                 .OfType<string>()
+                                .Where(path =>
+                                    request.ImplementationNames
+                                        ?.MatchesPath(path)
+                                    ?? true)
                             : [];
                     return new PackageRangedSelection(
                     [

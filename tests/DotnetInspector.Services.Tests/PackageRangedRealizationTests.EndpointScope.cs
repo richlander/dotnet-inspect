@@ -292,6 +292,85 @@ public sealed partial class PackageRangedRealizationTests
                 .Order(StringComparer.Ordinal));
     }
 
+    [Fact]
+    public async Task
+        EndpointScope_CompileLibrariesDemandReadsOnlyNamedImplementation()
+    {
+        byte[] archive = ReadAvalonia();
+        var server = new RangeFeed(
+            Avalonia,
+            AvaloniaVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        PackageEndpointScopeRequest request =
+            PackageEndpointScopeRequest.ForCompileLibraries(
+                PackageSourceCoordinate.Create(
+                    Avalonia,
+                    AvaloniaVersion),
+                "net10.0",
+                PackageAssetDemand.SurfaceAndImplementation,
+                ["Avalonia.Dialogs.dll"]);
+
+        await using PackageEndpointScope cold =
+            AssertOpened(
+                await OpenSemanticEndpointAsync(
+                    environment,
+                    store,
+                    request));
+
+        Assert.Equal(11, cold.SurfaceParticipants.Length);
+        PackageEndpointParticipant implementation =
+            Assert.Single(cold.ImplementationParticipants);
+        Assert.EndsWith(
+            "/Avalonia.Dialogs.dll",
+            implementation.Asset.Path,
+            StringComparison.Ordinal);
+        Assert.NotNull(implementation.SurfaceCorrespondence);
+        IReadOnlySet<string> entries =
+            cold.Payload.Content
+                .EnumerateEntries()
+                .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains(implementation.Asset.Path, entries);
+        Assert.DoesNotContain(
+            $"{AvaloniaImplementation}Avalonia.Controls.dll",
+            entries);
+        Assert.All(
+            cold.SurfaceParticipants,
+            participant =>
+                Assert.Contains(participant.Asset.Path, entries));
+        PackageTransferReceipt coldTransfer =
+            cold.Contribution.Result.Evidence.Acquisition!.Transfer;
+        Assert.Equal(
+            PackagePayloadOrigin.Ranged,
+            cold.Payload.Origin);
+        Assert.NotEmpty(coldTransfer.Requests);
+
+        await using PackageEndpointScope warm =
+            AssertOpened(
+                await OpenSemanticEndpointAsync(
+                    environment,
+                    store,
+                    request));
+        Assert.Single(warm.ImplementationParticipants);
+        Assert.Empty(
+            warm.Contribution.Result.Evidence.Acquisition!.Transfer.Requests);
+
+        await using PackageEndpointScope complete =
+            AssertOpened(
+                await OpenSemanticEndpointAsync(
+                    environment,
+                    new InMemoryPackageStore(),
+                    request,
+                    rangedSizeCut: long.MaxValue));
+        Assert.Equal(PackagePayloadOrigin.Download, complete.Payload.Origin);
+        Assert.Single(complete.ImplementationParticipants);
+        Assert.DoesNotContain(
+            $"{AvaloniaImplementation}Avalonia.Controls.dll",
+            complete.Payload.Content.EnumerateEntries());
+    }
+
     /// <summary>
     /// Gate 2: a <c>SurfaceAndImplementation</c> endpoint also exposes one
     /// implementation participant per realized implementation asset, each
@@ -622,14 +701,15 @@ public sealed partial class PackageRangedRealizationTests
         OpenSemanticEndpointAsync(
             RangedEnvironment environment,
             IPackageStore store,
-            PackageEndpointScopeRequest request)
+            PackageEndpointScopeRequest request,
+            long rangedSizeCut = 0)
     {
         var house = new PackageHouse(
             environment.Authorization,
             PackagePayloadAcquisitionPlan.ForContentQueries(
                 (_, _) => store,
                 log: environment.Log.Enqueue,
-                rangedSizeCut: 0));
+                rangedSizeCut: rangedSizeCut));
         var operation = PackageHouseOperation.Create(
             PackageHouseOperationProfile.Realize);
         return PackageEndpointScope.OpenAsync(

@@ -104,7 +104,7 @@ side. It is what makes positional equality meaningful across two images:
 | Kind | Atom | Order | Matcher mode | Owner |
 | --- | --- | --- | --- | --- |
 | IL operations | A canonical operation, as IL diff canonicalization shapes it: the folded opcode family, its operand as a `SymbolKey` for a metadata token, a value for an immediate or a user string, and each branch or switch target as the target's instruction index within its own body; then, after the last instruction, each exception clause in declaration order as an atom of its kind, with its catch Type as the operand and its extent boundaries as targets | Instruction order, then clause order | `Ordered`, with the move pass, then the kind's target validation over the match | IL diff canonicalization; `IlFindings` |
-| Declaration facts | One census fact, keyed by its whole `SymbolKey` | Ascending key bytes | `IdentitySet` | Declaration view for the atom; Finding Diff Any for the census it compares today |
+| Declaration facts | One census fact, keyed by its whole `SymbolKey`, expanded so that every Type it names is spelled in full and two images compare without a shared table | Ascending key bytes | `IdentitySet` | Declaration view for the atom; Finding Diff Any's side for the facts, which `DeclarationCensusCursor` reads |
 
 For an ordered kind, positional equality is sequence equality. For an
 identity-set kind, the sort makes positional equality multiset equality, so
@@ -156,31 +156,33 @@ position is pending too, two complete streams decide `Changed`, and a fault
 before then is `Indeterminate`, as Finding Diff Any decides targets once the
 body's instruction map is complete. A target that does not land on an
 instruction boundary of its own body, or lands at its end or outside it, is one
-the decoder canonical comparison runs rejects; the atom carries it as undecided,
-and a cursor whose stream completes with such a target ends `Failed` instead of
-`Complete`, so a difference decided before the end is read as Finding Diff Any's
-walk reads it. The atom's `FindingKey` is the kind's **matcher projection** of
-those bytes, which may be the same or less: a declaration fact's identity key is
-a lossless encoding of its whole census key, as the declaration view states, so
-its projection is the bytes; an IL operation's identity key omits its branch and
-switch targets, as IL diff canonicalization requires so that a branch over an
-inserted instruction still aligns, and the kind's fold validates targets over
-the match. Equality of canonical bytes is therefore the stricter relation, and
-it is the one both scenarios' agreement is stated on. The symbolic identity of
-an IL operand is the `SymbolKey` Finding Diff Any memoizes, self-delimiting
-and never a decoded and formatted name, so two names whose bytes differ but
-decode alike stay distinct, as Finding Diff Any's
-[Identity](finding-diff-any.md#identity) requires. Finding Diff Any embeds
-the named Types inside that key as `Ref` parts of the table its
-comparison's two sides share; the cursor writes them in full until step 2
-gives it that side, so its bytes are the expansion of the walk's key
-([Symbol Key interning](symbol-key.md#interning)). The cursor yields the bytes,
-lockstep compares the bytes, and only sealing for Exhaustive builds the key
-string and projects the operand's text, since a sealed census is retained and
-may be shown after its side's reader is gone, and a side formats each distinct
-operand once. A cursor that yields a record with display text would pay for
-every operation what a view pays only for the operations it shows, which the
-measurement gate below catches.
+the decoder canonical comparison runs rejects; the atom carries it as
+undecided, and a cursor whose stream completes with such a target ends `Failed`
+instead of `Complete`, so a difference decided before the end is read as
+Finding Diff Any's walk reads it. The atom's `FindingKey` is the kind's
+**matcher projection** of those bytes, which may be the same or less: a
+declaration fact's identity key is a lossless encoding of its whole census key,
+as the declaration view states, so its projection is the bytes; an IL
+operation's identity key omits its branch and switch targets, as IL diff
+canonicalization requires so that a branch over an inserted instruction still
+aligns, and the kind's fold validates targets over the match. Equality of
+canonical bytes is therefore the stricter relation, and it is the one both
+scenarios' agreement is stated on. The symbolic identity of an IL operand is
+the `SymbolKey` Finding Diff Any memoizes, self-delimiting and never a decoded
+and formatted name, so two names whose bytes differ but decode alike stay
+distinct, as Finding Diff Any's [Identity](finding-diff-any.md#identity)
+requires. Finding Diff Any embeds the named Types inside that key as `Ref`
+parts of the table its comparison's two sides share; the cursor writes them in
+full, so its bytes are the expansion of the walk's key and mean the same thing
+in any pairing; [what remains of the gap](#what-remains-of-the-gap) records
+why, and [Symbol Key interning](symbol-key.md#interning) the table Finding Diff
+Any's keys refer to. The cursor yields the bytes, lockstep compares the bytes,
+and only sealing for Exhaustive builds the key string and projects the
+operand's text, since a sealed census is retained and may be shown after its
+side's reader is gone, and a side formats each distinct operand once. A cursor
+that yields a record with display text would pay for every operation what a
+view pays only for the operations it shows, which the measurement gate below
+catches.
 
 **Terminals** are the inspection outcomes of Finding nomenclature, reached in
 sequence:
@@ -356,11 +358,12 @@ family string, and a cursor per method, none of which the walk materializes,
 together with the work lockstep does that the walk skips: it resolves a whole
 atom before comparing and validates clause tables. That gap the
 [ablation](#ablation-of-the-gap) has since attributed mostly to the cursor's
-clause stage, now repaired, with the atoms a small part; until what remains
-closes, the walk stays as the provision, and lockstep over the cursors serves
-the scenarios the walk does not reach (member, bisect), where the cost is per
-member rather than per assembly. The seam reaches the comparison's Body
-decisions; `Explain` and the per-method gate hooks still read through the walk.
+clause stage, now repaired; [what remains](#what-remains-of-the-gap) is mostly
+token resolution and the atom records, and the walk stays as the provision, and
+lockstep over the cursors serves the scenarios the walk does not reach (member,
+bisect, batch), member and bisect at a cost per member rather than per
+assembly. The seam reaches the comparison's Body decisions; `Explain` and the
+per-method gate hooks still read through the walk.
 
 Two readings follow that reach past this pair of readers. An Exists terminal
 at the source can deliver outsize wins: the walk is one, a reader that
@@ -509,8 +512,60 @@ and rows are identical between the readers on every Type, and Type states are
 identical on every pair. The walk stays as the provision: lockstep matches it
 on no reported number. What remains of the gap is what the ablation measured
 outside the clause stage, token resolution at 9% to 12% and the per-atom
-records at 2% to 7% of the old gap, which are the next targets if lockstep is
-to replace the walk.
+records at 2% to 7% of the old gap, which the next record attributes.
+
+### What remains of the gap
+
+The repaired cursor ablated the same way, on the experiment branch
+`exp/exists-gap-ablation-2`, against the walk on the five self-pairs, NativeAOT
+on a quiet host, ten iterations, two rounds; raw outputs in gists ([components
+and the comparison
+split](https://gist.github.com/richlander/503fe7d6bb88d48f2aada7e21c92da0e),
+[the resolution
+split](https://gist.github.com/richlander/dbb78991ba6995fe820a1d7ab627ff9c)).
+Every configuration agreed with the walk. Round 1, milliseconds removed and the
+share of lockstep less walk:
+
+| Image against itself | Walk ms | Lockstep ms | Token operands | Value operands | Target arrays | Residue: atom records and cursors |
+| --- | --- | --- | --- | --- | --- | --- |
+| Aspire.Hosting 13.6.0 | 77.8 | 150.4 | 54.6 (75%) | 5.3 (7%) | 2.3 (3%) | 10.4 (14%) |
+| System.Text.Json 10.0.0 | 16.2 | 31.4 | 8.7 (58%) | 2.1 (14%) | 0.6 (4%) | 3.6 (24%) |
+| Newtonsoft.Json 13.0.4 | 18.9 | 36.6 | 11.4 (64%) | 2.0 (11%) | −0.1 (−1%) | 4.5 (26%) |
+| System.Private.Xml 11 | 60.2 | 135.9 | 39.6 (52%) | 3.7 (5%) | 4.7 (6%) | 27.7 (37%) |
+| System.Private.CoreLib 11 | 189.9 | 318.9 | 69.0 (54%) | 16.3 (13%) | 8.9 (7%) | 34.7 (27%) |
+
+Token operands are now 52% to 78% of the time gap, and the residue, the
+per-atom records and a cursor per method, 54% to 72% of the allocation gap.
+Splitting the token cost: comparing two resolved operands is 0% to 9% of it,
+and resolution the rest. Spelling each distinct row's Symbol Key is 43% to 71%
+of the token cost and 73% to 84% of its allocation (9 to 66 MB), the memo
+lookups and identity bookkeeping, for repeated tokens as well as new ones, 27%
+to 46%, formatting a user string's text at most 14%, and the admission checks
+within noise.
+
+The spelling share is what Ref parts saved Finding Diff Any's own side ([Symbol
+Key](symbol-key.md#interning)). It is not taken here. A Ref-form key means
+something only relative to its table, so every side that may be compared must
+share one. Finding Diff Any's table serves one comparison, which owns both of
+its sides. An IL census side has no table: a host holds one per image and pairs
+it freely (the member endpoint diff, the Research session), and the scenarios
+lockstep serves are member, bisect, and batch, and in bisect and batch one
+version's side is compared with several others. Ref parts could reach them only
+through a table scoped to the batch, which #10533 and [Diff
+system](diff-system.md#scenarios) plan for the batch scenario's census sides
+and which a persisted key cannot use, since it never contains a Ref part.
+Adopting one would make every host that holds sides scope a table for the
+saving, and the saving is not needed: the decision rests on cost, below, not on
+the encoding.
+
+The pursuit of parity stops at this record. Lockstep matches the walk on no
+reported number, so the walk stays as the provision, and what lockstep is for
+is already cheap: a Type's first request costs 23 to 40 µs at the median. The
+remaining gap is recorded here as the cursor's state, not as work owed. The
+domain-free Allocation gate in [Gates](#gates) is unmet: the atom records are
+still allocated per advance, 54% to 72% of the allocation gap. It stays a gate,
+owned by any change that would let lockstep replace the walk, together with the
+Cost gate and the Browser/Wasm measurement.
 
 ## Exhaustive
 
@@ -670,8 +725,9 @@ test class gates its cursor:
   hosts' uses of Exists or Exhaustive, not depths of their own.
 - It does not own the axes, the pair partition, the API axis surface, or the
   Type and Library folds; Finding Diff Any does.
-- It does not rename Finding Diff Any's public types. Adoption step 4 does that
-  under Finding Diff Any's owner, after the walk's fate is measured.
+- It does not rename Finding Diff Any's public types; the Fast Diff rename
+  ([#10432](https://github.com/richlander/dotnet-inspect/pull/10432)) named
+  them under Finding Diff Any's owner.
 
 ## Adoption
 
@@ -736,7 +792,8 @@ test class gates its cursor:
      ([cost record](il-diff-canonicalization.md#cost-of-exists-over-the-cursors):
      21–35% of the census comparison's time on the six pairs, deciding as
      it does on every pair). The atom is still the sealed census's record,
-     allocated per advance, so the allocation gate waits for 2b.
+     allocated per advance, so the allocation gate is unmet; 2b records it
+     ([what remains of the gap](#what-remains-of-the-gap)).
    - **2b:** lockstep beside the walk through Finding Diff Any's Body
      provision seam (`FindingDiffAnyBodyReader`, the one point at which a
      paired method's Body is decided), so the whole comparison runs with
@@ -747,14 +804,52 @@ test class gates its cursor:
      walk is kept, 1.4× to 6.8× faster at assembly scope); the Type scope
      measurement through `FindingDiffAnyTypePairing`, one paired Type's rows
      decided by Exists through both readers, timed per Type by the `type`
-     leg of the same script ([cost record](#cost-at-type-scope)); then atoms
-     without per-advance allocation, the Browser/Wasm measurement, and the
-     walk deleted or kept by the cost gate's answer.
+     leg of the same script ([cost record](#cost-at-type-scope)); the
+     [ablation](#ablation-of-the-gap) that repaired the clause stage; and the
+     cost gate's answer, the walk kept, with
+     [what remains of the gap](#what-remains-of-the-gap) recorded and no
+     further parity work owed. The Allocation gate, unmet, and the
+     Browser/Wasm measurement remain for any later change that would delete
+     the walk.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Finding Diff Any's declaration census, which is the view's
-   adoption step DV1 taken through this owner; gated as step 1 is.
-4. **Exists owner.** Finding Diff Any's document becomes the owner of Exists at
+   adoption step DV1 taken through this owner; gated as step 1 is. Landed as
+   `DeclarationCensusCursor` and `DeclarationFindings` in
+   `ILInspector.Metadata` ([#10630](https://github.com/richlander/dotnet-inspect/issues/10630)
+   slice 1): the facts are the slots Finding Diff Any's side stages for a unit
+   on an axis, so there is one producer of them; the cursor expands each to a
+   side-independent key and yields them in key order. Its laziness is per
+   unit and stated: the cursor reads the unit's facts before its first atom,
+   because its canonical order is a sort over them, and lockstep then stops at
+   the first differing position. The walk keeps comparing staged slots per
+   unit, which is the same multiset equality without the expansion, under the
+   gates: per Type over the fixture pair, through a shared interning table
+   and through two independent ones, Exists on the API axis equals the
+   walk's API state and Exists on the Body declaration facts equals the
+   walk's declaration census equality (a Body `Changed` whose first
+   difference `Explain` names is a declaration fact, not a method's IL); the
+   identity-set comparison of two drained censuses has a non-Present pair
+   exactly when Exists is Changed; a real image against itself is Unchanged
+   on every Type with equal atom counts; and fault order over the
+   `FindingDiffAnyMetadataSafetyTests` and `FindingDiffAnyIdentityTests`
+   images read through the cursor: a Type the walk decides Indeterminate ends
+   its cursor `Failed` and is Indeterminate on both axes against any row of
+   the other side, and a well-formed Type read next from the same side is
+   Unchanged with a Complete census. The row-tier soft key that pairs a
+   changed slot as `Changed` is DV1's remaining step; the per-fact expansion
+   and detachment is this kind's allocation debt, as step 2b records the IL
+   kind's, owned by any change that would let the cursor replace the walk's
+   slot comparison. Finding Diff Any's Type pairing
+   ([Type inventory](finding-diff-any.md#type)) reads the same slots, and
+   `DeclarationCensusAgreementTests` gates that the facts the cursor's
+   identity-set comparison finds on one side only are the inventory's.
+4. **Exists owner.** Landed: [Finding Diff
+   Any](finding-diff-any.md#status-and-owner)'s document owns Exists at
    Library, Type, and Member scope over the census, keeping its axes,
-   partition, folds, and gates, with the paired walk recorded as a retired
-   or retained provision, and its public types renamed under that owner in
-   one slice with the hosts that consume them.
+   partition, folds, and gates. It records its paired Body walk and its census
+   slot comparison as retained provisions, under steps 2b and 3, each deleted
+   only under the [Cost gate](#gates) and Diff capabilities' [latency
+   bar](diff-capabilities.md#latency-bar). Its public types were renamed under
+   that owner, with the hosts that consume them, by the Fast Diff rename
+   ([#10432](https://github.com/richlander/dotnet-inspect/pull/10432)), so no
+   further rename is owed.
