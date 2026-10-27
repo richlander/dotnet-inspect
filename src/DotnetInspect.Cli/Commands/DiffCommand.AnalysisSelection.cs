@@ -106,12 +106,13 @@ public partial class DiffCommand
         }
         AnalysisReportSurfaceKind surface =
             AnalysisSurfaceOf(options, out int targetCount);
-        InspectionAnalysisConsumerBinding binding =
-            DiffAnalysisCommandCapability.Binding;
+        AnalysisOperationDefinition operation =
+            DiffAnalysisCommandCapability.CompareBinding.Route
+                .AnalysisOperation!;
         AnalysisSetValidationResult validation =
             DiffAnalysisCommandCapability.Catalog.AnalysisCapabilities
                 .ValidateSet(
-                    binding.Operation,
+                    operation,
                     surface,
                     targetCount,
                     options.Analysis);

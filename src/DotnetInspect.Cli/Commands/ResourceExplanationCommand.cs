@@ -162,7 +162,7 @@ public static partial class ResourceExplanationCommand
                 "package-files" => CreatePackageFilesExplanation(),
                 "diff-analysis" => CreateDiffAnalysisExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
-                    CreateAnalysisExplanation(),
+                    CreateDiffAnalysisExplanation(),
                 ResourceExplanationCatalog.VocabulariesCollectionSegment =>
                     ResourceExplanationCatalog.CreateVocabularies(
                         CliVocabularyComposition.Snapshot),
@@ -488,32 +488,14 @@ public static partial class ResourceExplanationCommand
             _,
             ResourceExplanationCatalog capabilities) =
                 CreateCapabilityExplanation();
-        ResourceExplanationCatalog analyses =
-            ResourceExplanationCatalog.CreateAnalyses(
-                DiffAnalysisCommandCapability.Catalog);
         return ResourceExplanationCatalog.Combine(
             [
                 .. structuralCatalogs,
                 capabilities,
-                analyses,
                 ResourceExplanationCatalog.CreateVocabularies(
                     CliVocabularyComposition.Snapshot),
                 ResourceExplanationCatalog.CreateWorkspaceComponents(),
             ]);
-    }
-
-    private static ResourceExplanationCatalog CreateAnalysisExplanation()
-    {
-        (
-            _,
-            ResourceExplanationCatalog capabilities) =
-                CreateCapabilityExplanation();
-        ResourceExplanationCatalog analyses =
-            ResourceExplanationCatalog.CreateAnalyses(
-                DiffAnalysisCommandCapability.Catalog);
-        return ResourceExplanationCatalog.Combine(
-            capabilities,
-            analyses);
     }
 
     private static int ExplainFromCatalog(
