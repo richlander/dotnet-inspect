@@ -298,20 +298,25 @@ public static class FindingDiffAny
         List<SymbolKeySlot> censusB = b.BodyCensus(unitB, ownerVisible, out Dictionary<KeyRef, MethodDefinitionHandle> methodsB);
         if (!CensusesEqual(a, censusA, b, censusB))
             return false;
-        if (OneSidedBody(a, methodsA, methodsB) is not null || OneSidedBody(b, methodsB, methodsA) is not null)
-            return false;
 
-        // Equal censuses declare the same non-public members, and a method
-        // with a body on one side only was decided above.
+        // Equal censuses declare the same non-public members. A method with a
+        // body on one side only is a difference without reading its IL; the
+        // after side is searched for one only when some method went unpaired.
+        int paired = 0;
         foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
         {
             if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
+            {
+                if (a.Md.GetMethodDefinition(methodA).RelativeVirtualAddress != 0)
+                    return false;
                 continue;
+            }
+            paired++;
             work.Bodies++;
             if (!BodyEqual(a, methodA, b, methodB, work))
                 return false;
         }
-        return true;
+        return paired == methodsB.Count || OneSidedBody(b, methodsB, methodsA) is null;
     }
 
     /// <summary>
