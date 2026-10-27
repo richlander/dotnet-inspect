@@ -282,6 +282,12 @@ Managed host tests use deterministic versions of that declaration shape and
 the restored `Newtonsoft.Json@13.0.3` control, plus rejection and cancellation
 neighbors.
 
+The enforcing managed gate is
+[Project activation tests](../../tests/DotnetInspect.Web.Tests/BrowserRetainedWorkspaceActivationTests.Project.cs):
+original provider retention and Project Navigation, fresh occurrences across a
+Project/packet/Project selection, incumbent preservation on rejection or
+cancellation, and the explicit consumer-completion handshake.
+
 Overall tracker [#10478](https://github.com/richlander/dotnet-inspect/issues/10478)
 counts six slices, three merged at the start of this work.
 [#10716](https://github.com/richlander/dotnet-inspect/issues/10716) owns this
