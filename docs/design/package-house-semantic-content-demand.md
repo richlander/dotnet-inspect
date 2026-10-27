@@ -127,7 +127,31 @@ evidence when aggregate scope is requested. Exact/empty/no-match outcomes and
 reference/implementation correspondence remain neighboring controls. Focused
 fixtures preserve the motivating many-entry and many-Library shapes without
 retaining package binaries; pinned-package evidence follows the existing
-acquisition paths. No new runtime behavior is claimed by this contract change.
+acquisition paths. The contract-only merge #10599 claimed no runtime work
+reduction.
+
+The first producer adoption, #10595, is motivated additionally by the pinned
+`PCLStorage@1.0.2` archive: its `net45` projection has two Libraries while
+other target slices must remain in the complete receipt. Existing
+compile-inventory, compile-inspection, and exact compile-Library demands
+resolve their selection from the admitted directory rather than enumerating
+payload content again. A ranged plan may carry that resource-free selection
+into settlement only for the same successful content generation; fallback to
+another generation resolves against that generation's directory. Complete and
+cached acquisition use the same directory-based provision.
+
+This adoption preserves existing demand types, role selection, complete
+receipts, and Library-content boundaries. It does not change generic legacy
+realization, Root preparation, or host requirement lowering. The focused gate
+is `DeclaredCompileDemand_UsesDirectoryWithoutPayloadEnumeration`, alongside
+the existing ranged/complete exact-Library and compile-inventory controls.
+Its three cached-demand cases require zero payload enumerations and no
+Library-body opens; the pre-change inventory and exact-Library controls each
+enumerate the payload twice.
+`ExactCompileLibrary_ArchiveChangedFallbackUsesWinningDirectorySelection`
+gates recomputation after a changed archive removes the requested Library.
+Runtime performance evidence belongs to the implementation candidate, not the
+earlier contract-only merge.
 
 ### Focused adoption sequence
 
