@@ -763,7 +763,7 @@ declarations for the capability families a host composes, under the
 | --- | --- | --- |
 | `package-query` | The Package Query inspection document | `package` |
 | `package-files` | The Package Files inspection document | `package` |
-| `diff-analysis` | The `analyses` collection | The subject kinds the registered analyses' Compare participation names |
+| `diff-analysis` | The Diff analysis inspection document and the `analyses` collection | The subject kinds the registered analyses' Compare participation names |
 
 The Diff operation derives its accepted subject kinds from the registered
 participation surfaces. In product order these are Library, Type, and
@@ -924,8 +924,9 @@ The inspection-route part of step 2 is gated by:
 - `AnalysisRepresentation_SharedTablesMatchDocumentsAndKeepFailureEvidence`,
   which shows each table projection equals its document view and keeps its
   diagnostics; and
-- the Diff command suite, every analysis-set run of which executes through the
-  CLI binding.
+- the Diff command tests that invoke `diff --analysis`, each of which runs its
+  analysis set through the CLI binding. The `BuildAnalysisTransitions` tests
+  call the route's entry point directly and don't gate the binding.
 
 ## Non-claims
 

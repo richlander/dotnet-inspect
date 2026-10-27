@@ -10,8 +10,8 @@ namespace DotnetInspect.Cli.Commands;
 /// Inspection Capability Composition's routing declarations: one operation
 /// per composed capability family the CLI admits. Package Query and Package
 /// Files route to their inspection documents; the Diff analyses route to the
-/// analysis collection, and accept the subject kinds their Compare
-/// participation registers.
+/// Diff analysis document and the analysis collection, and accept the
+/// subject kinds their Compare participation registers.
 /// </summary>
 /// <remarks>
 /// Each operation accepts Schema Query subject kinds, so a host admits these
