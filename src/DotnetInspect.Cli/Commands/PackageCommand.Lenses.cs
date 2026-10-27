@@ -53,9 +53,17 @@ public partial class PackageCommand
 
             if (result.DependencyGroups is { Count: > 0 })
             {
-                result.DependencyGroups = result.DependencyGroups
-                    .Where(g => g.TargetFramework.Equals(options.Tfm, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                result.DependencyGroups =
+                    result.PackageDependencyInspection?.Content is
+                        PackageDependencyInspectionOutcome.Available
+                        {
+                            Dependencies.SelectedGroupIndex:
+                                int selectedGroupIndex,
+                        }
+                    && selectedGroupIndex >= 0
+                    && selectedGroupIndex < result.DependencyGroups.Count
+                        ? [result.DependencyGroups[selectedGroupIndex]]
+                        : [];
             }
         }
     }

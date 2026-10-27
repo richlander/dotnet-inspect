@@ -90,6 +90,87 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task InspectAsync_CacheHitRefreshesSharedTargetSelection()
+    {
+        PersistentCache.Initialize(
+            "dotnet-inspect-test",
+            Path.Combine(_root, "selection-cache"));
+        const string PackageId = "Selection.Cache";
+        const string Version = "1.0.0";
+        const string Producer = "selection-cache-producer";
+        var authority = new ConfiguredPackageAuthority(
+            new NuGetFetch.PackageSource(
+                "selection-cache",
+                "https://selection.example/v3/index.json"));
+        var payload = new AcquiredPackageSourcePayload(
+            NuGetFetch.PackageSourceCoordinate.Create(PackageId, Version),
+            new InMemoryPackageContent(
+                CreatePackage(
+                    PackageId,
+                    Version,
+                    "Selection cache",
+                    dependencyId: "Example.Dependency",
+                    dependencyTargetFramework: ".NETStandard2.0"),
+                fromCache: true,
+                producerKey: Producer),
+            Producer,
+            PackagePayloadOrigin.Cache);
+        var resolution = new PackageExtractionResult(
+            _root,
+            null,
+            PackageId,
+            Version,
+            Producer)
+        {
+            Authority = authority,
+            AcquiredPayload = payload,
+        };
+        NuspecData nuspec = NuspecParser.ParseContent(
+            $"""
+             <package><metadata><id>{PackageId}</id><version>{Version}</version>
+             <description>Selection cache</description></metadata></package>
+             """)!;
+        using var client = new HttpClient(new RoutingHandler(_ =>
+            throw new InvalidOperationException(
+                "This inspection does not request remote metadata.")));
+
+        _ = await PackageInspector.InspectAsync(
+            resolution,
+            PackageId,
+            Version,
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec,
+            client,
+            new VerboseLogger(enabled: false));
+        Assert.NotNull(PackageIndexCache.TryGet(Subject(resolution)));
+
+        InspectionResult cached = await PackageInspector.InspectAsync(
+            resolution,
+            PackageId,
+            Version,
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec,
+            client,
+            new VerboseLogger(enabled: false),
+            requestedTargetFramework: "netstandard2.0");
+
+        var available =
+            Assert.IsType<PackageDependencyInspectionOutcome.Available>(
+                cached.PackageDependencyInspection?.Content);
+        Assert.Equal(
+            ".NETStandard2.0",
+            available.Dependencies.SelectedTargetFramework);
+        Assert.Equal(
+            "Example.Dependency",
+            Assert.Single(
+                Assert.IsType<DeclaredPackageDependencyGroup>(
+                    available.Dependencies.SelectedGroup)
+                    .Dependencies).Id);
+    }
+
+    [Fact]
     public async Task InspectAsync_UsesTheAcquiredPackageProducerForMetadata()
     {
         const string sourceA = "https://a.example/v3/index.json";
@@ -1853,10 +1934,19 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         string version,
         string? description,
         string? dependencyId = null,
-        string? assemblyPath = null)
+        string? assemblyPath = null,
+        string? dependencyTargetFramework = null)
     {
         string dependencies = dependencyId is null
             ? ""
+            : dependencyTargetFramework is not null
+                ? $"""
+                      <dependencies>
+                        <group targetFramework="{dependencyTargetFramework}">
+                          <dependency id="{dependencyId}" version="1.0.0" />
+                        </group>
+                      </dependencies>
+                    """
             : $"""
                   <dependencies>
                     <dependency id="{dependencyId}" version="1.0.0" />

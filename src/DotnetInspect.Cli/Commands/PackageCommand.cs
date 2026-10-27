@@ -1484,17 +1484,8 @@ public partial class PackageCommand
                     producerOptions,
                     PackageSections.Dependencies,
                     pipeline)
-                && result.PackageDependencyInspection is
-                    {
-                        Content:
-                            PackageDependencyInspectionOutcome.Failed,
-                    } dependencyInspection)
+                && WritePackageDependencyInspectionFailure(result))
             {
-                foreach (InspectionDiagnostic diagnostic
-                    in dependencyInspection.Diagnostics)
-                {
-                    CommandError.Write(diagnostic.Summary.ToString());
-                }
                 return 1;
             }
 

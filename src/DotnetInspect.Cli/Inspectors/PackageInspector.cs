@@ -103,6 +103,22 @@ internal static class PackageInspector
                         sourceOptions);
                 }
 
+                if (!string.IsNullOrWhiteSpace(requestedTargetFramework))
+                {
+                    InspectionEnvelope<PackageDependencyInspectionOutcome>
+                        cachedDependencyInspection =
+                        await InspectPackageDependenciesAsync(
+                                resolution,
+                                packageName,
+                                version,
+                                nuspec,
+                                requestedTargetFramework)
+                            .ConfigureAwait(false);
+                    ApplyPackageManifest(
+                        cached,
+                        cachedDependencyInspection,
+                        logger.Log);
+                }
                 if (fetchMetadata)
                 {
                     var metadata = await PackageMetadataService.FetchAllMetadataAsync(
