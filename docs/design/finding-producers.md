@@ -306,9 +306,9 @@ change:
 3. Render each type position once where its display and canonical spellings
    agree, compute member anchors and fingerprints only for changed rows, and
    join and format facet details only after a field comparison differs.
-4. Add typed population accessibility, accessor kind, and Type kind beside the
-   strings, and switch the comparer's reach, accessor, and kind decisions to
-   them.
+4. Add typed population accessibility, accessor kind, member kind, and Type
+   kind beside the strings, and switch the comparer's reach, accessor, and kind
+   decisions, and the member key's kind component, to them.
 5. Add annotated type shapes for base Types, interfaces, constraints,
    parameters, and returns, keep the raw constant behind each default value,
    and pair members by a typed canonical key instead of `CanonicalSignature`,
@@ -323,11 +323,14 @@ change:
    and omits nullability, the opposite of the API comparer's member key, so it
    serves Type identity and an Exists prefilter for unchanged Types, not member
    pairing as it stands.
-7. The remaining spelled comparisons: attribute identity for the opt-in
-   Attributes scope instead of attribute text sets, variance from generic
-   parameter flags instead of `Variance` strings, and compiler-generated
-   names from typed facts instead of name prefixes. Once every compare path
-   extracts its surfaces, the comparer has no model-less text fallback.
+7. The remaining spelled comparisons: attribute constructor identity and
+   decoded arguments for the opt-in Attributes scope instead of attribute text
+   sets, and variance from generic parameter flags instead of `Variance`
+   strings. Once every compare path extracts its surfaces, the comparer has no
+   model-less text fallback. The compiler-generated member filter checks
+   prefixes of the definition name, a typed fact, so it is not a spelled
+   comparison; replacing it with the `[CompilerGenerated]` fact would change
+   which `--all` rows exist and is a separate policy decision.
 
 Demand-shaped Metadata performance
 ([#9257](https://github.com/richlander/dotnet-inspect/issues/9257)) tracks the
