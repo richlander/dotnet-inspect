@@ -1449,15 +1449,22 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
         return typeFind.ResolveAction(action);
     }
 
-    void InitializeTypeFind() =>
+    void InitializeTypeFind()
+    {
         _typeFind = new BrowserTypeFindOperation(_host);
+        InitializeIndexedTypeFind();
+    }
 
     void ReplaceTypeFindOperation()
     {
         _typeFind.Dispose();
+        DisposeIndexedTypeFind();
         InitializeTypeFind();
     }
 
-    void DisposeTypeFind() =>
+    void DisposeTypeFind()
+    {
         _typeFind.Dispose();
+        DisposeIndexedTypeFind();
+    }
 }

@@ -30,6 +30,7 @@ import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 import {
   inertStringFixture,
+  metadataInertStringFixture,
   packageInertStringFixture,
 } from "./inert-string-fixture.ts";
 import type {
@@ -42,6 +43,7 @@ import type {
   BrowserSpotlightActionResult,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
+  BrowserIndexedTypeFindResult,
   BrowserTypeFindResult,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import type {
@@ -153,6 +155,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("cancelLibraryApiDiff"),
     cancelLibraryFindingDiffAny: () =>
       unexpected("cancelLibraryFindingDiffAny"),
+    findIndexedTypes: () => unexpected("findIndexedTypes"),
     findTypes: () => unexpected("findTypes"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
@@ -1011,6 +1014,44 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     },
     reason: null,
   } satisfies BrowserTypeFindResult;
+  const indexedTypeFind = {
+    status: "Completed",
+    operation: {
+      find: {
+        content: {
+          matches: [{
+            source: {
+              packageId: "Aspire.Hosting",
+              version: "9.0.0",
+              targetFramework: "net8.0",
+              assemblyName: "Aspire.Hosting",
+            },
+            type: {
+              namespace: "Aspire.Hosting",
+              names: [{
+                name: "DistributedApplication",
+                arity: 0,
+              }],
+            },
+          }],
+          publishedSourceIdentities: [],
+          coverage: [],
+          completion: "Completed",
+        },
+        share: {
+          kind: "nonProjectable",
+          fullUrl: null,
+          packet: null,
+          path: "indexed-type-find",
+          reason: metadataInertStringFixture(
+            "Indexed Type Find is not projectable.",
+          ),
+        },
+        diagnostics: [],
+      },
+    },
+    reason: null,
+  } satisfies BrowserIndexedTypeFindResult;
   const spotlightActivation = {
     status: "navigation",
     navigation: posting.navigation,
@@ -1032,10 +1073,15 @@ test("retained Catalog transport preserves compact posting and bounded Package a
   const ecosystemPackageArguments: (readonly unknown[])[] = [];
   const packageArguments: (readonly unknown[])[] = [];
   const platformArguments: (readonly unknown[])[] = [];
+  const indexedTypeFindArguments: (readonly unknown[])[] = [];
   const typeFindArguments: (readonly unknown[])[] = [];
   const spotlightActivationArguments: (readonly unknown[])[] = [];
   const state = fixture({
     metadata: {
+      findIndexedTypes: async (...args) => {
+        indexedTypeFindArguments.push(args);
+        return indexedTypeFind;
+      },
       findTypes: async (...args) => {
         typeFindArguments.push(args);
         return typeFind;
@@ -1084,11 +1130,19 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     11,
     "JsonSerializer",
   );
+  const indexedFindResult = state.client.metadata.findIndexedTypes(
+    "definition-exact",
+    "realization-exact",
+    12,
+    "DistributedApplication",
+    25,
+  );
   const spotlightResult = state.client.catalog.activateSpotlightDestination(
     "action-exact",
   );
   await state.environment.flushAsync();
   assert.deepEqual(await findResult, typeFind);
+  assert.deepEqual(await indexedFindResult, indexedTypeFind);
   assert.deepEqual(await spotlightResult, spotlightActivation);
 
   const packageResult =
@@ -1198,6 +1252,13 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     "realization-exact",
     "oversized-navigation",
     0,
+  ]]);
+  assert.deepEqual(indexedTypeFindArguments, [[
+    "definition-exact",
+    "realization-exact",
+    12,
+    "DistributedApplication",
+    25,
   ]]);
   assert.deepEqual(typeFindArguments, [[
     "definition-exact",
@@ -2571,6 +2632,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     metadata: [
       "cancelLibraryApiDiff",
       "cancelLibraryFindingDiffAny",
+      "findIndexedTypes",
       "findTypes",
       "queryLibraryApiDiff",
       "queryLibraryFindingDiffAny",
@@ -2693,7 +2755,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 137);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 138);
 
   const state = fixture();
   const groups = [

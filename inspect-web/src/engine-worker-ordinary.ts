@@ -79,6 +79,7 @@ type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
+  | "findIndexedTypes"
   | "findTypes"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
@@ -1324,6 +1325,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<MetadataFacade["cancelLibraryApiDiff"]>
       ) => facades.metadata.cancelLibraryApiDiff(...args),
+    ),
+    findIndexedTypes: valueOperation(
+      "ordinary-metadata-find-indexed-types",
+      5,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["findIndexedTypes"]>
+      ) => facades.metadata.findIndexedTypes(...args),
     ),
     findTypes: valueOperation(
       "ordinary-metadata-find-types",
@@ -2610,6 +2619,9 @@ export function bindEngineWorkerOrdinaryClient(
     metadata: {
       cancelLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.cancelLibraryApiDiff,
+      ),
+      findIndexedTypes: bind(
+        engineWorkerOrdinaryOperations.metadata.findIndexedTypes,
       ),
       findTypes: bind(
         engineWorkerOrdinaryOperations.metadata.findTypes,
