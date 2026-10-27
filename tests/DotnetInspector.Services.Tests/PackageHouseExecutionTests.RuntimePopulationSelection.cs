@@ -1,5 +1,6 @@
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
@@ -49,6 +50,56 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task RuntimePopulationSelectionRetainsOwnerDefaultFramework()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                new SourceBehavior(
+                    [Version],
+                    PayloadEntries:
+                    [
+                        $"lib/net8.0/{PackageId}.dll",
+                        $"lib/net10.0/{PackageId}.dll",
+                        $"runtimes/linux-x64/lib/net8.0/{PackageId}.dll",
+                        $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
+                    ]));
+        (
+            PackageHouseSettlement.Acquired acquired,
+            PackageHouseRootContribution contribution) =
+                await RuntimePopulationContributionAsync(
+                    environment,
+                    PackageHouseTargetContext.OwnerDefault());
+
+        PackageHouseRuntimePopulationSelection selection =
+            PackageHouseRuntimePopulationSelector.Select(
+                acquired,
+                contribution,
+                new PackageRuntimePopulationAuthority.None());
+
+        var selected = Assert.IsType<
+            PackageRuntimePopulationChoiceResult.Selected>(
+                selection.Choice);
+        Assert.Equal("net10.0", selected.SelectedTargetFramework);
+        Assert.Equal("net10.0", selection.Binding.Coordinate.Framework);
+        Assert.Equal(
+            "linux-x64",
+            selection.Binding.Coordinate.RuntimeIdentifier);
+        PackageRootReacquisitionRequest rootRequest =
+            selection.Binding.CreateReacquisitionRequest();
+        Assert.Null(rootRequest.RequestedTargetFramework);
+        Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
+        Assert.Equal("net10.0", rootRequest.SelectionTargetFramework);
+        Assert.False(rootRequest.AllowsCompatibleTargetSelection);
+        PackageCompileAssetSelection assetSelection =
+            Assert.IsType<PackageCompileAssetSelection>(
+                selection.Binding.Root.AssetSelection);
+        Assert.Equal(
+            $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
+            Assert.Single(assetSelection.ImplementationAssets).Path);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task RuntimePopulationSelectionInfersSoleRuntime()
     {
         await using HouseEnvironment environment =
@@ -62,7 +113,9 @@ public sealed partial class PackageHouseExecutionTests
         (
             PackageHouseSettlement.Acquired acquired,
             PackageHouseRootContribution contribution) =
-                await RuntimePopulationContributionAsync(environment);
+                await RuntimePopulationContributionAsync(
+                    environment,
+                    PackageHouseTargetContext.OwnerDefault());
 
         PackageHouseRuntimePopulationSelection selection =
             PackageHouseRuntimePopulationSelector.Select(
@@ -74,7 +127,13 @@ public sealed partial class PackageHouseExecutionTests
                 selection.Choice);
 
         Assert.Equal("unix", selected.RuntimeIdentifier);
+        Assert.Equal("net10.0", selected.SelectedTargetFramework);
+        Assert.Equal("net10.0", selection.Binding.Coordinate.Framework);
         Assert.Equal("unix", selection.Binding.Coordinate.RuntimeIdentifier);
+        PackageRootReacquisitionRequest rootRequest =
+            selection.Binding.CreateReacquisitionRequest();
+        Assert.Null(rootRequest.RequestedTargetFramework);
+        Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
         Assert.Same(
             acquired.Payload.Content.GenerationIdentity,
             selection.Binding.ContentGenerationIdentity);
@@ -171,7 +230,9 @@ public sealed partial class PackageHouseExecutionTests
     private static async Task<(
         PackageHouseSettlement.Acquired Acquired,
         PackageHouseRootContribution Contribution)>
-        RuntimePopulationContributionAsync(HouseEnvironment environment)
+        RuntimePopulationContributionAsync(
+            HouseEnvironment environment,
+            PackageHouseTargetContext? target = null)
     {
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Exact(
@@ -180,7 +241,7 @@ public sealed partial class PackageHouseExecutionTests
                     Version)),
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize),
-            PackageHouseTargetContext.Exact("net10.0"),
+            target ?? PackageHouseTargetContext.Exact("net10.0"),
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.PackageOnly,
             assetDemand:

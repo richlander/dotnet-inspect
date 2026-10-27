@@ -655,6 +655,25 @@ public sealed partial class BrowserEngineBoundaryTests
             summary.ImplementationComparisonRuntimeIdentifier,
             root.ImplementationComparisonRuntimeIdentifier);
 
+        BrowserPackageLoadResult ownerDefault =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        targetFramework: ""),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            "net11.0",
+            ownerDefault.PackageInfo!.Content.SelectedTargetFramework);
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            ownerDefault.RuntimePopulation!.Status);
+        Assert.Equal(
+            "linux-x64",
+            ownerDefault.RuntimePopulation.SelectedRuntimeIdentifier);
+
         BrowserPackageLoadResult retained =
             Assert.IsType<BrowserPackageLoadResult>(
                 JsonSerializer.Deserialize(

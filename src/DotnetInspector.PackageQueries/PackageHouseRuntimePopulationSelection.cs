@@ -96,6 +96,20 @@ public static class PackageHouseRuntimePopulationSelector
                 compileReceipt.Policy,
                 compileReceipt.RequestedTargetFramework,
                 selected.RuntimeIdentifier);
+        if (selectedReceipt.RequestedTargetFramework is null)
+        {
+            // Freeze the owner-selected highest framework for the RID-qualified
+            // Root while retaining the original omitted-framework request.
+            selectedReceipt =
+                PackageCompileAssetSelector.RetainSelection(
+                    settlement.Payload.Content,
+                    compileReceipt.PackageId,
+                    PackageCompileAssetSelectionPolicy.ExactTarget,
+                    selectedReceipt.Selection,
+                    selectedReceipt.Selection.TargetFramework
+                        ?? selected.SelectedTargetFramework,
+                    selected.RuntimeIdentifier);
+        }
         if (!PackageRootBinding.TryCreateFromSourceSelection(
                 settlement.Payload,
                 selectedReceipt,
