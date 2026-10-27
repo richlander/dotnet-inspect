@@ -133,7 +133,12 @@ The presence probe behind `-D` uses the census's per-body rule. It answers
 whether any method definition at the census breadth has a positive role, and
 settles at the first one. It reads the same declaration contract, body, call,
 and contract-source inputs as a census visit, and makes no other admission
-decision. Library scope probes every definition. Type scope probes the
+decision. The census never confers a generated body's own explicit contract on
+its declaring member. So presence counts a body's own contract only when the
+body's shape makes it its own declared member: not a lambda, local function,
+or state-machine body, not in a nested compiler-generated type, and not an
+unconfirmed extension declaration. An
+`unsafe` local function that nothing calls is therefore not a role. Library scope probes every definition. Type scope probes the
 selected type's census breadth, including unauthenticated generated
 candidates. A probe that cannot decide fails discovery visibly, as before.
 
@@ -189,7 +194,11 @@ Focused Release gates in `UnsafeMembersSectionTests` cover the following:
   1. An incomplete census with no rows is reported as observed zero.
 - **Failure.** A failed census projects to Inspection Failures and exits 1.
 - **Discovery.** Discovery agrees with the rows on the census fixtures at both
-  scopes.
+  scopes. That includes an `unsafe` local function that is never called or is
+  only made into a delegate.
+- **Library empty state.** A complete Library census with no findings renders
+  the empty state in table output. In JSON it gives empty `unsafeMembers` and
+  `unsafeMembersComplete: true`.
 - **Role scan.** `UnsafeMemberRoleScanTests` holds the census rule's role
   scan to the full rule, as
   [unsafe member findings](unsafe-member-findings.md#role-scan) defines.

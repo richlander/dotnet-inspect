@@ -100,11 +100,7 @@ public sealed class UnsafeMemberCensusProducer
             }
 
             requiresOwnerByShape =
-                MethodDefinitionShapes
-                    .IsDeclaredInNestedCompilerGeneratedType(
-                        reader,
-                        view.TypeDefinition)
-                || extensionShape == ExtensionDeclarationShape.Unconfirmed;
+                RequiresOwnerByShape(view, extensionShape);
         }
         catch (Exception exception)
             when (IsRecoverable(exception))
@@ -231,14 +227,13 @@ public sealed class UnsafeMemberCensusProducer
     internal static bool HasEvidence(scoped MethodDefinitionView view)
     {
         MethodDefinition definition = view.MethodDefinition;
-        if (MethodDefinitionShapes.ClassifyExtensionDeclaration(
+        ExtensionDeclarationShape extensionShape =
+            MethodDefinitionShapes.ClassifyExtensionDeclaration(
                 view.Reader,
                 view.TypeDefinition,
-                definition)
-            == ExtensionDeclarationShape.Skeleton)
-        {
+                definition);
+        if (extensionShape == ExtensionDeclarationShape.Skeleton)
             return false;
-        }
 
         MethodIdentity identity = view.SemanticIdentity switch
         {
@@ -251,12 +246,37 @@ public sealed class UnsafeMemberCensusProducer
             _ => throw new InvalidOperationException(
                 "Unknown semantic-identity outcome."),
         };
-        return !Evidence(
+        ImmutableArray<UnsafeMemberUseEvidence> evidence =
+            Evidence(
                 view,
                 identity,
-                MethodDefinitionShapes.ClassifyBodyAvailability(definition))
-            .IsEmpty;
+                MethodDefinitionShapes.ClassifyBodyAvailability(definition));
+        bool ownContract = false;
+        foreach (UnsafeMemberUseEvidence item in evidence)
+        {
+            if (item.Kind != UnsafeMemberUseKind.ExplicitContract)
+                return true;
+            ownContract = true;
+        }
+
+        // The census confers an explicit contract only on the body that is
+        // its own declared member, so a contract on a body that needs a
+        // declared owner by shape is not a role.
+        return ownContract
+            && !RequiresOwnerByShape(view, extensionShape)
+            && !CompilerGeneratedNames.RequiresDeclaredOwner(identity);
     }
+
+    // A body needs an authenticated owner whatever its declared source when
+    // its type is a nested compiler-generated type or it is an unconfirmed
+    // extension declaration.
+    static bool RequiresOwnerByShape(
+        scoped MethodDefinitionView view,
+        ExtensionDeclarationShape extensionShape) =>
+        MethodDefinitionShapes.IsDeclaredInNestedCompilerGeneratedType(
+            view.Reader,
+            view.TypeDefinition)
+        || extensionShape == ExtensionDeclarationShape.Unconfirmed;
 
     /// <summary>
     /// The role scan's verdict on one present body, checked against the full

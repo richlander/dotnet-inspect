@@ -1213,9 +1213,8 @@ public static class LibrarySections
 
     private static bool UnsafeMembersDiscoverable(LibraryInspection model)
         => model.UnsafeMemberInspection is not null
-            ? UnsafeMembers.CanRender(model)
+            ? UnsafeMembers.Advertises(model)
             : model.UnsafeEvidencePresent is true
-              || UnsafeMembers.CanRender(model)
               || (model.UnsafeEvidencePresent is null && model.HasMethodBodies);
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
@@ -1332,7 +1331,15 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
+        // A complete census renders its rows or the explicit empty state.
         public static bool CanRender(LibraryInspection model)
+            => model.UnsafeMemberInspection
+                is ILInspector.Analysis.UnsafeMemberFindingInspection.Complete
+                    or ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete;
+
+        // Discovery advertises the section only for a finding or an
+        // incomplete census, never for the empty state.
+        internal static bool Advertises(LibraryInspection model)
             => model.UnsafeMemberInspection switch
             {
                 ILInspector.Analysis.UnsafeMemberFindingInspection.Complete complete =>
