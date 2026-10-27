@@ -81,6 +81,10 @@ public class PublicMemberAdded
     public int Value(int x) => x + 1;
 }
 
+public abstract class AbstractMemberAdded
+{
+}
+
 public class MethodConstraint
 {
     public void Value<T>() where T : class { }
