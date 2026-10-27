@@ -1,6 +1,14 @@
 import { dotnet } from "./runtime-loader.js";
 
+declare const inertStringBrand: unique symbol;
+
+export type InertString = string & {
+  readonly [inertStringBrand]: "InertString";
+};
+
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
+
+export type BrowserIndexedTypeFindResultStatus = "Completed" | "Rejected" | "Unavailable" | "Stale" | number;
 
 export type BrowserVocabularyDiagnosticSeverity = "Information" | "Warning" | "Error" | number;
 
@@ -13,6 +21,8 @@ export type BrowserVocabularyMapCoverage = "Complete" | "Partial" | number;
 export type BrowserVocabularyScalarKind = "Text" | "Integer" | "Boolean" | number;
 
 export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
+
+export type InspectionDiagnosticSeverity = number;
 
 export type JsonValueKind = number;
 
@@ -233,6 +243,16 @@ export interface BrowserHomeDemoView {
   readonly memberAnchor: string | null;
   readonly memberKey: string | null;
   readonly section: string | null;
+}
+
+export interface BrowserIndexedTypeFindOperationResult {
+  readonly find: InspectionEnvelope<unknown>;
+}
+
+export interface BrowserIndexedTypeFindResult {
+  readonly status: BrowserIndexedTypeFindResultStatus;
+  readonly operation: BrowserIndexedTypeFindOperationResult | null;
+  readonly reason: string | null;
 }
 
 export interface BrowserMemberBodySelector {
@@ -940,6 +960,19 @@ export interface BrowserWorkspaceShareView {
   readonly comparison: BrowserWorkspaceDiffShare | null;
 }
 
+export interface InspectionDiagnostic {
+  readonly code: string;
+  readonly severity: InspectionDiagnosticSeverity;
+  readonly summary: InertString;
+  readonly correspondence: InertString | null;
+}
+
+export interface InspectionEnvelope<T0> {
+  readonly content: T0;
+  readonly share: InspectionShare;
+  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
+}
+
 export interface BrowserVocabularyAvailableShare {
   readonly kind: "available";
   readonly fullUrl: string;
@@ -1001,6 +1034,22 @@ export interface BrowserVocabularyLocalTermSetReference {
 
 export type BrowserVocabularyTermSetReference = BrowserVocabularyLocalTermSetReference | BrowserVocabularyExternalTermSetReference;
 
+export interface Available {
+  readonly kind: "available";
+  readonly fullUrl: string;
+  readonly packet: string;
+}
+
+export interface NonProjectable {
+  readonly kind: "nonProjectable";
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string;
+  readonly reason: InertString;
+}
+
+export type InspectionShare = Available | NonProjectable;
+
 type $ManagedExports = {
   readonly "DotnetInspect": {
     readonly "Web": {
@@ -1029,6 +1078,7 @@ type $ManagedExports = {
             readonly "ExplainResources.271973316": (path: string, projection: string) => string;
             readonly "ExplainVocabularies.1772831633": (path: string, depth: number, valueIds: string[] | null) => string;
             readonly "ExplainWorkspaceComponent.1537767637": (json: string, parentPacket: string | null, projection: string) => string;
+            readonly "FindIndexedTypes.72069702": (retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number) => Promise<string>;
             readonly "InspectVocabulary.1310674786": () => string;
             readonly "ListEcosystems.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
@@ -1356,6 +1406,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ExplainWorkspaceComponent.1537767637");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ExplainWorkspaceComponent.1537767637\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "FindIndexedTypes.72069702");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.FindIndexedTypes.72069702\u0027 is not callable.");
     }
   }
   {
@@ -1727,6 +1789,12 @@ export function explainWorkspaceComponent(json: string, parentPacket: string | n
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ExplainWorkspaceComponent.1537767637"](json, parentPacket, projection);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserResourceExplanationResult;
+}
+
+export async function findIndexedTypes(retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number): Promise<BrowserIndexedTypeFindResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["FindIndexedTypes.72069702"](retainedDefinitionId, realizationId, resultGeneration, text, maximumRows);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserIndexedTypeFindResult;
 }
 
 export function inspectVocabulary(): BrowserVocabularyInspection {

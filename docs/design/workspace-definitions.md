@@ -103,11 +103,10 @@ implementation):
 
 Meanwhile the repository has four independent workspace construction paths
 (three CLI, one wasm) and no shared definition format across them. The wasm
-packet serializes only its tab-shaped construction input, and `CorpusManifest`
-already serializes the `AssemblySet` recipe for one CLI path. A shared
-workspace definition plus one loader is still a net reduction in duplication,
-but it must reuse those acquisition models rather than assume none exists; the
-wasm site rebuild is sequenced behind it.
+packet serializes only its tab-shaped construction input. A shared workspace
+definition plus one loader is a net reduction in duplication, but it must reuse
+the existing acquisition models rather than assume none exists; the wasm site
+rebuild is sequenced behind it.
 
 ## Ownership and boundaries
 
@@ -4161,15 +4160,13 @@ implementation steps. No history or activation-lifecycle contract changes here.
 
 Each definition record serializes to a standalone `.json` file (including a
 CLI `--workspace <file>` and a site file loader) or registers as a peer record
-in an inspection bundle. Serialization follows the repository's
-`CorpusManifest` precedent: a source-generated `JsonSerializerContext` and an
-explicit `schemaVersion`, trim- and NativeAOT-compatible. That precedent does
-not supply duplicate-key hardening — current `CorpusManifest.FromJson`
-deserializes directly. The new workspace loader first uses `HardenedJson` to
-reject duplicate properties, then binds through a generated context configured
-to reject unmapped members recursively. A file is limited to 1 MiB of UTF-8
-JSON, nesting depth 32, 4096 JSON values, and 1024 coordinates. Catalog-group
-trees have an additional portable limit of 30 levels and 1024 nodes, validated
+in an inspection bundle. Serialization uses a source-generated
+`JsonSerializerContext` and an explicit `schemaVersion`, keeping it trim- and
+NativeAOT-compatible. The workspace loader first uses `HardenedJson` to reject
+duplicate properties, then binds through a generated context configured to
+reject unmapped members recursively. A file is limited to 1 MiB of UTF-8 JSON,
+nesting depth 32, 4096 JSON values, and 1024 coordinates. Catalog-group trees
+have an additional portable limit of 30 levels and 1024 nodes, validated
 iteratively on authored records before recursive text, coordinate, or
 serialization work and after bounded JSON binding on parsed records. A bundle
 applies the same per-record limits and its own aggregate byte/record budget.
@@ -4177,17 +4174,11 @@ Stream reads and multi-record bundle loads honor cancellation before each
 record. Limit, cancellation, malformed input, duplicate-key, and
 unknown-property failures remain typed and distinct from an empty definition.
 
-`CorpusManifest` remains the corpus-specific persisted recipe; workspace
-definitions subsume neither its corpus ordering nor its population API, and
-there is no schema-to-schema conversion. Its `PlatformFramework` id is a pack
-family, its `Tfm` is separate, and its platform version is informational during
-population; `PlatformAssembly` and `Directory` are also request kinds rather
-than already-normalized workspace coordinates. Conflating those fields with a
-workspace `platform` coordinate would change behavior. Instead, both loaders
-must call shared acquisition-resolution services beneath their distinct
-serializers, so package, platform-family, platform-assembly, project,
-directory, and local requests have one implementation without pretending the
-two persisted contracts are isomorphic.
+Workspace loading calls shared acquisition-resolution services, so package,
+platform-family, platform-assembly, project, directory, and local requests
+retain one implementation. Workspace definitions preserve Workspace coordinate
+semantics rather than reproducing acquisition request shapes as another
+persisted contract.
 
 ## Known gaps this design requires
 
@@ -4401,10 +4392,6 @@ Implementation must add, at minimum:
   every portable body or source-target query payload. Format 1 retains its
   narrower existing closure gate without inferring relationships across
   contexts;
-- a shared-acquisition gate proving `CorpusManifest` population and workspace
-  loading call the same package, platform-family, platform-assembly, project,
-  directory, and local resolution owners without translating one persisted
-  schema into the other;
 - a no-resolver-policy gate asserting every binding-target kind receives a
   non-success typed selection and that the shared policy has no filesystem or
   network resolution path;

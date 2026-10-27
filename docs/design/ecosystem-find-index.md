@@ -498,12 +498,16 @@ Seven steps lead from design to observable behavior in both hosts:
 5. **Host-neutral Type inspection — implemented.** One completed Type-only
    operation returns the portable indexed semantic result in an
    `InspectionEnvelope<TContent>`; the CLI is its first adopter.
-6. **Inspect Web and Spotlight — planned.** The same per-Ecosystem artifacts
-   and host-neutral indexed evaluation under Browser operation authority.
+6. **Inspect Web operation and transport — implemented; Spotlight composition
+   planned.** Inspect Web publishes the exact per-Ecosystem artifacts, admits
+   them from the retained Workspace plan, invokes the host-neutral indexed
+   inspection under Browser operation authority, and transports its unchanged
+   semantic content through the ordinary Worker. Spotlight action association,
+   ranking, selection, and presentation remain planned.
 7. **Freshness lane — planned.** Scheduled regenerate-and-compare reporting
    coordinate, scanner, symbol, coverage, size, and performance drift.
 
-Steps 3 through 5 are focused adoptions by existing owners, not
+Steps 3 through 6 are focused adoptions by existing owners, not
 responsibilities absorbed into this artifact design. The implementation
 tracker keeps them separate unless one qualifies for the one-first-adopter
 exception in

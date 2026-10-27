@@ -554,7 +554,7 @@ public static partial class CatalogExports
 }
 
 [SupportedOSPlatform("browser")]
-internal static class BrowserRetainedWorkspaceActivationService
+internal static partial class BrowserRetainedWorkspaceActivationService
 {
     internal const int PackageSourceCredentialsJsonLengthLimit = 2 * 1024 * 1024;
     internal const string InvalidPackageSourceCredentialsMessage =
@@ -1509,6 +1509,7 @@ internal static class BrowserRetainedWorkspaceActivationService
     {
         lock (Gate)
             Sessions.Clear();
+        ResetIndexedTypeFindForTests();
         await BrowserRetainedWorkspaceActivationRegistry
             .ResetForTestsAsync()
             .ConfigureAwait(false);

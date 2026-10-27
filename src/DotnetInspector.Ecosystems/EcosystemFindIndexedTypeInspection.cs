@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
@@ -38,4 +40,25 @@ public static class EcosystemFindIndexedTypeInspection
                     cancellationToken);
         return new(content, Share);
     }
+
+    public static JsonElement ProjectContent(
+        EcosystemFindIndexedIntegrationResult.Type content) =>
+        JsonSerializer.SerializeToElement(
+            content,
+            EcosystemFindIndexedTypeInspectionJsonContext.Default
+                .IndexedTypeFindContent);
 }
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(
+    typeof(EcosystemFindIndexedIntegrationResult.Type),
+    TypeInfoPropertyName = "IndexedTypeFindContent")]
+[JsonSerializable(
+    typeof(TypeFindPattern.Glob),
+    TypeInfoPropertyName = "TypeFindPatternGlob")]
+[JsonSerializable(
+    typeof(MemberFindPattern.Glob),
+    TypeInfoPropertyName = "MemberFindPatternGlob")]
+internal sealed partial class EcosystemFindIndexedTypeInspectionJsonContext :
+    JsonSerializerContext;
