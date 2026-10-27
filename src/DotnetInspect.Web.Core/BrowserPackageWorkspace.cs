@@ -1997,7 +1997,7 @@ internal static class BrowserPackageWorkspace
         PackageAssetSelectionReceipt receipt =
             PackageAssetSelector.EvaluateSingleRuntime(
                 payload.Content,
-                binding.Root.RequestedTargetFramework);
+                binding.Root.AssetSelection.TargetFramework);
         if (receipt.AvailableRuntimePopulations.Count == 0)
             return null;
 

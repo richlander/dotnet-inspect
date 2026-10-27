@@ -699,6 +699,73 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageSummary_OwnerDefaultRuntimeEligibilitySurvivesExactRootReopening()
+    {
+        string id = $"Summary.Runtime.OwnerDefault.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"lib/net10.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        targetFramework: ""),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            "net10.0",
+            summary.PackageInfo!.Content.SelectedTargetFramework);
+        Assert.Null(summary.RuntimePopulation);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    targetFramework: "",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Null(realization.Coordinate.Root.RequestedTargetFramework);
+        PackageCompileAssetSelection selectedAssets =
+            Assert.IsType<PackageCompileAssetSelection>(
+                realization.Coordinate.Root.AssetSelection);
+        Assert.Equal("net10.0", selectedAssets.TargetFramework);
+        Assert.Equal(
+            "net10.0",
+            selectedAssets.ImplementationTargetFramework);
+        Assert.Equal(
+            $"lib/net10.0/{id}.dll",
+            Assert.Single(selectedAssets.ImplementationAssets).Path);
+
+        string rootRequest = realization.Coordinate.Binding!
+            .CreateReacquisitionRequest()
+            .Encode();
+        BrowserPackageRootLoadResult root =
+            Assert.IsType<BrowserPackageRootLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageRoot(rootRequest),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageRootLoadResult));
+        Assert.Null(root.RuntimePopulation);
+    }
+
+    [Fact]
     public async Task PackageSummary_RuntimeAmbiguityRetainsFrameworkInventory()
     {
         string id = $"Summary.Runtime.Ambiguous.{Guid.NewGuid():N}";
