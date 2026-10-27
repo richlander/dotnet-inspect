@@ -136,6 +136,155 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void MethodQuerySource_CallOperandsAvoidTypedTargetAndSignatureWork()
+    {
+        string path = typeof(MethodDefinitionRequestSetTests).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle method =
+            FindMethod(
+                reader,
+                nameof(MethodCallMetadataProbeTarget),
+                nameof(MethodCallMetadataProbeTarget.Exercise));
+        MethodDefinitionSourceAssociation exact =
+            Association(
+                MethodCallOperandsProbe.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([exact]), path);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(exact).SourceReceipt;
+        ImmutableDictionary<
+            CallSiteKey,
+            MethodCallOperandSite> calls =
+                CompletedValue<
+                    ImmutableDictionary<
+                        CallSiteKey,
+                        MethodCallOperandSite>>(
+                            execution,
+                            exact);
+
+        Assert.NotEmpty(calls);
+        Assert.Equal(1, receipt.Coverage.Calls.CallReads);
+        Assert.Equal(0, receipt.Coverage.Calls.LocalSignatureReads);
+        Assert.Equal(0, receipt.Coverage.Calls.FieldOperandReads);
+        Assert.False(receipt.Coverage.CallTargets.Constructed);
+        Assert.True(
+            receipt.DeclaredLayers.HasFlag(
+                MethodDefinitionLayers.CallOperands));
+        Assert.True(
+            receipt.DeclaredLayers.HasFlag(
+                MethodDefinitionLayers.Body));
+        Assert.False(
+            receipt.DeclaredLayers.HasFlag(
+                MethodDefinitionLayers.CallTargets));
+    }
+
+    [Fact]
+    public void MethodQuerySource_CallOperandsAreDecodedOnceAcrossLanes()
+    {
+        string path =
+            FixtureCatalog.Get(
+                    FixtureIds.AnalysisCalleeResolution)
+                .AssemblyPath();
+        MethodDefinitionSourceAssociation first =
+            Association(
+                MethodCallOperandsProbe.Instance,
+                ProducerTerminal.Rows);
+        MethodDefinitionSourceAssociation second =
+            Association(
+                MethodCallOperandsProbe.Second,
+                ProducerTerminal.Rows);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(
+                AcceptedPlan([first, second]),
+                path);
+        MethodCallMetadataCoverage physical =
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.Calls;
+        MethodCallMetadataCoverage firstCoverage =
+            execution.ResultOf(first)
+                .SourceReceipt.Coverage.Calls;
+        MethodCallMetadataCoverage secondCoverage =
+            execution.ResultOf(second)
+                .SourceReceipt.Coverage.Calls;
+
+        Assert.True(physical.Constructed);
+        Assert.True(firstCoverage.Constructed);
+        Assert.False(secondCoverage.Constructed);
+        Assert.Equal(
+            firstCoverage.Work,
+            secondCoverage.Work);
+        Assert.Equal(
+            physical.Work,
+            firstCoverage.Work);
+        Assert.Equal(
+            firstCoverage.CallReads
+                + secondCoverage.CallReads,
+            physical.CallReads);
+        Assert.Same(
+            SameModuleCallTargetCoverage.Empty,
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.CallTargets);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MethodQuerySource_CallOperandsAreSharedWithTypedCalls(
+        bool typedCallsFirst)
+    {
+        string path =
+            FixtureCatalog.Get(
+                    FixtureIds.AnalysisCalleeResolution)
+                .AssemblyPath();
+        MethodDefinitionSourceAssociation operands =
+            Association(
+                MethodCallOperandsProbe.Instance,
+                ProducerTerminal.Rows);
+        MethodDefinitionSourceAssociation calls =
+            Association(
+                MethodCallsProbe.Instance,
+                ProducerTerminal.Rows);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(
+                AcceptedPlan(
+                    typedCallsFirst
+                        ? [calls, operands]
+                        : [operands, calls]),
+                path);
+        MethodCallMetadataCoverage physical =
+            Assert.Single(execution.GroupReceipts)
+                .PhysicalCoverage.Calls;
+        MethodCallMetadataCoverage operandCoverage =
+            execution.ResultOf(operands)
+                .SourceReceipt.Coverage.Calls;
+        MethodCallMetadataCoverage callCoverage =
+            execution.ResultOf(calls)
+                .SourceReceipt.Coverage.Calls;
+
+        Assert.Equal(!typedCallsFirst, operandCoverage.Constructed);
+        Assert.Equal(typedCallsFirst, callCoverage.Constructed);
+        Assert.Equal(operandCoverage.Work, callCoverage.Work);
+        Assert.Equal(physical.Work, operandCoverage.Work);
+        Assert.Equal(
+            operandCoverage.CallReads + callCoverage.CallReads,
+            physical.CallReads);
+        Assert.Same(
+            SameModuleCallTargetCoverage.Empty,
+            execution.ResultOf(operands)
+                .SourceReceipt.Coverage.CallTargets);
+        Assert.True(
+            execution.ResultOf(calls)
+                .SourceReceipt.Coverage.CallTargets.Constructed);
+    }
+
+    [Fact]
     public void MethodQuerySource_CallsRequireDeclaration()
     {
         MethodDefinitionSourceAssociation undeclared =
