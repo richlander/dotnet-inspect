@@ -56,12 +56,14 @@ internal sealed class ApiMemberAnalysisInspection
         IReadOnlyList<ApiMember> methods,
         IReadOnlySet<string> requestedSections,
         IReadOnlyList<string>? callerScopeAssemblies,
-        ApiOptions? options)
+        ApiOptions? options,
+        ResolvedAssemblyReference? targetAssembly = null)
     {
         _assemblyPath = assemblyPath;
         _methods = methods;
         _options = options;
         _callerScopeAssemblies = callerScopeAssemblies;
+        _targetAssembly = targetAssembly;
 
         (_includeAllocations, _includeOpportunities) =
             ApiAnalysisInspection.AnalysisScopeFor(requestedSections);
@@ -221,7 +223,10 @@ internal sealed class ApiMemberAnalysisInspection
         int methodToken,
         out string? error)
     {
-        using var context = PdbContext.Open(_assemblyPath);
+        using PdbContext context = _targetAssembly is null
+            || File.Exists(_assemblyPath)
+            ? PdbContext.OpenMetadataOnly(_assemblyPath)
+            : PdbContext.OpenMetadataOnly(_targetAssembly);
         return context.ResolveExceptionRegions(methodToken, out error);
     }
 

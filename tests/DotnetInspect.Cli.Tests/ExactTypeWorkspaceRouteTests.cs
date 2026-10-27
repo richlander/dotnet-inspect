@@ -1917,7 +1917,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             await ConsoleCapture.RunAsync(
                 () => ExecuteEligibleMemberRouteAsync(options, store));
 
-        Assert.Equal(0, exitCode);
+        Assert.True(exitCode == 0, error);
         Assert.Empty(error);
         Assert.Contains("\tcatch\t", output, StringComparison.Ordinal);
         Assert.Contains(
