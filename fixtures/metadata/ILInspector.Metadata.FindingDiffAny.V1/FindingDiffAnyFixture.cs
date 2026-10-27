@@ -81,6 +81,10 @@ public class PublicMemberAdded
     public int Value(int x) => x + 1;
 }
 
+public abstract class AbstractMemberAdded
+{
+}
+
 public class MethodConstraint
 {
     public void Value<T>() where T : class { }
@@ -295,6 +299,21 @@ public class MixedAccessorPropertyNarrowerAccessorMoves
     public int Value { get; protected set; }
 }
 
+// The setter moves between accessibilities with the same external reach: derived
+// Types in other assemblies.
+public class AccessorProtectedToProtectedInternal
+{
+    public int Value { get; protected set; }
+}
+
+// A setter becomes init-only: a caller that assigns the property after
+// construction breaks, and each side spells its own accessor (#10679, from
+// ASP.NET Core's ValidateContext.ValidationOptions).
+public class SetterBecomesInit
+{
+    public required int Value { get; set; }
+}
+
 // Changes wholly outside the API axis.
 public class PrivateMemberRemoved
 {
@@ -384,9 +403,10 @@ public interface IDefaultImplementationAdded
     int Value(int x);
 }
 
-// Ordinary presentation (docs/design/library-api-diff-presentation.md): a public
-// nested Type of a hidden Type is outside the ordinary population, and an
-// obsolete Member's other changes stay in it.
+// Ordinary presentation (docs/design/library-api-diff-presentation.md): hidden
+// status does not pass to a nested Type, so a public nested Type of a hidden Type
+// stays in the ordinary population, and an obsolete Member's other changes stay
+// in it.
 [EditorBrowsable(EditorBrowsableState.Never)]
 public class HiddenOuter
 {
@@ -400,4 +420,54 @@ public class ObsoleteMemberChanged
 {
     [Obsolete("m")]
     public int Value(int before) => before;
+}
+
+// Type-level ownership seams: the Member fold must retain census axes while
+// raising the physical rows that the C# Member population folds.
+public class MemberFoldAddedProperty
+{
+}
+
+public enum MemberFoldEnum : int { One = 1 }
+
+public class MemberFoldEvent
+{
+    public event Action? Changed;
+    public void Raise() => Changed?.Invoke();
+}
+
+public class MemberFoldHidden
+{
+    public int Value() => 1;
+}
+
+internal class MemberFoldBase : Exception
+{
+}
+
+public class MemberFoldMarker : IMemberFoldMarker
+{
+    public void Dispose() { }
+}
+
+public interface IMemberFoldMarker { }
+
+public class MemberFoldStatic
+{
+    static int _value = 1;
+    public static int Value => _value;
+}
+
+public class MemberFoldInternalAttribute
+{
+    internal int Value() => 1;
+}
+
+public interface IMemberFoldA { void M(); }
+public interface IMemberFoldB { void M(); }
+
+public class MemberFoldMethodImpl : IMemberFoldA, IMemberFoldB
+{
+    public void M() { }
+    void IMemberFoldA.M() { }
 }

@@ -10,7 +10,7 @@ internal static class ReleasePublicationWorkflowContract
     private const string AzureAction =
         "Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9";
     private const string SetupNodeAction =
-        "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
+        "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1";
 
     internal static void AssertMutations(string repository)
     {

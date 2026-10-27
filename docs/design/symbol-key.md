@@ -509,11 +509,15 @@ keys with equal expansions have one kind and therefore one form, which is what
 the injectivity above requires. The table serves the comparison and is released
 with the builders when the sides complete. The IL census cursor writes
 Type-level keys in full; its operand keys are the expansions of Finding Diff
-Any's. A census side has no table, since a host holds one per image and pairs
-it freely; Ref parts would reach it only through a table scoped to a batch
-([#10533](https://github.com/richlander/dotnet-inspect/issues/10533)), and
-Finding Census records why it does not take one now ([what remains of the
-gap](finding-census.md#what-remains-of-the-gap)).
+Any's. An IL census side has no table, since a host holds one per image and
+pairs it freely; Ref parts would reach it only through a table scoped to a
+batch ([#10533](https://github.com/richlander/dotnet-inspect/issues/10533)),
+and Finding Census records why it does not take one now ([what remains of the
+gap](finding-census.md#what-remains-of-the-gap)). The declaration census side
+holds Finding Diff Any's table, but its cursor expands each staged fact to its
+full key through that table before the unit ends, so its atoms carry no `Ref`
+part, a host pairs the side as freely, and a fact spells without the table; the
+walk's own slot comparison keeps the `Ref` form.
 
 ### Cost of the Ref parts
 

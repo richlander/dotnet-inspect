@@ -591,7 +591,7 @@ public partial class FindCommand
                 CommandError.WriteWarning(
                     "Ecosystem package-prefix discovery reached its "
                     + $"{options.MaximumEcosystemPrefixPackages}-package "
-                    + "candidate bound; later prefixes were not searched.");
+                    + "candidate bound; prefix coverage is incomplete.");
             incomplete = true;
         }
         if (!demandPrefixes && layers.Any(layer =>
@@ -917,16 +917,17 @@ public partial class FindCommand
             var typeQuestion = (TypeFindQuestion)search.Question;
             bool mayRunMemberFallback =
                 patterns.Any(MayRunImplicitMemberFallback);
+            InspectionEnvelope<
+                EcosystemFindIndexedIntegrationResult.Type> inspection =
+                EcosystemFindIndexedTypeInspection.Execute(
+                    artifacts,
+                    demands,
+                    typeQuestion,
+                    mayRunMemberFallback ? null : remainingRows,
+                    options.TypeFilter,
+                    cancellationToken);
             EcosystemFindIndexedIntegrationResult.Type typeResult =
-                (EcosystemFindIndexedIntegrationResult.Type)
-                    EcosystemFindIndexedIntegration.Evaluate(
-                        new(
-                            artifacts,
-                            demands,
-                            typeQuestion,
-                            mayRunMemberFallback ? null : remainingRows,
-                            options.TypeFilter),
-                        cancellationToken);
+                inspection.Content;
             types.AddRange(
                 TypeSearchService.ProjectIndexedSemanticMatches(
                     typeQuestion,
@@ -1202,14 +1203,17 @@ public partial class FindCommand
     }
 
     private static EcosystemFindPrefixPageCompletion PrefixCompletion(
-        PrefixSearchCompletion? completion) =>
-        completion == PrefixSearchCompletion.ClientPageLimitReached
-            ? EcosystemFindPrefixPageCompletion.ClientPageLimit
-            : completion == PrefixSearchCompletion.SourcePageLimitReached
-                ? EcosystemFindPrefixPageCompletion.SourcePageLimit
-                : completion == PrefixSearchCompletion.TakeReached
-                    ? EcosystemFindPrefixPageCompletion.RequestedLimit
-                    : EcosystemFindPrefixPageCompletion.Exhausted;
+        PrefixSearchCompletion? completion) => completion switch
+        {
+            null => EcosystemFindPrefixPageCompletion.Continuing,
+            PrefixSearchCompletion.ClientPageLimitReached =>
+                EcosystemFindPrefixPageCompletion.ClientPageLimit,
+            PrefixSearchCompletion.SourcePageLimitReached =>
+                EcosystemFindPrefixPageCompletion.SourcePageLimit,
+            PrefixSearchCompletion.TakeReached =>
+                EcosystemFindPrefixPageCompletion.RequestedLimit,
+            _ => EcosystemFindPrefixPageCompletion.Exhausted,
+        };
 
     private static async Task<PrefixFindResult> EvaluatePrefixCandidateAsync(
         FindOptions options,

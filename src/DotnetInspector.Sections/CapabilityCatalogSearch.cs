@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using ILInspector.MetadataPrimitives;
@@ -53,6 +54,7 @@ public enum CapabilityCatalogSearchMatchSource
     Summary,
     RelatedRoute,
     ProductionBinding,
+    IssuedFinding,
 }
 
 [JsonConverter(
@@ -66,6 +68,7 @@ public enum CapabilityCatalogSearchResourceKind
     ConsumerBinding,
     Section,
     Category,
+    Analysis,
 }
 
 public sealed record CapabilityCatalogSearchRoute(
@@ -213,6 +216,19 @@ public sealed record CapabilityCatalogSearchDocument(
 public static class CapabilityCatalogSearch
 {
     public const double SimilarityThreshold = 0.6;
+    public const double PhraseThreshold = 0.25;
+
+    // A phrase word matched by a term outside the resource's own heading
+    // counts at the H1-to-body ratio 1.0 : 1.5.
+    private const double ContextWeight = 1.0 / 1.5;
+    private const int MinimumSearchWordLength = 3;
+
+    private static readonly FrozenSet<string> FunctionWords =
+        FrozenSet.Create(
+            StringComparer.OrdinalIgnoreCase,
+            "the", "and", "for", "with", "does", "what", "which", "how",
+            "any", "are", "has", "have", "from", "this", "that", "into",
+            "its", "all", "use", "using", "show", "list", "find", "get");
     private static readonly char[] SegmentSeparators =
         [' ', '\t', '\r', '\n', '.', '/', ':', '-', '_'];
 
@@ -254,13 +270,18 @@ public static class CapabilityCatalogSearch
                 resources),
             .. CreateStructuralCandidates([.. structuralCatalogs]),
         ];
-        string normalizedQuery = request.Text.ToUpperInvariant();
+        ImmutableArray<string> words = SearchWords(request.Text);
+        Func<Candidate, ScoredCandidate?> score = words.IsEmpty
+            ? candidate => ScoreText(
+                candidate,
+                request.Text,
+                request.Text.ToUpperInvariant())
+            : candidate => ScorePhrase(candidate, request.Text, words);
 
         ScoredCandidate[] matches =
         [
             .. candidates
-                .Select(candidate =>
-                    Score(candidate, request.Text, normalizedQuery))
+                .Select(score)
                 .OfType<ScoredCandidate>()
                 .OrderByDescending(static match => match.Similarity)
                 .ThenBy(static match => Strength(match.Term.Source))
@@ -283,7 +304,7 @@ public static class CapabilityCatalogSearch
         ];
         var document = new CapabilityCatalogSearchDocument(
             request.Text,
-            SimilarityThreshold,
+            words.IsEmpty ? SimilarityThreshold : PhraseThreshold,
             candidates.Length,
             matches.Length,
             results.Length,
@@ -311,6 +332,7 @@ public static class CapabilityCatalogSearch
                 ResourceExplanationCatalog.RouteIdentity),
             .. capabilityCatalog.Routes
                 .Select(static route => route.QuerySpace)
+                .OfType<QuerySpaceBinding>()
                 .DistinctBy(
                     static querySpace => querySpace.Descriptor.Identity,
                     StringComparer.Ordinal)
@@ -326,6 +348,8 @@ public static class CapabilityCatalogSearch
                                 term)))),
             .. capabilityCatalog.Bindings.Select(
                 ResourceExplanationCatalog.ConsumerBindingIdentity),
+            .. capabilityCatalog.Analyses.Select(
+                ResourceExplanationCatalog.AnalysisIdentity),
         ];
         IReadOnlyDictionary<
             QuerySpace.Explanation.ExplanationResourceKey,
@@ -389,21 +413,32 @@ public static class CapabilityCatalogSearch
                     binding.Route.Document),
                 binding,
                 binding.Route);
+            foreach (string exposedAnalysis in binding.ExposedAnalyses)
+            {
+                AddAvailableResource(
+                    ResourceExplanationCatalog.AnalysisIdentity(
+                        catalog.Analyses.Single(registration =>
+                            registration.Analysis.Id.Value
+                            == exposedAnalysis)),
+                    binding,
+                    binding.Route);
+            }
+            if (binding.Route.QuerySpace is not { } querySpace)
+                continue;
             AddAvailableResource(
-                ResourceExplanationCatalog.QuerySpaceIdentity(
-                    binding.Route.QuerySpace),
+                ResourceExplanationCatalog.QuerySpaceIdentity(querySpace),
                 binding,
                 binding.Route);
 
             foreach (string exposedTerm in binding.ExposedQueryTerms)
             {
                 QuerySpaceOperationTermDescriptor term =
-                    binding.Route.QuerySpace.Descriptor.Operation.Terms
+                    querySpace.Descriptor.Operation.Terms
                         .Single(candidate =>
                             candidate.Identity == exposedTerm);
                 AddAvailableResource(
                     ResourceExplanationCatalog.QueryFacetIdentity(
-                        binding.Route.QuerySpace,
+                        querySpace,
                         term),
                     binding,
                     binding.Route);
@@ -630,10 +665,108 @@ public static class CapabilityCatalogSearch
             StringComparer.Ordinal);
     }
 
-    private static ScoredCandidate? Score(
+    /// <summary>
+    /// The search words of a phrase search: the distinct segments of at
+    /// least three characters that are not function words. A text with one
+    /// segment, or with no search word, is not a phrase search.
+    /// </summary>
+    private static ImmutableArray<string> SearchWords(string text)
+    {
+        string[] segments = text.Split(
+            SegmentSeparators,
+            StringSplitOptions.RemoveEmptyEntries
+            | StringSplitOptions.TrimEntries);
+        if (segments.Length < 2)
+            return [];
+        return
+        [
+            .. segments
+                .Where(static segment =>
+                    segment.Length >= MinimumSearchWordLength
+                    && !FunctionWords.Contains(segment))
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
+    }
+
+    private static ScoredCandidate? ScorePhrase(
         Candidate candidate,
         string query,
-        string normalizedQuery)
+        ImmutableArray<string> words)
+    {
+        SearchTerm? whole = candidate.Terms.FirstOrDefault(term =>
+            string.Equals(
+                query,
+                term.Value,
+                StringComparison.OrdinalIgnoreCase));
+        if (whole is not null)
+            return new ScoredCandidate(candidate, whole, 1.0);
+
+        double total = 0;
+        ScoredCandidate? strongest = null;
+        foreach (string word in words)
+        {
+            ScoredCandidate? best = ScoreText(
+                    candidate,
+                    word,
+                    word.ToUpperInvariant(),
+                    term => Weight(candidate, term));
+            if (best is null)
+                continue;
+            total += best.Similarity;
+            if (strongest is null || Precedes(best, strongest))
+                strongest = best;
+        }
+
+        double similarity = Math.Round(total / words.Length, 3);
+        return strongest is null || similarity < PhraseThreshold
+            ? null
+            : strongest with { Similarity = similarity };
+
+        static bool Precedes(ScoredCandidate left, ScoredCandidate right) =>
+            left.Similarity != right.Similarity
+                ? left.Similarity > right.Similarity
+                : Strength(left.Term.Source) != Strength(right.Term.Source)
+                    ? Strength(left.Term.Source) < Strength(right.Term.Source)
+                    : left.Term.IsSegment != right.Term.IsSegment
+                        ? !left.Term.IsSegment
+                        : string.CompareOrdinal(
+                            left.Term.Value,
+                            right.Term.Value) < 0;
+    }
+
+    /// <summary>
+    /// A term from the resource's own heading (owner identity, canonical
+    /// key, example value, resource name, or its path's final segment)
+    /// weighs 1; a summary, related route or binding, or scoping path
+    /// segment is context.
+    /// </summary>
+    private static double Weight(Candidate candidate, SearchTerm term) =>
+        term.Source switch
+        {
+            CapabilityCatalogSearchMatchSource.OwnerIdentity
+                or CapabilityCatalogSearchMatchSource.CanonicalKey
+                or CapabilityCatalogSearchMatchSource.ExampleValue
+                or CapabilityCatalogSearchMatchSource.ResourceName => 1.0,
+            CapabilityCatalogSearchMatchSource.ResourcePath =>
+                !term.IsSegment
+                    || IsInFinalPathSegment(candidate.Path, term.Value)
+                        ? 1.0
+                        : ContextWeight,
+            _ => ContextWeight,
+        };
+
+    private static bool IsInFinalPathSegment(string path, string value) =>
+        path[(path.LastIndexOf('/') + 1)..]
+            .Split(
+                SegmentSeparators,
+                StringSplitOptions.RemoveEmptyEntries)
+            .Contains(value, StringComparer.OrdinalIgnoreCase);
+
+    private static ScoredCandidate? ScoreText(
+        Candidate candidate,
+        string query,
+        string normalizedQuery,
+        Func<SearchTerm, double>? weight = null)
     {
         return candidate.Terms
             .Select(term =>
@@ -653,6 +786,12 @@ public static class CapabilityCatalogSearch
             })
             .Where(static match =>
                 match.Similarity >= SimilarityThreshold)
+            .Select(match => weight is null
+                ? match
+                : match with
+                {
+                    Similarity = match.Similarity * weight(match.Term),
+                })
             .OrderByDescending(static match => match.Similarity)
             .ThenBy(static match => Strength(match.Term.Source))
             .ThenBy(static match => match.Term.IsSegment)
@@ -709,6 +848,18 @@ public static class CapabilityCatalogSearch
                         resource,
                         "summary")
                     : null;
+            if (identity.Kind == InspectionCapabilityResourceKind.Analysis)
+            {
+                foreach (string finding in ResourceExplanationVocabulary.Texts(
+                             resource,
+                             "findings"))
+                {
+                    AddTerms(
+                        terms,
+                        finding,
+                        CapabilityCatalogSearchMatchSource.IssuedFinding);
+                }
+            }
             ImmutableArray<string> canonicalKeys =
                 identity.Kind == InspectionCapabilityResourceKind.QueryFacet
                     ? [
@@ -935,7 +1086,8 @@ public static class CapabilityCatalogSearch
             CapabilityCatalogSearchMatchSource.ExampleValue => 1,
             CapabilityCatalogSearchMatchSource.ResourcePath => 2,
             CapabilityCatalogSearchMatchSource.ResourceName => 3,
-            CapabilityCatalogSearchMatchSource.Summary => 4,
+            CapabilityCatalogSearchMatchSource.Summary
+                or CapabilityCatalogSearchMatchSource.IssuedFinding => 4,
             CapabilityCatalogSearchMatchSource.RelatedRoute
                 or CapabilityCatalogSearchMatchSource.ProductionBinding => 5,
             _ => throw new ArgumentOutOfRangeException(
@@ -958,6 +1110,8 @@ public static class CapabilityCatalogSearch
                 CapabilityCatalogSearchResourceKind.QueryFacet,
             InspectionCapabilityResourceKind.ConsumerBinding =>
                 CapabilityCatalogSearchResourceKind.ConsumerBinding,
+            InspectionCapabilityResourceKind.Analysis =>
+                CapabilityCatalogSearchResourceKind.Analysis,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(kind),
                 kind,

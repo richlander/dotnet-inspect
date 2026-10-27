@@ -18,6 +18,19 @@ The [structural catalog population](#structural-catalog-population) for
 [#10068](https://github.com/richlander/dotnet-inspect/issues/10068) is
 implemented for the CLI, which admits its six explained structural catalogs.
 
+[Phrase search](#phrase-search) for
+[#10568](https://github.com/richlander/dotnet-inspect/issues/10568) is
+implemented in the host-neutral operation, so both hosts receive it.
+
+[#10700](https://github.com/richlander/dotnet-inspect/issues/10700) plans to
+replace the per-family [search population](#search-population) with one
+admission rule: search admits every resource that is registered in the
+composed graph and that the current host binds, as
+[Inspection Capability Composition](inspection-capability-composition.md#registration-execution-and-binding)
+defines. Registered analyses already follow that rule through the capability
+family. The structural family below describes the current implementation for
+sections and categories until their adoption lands.
+
 ## Owner and exact claim
 
 **Capability Catalog Search** owns this exact claim:
@@ -35,7 +48,8 @@ This owner defines:
 
 - the host-neutral search request and result Document;
 - which composed and structural owner-issued fields participate in search;
-- canonical term segmentation and comparison normalization;
+- canonical term segmentation, search-text segmentation, and comparison
+  normalization;
 - similarity threshold, score aggregation, tie-breaking, and result bounds;
 - visible match provenance and complete-empty meaning;
 - the handoff from an oriented result to exact explanation and production
@@ -163,8 +177,10 @@ threshold. The smallest sufficient mechanism is therefore:
 1. project bounded complete values and separator-defined segments from facts
    already present in the composed catalog;
 2. score those terms with the existing similarity implementation;
-3. retain the maximum score and its provenance per resource; and
-4. return a deterministic bounded prefix with exact resource and binding
+3. retain the maximum score and its provenance per resource;
+4. for a phrase, score each search word the same way and average the words;
+   and
+5. return a deterministic bounded prefix with exact resource and binding
    identities.
 
 The design transfers three repository precedents:
@@ -225,7 +241,10 @@ The search population has two explicit families:
 
 A capability-family resource is searchable only when the composed graph
 proves that it is reachable from an executable registered route and at least
-one production consumer binding. A structural-family resource is searchable
+one production consumer binding. A registered analysis is reachable when a
+binding of its operation's route exposes it, under the
+[selection rule](inspection-capability-composition.md#host-binding) of
+Inspection Capability Composition. A structural-family resource is searchable
 only when its catalog meets the admission rule of the structural catalog
 population. No resource is searchable by any other path.
 
@@ -246,6 +265,7 @@ that promises a next production gesture.
 ### Structural catalog population
 
 Structural sections and categories are not composed capability resources.
+Before [#10700](https://github.com/richlander/dotnet-inspect/issues/10700),
 Inspection Capability Composition keeps command-local section catalogs
 outside the graph rather than wrapping them, and the composed graph has no
 route whose Content is a Library section. Those resources are nonetheless
@@ -359,6 +379,18 @@ The search adapter selects these fields explicitly for each adopted descriptor
 family. It does not use reflection, property enumeration, serializer metadata,
 display-object inspection, or rendered text.
 
+For a registered analysis, the projected fields are:
+
+1. its owner-issued analysis identity, as its owner identity, and its name;
+2. its canonical Resource Explanation path, `analyses/<identity>`;
+3. the owner-issued title of each Finding it issues, from its explained
+   `findings` fact; and
+4. the identity and name of its owning route and of the bindings that
+   expose it.
+
+An analysis has no summary. Its revision, cost, surfaces, and Finding
+descriptor identities do not participate.
+
 For a structural Section or Category, the projected fields are:
 
 1. its owner-issued name, the exact name that selects it, as its owner
@@ -376,12 +408,10 @@ section's evidence, not which capability it is. An undeclared description
 contributes no Summary term; search does not substitute the section name or
 any other text.
 
-This projection does not change [Search input](#search-input). The whole
-search text is still compared with each term, so the single words `metrics`,
-`unsafe`, `leverage`, and `families` reach the sections that own them, while
-a phrase such as `unsafe code` scores below the threshold against the term
-`unsafe`. Segmenting the search text is a separate ranking change, not part
-of this population.
+This projection does not change [Search input](#search-input). A single
+word is compared with each term whole, so `metrics`, `unsafe`, `leverage`,
+and `families` reach the sections that own them. A phrase such as
+`unsafe code` is scored word by word under [Phrase search](#phrase-search).
 
 Each selected field contributes:
 
@@ -408,7 +438,7 @@ Search-term provenance is ordered from strongest to weakest:
 2. owner-issued example value;
 3. canonical resource path;
 4. owner-issued resource name;
-5. owner-issued summary; and
+5. owner-issued summary or issued Finding title; and
 6. related route or production-binding identity or name.
 
 This order breaks equal similarity scores. It does not change the similarity
@@ -460,8 +490,60 @@ Examples:
 | `litteral` | segment `literal` from `library-literal` | `0.875`, included |
 | `library-literal` | complete canonical key `library-literal` | `1.0`, included |
 | `literal` | an unrelated long summary containing no close term | below threshold, excluded |
+| `namespace dependency cycles` | owner-identity segment `Dependency` of Dependency Structure, plus summary words for `namespace` and `cycles` | phrase score `0.741`, included |
+| `unsafe code` | owner-identity segment `Unsafe` of Unsafe Members | phrase score `0.5`, included |
+| `dependency structure` | complete owner identity `Dependency Structure` | `1.0`, included |
 
 <!-- markdownlint-enable MD013 -->
+
+### Phrase search
+
+A search text is a phrase when it has more than one segment, split on the
+same separators as [canonical terms](#canonical-search-term-projection), and
+at least one search word. Its **search words** are its distinct segments,
+under `StringComparer.OrdinalIgnoreCase`, that have at least three
+characters and are not function words. The function words are a fixed list
+of 24 English words, such as `the`, `does`, `which`, `show`, and `find`. Any
+other search text is scored whole as above.
+
+A phrase scores each resource in this order:
+
+1. If the complete search text equals one of the resource's terms under
+   `StringComparison.OrdinalIgnoreCase`, the resource scores `1.0` with that
+   term. A phrase is not otherwise compared whole: fuzzy comparison of a
+   multi-word text with a multi-word term scores shared word endings, so
+   `boxing allocations` would rank Source Locations first.
+2. Otherwise each search word is compared with each term, as a single search
+   text is, including the `0.6` threshold. A word's score is its best term
+   similarity times that term's weight, or `0` when no term reaches the
+   threshold.
+3. A term in the resource's own heading weighs `1`: its owner identity,
+   canonical key, example value, resource name, complete resource path, or a
+   segment of the path's final segment. Every other term is context and
+   weighs `1 / 1.5`: a summary, a related route or binding, or a path segment
+   that only scopes the resource, such as `library` or `sections` in
+   `library/sections/unsafe-members`. This is the H1-to-body ratio of the
+   dotnet-docs-llm-tools keyword extractor: a heading names what the page
+   is about.
+4. The phrase score is the mean of the word scores, rounded to three
+   decimals. Resources below `0.25` are excluded.
+5. The retained matched term is the one with the highest weighted score,
+   then stronger provenance, then a complete term before a segment, then
+   ordinal order.
+
+The phrase score then enters the same total order as a whole-text score.
+
+The constants come from measurement, not from the ranking examples above.
+In the project-analysis eval
+([#8516](https://github.com/richlander/dotnet-inspect/issues/8516)), Opus 5.5
+answered 26 operator-written questions. Against whole-text-only search, a
+pilot with phrase search and searchable diff analyses cut ideal-caching cost
+to 0.78 of base, with a 90% interval of 0.68–0.90. The heading weights
+replaced three provenance tiers with one ratio. They ranked the target first
+for 70 of 169 replayed agent searches, against 66, and live cost was
+unchanged at 0.96 [0.89–1.03]. The
+[#10568](https://github.com/richlander/dotnet-inspect/issues/10568) thread
+records the runs.
 
 ## Result Document
 
@@ -492,6 +574,10 @@ CapabilityCatalogSearchResult
   ProductionBindings[]
 ```
 
+`SimilarityThreshold` is the score a result must reach for this request:
+`0.6` for a whole-text search and `0.25` for a phrase. Every returned result
+meets it.
+
 `CandidateResourceCount` is the complete search population
 evaluated by this request. `MatchCount` is the number at or above the
 threshold before `MaximumResults`. `ReturnedCount` is the result-array length,
@@ -499,7 +585,9 @@ and `IsTruncated` is true exactly when `MatchCount > ReturnedCount`.
 
 Exactly one of `ResourceIdentity` and `StructuralIdentity` is present.
 A capability-family result carries its composed
-`InspectionCapabilityResourceIdentity`. A structural result carries its
+`InspectionCapabilityResourceIdentity`. An analysis result has kind
+`Analysis`, the Compare route as its owning route, and the bindings that
+expose it. A structural result carries its
 catalog name and its typed Discovery resource identity, with `ResourceKind`
 `Section` or `Category`. A structural result has one owning route, the Route
 its host admitted, and the admitted Bindings whose Resources contain it, in
@@ -779,6 +867,16 @@ publish a partially ranked prefix as complete.
 | The structural population covers every Section and Category of each admitted catalog and no item, root, or collection | Implemented: host-neutral candidate-count test over a catalog with a column item |
 | A structural result carries only the Bindings whose view selects it on its own, and an entry with an unbound resource or a binding over an unadmitted one is rejected | Implemented: host-neutral binding-scope and rejection tests, and CLI theories that find `Context: Member` and `Metadata: Heap` under `library` with only the `library address -S` binding |
 | Structural search acquires nothing and runs no producer | Implemented: the CLI acquisition seam test runs a structural match |
+| A phrase averages each search word's best weighted term score, ignores function words and short words, and reports the phrase threshold | Implemented: host-neutral phrase tests over the structural fixture |
+| A heading term outweighs a summary term, and a scoping path segment is context | Implemented: host-neutral weighting tests |
+| A phrase equal to a term matches that complete term, including the separator-joined key `library-literal` | Implemented: host-neutral complete-term tests over the structural fixture and the composed Package Query graph |
+| A text of several segments with no search word uses the whole-text rule | Implemented: host-neutral test reporting the `0.6` threshold |
+| A phrase below `0.25` is complete empty | Implemented: host-neutral zero-match phrase test |
+| The routing question "Does this library have namespace dependency cycles?" ranks Dependency Structure first | Implemented: CLI facade theory with the verbatim question and two shorter phrases |
+| A host searches every analysis its bindings expose, with its owning route and binding | Implemented: the CLI test finds every analysis `diff --analysis` exposes, with only that binding and the Compare route, and follows each path through exact explanation |
+| An analysis matches on its identity, path, and issued Finding titles, and a Finding-title word is context | Implemented: host-neutral term-provenance and weighting tests over Diff's registrations |
+| An analysis no binding exposes is not a candidate | Implemented: host-neutral candidate-count test |
+| `string literal diff` and `allocation changes` rank the analysis first | Implemented: CLI facade theory |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -810,6 +908,15 @@ implementation; this adoption adds no new matching algorithm.
    ([#10068](https://github.com/richlander/dotnet-inspect/issues/10068)).
    **Complete for the CLI.** The Browser admits structural catalogs when its
    structural explanation consumer lands.
+7. Score phrases word by word with heading weights
+   ([#10568](https://github.com/richlander/dotnet-inspect/issues/10568)).
+   **Complete.**
+
+8. Admit by registration plus binding over one composed graph
+   ([#10700](https://github.com/richlander/dotnet-inspect/issues/10700)).
+   Analyses join first. The structural population family retires when
+   structural catalogs register in the graph. **Complete for analyses;
+   planned for structural catalogs.**
 
 Each slice lands with its own production consumer. A search implementation
 over a synthetic test-only registry does not complete this design.
@@ -837,6 +944,15 @@ A manually curated alias inventory would drift from producer capabilities and
 repeat the maintenance failure this architecture is intended to remove. The
 first contract derives terms only from explicit composed owner facts. A future
 synonym owner requires a separately demonstrated need and design.
+
+### Corpus term weighting
+
+Weighting each search word by its rarity was measured offline with the
+dotnet-docs-llm-tools entropy inventory, built over all text the product
+ships. On its own it ranked worse: a word rare in that text but absent from
+the target, such as `memory` in `unsafe code memory safety`, pulled the mean
+below the threshold. It also needs a generated inventory that would drift
+with the product's prose. The heading ratio needs neither.
 
 ### Embeddings or learned semantic ranking
 

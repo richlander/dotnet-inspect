@@ -56,6 +56,25 @@ public static partial class CatalogExports
                 .BrowserViewFacetCatalog);
 
     [JSExport]
+    public static string ListMemberViewFacets() =>
+        JsonSerializer.Serialize(
+            new BrowserViewFacetCatalog(
+                [
+                    .. InspectionViewFacetCatalog.Registry
+                        .Discover(StructuralSubjectKind.Member)
+                        .Select(static descriptor =>
+                            new BrowserViewFacetDescriptor(
+                                descriptor.Id.Value,
+                                descriptor.Kind.ToString(),
+                                descriptor.Title,
+                                descriptor.Summary,
+                                descriptor.Order,
+                                descriptor.Role?.ToString())),
+                ]),
+            BrowserCatalogJsonContext.Default
+                .BrowserViewFacetCatalog);
+
+    [JSExport]
     public static string ListTypeViewFacets() =>
         JsonSerializer.Serialize(
             new BrowserViewFacetCatalog(
