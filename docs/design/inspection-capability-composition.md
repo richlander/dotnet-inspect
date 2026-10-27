@@ -19,7 +19,8 @@ partly implemented:
 - A route declares its [execution](#execution) kind. Diff's Compare operation
   is an inspection route, and `diff --analysis` executes every analysis set
   through its CLI binding.
-- Analyses are still composed and explained apart from the routes.
+- Diff's analyses are resources of the Compare route, composed and explained
+  in the same graph. The CLI binding exposes them, and search admits them.
 - Structural sections are still outside the graph.
 
 The [adoption sequence](#adoption-sequence) counts the steps that close each
@@ -448,7 +449,7 @@ A host binding selects registered resources and names the host's own gesture:
 | Binding | Selects | Example |
 | --- | --- | --- |
 | Route binding | A route, and the query facets it exposes | `package query` |
-| Operation analysis binding | The analyses its operation can dispatch | `diff --analysis` |
+| Operation analysis binding | The analyses it exposes on its route, under the selection rule below | `diff --analysis` |
 | Structural view binding | The sections and categories one structural view selects | `library -S`, `library address -S` |
 
 A resource is **available** in a host when it is registered and at least one
@@ -463,8 +464,14 @@ requests. Diff's Compare requests Targeted. The analysis owner,
 [Inspection Analysis Requests](analysis-surfaces-and-universes.md#report-surface),
 issues report-surface support and
 [question mode](analysis-surfaces-and-universes.md#question-mode). The
-operation owner declares the mode its operation requests. Participation alone
-isn't enough.
+operation owner declares the mode in its `AnalysisOperationDefinition`, and
+set validation reads the same mode. Participation alone isn't enough.
+
+An operation analysis binding is a route binding of a route that runs an
+analysis operation. It lists the analyses it exposes, as a route binding lists
+the query facets it exposes. Exposing an analysis that its route's operation
+can't select, or exposing analyses on a route that runs no analysis
+operation, prevents construction.
 
 The owning route of an available resource is the route it belongs to. For a
 host-executed structural resource, it is its structural catalog's root. For
@@ -598,11 +605,13 @@ capability module. The registration contains:
   [Inspection Analysis Requests](analysis-surfaces-and-universes.md#operation-participation);
 - the typed producer binding that the operation dispatches for each declared
   report surface; and
-- the operation consumer binding that selects analyses by that identity.
+- the route of the operation it takes part in, which declares that
+  operation's `AnalysisOperationDefinition`.
 
-The analysis is a registered resource of its operation's route. The operation
-consumer binding is a [host binding](#host-binding) of that route that selects
-the analyses the operation can dispatch. Analysis registrations and the
+The analysis is a registered resource of its operation's route. An operation
+analysis binding is a [host binding](#host-binding) of that route that
+exposes analyses under the [selection rule](#host-binding). Analysis
+registrations and the
 operation route are composed into the same graph as every other route. Hosts
 don't compose them as a separate catalog.
 
@@ -886,8 +895,9 @@ resource-free catalog construction. NativeAOT and single-threaded Wasm remain
 **unverified** until their existing product gates exercise the new substrate.
 
 The routing declarations' gate is the CLI root test
-`ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog`.
-It asserts four things:
+`ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog`, with the
+bare-explain routing-table tests for the Diff analysis document destination.
+Together they assert four things:
 
 - the three operations route to their destinations;
 - the Diff operation accepts Library, Type, and Member;
@@ -924,9 +934,31 @@ The inspection-route part of step 2 is gated by:
 - `AnalysisRepresentation_SharedTablesMatchDocumentsAndKeepFailureEvidence`,
   which shows each table projection equals its document view and keeps its
   diagnostics; and
-- the Diff command tests that invoke `diff --analysis`, each of which runs its
-  analysis set through the CLI binding. The `BuildAnalysisTransitions` tests
+- the Diff command tests that invoke `diff --analysis`, every accepted run of
+  which goes through the CLI binding. The `BuildAnalysisTransitions` tests
   call the route's entry point directly and don't gate the binding.
+
+The analyses-as-route-resources part of step 2 is gated by:
+
+- `AnalysisOperation_RequestsTargetedQuestions` and
+  `CompareRoute_OwnsTheAnalysesItsOperationDispatches`: the operation's
+  requested mode, and the route's analyses;
+- `AnalysisBinding_SelectsOnlyItsRoutesAnalyses`: construction rejects a
+  binding that exposes an analysis outside its route, or exposes analyses on a
+  route with no analysis operation;
+- `AnalysisExplanation_NamesItsRouteBindingAndFindings`: an analysis explains
+  its Finding titles, its route, and the bindings that expose it, and an
+  unexposed analysis names no binding;
+- the `CapabilityCatalogAnalysisSearchTests` and the CLI tests
+  `Search_AdmitsEveryAnalysisDiffBinds` and `Phrase_RanksTheAnalysisFirst`:
+  search admits exactly the exposed analyses, with their route and binding,
+  and resolves each path through exact explanation.
+
+The selection rule's question-mode clause is **unverified** by a dedicated
+case. No registered analysis takes part in Compare without Targeted support,
+and set validation accepts only a Targeted operation, so the case needs a
+synthetic descriptor; it's added with the first operation or analysis that can
+reach it.
 
 ## Non-claims
 
@@ -966,7 +998,7 @@ the sequence after step 6 with five steps for
 [registration, execution, and binding](#registration-execution-and-binding),
 numbered as in that issue:
 
-1. Lock the registration, execution, and binding design. **This change.**
+1. Lock the registration, execution, and binding design. **Complete.**
 2. Admit analyses through their operation's route, in two parts.
    - **Inspection route.** A route declares its execution kind, so it needs
      no Query Space. Diff's Compare operation registers as one inspection
@@ -981,6 +1013,7 @@ numbered as in that issue:
      This part records the question mode Compare requests and completes the
      search part of
      [#10445](https://github.com/richlander/dotnet-inspect/issues/10445).
+     **Complete.**
 3. Register structural catalogs as host-executed resources, with one
    structural view binding per CLI view. Retire Capability Catalog Search's
    structural population family and its host-assembled entries.
