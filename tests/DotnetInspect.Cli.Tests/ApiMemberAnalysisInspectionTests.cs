@@ -61,6 +61,43 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Null(inspection.CallerScopes(includeAllocations: true));
     }
 
+    [Fact]
+    public void ExceptionRegions_StreamBackedTargetDoesNotRequireALocalPath()
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => File.OpenRead(SelfPath),
+                AssemblyResolutionProvenance.Local(
+                    "stream-backed exception regions"))
+            ?? throw new InvalidOperationException(
+                "The test assembly must contain managed metadata.");
+        string unavailablePath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}",
+            "target.dll");
+        var inspection = new ApiMemberAnalysisInspection(
+            unavailablePath,
+            [],
+            new HashSet<string> { SectionNames.ExceptionRegions },
+            callerScopeAssemblies: null,
+            options: null,
+            assembly);
+        int methodToken = TokenOf(
+            SelfPath,
+            nameof(ApiMemberAnalysisInspectionTests),
+            nameof(
+                CallerScopes_WhenAScopeEntryIsNotAPortableExecutable_StillRulesOutTheOthers));
+
+        IReadOnlyList<MethodExceptionRegionInfo> regions =
+            inspection.ResolveExceptionRegions(
+                methodToken,
+                out string? error);
+
+        Assert.Null(error);
+        Assert.NotEmpty(regions);
+        Assert.False(File.Exists(unavailablePath));
+    }
+
     // The prefilter emptying the survivor list must not be mistaken for "no scope was requested".
     // ILInspector.Analysis names neither itself nor DotnetInspect.Cli.Tests as a reference, so it is
     // ruled out without being opened, leaving nothing to walk — but the request was still scoped.

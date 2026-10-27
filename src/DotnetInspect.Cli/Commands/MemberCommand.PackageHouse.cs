@@ -263,7 +263,11 @@ public static partial class MemberCommand
                                     source,
                                     loaded,
                                     allowImplicitDocumentation:
-                                        false))
+                                        false),
+                            requiresLocalAssemblyPath:
+                                demand
+                                != SharedMemberPackageDemand
+                                    .DefiningImplementation)
                         .ConfigureAwait(false);
                 return exitCode == 0
                     && envelope.Content.IsComplete

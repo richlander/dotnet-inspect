@@ -32,6 +32,9 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.PublicMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     // A method added without a body is an API fact only.
     [InlineData("FindingDiffAnyFixture.AbstractMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    // The setter's MethodDef signature gains modreq(IsExternalInit), so the Body axis
+    // compares a changed method as well.
+    [InlineData("FindingDiffAnyFixture.SetterBecomesInit", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.MethodConstraint", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ConstraintType", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ConstantValue", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
@@ -524,9 +527,9 @@ public sealed class FindingDiffAnyTests
         Assert.Equal("int Value { get; private set; }", change.NewValue);
     }
 
-    // The signature text spells no declaration modifier and no init setter, so an accessor
-    // that becomes init, or a property whose static, sealed, override, or virtual modifiers
-    // change, is not an accessor spelling change and stays Breaking
+    // An accessor that becomes init changes its spelled kind, and the signature text spells
+    // no declaration modifier, so neither that nor a property whose static, sealed, override,
+    // or virtual modifiers change is an accessor spelling change; each stays Breaking
     // (docs/design/api-population-scope.md#the-diffs-api-axis-population).
     [Theory]
     [InlineData(ApiSurfaceExtractionScope.Public, "public int Value { get; protected set; }", "public int Value { get; init; }")]
@@ -616,6 +619,48 @@ public sealed class FindingDiffAnyTests
         image.Position = 0;
         using var reader = new PEReader(image);
         return ApiSurfaceExtractor.Extract(reader, scope);
+    }
+
+    // A setter that becomes init is one Breaking signature row in every scope, and each
+    // side spells its own accessor (#10679, docs/design/api-population-scope.md).
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public)]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    public void SetterBecomingInit_IsOneBreakingSignatureRow(ApiSurfaceExtractionScope scope)
+    {
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(scope);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == "FindingDiffAnyFixture.SetterBecomesInit");
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+        Assert.Equal("required int Value { get; set; }", change.OldValue);
+        Assert.Equal("required int Value { get; init; }", change.NewValue);
+    }
+
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.Public, "public int Value { get; set; }", "public int Value { get; init; }")]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll, "public int Value { get; private set; }", "public int Value { get; private init; }")]
+    [InlineData(ApiSurfaceExtractionScope.Public, "public int Value { get; init; }", "public int Value { get; set; }")]
+    public void SetInitChange_IsBreakingAndSpellsEachSide(
+        ApiSurfaceExtractionScope scope,
+        string oldProperty,
+        string newProperty)
+    {
+        ApiFindingComparison comparison = MetadataFindings.CompareApi(
+            CompiledSurface($"public class C {{ {oldProperty} }}", scope),
+            CompiledSurface($"public class C {{ {newProperty} }}", scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+
+        ApiChange change = Assert.Single(Assert.Single(comparison.ApiDiff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+        Assert.Equal(oldProperty["public ".Length..], change.OldValue);
+        Assert.Equal(newProperty["public ".Length..], change.NewValue);
     }
 
     [Fact]

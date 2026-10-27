@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspector.InspectionContracts;
 using DotnetInspector.Networking;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using QuerySpace;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
@@ -1083,6 +1084,35 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task DiffAnalysisRoute_ExplainsAsAnInspectionRouteBoundToDiff()
+    {
+        Assert.Contains(
+            DiffAnalysisCommandCapability.CompareBinding,
+            DiffAnalysisCommandCapability.Catalog.Bindings);
+        Assert.Same(
+            DiffAnalysisCatalog.Route,
+            DiffAnalysisCommandCapability.CompareBinding.Route);
+
+        var route = await RunAsync(
+            "explain",
+            "diff-analysis/routes/compare",
+            "--json");
+
+        Assert.Equal(0, route.ExitCode);
+        Assert.Empty(route.Error);
+        Assert.Contains("\"execution\":\"inspection\"", route.Output);
+        Assert.Contains("diff-analysis/bindings/cli", route.Output);
+
+        var document = await RunAsync("explain", "diff-analysis", "--json");
+
+        Assert.Equal(0, document.ExitCode);
+        using JsonDocument exact = JsonDocument.Parse(document.Output);
+        Assert.Equal(
+            "diff-analysis",
+            exact.RootElement.GetProperty("path").GetString());
+    }
+
+    [Fact]
     public async Task BareExplain_DefaultsToTheRoutingTableAsTsv()
     {
         // Explain is primarily for agents, so its starting point is the
@@ -1105,7 +1135,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 "operation\toperations/diff-analysis\tDiff analyses\t",
                 StringComparison.Ordinal)
                 && line.Contains(
-                    "\tlibrary, type, member\tanalyses\t",
+                    "\tlibrary, type, member\tdiff-analysis, analyses\t",
                     StringComparison.Ordinal));
         Assert.DoesNotContain("# Explain", result.Output);
     }
@@ -1160,7 +1190,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "| operation | operations/diff-analysis | Diff analyses |",
             result.Output);
         Assert.Contains(
-            "| library, type, member | analyses |",
+            "| library, type, member | diff-analysis, analyses |",
             result.Output);
         Assert.Contains(
             "| reference | references/vocabularies | Value vocabularies |",

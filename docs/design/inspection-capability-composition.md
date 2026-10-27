@@ -13,11 +13,17 @@ Remaining modern owners adopt the same substrate one focused owner at a time.
 
 [Registration, execution, and binding](#registration-execution-and-binding)
 is the design for
-[#10700](https://github.com/richlander/dotnet-inspect/issues/10700). It is not
-implemented yet. The implementation still requires a Query Space for every
-route, composes analyses in a separate catalog, and leaves structural sections
-outside the graph. The [adoption sequence](#adoption-sequence) counts the
-steps that close each gap.
+[#10700](https://github.com/richlander/dotnet-inspect/issues/10700). It is
+partly implemented:
+
+- A route declares its [execution](#execution) kind. Diff's Compare operation
+  is an inspection route, and `diff --analysis` executes every analysis set
+  through its CLI binding.
+- Analyses are still composed and explained apart from the routes.
+- Structural sections are still outside the graph.
+
+The [adoption sequence](#adoption-sequence) counts the steps that close each
+gap.
 
 ## Owner and exact claim
 
@@ -757,7 +763,7 @@ declarations for the capability families a host composes, under the
 | --- | --- | --- |
 | `package-query` | The Package Query inspection document | `package` |
 | `package-files` | The Package Files inspection document | `package` |
-| `diff-analysis` | The `analyses` collection | The subject kinds the registered analyses' Compare participation names |
+| `diff-analysis` | The Diff analysis inspection document and the `analyses` collection | The subject kinds the registered analyses' Compare participation names |
 
 The Diff operation derives its accepted subject kinds from the registered
 participation surfaces. In product order these are Library, Type, and
@@ -908,6 +914,20 @@ adoption must add Release gates for:
   measured cost class. Today that is 41 ms to read the six projections,
   against 75 ms to create and combine their explanation catalogs.
 
+The inspection-route part of step 2 is gated by:
+
+- the `InspectionRoute_*` composition tests: the execution kind, the rejection
+  of a binding that exposes a query term on an inspection route, and the
+  route's explanation without Query Space facts;
+- the CLI test `DiffAnalysisRoute_ExplainsAsAnInspectionRouteBoundToDiff`,
+  which explains the route and document from the complete CLI catalog;
+- `AnalysisRepresentation_SharedTablesMatchDocumentsAndKeepFailureEvidence`,
+  which shows each table projection equals its document view and keeps its
+  diagnostics; and
+- the Diff command tests that invoke `diff --analysis`, each of which runs its
+  analysis set through the CLI binding. The `BuildAnalysisTransitions` tests
+  call the route's entry point directly and don't gate the binding.
+
 ## Non-claims
 
 This design does not:
@@ -947,14 +967,20 @@ the sequence after step 6 with five steps for
 numbered as in that issue:
 
 1. Lock the registration, execution, and binding design. **This change.**
-2. Let a route declare its execution kind, so that a route needs no Query
-   Space. Register Diff's Compare operation as an inspection route with its
-   analyses. Bind `diff --analysis` as an operation analysis binding in the
-   same composed graph, and admit available analyses to search. This step
-   decides how one route covers the three Content types that `diff --analysis`
-   dispatches today (the document, summary table, and transitions table
-   entry points). This completes the search part of
-   [#10445](https://github.com/richlander/dotnet-inspect/issues/10445).
+2. Admit analyses through their operation's route, in two parts.
+   - **Inspection route.** A route declares its execution kind, so it needs
+     no Query Space. Diff's Compare operation registers as one inspection
+     route over the Diff analysis document. The CLI binds it, and
+     `diff --analysis` executes every analysis set through that binding.
+     The Summary and Transitions tables that the CLI writes for tabular
+     output are projections of the document's Summary and Transitions views,
+     not separate entry points. **Complete.**
+   - **Analyses as route resources.** The analyses become resources of the
+     Compare route. `diff --analysis` binds as an operation analysis binding
+     in the same composed graph, and search admits the available analyses.
+     This part records the question mode Compare requests and completes the
+     search part of
+     [#10445](https://github.com/richlander/dotnet-inspect/issues/10445).
 3. Register structural catalogs as host-executed resources, with one
    structural view binding per CLI view. Retire Capability Catalog Search's
    structural population family and its host-assembled entries.

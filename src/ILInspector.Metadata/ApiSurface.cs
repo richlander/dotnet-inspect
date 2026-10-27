@@ -744,6 +744,13 @@ public enum ApiMethodSemanticsKind
 
 public class ApiAccessor
 {
+    /// <summary>
+    /// Whether an accessor kind names a property setter: <c>set</c>, or
+    /// <c>init</c> for a setter whose return carries
+    /// <c>modreq(IsExternalInit)</c>.
+    /// </summary>
+    public static bool IsSetterKind(string? kind) => kind is "set" or "init";
+
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
 
