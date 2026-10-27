@@ -427,6 +427,11 @@ prefixes, then adapts their exact symbols through the Query-owned
 semantic matches, exact published identities, selective indexed coverage, and
 exhausted, row-limit, or canceled completion without opening an assembly or
 acquiring a package.
+`EcosystemFindIndexedTypeInspection` is the completed Type-only host-neutral
+boundary over that evaluator. It returns the owner-issued result in an
+`InspectionEnvelope<TContent>`; the CLI consumes that envelope as the first
+adopter, while retaining host-owned artifact loading, staging, projection, and
+implicit Member fallback.
 The contract records the product scanner identity, configured Integration
 concept sequence, generation-policy versions, and Type and Member identity
 format versions; callers cannot substitute free-form identities.
@@ -476,7 +481,7 @@ the adopted size goal.
 
 ## Adoption sequence
 
-Six steps lead from design to observable behavior in both hosts:
+Seven steps lead from design to observable behavior in both hosts:
 
 1. **Design — implemented.** This artifact owner and its selective
    Integration-symbol, coverage, equivalence, and performance contracts.
@@ -490,14 +495,18 @@ Six steps lead from design to observable behavior in both hosts:
    candidate bounds, and suppresses only exact duplicates; checked-in Aspire
    and Microsoft.Extensions artifacts ship with exact NativeAOT and
    network-phase evidence.
-5. **Inspect Web and Spotlight — planned.** The same per-Ecosystem artifacts
+5. **Host-neutral Type inspection — implemented.** One completed Type-only
+   operation returns the portable indexed semantic result in an
+   `InspectionEnvelope<TContent>`; the CLI is its first adopter.
+6. **Inspect Web and Spotlight — planned.** The same per-Ecosystem artifacts
    and host-neutral indexed evaluation under Browser operation authority.
-6. **Freshness lane — planned.** Scheduled regenerate-and-compare reporting
+7. **Freshness lane — planned.** Scheduled regenerate-and-compare reporting
    coordinate, scanner, symbol, coverage, size, and performance drift.
 
-Steps 3 and 4 are focused adoptions by existing owners, not responsibilities
-absorbed into this artifact design. The implementation tracker keeps them
-separate unless one qualifies for the one-first-adopter exception in
+Steps 3 through 5 are focused adoptions by existing owners, not
+responsibilities absorbed into this artifact design. The implementation
+tracker keeps them separate unless one qualifies for the one-first-adopter
+exception in
 [Design scope and composition](../design-scope.md#stage-implementation-after-locking-the-design).
 
 The live path is not retired. It remains the complete search for arbitrary Find
