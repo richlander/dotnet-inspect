@@ -503,7 +503,8 @@ public sealed partial class ResourceExplanationCatalog
     public static ResourceExplanationCatalog CreateCapabilities(
         InspectionCapabilityCatalog catalog,
         IEnumerable<InspectionCapabilityResourcePathRegistration>
-            registrations)
+            registrations,
+        bool includeStructuralCatalogs = true)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(registrations);
@@ -978,7 +979,21 @@ public sealed partial class ResourceExplanationCatalog
         if (!catalog.Analyses.IsEmpty)
             snapshots.AddRange(AnalysisSnapshots(catalog, keys));
 
-        return Create(ResourceExplanationVocabulary.Schemas, snapshots);
+        var projections = new List<ResourceExplanationCatalog>();
+        if (snapshots.Count > 0)
+            projections.Add(Create(ResourceExplanationVocabulary.Schemas, snapshots));
+        if (includeStructuralCatalogs)
+        {
+            projections.AddRange(catalog.StructuralCatalogs.Select(static structural =>
+                CreateStructural(structural.Document, structural.Projection.ResourcePaths)));
+        }
+        return projections.Count switch
+        {
+            0 => throw new ArgumentException(
+                "The requested explanation has no registered resources.", nameof(catalog)),
+            1 => projections[0],
+            _ => Combine([.. projections]),
+        };
     }
 
     private static IEnumerable<ExplanationFactObservation>

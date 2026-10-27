@@ -21,7 +21,10 @@ partly implemented:
   through its CLI binding.
 - Diff's analyses are resources of the Compare route, composed and explained
   in the same graph. The CLI binding exposes them, and search admits them.
-- Structural sections are still outside the graph.
+- Structural catalogs register their shared Discovery declarations and paths
+  as host-executed resources. CLI view bindings select them, and search admits
+  only resources with a selecting binding. The separate structural search
+  population and host-supplied search entry types are retired.
 
 The [adoption sequence](#adoption-sequence) counts the steps that close each
 gap.
@@ -1016,7 +1019,17 @@ numbered as in that issue:
      **Complete.**
 3. Register structural catalogs as host-executed resources, with one
    structural view binding per CLI view. Retire Capability Catalog Search's
-   structural population family and its host-assembled entries.
+   structural population family and its host-assembled entries. **Complete.**
+   Tracked by [#10746](https://github.com/richlander/dotnet-inspect/issues/10746).
+   The prerequisite shared declaration construction is tracked by #10743 and
+   implemented in #10745. Generated/composed schema authority stays with
+   [Schema Query](schema-query.md#shared-structural-declaration-construction);
+   graph registration consumes its shared declarations rather than rebuilding
+   their resources or paths. Existing catalog identities retain their installed
+   spelling. Search reads those declarations without constructing structural
+   explanation snapshots. CLI wiring gates preserve all six catalogs and
+   direct-versus-coordinate Library binding scope; shared composition tests
+   enforce path and binding validation and omission of unbound resources.
 4. Move the root's routing declarations from CLI code into a host-neutral
    module.
 5. Let the Browser admit every resource its bindings select. Sections and

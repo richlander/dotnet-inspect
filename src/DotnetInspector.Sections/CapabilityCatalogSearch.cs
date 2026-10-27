@@ -93,99 +93,6 @@ public sealed record CapabilityCatalogSearchStructuralIdentity(
     string Name);
 
 /// <summary>
-/// One section-selection binding a host admits for a structural catalog, and
-/// the Sections and Categories that binding addresses. A catalog that more
-/// than one command view projects admits one binding per view, so each
-/// resource carries only the bindings that can select it.
-/// </summary>
-public sealed record CapabilityCatalogSearchStructuralBinding
-{
-    public CapabilityCatalogSearchStructuralBinding(
-        CapabilityCatalogSearchBinding binding,
-        IEnumerable<DiscoveryResourceIdentity> resources)
-    {
-        Binding = binding
-            ?? throw new ArgumentNullException(nameof(binding));
-        ArgumentNullException.ThrowIfNull(resources);
-        ArgumentException.ThrowIfNullOrWhiteSpace(binding.Identity);
-        ArgumentException.ThrowIfNullOrWhiteSpace(binding.Name);
-        ArgumentException.ThrowIfNullOrWhiteSpace(binding.Gesture);
-        Resources = [.. resources];
-    }
-
-    public CapabilityCatalogSearchBinding Binding { get; }
-
-    public ImmutableHashSet<DiscoveryResourceIdentity> Resources { get; }
-}
-
-/// <summary>
-/// One structural catalog a host admits to search: the Discovery projection
-/// and path registrations its structural Resource Explanation catalog is
-/// created from, its registered structural route, and the host's
-/// section-selection bindings. Route and Binding paths are the catalog root
-/// path, and every admitted Section and Category has at least one binding.
-/// </summary>
-public sealed record CapabilityCatalogSearchStructuralCatalog
-{
-    public CapabilityCatalogSearchStructuralCatalog(
-        DiscoveryDocument document,
-        IEnumerable<StructuralResourcePathRegistration> paths,
-        CapabilityCatalogSearchRoute route,
-        IEnumerable<CapabilityCatalogSearchStructuralBinding> bindings)
-    {
-        Document = document
-            ?? throw new ArgumentNullException(nameof(document));
-        ArgumentNullException.ThrowIfNull(paths);
-        Paths = [.. paths];
-        Route = route ?? throw new ArgumentNullException(nameof(route));
-        ArgumentNullException.ThrowIfNull(bindings);
-        Bindings = [.. bindings];
-        ArgumentException.ThrowIfNullOrWhiteSpace(route.Identity);
-        ArgumentException.ThrowIfNullOrWhiteSpace(route.Name);
-        if (Bindings.IsEmpty)
-        {
-            throw new ArgumentException(
-                "A structural catalog admits at least one binding.",
-                nameof(bindings));
-        }
-        foreach (CapabilityCatalogSearchStructuralBinding binding in Bindings)
-        {
-            if (!string.Equals(
-                    route.ResourcePath,
-                    binding.Binding.ResourcePath,
-                    StringComparison.Ordinal))
-            {
-                throw new ArgumentException(
-                    "A structural route and binding share the catalog root "
-                    + "path.",
-                    nameof(bindings));
-            }
-        }
-        if (!string.Equals(
-                route.ResourcePath,
-                document.Catalog,
-                StringComparison.Ordinal))
-        {
-            throw new ArgumentException(
-                $"Structural route path '{route.ResourcePath}' is not the "
-                + $"root of structural catalog '{document.Catalog}'.",
-                nameof(route));
-        }
-    }
-
-    public DiscoveryDocument Document { get; }
-
-    public ImmutableArray<StructuralResourcePathRegistration> Paths { get; }
-
-    public CapabilityCatalogSearchRoute Route { get; }
-
-    public ImmutableArray<CapabilityCatalogSearchStructuralBinding> Bindings
-    {
-        get;
-    }
-}
-
-/// <summary>
 /// One ranked search result. Exactly one of <see cref="ResourceIdentity"/>
 /// (a composed capability resource) and <see cref="StructuralIdentity"/>
 /// (an admitted structural Section or Category) is present.
@@ -235,25 +142,10 @@ public static class CapabilityCatalogSearch
     public static InspectionEnvelope<CapabilityCatalogSearchDocument> Search(
         InspectionCapabilityCatalog capabilityCatalog,
         ResourceExplanationCatalog explanationCatalog,
-        CapabilityCatalogSearchRequest request) =>
-        Search(capabilityCatalog, explanationCatalog, [], request);
-
-    /// <summary>
-    /// Searches the composed capability family and the admitted structural
-    /// catalogs. <paramref name="explanationCatalog"/> resolves the
-    /// capability family's paths; structural candidates are read from each
-    /// catalog's Discovery projection without building its explanation graph.
-    /// </summary>
-    public static InspectionEnvelope<CapabilityCatalogSearchDocument> Search(
-        InspectionCapabilityCatalog capabilityCatalog,
-        ResourceExplanationCatalog explanationCatalog,
-        IEnumerable<CapabilityCatalogSearchStructuralCatalog>
-            structuralCatalogs,
         CapabilityCatalogSearchRequest request)
     {
         ArgumentNullException.ThrowIfNull(capabilityCatalog);
         ArgumentNullException.ThrowIfNull(explanationCatalog);
-        ArgumentNullException.ThrowIfNull(structuralCatalogs);
         ArgumentNullException.ThrowIfNull(request);
 
         IReadOnlyDictionary<
@@ -268,7 +160,7 @@ public static class CapabilityCatalogSearch
                 capabilityCatalog,
                 explanationCatalog,
                 resources),
-            .. CreateStructuralCandidates([.. structuralCatalogs]),
+            .. CreateStructuralCandidates(capabilityCatalog),
         ];
         ImmutableArray<string> words = SearchWords(request.Text);
         Func<Candidate, ScoredCandidate?> score = words.IsEmpty
@@ -548,121 +440,53 @@ public static class CapabilityCatalogSearch
         }
     }
 
-    // The admitted inputs are the ones the host's structural explanation
-    // catalog is created from, so each candidate path is the path exact
-    // explanation resolves. Hosts witness that wiring in tests; search checks
-    // only what its own population needs.
+    // Structural paths and binding membership were validated during graph
+    // construction. Search reads declarations without building explanation snapshots.
     private static IEnumerable<Candidate> CreateStructuralCandidates(
-        ImmutableArray<CapabilityCatalogSearchStructuralCatalog> catalogs)
+        InspectionCapabilityCatalog catalog)
     {
-        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var candidates = new List<Candidate>();
-        foreach (CapabilityCatalogSearchStructuralCatalog catalog in catalogs)
+        foreach (InspectionStructuralCatalogRegistration structural
+                 in catalog.StructuralCatalogs)
         {
-            string root = catalog.Route.ResourcePath;
-            if (!roots.Add(root))
+            var route = new CapabilityCatalogSearchRoute(
+                structural.Identity,
+                structural.Name,
+                structural.Document.Catalog);
+            var views = catalog.StructuralBindings
+                .Where(binding => ReferenceEquals(binding.Catalog, structural))
+                .Select(binding => (
+                    binding.Resources,
+                    Binding: new CapabilityCatalogSearchBinding(
+                        binding.Descriptor.Identity,
+                        binding.Descriptor.Owner,
+                        binding.Descriptor.Kind,
+                        binding.Descriptor.Gesture,
+                        structural.Document.Catalog)))
+                .ToArray();
+            foreach (DiscoveryResource resource in structural.Document.Resources)
             {
-                throw new ArgumentException(
-                    $"Structural catalog '{root}' is admitted more than "
-                    + "once.",
-                    nameof(catalogs));
-            }
-
-            var paths = new Dictionary<DiscoveryResourceIdentity, string>();
-            foreach (StructuralResourcePathRegistration registration
-                     in catalog.Paths)
-            {
-                if (registration.Identity.Kind
-                    is not (DiscoveryResourceKind.Section
-                        or DiscoveryResourceKind.Category))
-                {
+                if (resource.Identity.Kind
+                    is not (DiscoveryResourceKind.Section or DiscoveryResourceKind.Category))
                     continue;
-                }
-                if (!registration.Path.Value.StartsWith(
-                        $"{root}/",
-                        StringComparison.Ordinal))
-                {
-                    throw new ArgumentException(
-                        $"Structural path '{registration.Path}' is not "
-                        + $"under catalog root '{root}'.",
-                        nameof(catalogs));
-                }
-                if (!paths.TryAdd(
-                        registration.Identity,
-                        registration.Path.Value))
-                {
-                    throw new ArgumentException(
-                        $"Structural resource '{registration.Identity.Name}' "
-                        + "has more than one path registration.",
-                        nameof(catalogs));
-                }
-            }
-
-            int admitted = 0;
-            var admittedResources = new HashSet<DiscoveryResourceIdentity>();
-            foreach (DiscoveryResource resource in catalog.Document.Resources)
-            {
-                DiscoveryResourceIdentity identity = resource.Identity;
-                if (identity.Kind
-                    is not (DiscoveryResourceKind.Section
-                        or DiscoveryResourceKind.Category))
-                {
-                    continue;
-                }
-                if (!paths.TryGetValue(identity, out string? path))
-                {
-                    throw new ArgumentException(
-                        $"Structural resource '{identity.Name}' has no path "
-                        + "registration.",
-                        nameof(catalogs));
-                }
                 CapabilityCatalogSearchBinding[] bindings =
                 [
-                    .. catalog.Bindings
-                        .Where(binding => binding.Resources.Contains(identity))
-                        .Select(static binding => binding.Binding),
+                    .. views.Where(view => view.Resources.Contains(resource.Identity))
+                        .Select(static view => view.Binding),
                 ];
                 if (bindings.Length == 0)
-                {
-                    throw new ArgumentException(
-                        $"Structural resource '{identity.Name}' has no "
-                        + "binding.",
-                        nameof(catalogs));
-                }
-                admitted++;
-                admittedResources.Add(identity);
-                candidates.Add(Candidate.CreateStructural(
+                    continue;
+                yield return Candidate.CreateStructural(
                     new CapabilityCatalogSearchStructuralIdentity(
-                        root,
-                        identity.Kind,
-                        identity.Name),
-                    path,
-                    identity.Kind == DiscoveryResourceKind.Section
-                        ? resource.Description?.Summary
-                        : null,
-                    catalog.Route,
-                    bindings));
-            }
-            if (admitted != paths.Count)
-            {
-                throw new ArgumentException(
-                    $"Catalog '{root}' registers a structural path with no "
-                    + "Discovery resource.",
-                    nameof(catalogs));
-            }
-            if (catalog.Bindings.Any(binding =>
-                    !binding.Resources.IsSubsetOf(admittedResources)))
-            {
-                throw new ArgumentException(
-                    $"Catalog '{root}' binds a structural resource it does "
-                    + "not admit.",
-                    nameof(catalogs));
+                        structural.Document.Catalog,
+                        resource.Identity.Kind,
+                        resource.Identity.Name),
+                    structural.PathOf(resource.Identity).Value,
+                    resource.Identity.Kind == DiscoveryResourceKind.Section
+                        ? resource.Description?.Summary : null,
+                    route,
+                    bindings);
             }
         }
-
-        return candidates.OrderBy(
-            static candidate => candidate.Path,
-            StringComparer.Ordinal);
     }
 
     /// <summary>
