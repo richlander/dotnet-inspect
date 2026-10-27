@@ -103,7 +103,7 @@ internal static class AssemblyContextCallGraphAnalysis
         };
     }
 
-    static Analysis.LibraryCallGraphAnalysisResult Analyze(
+    internal static Analysis.LibraryCallGraphAnalysisResult Analyze(
         AssemblyImageSnapshot snapshot,
         AssemblyContextSubject subject)
     {

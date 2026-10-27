@@ -77,12 +77,12 @@ call-graph composition consume those focused types. The compatibility index
 delegated its leverage and local graph members to the same results; it no
 longer owned a second implementation.
 
-The next call-graph adoption moves pairwise direct-use acquisition and bounded
-local root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries
-execute Analysis once per participant and consume the focused result directly;
-root-path analysis accepts that result rather than requiring the compatibility
-aggregate. Existing pair completion, path limits, diagnostics, and output
-remain unchanged.
+The call-graph adoption moves pairwise direct-use acquisition and bounded local
+root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries and
+`AssemblyPairClusterRootPathQuery` execute the same focused snapshot-bound
+Analysis operation and consume its detached result directly; root-path
+analysis no longer opens `LibraryBodyAnalysisService`. Existing pair
+completion, path limits, diagnostics, and output remain unchanged.
 
 The group-wide call-census adoption uses the same focused execution boundary.
 `AssemblyContextCallCensusQuery` acquires every available participant from one
@@ -1426,13 +1426,13 @@ optional annotations. The existing `CallTreeNode`, `CallGraphProjection`, and
 Markout lowering remain the structured and rendered output path; the slice
 changes evidence ownership, not output shape or host rendering.
 
-The next call-graph slice moves `AssemblyPairCallUseQuery` participant
-acquisition and `LibraryBodyRootPathAnalysis` onto
-`LibraryCallGraphAnalysisResult`. `AssemblyPairClusterRootPathQuery` executes
-the service over its retained participant image and passes the focused result
-to the bounded path operation. The wider member Research projection retains
-its compatibility index for unrelated evidence but passes its associated
-call-graph result to root-path analysis.
+The root-path call-graph slice moves
+`AssemblyPairClusterRootPathQuery` participant acquisition and
+`LibraryBodyRootPathAnalysis` onto `LibraryCallGraphAnalysisResult`. The query
+reuses the same snapshot-bound focused operation as pairwise call-use
+acquisition and passes its detached result to the bounded path operation. The
+wider member Research projection retains its current unrelated evidence but
+passes its associated call-graph result to root-path analysis.
 
 The following slice shares that participant-analysis path with
 `AssemblyContextCallCensusQuery`. Analysis publishes one generation-bound
