@@ -159,10 +159,13 @@ public sealed class ArtifactRootPublicationTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public void ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence(
-        bool hasReferenceAssembly)
+        bool hasReferenceAssembly,
+        bool requestBeforeConversion)
     {
         int enumerations = 0;
         PackageRootBinding library = Binding(
@@ -170,9 +173,12 @@ public sealed class ArtifactRootPublicationTests
             malformed: true,
             onEnumerate: () => enumerations++,
             hasReferenceAssembly: hasReferenceAssembly);
-        Assert.Equal(
-            hasReferenceAssembly,
-            library.Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+        if (requestBeforeConversion)
+        {
+            Assert.Equal(
+                hasReferenceAssembly,
+                library.Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+        }
         int before = enumerations;
 
         PackageRootBinding content = library.ForContentInspection();
@@ -181,6 +187,82 @@ public sealed class ArtifactRootPublicationTests
         Assert.Equal(
             hasReferenceAssembly,
             content.Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+        int afterRequest = enumerations;
+        Assert.Equal(
+            hasReferenceAssembly,
+            library.Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+        Assert.Equal(afterRequest, enumerations);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ContentOnlyPackageAdmission_FromSelectionDefersCompatibilityEnumeration(
+        bool hasReferenceAssembly)
+    {
+        const string packageId = "Content.Candidates";
+        using var bytes = new MemoryStream();
+        using (var archive = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (Stream implementation = archive.CreateEntry(
+                $"lib/net11.0/{packageId}.dll").Open())
+            {
+                implementation.Write([1, 2, 3]);
+            }
+            if (hasReferenceAssembly)
+            {
+                using Stream reference = archive.CreateEntry(
+                    $"ref/net11.0/{packageId}.dll").Open();
+                reference.Write([1, 2, 3]);
+            }
+        }
+        int opens = 0;
+        int enumerations = 0;
+        var content = new CallbackPackageContent(
+            new InMemoryPackageContent(bytes.ToArray(), fromCache: false, producerKey: "tests"),
+            () => opens++,
+            () => enumerations++);
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(packageId, "1.0.0"),
+            content, "tests", PackagePayloadOrigin.Download);
+        PackageCompileAssetSelectionReceipt selection =
+            PackageCompileAssetSelector.Evaluate(content, packageId, "net11.0");
+        enumerations = 0;
+
+        PackageRootBinding library = PackageRootBinding.CreateFromSourceSelection(
+            payload, selection, "net11.0");
+        PackageRootBinding binding = library.ForContentInspection();
+        Assert.Equal(0, enumerations);
+        Assert.Same(library.ContentGenerationIdentity, binding.ContentGenerationIdentity);
+        Assert.Same(library.SelectionIdentity, binding.SelectionIdentity);
+        Assert.Equal(library.Coordinate, binding.Coordinate);
+        Assert.Equal(
+            selection.Selection.Assets,
+            Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Assets);
+
+        await using var workspace = new InspectionWorkspace();
+        var initial = Assert.IsType<WorkspaceScopeReadResult.Available>(
+            await workspace.GetScopeSnapshotAsync());
+        var committed = Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+            await workspace.AddPackagesAsync(
+                initial.Snapshot.Revision, [binding],
+                DateTimeOffset.UtcNow.AddMinutes(5),
+                TestContext.Current.CancellationToken));
+        WorkspacePackageOccurrenceDescriptor occurrence = Assert.Single(committed.Snapshot.Packages);
+        Assert.IsType<ArtifactRootRealizationStatus.Ready>(occurrence.Realization.Status);
+        Assert.Empty(binding.Root.RealizedSurfaceAssets);
+        Assert.Empty(binding.Root.RealizedImplementationAssets);
+        Assert.Equal(0, enumerations);
+        Assert.Equal(0, opens);
+
+        Assert.Equal(
+            hasReferenceAssembly,
+            library.Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+        Assert.Equal(1, enumerations);
+        Assert.Equal(
+            hasReferenceAssembly,
+            binding.Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+        Assert.Equal(1, enumerations);
     }
 
     [Fact]

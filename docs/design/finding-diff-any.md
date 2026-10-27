@@ -754,7 +754,18 @@ surface does not admit it, it owns a method with a body, or it is the residual.
 `eng/measure-finding-diff-any.cs` reports NativeAOT time per Type for the
 largest changed Types of each measured pair.
 
-**Type inventory.** Before the Member fold exists, one paired Type's rows are
+**Paired-Type Member fold motivation.** System.Text.Json 9.0.0 and 10.0.0,
+using their `lib/net9.0/System.Text.Json.dll` and
+`lib/net10.0/System.Text.Json.dll` package assets, add
+`JsonSerializerOptions.AllowDuplicateProperties`, a property with accessor
+methods. The Type view needs one property cue rather than separate accessor
+cues, while retaining the Library-level partition. The paired compiled fixture
+covers the added-property shape, including a private setter; the measurement
+program checks the Member fold alongside the inventory on this pinned package
+pair. Generated-code ownership and Member anchors remain later slices of
+[#10706](https://github.com/richlander/dotnet-inspect/issues/10706).
+
+**Type inventory.** One paired Type's rows are
 readable as the Library level compares them: `FindingDiffAnyTypePairing` pairs
 the Types of two images once, by the Type identity above, and its `Inventory`
 returns, for one paired Type, every census fact present on one side only, on
@@ -765,9 +776,9 @@ state through the pairing's body reader, the walk unless a
 `FindingDiffAnyBodyReader` is supplied. The inventory's fold is the Library
 level's state for the Type, which the gates check for every paired Type of the
 fixture pair: API `Changed` exactly when an API fact is present on one side
-only, Body `Changed` when a Body fact is, and otherwise the state of the first
-paired method, in the Body census's method order, whose body is not
-`Unchanged`, so an `Indeterminate` row after a `Changed` one folds to `Changed`
+only, Body `Changed` when a Body fact or a method with a body is, and
+otherwise the state of the first paired method, in the Body census's method
+order, whose body is not `Unchanged`, so an `Indeterminate` row after a `Changed` one folds to `Changed`
 as the Library level reads it, and every row keeps its own state. One name the
 pairing withholds: two paired Type rows that spell one display name, which the
 Library level decides each by key, are `Indeterminate` under that name, since
@@ -775,8 +786,13 @@ the name selects neither row. The [declaration
 cursor](finding-census.md#adoption) reads the same slots, and its
 identity-set comparison of one Type's census finds the same one-sided facts.
 Types present on one side only are not paired; their one-sided form is this
-level's. Step 7 folds these rows into Member states under the ownership rules
-above, reading each fact's owner from its key parts, and the inventory is the
+level's. The paired-Type `Members` fold implements step 7 slice 1 under the
+ownership rules above, reading each fact's owner from its key parts. Members
+are identified by their expanded census keys; generated code remains residual
+until slice 2, which also adds anchors.
+`FindingDiffAnyTypeMemberTests` checks the paired fixture partition through
+both body readers, the raising and residual scenarios, and the pinned JSON
+property. The inventory is the
 closed set it folds: the rows are fixed by the two censuses before any body is
 read. The Type scenario of [Diff system](diff-system.md#scenarios) enters here,
 and [Finding census](finding-census.md#cost-at-type-scope) records what one

@@ -111,17 +111,29 @@ public sealed class AnalysisOperationParticipation
 }
 
 /// <summary>
-/// An operation's own selection context: its kind and its operation-owned
-/// default analysis set, selected when a request omits the set.
+/// An operation's own selection context: its kind, the question mode it
+/// requests, and its operation-owned default analysis set, selected when a
+/// request omits the set.
 /// </summary>
 public sealed class AnalysisOperationDefinition
 {
     public AnalysisOperationDefinition(
         AnalysisOperationKind kind,
+        AnalysisQuestionMode mode,
         IEnumerable<string> defaultSet)
     {
         if (!Enum.IsDefined(kind))
             throw new ArgumentOutOfRangeException(nameof(kind));
+        // Set validation counts privileged anchors, which only Targeted
+        // requests have; another mode enters with its first adopting
+        // operation.
+        if (mode != AnalysisQuestionMode.Targeted)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(mode),
+                mode,
+                "An analysis operation requests Targeted questions.");
+        }
         ArgumentNullException.ThrowIfNull(defaultSet);
         DefaultSet = [.. defaultSet];
         if (DefaultSet.IsEmpty)
@@ -131,11 +143,30 @@ public sealed class AnalysisOperationDefinition
                 nameof(defaultSet));
         }
         Kind = kind;
+        Mode = mode;
     }
 
     public AnalysisOperationKind Kind { get; }
 
+    /// <summary>The question mode every request of this operation asks.</summary>
+    public AnalysisQuestionMode Mode { get; }
+
     public ImmutableArray<string> DefaultSet { get; }
+
+    /// <summary>
+    /// Whether this operation can dispatch the analysis: it participates in
+    /// the operation at one or more report surfaces whose support admits the
+    /// operation's question mode.
+    /// </summary>
+    public bool CanDispatch(AnalysisDescriptor analysis)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        return analysis.ParticipationFor(Kind) is { } participation
+            && participation.Surfaces.Any(surface =>
+                analysis.ReportSurfaces.Any(support =>
+                    support.Kind == surface.Surface
+                    && support.Mode == Mode));
+    }
 }
 
 /// <summary>Why one analysis-set entry, or the set itself, was rejected.</summary>

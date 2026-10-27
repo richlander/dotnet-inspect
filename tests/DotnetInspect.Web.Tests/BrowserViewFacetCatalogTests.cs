@@ -15,6 +15,12 @@ public sealed class BrowserViewFacetCatalogTests
             Interop.Catalog.CatalogExports.ListLibraryViewFacets());
 
     [Fact]
+    public void ListMemberViewFacets_ProjectsExactRegistryDescriptorsInOwnerOrder() =>
+        AssertRegistryProjection(
+            StructuralSubjectKind.Member,
+            Interop.Catalog.CatalogExports.ListMemberViewFacets());
+
+    [Fact]
     public void ListTypeViewFacets_ProjectsExactRegistryDescriptorsInOwnerOrder() =>
         AssertRegistryProjection(
             StructuralSubjectKind.Type,

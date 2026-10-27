@@ -1,4 +1,5 @@
 import type {
+  BrowserHomeDemoResolved,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
@@ -36,16 +37,6 @@ interface PackageQueryRetainedWorkspaceDefinitionInput
   readonly ecosystem?: never;
 }
 
-interface HomeDemoRetainedWorkspaceDefinitionInput
-  extends RetainedWorkspaceDefinitionIdentity {
-  readonly canonicalPacket?: never;
-  readonly packageQuery?: never;
-  readonly homeDemo: {
-    readonly id: string;
-  };
-  readonly ecosystem?: never;
-}
-
 interface EcosystemRetainedWorkspaceDefinitionInput
   extends RetainedWorkspaceDefinitionIdentity {
   readonly canonicalPacket?: never;
@@ -56,11 +47,19 @@ interface EcosystemRetainedWorkspaceDefinitionInput
   };
 }
 
+interface HomeDemoRetainedWorkspaceDefinitionInput
+  extends RetainedWorkspaceDefinitionIdentity {
+  readonly canonicalPacket?: never;
+  readonly packageQuery?: never;
+  readonly homeDemo: BrowserHomeDemoResolved;
+  readonly ecosystem?: never;
+}
+
 type RetainedWorkspaceDefinitionInput =
   | PacketRetainedWorkspaceDefinitionInput
   | PackageQueryRetainedWorkspaceDefinitionInput
-  | HomeDemoRetainedWorkspaceDefinitionInput
-  | EcosystemRetainedWorkspaceDefinitionInput;
+  | EcosystemRetainedWorkspaceDefinitionInput
+  | HomeDemoRetainedWorkspaceDefinitionInput;
 
 type RetainedWorkspaceDefinition = RetainedWorkspaceDefinitionInput & {
   readonly id: string;
@@ -107,11 +106,12 @@ export interface RetainedWorkspaceActivationClient {
     packageId: string,
     version: string,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
-  prepareHomeDemoWorkspaceDefinition?(
+  prepareRetainedWorkspaceDefinitionFromRecords?(
     retainedDefinitionId: string,
     label: string,
     canonicalLocation: string,
     scenarioId: string,
+    definitionRecords: ReadonlyArray<string>,
   ): Promise<BrowserRetainedWorkspacePreparationResult>;
   prepareEcosystemWorkspaceDefinition?(
     retainedDefinitionId: string,
@@ -559,6 +559,7 @@ export function createRetainedWorkspaceActivationController(
         ? input.ecosystem.id.trim().length === 0
         : input.homeDemo !== undefined
           ? input.homeDemo.id.trim().length === 0
+            || input.homeDemo.restorationDefinitions.length === 0
           : input.packageQuery === undefined
             ? input.canonicalPacket.trim().length === 0
             : input.packageQuery.packageId.trim().length === 0
@@ -649,17 +650,21 @@ export function createRetainedWorkspaceActivationController(
               "Product home demo Workspace definitions do not accept credential bindings.",
             );
           }
-          if (client.prepareHomeDemoWorkspaceDefinition === undefined) {
+          if (
+            client.prepareRetainedWorkspaceDefinitionFromRecords === undefined
+          ) {
             throw new Error(
-              "This engine does not support product home demo Workspace definitions.",
+              "This engine does not support serialized Workspace definition records.",
             );
           }
-          preparation = await client.prepareHomeDemoWorkspaceDefinition(
-            definition.id,
-            definition.label,
-            definition.canonicalLocation,
-            definition.homeDemo.id,
-          );
+          preparation =
+            await client.prepareRetainedWorkspaceDefinitionFromRecords(
+              definition.id,
+              definition.label,
+              definition.canonicalLocation,
+              definition.homeDemo.id,
+              definition.homeDemo.restorationDefinitions,
+            );
         } else if (definition.packageQuery !== undefined) {
           if (credentialEndpoints.length !== 0) {
             throw new Error(

@@ -989,16 +989,17 @@ public partial class FindCommand
             var typeQuestion = (TypeFindQuestion)search.Question;
             bool mayRunMemberFallback =
                 patterns.Any(MayRunImplicitMemberFallback);
+            InspectionEnvelope<
+                EcosystemFindIndexedIntegrationResult.Type> inspection =
+                EcosystemFindIndexedTypeInspection.Execute(
+                    artifacts,
+                    demands,
+                    typeQuestion,
+                    mayRunMemberFallback ? null : remainingRows,
+                    options.TypeFilter,
+                    cancellationToken);
             EcosystemFindIndexedIntegrationResult.Type typeResult =
-                (EcosystemFindIndexedIntegrationResult.Type)
-                    EcosystemFindIndexedIntegration.Evaluate(
-                        new(
-                            artifacts,
-                            demands,
-                            typeQuestion,
-                            mayRunMemberFallback ? null : remainingRows,
-                            options.TypeFilter),
-                        cancellationToken);
+                inspection.Content;
             types.AddRange(
                 TypeSearchService.ProjectIndexedSemanticMatches(
                     typeQuestion,

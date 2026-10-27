@@ -279,7 +279,9 @@ public class ResourceExplanationTests
             [
                 "resource-explanation",
                 "schema-query",
+                "inspection-capability-composition",
                 "query-space",
+                "consumer",
                 "analysis-requests",
                 "findings",
                 "product-vocabulary",

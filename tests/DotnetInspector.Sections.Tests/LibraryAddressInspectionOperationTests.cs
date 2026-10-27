@@ -409,6 +409,66 @@ public sealed class LibraryAddressInspectionOperationTests
     }
 
     [Fact]
+    public async Task MixedSemanticContextsResolveFromImplementation()
+    {
+        string path =
+            typeof(LibraryAddressInspectionOperationTests)
+                .Assembly.Location;
+        byte[] implementation =
+            await File.ReadAllBytesAsync(
+                path,
+                TestContext.Current.CancellationToken);
+        int methodToken =
+            typeof(LibraryAddressInspectionOperationTests)
+                .GetMethod(
+                    nameof(CallVirtualForCoordinate),
+                    System.Reflection.BindingFlags.Static
+                        | System.Reflection.BindingFlags.NonPublic)!
+                .MetadataToken;
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence,
+                    new HashSet<int> { methodToken }));
+        DirectCall call = Assert.Single(
+            analysis.CallGraph.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == methodToken
+                && call.Callee.Name
+                    == nameof(CostTarget.Compute));
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(
+                    implementation));
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(
+                library,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    call.ILOffset,
+                    ILOffsetProjectionCapabilities.AllocationContext
+                        | ILOffsetProjectionCapabilities.CostContext));
+
+        var completed = Assert.IsType<
+            LibraryAddressInspectionOutcome.Completed>(
+                envelope.Content);
+        var document =
+            Assert.IsType<LibraryAddressDocument.IlPoint>(
+                completed.Document);
+        var resolved =
+            Assert.IsType<LibraryIlAddressOutcome.Resolved>(
+                document.Result);
+        Assert.NotNull(resolved.Projection.AllocationContext);
+        ILOffsetCostContext cost = Assert.Single(
+            resolved.Projection.CostContext!);
+        Assert.Equal("virtual dispatch", cost.CostKind);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
     public async Task MissingImplementationAndMismatchedLeaseAreRejected()
     {
         byte[] content =
