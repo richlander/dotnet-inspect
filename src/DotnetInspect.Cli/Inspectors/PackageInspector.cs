@@ -458,22 +458,8 @@ internal static class PackageInspector
             ApplyManifestFacts(result, available.Manifest);
             result.DependencyGroups =
             [
-                .. available.Dependencies.Groups.Select(group =>
-                    new DependencyGroup
-                    {
-                        TargetFramework = group.TargetFramework,
-                        IsImplicitManifestGroup =
-                            group.IsImplicitManifestGroup,
-                        Dependencies =
-                        [
-                            .. group.Dependencies.Select(dependency =>
-                                new PackageDependency
-                                {
-                                    Id = dependency.Id,
-                                    Version = dependency.VersionRange,
-                                }),
-                        ],
-                    }),
+                .. available.Dependencies.Groups.Select(
+                    ProjectDependencyGroup),
             ];
             return true;
         }
@@ -501,6 +487,27 @@ internal static class PackageInspector
         if (summary is not null)
             log(summary);
         return false;
+    }
+
+    internal static DependencyGroup ProjectDependencyGroup(
+        DeclaredPackageDependencyGroup group)
+    {
+        var result = new DependencyGroup
+        {
+            TargetFramework = group.TargetFramework,
+            IsImplicitManifestGroup = group.IsImplicitManifestGroup,
+            Dependencies =
+            [
+                .. group.Dependencies.Select(dependency =>
+                    new PackageDependency
+                    {
+                        Id = dependency.Id,
+                        Version = dependency.VersionRange,
+                    }),
+            ],
+        };
+        result.Dependencies.Sort(CompareDependencies);
+        return result;
     }
 
     private static void ApplyManifestFacts(

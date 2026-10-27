@@ -170,6 +170,45 @@ public sealed class PackageDependencyInspectionCommandTests
     }
 
     [Fact]
+    public async Task SelectedDependencyGroupSurvivesCanonicalSorting()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-dependency-command-").FullName;
+        try
+        {
+            string archive = Path.Combine(directory, "sorted-groups.nupkg");
+            WritePackage(
+                archive,
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="Wrong.Dependency" version="[1.0.0]" />
+                </group>
+                <group targetFramework="net10.0" />
+                """);
+
+            var result = await RunPackagesAsync(
+                [archive],
+                "-S",
+                "Dependencies",
+                "--tfm",
+                "net10.0",
+                "--markdown");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Equal("# Declared.Package", result.Output.Trim());
+            Assert.DoesNotContain(
+                "Wrong.Dependency",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task MissingManifestFailsSelectedDependencies()
     {
         string directory = Directory.CreateTempSubdirectory(

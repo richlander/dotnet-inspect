@@ -57,12 +57,10 @@ public partial class PackageCommand
                     result.PackageDependencyInspection?.Content is
                         PackageDependencyInspectionOutcome.Available
                         {
-                            Dependencies.SelectedGroupIndex:
-                                int selectedGroupIndex,
+                            Dependencies.SelectedGroup:
+                                { } selectedGroup,
                         }
-                    && selectedGroupIndex >= 0
-                    && selectedGroupIndex < result.DependencyGroups.Count
-                        ? [result.DependencyGroups[selectedGroupIndex]]
+                        ? [PackageInspector.ProjectDependencyGroup(selectedGroup)]
                         : [];
             }
         }
