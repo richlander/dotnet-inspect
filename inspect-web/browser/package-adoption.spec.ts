@@ -4388,6 +4388,53 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(flattened).toContain("AddHttpClient");
   });
 
+  test("renders the Type Overview grammar over real Wasm", async ({
+    page,
+  }, testInfo) => {
+    await page.goto(
+      "/?package=System.Text.Json&version=10.0.13&framework=net10.0",
+      { waitUntil: "domcontentloaded" },
+    );
+    await page.locator(".workbench").waitFor({ timeout: 180_000 });
+    await page.locator("[data-package-child-library]").filter({
+      hasText: "System.Text.Json",
+    }).click();
+    await page.getByRole("tab", { name: "Type", exact: true }).click();
+    await page.locator("[data-type]").filter({
+      hasText: "JsonDocument",
+    }).first().click();
+
+    const overview = page.locator(".type-overview-surface");
+    await expect(overview).toBeVisible({ timeout: 180_000 });
+    await expect(overview.locator('[data-type-relationship="base"]'))
+      .toContainText("Object", { timeout: 180_000 });
+    await expect(overview.locator('[data-type-relationship="interface"]'))
+      .toContainText("IDisposable");
+    await expect(overview.locator('[data-overview-badge="class"]'))
+      .toHaveText("class");
+    await expect(overview.locator('[data-overview-badge="sealed"]'))
+      .toHaveText("sealed");
+    await expect(overview.locator('[data-overview-badge="public"]'))
+      .toHaveText("public");
+    await expect(overview.locator(".type-overview-rollups")).toHaveCount(0);
+    await expect(overview.locator("[data-type-members]"))
+      .toContainText("members");
+
+    const relationshipKinds = await overview
+      .locator("[data-type-relationship]")
+      .evaluateAll(rows => rows.map(row =>
+        row.getAttribute("data-type-relationship")));
+    expect(relationshipKinds[0]).toBe("base");
+    expect(relationshipKinds.slice(1).every(kind => kind === "interface"))
+      .toBe(true);
+
+    await page.locator("#subject-panel").screenshot({
+      path: testInfo.outputPath("type-overview-json-document.png"),
+    });
+    await overview.locator("[data-type-members]").click();
+    await expect(page.locator(".api-row[data-member]")).not.toHaveCount(0);
+  });
+
   test("projects exact all-access Type method leverage into the UI", async ({
     page,
   }, testInfo) => {
@@ -4405,6 +4452,7 @@ test.describe("bounded network-backed Worker smoke", () => {
     await page.locator("[data-type]").filter({
       hasText: "JsonSerializerOptions",
     }).first().click();
+    await chooseInspector(page, "data-lens", "api");
     await expect(page.getByRole("button", {
       name: "Show Top Leverage",
       exact: true,

@@ -325,6 +325,7 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`type-access:${value}`),
     onTypeTraitSelect: value => calls.push(`type-trait:${value}`),
     onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
+    onTypeMembersOpen: () => calls.push("type-members"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
       calls.push(`list:${event.key}`);
@@ -398,6 +399,17 @@ test("type panel binds the qualified Type leverage retry", () => {
   retry.dispatch("click");
 
   assert.deepEqual(calls, ["type-leverage-retry"]);
+});
+
+test("type panel binds Type Overview member navigation", () => {
+  const root = new FakeRoot();
+  const members = root.add("[data-type-members]", new FakeElement());
+  const calls: string[] = [];
+
+  bindPanel(root, recordingActions(calls));
+  members.dispatch("click");
+
+  assert.deepEqual(calls, ["type-members"]);
 });
 
 test("type panel bindings dispatch member filters and leverage retry", () => {

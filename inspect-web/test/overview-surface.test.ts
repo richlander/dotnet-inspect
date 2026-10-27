@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   renderPackageOverviewContent,
   renderOverviewSurface,
+  renderTypeOverview,
   type OverviewSurfaceOptions,
 } from "../src/overview-surface.ts";
 
@@ -138,4 +139,108 @@ test("Library Overview lists only Enabled enablements in the identity header", (
   );
   assert.doesNotMatch(overview({ enablements: [] }), /overview-enablements/);
   assert.doesNotMatch(overview(), /overview-enablements/);
+});
+
+test("Type Overview separates direct metadata, rollups, and numeric navigation", () => {
+  const html = renderTypeOverview({
+    subject: {
+      displayName: "JsonDocument",
+      namespace: "System.Text.Json",
+      kind: "class",
+      accessibility: "public",
+      assembly: "System.Text.Json",
+      members: 16,
+    },
+    projection: {
+      status: "available",
+      complete: true,
+      exact: {
+        fullName: "System.Text.Json.JsonDocument",
+        namespace: "System.Text.Json",
+        kind: "class",
+        accessibility: "public",
+        isSealed: true,
+        isAbstract: false,
+        isStatic: false,
+        isByRefLike: false,
+        isReadOnly: false,
+        baseType: "System.Object",
+        interfaces: ["System.IDisposable"],
+      },
+    },
+    rollups: [
+      { id: "unsafe", label: "unsafe" },
+      { id: "async", label: "async" },
+    ],
+    relatedTypeHtml: name => `<button>${escapeHtml(name)}</button>`,
+    escapeHtml,
+  });
+
+  assert.match(html,
+    /Type metadata[\s\S]*class[\s\S]*sealed[\s\S]*public/);
+  assert.match(html, /Type rollup[\s\S]*unsafe[\s\S]*async/);
+  assert.match(html, /data-type-members>16 members<\/button>/);
+  assert.match(html,
+    /data-type-relationship="base"[\s\S]*System\.Object[\s\S]*data-type-relationship="interface"[\s\S]*System\.IDisposable/);
+});
+
+test("Type Overview omits an absent rollup group and keeps metadata failure visible", () => {
+  const html = renderTypeOverview({
+    subject: {
+      displayName: "Widget",
+      namespace: "Example",
+      kind: "class",
+      accessibility: "internal",
+      assembly: "Example",
+      members: 0,
+    },
+    projection: {
+      status: "failed",
+      exact: null,
+      complete: false,
+      detail: "<projection failed>",
+    },
+    relatedTypeHtml: name => name,
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(html, /Type rollup/);
+  assert.match(html, /role="alert"/);
+  assert.match(html, /&lt;projection failed&gt;/);
+  assert.doesNotMatch(html, /No base Type or implemented interfaces/);
+});
+
+test("Type Overview preserves singular member navigation and incomplete evidence", () => {
+  const html = renderTypeOverview({
+    subject: {
+      displayName: "Widget",
+      namespace: "",
+      kind: "struct",
+      assembly: "Example",
+      members: 1,
+    },
+    projection: {
+      status: "available",
+      complete: false,
+      exact: {
+        fullName: "Widget",
+        namespace: null,
+        kind: "struct",
+        accessibility: null,
+        isSealed: false,
+        isAbstract: false,
+        isStatic: false,
+        isByRefLike: false,
+        isReadOnly: true,
+        baseType: null,
+        interfaces: [],
+      },
+    },
+    relatedTypeHtml: name => name,
+    escapeHtml,
+  });
+
+  assert.match(html, /data-type-members>1 member<\/button>/);
+  assert.match(html, /Type relationship evidence is incomplete/);
+  assert.match(html, /<dt>Namespace<\/dt><dd>global<\/dd>/);
 });

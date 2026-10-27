@@ -400,6 +400,7 @@ import {
   renderLibraryOverviewContent,
   renderOverviewSurface,
   renderPackageOverviewContent,
+  renderTypeOverview,
 } from "./overview-surface.ts";
 import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
@@ -1681,7 +1682,7 @@ const initialState = {
   memberGroupDocumentLoading: false,
   memberGroupDocumentError: "",
   memberGroupDocumentKey: "",
-  lens: "api" as const,
+  lens: "overview" as const,
   packageLens: "overview" as const,
   libraryLens: "overview" as const,
   libraryApiDiff: { status: "idle" as const },
@@ -3547,10 +3548,8 @@ function loadCurrentSelectionData(reason: string): void {
   observeAsync(loadSelectionData(), reason);
 }
 
-function loadCurrentTypeApiData(): void {
-  if (state.lens === "api") {
-    loadCurrentSelectionData("Loading the selected Type");
-  }
+function loadCurrentTypeLensData(): void {
+  loadCurrentSelectionData("Loading the selected Type lens");
 }
 
 function restartRestoredWorkspaceSelectionData(): void {
@@ -6263,7 +6262,7 @@ async function activatePlatformForwarder(row: BrowserPlatformForwarderRow) {
     state.selectedTypeId = result.view.selectedTypeId ?? "";
     state.atPackageRoot = false;
     state.atLibraryRoot = false;
-    state.lens = selectedForwarder() ? "overview" : "api";
+    state.lens = "overview";
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
@@ -7930,7 +7929,7 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
     if (selected) {
       state.lens = selected[0];
       render();
-      loadCurrentTypeApiData();
+      loadCurrentTypeLensData();
     }
   } else if (workspaceScope === "member") {
     const member = selectedMember(selectedType());
@@ -9502,7 +9501,7 @@ function stepHorizontal(delta: number) {
     if (!next) return;
     state.lens = next[0];
     render();
-    loadCurrentTypeApiData();
+    loadCurrentTypeLensData();
   }
 }
 
@@ -10062,7 +10061,7 @@ function renderCore(options: RenderOptions) {
   if (!state.atPackageRoot
     && scope() === "type"
     && !availableTypeLenses().some(([id]) => id === state.lens)) {
-    state.lens = forwarder ? "overview" : "api";
+    state.lens = "overview";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
   const activeScope = scope();
@@ -10118,6 +10117,7 @@ function renderCore(options: RenderOptions) {
     (activeScope === "package" && state.packageLens === "overview")
     || (activeScope === "package" && state.packageLens === "compare")
     || (activeScope === "library" && state.libraryLens === "overview")
+    || (activeScope === "type" && state.lens === "overview")
     || (activeScope === "type" && forwarder !== null);
   const packageDependenciesWorkingSurface =
     activeScope === "package" && (state.packageLens === "dependencies" || state.packageLens === "hierarchy");
@@ -12722,6 +12722,7 @@ function maybeAutoLoadPackageLibraryDependencyStructure() {
 
 function maybeAutoLoadTypeLeverage() {
   if (scope() !== "type" && scope() !== "member") return;
+  if (state.lens !== "api") return;
   if (typeLeverageBatchLoading) return;
   let targets: TypeLeverageTarget[];
   try {
@@ -14031,11 +14032,67 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     case "compare":
       return renderCompareSurface();
     case "api":
-    case "overview":
       return renderApiLens(item);
+    case "overview":
+      return renderTypeOverviewHtml(item);
     default:
       return assertNever(state.lens, "type lens");
   }
+}
+
+function renderTypeOverviewHtml(item: AppTypeSurface) {
+  const pkg = currentPackage();
+  const signature = currentTypeMetadataSignature(
+    item,
+    pkg,
+    selectedTypeMetadataLibraryIdentity());
+  const fresh = state.typeMetadataKey === signature;
+  const metadata = fresh ? state.typeMetadata : null;
+  const envelope = metadata?.exactTypeInspection;
+  const exact = envelope?.content.type ?? null;
+  const projection = pkg.source.kind === "file"
+    ? {
+        status: "unavailable" as const,
+        exact: null,
+        complete: false,
+      }
+    : fresh && state.typeMetadataError
+      ? {
+          status: "failed" as const,
+          exact: null,
+          complete: false,
+          detail: state.typeMetadataError,
+        }
+      : fresh && envelope && envelope.content.isAvailable && exact
+        ? {
+            status: "available" as const,
+            exact,
+            complete: envelope.content.isComplete,
+          }
+        : fresh && envelope
+          ? {
+              status: "unavailable" as const,
+              exact: null,
+              complete: false,
+            }
+          : {
+              status: "loading" as const,
+              exact: null,
+              complete: false,
+            };
+  return renderTypeOverview({
+    subject: {
+      displayName: typeDisplayName(item),
+      namespace: item.namespace,
+      kind: item.kind,
+      accessibility: item.accessibility,
+      assembly: item.assembly,
+      members: item.members,
+    },
+    projection,
+    relatedTypeHtml: relatedTypeChip,
+    escapeHtml,
+  });
 }
 
 function renderApiLens(item: AppTypeSurface) {
@@ -15034,6 +15091,11 @@ function bindTypePanelEvents() {
       loadCurrentSelectionData("Loading the selected Type");
     },
     onTypeLeverageRetry: () => loadTypeLeverage(true),
+    onTypeMembersOpen: () => {
+      state.lens = "api";
+      render();
+      loadCurrentTypeLensData();
+    },
     onTypeNavBack: () => {
       if (state.atLibraryRoot && state.rootKind === "platform") {
         if (hasPlatformRootHistoryView()) showPlatformRoot();
@@ -15303,7 +15365,7 @@ function bindScopeBarEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       render();
-      loadCurrentTypeApiData();
+      loadCurrentTypeLensData();
     },
   }, scopeBarState);
 }
@@ -18952,13 +19014,13 @@ function canonicalViewRestorationFailure(
     }
     return null;
   }
-  const lens = requestedLens ?? "api";
+  const lens = requestedLens ?? "overview";
   const forwarder = currentPlatformForwarderView()?.forwarders.find(
     row => row.id === deep.type);
   if (!typeLensesFor(pkg, Boolean(forwarder)).some(([id]) => id === lens)) {
     return `The shared '${lens}' lens is not available for ${pkg.id}.`;
   }
-  if (lens !== "api" && !deep.type) {
+  if (lens !== "api" && lens !== "overview" && !deep.type) {
     return `The shared '${lens}' lens requires a selected type.`;
   }
   const requestedType = deep.type
@@ -19247,7 +19309,13 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
 // `state.lens !== "api"` test and silently fetch nothing.
 function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
   switch (state.lens) {
-    case "overview": return undefined;
+    case "overview":
+      if (currentPackage().source.kind !== "file") {
+        observeAsync(
+          loadSelectedTypeMetadata(),
+          "Loading Type Overview metadata");
+      }
+      return undefined;
     case "source": return loadSelectedTypeSource();
     case "metadata": return loadSelectedTypeMetadata();
     // Compare work is reconciled by render() from the retained Package mode.
@@ -23795,7 +23863,7 @@ async function loadSelectedTypeMetadata() {
       && !state.loading
       && !state.error
       && !workbenchOverlayOwnsFocus()
-      && state.lens === "metadata"
+      && (state.lens === "metadata" || state.lens === "overview")
       && !state.atPackageRoot
       && !state.atLibraryRoot
       && currentType != null
@@ -28130,7 +28198,7 @@ function failCanonicalWorkspaceRestore(
 
 function applyLocationView(loc: ParsedLocation) {
   state.rootKind = loc.rootKind;
-  state.lens = loc.lens || "api";
+  state.lens = loc.lens || "overview";
   state.atPackageRoot = loc.atPackageRoot || false;
   if (loc.hasWorkspaceState
     && state.atPackageRoot
