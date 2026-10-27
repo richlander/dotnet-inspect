@@ -26469,12 +26469,6 @@ async function selectProjectInspector(token: string): Promise<void> {
   const authority = managedNavigationAuthority(posting, posting.navigation);
   const isCurrent = () => navigationSequence.isCurrent(navigationSeq)
     && activeRetainedWorkspacePosting?.realizationId === posting.realizationId;
-  const abandon = async () => {
-    const result = await engineClient.catalog.abandonRetainedWorkspaceNavigation(...authority);
-    if (result !== "accepted" && result !== "invalidAuthority") {
-      throw new Error(`Project Navigation abandonment returned '${result}'.`);
-    }
-  };
   try {
     if (isCurrent()) {
       if (!await engineClient.catalog.validateRetainedWorkspaceNavigationAuthority(...authority)) {
@@ -26483,10 +26477,17 @@ async function selectProjectInspector(token: string): Promise<void> {
       const settlement = await commitManagedSpotlightSelection({
         isCurrent,
         commit: () => {
+          const focus = document.activeElement instanceof HTMLElement
+            ? captureScopeBarFocus(document.activeElement)
+            : null;
           activeRetainedWorkspacePosting = posting;
           retainedWorkspacePostings.set(posting.retainedDefinitionId, posting);
           retainedWorkspacePresentation = createNavigationDescriptorPresentation(posting);
           render({ synchronizeUrl: false });
+          if (focus !== null) {
+            scopeBarBinding?.revealFocusTarget(focus);
+            restoreScopeBarFocus(document, focus);
+          }
         },
         acknowledge: async () => {
           await recordManagedNavigationPosting(posting.navigation, authority);
@@ -26497,7 +26498,7 @@ async function selectProjectInspector(token: string): Promise<void> {
     }
   } catch (error) {
     try {
-      await abandon();
+      await abandonManagedNavigation(posting, posting.navigation);
     } catch (abandonmentError) {
       throw new AggregateError(
         [error, abandonmentError],
@@ -26506,7 +26507,7 @@ async function selectProjectInspector(token: string): Promise<void> {
     }
     throw error;
   }
-  await abandon();
+  await abandonManagedNavigation(posting, posting.navigation);
 }
 
 async function openUploadedLibraryFile(

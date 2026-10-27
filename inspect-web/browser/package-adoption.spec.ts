@@ -1202,12 +1202,14 @@ test("local Project uploads use real Wasm, preserve declarations, and return fro
   };
   const chooseProjectDependencies = async () => {
     const tab = page.locator("[data-inspector-tab]").filter({ hasText: "Dependencies" });
-    if (await tab.isVisible()) await tab.click();
-    else {
-      await page.locator("[data-navigation-trigger='inspector']").click();
-      await page.locator("#inspector-navigation-menu")
-        .getByRole("menuitemradio", { name: /^Dependencies:/ }).click({ timeout: 10_000 });
+    if (await tab.isVisible()) {
+      await tab.click();
+      return;
     }
+    const trigger = page.locator("[data-navigation-trigger='inspector']");
+    await trigger.click();
+    await page.locator("#inspector-navigation-menu")
+      .getByRole("menuitemradio", { name: /^Dependencies:/ }).click({ timeout: 10_000 });
   };
   await openFile("DotnetInspect.Cli.csproj",
     readFileSync(resolve("../src/DotnetInspect.Cli/DotnetInspect.Cli.csproj")));
@@ -1215,6 +1217,8 @@ test("local Project uploads use real Wasm, preserve declarations, and return fro
     .toContainText("DotnetInspect.Cli.csproj", { timeout: 30_000 });
   await chooseProjectDependencies();
   await expect(page.locator("#inspector-panel")).toContainText("Unresolved declaration");
+  await expect(page.locator("[data-inspector-tab]:visible").filter({ hasText: "Dependencies" })
+    .or(page.locator("[data-navigation-trigger='inspector']:visible"))).toBeFocused();
   await expect(page.locator("#inspector-panel")).toContainText("MSBuild was not evaluated");
   const authoredIdentity = await currentHistoryWorkspaceId(page);
   expect(authoredIdentity).not.toBeNull();
