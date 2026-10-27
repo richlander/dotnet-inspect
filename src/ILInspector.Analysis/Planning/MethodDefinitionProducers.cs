@@ -236,7 +236,17 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// <summary>The unit's class, 0 to 63, derived from its fact; used only when <see cref="ClassifiesUnits"/>.</summary>
     internal virtual int UnitClass(TFact fact) => 0;
 
+    /// <summary>
+    /// Whether this producer's result retains resolved callee identities
+    /// across bodies, so the execution's call lookup shares one identity per
+    /// callee instead of resolving each call site afresh.
+    /// </summary>
+    internal virtual bool SharesCalleeIdentities => false;
+
     SourceGateGuard? IMethodDefinitionProducer.SourceGate => SourceGate;
+
+    bool IMethodDefinitionProducer.SharesCalleeIdentities =>
+        SharesCalleeIdentities;
 
     ImmutableArray<MethodBodyAnalyzerDeclaration>
         IMethodDefinitionProducer.InstructionAnalyzers =>
@@ -421,6 +431,8 @@ internal interface IMethodDefinitionProducer
     }
 
     SourceGateGuard? SourceGate { get; }
+
+    bool SharesCalleeIdentities { get; }
 
     MethodDefinitionExecution.ProducerState CreateState(
         MethodDefinitionExecution execution,

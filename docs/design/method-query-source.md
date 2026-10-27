@@ -766,11 +766,19 @@ The same declared support exposes two facts only when the producer asks:
 
 One execution-scoped lookup owns signature decoding. The packet caches Calls,
 the local signature, and each distinct field token for one physical MethodDef.
-The lookup also shares resolved MethodDef identities and MemberRef identities
-whose parent is not a caller-scoped TypeSpec across physical bodies; TypeSpec
-parents and MethodSpecs share identity only when the operand handle and
-structural caller scope both match. Lanes in one shared execution group reuse
-those packet facts. The physical receipt charges each decode once; each request
+When a planned producer declares that its result retains resolved callees
+across bodies, as Physical Method Analysis does, the lookup also shares callee
+identities across physical bodies:
+
+- resolved MethodDef identities are shared, as are MemberRef identities whose
+  parent is not a caller-scoped TypeSpec;
+- TypeSpec parents and MethodSpecs share identity only when the operand handle
+  and the structural caller scope both match.
+
+Otherwise each call site resolves its callee afresh, and no identity outlives
+the body that read it. A whole-library pass that retains no callee therefore
+doesn't hold one `MemberRef` graph per distinct callee for the execution's
+lifetime. Lanes in one shared execution group reuse those packet facts. The physical receipt charges each decode once; each request
 receipt receives the shared decode work once and retains its own logical read
 counts. Work records call sites, method and field operands, local signatures,
 generic-parameter rows, and signature bytes. `CallTargets` separately receipts
