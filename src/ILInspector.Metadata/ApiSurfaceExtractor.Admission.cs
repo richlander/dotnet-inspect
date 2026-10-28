@@ -422,6 +422,25 @@ public static partial class ApiSurfaceExtractor
             && IsHiddenMember(reader, attributes, beforeMaterialize);
 
     /// <summary>
+    /// A property or event accessor's own <c>[Obsolete]</c>, other than the compiler's
+    /// compatibility marker, or null when the accessor is absent or not obsolete
+    /// (docs/design/api-status-analysis.md#status-facts).
+    /// </summary>
+    internal static ApiObsoleteStatus? ReadAccessorObsolete(
+        MetadataReader reader,
+        MethodDefinitionHandle accessor,
+        Action<int>? beforeMaterialize = null)
+        => !accessor.IsNil
+            && AttributeReader.TryGetObsoleteAttribute(
+                reader,
+                reader.GetMethodDefinition(accessor).GetCustomAttributes(),
+                out string? message,
+                out bool isError,
+                beforeMaterialize)
+            ? new ApiObsoleteStatus(message, isError)
+            : null;
+
+    /// <summary>
     /// A hidden (<c>EditorBrowsable(Never)</c>) property or event is omitted
     /// from the public-facing population. An explicit implementation, one whose
     /// present accessors are all private MethodImpl bodies, is exempt, as its
