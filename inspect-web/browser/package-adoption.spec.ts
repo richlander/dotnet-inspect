@@ -4559,6 +4559,10 @@ test.describe("bounded network-backed Worker smoke", () => {
       .toBeVisible();
     await expect(typeEdges.first().getByText(/\d+ sites?/, { exact: true })
       .first()).toBeVisible();
+    await expect(typeEdges.first().locator(".type-call-site"))
+      .toHaveCount(2);
+    await expect(typeEdges.first().locator(".type-call-site").first())
+      .toContainText("IL_");
 
     await page.locator("#subject-panel").screenshot({
       path: testInfo.outputPath("type-calls-object-enumerator.png"),

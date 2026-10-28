@@ -115,7 +115,9 @@ Calls page presents one outgoing Type-to-Type graph. Each edge:
   their canonical subjects, never by display text;
 - is weighted by distinct canonical source-member/target-member relation rows;
 - reveals those member pairs grouped by source member when selected;
-- keeps repeated physical IL sites subordinate to their member pair; and
+- keeps repeated physical IL sites subordinate to their member pair, with IL
+  offset, call kind, operand token, and caller method token retained as
+  evidence; and
 - carries compatibility colors as quiet target-member evidence.
 
 Repeated occurrences and opcode variation do not inflate the Type-edge weight.

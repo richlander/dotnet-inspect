@@ -47,6 +47,13 @@ interface CanonicalRelation {
 
 interface CanonicalOccurrence {
   relation_id: number;
+  evidence: {
+    kind: string;
+    caller_method_token?: number;
+    il_offset?: number;
+    operand_token?: number;
+    call_kind?: string;
+  };
 }
 
 interface CanonicalAnnotation {
@@ -323,8 +330,34 @@ function canonicalDocument(
   const occurrences: CanonicalOccurrence[] = [];
   for (const candidate of value.occurrences) {
     if (!isRecord(candidate)
-      || typeof candidate.relation_id !== "number") return null;
-    occurrences.push({ relation_id: candidate.relation_id });
+      || typeof candidate.relation_id !== "number"
+      || !isRecord(candidate.evidence)
+      || typeof candidate.evidence.kind !== "string") return null;
+    const rawCallerMethodToken = candidate.evidence.caller_method_token;
+    const rawIlOffset = candidate.evidence.il_offset;
+    const rawOperandToken = candidate.evidence.operand_token;
+    const rawCallKind = candidate.evidence.call_kind;
+    if ((rawCallerMethodToken !== undefined
+        && typeof rawCallerMethodToken !== "number")
+      || (rawIlOffset !== undefined && typeof rawIlOffset !== "number")
+      || (rawOperandToken !== undefined && typeof rawOperandToken !== "number")
+      || (rawCallKind !== undefined && typeof rawCallKind !== "string")) {
+      return null;
+    }
+    occurrences.push({
+      relation_id: candidate.relation_id,
+      evidence: {
+        kind: candidate.evidence.kind,
+        ...(rawCallerMethodToken === undefined
+          ? {}
+          : { caller_method_token: rawCallerMethodToken }),
+        ...(rawIlOffset === undefined ? {} : { il_offset: rawIlOffset }),
+        ...(rawOperandToken === undefined
+          ? {}
+          : { operand_token: rawOperandToken }),
+        ...(rawCallKind === undefined ? {} : { call_kind: rawCallKind }),
+      },
+    });
   }
   const annotations: CanonicalAnnotation[] = [];
   for (const candidate of value.annotations) {
@@ -406,7 +439,7 @@ interface RelationsProjection {
   document: CanonicalRelationsDocument;
   subjects: Map<number, CanonicalSubject>;
   edges: TypeEdge[];
-  occurrenceCounts: Map<number, number>;
+  occurrencesByRelation: Map<number, CanonicalOccurrence[]>;
   colorsBySubject: Map<number, string[]>;
   relationshipIsPartial: boolean;
   colorIsPartial: boolean;
@@ -420,11 +453,12 @@ function projectRelations(
   if (!document) return null;
   const subjects = new Map(
     document.subjects.map(subject => [subject.id, subject]));
-  const occurrenceCounts = new Map<number, number>();
+  const occurrencesByRelation = new Map<number, CanonicalOccurrence[]>();
   for (const occurrence of document.occurrences) {
-    occurrenceCounts.set(
-      occurrence.relation_id,
-      (occurrenceCounts.get(occurrence.relation_id) ?? 0) + 1);
+    const relationOccurrences =
+      occurrencesByRelation.get(occurrence.relation_id) ?? [];
+    relationOccurrences.push(occurrence);
+    occurrencesByRelation.set(occurrence.relation_id, relationOccurrences);
   }
   const colorsBySubject = new Map<number, string[]>();
   for (const annotation of document.annotations) {
@@ -456,7 +490,7 @@ function projectRelations(
     subjects,
     edges: [...edgesByType.values()].sort((left, right) =>
       typeName(left.targetType).localeCompare(typeName(right.targetType))),
-    occurrenceCounts,
+    occurrencesByRelation,
     colorsBySubject,
     relationshipIsPartial: document.terminal.is_complete === false
       || hasIncompleteCoverage(document.relationship_outcomes),
@@ -493,6 +527,35 @@ function memberName(subject: CanonicalSubject): string {
   return parameters === undefined
     ? member.name
     : `${member.name}(${parameters})`;
+}
+
+function hex(value: number, width: number): string {
+  return `0x${value.toString(16).toUpperCase().padStart(width, "0")}`;
+}
+
+function renderCallSite(
+  occurrence: CanonicalOccurrence,
+  escapeHtml: (value: string) => string,
+): string {
+  const { evidence } = occurrence;
+  const location = evidence.il_offset === undefined
+    ? evidence.kind
+    : `IL_${evidence.il_offset.toString(16).toUpperCase().padStart(4, "0")}`;
+  const detail = [
+    evidence.call_kind,
+    evidence.operand_token === undefined
+      ? null
+      : `operand ${hex(evidence.operand_token, 8)}`,
+    evidence.caller_method_token === undefined
+      ? null
+      : `method ${hex(evidence.caller_method_token, 8)}`,
+  ].filter((part): part is string => part !== null);
+  return `<li class="type-call-site">
+    <code>${escapeHtml(location)}</code>
+    ${detail.length === 0
+      ? ""
+      : `<span>${detail.map(escapeHtml).join(" · ")}</span>`}
+  </li>`;
 }
 
 function colorLabel(color: string): string {
@@ -581,7 +644,7 @@ export function renderTypeRelations(
       escapeHtml);
   }
   const {
-    document, subjects, edges, occurrenceCounts, colorsBySubject,
+    document, subjects, edges, occurrencesByRelation, colorsBySubject,
     relationshipIsPartial, colorIsPartial,
   } = projection;
   const edgeHtml = edges.map(edge => {
@@ -596,16 +659,23 @@ export function renderTypeRelations(
       const rows = relations.map(relation => {
         const target = subjects.get(relation.target_subject_id);
         if (!target) return "";
-        const sites = occurrenceCounts.get(relation.id) ?? 0;
+        const occurrences = occurrencesByRelation.get(relation.id) ?? [];
+        const sites = occurrences.length;
         const colors = colorsBySubject.get(relation.target_subject_id) ?? [];
-        return `<li>
-          <code>${escapeHtml(memberName(target))}</code>
-          <span>${sites} site${sites === 1 ? "" : "s"}</span>
-          ${colors.length
-            ? `<small>${colors.map(color =>
-                `<abbr title="${escapeHtml(color)}">${escapeHtml(colorLabel(color))}</abbr>`)
-                .join("")}</small>`
-            : ""}
+        return `<li class="type-call-member-pair">
+          <div>
+            <code>${escapeHtml(memberName(target))}</code>
+            <span>${sites} site${sites === 1 ? "" : "s"}</span>
+            ${colors.length
+              ? `<small>${colors.map(color =>
+                  `<abbr title="${escapeHtml(color)}">${escapeHtml(colorLabel(color))}</abbr>`)
+                  .join("")}</small>`
+              : ""}
+          </div>
+          <ol class="type-call-sites" aria-label="Physical call sites">
+            ${occurrences.map(occurrence =>
+              renderCallSite(occurrence, escapeHtml)).join("")}
+          </ol>
         </li>`;
       }).join("");
       return `<div class="type-call-member-group">

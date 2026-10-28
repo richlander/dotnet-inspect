@@ -144,9 +144,36 @@ function available(
           : [],
         occurrences: hasRelations
           ? [
-              { relation_id: 4 },
-              { relation_id: 4 },
-              { relation_id: 5 },
+              {
+                relation_id: 4,
+                evidence: {
+                  kind: "FocusedCallSite",
+                  caller_method_token: 0x06000001,
+                  il_offset: 10,
+                  operand_token: 0x0A000001,
+                  call_kind: "Call",
+                },
+              },
+              {
+                relation_id: 4,
+                evidence: {
+                  kind: "FocusedCallSite",
+                  caller_method_token: 0x06000001,
+                  il_offset: 24,
+                  operand_token: 0x0A000001,
+                  call_kind: "Call",
+                },
+              },
+              {
+                relation_id: 5,
+                evidence: {
+                  kind: "FocusedCallSite",
+                  caller_method_token: 0x06000001,
+                  il_offset: 36,
+                  operand_token: 0x0A000002,
+                  call_kind: "Callvirt",
+                },
+              },
             ]
           : [],
         annotations: [{
@@ -323,8 +350,13 @@ test("available rendering accepts omitted assembly fields and aggregates exact m
   assert.match(html, /Example\.Entry → Example\.Target/);
   assert.match(html, /Run\(\)/);
   assert.match(html, /2 sites/);
+  assert.match(html, /IL_000A/);
+  assert.match(html, /IL_0018/);
+  assert.match(html, /Call · operand 0x0A000001 · method 0x06000001/);
   assert.match(html, /Stop\(\)/);
   assert.match(html, /1 site/);
+  assert.match(html, /IL_0024/);
+  assert.match(html, /Callvirt · operand 0x0A000002/);
   assert.match(html, /title="member\.requires-dynamic-code">RDC/);
   assert.match(html, /Partial call evidence/);
   assert.match(html, /Partial compatibility evidence/);
