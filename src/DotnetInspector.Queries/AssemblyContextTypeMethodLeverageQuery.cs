@@ -106,7 +106,9 @@ public static class AssemblyContextTypeMethodLeverageQuery
         SelectedType selected)
     {
         LibraryCallGraphAnalysisResult callGraph =
-            AssemblyContextCallGraphAnalysis.Analyze(snapshot, subject);
+            AssemblyContextCallGraphAnalysis.AnalyzeLeverage(
+                snapshot,
+                subject);
         try
         {
             if (!callGraph.HasFullMethodEvidenceScope)

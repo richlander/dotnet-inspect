@@ -335,6 +335,58 @@ public sealed partial class MethodDefinitionRequestSetTests
         }
     }
 
+    [Fact]
+    public void LibraryMethodLeverageProducer_MatchesLegacyRanking()
+    {
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        LibraryMethodLeverageProducerResult produced =
+            ExecuteLibraryCallGraph(
+                path,
+                LibraryMethodLeverageProducer.Instance,
+                out MethodDefinitionSourceRequestResult sourceResult);
+        LibraryCallGraphAnalysisResult actual =
+            LibraryCallGraphAnalysisResult.FromLeverageProducer(
+                path,
+                produced,
+                sourceResult.SourceReceipt,
+                sourceResult.WorkReceipt);
+        LibraryBodyAnalysisExecution legacy =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
+        try
+        {
+            Assert.Equal(
+                legacy.Leverage.Top(int.MaxValue),
+                actual.TopLeverage(int.MaxValue));
+            Assert.Equal(
+                legacy.CallGraph.Diagnostics,
+                actual.Diagnostics);
+        }
+        finally
+        {
+            legacy.CallGraph.ReleaseCaches();
+            actual.ReleaseCaches();
+        }
+
+        MethodDefinitionSourceReceipt receipt =
+            Assert.IsType<MethodDefinitionSourceReceipt>(
+                actual.MethodSourceReceipt);
+        Assert.Same(sourceResult.SourceReceipt, receipt);
+        Assert.Same(sourceResult.WorkReceipt, actual.ProducerReceipt);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.AllDefinitions,
+            receipt.Breadth.Kind);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            receipt.Completion);
+        Assert.Equal(0, receipt.Coverage.Calls.LocalSignatureReads);
+        Assert.False(receipt.Coverage.MethodAnalysis.Constructed);
+        Assert.True(receipt.Coverage.CallTargets.Constructed);
+        Assert.True(actual.HasFullMethodEvidenceScope);
+    }
+
     static TResult ExecuteLibraryCallGraph<TResult>(
         string path,
         ProducerDeclaration<TResult> producer,

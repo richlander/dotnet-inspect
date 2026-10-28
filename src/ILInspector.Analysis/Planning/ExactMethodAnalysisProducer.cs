@@ -131,6 +131,13 @@ public sealed class ExactMethodAnalysisProducer :
             method,
             facts,
             out receiverSources);
+
+    internal static ImmutableArray<DirectCall> CollectDirectCalls(
+        MethodBodyAnalysisContext context,
+        MethodCallSites callSites) =>
+        PhysicalMethodAnalysisProducer.CollectDirectCalls(
+            context,
+            callSites);
 }
 
 /// <summary>
@@ -505,6 +512,29 @@ internal sealed class PhysicalMethodAnalysisProducer :
 
     internal static string MethodLabel(MethodIdentity method) =>
         $"{method.DeclaringType}.{method.Name}";
+
+    internal static ImmutableArray<DirectCall>
+        CollectDirectCalls(
+            MethodBodyAnalysisContext context,
+            MethodCallSites callSites)
+    {
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        try
+        {
+            MethodCallAnalysis.CollectCompleteDirectCalls(
+                context,
+                new OwnerIssuedCallResolver(
+                    callSites,
+                    failOnUnknown: true),
+                calls);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+        }
+        return calls.ToImmutable();
+    }
 
     internal static ImmutableArray<DirectCall>
         CollectDirectCalls(
