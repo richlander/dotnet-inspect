@@ -17,8 +17,9 @@ interface CanonicalSubject {
               kind: string;
               assembly?: {
                 name: string;
-                version: string;
-                public_key_token: string;
+                version?: string;
+                culture?: string;
+                public_key_token?: string;
               };
               module_name?: string;
             };
@@ -227,16 +228,29 @@ function canonicalDocument(
       candidate.subject.member.member.declaring_type.resolution
         .origin.assembly;
     let originAssembly:
-      { name: string; version: string; public_key_token: string } | undefined;
+      {
+        name: string;
+        version?: string;
+        culture?: string;
+        public_key_token?: string;
+      } | undefined;
     if (rawOriginAssembly !== undefined) {
       if (!isRecord(rawOriginAssembly)
-        || typeof rawOriginAssembly.name !== "string"
-        || typeof rawOriginAssembly.version !== "string"
-        || typeof rawOriginAssembly.public_key_token !== "string") return null;
+        || typeof rawOriginAssembly.name !== "string") return null;
+      const rawVersion = rawOriginAssembly.version;
+      const rawCulture = rawOriginAssembly.culture;
+      const rawPublicKeyToken = rawOriginAssembly.public_key_token;
+      if ((rawVersion !== undefined && typeof rawVersion !== "string")
+        || (rawCulture !== undefined && typeof rawCulture !== "string")
+        || (rawPublicKeyToken !== undefined
+          && typeof rawPublicKeyToken !== "string")) return null;
       originAssembly = {
         name: rawOriginAssembly.name,
-        version: rawOriginAssembly.version,
-        public_key_token: rawOriginAssembly.public_key_token,
+        ...(rawVersion === undefined ? {} : { version: rawVersion }),
+        ...(rawCulture === undefined ? {} : { culture: rawCulture }),
+        ...(rawPublicKeyToken === undefined
+          ? {}
+          : { public_key_token: rawPublicKeyToken }),
       };
     }
     const rawModuleName =
@@ -402,6 +416,7 @@ interface RelationsProjection {
   occurrenceCounts: Map<number, number>;
   colorsBySubject: Map<number, string[]>;
   relationshipIsPartial: boolean;
+  colorIsPartial: boolean;
 }
 
 function projectRelations(
@@ -439,23 +454,10 @@ function projectRelations(
     edge.relations.push(relation);
     edgesByType.set(key, edge);
   }
-  const coverage = document.relationship_outcomes
-    .map(outcome => outcome.coverage)
-    .reduce(
-      (total, value) => ({
-        considered: total.considered + value.considered,
-        examined: total.examined + value.examined,
-        excluded: total.excluded + value.excluded,
-        unavailable: total.unavailable + value.unavailable,
-        limited: total.limited + value.limited,
-      }),
-      {
-        considered: 0,
-        examined: 0,
-        excluded: 0,
-        unavailable: 0,
-        limited: 0,
-      });
+  const hasIncompleteCoverage = (
+    outcomes: readonly CanonicalFamilyOutcome[],
+  ) => outcomes.some(outcome =>
+    outcome.coverage.unavailable > 0 || outcome.coverage.limited > 0);
   return {
     document,
     subjects,
@@ -464,8 +466,8 @@ function projectRelations(
     occurrenceCounts,
     colorsBySubject,
     relationshipIsPartial: document.terminal.is_complete === false
-      || coverage.unavailable > 0
-      || coverage.limited > 0,
+      || hasIncompleteCoverage(document.relationship_outcomes),
+    colorIsPartial: hasIncompleteCoverage(document.color_outcomes),
   };
 }
 
@@ -483,6 +485,7 @@ function typeIdentityKey(
     origin.kind,
     origin.assembly?.name ?? null,
     origin.assembly?.version ?? null,
+    origin.assembly?.culture ?? null,
     origin.assembly?.public_key_token ?? null,
     origin.module_name ?? null,
     type.resolution.type.namespace,
@@ -571,7 +574,7 @@ export function renderTypeRelations(
   }
   const {
     document, subjects, edges, occurrenceCounts, colorsBySubject,
-    relationshipIsPartial,
+    relationshipIsPartial, colorIsPartial,
   } = projection;
   const edgeHtml = edges.map(edge => {
     const sourceGroups = new Map<number, CanonicalRelation[]>();
@@ -627,6 +630,9 @@ export function renderTypeRelations(
     </div>
     ${relationshipIsPartial
       ? `<div class="metadata-warning"><strong>Partial call evidence</strong><p>Counts are observed lower bounds; unresolved calls may add Type or member edges.</p></div>`
+      : ""}
+    ${colorIsPartial
+      ? `<div class="metadata-warning"><strong>Partial compatibility evidence</strong><p>Compatibility signals are incomplete; an unmarked member may still carry a selected compatibility attribute.</p></div>`
       : ""}
     ${edgeHtml
       ? `<div class="type-call-graph" aria-labelledby="type-call-graph-title">

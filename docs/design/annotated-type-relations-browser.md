@@ -118,8 +118,10 @@ Type-to-Type graph. Each edge:
 
 Repeated occurrences and opcode variation do not inflate the Type-edge weight.
 Partial topology marks counts as observed lower bounds and never establishes
-absence. Structural base, interface, and derived-Type relationships remain in
-their separate Overview projection.
+absence. Partial compatibility evidence is reported separately because it does
+not qualify the Type or member-edge counts, but an unmarked member cannot
+establish compatibility-attribute absence. Structural base, interface, and
+derived-Type relationships remain in their separate Overview projection.
 
 The section keeps the explicit retry gesture after rejection, unavailability,
 or failure. It does not automatically retry during render.

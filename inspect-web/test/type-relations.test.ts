@@ -54,8 +54,6 @@ function available(
                         kind: "CurrentAssembly",
                         assembly: {
                           name: "Example",
-                          version: "1.0.0.0",
-                          public_key_token: "",
                         },
                       },
                       type: {
@@ -85,8 +83,6 @@ function available(
                         kind: "AssemblyReference",
                         assembly: {
                           name: "Example.Dependency",
-                          version: "1.0.0.0",
-                          public_key_token: "",
                         },
                       },
                       type: {
@@ -116,8 +112,6 @@ function available(
                         kind: "AssemblyReference",
                         assembly: {
                           name: "Example.Dependency",
-                          version: "1.0.0.0",
-                          public_key_token: "",
                         },
                       },
                       type: {
@@ -290,7 +284,7 @@ test("stale results are discarded and retry is explicit", async () => {
   assert.equal(queries, 3);
 });
 
-test("available rendering aggregates exact member pairs by target Type", () => {
+test("available rendering accepts omitted assembly fields and aggregates exact member pairs", () => {
   const current = state();
   current.signature = "package/type";
   current.result = available(1, 1);
@@ -318,7 +312,34 @@ test("available rendering aggregates exact member pairs by target Type", () => {
   assert.match(html, /1 site/);
   assert.match(html, /title="member\.requires-dynamic-code">RDC/);
   assert.match(html, /Partial call evidence/);
+  assert.match(html, /Partial compatibility evidence/);
   assert.doesNotMatch(html, /type-relations-signals/);
+});
+
+test("complete topology keeps partial compatibility evidence visible", () => {
+  const current = state();
+  current.signature = "package/type";
+  current.result = available(0, 1);
+
+  const html = renderTypeRelations({
+    signature: "package/type",
+    state: current,
+    focusTypeName: "Example.Entry",
+    escapeHtml: String,
+  });
+  const summary = renderTypeRelationsSummary({
+    signature: "package/type",
+    state: current,
+    focusTypeName: "Example.Entry",
+    escapeHtml: String,
+  });
+
+  assert.match(summary, />1 called type</);
+  assert.doesNotMatch(summary, /1\+ called type/);
+  assert.match(html, /Partial compatibility evidence/);
+  assert.match(html, /an unmarked member may still carry/);
+  assert.doesNotMatch(html, /Partial call evidence/);
+  assert.doesNotMatch(html, /Counts are observed lower bounds/);
 });
 
 test("partial empty rendering does not claim that no outgoing calls exist", () => {
