@@ -349,7 +349,7 @@ public class SemanticFactsSectionTests
 
     [Fact]
     public void
-        ILAnalysisPreparation_MixedRequestsRetainLegacyAnalysis()
+        ILAnalysisPreparation_MixedRequestsUseExactMethodSource()
     {
         MethodInfo method =
             typeof(SemanticFactsFixture).GetMethod(
@@ -364,6 +364,15 @@ public class SemanticFactsSectionTests
             ],
             [
                 SectionNames.AllocationContext,
+                SectionNames.CostContext,
+            ],
+            [
+                SectionNames.SafetyContext,
+                SectionNames.CostContext,
+            ],
+            [
+                SectionNames.AllocationContext,
+                SectionNames.SafetyContext,
                 SectionNames.CostContext,
             ],
         ];
@@ -382,11 +391,39 @@ public class SemanticFactsSectionTests
                     options,
                     [method.MetadataToken]);
 
-            Assert.NotNull(preparation.Input);
-            Assert.Null(preparation.AllocationInput);
-            Assert.Null(preparation.SafetyInput);
-            Assert.Null(preparation.CostInput);
+            Assert.Null(preparation.Input);
+            Assert.Equal(
+                sections.Contains(
+                    SectionNames.AllocationContext,
+                    StringComparer.OrdinalIgnoreCase),
+                preparation.AllocationInput is not null);
+            Assert.Equal(
+                sections.Contains(
+                    SectionNames.SafetyContext,
+                    StringComparer.OrdinalIgnoreCase),
+                preparation.SafetyInput is not null);
+            Assert.Equal(
+                sections.Contains(
+                    SectionNames.CostContext,
+                    StringComparer.OrdinalIgnoreCase),
+                preparation.CostInput is not null);
             Assert.Null(preparation.Failure);
+            Assert.All(
+                new[]
+                {
+                    preparation.AllocationInput?.SourceReceipt,
+                    preparation.SafetyInput?.SourceReceipt,
+                    preparation.CostInput?.SourceReceipt,
+                }.Where(static receipt => receipt is not null),
+                receipt =>
+                {
+                    Assert.Equal(
+                        MethodDefinitionSourceBreadthKind.ExactMethods,
+                        receipt!.Breadth.Kind);
+                    Assert.Single(receipt.Breadth.Methods);
+                    Assert.Equal(1, receipt.DefinitionsVisited);
+                    Assert.Equal(1, receipt.BodiesAcquired);
+                });
         }
     }
 

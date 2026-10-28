@@ -1375,13 +1375,7 @@ public static partial class ApiSurfaceExtractor
                             reader,
                             typeDefHandle)
                         : null,
-                EnclosingTypesOrdinary =
-                    apiAxis || scope == ApiSurfaceExtractionScope.IncludeAll
-                        ? AreEnclosingTypesOrdinary(
-                            reader,
-                            typeDefHandle,
-                            observeDecodeWork)
-                        : null,
+                EnclosingTypesOrdinary = AreEnclosingTypesOrdinary(reader, typeDefHandle),
                 IsHidden = typeIsHidden,
                 IsObsolete = typeIsObsolete,
                 ObsoleteMessage = typeObsoleteMessage,
@@ -2211,6 +2205,10 @@ public static partial class ApiSurfaceExtractor
                             explicitImplementationBodies.Contains(
                                 accessors.Setter),
                             observeDecodeWork),
+                    GetterObsolete = ReadAccessorObsolete(
+                        reader, accessors.Getter, observeDecodeWork),
+                    SetterObsolete = ReadAccessorObsolete(
+                        reader, accessors.Setter, observeDecodeWork),
                 };
 
                 budget?.RetainMember(member);
@@ -2663,6 +2661,10 @@ public static partial class ApiSurfaceExtractor
                             explicitImplementationBodies.Contains(
                                 accessors.Remover),
                             observeDecodeWork),
+                    AdderObsolete = ReadAccessorObsolete(
+                        reader, accessors.Adder, observeDecodeWork),
+                    RemoverObsolete = ReadAccessorObsolete(
+                        reader, accessors.Remover, observeDecodeWork),
                     AdderHasMethodBody = adder.RelativeVirtualAddress != 0,
                     RemoverHasMethodBody = accessors.Remover.IsNil
                         ? null

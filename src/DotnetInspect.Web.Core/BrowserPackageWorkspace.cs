@@ -888,7 +888,9 @@ internal static class BrowserPackageWorkspace
         BrowserPackageOperationDeadline deadline,
         bool inventoryOnly,
         PackageLibrarySelector? librarySelector,
-        PackageAssetDemand assetDemand)
+        PackageAssetDemand assetDemand,
+        PackageRootReacquisitionRequest?
+            retainedRuntimePopulationRequest = null)
     {
         var coordinateRequest = new PackageCoordinate(
             normalizedPackageId,
@@ -942,7 +944,16 @@ internal static class BrowserPackageWorkspace
                 evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences);
         string selectionRequest = (inventoryOnly ? "inventory:" : "")
             + SelectionRequestToken(targetFramework, runtimeIdentifier)
-            + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString()));
+            + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString()))
+            + (retainedRuntimePopulationRequest is null
+                ? ""
+                : CompositeKey(
+                    "runtime-population-request",
+                    retainedRuntimePopulationRequest.RequestedTargetFramework
+                        ?? "(omitted)",
+                    retainedRuntimePopulationRequest
+                        .RuntimePopulationTargetFramework
+                        ?? "(unbounded)"));
         BrowserSessionPackageStore store = StoreFor(source);
         BrowserSessionPackageStore rangedStore = store.ForRealization(selectionRequest);
         string packageKey = rangedStore.PackageKey(
@@ -1084,7 +1095,8 @@ internal static class BrowserPackageWorkspace
                 requestedRuntimeIdentifier is null
                     ? new PackageRuntimePopulationAuthority.None()
                     : new PackageRuntimePopulationAuthority.Explicit(
-                        requestedRuntimeIdentifier));
+                        requestedRuntimeIdentifier),
+                retainedRuntimePopulationRequest);
         if (requestedRuntimeIdentifier is null
             && runtimePopulation.Choice
                 is PackageRuntimePopulationChoiceResult.Selected selected
@@ -1092,18 +1104,26 @@ internal static class BrowserPackageWorkspace
                 acquired.Payload.Content,
                 runtimePopulation.Binding))
         {
+            PackageRootReacquisitionRequest retainedRuntimeRequest =
+                runtimePopulation.Binding.CreateReacquisitionRequest();
             BrowserPackageRealizationResult selectedResult =
                 await RealizeOneAsync(
                     packageId,
                     normalizedPackageId,
                     requestedVersion,
-                    targetFramework,
+                    string.IsNullOrWhiteSpace(targetFramework)
+                        && retainedRuntimeRequest
+                            .RuntimePopulationTargetFramework is null
+                        ? selected.SelectedTargetFramework
+                        : targetFramework,
                     selected.RuntimeIdentifier,
                     source,
                     deadline,
                     inventoryOnly,
                     librarySelector,
-                    assetDemand).ConfigureAwait(false);
+                    assetDemand,
+                    retainedRuntimeRequest)
+                    .ConfigureAwait(false);
             if (selectedResult
                 is not BrowserPackageRealizationResult.Realized selectedRealized)
             {
@@ -1992,20 +2012,15 @@ internal static class BrowserPackageWorkspace
             AcquiredPackageSourcePayload payload,
             PackageRootBinding binding)
     {
-        if (binding.Root.AssetSelection is not { } selection)
+        if (binding.Root.AssetSelection is null)
             return null;
         PackageAssetSelectionReceipt receipt =
             PackageAssetSelector.EvaluateSingleRuntime(
                 payload.Content,
-                binding.Root.RequestedTargetFramework);
+                binding.CreateReacquisitionRequest()
+                    .RuntimePopulationTargetFramework);
         if (receipt.AvailableRuntimePopulations.Count == 0)
             return null;
-        if (binding.Root.RequestedRuntimeIdentifier is null
-            && selection.ImplementationAssets.Any(
-                static asset => asset.RuntimeIdentifier is null))
-        {
-            return null;
-        }
 
         PackageRuntimePopulationAuthority authority =
             binding.Root.RequestedRuntimeIdentifier is { } runtimeIdentifier

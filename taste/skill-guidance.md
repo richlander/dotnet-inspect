@@ -10,6 +10,31 @@ The embedded skills are the authoritative current agent guides for
 output-shape expectations, and high-value examples. They should not be a
 changelog or an exhaustive command manual.
 
+## Breadth in skills, depth in evidence
+
+Skills own capability breadth; the evidence model owns depth. A reader should
+recognize the questions the tool can help answer, how far the investigation
+can go, and a productive entrance without first knowing the catalog's terms.
+Advertise depth without documenting every step needed to reach it.
+
+A capability signpost names the question, the evidence it can lead to, a best
+first command or discovery route, and any essential interpretation boundary.
+For example, "compare APIs" alone hides implementation, analysis and literal
+differences; listing every Diff flag instead duplicates the reference manual.
+Describe those investigative possibilities and give one useful entrance.
+
+The root skill maps the breadth. Focused skills retain domain judgment,
+workflow composition, stopping rules and proven recipes. Installed explanation,
+section/query discovery and inspection results supply detailed bindings,
+values, prerequisites, provenance, coverage and continuations. Do not require
+an explanation detour when a known command already answers the question, or
+remove a working recipe while its required depth is not discoverable.
+
+Judge guidance by question coverage and useful completion, not command counts
+or file size. Fresh-reader comparisons must preserve material findings and
+scope qualifications, and account for all guidance read and recovery work.
+Smaller serialized content alone is not evidence of a more efficient agent.
+
 ## Current guidance is the compatibility layer
 
 Product skills are the primary compatibility mitigation for this fast-moving

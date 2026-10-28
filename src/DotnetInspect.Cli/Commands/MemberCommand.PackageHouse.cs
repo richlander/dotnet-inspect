@@ -26,6 +26,8 @@ public static partial class MemberCommand
         new(StringComparer.OrdinalIgnoreCase)
         {
             SectionNames.IL,
+            SectionNames.CustomAttributes,
+            SectionNames.DecompiledSource,
             SectionNames.ExceptionRegions,
         };
 
@@ -263,7 +265,11 @@ public static partial class MemberCommand
                                     source,
                                     loaded,
                                     allowImplicitDocumentation:
-                                        false))
+                                        false),
+                            requiresLocalAssemblyPath:
+                                demand
+                                != SharedMemberPackageDemand
+                                    .DefiningImplementation)
                         .ConfigureAwait(false);
                 return exitCode == 0
                     && envelope.Content.IsComplete

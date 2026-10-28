@@ -29,11 +29,13 @@ import {
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 import {
+  catalogInertStringFixture,
   inertStringFixture,
   packageInertStringFixture,
 } from "./inert-string-fixture.ts";
 import type {
   BrowserEcosystemPackageWorkspaceAdmissionResult,
+  BrowserIndexedTypeFindResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDefinitionState,
   BrowserRetainedWorkspacePackageAdmissionResult,
@@ -135,6 +137,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryLibraryReferences: () =>
+      unexpected("queryLibraryReferences"),
     queryReferencePackageSuppliers: () =>
       unexpected("queryReferencePackageSuppliers"),
     queryPackageHierarchy: () =>
@@ -281,6 +285,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    selectProjectInspector: () => unexpected("selectProjectInspector"),
+    findIndexedTypes: () => unexpected("findIndexedTypes"),
     abandonRetainedWorkspaceNavigation: () =>
       unexpected("abandonRetainedWorkspaceNavigation"),
     acknowledgeRetainedWorkspaceNavigation: () =>
@@ -326,12 +332,14 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("observeRetainedWorkspaceSettlement"),
     prepareEcosystemWorkspaceDefinition: () =>
       unexpected("prepareEcosystemWorkspaceDefinition"),
-    prepareHomeDemoWorkspaceDefinition: () =>
-      unexpected("prepareHomeDemoWorkspaceDefinition"),
+    prepareProjectWorkspaceDefinition: () =>
+      unexpected("prepareProjectWorkspaceDefinition"),
     preparePackageQueryWorkspaceDefinition: () =>
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
       unexpected("prepareRetainedWorkspaceDefinition"),
+    prepareRetainedWorkspaceDefinitionFromRecords: () =>
+      unexpected("prepareRetainedWorkspaceDefinitionFromRecords"),
     prepareRetainedWorkspaceDefinitionWithCredentials: () =>
       unexpected("prepareRetainedWorkspaceDefinitionWithCredentials"),
     recordRetainedWorkspaceNavigationPosting: () =>
@@ -565,6 +573,28 @@ test("uploaded Library input uses a bounded structured-clone byte tuple", () => 
     assert.equal(oversizedInput.reason, "oversized");
     assert.match(oversizedInput.message, /exceeds 33554432 bytes/);
   }
+});
+
+test("uploaded Project input admits supplied bytes without the ordinary text budget", () => {
+  const operation =
+    engineWorkerOrdinaryOperations.catalog.prepareProjectWorkspaceDefinition;
+  const input: Parameters<typeof operation.encodeInput>[0] = [
+    "project-1", "Local Project", "/", "authoredProject", "Example.csproj",
+    Array.from({ length: 1024 * 1024 }, () => 32), "",
+  ];
+  assert.equal(operation.encodeInput(input).kind, "decoded");
+  assert.equal(operation.input.decode(input).kind, "decoded");
+  assert.equal(operation.input.decode([...input, "extra"]).kind, "rejected");
+  assert.equal(operation.input.decode([
+    ...input.slice(0, 5), [256], "",
+  ]).kind, "rejected");
+  const oversized: number[] = [];
+  oversized.length = engineWorkerUploadedLibraryMaximumBytes + 1;
+  const rejected = operation.input.decode([
+    ...input.slice(0, 5), oversized, "",
+  ]);
+  assert.equal(rejected.kind, "rejected");
+  if (rejected.kind === "rejected") assert.equal(rejected.reason, "oversized");
 });
 
 test("uploaded Library Member document queries use the retained exact image", async () => {
@@ -1011,6 +1041,44 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     },
     reason: null,
   } satisfies BrowserTypeFindResult;
+  const indexedTypeFind = {
+    status: "Completed",
+    operation: {
+      find: {
+        content: {
+          matches: [{
+            source: {
+              packageId: "Aspire.Hosting",
+              version: "9.0.0",
+              targetFramework: "net8.0",
+              assemblyName: "Aspire.Hosting",
+            },
+            type: {
+              namespace: "Aspire.Hosting",
+              names: [{
+                name: "DistributedApplication",
+                arity: 0,
+              }],
+            },
+          }],
+          publishedSourceIdentities: [],
+          coverage: [],
+          completion: "Completed",
+        },
+        share: {
+          kind: "nonProjectable",
+          fullUrl: null,
+          packet: null,
+          path: "indexed-type-find",
+          reason: catalogInertStringFixture(
+            "Indexed Type Find is not projectable.",
+          ),
+        },
+        diagnostics: [],
+      },
+    },
+    reason: null,
+  } satisfies BrowserIndexedTypeFindResult;
   const spotlightActivation = {
     status: "navigation",
     navigation: posting.navigation,
@@ -1032,6 +1100,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
   const ecosystemPackageArguments: (readonly unknown[])[] = [];
   const packageArguments: (readonly unknown[])[] = [];
   const platformArguments: (readonly unknown[])[] = [];
+  const indexedTypeFindArguments: (readonly unknown[])[] = [];
   const typeFindArguments: (readonly unknown[])[] = [];
   const spotlightActivationArguments: (readonly unknown[])[] = [];
   const state = fixture({
@@ -1042,6 +1111,10 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       },
     },
     catalog: {
+      findIndexedTypes: async (...args) => {
+        indexedTypeFindArguments.push(args);
+        return indexedTypeFind;
+      },
       activateRetainedWorkspaceDefinition: async () => activation,
       activateSpotlightDestination: async (...args) => {
         spotlightActivationArguments.push(args);
@@ -1084,11 +1157,19 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     11,
     "JsonSerializer",
   );
+  const indexedFindResult = state.client.catalog.findIndexedTypes(
+    "definition-exact",
+    "realization-exact",
+    12,
+    "DistributedApplication",
+    25,
+  );
   const spotlightResult = state.client.catalog.activateSpotlightDestination(
     "action-exact",
   );
   await state.environment.flushAsync();
   assert.deepEqual(await findResult, typeFind);
+  assert.deepEqual(await indexedFindResult, indexedTypeFind);
   assert.deepEqual(await spotlightResult, spotlightActivation);
 
   const packageResult =
@@ -1198,6 +1279,13 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     "realization-exact",
     "oversized-navigation",
     0,
+  ]]);
+  assert.deepEqual(indexedTypeFindArguments, [[
+    "definition-exact",
+    "realization-exact",
+    12,
+    "DistributedApplication",
+    25,
   ]]);
   assert.deepEqual(typeFindArguments, [[
     "definition-exact",
@@ -2172,6 +2260,100 @@ test("oversized prepared activation is cancelled before rejection", async () => 
   state.host.dispose();
 });
 
+test("oversized Project preparation cancels its nested activation receipt", async () => {
+  const cancellations: string[] = [];
+  const state = fixture({
+    catalog: {
+      prepareProjectWorkspaceDefinition: async () => contractViolation({
+        inspection: { content: { declaredName: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters) } },
+        preparation: { status: "prepared", receipt: "project-receipt" },
+      }),
+      cancelRetainedWorkspaceActivation: async receipt => {
+        cancellations.push(receipt);
+        return { status: "superseded", posting: null, failure: null };
+      },
+    },
+  });
+  const pending = state.client.catalog.prepareProjectWorkspaceDefinition(
+    "project", "Project", "/", "authoredProject", "Example.csproj", [60], "");
+  await state.environment.flushAsync();
+  await assert.rejects(pending, /exceeds .* characters/);
+  assert.deepEqual(cancellations, ["project-receipt"]);
+  state.host.dispose();
+});
+
+test("rejected Project inspector postings settle authority and report failed cleanup", async () => {
+  for (const status of ["accepted", "failed"]) {
+    const abandonments: unknown[][] = [];
+    const state = fixture({
+      catalog: {
+        selectProjectInspector: async () => contractViolation({
+          label: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+          realizationId: "realization", publicationOrdinal: 3,
+          navigation: { authority: {
+            session: "session", revision: "revision", intent: "intent", epoch: "epoch",
+          } },
+        }),
+        abandonRetainedWorkspaceNavigation: (...args) => {
+          abandonments.push(args);
+          return status;
+        },
+      },
+    });
+    const pending = state.client.catalog.selectProjectInspector(
+      "project", "realization", "dependencies-action");
+    await state.environment.flushAsync();
+    await assert.rejects(pending, status === "accepted"
+      ? /exceeds .* characters/
+      : /Recovery failed:.*abandonment returned 'failed'/);
+    assert.deepEqual(abandonments, [[
+      "realization", 3, "session", "revision", "intent", "epoch",
+    ]]);
+    state.host.dispose();
+  }
+});
+
+test("serialized definition records cross ordinary transport", async () => {
+  const requests: unknown[][] = [];
+  const state = fixture({
+    catalog: {
+      prepareRetainedWorkspaceDefinitionFromRecords: async (...args) => {
+        requests.push(args);
+        return {
+          status: "failed",
+          receipt: null,
+          preparation: null,
+          posting: null,
+          failure: {
+            kind: "Fixture",
+            message: "Fixture definition-record preparation failed.",
+          },
+        };
+      },
+    },
+  });
+
+  const preparation =
+    state.client.catalog.prepareRetainedWorkspaceDefinitionFromRecords(
+      "definition",
+      "Definition",
+      "/?w=view#workspace",
+      "product.demo",
+      ["{\"kind\":\"scenario\"}"],
+    );
+  await state.environment.flushAsync();
+
+  assert.equal((await preparation).failure?.kind, "Fixture");
+  assert.deepEqual(requests, [[
+    "definition",
+    "Definition",
+    "/?w=view#workspace",
+    "product.demo",
+    ["{\"kind\":\"scenario\"}"],
+  ]]);
+  state.host.dispose();
+});
+
 test("retained Workspace Navigation lifecycle crosses ordinary transport", async () => {
   const calls: string[] = [];
   const state = fixture({
@@ -2555,6 +2737,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryLibraryReferences",
       "queryReferencePackageSuppliers",
       "queryPackageHierarchy",
       "queryPackageIcon",
@@ -2666,17 +2849,20 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "encodeWorkspaceShareState",
       "explainVocabularies",
       "explainResources",
+      "findIndexedTypes",
       "describeWorkspaceComponents",
       "explainWorkspaceComponent",
       "observeRetainedWorkspaceSettlement",
       "prepareEcosystemWorkspaceDefinition",
-      "prepareHomeDemoWorkspaceDefinition",
       "preparePackageQueryWorkspaceDefinition",
+      "prepareProjectWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
+      "prepareRetainedWorkspaceDefinitionFromRecords",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
       "recordRetainedWorkspaceNavigationPosting",
       "resolveHomeDemo",
       "runHomeDemo",
+      "selectProjectInspector",
       "validateRetainedWorkspaceNavigationAuthority",
     ],
   } as const;
@@ -2693,7 +2879,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 137);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 141);
 
   const state = fixture();
   const groups = [

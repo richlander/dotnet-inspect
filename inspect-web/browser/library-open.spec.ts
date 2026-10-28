@@ -64,14 +64,14 @@ async function openLibraryFromBrandMenu(page: Page) {
   const button = page.locator("[data-product-navigation-button]");
   const item = page.getByRole(
     "menuitem",
-    { name: "Open Library…", exact: true },
+    { name: "Open file…", exact: true },
   );
   const title = page.locator("#library-open-title");
   await expect(async () => {
     if (!await item.isVisible()) await button.click();
     await item.evaluate(element => {
       if (!(element instanceof HTMLElement))
-        throw new Error("Open Library is not interactive.");
+        throw new Error("Open file is not interactive.");
       element.focus();
       element.click();
     });
@@ -88,7 +88,7 @@ test("global drop keeps managed-image rejection visible", async ({ page }) => {
 
   await dropLibrary(page, "native.dll", [0x4d, 0x5a, 0, 1]);
 
-  await expect(page.getByRole("dialog", { name: "Managed Library" }))
+  await expect(page.getByRole("dialog", { name: "Library or Project" }))
     .toBeVisible();
   await expect(page.locator(".library-open-error"))
     .toHaveText("The dropped file is not a managed assembly.");
@@ -190,7 +190,7 @@ test("Open progress does not render raw Unicode controls from File.name", async 
     JSON.stringify([declaredName, 4]),
   );
   await expect(page.locator(".library-open-status"))
-    .toHaveText("Opening managed assembly…");
+    .toHaveText("Opening local file…");
 
   await releaseFacade(page, "finish-library-upload");
   await expect(page.getByText("Browser upload", { exact: true }))
@@ -489,7 +489,7 @@ test("page-level drop remains available on Diagnostics", async ({ page }) => {
 
   await dropLibrary(page, "native.dll", [0x4d, 0x5a, 0, 1]);
 
-  await expect(page.getByRole("dialog", { name: "Managed Library" }))
+  await expect(page.getByRole("dialog", { name: "Library or Project" }))
     .toBeVisible();
   await expect(page.locator(".library-open-error"))
     .toHaveText("The dropped file is not a managed assembly.");

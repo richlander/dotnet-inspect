@@ -505,8 +505,9 @@ public sealed record BrowserHomeDemoView(
     string? Section);
 
 /// <summary>
-/// Fully resolved product home demo: workspace members, navigation, and view.
-/// Hosts own share encoding and any residual platform pack mapping.
+/// Fully resolved product home demo: workspace members, navigation, view, and
+/// complete resource-free Workspace contents. Hosts own canonical packet
+/// encoding and any residual platform pack mapping.
 /// </summary>
 public sealed record BrowserHomeDemoResolved(
     string Id,
@@ -515,7 +516,9 @@ public sealed record BrowserHomeDemoResolved(
     BrowserHomeDemoMember[] WorkspaceMembers,
     BrowserHomeDemoNavigationTab[] Tabs,
     int FocusTabIndex,
-    BrowserHomeDemoView View);
+    BrowserHomeDemoView View,
+    BrowserWorkspaceShareState Workspace,
+    string[] RestorationDefinitions);
 
 /// <summary>
 /// Result of resolving one home demo id. <see cref="Demo"/> is set only when
@@ -1064,7 +1067,9 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
 [JsonSerializable(typeof(BrowserWorkspacePackageSourceRequirementsResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePreparationResult))]
+[JsonSerializable(typeof(BrowserProjectWorkspacePreparationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePosting))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceConsumerCompletionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
@@ -1075,4 +1080,5 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSerializable(typeof(Dictionary<
     string,
     BrowserRetainedWorkspacePackageSourceCredential>))]
+[JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

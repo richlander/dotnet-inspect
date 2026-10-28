@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {
+  BrowserHomeDemoResolved,
+  BrowserProjectWorkspacePreparationResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
@@ -16,6 +18,63 @@ import {
   type RetainedWorkspaceActivationClient,
   type RetainedWorkspacePredecessorObservation,
 } from "../src/retained-workspace-activation.ts";
+
+const resolvedHomeDemo: BrowserHomeDemoResolved = {
+  id: "product.stj.serializer",
+  title: "System.Text.Json",
+  summary: "Serializer methods",
+  workspaceMembers: [{
+    kind: "platform",
+    id: "runtime",
+    version: "11.0.0",
+    framework: "net11.0",
+    assembly: "System.Text.Json",
+  }],
+  tabs: [{
+    id: "stj",
+    member: {
+      kind: "platform",
+      id: "runtime",
+      version: "11.0.0",
+      framework: "net11.0",
+      assembly: "System.Text.Json",
+    },
+  }],
+  focusTabIndex: 0,
+  view: {
+    library: "System.Text.Json",
+    type: "System.Text.Json.JsonSerializer",
+    memberAnchor: null,
+    memberKey: null,
+    section: "Methods",
+  },
+  workspace: {
+    tabs: [{
+      id: "stj",
+      kind: "group",
+      source: ":Platform",
+      version: "11.0.0",
+      framework: "net11.0",
+      runtimeIdentifier: null,
+    }],
+    contexts: [{ id: "demo", tabIds: ["stj"] }],
+    activeTabId: "stj",
+    selectedContextId: "demo",
+    view: {
+      lens: "api",
+      type: "System.Text.Json.JsonSerializer",
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: ["System.Text.Json"],
+      sourceView: null,
+      comparison: null,
+    },
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
+  },
+  restorationDefinitions: ["{\"kind\":\"scenario\"}"],
+};
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -172,6 +231,21 @@ function preparedPosting(
 }
 
 class ActivationClient implements RetainedWorkspaceActivationClient {
+  readonly projectRequests: Array<Parameters<
+    NonNullable<RetainedWorkspaceActivationClient["prepareProjectWorkspaceDefinition"]>
+  >> = [];
+
+  async prepareProjectWorkspaceDefinition(
+    ...args: Parameters<
+      NonNullable<RetainedWorkspaceActivationClient["prepareProjectWorkspaceDefinition"]>
+    >
+  ): Promise<BrowserProjectWorkspacePreparationResult> {
+    this.projectRequests.push(args);
+    return {
+      inspection: null,
+      preparation: await this.prepareRetainedWorkspaceDefinition(),
+    };
+  }
   readonly ecosystemRequests: Array<{
     retainedDefinitionId: string;
     label: string;
@@ -185,11 +259,18 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     packageId: string;
     version: string;
   }> = [];
-  readonly homeDemoRequests: Array<{
+  readonly packetRequests: Array<{
+    retainedDefinitionId: string;
+    label: string;
+    canonicalLocation: string;
+    canonicalPacket: string;
+  }> = [];
+  readonly definitionRecordRequests: Array<{
     retainedDefinitionId: string;
     label: string;
     canonicalLocation: string;
     scenarioId: string;
+    definitionRecords: ReadonlyArray<string>;
   }> = [];
   readonly packageSourceCredentialPayloads: Array<
     Readonly<Record<string, BrowserRetainedWorkspacePackageSourceCredential>>
@@ -249,8 +330,24 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
   >();
   readonly lifecycle: string[] = [];
 
-  prepareRetainedWorkspaceDefinition():
+  prepareRetainedWorkspaceDefinition(
+    retainedDefinitionId?: string,
+    label?: string,
+    canonicalLocation?: string,
+    canonicalPacket?: string,
+  ):
   Promise<BrowserRetainedWorkspacePreparationResult> {
+    if (retainedDefinitionId !== undefined
+      && label !== undefined
+      && canonicalLocation !== undefined
+      && canonicalPacket !== undefined) {
+      this.packetRequests.push({
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        canonicalPacket,
+      });
+    }
     let resolve!: (value: BrowserRetainedWorkspaceActivationResult) => void;
     const promise =
       new Promise<BrowserRetainedWorkspaceActivationResult>(accept => {
@@ -322,6 +419,23 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     return this.prepareRetainedWorkspaceDefinition();
   }
 
+  prepareRetainedWorkspaceDefinitionFromRecords(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    scenarioId: string,
+    definitionRecords: ReadonlyArray<string>,
+  ): Promise<BrowserRetainedWorkspacePreparationResult> {
+    this.definitionRecordRequests.push({
+      retainedDefinitionId,
+      label,
+      canonicalLocation,
+      scenarioId,
+      definitionRecords,
+    });
+    return this.prepareRetainedWorkspaceDefinition();
+  }
+
   prepareEcosystemWorkspaceDefinition(
     retainedDefinitionId: string,
     label: string,
@@ -333,21 +447,6 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
       label,
       canonicalLocation,
       ecosystemId,
-    });
-    return this.prepareRetainedWorkspaceDefinition();
-  }
-
-  prepareHomeDemoWorkspaceDefinition(
-    retainedDefinitionId: string,
-    label: string,
-    canonicalLocation: string,
-    scenarioId: string,
-  ): Promise<BrowserRetainedWorkspacePreparationResult> {
-    this.homeDemoRequests.push({
-      retainedDefinitionId,
-      label,
-      canonicalLocation,
-      scenarioId,
     });
     return this.prepareRetainedWorkspaceDefinition();
   }
@@ -537,6 +636,38 @@ function createFixture(
   };
 }
 
+test("Project reactivation resubmits supplied evidence through the same cutover lifecycle", async () => {
+  const fixture = createFixture();
+  const source = {
+    label: "Local Project", canonicalLocation: "/",
+    project: {
+      kind: "authoredProject" as const,
+      declaredName: "Example.csproj",
+      content: [60, 80, 114, 111, 106, 101, 99, 116, 47, 62],
+    },
+  };
+  const first = fixture.controller.retain(source);
+  const second = fixture.controller.retain(source);
+  assert.notEqual(first.id, second.id);
+  const activate = async (id: string, index: number) => {
+    const operation = fixture.controller.activate(id);
+    fixture.client.activations[index - 1]!.resolve({
+      status: "activated", posting: posting(id, `realization-${index}`), failure: null,
+    });
+    await operation;
+  };
+  await activate(first.id, 1);
+  await activate(second.id, 2);
+  await activate(first.id, 3);
+  assert.deepEqual(fixture.client.projectRequests.map(request => request[0]),
+    [first.id, second.id, first.id]);
+  assert.deepEqual(fixture.client.projectRequests.map(request => request[5]),
+    [source.project.content, source.project.content, source.project.content]);
+  assert.equal(fixture.client.packetRequests.length, 0);
+  assert.equal(fixture.controller.state.activeDefinitionId, first.id);
+  assert.equal(fixture.client.activationCompletions.length, 3);
+});
+
 test("posting records and acknowledges exact authority in order", async () => {
   const fixture = createFixture();
   const definition = fixture.controller.retain({
@@ -622,14 +753,12 @@ test("Ecosystem definitions use their owner-issued preparation path", async () =
   }]);
 });
 
-test("product home demo definitions use their owner-issued preparation path", async () => {
+test("product home demo contents use serialized definition records", async () => {
   const fixture = createFixture();
   const definition = fixture.controller.retain({
     label: "System.Text.Json",
-    canonicalLocation: "/demos?demo=product.stj.serializer",
-    homeDemo: {
-      id: "product.stj.serializer",
-    },
+    canonicalLocation: "/?w=demo-view#workspace",
+    homeDemo: resolvedHomeDemo,
   });
 
   const activation = fixture.controller.activate(definition.id);
@@ -640,11 +769,12 @@ test("product home demo definitions use their owner-issued preparation path", as
   });
   await activation;
 
-  assert.deepEqual(fixture.client.homeDemoRequests, [{
+  assert.deepEqual(fixture.client.definitionRecordRequests, [{
     retainedDefinitionId: definition.id,
     label: "System.Text.Json",
-    canonicalLocation: "/demos?demo=product.stj.serializer",
+    canonicalLocation: "/?w=demo-view#workspace",
     scenarioId: "product.stj.serializer",
+    definitionRecords: resolvedHomeDemo.restorationDefinitions,
   }]);
 });
 
@@ -783,35 +913,6 @@ test("activation passes endpoint credentials without retaining them in controlle
     ],
   );
   assert.doesNotMatch(JSON.stringify(fixture.controller.state), /session-only-secret/);
-});
-
-test("product home demo activation rejects endpoint credentials", async () => {
-  const fixture = createFixture();
-  const definition = fixture.controller.retain({
-    label: "System.Text.Json",
-    canonicalLocation: "/demos?demo=product.stj.serializer",
-    homeDemo: {
-      id: "product.stj.serializer",
-    },
-  });
-
-  await assert.rejects(
-    fixture.controller.activate(
-      definition.id,
-      undefined,
-      undefined,
-      undefined,
-      {
-        "https://nuget.pkg.github.com/example/index.json": {
-          username: "example-user",
-          pat: "session-only-secret",
-        },
-      },
-    ),
-    /Product home demo Workspace definitions do not accept credential bindings/,
-  );
-  assert.deepEqual(fixture.client.homeDemoRequests, []);
-  assert.deepEqual(fixture.client.activations, []);
 });
 
 test("consumer rejection cancels before cutover", async () => {

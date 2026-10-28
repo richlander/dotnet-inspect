@@ -205,7 +205,28 @@ internal static class ApiSourceResolver
                 apiSource = SourceKind.NuGet;
                 apiVersion = packageVersion;
 
-                if (!string.IsNullOrEmpty(options.AssemblyPath))
+                if (options is TypeOptions { NamesakeLibrary: true })
+                {
+                    PackageCommand.PackageLibrarySelection? selection =
+                        PackageCommand.ResolvePackageLibrary(
+                            searchPath,
+                            packageName!,
+                            packageVersion!,
+                            extracted,
+                            new InspectionOptions
+                            {
+                                PackageLibrary = "",
+                                NamesakeLibrary = true,
+                                Tfm = options.Tfm,
+                            },
+                            retainedToolSelection: null);
+                    if (selection is null)
+                        return (null!, 1);
+
+                    searchPath = selection.Path;
+                    selectedTfm = selection.TargetFramework;
+                }
+                else if (!string.IsNullOrEmpty(options.AssemblyPath))
                 {
                     var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(searchPath, options.AssemblyPath, options.Tfm);
                     if (matchedAssembly == null)

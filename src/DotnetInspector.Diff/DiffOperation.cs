@@ -1,5 +1,6 @@
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using QuerySpace.Rows;
 using ILInspector.Analysis;
@@ -163,6 +164,26 @@ public static class DiffOperation
                     cancellationToken)
                 .ConfigureAwait(false);
         return new(inspection, recorder.ToEvidence());
+    }
+
+    /// <summary>
+    /// Runs a single-Library pair request over a host-opened Library pair
+    /// (diff-system.md#single-library-api-diff-terminal).
+    /// </summary>
+    /// <param name="reuse">
+    /// Lets a host return a previously completed comparison of the same
+    /// endpoint pair, view, and bounds instead of computing it.
+    /// </param>
+    public static InspectionEnvelope<DiffAnalysisDocument> ExecuteLibraryPair(
+        LibraryPairDiffRequest request,
+        DiffLibraryPair pair,
+        DiffPairContent content,
+        DiffComparisonReuse? reuse = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(pair);
+        ArgumentNullException.ThrowIfNull(content);
+        return LibraryPairDiffEngine.Execute(request, pair, content, reuse);
     }
 }
 

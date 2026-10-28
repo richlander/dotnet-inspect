@@ -446,7 +446,7 @@ public static class DiscoverOutput
             discover = remaining;
         }
 
-        DiscoveryDocumentFactory.Projection? resourceProjection =
+        StructuralDiscoveryProjection? resourceProjection =
             resourceCatalog is null
                 ? null
                 : DiscoveryDocumentFactory.CreateProjection(

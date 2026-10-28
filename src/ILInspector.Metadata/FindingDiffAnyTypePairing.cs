@@ -41,7 +41,7 @@ public readonly record struct FindingDiffAnyBodyRow(
 /// reference; compare <see cref="Facts"/> and <see cref="Bodies"/> as sequences.
 /// </summary>
 /// <param name="Api">The Library level's API state of the Type: <see cref="FindingDiffAnyState.Changed"/> exactly when an API fact is present on one side only.</param>
-/// <param name="Body">The Library level's Body state of the Type: <see cref="FindingDiffAnyState.Changed"/> when a Body fact is present on one side only, otherwise the state of the first paired method, in the Body census's method order, whose body is not <see cref="FindingDiffAnyState.Unchanged"/>, which is where the Library level stops.</param>
+/// <param name="Body">The Library level's Body state of the Type: <see cref="FindingDiffAnyState.Changed"/> when a Body fact, or a method with a body, is present on one side only, otherwise the state of the first paired method, in the Body census's method order, whose body is not <see cref="FindingDiffAnyState.Unchanged"/>, which is where the Library level stops.</param>
 /// <param name="Facts">Every census fact present on one side only, API facts first, each axis ordered by spelling and then side, an order that does not depend on the pairing's interning table.</param>
 /// <param name="Bodies">Every method paired by the Body census, in its method order, with its Body state through the body reader; a method present on one side only is a fact, not a body row.</param>
 /// <param name="ApiFactsBefore">The API census size on the before side; with the other three counts, the closed inventory the rows were read from.</param>
@@ -66,7 +66,7 @@ public sealed record FindingDiffAnyTypeInventory(
 /// form is the Type level's (<c>docs/design/finding-diff-any.md#type</c>),
 /// which folds these rows into Member states under its ownership rules.
 /// </summary>
-public sealed class FindingDiffAnyTypePairing
+public sealed partial class FindingDiffAnyTypePairing
 {
     readonly FindingDiffAny.Side _a;
     readonly FindingDiffAny.Side _b;
@@ -114,6 +114,9 @@ public sealed class FindingDiffAnyTypePairing
     /// a name no paired Type has.
     /// </summary>
     public FindingDiffAnyTypeInventory Inventory(string fullName)
+        => Read(fullName, null);
+
+    FindingDiffAnyTypeInventory Read(string fullName, MemberFold? fold)
     {
         ArgumentNullException.ThrowIfNull(fullName);
         if (_released)
@@ -124,19 +127,22 @@ public sealed class FindingDiffAnyTypePairing
         if (unitA.Malformed || unitB.Malformed || _ambiguous.Contains(fullName))
             return Indeterminate(fullName);
 
-        var facts = ImmutableArray.CreateBuilder<FindingDiffAnyFactRow>();
-        var bodies = ImmutableArray.CreateBuilder<FindingDiffAnyBodyRow>();
+        var facts = fold is null ? ImmutableArray.CreateBuilder<FindingDiffAnyFactRow>() : null;
+        var bodies = fold is null ? ImmutableArray.CreateBuilder<FindingDiffAnyBodyRow>() : null;
         FindingDiffAnyState api = FindingDiffAnyState.Indeterminate;
         FindingDiffAnyState body = FindingDiffAnyState.Indeterminate;
         int apiBefore = 0, apiAfter = 0, bodyBefore = 0, bodyAfter = 0;
         try
         {
+            fold?.Initialize(unitA, unitB);
             List<SymbolKeySlot> apiCensusA = _a.ApiCensus(unitA);
             List<SymbolKeySlot> apiCensusB = _b.ApiCensus(unitB);
             apiBefore = apiCensusA.Count;
             apiAfter = apiCensusB.Count;
-            Differences(apiCensusA, apiCensusB, FindingDiffAnyAxis.Api, facts);
-            api = facts.Count == 0 ? FindingDiffAnyState.Unchanged : FindingDiffAnyState.Changed;
+            int apiDifferences = Differences(apiCensusA, apiCensusB, FindingDiffAnyAxis.Api, facts, fold);
+            api = apiDifferences == 0 ? FindingDiffAnyState.Unchanged : FindingDiffAnyState.Changed;
+
+            fold?.CompleteApi();
 
             // A Type visible on either side partitions its facts as visible on
             // both, as the Library level does.
@@ -145,9 +151,13 @@ public sealed class FindingDiffAnyTypePairing
             List<SymbolKeySlot> bodyCensusB = _b.BodyCensus(unitB, ownerVisible, out Dictionary<KeyRef, MethodDefinitionHandle> methodsB);
             bodyBefore = bodyCensusA.Count;
             bodyAfter = bodyCensusB.Count;
-            int apiFacts = facts.Count;
-            Differences(bodyCensusA, bodyCensusB, FindingDiffAnyAxis.Body, facts);
-            bool bodyFactsDiffer = facts.Count > apiFacts;
+            int bodyDifferences = Differences(bodyCensusA, bodyCensusB, FindingDiffAnyAxis.Body, facts, fold);
+            bool bodyFactsDiffer = bodyDifferences > 0
+                || FindingDiffAny.OneSidedBody(_a, methodsA, methodsB) is not null
+                || FindingDiffAny.OneSidedBody(_b, methodsB, methodsA) is not null;
+
+            fold?.OneSidedBodies(methodsA, methodsB);
+            fold?.CompleteBodyCensus();
 
             // Every paired method is read, in the order the Body census lists
             // them, where the Library level stops at the first difference; the
@@ -171,7 +181,8 @@ public sealed class FindingDiffAnyTypePairing
                     _b.Abandon();
                     state = FindingDiffAnyState.Indeterminate;
                 }
-                bodies.Add(new FindingDiffAnyBodyRow(methodA, methodB, state));
+                bodies?.Add(new FindingDiffAnyBodyRow(methodA, methodB, state));
+                fold?.Body(methodA, methodB, state);
                 if (state != FindingDiffAnyState.Unchanged)
                     first ??= state;
             }
@@ -189,7 +200,7 @@ public sealed class FindingDiffAnyTypePairing
             _b.EndUnit();
         }
         return new FindingDiffAnyTypeInventory(
-            fullName, api, body, facts.ToImmutable(), bodies.ToImmutable(), apiBefore, apiAfter, bodyBefore, bodyAfter);
+            fullName, api, body, facts?.ToImmutable() ?? [], bodies?.ToImmutable() ?? [], apiBefore, apiAfter, bodyBefore, bodyAfter);
     }
 
     /// <summary>Releases the sides' key storage; no further inventory can be read.</summary>
@@ -217,18 +228,20 @@ public sealed class FindingDiffAnyTypePairing
     // Both censuses are sorted by key bytes, the order the staged keys compare
     // in, so one merge over the two finds every fact present on one side only
     // without resolving a key that has a match.
-    void Differences(
+    int Differences(
         List<SymbolKeySlot> censusA,
         List<SymbolKeySlot> censusB,
         FindingDiffAnyAxis axis,
-        ImmutableArray<FindingDiffAnyFactRow>.Builder rows)
+        ImmutableArray<FindingDiffAnyFactRow>.Builder? rows,
+        MemberFold? fold)
     {
-        int start = rows.Count;
-        Merge(censusA, censusB, axis, rows);
+        int start = rows?.Count ?? 0;
+        int differences = Merge(censusA, censusB, axis, rows, fold);
         // The censuses sort by key bytes, which carry the table's ids, so the
         // merge yields rows in a table-dependent order; the rows are reported
         // in the order of their table-free spelling.
-        rows.Sort(start, rows.Count - start, FactRowOrder.Instance);
+        rows?.Sort(start, differences, FactRowOrder.Instance);
+        return differences;
     }
 
     sealed class FactRowOrder : IComparer<FindingDiffAnyFactRow>
@@ -242,14 +255,16 @@ public sealed class FindingDiffAnyTypePairing
         }
     }
 
-    void Merge(
+    int Merge(
         List<SymbolKeySlot> censusA,
         List<SymbolKeySlot> censusB,
         FindingDiffAnyAxis axis,
-        ImmutableArray<FindingDiffAnyFactRow>.Builder rows)
+        ImmutableArray<FindingDiffAnyFactRow>.Builder? rows,
+        MemberFold? fold)
     {
         int i = 0;
         int j = 0;
+        int differences = 0;
         while (i < censusA.Count && j < censusB.Count)
         {
             StagedSymbolKey<FindingDiffAnyPart> x = _a.Transient.Resolve(censusA[i]);
@@ -263,19 +278,27 @@ public sealed class FindingDiffAnyTypePairing
             }
             if (order < 0)
             {
-                rows.Add(new FindingDiffAnyFactRow(axis, FindingDiffAnySide.Before, Spell(x)));
+                Add(x, FindingDiffAnySide.Before);
                 i++;
             }
             else
             {
-                rows.Add(new FindingDiffAnyFactRow(axis, FindingDiffAnySide.After, Spell(y)));
+                Add(y, FindingDiffAnySide.After);
                 j++;
             }
         }
         for (; i < censusA.Count; i++)
-            rows.Add(new FindingDiffAnyFactRow(axis, FindingDiffAnySide.Before, Spell(_a.Transient.Resolve(censusA[i]))));
+            Add(_a.Transient.Resolve(censusA[i]), FindingDiffAnySide.Before);
         for (; j < censusB.Count; j++)
-            rows.Add(new FindingDiffAnyFactRow(axis, FindingDiffAnySide.After, Spell(_b.Transient.Resolve(censusB[j]))));
+            Add(_b.Transient.Resolve(censusB[j]), FindingDiffAnySide.After);
+        return differences;
+
+        void Add(StagedSymbolKey<FindingDiffAnyPart> fact, FindingDiffAnySide side)
+        {
+            differences++;
+            rows?.Add(new FindingDiffAnyFactRow(axis, side, Spell(fact)));
+            fold?.Fact(fact.Detach(), side, axis);
+        }
     }
 
     // The fact's expansion through the shared table, staged after the census

@@ -662,6 +662,43 @@ public static partial class PackageExports
     }
 
     /// <summary>
+    /// Returns the shared direct-reference inspection for one exact admitted
+    /// Library in the retained Browser Workspace.
+    /// </summary>
+    public static Task<string> QueryLibraryReferences(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId) =>
+        QueryLibraryReferences(
+            packageId,
+            version,
+            targetFramework,
+            assemblyId,
+            runtimeIdentifier: null);
+
+    [JSExport]
+    public static async Task<string> QueryLibraryReferences(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId,
+        string? runtimeIdentifier)
+    {
+        InspectionEnvelope<LibraryReferenceInspectionOutcome> envelope =
+            await LibraryReferencesAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyId,
+                runtimeIdentifier);
+        return JsonSerializer.Serialize(
+            envelope,
+            BrowserPackageJsonContext.Default
+                .InspectionEnvelopeLibraryReferenceInspectionOutcome);
+    }
+
+    /// <summary>
     /// Qualifies the current package surface population by direct AssemblyRef
     /// simple names through the shared Library Query envelope.
     /// </summary>
@@ -1029,6 +1066,38 @@ public static partial class PackageExports
                 dependencyGroupError,
                 platformReferences.Error,
                 compileLibrary);
+    }
+
+    private static async Task<
+        InspectionEnvelope<LibraryReferenceInspectionOutcome>>
+        LibraryReferencesAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId,
+        string? runtimeIdentifier)
+    {
+        BrowserPackageCoordinate realizedCoordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier);
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [realizedCoordinate],
+                CancellationToken.None);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserPackageCoordinate coordinate =
+            scope.Coordinate(realizedCoordinate);
+        PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
+        BrowserWorkspaceParticipant participant =
+            scope.SurfaceParticipant(coordinate, asset);
+        AssemblyContextEntry<ImmutableArray<AssemblyReferenceRow>> result =
+            scope.UseSurfaceParticipant(
+                participant,
+                AssemblyContextReferencesQuery.ExecuteParticipantRows);
+        return LibraryReferenceInspection.Execute(result);
     }
 
     internal static async Task<PackageDependencyEvidenceRoot>

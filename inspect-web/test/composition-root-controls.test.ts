@@ -69,10 +69,11 @@ import {
 } from "./composition-root-test-fixture.ts";
 
 setTypeViewFacetCatalog([
-  { id: "type.api", kind: "Type", title: "API", order: 100 },
-  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
-  { id: "type.source", kind: "Type", title: "Source", order: 300 },
-  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+  { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
+  { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
+  { id: "type.source", kind: "Type", title: "Source", order: 400 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
 ]);
 
 test("qualified Type leverage exposes a cache-bypassing retry", () => {
@@ -88,7 +89,7 @@ test("qualified Type leverage exposes a cache-bypassing retry", () => {
   );
 });
 
-test("ordinary Type lists request and present exhaustive structural salience", () => {
+test("Type Members requests and presents exhaustive structural salience", () => {
   const renderer = sourceText(
     functionDeclaration("renderPackageLibraryMetrics"),
   );
@@ -102,7 +103,7 @@ test("ordinary Type lists request and present exhaustive structural salience", (
 
   assert.match(
     typeAutoLoad,
-    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*createCurrentTypeLeverageTargets\(\)[\s\S]*typeLeverage\.presentation\(target\.key\) === null[\s\S]*!typeLeverage\.pending\(target\.key\)[\s\S]*loadTypeLeverage\(\)/,
+    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*state\.lens !== "api"[\s\S]*createCurrentTypeLeverageTargets\(\)[\s\S]*typeLeverage\.presentation\(target\.key\) === null[\s\S]*!typeLeverage\.pending\(target\.key\)[\s\S]*loadTypeLeverage\(\)/,
   );
   assert.match(
     typePresentation,
@@ -134,10 +135,10 @@ test("shared HTML escaping covers text and attribute delimiters", () => {
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
-    ["api", "source"]);
+    ["overview", "api", "source"]);
   assert.deepEqual(
     typeLensesFor({ source: { kind: "file" } }).map(([id]) => id),
-    ["api"]);
+    ["overview", "api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
     ["overview", "call-graph", "facts", "resource-triage", "source"]);
@@ -1663,7 +1664,7 @@ test("typed scope bar owns its rendered control bindings", () => {
       'assign:state.selectedMemberKey = ""',
       'assign:state.memberBrowseTypeId = ""',
       "call:render()",
-      "call:loadCurrentTypeApiData()",
+      "call:loadCurrentTypeLensData()",
     ]);
   assert.match(
     scopeBarSource,

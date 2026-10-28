@@ -1022,7 +1022,9 @@ public static class MethodDefinitionSourceRequestSet
             // A shared traversal carries no declared-source relation, so a
             // request that declares one keeps its own lane.
             if (first.Breadth.Kind
-                    != MethodDefinitionSourceBreadthKind.AllDefinitions
+                    is not (
+                        MethodDefinitionSourceBreadthKind.AllDefinitions
+                        or MethodDefinitionSourceBreadthKind.ExactMethods)
                 || first.Breadth.Expansion
                     != MethodDefinitionSourceExpansion.None
                 || !SameBreadth(first.Breadth, request.Breadth)
@@ -1626,14 +1628,6 @@ internal static class MethodQuerySource
             }
             else
             {
-                if (group.Breadth.Kind
-                    != MethodDefinitionSourceBreadthKind.AllDefinitions)
-                {
-                    throw new ProducerContractException(
-                        "Shared Method-source groups currently require "
-                        + "all-definition breadth.");
-                }
-
                 MethodDefinitionSharedExecution shared =
                     MethodDefinitionExecution.ExecuteShared(
                         group.Lanes
@@ -1643,6 +1637,7 @@ internal static class MethodQuerySource
                             .Select(static lane =>
                                 lane.TerminalWorkLimits)
                             .ToArray(),
+                        group.Breadth,
                         group.InstructionPlan,
                         sourceName,
                         peReader,
@@ -1876,6 +1871,13 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     public void RecordTerminalBodyAcquired(
         MethodDefinitionHandle handle,
         MethodBodyBlock body)
+        => RecordTerminalBodyAcquired(
+            handle,
+            body.GetILReader().Length);
+
+    public void RecordTerminalBodyAcquired(
+        MethodDefinitionHandle handle,
+        int encodedIlBytes)
     {
         if (!_enabled)
             return;
@@ -1883,7 +1885,7 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
         _bodiesAcquired.Add(handle);
         TerminalWork.Admit(
             handle,
-            body.GetILReader().Length);
+            encodedIlBytes);
     }
 
     public void RecordModuleLookupUsed(MethodDefinitionHandle handle)

@@ -1151,29 +1151,6 @@ public static class StructuralViewRegistry
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// The resource-path catalog segment for a structural catalog, as in
-    /// <c>library/sections/...</c> or <c>package/sections/...</c>. The three
-    /// member catalogs keep the names the contextual member explanation
-    /// already publishes, so <c>member-detail/sections/source</c> names the
-    /// exact-member Source and never collides with the single-type catalog.
-    /// </summary>
-    internal static string CatalogPathName(InspectionCatalogIdentity catalog) =>
-        catalog switch
-        {
-            InspectionCatalogIdentity.Package => "package",
-            InspectionCatalogIdentity.Library
-                or InspectionCatalogIdentity.LibraryAggregate => "library",
-            InspectionCatalogIdentity.ApiType => "type",
-            InspectionCatalogIdentity.ApiMember => "member",
-            InspectionCatalogIdentity.ApiMemberOverload => "member-overload",
-            InspectionCatalogIdentity.ApiMemberDetail => "member-detail",
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(catalog),
-                catalog,
-                "Unknown structural catalog."),
-        };
-
     public static int Execute(
         StructuralRoute route,
         StructuralDiscoveryRequest request,
@@ -1244,9 +1221,9 @@ public static class StructuralViewRegistry
             if (DetailedDiscoverOutput.Validate(detailedRequest) != 0)
                 return 1;
 
-            DiscoveryDocumentFactory.Projection? detailedProjection =
+            StructuralDiscoveryProjection? detailedProjection =
                 DiscoveryDocumentFactory.CreateProjection(
-                    CatalogPathName(route.Catalog),
+                    StructuralCatalogPaths.Name(route.Catalog),
                     request.Discover,
                     schema,
                     projection.SectionCategories,
@@ -1297,12 +1274,12 @@ public static class StructuralViewRegistry
             || request.SelectDefault)
             schema = FilterSchema(schema, selectedSections);
 
-        DiscoveryDocumentFactory.Projection? discoveryProjection = null;
+        StructuralDiscoveryProjection? discoveryProjection = null;
         if (projection.OutputCapabilities is not null)
         {
             discoveryProjection =
                 DiscoveryDocumentFactory.CreateProjection(
-                CatalogPathName(route.Catalog),
+                StructuralCatalogPaths.Name(route.Catalog),
                 request.Discover,
                 schema,
                 projection.SectionCategories,

@@ -250,7 +250,22 @@ without a suggestion.
 Sectioned views such as `-S "Library Info"` keep the multi-Library aggregate.
 Package-scoped Type lookup is also aggregate by default: it searches every
 Library in the selected Package population. Its supported exact `--library`
-source narrows that lookup to one Library. Inspect Web's First Library entry
+source narrows that lookup to one Library. On `type`, `--namesake-library`
+also narrows lookup to the unique Library whose assembly name matches the
+Package ID:
+
+```bash
+dotnet-inspect type Microsoft.Azure.SignalR.ServiceRouteBuilder \
+  --package Microsoft.Azure.SignalR@1.33.1 --namesake-library
+```
+
+This requires an explicit `--package` name/version or local package file and
+one target framework, not `--tfm all`. It cannot be combined with `--library`,
+another source, `--workspace`, or `--match`. Exact Package references retain
+their explicit `--library <dll>` narrowing. A missing or ambiguous namesake
+fails without searching sibling Libraries.
+
+Inspect Web's First Library entry
 recommendation is a browser navigation default and does not change this CLI
 scope.
 Any other option, including `-S`, `-v:n`, `-v:d`, and every format option,
@@ -761,6 +776,17 @@ commands other than plain `-D` discovery may acquire packages and PDBs to
 answer the request. The
 [network policy](design/progressive-disclosure.md#network-policy) owns this
 rule and its adoption status.
+
+Detailed verbosity does not request authored-source documentation for package
+Type or Member inspection. Implicit documentation remains compiled XML. For
+an exact Member's authored XML comment, use `--print --part xml-docs`; see
+[the documentation adoption boundary](design/documentation-house.md#shared-package-adoption-boundary).
+
+For Library audit, `-v:d` alone does not request acquisition of a missing PDB.
+Select a PDB-dependent audit section, such as `-S Symbols` or `-S Signals`,
+for that request. Normal and Detailed retain embedded, adjacent, and cached
+PDB reads. Independently selected queries keep their own requirements; see
+[Library audit PDB requests](design/progressive-disclosure.md#library-audit-pdb-requests).
 
 `--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
@@ -1407,6 +1433,15 @@ and Find does not modify the packet. General Workspace content search remains
 staged under [Find Workspace scope](design/find-workspace-scope.md#workspace-packet-admission).
 The same Ecosystem output, row limits, Count and prefix-search rules below apply.
 
+Debug builds expose `--evidence-envelope <path>` for `--ecosystem` and these
+registration-only Workspaces. The sidecar contains the completed inspection
+envelope plus the normalized question, resolved scope, admitted indexes,
+phase work, live candidate allowance and consumption, stop reason, and remaining
+coverage. Ordinary output is unchanged. Legacy acquisition-receipt
+unavailability is explicit, not zero network activity. Discovery and other
+Find routes refuse the gesture; explicit `--package-prefix` refuses it before
+its parse-time package expansion. Release builds do not expose this option.
+
 TSV and JSONL search admitted Ecosystem indexes first. When indexed rows fill
 the window, they do not realize bounded platform/core sources or start live
 prefix work. After index exhaustion, they search named populations and then
@@ -1586,6 +1621,25 @@ in this format-5 example also supports Browser activation. Row controls retain
 ordinary Type semantics, including the JSON-document refusal for rendered-line
 limits. Count is a replay presentation choice; save the unfiltered Type view
 before requesting it.
+
+Query-free saved Member Overview (`member.overview`) views also replay:
+
+```bash
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize:1 \
+  --workspace "$environment" --share packet \
+  > member-content.md 2> member-share.txt
+saved_member=$(tail -n 1 member-share.txt)
+dotnet-inspect "$saved_member"               # Ordinary exact Member document
+dotnet-inspect -w "$saved_member" --json      # Ordinary Member JSON
+```
+
+The readable [Member packet](examples/workspace-member-replay.json) retains the
+exact Library, declaring Type and overload digest. Its default and explicit
+formats reuse ordinary Member output, including local XML documentation. Row
+and header controls retain ordinary Member semantics. `--count` requires a
+section selection on an ordinary Member command; saved Member overview
+activation reports the same diagnostic before restoration. Additional section
+selection cannot be supplied to root activation.
 
 Other saved inspection facets and attached queries fail explicitly before
 acquisition; their individual CLI bindings remain tracked in #4647.
@@ -1928,6 +1982,15 @@ complete text. A fact row is not
 an inventory, so `--count` and `--rows` stay rejected. Composed Markdown
 still shows each Text's body, so `-S "Decompiled Source,IL"` reads side by
 side.
+
+For an exact Member, detailed verbosity can include Decompiled Source and
+other detail sections, but does not request their standalone PDB enrichment.
+Select the section explicitly (for example, `-S "Decompiled Source"`) or
+through its category to retain that request. Explicit `Source`, `PDB Source`,
+and `Source Diff`, and the separate Source Locations operation keep their
+existing symbol and source policies. A typed `--where "Kind=..."` query also
+retains its existing Body Shapes selection and PDB request without requiring
+a redundant `-S` option.
 
 `Source` is the Text whose rows are its exact lines, per
 [Source document cardinality](design/source-document-cardinality.md):
@@ -2300,11 +2363,21 @@ libraries, and local DLL pairs. `--type` narrows the complete comparison;
 `--all` widens its API scope. The endpoints must be versions of the same
 logical Library (assembly name, culture, and public-key token).
 
-On this route, unprojected `--json` serializes the complete
-`LibraryApiDiffOutcome`, replacing the former `{changes: ...}` presentation
-view. Use `--envelope` for that same Content plus Share and diagnostics;
-`--compact` controls whitespace for either complete JSON boundary, not projected
-or other Diff operations. For example:
+On this route the default is row-only TSV with one row per changed Type.
+Explicit `-S Changes` selects detailed change rows instead. TSV, table, JSONL,
+and name-only output demand typed Table content without Document summaries or
+context rows. Explicit Markdown retains the contextual Document.
+
+Every `--json` request now serializes a typed Document outcome, including
+filtered requests and `-S Changes --json`; the old display-oriented
+`{changes: ...}` projection is retired on this route. `document.rows` contains
+the selected ordered rows, `document.summary` contains native numeric counts
+for the selected population before `--rows`, and endpoint context identifies
+the comparison. Documents do not repeat the complete comparison tree or a
+second unselected population. Use `--all` to include protected and hidden
+changes in either Table or Document output. Use `--envelope` for that same Content plus
+Share and diagnostics (CLI envelope schema 2). `--compact` controls JSON
+whitespace. For example:
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --envelope --compact
@@ -2312,8 +2385,8 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --enve
 
 Envelope output accepts `--all`, but rejects Type/classification filters,
 section selection, explicit verbosity, row/line windows, and non-API modes.
-Explicitly projected JSON, such as `-S Changes --json`, retains its existing
-presentation schema. Share is explicitly non-projectable for comparison
+Tree is unsupported; structured JSON rejects column/field projections and
+rendered-line clipping. Share is explicitly non-projectable for comparison
 endpoints; it is not a replay URL.
 
 The exact local-Library Implementation Diff route also exposes complete typed

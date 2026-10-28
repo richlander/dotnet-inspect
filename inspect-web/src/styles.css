@@ -1922,6 +1922,16 @@ kbd {
 .overview-scroll .doc-chip,
 .overview-scroll .type-chip { max-width: 100%; white-space: normal; text-align: left; }
 .overview-scroll .doc-name { min-width: 0; }
+.subject-overview-summary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 18px 28px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.metadata-surface-scroll > .subject-overview-summary { padding-inline: 16px; }
+.subject-overview-summary-group { display: grid; gap: 7px; }
+.subject-overview-summary-label { color: var(--dim); font: 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.subject-overview-summary-group ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.subject-overview-summary-group li,
+.type-overview-navigation button { min-height: 28px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--chrome); color: var(--text); font: 600 11px/1.4 var(--mono); }
+.type-overview-navigation button { cursor: pointer; }
+.type-overview-navigation button:hover { border-color: var(--accent); color: var(--accent); }
+.type-overview-navigation button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .package-overview-content {
   min-width: 0;
   display: grid;
@@ -2675,22 +2685,22 @@ kbd {
 .source-result pre { min-width: 0; min-height: 0; max-width: 100%; margin: 0; padding: 18px; overflow: auto; border: 0; background: var(--code-bg); }
 .source-result pre code { color: var(--code-text); font: 14px/1.65 var(--mono); }
 .source-result .source-shared-indentation { font-size: 0; }
-:is(.source-result, .triage-code) .token.comment { color: #6f7669; font-style: italic; }
-:is(.source-result, .triage-code) .token.keyword { color: #d98a70; }
-:is(.source-result, .triage-code) .token.class-name,
-:is(.source-result, .triage-code) .token.return-type,
-:is(.source-result, .triage-code) .token.type-expression { color: #84b1c7; }
-:is(.source-result, .triage-code) .token.string,
-:is(.source-result, .triage-code) .token.char,
-:is(.source-result, .triage-code) .token.interpolation-string { color: #a9bd82; }
-:is(.source-result, .triage-code) .token.number,
-:is(.source-result, .triage-code) .token.boolean { color: #d3a76b; }
-:is(.source-result, .triage-code) .token.function { color: #d7c477; }
-:is(.source-result, .triage-code) .token.operator,
-:is(.source-result, .triage-code) .token.punctuation { color: #94978e; }
-:is(.source-result, .triage-code) .token.attribute,
-:is(.source-result, .triage-code) .token.namespace { color: #b89ac6; }
-:is(.source-result, .triage-code) .token.preprocessor { color: #a48ad0; }
+:is(.source-result, .triage-code, .custom-attribute-list) .token.comment { color: #6f7669; font-style: italic; }
+:is(.source-result, .triage-code, .custom-attribute-list) .token.keyword { color: #d98a70; }
+:is(.source-result, .triage-code, .custom-attribute-list) .token.class-name,
+:is(.source-result, .triage-code, .custom-attribute-list) .token.return-type,
+:is(.source-result, .triage-code, .custom-attribute-list) .token.type-expression { color: #84b1c7; }
+:is(.source-result, .triage-code, .custom-attribute-list) .token.string,
+:is(.source-result, .triage-code, .custom-attribute-list) .token.char,
+:is(.source-result, .triage-code, .custom-attribute-list) .token.interpolation-string { color: #a9bd82; }
+:is(.source-result, .triage-code, .custom-attribute-list) .token.number,
+:is(.source-result, .triage-code, .custom-attribute-list) .token.boolean { color: #d3a76b; }
+:is(.source-result, .triage-code, .custom-attribute-list) .token.function { color: #d7c477; }
+:is(.source-result, .triage-code, .custom-attribute-list) .token.operator,
+:is(.source-result, .triage-code, .custom-attribute-list) .token.punctuation { color: #94978e; }
+:is(.source-result, .triage-code, .custom-attribute-list) .token.attribute,
+:is(.source-result, .triage-code, .custom-attribute-list) .token.namespace { color: #b89ac6; }
+:is(.source-result, .triage-code, .custom-attribute-list) .token.preprocessor { color: #a48ad0; }
 .kw { color: var(--syntax-kw); }
 .primitive { color: var(--blue); }
 
@@ -2985,6 +2995,9 @@ kbd {
 .type-chip-list .type-chip.is-static { border-style: dashed; border-color: var(--line); color: var(--dim); cursor: help; }
 .type-chip-list .type-chip.is-static:hover { border-color: var(--line); color: var(--dim); }
 .type-chip-list .attr-chip { font: 12px var(--mono); padding: 4px 8px; color: var(--dim); }
+.custom-attribute-list { list-style: none; margin: 0; padding: 0; }
+.custom-attribute-list > li { padding: 10px 12px; border-top: 1px solid var(--line); }
+.custom-attribute-list code { display: block; color: var(--code-text); font: 13px/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .metadata-warning { padding: 14px 12px; border-top: 1px solid var(--line); background: color-mix(in srgb, #d97757 8%, var(--panel)); }
 .metadata-warning strong { display: block; color: #d97757; font-size: 13px; margin-bottom: 6px; }
 .metadata-warning ul { margin: 0; padding-left: 18px; }
@@ -5300,22 +5313,22 @@ kbd {
 :root[data-theme="light"] .signature-code .token.named-parameter { color: #3c4138; }
 :root[data-theme="light"] .signature-code .token.punctuation { color: #6b7065; }
 
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.comment { color: #6a7268; }
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.keyword { color: #b04a2c; }
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.class-name,
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.return-type,
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.type-expression { color: #245f86; }
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.string,
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.char,
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.interpolation-string { color: #397044; }
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.number,
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.boolean { color: #8a5a12; }
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.function { color: #8a650d; }
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.operator,
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.punctuation { color: #6b7065; }
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.attribute,
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.namespace { color: #6c4d91; }
-:root[data-theme="light"] :is(.source-result, .triage-code) .token.preprocessor { color: #6c4d91; }
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.comment { color: #6a7268; }
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.keyword { color: #b04a2c; }
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.class-name,
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.return-type,
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.type-expression { color: #245f86; }
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.string,
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.char,
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.interpolation-string { color: #397044; }
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.number,
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.boolean { color: #8a5a12; }
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.function { color: #8a650d; }
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.operator,
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.punctuation { color: #6b7065; }
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.attribute,
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.namespace { color: #6c4d91; }
+:root[data-theme="light"] :is(.source-result, .triage-code, .custom-attribute-list) .token.preprocessor { color: #6c4d91; }
 
 /* Annotated Source keeps the portable text selectable while Findings and source-node
    selection use explicit controls and non-underline treatments. */

@@ -359,7 +359,7 @@ public sealed class PackageAssetSelectorTests
     }
 
     [Fact]
-    public void Select_PrefersTheRuntimeSpecificAssetForTheRequestedRid()
+    public void Select_RuntimePopulationReplacesTheNeutralImplementationGroup()
     {
         PackageAssetSelection selection = Select(
             "net10.0",
@@ -372,13 +372,48 @@ public sealed class PackageAssetSelectorTests
         PackageAssetUniverse universe = Selected(selection);
         Assert.Equal("linux-x64", universe.RuntimeIdentifier);
         Assert.Equal(
-            ["lib/net10.0/Companion.dll", "runtimes/linux-x64/lib/net10.0/Sample.dll"],
+            ["runtimes/linux-x64/lib/net10.0/Sample.dll"],
             universe.Assets.Select(asset => asset.EntryPath));
         Assert.Equal(
             "linux-x64",
             universe.Assets
                 .Single(asset => asset.FileName == "Sample.dll")
                 .RuntimeIdentifier);
+    }
+
+    [Fact]
+    public void Select_CompatibleRuntimePopulationOutranksNewerNeutralGroup()
+    {
+        PackageAssetSelection selection = Select(
+            "net10.0",
+            "linux-x64",
+            "lib/net10.0/Sample.dll",
+            "lib/net10.0/Companion.dll",
+            "runtimes/linux-x64/lib/net8.0/Sample.dll");
+
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("net8.0", universe.TargetFramework);
+        Assert.Equal("linux-x64", universe.RuntimeIdentifier);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net8.0/Sample.dll",
+            Assert.Single(universe.Assets).EntryPath);
+    }
+
+    [Fact]
+    public void Select_IncompatibleRuntimePopulationFallsBackToNeutralGroup()
+    {
+        PackageAssetSelection selection = Select(
+            "net8.0",
+            "linux-x64",
+            "lib/net8.0/Sample.dll",
+            "runtimes/linux-x64/lib/net10.0/Sample.dll");
+
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("net8.0", universe.TargetFramework);
+        Assert.Equal("linux-x64", universe.RuntimeIdentifier);
+        PackageAssetEntry asset = Assert.Single(universe.Assets);
+        Assert.Equal("lib/net8.0/Sample.dll", asset.EntryPath);
+        Assert.Null(asset.RuntimeIdentifier);
     }
 
     [Fact]
