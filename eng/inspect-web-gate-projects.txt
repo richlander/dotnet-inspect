@@ -15,6 +15,7 @@ src/Inspector.Artifacts.Workspaces
 src/Inspector.Graph
 src/DotnetInspector.Cache
 src/DotnetInspector.DependencyManifests
+src/DotnetInspector.Diff
 src/DotnetInspector.DocumentationHouse
 src/DotnetInspector.DocumentationHouse.Contracts
 src/DotnetInspector.EcosystemLoading

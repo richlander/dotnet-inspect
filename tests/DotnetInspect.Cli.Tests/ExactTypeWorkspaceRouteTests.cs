@@ -1962,9 +1962,7 @@ public sealed class ExactTypeWorkspaceRouteTests
     public async Task
         DefiningImplementationMemberRouteRendersExceptionRegions()
     {
-        byte[] assembly = await File.ReadAllBytesAsync(
-            typeof(SingleTypeSurfaceFixture).Assembly.Location,
-            TestContext.Current.CancellationToken);
+        byte[] assembly = await ReadTestAssemblyAsync();
         var store = await CachedStoreAsync(
             ($"ref/{Framework}/{PackageId}.dll",
                 BuildLiteralDelimiterTypeAssembly()),
@@ -2000,9 +1998,7 @@ public sealed class ExactTypeWorkspaceRouteTests
     public async Task
         DefiningImplementationMemberRouteRendersCustomAttributes()
     {
-        byte[] assembly = await File.ReadAllBytesAsync(
-            typeof(SingleTypeSurfaceFixture).Assembly.Location,
-            TestContext.Current.CancellationToken);
+        byte[] assembly = await ReadTestAssemblyAsync();
         var store = await CachedStoreAsync(
             ($"ref/{Framework}/{PackageId}.dll",
                 BuildLiteralDelimiterTypeAssembly()),
@@ -2029,6 +2025,45 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Empty(error);
         Assert.Contains(
             "Obsolete\tfirst",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationMemberRouteRendersDecompiledSource()
+    {
+        byte[] assembly = await ReadTestAssemblyAsync();
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(SingleTypeSurfaceFixture).FullName,
+            MemberFilter = [nameof(SingleTypeSurfaceFixture.Overloaded)],
+            OverloadIndex = 1,
+            Select = [SectionNames.DecompiledSource],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.Contains(
+            "public static int Overloaded(int value)",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "catch (OverflowException)",
             output,
             StringComparison.Ordinal);
     }
@@ -2073,6 +2108,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             [
                 SectionNames.IL,
                 SectionNames.CustomAttributes,
+                SectionNames.DecompiledSource,
                 SectionNames.ExceptionRegions,
             ])
         {
@@ -2101,15 +2137,15 @@ public sealed class ExactTypeWorkspaceRouteTests
                 plan,
                 out _,
                 out _));
-        MemberOptions decompiled = exact with
+        MemberOptions annotated = exact with
         {
-            Select = [SectionNames.DecompiledSource],
+            Select = [SectionNames.AnnotatedSource],
         };
         Assert.False(
             MemberCommand.TryCreateSharedMemberRequest(
-                decompiled,
+                annotated,
                 ResolvedMemberInspectionPlan
-                    .FromCompatibilityOptions(decompiled),
+                    .FromCompatibilityOptions(annotated),
                 out _,
                 out _));
         Assert.False(
@@ -2167,6 +2203,24 @@ public sealed class ExactTypeWorkspaceRouteTests
                 TestContext.Current.CancellationToken);
         }
         return store;
+    }
+
+    static Task<byte[]> ReadTestAssemblyAsync()
+    {
+        string assemblyPath =
+            typeof(SingleTypeSurfaceFixture).Assembly.Location;
+        if (!File.Exists(assemblyPath))
+        {
+            assemblyPath = Path.GetFullPath(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "..",
+                    "..",
+                    Path.GetFileName(assemblyPath)));
+        }
+        return File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
     }
 
     static string[] FixtureProducerKeys()

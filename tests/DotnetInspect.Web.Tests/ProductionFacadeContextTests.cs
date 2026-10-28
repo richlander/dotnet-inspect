@@ -83,6 +83,7 @@ public sealed class ProductionFacadeContextTests
             "PrefetchPlatformPacks",
             "QueryLibraries",
             "QueryLibraryApi",
+            "QueryLibraryReferences",
             "QueryMemberDocumentation",
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
@@ -288,7 +289,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(168, everyExport.Length);
+        Assert.Equal(169, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -367,12 +368,22 @@ public sealed class ProductionFacadeContextTests
             typeof(InspectionEnvelope<ExactTypeInspectionResult>),
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
+        var sharedPackageContractTypes = new HashSet<Type>();
+        Collect(
+            typeof(InspectionEnvelope<LibraryReferenceInspectionOutcome>),
+            sharedPackageContractTypes);
+        foreach (Type outcome in
+                 typeof(LibraryReferenceInspectionOutcome).GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
         var sharedSourceContractTypes = new HashSet<Type>();
         Collect(typeof(InspectionEnvelope<TypeApiDeclarationResult>), sharedSourceContractTypes);
         foreach (Type derived in typeof(InspectionShare).Assembly.GetTypes()
                      .Where(type => type.BaseType == typeof(InspectionShare)))
         {
             Collect(derived, sharedContractTypes);
+            Collect(derived, sharedPackageContractTypes);
             Collect(derived, sharedSourceContractTypes);
         }
 
@@ -407,7 +418,9 @@ public sealed class ProductionFacadeContextTests
             foreach (Type type in closure)
             {
                 string declaring = AssemblyNameOf(type.Assembly);
-                if ((owner == MetadataAssembly && sharedContractTypes.Contains(type))
+                if ((owner == PackageAssembly
+                        && sharedPackageContractTypes.Contains(type))
+                    || (owner == MetadataAssembly && sharedContractTypes.Contains(type))
                     || (owner == SourceAssembly && sharedSourceContractTypes.Contains(type))
                     || (owner == CatalogAssembly && sharedCatalogContractTypes.Contains(type)))
                 {

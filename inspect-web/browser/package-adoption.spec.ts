@@ -23,6 +23,8 @@ import type {
   BrowserWorkspacePackageOccurrenceActivation as OccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView as OccurrenceView,
   CompiledDocumentationOutcome,
+  InspectionEnvelope,
+  LibraryReferenceInspectionOutcome,
 } from "../src/facades/inspect-web-package.js";
 import type {
   BrowserLibraryStructuralSalience as LibraryStructuralSalience,
@@ -608,6 +610,12 @@ declare global {
         framework: string,
         assemblyId: string,
       ): Promise<PackageDependencies>;
+      queryLibraryReferences(
+        packageId: string,
+        version: string,
+        framework: string,
+        assemblyId: string,
+      ): Promise<InspectionEnvelope<LibraryReferenceInspectionOutcome | null>>;
       queryIntegrations(
         packageId: string,
         version: string,
@@ -728,6 +736,9 @@ async function boot(page: Page): Promise<void> {
       queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
         client.package.queryPackageDependencies(
           packageId, pkgVersion, framework, assemblyId, null),
+      queryLibraryReferences: (packageId, pkgVersion, framework, assemblyId) =>
+        client.package.queryLibraryReferences(
+          packageId, pkgVersion, framework, assemblyId, null),
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         client.analysis.queryPackageIntegrations(
           packageId, pkgVersion, framework, libraryId),
@@ -816,6 +827,12 @@ function driver(page: Page): {
   activate(action: string): Promise<OccurrenceActivation>;
   clearOccurrences(): Promise<void>;
   queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
+  queryLibraryReferences(
+    packageId: string,
+    version: string,
+    framework: string,
+    assemblyId: string,
+  ): Promise<InspectionEnvelope<LibraryReferenceInspectionOutcome | null>>;
   queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
   queryLibraryStructuralSalience(packageId: string, version: string, framework: string, libraryId: string): Promise<LibraryStructuralSalience>;
   queryPlatformLibraryStructuralSalience(framework: string, version: string, assembly: string, pack: string): Promise<LibraryStructuralSalience>;
@@ -888,6 +905,12 @@ function driver(page: Page): {
       page.evaluate(
         ({ packageId: id, version: ver, framework: tfm, assemblyId: selected }) =>
           window.__adoption!.queryDependencies(id, ver, tfm, selected),
+        { packageId, version: pkgVersion, framework, assemblyId },
+      ),
+    queryLibraryReferences: (packageId, pkgVersion, framework, assemblyId) =>
+      page.evaluate(
+        ({ packageId: id, version: ver, framework: tfm, assemblyId: selected }) =>
+          window.__adoption!.queryLibraryReferences(id, ver, tfm, selected),
         { packageId, version: pkgVersion, framework, assemblyId },
       ),
     queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
@@ -3292,6 +3315,39 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toEqual([declaredDependency.id]);
   });
 
+  test("answers shared Library Reference Inspection with real rows", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
+    const surface = await engine.queryPackage(references);
+    const library = surface.assemblies.find(
+      candidate => candidate.name === healthyAssemblyName,
+    );
+    if (library === undefined) {
+      throw new Error(`Expected the ${healthyAssemblyName} Library descriptor.`);
+    }
+
+    const envelope = await engine.queryLibraryReferences(
+      references.packageId,
+      version,
+      fixtureFramework,
+      library.id,
+    );
+
+    expect(envelope.content?.outcome).toBe("available");
+    if (envelope.content?.outcome !== "available") {
+      throw new Error("Expected an available Library Reference Inspection.");
+    }
+    expect(envelope.content.references.map(reference => reference.name))
+      .toEqual([expectedReferenceName]);
+    expect(envelope.share.kind).toBe("nonProjectable");
+    expect(envelope.diagnostics).toEqual([]);
+  });
+
   test("answers a manifest-only package with a reference failure beside healthy dependency groups", async ({
     page,
     context,
@@ -3414,9 +3470,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     const registry = new GalleryFixtureRegistry(allFixtures);
     await installGalleryRoutes(context, registry);
 
-    // The production site served by this gate, opened on the same fixture
-    // coordinate: the page consumes the generated union through its own
-    // queryPackageDependencies call and renders the available case.
+    // The production site served by this gate consumes the shared Library
+    // Reference Inspection envelope and renders its available outcome.
     await page.goto(
       `/index.html?package=${references.packageId}&version=${version}`
         + `&framework=${fixtureFramework}#pkg`);

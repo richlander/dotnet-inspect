@@ -1640,6 +1640,7 @@ public sealed class PolicyEvaluatorTests
         Assert.Equal(
             [
                 "DotnetInspect.Web.Core",
+                "DotnetInspector.Diff",
                 "DotnetInspector.LibraryMetadata",
                 "DotnetInspector.Presentation",
                 "DotnetInspector.Queries",
@@ -1665,6 +1666,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "$platform",
                 "DotnetInspect.Web.Core",
+                "DotnetInspector.Diff",
                 "DotnetInspector.DocumentationHouse.Contracts",
                 "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Libraries",

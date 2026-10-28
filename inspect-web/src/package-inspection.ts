@@ -8,6 +8,8 @@ import {
 import type {
   BrowserPackageDependencies,
   BrowserPackageVulnerabilityResult,
+  InspectionEnvelope,
+  LibraryReferenceInspectionOutcome,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserLibraryDependencyStructure,
@@ -65,13 +67,17 @@ export function packageInspectionRequestStateKey<TResult>(
 }
 
 export function normalizePackageInspectionRequestSnapshot<TResult>(
-  state: PackageInspectionRequestState<TResult>,
+  state: PackageInspectionRequestState<TResult> | null | undefined,
 ): PackageInspectionRequestState<TResult> {
-  return state.status === "loading" ? { status: "idle" } : state;
+  return !state || state.status === "loading" ? { status: "idle" } : state;
 }
 
 export type PackageDependenciesState =
   PackageInspectionRequestState<BrowserPackageDependencies>;
+export type LibraryReferenceInspectionEnvelope =
+  InspectionEnvelope<LibraryReferenceInspectionOutcome | null>;
+export type LibraryReferenceInspectionState =
+  PackageInspectionRequestState<LibraryReferenceInspectionEnvelope>;
 export type PackageVulnerabilityState =
   PackageInspectionRequestState<BrowserPackageVulnerabilityResult>;
 export type PackageIntegrationsState =
@@ -147,6 +153,7 @@ export interface PackageInspectionState {
   packageLens: PackageLens;
   libraryLens: LibraryLens;
   packageDependencies: PackageDependenciesState;
+  libraryReferences: LibraryReferenceInspectionState;
   packageVulnerabilities: PackageVulnerabilityState;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
@@ -186,6 +193,10 @@ export interface PackageInspectionDependencies {
     packageModel: PackageIdentity
       & Pick<AppPackage, "assemblyId" | "selectedCompileAssetId">,
   ): Promise<BrowserPackageDependencies>;
+  queryLibraryReferences(
+    packageModel: PackageIdentity
+      & Pick<AppPackage, "assemblyId" | "selectedCompileAssetId">,
+  ): Promise<LibraryReferenceInspectionEnvelope>;
   queryVulnerabilities(
     packageModel: AppPackage,
   ): Promise<BrowserPackageVulnerabilityResult>;
@@ -282,6 +293,10 @@ export interface PackageInspectionDependencies {
 export interface PackageInspectionCoordinator {
   invalidatePackageResults(): void;
   loadDependencies(
+    packageModel: AppPackage,
+    signature: string,
+  ): Promise<void>;
+  loadLibraryReferences(
     packageModel: AppPackage,
     signature: string,
   ): Promise<void>;
@@ -425,6 +440,7 @@ export function createPackageInspectionCoordinator(
       packageResultGeneration++;
       state.workspaceDependencyLoads.clear();
       state.packageDependencies = { status: "idle" };
+      state.libraryReferences = { status: "idle" };
       state.packageVulnerabilities = { status: "idle" };
       state.packageIntegrations = { status: "idle" };
       state.packageOpportunities = { status: "idle" };
@@ -472,6 +488,7 @@ export function createPackageInspectionCoordinator(
         id: packageModel.id,
         version: packageModel.version,
         activeFramework: packageModel.activeFramework,
+        runtimeIdentifier: packageModel.runtimeIdentifier ?? null,
         assemblyId: packageModel.assemblyId,
         ...(packageModel.selectedCompileAssetId
           ? { selectedCompileAssetId: packageModel.selectedCompileAssetId }
@@ -519,6 +536,60 @@ export function createPackageInspectionCoordinator(
           if (state.atPackageRoot && state.packageLens === "dependencies") {
             await ensureWorkspaceDependencies();
           }
+        }
+      }
+    },
+
+    async loadLibraryReferences(packageModel, signature) {
+      const current = state.libraryReferences;
+      if (current.status !== "idle"
+        && packageInspectionRequestStateKey(current) === signature) {
+        dependencies.render();
+        return;
+      }
+      const request = { key: signature };
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.libraryReferences.status === "loading"
+        && state.libraryReferences.request === request
+        && generation === packageResultGeneration;
+      state.libraryReferences = { status: "loading", request };
+      dependencies.render();
+      const packageRequest = {
+        id: packageModel.id,
+        version: packageModel.version,
+        activeFramework: packageModel.activeFramework,
+        runtimeIdentifier: packageModel.runtimeIdentifier ?? null,
+        assemblyId: packageModel.assemblyId,
+        ...(packageModel.selectedCompileAssetId
+          ? { selectedCompileAssetId: packageModel.selectedCompileAssetId }
+          : {}),
+      };
+      try {
+        const result =
+          await dependencies.queryLibraryReferences(packageRequest);
+        if (ownsRequest()) {
+          state.libraryReferences = {
+            status: "ready",
+            key: signature,
+            result,
+          };
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          const diagnostic = dependencies.describeError(error);
+          state.libraryReferences = {
+            status: "failed",
+            key: signature,
+            error: diagnostic.trim()
+              ? diagnostic
+              : "Reference query failed.",
+          };
+        }
+      } finally {
+        if (generation === packageResultGeneration) {
+          dependencies.refreshPackageStats();
+          dependencies.render();
         }
       }
     },

@@ -5,6 +5,8 @@ using InertText;
 
 namespace DotnetInspector.Sections;
 
+[JsonConverter(
+    typeof(JsonStringEnumConverter<LibraryReferenceInspectionFailureKind>))]
 public enum LibraryReferenceInspectionFailureKind
 {
     Unexpected,
@@ -12,10 +14,12 @@ public enum LibraryReferenceInspectionFailureKind
 
 public readonly record struct LibraryReferenceInspectionFailure(
     LibraryReferenceInspectionFailureKind Kind,
+    [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString Detail);
 
 public readonly record struct LibraryReferenceInspectionRejection(
     AssemblyReferenceRowsRejectionKind Kind,
+    [property: JsonConverter(typeof(InertStringJsonConverter))]
     InertString Detail);
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
