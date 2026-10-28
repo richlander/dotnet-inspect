@@ -35,8 +35,14 @@ internal static class WorkspacePacketActivation
             return 1;
         }
 
+        if (IsMemberOverviewBinding(selected) && options.Count)
+        {
+            CommandError.Write(CountOutput.SectionRequiredMessage);
+            return 1;
+        }
+
         WorkspaceOptions inventory = options with { Inventory = true };
-        if (IsPackageLibrariesBinding(selected) || IsTypeApiBinding(selected))
+        if (IsPackageLibrariesBinding(selected) || IsTypeApiBinding(selected) || IsMemberOverviewBinding(selected))
         {
             return capabilities is null
                 ? await WorkspaceCommand.ExecutePacketOperationAsync(
@@ -58,7 +64,7 @@ internal static class WorkspacePacketActivation
             return $"CLI activation does not support Workspace packet format {packet.FormatVersion}.";
         if (state is null || state.QueryIndexes.Count != 0)
             return "The saved query has no CLI activation execution binding.";
-        if (IsPackageLibrariesBinding(state) || IsTypeApiBinding(state))
+        if (IsPackageLibrariesBinding(state) || IsTypeApiBinding(state) || IsMemberOverviewBinding(state))
             return null;
         bool workspace = state.Subject is PortableSubjectRequest.Workspace
             || (state.Subject is null && state.TabIndex is null);
@@ -75,6 +81,10 @@ internal static class WorkspacePacketActivation
         state is { Subject: PortableSubjectRequest.Type, QueryIndexes.Count: 0 }
         && state.Facet == TypeCommand.SavedApiFacet.Value;
 
+    internal static bool IsMemberOverviewBinding(WorkspaceShareViewState? state) =>
+        state is { Subject: PortableSubjectRequest.Member, QueryIndexes.Count: 0 }
+        && state.Facet == MemberCommand.SavedOverviewFacet.Value;
+
     // Presentation lowering runs before command dispatch, without restoration.
     internal static bool UsesRenderedLineOutput(string? input)
     {
@@ -85,7 +95,7 @@ internal static class WorkspacePacketActivation
             WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(input);
             WorkspaceShareViewState? selected = packet.ViewStates.SingleOrDefault(
                 state => state.TabIndex == packet.FocusedTabIndex);
-            return IsPackageLibrariesBinding(selected) || IsTypeApiBinding(selected);
+            return IsPackageLibrariesBinding(selected) || IsTypeApiBinding(selected) || IsMemberOverviewBinding(selected);
         }
         catch (WorkspaceSharePacketException)
         {
@@ -116,6 +126,8 @@ internal static class WorkspacePacketActivation
                     active.Workspace, active.Activation,
                     (target, roles, token) => target switch
                     {
+                        CompleteRestorationSelectedSubject.Member member =>
+                            MemberCommand.ExecuteSavedOverviewAsync(options, active.Workspace, member, roles, token),
                         CompleteRestorationSelectedSubject.Type type =>
                             TypeCommand.ExecuteSavedApiAsync(options, active.Workspace, type, roles, token),
                         _ => PackageCommand.ExecuteSavedLibrariesAsync(options, target, token),

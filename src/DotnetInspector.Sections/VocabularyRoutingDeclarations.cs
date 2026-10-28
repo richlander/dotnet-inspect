@@ -1,17 +1,25 @@
 using System.Collections.Immutable;
-using DotnetInspector.Sections;
 
-namespace DotnetInspect.Cli.Commands;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Product Vocabulary's routing declaration: one reference entry for the
-/// collection of value vocabularies the CLI composes. Vocabularies are
+/// collection of value vocabularies the host composes. Vocabularies are
 /// neither inspected nor work performed; they list the values that query
 /// inputs accept.
 /// </summary>
-internal static class VocabularyRoutingDeclarations
+public static class VocabularyRoutingDeclarations
 {
-    public static ImmutableArray<ResourceExplanationRoutingDeclaration>
+    public static InspectionCapabilityModule Module { get; } = new(
+        "product-vocabulary.routing", routingDeclarations: static () => Cache.Declarations);
+
+    private static class Cache
+    {
+        internal static readonly ImmutableArray<ResourceExplanationRoutingDeclaration>
+            Declarations = Create();
+    }
+
+    private static ImmutableArray<ResourceExplanationRoutingDeclaration>
         Create() =>
     [
         new(

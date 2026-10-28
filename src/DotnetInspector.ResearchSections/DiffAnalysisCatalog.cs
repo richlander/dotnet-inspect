@@ -183,7 +183,8 @@ public static class DiffAnalysisCatalog
             "diff.analyses",
             documents: [Document],
             routes: [Route],
-            analyses: Registrations);
+            analyses: Registrations,
+            routingDeclarations: static () => DiffAnalysisRoutingDeclarations.Declarations);
     }
 
     public const string DocumentIdentity = "diff-analysis/document/v1";
