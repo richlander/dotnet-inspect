@@ -359,6 +359,7 @@ import {
   bindTypeRelations,
   createTypeRelationsCoordinator,
   renderTypeRelations,
+  renderTypeRelationsSummary,
 } from "./type-relations.ts";
 import {
   cancelFindingCensusRequest,
@@ -13965,10 +13966,19 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
     workspaceIdentity: typeMetadataWorkspaceIdentity(),
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
+    relationsSummaryHtml: !pkg.isRuntimePack && state.rootKind !== "library"
+      ? renderTypeRelationsSummary({
+          signature,
+          state: state.typeRelations,
+          focusTypeName: typeDisplayName(item),
+          escapeHtml,
+        })
+      : "",
     relationsHtml: !pkg.isRuntimePack && state.rootKind !== "library"
       ? renderTypeRelations({
           signature,
           state: state.typeRelations,
+          focusTypeName: typeDisplayName(item),
           escapeHtml,
         })
       : "",
@@ -23889,7 +23899,7 @@ async function inspectSelectedTypeRelations() {
     workspaceJson,
     isVisible: () => {
       const currentType = selectedType();
-      return state.lens === "metadata"
+      return (state.lens === "overview" || state.lens === "metadata")
         && currentType != null
         && currentTypeMetadataSignature(
           currentType,

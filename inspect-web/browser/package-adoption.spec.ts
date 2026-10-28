@@ -4447,8 +4447,29 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(graphExplorer).toBeHidden();
     await expect(explore).toBeFocused();
 
+    const inspectCallGraph =
+      overview.locator("[data-inspect-type-relations]");
+    await expect(inspectCallGraph).toHaveText("Inspect call graph");
+    await inspectCallGraph.click();
+    const typeCallGraph = overview.getByRole("heading", {
+      name: "Type call graph",
+    });
+    await expect(typeCallGraph).toBeVisible({ timeout: 180_000 });
+    const calledTypes = overview.locator("[data-type-call-graph]");
+    await expect(calledTypes).toContainText("called type");
+    await calledTypes.click();
+    await expect(typeCallGraph).toBeFocused();
+    const typeEdges = overview.locator(".type-call-edge");
+    expect(await typeEdges.count()).toBeGreaterThan(0);
+    await typeEdges.first().locator("summary").click();
+    await expect(typeEdges.first()).toHaveAttribute("open", "");
+    await expect(typeEdges.first().locator(".type-call-member-group").first())
+      .toBeVisible();
+    await expect(typeEdges.first().getByText(/\d+ sites?/, { exact: true })
+      .first()).toBeVisible();
+
     await page.locator("#subject-panel").screenshot({
-      path: testInfo.outputPath("type-overview-json-document.png"),
+      path: testInfo.outputPath("type-call-graph-json-document.png"),
     });
     await overview.locator("[data-type-members]").click();
     await expect(page.locator(".api-row[data-member]")).not.toHaveCount(0);

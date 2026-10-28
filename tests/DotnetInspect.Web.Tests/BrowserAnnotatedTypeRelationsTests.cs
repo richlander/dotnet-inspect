@@ -62,6 +62,21 @@ public sealed partial class BrowserEngineBoundaryTests
             .GetProperty("content");
         Assert.NotEmpty(content.GetProperty("relations").EnumerateArray());
         Assert.NotEmpty(content.GetProperty("occurrences").EnumerateArray());
+        JsonElement declaringType = content.GetProperty("subjects")[0]
+            .GetProperty("subject")
+            .GetProperty("member")
+            .GetProperty("member")
+            .GetProperty("declaring_type");
+        JsonElement resolution = declaringType.GetProperty("resolution");
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                resolution.GetProperty("origin")
+                    .GetProperty("kind")
+                    .GetString()));
+        Assert.NotEmpty(
+            resolution.GetProperty("type")
+                .GetProperty("segments")
+                .EnumerateArray());
         Assert.Equal(
             3,
             content.GetProperty("selection")

@@ -7,6 +7,7 @@ import type {
 import {
   createTypeRelationsCoordinator,
   renderTypeRelations,
+  renderTypeRelationsSummary,
   type TypeRelationsRequest,
   type TypeRelationsState,
 } from "../src/type-relations.ts";
@@ -34,7 +35,7 @@ function available(
       content: {
         terminal: {
           kind: "Rows",
-          value: hasRelations ? 1 : 0,
+          value: hasRelations ? 2 : 0,
           is_complete: relationLimited === 0,
         },
         subjects: [
@@ -43,20 +44,119 @@ function available(
             subject: {
               member: {
                 member: {
-                  declaring_type: { namespace: "Example", name: "Target" },
+                  declaring_type: {
+                    assembly: "Example",
+                    kind: "Class",
+                    namespace: "Example",
+                    name: "Entry",
+                    resolution: {
+                      origin: {
+                        kind: "CurrentAssembly",
+                        assembly: {
+                          name: "Example",
+                          version: "1.0.0.0",
+                          public_key_token: "",
+                        },
+                      },
+                      type: {
+                        namespace: "Example",
+                        segments: ["Entry"],
+                      },
+                    },
+                  },
+                  name: "Start",
+                  parameter_types: [],
+                },
+              },
+            },
+          },
+          {
+            id: 2,
+            subject: {
+              member: {
+                member: {
+                  declaring_type: {
+                    assembly: "Example.Dependency",
+                    kind: "Class",
+                    namespace: "Example",
+                    name: "Target",
+                    resolution: {
+                      origin: {
+                        kind: "AssemblyReference",
+                        assembly: {
+                          name: "Example.Dependency",
+                          version: "1.0.0.0",
+                          public_key_token: "",
+                        },
+                      },
+                      type: {
+                        namespace: "Example",
+                        segments: ["Target"],
+                      },
+                    },
+                  },
                   name: "Run",
+                  parameter_types: [],
+                },
+              },
+            },
+          },
+          {
+            id: 3,
+            subject: {
+              member: {
+                member: {
+                  declaring_type: {
+                    assembly: "Example.Dependency",
+                    kind: "Class",
+                    namespace: "Example",
+                    name: "Target",
+                    resolution: {
+                      origin: {
+                        kind: "AssemblyReference",
+                        assembly: {
+                          name: "Example.Dependency",
+                          version: "1.0.0.0",
+                          public_key_token: "",
+                        },
+                      },
+                      type: {
+                        namespace: "Example",
+                        segments: ["Target"],
+                      },
+                    },
+                  },
+                  name: "Stop",
+                  parameter_types: [],
                 },
               },
             },
           },
         ],
-        relations: hasRelations ? [{ id: 4, target_subject_id: 1 }] : [],
+        relations: hasRelations
+          ? [
+              {
+                id: 4,
+                source_subject_id: 1,
+                target_subject_id: 2,
+              },
+              {
+                id: 5,
+                source_subject_id: 1,
+                target_subject_id: 3,
+              },
+            ]
+          : [],
         occurrences: hasRelations
-          ? [{ relation_id: 4 }, { relation_id: 4 }]
+          ? [
+              { relation_id: 4 },
+              { relation_id: 4 },
+              { relation_id: 5 },
+            ]
           : [],
         annotations: [{
           descriptor: { id: "member.requires-dynamic-code" },
-          target: { kind: "Subject", id: 1 },
+          target: { kind: "Subject", id: 2 },
         }],
         relationship_outcomes: [{
           family: "call",
@@ -124,10 +224,18 @@ test("ordinary rendering offers explicit inspection without querying", () => {
   const html = renderTypeRelations({
     signature: "package/type",
     state: current,
+    focusTypeName: "Example.Entry",
+    escapeHtml: String,
+  });
+  const summary = renderTypeRelationsSummary({
+    signature: "package/type",
+    state: current,
+    focusTypeName: "Example.Entry",
     escapeHtml: String,
   });
 
-  assert.match(html, /Inspect outgoing calls/);
+  assert.equal(html, "");
+  assert.match(summary, /Inspect call graph/);
   assert.equal(queries, 0);
 });
 
@@ -182,7 +290,7 @@ test("stale results are discarded and retry is explicit", async () => {
   assert.equal(queries, 3);
 });
 
-test("available rendering exposes physical evidence, colors, and limits", () => {
+test("available rendering aggregates exact member pairs by target Type", () => {
   const current = state();
   current.signature = "package/type";
   current.result = available(1, 1);
@@ -190,21 +298,27 @@ test("available rendering exposes physical evidence, colors, and limits", () => 
   const html = renderTypeRelations({
     signature: "package/type",
     state: current,
+    focusTypeName: "Example.Entry",
+    escapeHtml: String,
+  });
+  const summary = renderTypeRelationsSummary({
+    signature: "package/type",
+    state: current,
+    focusTypeName: "Example.Entry",
     escapeHtml: String,
   });
 
-  assert.match(html, /1 logical · 2 physical/);
-  assert.match(html, /Example\.Target\.Run/);
-  assert.match(html, /2 occurrences/);
-  assert.match(html, /member\.requires-dynamic-code/);
-  assert.match(html, /type-relations-signal-calls/);
-  assert.match(html, /1<\/strong>\s*<span>logical calls/);
-  assert.match(html, /2<\/strong>\s*<span>physical sites/);
-  assert.match(html, /Partial<\/strong>\s*<span>call evidence/);
-  assert.match(html, /2 of 3 candidates examined/);
-  assert.match(html, /1<\/strong>\s*<span>compatibility target/);
-  assert.match(html, /Partial · 2 of 3 checks/);
-  assert.match(html, /RDC 1/);
+  assert.match(summary, /1\+ called type/);
+  assert.match(html, /1 called type · 2 member edges/);
+  assert.match(html, /<strong>2<\/strong> member edges/);
+  assert.match(html, /Example\.Entry → Example\.Target/);
+  assert.match(html, /Run\(\)/);
+  assert.match(html, /2 sites/);
+  assert.match(html, /Stop\(\)/);
+  assert.match(html, /1 site/);
+  assert.match(html, /title="member\.requires-dynamic-code">RDC/);
+  assert.match(html, /Partial call evidence/);
+  assert.doesNotMatch(html, /type-relations-signals/);
 });
 
 test("partial empty rendering does not claim that no outgoing calls exist", () => {
@@ -215,12 +329,13 @@ test("partial empty rendering does not claim that no outgoing calls exist", () =
   const html = renderTypeRelations({
     signature: "package/type",
     state: current,
+    focusTypeName: "Example.Entry",
     escapeHtml: String,
   });
 
-  assert.match(html, /Partial<\/strong>\s*<span>call evidence/);
+  assert.match(html, /Partial call evidence/);
   assert.match(
     html,
-    /No outgoing calls were resolved from the available evidence/);
-  assert.doesNotMatch(html, /No outgoing calls found/);
+    /No called Types were resolved from the available evidence/);
+  assert.doesNotMatch(html, /No outgoing Type edges found/);
 });

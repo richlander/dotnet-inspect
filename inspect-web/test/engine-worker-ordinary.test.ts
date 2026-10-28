@@ -2799,7 +2799,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 138);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 139);
 
   const state = fixture();
   const groups = [

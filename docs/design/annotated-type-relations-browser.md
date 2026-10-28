@@ -10,18 +10,19 @@ It owns:
 - Browser authorization and retained-workspace lifetime;
 - lowering that gesture to the existing host-neutral request;
 - the managed facade and Worker transport boundary; and
-- a bounded Browser presentation over the owner-issued document projection.
+- an aggregated Type-call-graph presentation over the owner-issued document
+projection.
 
 Its exact claim is:
 
-> For one retained package-backed exact Type, one explicit **Inspect outgoing
-> calls** gesture lowers to the existing all-applicable outgoing Rows request
+> For one retained package-backed exact Type, one explicit **Inspect call
+> graph** gesture lowers to the existing all-applicable outgoing Rows request
 > with selected compatibility colors, executes the shared focused operation in
-> the retained implementation workspace, and projects that exact envelope
-> through the owner-issued document JSON; ordinary Type and Metadata viewing
-> performs no relation work.
+> the retained implementation workspace, and projects the canonical member
+> relations as Type-to-Type edges weighted by distinct member-identity pairs;
+> ordinary Type Overview viewing performs no call-relation work.
 
-This is slice 6/6 under
+This is slice 7/7 under
 [#10283](https://github.com/richlander/dotnet-inspect/issues/10283), focused as
 [#10592](https://github.com/richlander/dotnet-inspect/issues/10592).
 
@@ -40,10 +41,9 @@ relationship catalog, color join, terminal, or document.
 
 ## Gesture and request
 
-The Type Metadata surface initially shows one **Inspect outgoing calls**
-button. Merely opening a Type, selecting Metadata, restoring a Workspace, or
-rendering the Type relationship graph executes no Annotated Type Relations
-request.
+Type Overview initially shows one **Inspect call graph** numeric-navigation
+gesture. Merely opening a Type, restoring a Workspace, or rendering structural
+Type relationships executes no Annotated Type Relations request.
 
 Activating the button requests:
 
@@ -105,21 +105,21 @@ reshape, filter, order, limit, or count semantic rows.
 
 ## Presentation
 
-The initial presentation is a compact Type Metadata section, not another
-workspace tab or a graph mode. A signal strip first orients the user with
-distinct icons and values for logical call edges, physical IL sites, call
-evidence completion, and compatibility-color evidence. The detailed projection
-then shows:
+The result extends Type Overview's main vertical narrative. Its navigation
+summary reports the number of called Types and moves to one outgoing
+Type-to-Type graph. Each edge:
 
-- logical outgoing-call count and completion;
-- logical target rows in canonical document order;
-- physical occurrence count per logical relation;
-- selected compatibility color ids attached to the target; and
-- relationship-family coverage and partial-completion warnings.
+- groups target members by the typed declaring-Type resolution projected by
+  their canonical subjects, never by display text;
+- is weighted by distinct canonical source-member/target-member relation rows;
+- reveals those member pairs grouped by source member when selected;
+- keeps repeated physical IL sites subordinate to their member pair; and
+- carries compatibility colors as quiet target-member evidence.
 
-The Browser may derive display grouping and labels from document-local ids and
-owner-projected subjects. It does not join by display text or claim that a
-partial result establishes absence.
+Repeated occurrences and opcode variation do not inflate the Type-edge weight.
+Partial topology marks counts as observed lower bounds and never establishes
+absence. Structural base, interface, and derived-Type relationships remain in
+their separate Overview projection.
 
 The section keeps the explicit retry gesture after rejection, unavailability,
 or failure. It does not automatically retry during render.
@@ -139,6 +139,10 @@ or failure. It does not automatically retry during render.
 - **Staleness:** a result from an earlier Type or Workspace revision cannot
   replace the current result.
 - **Visible incompleteness:** terminal and family completion remain visible.
+- **Exact aggregation:** Type-edge weights count distinct exact member pairs,
+  and repeated physical sites do not inflate them.
+- **Progressive detail:** selecting one Type edge reveals grouped member pairs
+  before physical-site evidence.
 - **Real assets:** `System.Text.Json` 10.0.13 and `Newtonsoft.Json` 13.0.4
   exercise the production Browser path.
 
@@ -150,5 +154,5 @@ or failure. It does not automatically retry during render.
   presets, new relation families, or required-color filtering.
 - It does not approximate portable Share.
 - It does not add Platform or uploaded-Library execution.
-- It does not add a graph, path, broad multi-format surface, or another
-  persistent workspace affordance.
+- It does not add paths, incoming calls, a broad multi-format surface, or
+  another persistent workspace affordance.

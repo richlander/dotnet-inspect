@@ -1016,6 +1016,7 @@ export interface RenderTypeMetadataOptions {
   metadataAvailable?: boolean;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
+  relationsSummaryHtml?: string;
   relationsHtml?: string;
   escapeHtml: EscapeHtml;
   relatedTypeChip: (
@@ -1030,6 +1031,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     item, packageContext, libraryIdentity, workspaceIdentity,
     metadataAvailable = true, metadataState,
     memberCompositionHtml,
+    relationsSummaryHtml = "",
     relationsHtml = "",
     escapeHtml, relatedTypeChip, factRows,
   } = options;
@@ -1083,7 +1085,10 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
             </div>
             <div class="subject-overview-summary-group type-overview-navigation">
               <span class="subject-overview-summary-label">Navigate</span>
-              <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
+              <div>
+                <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
+                ${relationsSummaryHtml}
+              </div>
             </div>
           </section>
           ${content}

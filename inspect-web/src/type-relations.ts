@@ -7,8 +7,32 @@ interface CanonicalSubject {
   subject: {
     member: {
       member: {
-        declaring_type: { namespace: string; name: string };
+        declaring_type: {
+          assembly: string;
+          kind: string;
+          namespace: string;
+          name: string;
+          resolution: {
+            origin: {
+              kind: string;
+              assembly?: {
+                name: string;
+                version: string;
+                public_key_token: string;
+              };
+              module_name?: string;
+            };
+            type: {
+              namespace: string;
+              segments: string[];
+            };
+          };
+        };
         name: string;
+        parameter_types?: {
+          namespace: string;
+          name: string;
+        }[];
       };
     };
   };
@@ -16,6 +40,7 @@ interface CanonicalSubject {
 
 interface CanonicalRelation {
   id: number;
+  source_subject_id: number;
   target_subject_id: number;
 }
 
@@ -91,9 +116,16 @@ export function bindTypeRelations(
   root: ParentNode,
   inspect: () => void,
 ): void {
-  root.querySelector<HTMLButtonElement>(
+  root.querySelectorAll<HTMLButtonElement>(
     "[data-inspect-type-relations]",
-  )?.addEventListener("click", inspect);
+  ).forEach(button => button.addEventListener("click", inspect));
+  root.querySelector<HTMLButtonElement>(
+    "[data-type-call-graph]",
+  )?.addEventListener("click", () => {
+    const heading = root.querySelector<HTMLElement>("#type-call-graph-title");
+    heading?.scrollIntoView({ block: "start" });
+    heading?.focus({ preventScroll: true });
+  });
 }
 
 export function createTypeRelationsCoordinator(
@@ -161,12 +193,71 @@ function canonicalDocument(
       || !isRecord(candidate.subject.member)
       || !isRecord(candidate.subject.member.member)
       || !isRecord(candidate.subject.member.member.declaring_type)
+      || typeof candidate.subject.member.member.declaring_type.assembly
+        !== "string"
+      || typeof candidate.subject.member.member.declaring_type.kind
+        !== "string"
       || typeof candidate.subject.member.member.declaring_type.namespace
         !== "string"
       || typeof candidate.subject.member.member.declaring_type.name
         !== "string"
+      || !isRecord(
+        candidate.subject.member.member.declaring_type.resolution)
+      || !isRecord(
+        candidate.subject.member.member.declaring_type.resolution.origin)
+      || typeof candidate.subject.member.member.declaring_type.resolution
+        .origin.kind !== "string"
+      || !isRecord(
+        candidate.subject.member.member.declaring_type.resolution.type)
+      || typeof candidate.subject.member.member.declaring_type.resolution
+        .type.namespace !== "string"
+      || !Array.isArray(
+        candidate.subject.member.member.declaring_type.resolution
+          .type.segments)
       || typeof candidate.subject.member.member.name !== "string") {
       return null;
+    }
+    const typeSegments: string[] = [];
+    for (const segment of candidate.subject.member.member.declaring_type
+      .resolution.type.segments) {
+      if (typeof segment !== "string") return null;
+      typeSegments.push(segment);
+    }
+    const rawOriginAssembly =
+      candidate.subject.member.member.declaring_type.resolution
+        .origin.assembly;
+    let originAssembly:
+      { name: string; version: string; public_key_token: string } | undefined;
+    if (rawOriginAssembly !== undefined) {
+      if (!isRecord(rawOriginAssembly)
+        || typeof rawOriginAssembly.name !== "string"
+        || typeof rawOriginAssembly.version !== "string"
+        || typeof rawOriginAssembly.public_key_token !== "string") return null;
+      originAssembly = {
+        name: rawOriginAssembly.name,
+        version: rawOriginAssembly.version,
+        public_key_token: rawOriginAssembly.public_key_token,
+      };
+    }
+    const rawModuleName =
+      candidate.subject.member.member.declaring_type.resolution
+        .origin.module_name;
+    if (rawModuleName !== undefined && typeof rawModuleName !== "string")
+      return null;
+    const rawParameterTypes =
+      candidate.subject.member.member.parameter_types;
+    const parameterTypes: { namespace: string; name: string }[] = [];
+    if (rawParameterTypes !== undefined) {
+      if (!Array.isArray(rawParameterTypes)) return null;
+      for (const parameter of rawParameterTypes) {
+        if (!isRecord(parameter)
+          || typeof parameter.namespace !== "string"
+          || typeof parameter.name !== "string") return null;
+        parameterTypes.push({
+          namespace: parameter.namespace,
+          name: parameter.name,
+        });
+      }
     }
     subjects.push({
       id: candidate.id,
@@ -174,11 +265,37 @@ function canonicalDocument(
         member: {
           member: {
             declaring_type: {
+              assembly:
+                candidate.subject.member.member.declaring_type.assembly,
+              kind:
+                candidate.subject.member.member.declaring_type.kind,
               namespace:
                 candidate.subject.member.member.declaring_type.namespace,
               name: candidate.subject.member.member.declaring_type.name,
+              resolution: {
+                origin: {
+                  kind: candidate.subject.member.member.declaring_type
+                    .resolution.origin.kind,
+                  ...(originAssembly === undefined
+                    ? {}
+                    : { assembly: originAssembly }),
+                  ...(rawModuleName === undefined
+                    ? {}
+                    : { module_name: rawModuleName }),
+                },
+                type: {
+                  namespace: candidate.subject.member.member.declaring_type
+                    .resolution.type.namespace,
+                  segments: [
+                    ...typeSegments,
+                  ],
+                },
+              },
             },
             name: candidate.subject.member.member.name,
+            ...(rawParameterTypes === undefined
+              ? {}
+              : { parameter_types: parameterTypes }),
           },
         },
       },
@@ -188,9 +305,11 @@ function canonicalDocument(
   for (const candidate of value.relations) {
     if (!isRecord(candidate)
       || typeof candidate.id !== "number"
+      || typeof candidate.source_subject_id !== "number"
       || typeof candidate.target_subject_id !== "number") return null;
     relations.push({
       id: candidate.id,
+      source_subject_id: candidate.source_subject_id,
       target_subject_id: candidate.target_subject_id,
     });
   }
@@ -266,50 +385,31 @@ function canonicalDocument(
 export interface RenderTypeRelationsOptions {
   signature: string;
   state: TypeRelationsState;
+  focusTypeName: string;
   escapeHtml: (value: string) => string;
 }
 
-export function renderTypeRelations(
-  options: RenderTypeRelationsOptions,
-): string {
-  const { signature, state, escapeHtml } = options;
-  const fresh = state.signature === signature;
-  if (!fresh) {
-    return section(
-      `<button type="button" data-inspect-type-relations>`
-        + "Inspect outgoing calls</button>",
-    );
-  }
-  if (state.loading) {
-    return section(
-      '<button type="button" disabled><span class="loader"></span> '
-        + "Inspecting outgoing calls…</button>",
-    );
-  }
-  if (state.error) {
-    return failure(state.error, escapeHtml);
-  }
-  const result = state.result;
-  if (!result) {
-    return section(
-      `<button type="button" data-inspect-type-relations>`
-        + "Inspect outgoing calls</button>",
-    );
-  }
-  if (result.outcome !== "Available" || !result.inspection) {
-    return failure(
-      result.reason ?? `Inspection ${String(result.outcome).toLowerCase()}.`,
-      escapeHtml,
-    );
-  }
-  const document = canonicalDocument(result.inspection.content);
-  if (!document) {
-    return failure(
-      "The relation document did not match its canonical wire shape.",
-      escapeHtml,
-    );
-  }
+interface TypeEdge {
+  key: string;
+  targetType: CanonicalSubject["subject"]["member"]["member"]["declaring_type"];
+  relations: CanonicalRelation[];
+}
 
+interface RelationsProjection {
+  document: CanonicalRelationsDocument;
+  subjects: Map<number, CanonicalSubject>;
+  edges: TypeEdge[];
+  occurrenceCounts: Map<number, number>;
+  colorsBySubject: Map<number, string[]>;
+  relationshipIsPartial: boolean;
+}
+
+function projectRelations(
+  result: BrowserAnnotatedTypeRelationsInspection | null,
+): RelationsProjection | null {
+  if (result?.outcome !== "Available" || !result.inspection) return null;
+  const document = canonicalDocument(result.inspection.content);
+  if (!document) return null;
   const subjects = new Map(
     document.subjects.map(subject => [subject.id, subject]));
   const occurrenceCounts = new Map<number, number>();
@@ -319,38 +419,26 @@ export function renderTypeRelations(
       (occurrenceCounts.get(occurrence.relation_id) ?? 0) + 1);
   }
   const colorsBySubject = new Map<number, string[]>();
-  const colorCounts = new Map<string, number>();
   for (const annotation of document.annotations) {
     if (annotation.target.kind !== "Subject") continue;
     const existing = colorsBySubject.get(annotation.target.id) ?? [];
     existing.push(annotation.descriptor.id);
     colorsBySubject.set(annotation.target.id, existing);
-    colorCounts.set(
-      annotation.descriptor.id,
-      (colorCounts.get(annotation.descriptor.id) ?? 0) + 1,
-    );
   }
-  const visible = document.relations.slice(0, 50);
-  const rows = visible.map(relation => {
-    const member = subjects.get(relation.target_subject_id)
-      ?.subject.member.member;
-    const type = member?.declaring_type;
-    const target = member && type
-      ? `${type.namespace ? `${type.namespace}.` : ""}${type.name}.${member.name}`
-      : `Subject ${relation.target_subject_id}`;
-    const relationColors =
-      colorsBySubject.get(relation.target_subject_id) ?? [];
-    return `<li><code>${escapeHtml(target)}</code>`
-      + `<span>${occurrenceCounts.get(relation.id) ?? 0} occurrence${
-        occurrenceCounts.get(relation.id) === 1 ? "" : "s"
-      }</span>`
-      + (relationColors.length
-        ? `<small>${relationColors
-            .map(color => `<code>${escapeHtml(color)}</code>`)
-            .join(" ")}</small>`
-        : "")
-      + "</li>";
-  }).join("");
+  const edgesByType = new Map<string, TypeEdge>();
+  for (const relation of document.relations) {
+    const target = subjects.get(relation.target_subject_id);
+    if (!target) return null;
+    const type = target.subject.member.member.declaring_type;
+    const key = typeIdentityKey(type);
+    const edge = edgesByType.get(key) ?? {
+      key,
+      targetType: type,
+      relations: [],
+    };
+    edge.relations.push(relation);
+    edgesByType.set(key, edge);
+  }
   const coverage = document.relationship_outcomes
     .map(outcome => outcome.coverage)
     .reduce(
@@ -368,92 +456,194 @@ export function renderTypeRelations(
         unavailable: 0,
         limited: 0,
       });
-  const relationshipIsPartial = document.terminal.is_complete === false
-    || coverage.unavailable > 0
-    || coverage.limited > 0;
-  const incompleteColors = document.color_outcomes.filter(
-    outcome =>
-      outcome.coverage.unavailable > 0
-      || outcome.coverage.limited > 0);
-  const colorIsPartial = incompleteColors.length > 0;
-  const colorTargets = colorsBySubject.size;
-  const colorSummary = document.color_outcomes.map(outcome => {
-    const label = outcome.family === "member.requires-unreferenced-code"
-      ? "RUC"
-      : outcome.family === "member.requires-dynamic-code"
-        ? "RDC"
-        : outcome.family === "member.requires-assembly-files"
-          ? "RAF"
-          : outcome.family;
-    return `<span title="${escapeHtml(outcome.family)}">`
-      + `${escapeHtml(label)} ${colorCounts.get(outcome.family) ?? 0}</span>`;
+  return {
+    document,
+    subjects,
+    edges: [...edgesByType.values()].sort((left, right) =>
+      typeName(left.targetType).localeCompare(typeName(right.targetType))),
+    occurrenceCounts,
+    colorsBySubject,
+    relationshipIsPartial: document.terminal.is_complete === false
+      || coverage.unavailable > 0
+      || coverage.limited > 0,
+  };
+}
+
+function typeName(
+  type: CanonicalSubject["subject"]["member"]["member"]["declaring_type"],
+): string {
+  return `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
+}
+
+function typeIdentityKey(
+  type: CanonicalSubject["subject"]["member"]["member"]["declaring_type"],
+): string {
+  const { origin } = type.resolution;
+  return JSON.stringify([
+    origin.kind,
+    origin.assembly?.name ?? null,
+    origin.assembly?.version ?? null,
+    origin.assembly?.public_key_token ?? null,
+    origin.module_name ?? null,
+    type.resolution.type.namespace,
+    type.resolution.type.segments,
+  ]);
+}
+
+function memberName(subject: CanonicalSubject): string {
+  const member = subject.subject.member.member;
+  const parameters = member.parameter_types?.map(parameter =>
+    parameter.name).join(", ");
+  return parameters === undefined
+    ? member.name
+    : `${member.name}(${parameters})`;
+}
+
+function colorLabel(color: string): string {
+  return color === "member.requires-unreferenced-code"
+    ? "RUC"
+    : color === "member.requires-dynamic-code"
+      ? "RDC"
+      : color === "member.requires-assembly-files"
+        ? "RAF"
+        : color;
+}
+
+function currentProjection(
+  options: RenderTypeRelationsOptions,
+): RelationsProjection | null {
+  const { signature, state } = options;
+  return state.signature === signature
+    ? projectRelations(state.result)
+    : null;
+}
+
+export function renderTypeRelationsSummary(
+  options: RenderTypeRelationsOptions,
+): string {
+  const { signature, state } = options;
+  const fresh = state.signature === signature;
+  if (!fresh) {
+    return "<button type=\"button\" data-inspect-type-relations>Inspect call graph</button>";
+  }
+  if (state.loading) {
+    return '<button type="button" disabled><span class="loader"></span> Inspecting calls…</button>';
+  }
+  const projection = currentProjection(options);
+  if (!projection)
+    return "<button type=\"button\" data-inspect-type-relations>Retry call graph</button>";
+  const count = projection.edges.length;
+  return `<button type="button" data-type-call-graph>${
+    count.toLocaleString()
+  }${projection.relationshipIsPartial ? "+" : ""} called type${
+    count === 1 ? "" : "s"
+  }</button>`;
+}
+
+export function renderTypeRelations(
+  options: RenderTypeRelationsOptions,
+): string {
+  const {
+    signature, state, focusTypeName, escapeHtml,
+  } = options;
+  if (state.signature !== signature || (!state.loading && !state.result
+    && !state.error)) return "";
+  if (state.loading) {
+    return section(`
+      <div class="source-progress">
+        <span class="loader"></span>
+        <p>Building the Type call graph from focused binary evidence…</p>
+      </div>`);
+  }
+  if (state.error) return failure(state.error, escapeHtml);
+  const result = state.result;
+  if (result?.outcome !== "Available" || !result.inspection) {
+    return failure(
+      result?.reason
+        ?? `Inspection ${String(result?.outcome ?? "failed").toLowerCase()}.`,
+      escapeHtml);
+  }
+  const projection = currentProjection(options);
+  if (!projection) {
+    return failure(
+      "The relation document did not match its canonical wire shape.",
+      escapeHtml);
+  }
+  const {
+    document, subjects, edges, occurrenceCounts, colorsBySubject,
+    relationshipIsPartial,
+  } = projection;
+  const edgeHtml = edges.map(edge => {
+    const sourceGroups = new Map<number, CanonicalRelation[]>();
+    for (const relation of edge.relations) {
+      const group = sourceGroups.get(relation.source_subject_id) ?? [];
+      group.push(relation);
+      sourceGroups.set(relation.source_subject_id, group);
+    }
+    const members = [...sourceGroups.entries()].map(([sourceId, relations]) => {
+      const source = subjects.get(sourceId);
+      const rows = relations.map(relation => {
+        const target = subjects.get(relation.target_subject_id);
+        if (!target) return "";
+        const sites = occurrenceCounts.get(relation.id) ?? 0;
+        const colors = colorsBySubject.get(relation.target_subject_id) ?? [];
+        return `<li>
+          <code>${escapeHtml(memberName(target))}</code>
+          <span>${sites} site${sites === 1 ? "" : "s"}</span>
+          ${colors.length
+            ? `<small>${colors.map(color =>
+                `<abbr title="${escapeHtml(color)}">${escapeHtml(colorLabel(color))}</abbr>`)
+                .join("")}</small>`
+            : ""}
+        </li>`;
+      }).join("");
+      return `<div class="type-call-member-group">
+        <h4>${escapeHtml(source ? memberName(source) : `Member ${sourceId}`)}</h4>
+        <ul>${rows}</ul>
+      </div>`;
+    }).join("");
+    const colorCount = new Set(edge.relations.flatMap(relation =>
+      colorsBySubject.get(relation.target_subject_id) ?? [])).size;
+    return `<details class="type-call-edge">
+      <summary>
+        <span class="type-call-edge-line"><strong>${edge.relations.length}</strong> member edge${edge.relations.length === 1 ? "" : "s"}</span>
+        <span class="type-call-target-node">
+          <strong>${escapeHtml(typeName(edge.targetType))}</strong>
+          <small>${colorCount
+            ? `${colorCount} compatibility signal${colorCount === 1 ? "" : "s"}`
+            : "called Type"}</small>
+        </span>
+      </summary>
+      <div class="type-call-edge-detail">
+        <h3>${escapeHtml(focusTypeName)} → ${escapeHtml(typeName(edge.targetType))}</h3>
+        ${members}
+      </div>
+    </details>`;
   }).join("");
-  const colorCoverage = document.color_outcomes.reduce(
-    (total, outcome) => ({
-      considered: total.considered + outcome.coverage.considered,
-      examined: total.examined + outcome.coverage.examined,
-    }),
-    { considered: 0, examined: 0 },
-  );
-  const count = document.terminal.value ?? document.relations.length;
   return section(`
     <div class="section-title">
-      <h2>Outgoing calls</h2>
-      <span>${count} logical · ${document.occurrences.length} physical</span>
+      <h2 id="type-call-graph-title" tabindex="-1">Type call graph</h2>
+      <span>${edges.length} called type${edges.length === 1 ? "" : "s"} · ${document.relations.length} member edge${document.relations.length === 1 ? "" : "s"}</span>
     </div>
-    <div class="type-relations-signals" role="list" aria-label="Outgoing call signals">
-      <div class="type-relations-signal type-relations-signal-calls" role="listitem">
-        <span class="type-relations-signal-icon" aria-hidden="true"></span>
-        <span class="type-relations-signal-body">
-          <strong>${count}</strong>
-          <span>logical calls</span>
-          <small>distinct caller → callee edges</small>
-        </span>
-      </div>
-      <div class="type-relations-signal type-relations-signal-sites" role="listitem">
-        <span class="type-relations-signal-icon" aria-hidden="true"></span>
-        <span class="type-relations-signal-body">
-          <strong>${document.occurrences.length}</strong>
-          <span>physical sites</span>
-          <small>observed IL call sites</small>
-        </span>
-      </div>
-      <div class="type-relations-signal type-relations-signal-evidence ${
-        relationshipIsPartial ? "is-partial" : "is-complete"
-      }" role="listitem">
-        <span class="type-relations-signal-icon" aria-hidden="true"></span>
-        <span class="type-relations-signal-body">
-          <strong>${relationshipIsPartial ? "Partial" : "Complete"}</strong>
-          <span>call evidence</span>
-          <small>${coverage.examined} of ${coverage.considered} candidates examined</small>
-        </span>
-      </div>
-      <div class="type-relations-signal type-relations-signal-colors ${
-        colorIsPartial ? "is-partial" : "is-complete"
-      }" role="listitem">
-        <span class="type-relations-signal-icon" aria-hidden="true"></span>
-        <span class="type-relations-signal-body">
-          <strong>${colorTargets}</strong>
-          <span>compatibility target${colorTargets === 1 ? "" : "s"}</span>
-          <small>${colorIsPartial ? "Partial" : "Complete"} · ${colorCoverage.examined} of ${colorCoverage.considered} checks</small>
-          <span class="type-relations-color-summary">${colorSummary}</span>
-        </span>
-      </div>
-    </div>
-    ${rows
-      ? `<ol class="type-relations-list">${rows}</ol>`
-      : relationshipIsPartial
-        ? "<p>No outgoing calls were resolved from the available evidence.</p>"
-        : "<p>No outgoing calls found.</p>"}
-    ${document.relations.length > visible.length
-      ? `<p>Showing ${visible.length} of ${document.relations.length} relations.</p>`
+    ${relationshipIsPartial
+      ? `<div class="metadata-warning"><strong>Partial call evidence</strong><p>Counts are observed lower bounds; unresolved calls may add Type or member edges.</p></div>`
       : ""}
+    ${edgeHtml
+      ? `<div class="type-call-graph" aria-labelledby="type-call-graph-title">
+          <div class="type-call-source-node">
+            <strong>${escapeHtml(focusTypeName)}</strong>
+            <small>selected Type</small>
+          </div>
+          <div class="type-call-edges">${edgeHtml}</div>
+        </div>`
+      : relationshipIsPartial
+        ? "<p>No called Types were resolved from the available evidence.</p>"
+        : "<p>No outgoing Type edges found.</p>"}
     <button type="button" class="tiny-button" data-inspect-type-relations>Refresh</button>`);
 }
 
 function section(content: string): string {
-  return `<section class="document-section type-relations-section">
-    <div class="section-title"><h2>Annotated Type Relations</h2><span>focused binary evidence</span></div>
+  return `<section class="document-section type-relations-section" data-type-call-graph-surface>
     ${content}
   </section>`;
 }
@@ -464,8 +654,8 @@ function failure(
 ): string {
   return section(`
     <div class="metadata-warning" role="alert">
-      <strong>Outgoing calls unavailable</strong>
+      <strong>Type call graph unavailable</strong>
       <p>${escapeHtml(reason)}</p>
     </div>
-    <button type="button" data-inspect-type-relations>Retry</button>`);
+    <button type="button" data-inspect-type-relations>Retry call graph</button>`);
 }

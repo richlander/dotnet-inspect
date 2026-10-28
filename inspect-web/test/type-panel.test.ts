@@ -1652,6 +1652,8 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
       <div class="composition-filters">
         <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
       </div>`,
+    relationsSummaryHtml:
+      '<button type="button" data-type-call-graph>5 called types</button>',
     escapeHtml,
     relatedTypeChip: (name, occurrence) =>
       `<button data-graph-type="${escapeHtml(name)}"${
@@ -1672,6 +1674,10 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
     html,
     /<h1 id="type-overview-title">Overview<\/h1>[\s\S]*Type metadata[\s\S]*data-overview-badge="class"[\s\S]*data-overview-badge="public"/);
   assert.match(html, /data-type-members>12 members<\/button>/);
+  assert.match(html, /data-type-call-graph>5 called types<\/button>/);
+  assert.match(
+    html,
+    /data-type-members>12 members<\/button>[\s\S]*data-type-call-graph>5 called types<\/button>[\s\S]*Type shape/);
   assert.match(
     html,
     /Type shape[\s\S]*<dl><div><dt>Kind<\/dt><dd>class<\/dd>/);
