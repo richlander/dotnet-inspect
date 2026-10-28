@@ -381,7 +381,7 @@ public static class NavigationLensRecommendation
             StructuralSubjectIdentity.LibrarySubject =>
                 ViewFacetRole.LibraryTypes,
             StructuralSubjectIdentity.TypeSubject =>
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
             StructuralSubjectIdentity.MemberSubject =>
                 ViewFacetRole.MemberOverview,
             _ => throw new InvalidOperationException(

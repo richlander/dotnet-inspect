@@ -372,6 +372,7 @@ export interface TypePanelBindingActions {
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
   onTypeLeverageRetry: () => void;
+  onTypeMembersOpen: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
@@ -430,6 +431,9 @@ export function bindTypePanel(
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
+  root.querySelector("[data-type-members]")?.addEventListener(
+    "click",
+    actions.onTypeMembersOpen);
   root.querySelector("[data-type-nav-back]")?.addEventListener(
     "click",
     actions.onTypeNavBack);
@@ -1009,6 +1013,7 @@ export interface RenderTypeMetadataOptions {
   packageContext: TypePanelPackageContext;
   libraryIdentity?: string;
   workspaceIdentity?: string;
+  metadataAvailable?: boolean;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
@@ -1021,7 +1026,8 @@ export interface RenderTypeMetadataOptions {
 
 export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const {
-    item, packageContext, libraryIdentity, workspaceIdentity, metadataState,
+    item, packageContext, libraryIdentity, workspaceIdentity,
+    metadataAvailable = true, metadataState,
     memberCompositionHtml,
     escapeHtml, relatedTypeChip, factRows,
   } = options;
@@ -1046,25 +1052,50 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const renderSurface = (content: string) => {
     const exactUnavailable =
       exactEnvelope && !exactEnvelope.content.isAvailable;
-    const kind = [
-      ...exactModifiers,
-      exactUnavailable ? "exact Type" : exact?.kind || item.kind,
-    ].filter(part => part.length > 0).join(" ");
     const accessibility =
       exactUnavailable
         ? "unavailable"
         : exact?.accessibility || item.accessibility || "public";
+    const retainedKindParts = item.kind.split(/\s+/).filter(Boolean);
+    const retainedKind = retainedKindParts.at(-1) ?? item.kind;
+    const retainedModifiers = retainedKindParts.slice(0, -1);
+    const metadataBadges = [
+      exactUnavailable ? "exact Type" : exact?.kind || retainedKind,
+      ...(exact ? exactModifiers : retainedModifiers),
+      accessibility,
+    ];
+    const badges = metadataBadges.map(badge =>
+      `<li data-overview-badge="${escapeHtml(badge)}">${escapeHtml(badge)}</li>`)
+      .join("");
     return `
-      <section class="metadata-surface" aria-labelledby="metadata-surface-title">
+      <section class="metadata-surface type-overview-surface" aria-labelledby="type-overview-title">
         <header class="metadata-surface-head">
-          <h1 id="metadata-surface-title">Metadata</h1>
-          <p>${escapeHtml(kind)} <span>· ${escapeHtml(accessibility)}</span></p>
+          <h1 id="type-overview-title">Overview</h1>
+          <p>${escapeHtml(item.displayName ?? item.name)}</p>
         </header>
         <div class="metadata-surface-scroll">
+          <section class="subject-overview-summary" aria-label="Type summary">
+            <div class="subject-overview-summary-group type-overview-metadata">
+              <span class="subject-overview-summary-label">Type metadata</span>
+              <ul aria-label="Type metadata">${badges}</ul>
+            </div>
+            <div class="subject-overview-summary-group type-overview-navigation">
+              <span class="subject-overview-summary-label">Navigate</span>
+              <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
+            </div>
+          </section>
           ${content}
         </div>
       </section>`;
   };
+  if (!metadataAvailable) {
+    return renderSurface(`
+      <section class="document-section metadata-surface-state empty-document" data-type-graph-surface>
+        <span class="large-glyph">⌁</span>
+        <h2>Type shape is unavailable</h2>
+        <p>Exact metadata projection is unavailable for this inspection.</p>
+      </section>`);
+  }
   if (metadataState.typeMetadataLoading && fresh) {
     return renderSurface(`<section class="document-section metadata-surface-state source-progress" data-type-graph-surface><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`);
   }
