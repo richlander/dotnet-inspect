@@ -74,6 +74,30 @@ public class ExactTypeInfoTsvPresentationTests
     }
 
     [Fact]
+    public void Write_ContainsTsvDelimitersInLibraryValue()
+    {
+        TypeSignature signature =
+            Signature(typeof(@class));
+        var document = new ExactTypeInfoTsvDocument(
+            signature,
+            "class",
+            [],
+            "bad\tpath\nExample.dll",
+            "Library");
+        var output = new ArrayBufferWriter<byte>();
+
+        ExactTypeInfoTsvPresentation.Write(
+            output,
+            document,
+            showHeader: false);
+
+        Assert.Contains(
+            "Library\tbad\\^Ipath\\^JExample.dll\n",
+            Encoding.UTF8.GetString(output.WrittenSpan),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Write_SpellsGenericParametersBySegment()
     {
         TypeSignature signature =

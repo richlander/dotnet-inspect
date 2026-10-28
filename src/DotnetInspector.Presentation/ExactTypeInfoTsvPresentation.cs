@@ -5,6 +5,7 @@ using System.Text;
 
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using InertText;
 
 namespace DotnetInspector.Presentation;
 
@@ -644,7 +645,11 @@ public static class ExactTypeInfoTsvPresentation
     {
         WriteBytes(output, label);
         WriteByte(output, (byte)'\t');
-        WriteString(output, value);
+        WriteString(
+            output,
+            new InertString(
+                TextPolicy.Field,
+                value).ToString());
         WriteByte(output, (byte)'\n');
     }
 

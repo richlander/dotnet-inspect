@@ -1306,6 +1306,67 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task
+        Type_DirectLibraryExactType_ContainsLibraryPathTsvDelimiters()
+    {
+        Assert.SkipWhen(
+            OperatingSystem.IsWindows(),
+            "Windows filenames cannot contain TSV control delimiters.");
+        string assemblyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"Type\tInfo\n{Guid.NewGuid():N}.dll");
+        File.Copy(
+            typeof(CommandExecutionTests).Assembly.Location,
+            assemblyPath);
+        try
+        {
+            var bytes = new ArrayBufferWriter<byte>();
+
+            var (exit, output, error) =
+                await ConsoleCapture.RunAsync(async () =>
+                {
+                    using IDisposable redirect =
+                        Utf8StandardOutput.Redirect(payload =>
+                        {
+                            payload.Span.CopyTo(
+                                bytes.GetSpan(payload.Length));
+                            bytes.Advance(payload.Length);
+                        });
+                    return await InvokeAppAsync(
+                        [
+                            "type",
+                            "DotnetInspect.Cli.Tests.CommandExecutionTests",
+                            "--library",
+                            assemblyPath,
+                            "-S",
+                            SectionNames.TypeInfo,
+                            "--tsv",
+                        ]);
+                });
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            string written =
+                Encoding.UTF8.GetString(bytes.WrittenSpan);
+            Assert.Contains(
+                $"Library\t{assemblyPath
+                    .Replace("\t", "\\^I", StringComparison.Ordinal)
+                    .Replace("\n", "\\^J", StringComparison.Ordinal)}\n",
+                written,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                assemblyPath,
+                written,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+        }
+    }
+
     [Theory]
     [InlineData(
         "System.String",
