@@ -236,6 +236,32 @@ public sealed class ApiTypeClosureHashTests
         AssertDifferentHash(first, second, "C");
     }
 
+    [Theory]
+    [InlineData("enum-default", "public enum E { A = 1 } public class C { public void M(E e = E.A) { } }", "public enum E { B = 1 } public class C { public void M(E e = E.B) { } }")]
+    [InlineData("interface-admission", "internal interface I { void M(); } public class C : I { void I.M() { } }", "public interface I { void M(); } public class C : I { void I.M() { } }")]
+    public void StrategyComparison_CrossTypeDependencies(string scenario, string oldSource, string newSource)
+    {
+        byte[] oldImage = Compile(oldSource);
+        byte[] newImage = Compile(newSource);
+        using var before = new PEReader(new MemoryStream(oldImage));
+        using var after = new PEReader(new MemoryStream(newImage));
+        var full = MetadataFindings.CompareApi(
+            ApiSurfaceExtractor.ExtractDeclarations(before, ApiSurfaceExtractionScope.ApiAxis),
+            ApiSurfaceExtractor.ExtractDeclarations(after, ApiSurfaceExtractionScope.ApiAxis),
+            Subject, new ApiDiffOptions(ApiDiffScope.All));
+        bool oracle = FindingDiffAnyTests.ChangedTypes(full).Contains("C");
+        var census = Assert.Single(FindingDiffAny.Compare(before, after, axes: FindingDiffAnyAxes.Api, cancellationToken: TestContext.Current.CancellationToken).Types, t => t.FullName == "C").Api;
+        var oldHash = new ApiTypeClosureHash(before.GetMetadataReader());
+        var newHash = new ApiTypeClosureHash(after.GetMetadataReader());
+        bool hashEqual = oldHash.Context() == newHash.Context()
+            && oldHash.Type(Definition(before.GetMetadataReader(), "C"), ApiSurfaceExtractionScope.ApiAxis)
+                == newHash.Type(Definition(after.GetMetadataReader(), "C"), ApiSurfaceExtractionScope.ApiAxis);
+        TestContext.Current.TestOutputHelper!.WriteLine($"{scenario}: completeChanged={oracle}, census={census}, hashEqual={hashEqual}");
+        Assert.True(oracle);
+        Assert.False(hashEqual);
+        Assert.Equal(FindingDiffAnyState.Unchanged, census); // Diagnostic: records the existing census miss.
+    }
+
     static readonly ApiSurfaceExtractionScope[] Views =
         [ApiSurfaceExtractionScope.ApiAxis, ApiSurfaceExtractionScope.IncludeAll];
 

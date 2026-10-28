@@ -47,7 +47,7 @@ public static partial class FindingDiffAny
     // The censuses are sorted by serialized key. Compare the kind and first
     // subject part before the payload: a row present on one side differs from
     // two versions of the same row whose flags alone changed. No key detaches.
-    static bool HasPresentedApiDifference(Side a, List<SymbolKeySlot> before, Side b, List<SymbolKeySlot> after)
+    internal static bool HasPresentedApiDifference(Side a, List<SymbolKeySlot> before, Side b, List<SymbolKeySlot> after)
     {
         int i = 0, j = 0;
         while (i < before.Count && j < after.Count)

@@ -210,7 +210,7 @@ public static partial class FindingDiffAny
 
     // Each side's census is staged in its transient builder; the slots compare
     // through those builders, as the staged keys they name would.
-    static bool CensusesEqual(Side a, List<SymbolKeySlot> censusA, Side b, List<SymbolKeySlot> censusB)
+    internal static bool CensusesEqual(Side a, List<SymbolKeySlot> censusA, Side b, List<SymbolKeySlot> censusB)
         => a.Transient.SequenceEqual(CollectionsMarshal.AsSpan(censusA), b.Transient, CollectionsMarshal.AsSpan(censusB));
 
     static string? FirstDifference(
