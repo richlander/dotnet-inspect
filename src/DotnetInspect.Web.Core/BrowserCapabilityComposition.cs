@@ -11,19 +11,22 @@ internal sealed record BrowserCapabilityContribution(
 /// <summary>Composes the providers selected by host configuration.</summary>
 internal static class BrowserCapabilityComposition
 {
-    private static ImmutableArray<Func<BrowserCapabilityContribution>> _providers;
+    private static Lazy<(InspectionCapabilityCatalog Catalog,
+        ResourceExplanationCatalog Explanation)>? _composition;
 
     internal static void Configure(
         ImmutableArray<Func<BrowserCapabilityContribution>> providers) =>
-        _providers = providers;
+        _composition = new(() => CreateSearchComposition(providers));
 
     internal static (InspectionCapabilityCatalog Catalog, ResourceExplanationCatalog Explanation)
-        CreateSearchComposition()
+        CreateSearchComposition() => _composition?.Value
+            ?? throw new InvalidOperationException("Browser capability composition is not configured.");
+
+    private static (InspectionCapabilityCatalog Catalog, ResourceExplanationCatalog Explanation)
+        CreateSearchComposition(ImmutableArray<Func<BrowserCapabilityContribution>> providers)
     {
-        if (_providers.IsDefault)
-            throw new InvalidOperationException("Browser capability composition is not configured.");
         BrowserCapabilityContribution[] contributions =
-            [.. _providers.Select(static provider => provider())];
+            [.. providers.Select(static provider => provider())];
         InspectionCapabilityCatalog catalog = InspectionCapabilityCatalog.Create(
             contributions.SelectMany(static contribution => contribution.Catalog.Modules));
         return (catalog, ResourceExplanationCatalog.CreateCapabilities(catalog,

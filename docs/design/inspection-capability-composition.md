@@ -496,7 +496,11 @@ existing configuration path. Metadata owns the Compare binding and its
 producer availability; Core's existing dependency ceiling excludes Research
 Sections. The host installs one immutable provider list before readiness,
 without evaluating the providers. Search evaluates that list explicitly;
-ordinary requests retain their bounded catalogs. This is host configuration,
+ordinary requests retain their bounded catalogs. The configured contribution
+list is immutable, so its composed catalog and explanation snapshots are
+materialized lazily once per host configuration and reused by subsequent
+searches. Reconfiguration replaces that metadata snapshot. The snapshot owns
+only resource-free declarations, never inspection content or borrowed state. This is host configuration,
 not mutable per-resource registration or cross-facade dependency. Search projects the shared Analysis identities,
 paths, and bindings; Spotlight selects the existing Compare surface. This
 adds no inspector layout or analysis support. Body-signal and retained

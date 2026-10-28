@@ -22,7 +22,7 @@ export type AuthoredDocumentationRejectionReason = "OperationEvidenceMismatch" |
 
 export type AuthoredDocumentationUnavailableReason = "OperationUnavailable" | "SourceUnavailable" | "DeclarationNotFound" | number;
 
-export type BrowserCapabilityCatalogSearchMatchSource = "CanonicalKey" | "OwnerIdentity" | "ExampleValue" | "ResourcePath" | "ResourceName" | "Summary" | "RelatedRoute" | "ProductionBinding" | number;
+export type BrowserCapabilityCatalogSearchMatchSource = "CanonicalKey" | "OwnerIdentity" | "ExampleValue" | "ResourcePath" | "ResourceName" | "Summary" | "RelatedRoute" | "ProductionBinding" | "IssuedFinding" | number;
 
 export type BrowserCapabilityCatalogSearchResourceKind = "InspectionDocument" | "HostNeutralRoute" | "QuerySpace" | "QueryFacet" | "ConsumerBinding" | "Analysis" | number;
 

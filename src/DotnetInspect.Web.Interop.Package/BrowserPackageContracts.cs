@@ -913,6 +913,7 @@ public enum BrowserCapabilityCatalogSearchMatchSource
     Summary,
     RelatedRoute,
     ProductionBinding,
+    IssuedFinding,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityResourceKind>))]

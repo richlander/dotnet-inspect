@@ -48,7 +48,34 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
             Assert.Equal(0, evaluations);
             PackageExports.SearchCapabilities("literal", 1);
             Assert.Equal(1, evaluations);
+            var first = BrowserCapabilityComposition.CreateSearchComposition();
+            PackageExports.SearchCapabilities("depends", 1);
+            var second = BrowserCapabilityComposition.CreateSearchComposition();
+            Assert.Equal(1, evaluations);
+            Assert.Same(first.Catalog, second.Catalog);
+            Assert.Same(first.Explanation, second.Explanation);
             Assert.Equal(0, _requests);
+        }
+        finally
+        {
+            InspectionEngine.InitializeCapabilityComposition();
+        }
+    }
+
+    [Fact]
+    public void HostReconfigurationReplacesTheMetadataSnapshot()
+    {
+        try
+        {
+            BrowserCapabilityComposition.Configure(
+                [BrowserCapabilityComposition.CreatePackageQueryContribution]);
+            var first = BrowserCapabilityComposition.CreateSearchComposition();
+            Assert.Single(first.Catalog.Routes);
+            InspectionEngine.InitializeCapabilityComposition();
+            var second = BrowserCapabilityComposition.CreateSearchComposition();
+            Assert.Equal(2, second.Catalog.Routes.Length);
+            Assert.NotSame(first.Catalog, second.Catalog);
+            Assert.NotSame(first.Explanation, second.Explanation);
         }
         finally
         {
@@ -88,6 +115,18 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
         Assert.Equal("Browser", binding.GetProperty("consumerKind").GetString());
         Assert.Equal("diff-analysis/routes/compare", Assert.Single(
             result.GetProperty("owningRoutes").EnumerateArray()).GetProperty("resourcePath").GetString());
+    }
+
+    [Fact]
+    public void SearchExportPreservesIssuedFindingProvenance()
+    {
+        using JsonDocument json = JsonDocument.Parse(PackageExports.SearchCapabilities("member", 100));
+        JsonElement result = Assert.Single(json.RootElement.GetProperty("content").GetProperty("results")
+            .EnumerateArray(), candidate =>
+                candidate.GetProperty("resourceIdentity").GetProperty("kind").GetString() == "Analysis"
+                && candidate.GetProperty("resourceIdentity").GetProperty("identity").GetString() == "api");
+        Assert.Equal("IssuedFinding", result.GetProperty("matchSource").GetString());
+        Assert.Equal(0, _requests);
     }
 
     [Fact]

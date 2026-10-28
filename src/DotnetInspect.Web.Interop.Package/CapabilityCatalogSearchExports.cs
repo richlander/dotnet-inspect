@@ -105,6 +105,8 @@ public static partial class PackageExports
                     BrowserCapabilityCatalogSearchMatchSource.ResourcePath,
                 CapabilityCatalogSearchMatchSource.ResourceName =>
                     BrowserCapabilityCatalogSearchMatchSource.ResourceName,
+                CapabilityCatalogSearchMatchSource.IssuedFinding =>
+                    BrowserCapabilityCatalogSearchMatchSource.IssuedFinding,
                 CapabilityCatalogSearchMatchSource.Summary =>
                     BrowserCapabilityCatalogSearchMatchSource.Summary,
                 CapabilityCatalogSearchMatchSource.RelatedRoute =>
