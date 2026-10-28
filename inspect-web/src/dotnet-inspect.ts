@@ -13932,6 +13932,7 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip,
     factRows,
   });
