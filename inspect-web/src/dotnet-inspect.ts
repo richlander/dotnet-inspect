@@ -639,6 +639,7 @@ import {
   type ManagedTypeResult,
   spotlightAllScopeLimit,
   spotlightCapabilityDraftValue,
+  spotlightCapabilityDestination,
   type RemovableSpotlightResult,
   type SpotlightCapabilityResult,
   type SpotlightPackageResult,
@@ -17450,16 +17451,51 @@ async function switchPackageRuntimeIdentifier(
 
 
 // Routes a blended result to the right navigation path per its kind.
-const PACKAGE_QUERY_BROWSER_BINDING_IDENTITY =
-  "dotnet-inspect.web/package-query";
-
 function openSpotlightCapability(result: SpotlightCapabilityResult): void {
   const { capability } = result;
-  const binding = capability.productionBindings.find(candidate =>
-    candidate.consumerKind === "Browser"
-    && candidate.identity === PACKAGE_QUERY_BROWSER_BINDING_IDENTITY);
-  if (!binding) {
+  const destination = spotlightCapabilityDestination(capability);
+  if (!destination) {
     showToast("This capability has no available Browser destination.");
+    return;
+  }
+  if (destination === "compare") {
+    const pkg = state.package;
+    const library = selectedLibrary();
+    if (!pkg || !library || !compareAvailableFor(pkg)
+      || state.home || state.atPackageRoot || state.packageQueryOpen
+      || aggregateLibrarySubjectIsActive()) {
+      showToast("Select an exact package Library, Type, or Member to open Compare.");
+      return;
+    }
+    const type = selectedType();
+    const analysis = capability.resourceKind === "Analysis"
+      ? capability.canonicalKeys[0] : null;
+    if (analysis === "api-attribute"
+      && (state.atLibraryRoot || !type)) {
+      showToast("Select a Type to compare API attributes.");
+      return;
+    }
+    packageComparisonTargets.selectMode(pkg, "diff");
+    if (analysis === "string-literals") {
+      packageComparisonTargets.selectDiffContent(
+        pkg, { kind: "string-literals", operator: "contains", value: "" });
+      if (selectLibrarySubject(library.id)) selectLibraryLens("compare");
+    } else {
+      packageComparisonTargets.selectDiffContent(pkg, { kind: "api" });
+      if (analysis === "api-attribute" && type) {
+        enterTypeSubject(type);
+        state.selectedMemberKey = "";
+        state.memberBrowseTypeId = "";
+        resetMemberFilters();
+        state.lens = "compare";
+        render();
+      } else if (state.atLibraryRoot) {
+        if (state.libraryLens === "compare") render();
+        else selectLibraryLens("compare");
+      }
+      else if (scope() === "member") applyMemberSection("compare");
+      else { state.lens = "compare"; render(); }
+    }
     return;
   }
   if (!openPackageQueryRoute("")) return;

@@ -73,6 +73,17 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_OwnsSharedWorkspaceState`, and
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
+Web Core also owns the Browser's capability composition. Package Query and
+Compare provide bindings to shared registered resources; Spotlight search
+reads their combined graph and follows the binding to the existing inspector.
+Compare exposes API, API-attribute, and string-literal analyses; its existing
+body-based unavailability remains visible. Package Query preparation and
+Compare execution retain separate bounded catalogs, so ordinary requests do
+not initialize the other capability family. Browser installs no structural
+view bindings yet, so structural sections and categories remain excluded.
+See [Browser binding admission](../docs/design/inspection-capability-composition.md#browser-binding-admission)
+and [#10786](https://github.com/richlander/dotnet-inspect/issues/10786).
+
 This boundary is enforced by the compiler, not by a convention.
 The `inspect-web-executable-stays-at-host-boundary` dependency-policy rule
 allows `DotnetInspect.Web` to reference only the .NET platform,

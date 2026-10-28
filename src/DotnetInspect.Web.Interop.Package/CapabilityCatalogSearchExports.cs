@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Sections;
+using DotnetInspect.Web;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -12,20 +13,15 @@ internal static class BrowserCapabilityCatalogSearch
         string text,
         int maximumResults)
     {
-        InspectionCapabilityCatalog catalog = CreateCatalog();
+        InspectionCapabilityCatalog catalog = BrowserCapabilityComposition.CreateCatalog();
         ResourceExplanationCatalog explanation =
-            ResourceExplanationCatalog.CreateCapabilities(
-                catalog,
-                PackageQueryCapabilityResourcePaths.Create(catalog));
+            BrowserCapabilityComposition.CreateExplanation(catalog);
         return CapabilityCatalogSearch.Search(
             catalog,
             explanation,
             new(text, maximumResults));
     }
 
-    internal static InspectionCapabilityCatalog CreateCatalog() =>
-        InspectionCapabilityCatalog.Create(
-            [PackageQueryCapability.ProductModule, PackageQueryCapabilityBinding.Module]);
 }
 
 [SupportedOSPlatform("browser")]
@@ -82,8 +78,8 @@ public static partial class PackageExports
                 "Unknown capability-search Share outcome."),
         };
 
-    // The Browser admits no structural catalog yet, so every result it
-    // projects carries a composed capability identity.
+    // Browser structural views are not registered yet; every current result
+    // carries the shared capability identity, including registered analyses.
     private static BrowserCapabilityCatalogSearchResult Project(
         CapabilityCatalogSearchResult result) =>
         Project(
@@ -132,6 +128,8 @@ public static partial class PackageExports
                         BrowserCapabilityResourceKind.QuerySpace,
                     InspectionCapabilityResourceKind.QueryFacet =>
                         BrowserCapabilityResourceKind.QueryFacet,
+                    InspectionCapabilityResourceKind.Analysis =>
+                        BrowserCapabilityResourceKind.Analysis,
                     InspectionCapabilityResourceKind.ConsumerBinding =>
                         BrowserCapabilityResourceKind.ConsumerBinding,
                     _ => throw new InvalidOperationException(
@@ -151,6 +149,8 @@ public static partial class PackageExports
                     BrowserCapabilityCatalogSearchResourceKind.QuerySpace,
                 CapabilityCatalogSearchResourceKind.QueryFacet =>
                     BrowserCapabilityCatalogSearchResourceKind.QueryFacet,
+                CapabilityCatalogSearchResourceKind.Analysis =>
+                    BrowserCapabilityCatalogSearchResourceKind.Analysis,
                 CapabilityCatalogSearchResourceKind.ConsumerBinding =>
                     BrowserCapabilityCatalogSearchResourceKind
                         .ConsumerBinding,

@@ -51,7 +51,7 @@ public sealed class BrowserPackageQueryExplanationTests : IDisposable
     public void NarrowedDirectAndHalResponsesEqualTheSharedSelection()
     {
         string[] keys = ["depends", "dependency-target"];
-        var installed = BrowserCapabilityCatalogSearch.CreateCatalog();
+        var installed = BrowserCapabilityComposition.CreatePackageQueryCatalog();
         var catalog = ResourceExplanationCatalog.CreateCapabilities(installed,
             PackageQueryCapabilityResourcePaths.Create(installed));
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(catalog.Resolve("package-query/query"));
@@ -69,8 +69,8 @@ public sealed class BrowserPackageQueryExplanationTests : IDisposable
     public void FullAndFacetEntrancesUseTheSharedDataset()
     {
         ResourceExplanationCatalog catalog = ResourceExplanationCatalog.CreateCapabilities(
-            BrowserCapabilityCatalogSearch.CreateCatalog(),
-            PackageQueryCapabilityResourcePaths.Create(BrowserCapabilityCatalogSearch.CreateCatalog()));
+            BrowserCapabilityComposition.CreatePackageQueryCatalog(),
+            PackageQueryCapabilityResourcePaths.Create(BrowserCapabilityComposition.CreatePackageQueryCatalog()));
         foreach (string path in new[] { "package-query/query", "package-query/query/facets/library-literal" })
         {
             var resolved = Assert.IsType<ResourcePathResolution.Resolved>(catalog.Resolve(path));

@@ -923,6 +923,7 @@ public enum BrowserCapabilityResourceKind
     QuerySpace,
     QueryFacet,
     ConsumerBinding,
+    Analysis,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityCatalogSearchResourceKind>))]
@@ -933,6 +934,7 @@ public enum BrowserCapabilityCatalogSearchResourceKind
     QuerySpace,
     QueryFacet,
     ConsumerBinding,
+    Analysis,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionConsumerKind>))]

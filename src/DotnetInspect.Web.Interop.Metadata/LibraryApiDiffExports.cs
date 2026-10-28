@@ -22,8 +22,7 @@ public static partial class MetadataExports
     static readonly BrowserManagedOperationBridge LibraryApiDiffOperations =
         new();
     static readonly InspectionCapabilityCatalog DiffAnalysisCapabilities =
-        InspectionCapabilityCatalog.Create(
-            [DiffAnalysisCatalog.ProductModule]);
+        BrowserCapabilityComposition.CreateCompareCatalog();
 
     [JSExport]
     public static string CancelLibraryApiDiff(
@@ -488,8 +487,7 @@ public static partial class MetadataExports
             .Where(analysis =>
                 analysis.ParticipationFor(AnalysisOperationKind.Compare)
                     ?.For(selection.Surface)?.ProducerRoute is { } route
-                && (route == DiffAnalysisCatalog.BodySignalRoute
-                    || route == DiffAnalysisCatalog.RetainedResearchRoute))
+                && !BrowserCompareCapabilityBinding.IsProducerAvailable(route))
             .Select(analysis => new DiffAnalysisHostUnavailability(
                 analysis.Id,
                 BrowserBodyAnalysisUnavailable)),
