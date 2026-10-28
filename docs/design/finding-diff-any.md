@@ -349,6 +349,24 @@ symbolically belongs to canonical comparison
 ([#9801](https://github.com/richlander/dotnet-inspect/issues/9801)), and
 Finding Diff Any follows it; the axis never keeps a private exception.
 
+## API census settlement
+
+The implementation of [#10197](https://github.com/richlander/dotnet-inspect/issues/10197)
+classifies the staged keys in place. The Symbol Key grammar reader also reads
+borrowed staging storage; classification does not detach keys or spell them.
+A complete comparison is projected only for the selected Type when no
+presented difference settles the census. Equal censuses project no model.
+The receipt reports API surfaces built and the time constructing them.
+
+The motivating real population is the six pinned pairs in the
+[measurement record](#gates): their earlier census over-reports
+Newtonsoft.Json, CoreLib, and System.Private.Xml where uncertain raw facts
+change without a presented API change. The compiled getter-status case from
+[#10354](https://github.com/richlander/dotnet-inspect/issues/10354) isolates
+one such difference. `FindingDiffAnyApiExactnessPrerequisiteTests` retains that
+case and checks Library, inventory, and Member-partition agreement;
+`FindingDiffAnyTests` compares the fixture populations in both directions.
+
 ## Gates
 
 `FindingDiffAnyTests` gates:
@@ -360,9 +378,9 @@ Finding Diff Any follows it; the axis never keeps a private exception.
   Types;
 - API exactness, in both directions: every Type's API state equals whether the
   complete Public API comparison of the API axis surface reports a change to it
-  or one of its Members, over three fixture pairs. A changed non-enum constant
-  is the one known exception: Finding Diff Any reports it, and the complete
-  comparison does not yet compare constant values;
+  or one of its Members, over three fixture pairs. A non-enum constant whose
+  value the complete comparison does not present is an uncertain difference
+  and does not produce an API cue by itself;
 - accessibility: a Member or nested Type whose accessibility moves between
   API axis buckets is API `Changed`, and the complete comparison of the API
   axis surface reports `MemberAccessibilityChanged` or
@@ -775,8 +793,8 @@ carries an interning id, and every method the Body census pairs with its Body
 state through the pairing's body reader, the walk unless a
 `FindingDiffAnyBodyReader` is supplied. The inventory's fold is the Library
 level's state for the Type, which the gates check for every paired Type of the
-fixture pair: API `Changed` exactly when an API fact is present on one side
-only, Body `Changed` when a Body fact or a method with a body is, and
+fixture pair: API is settled by the presented/uncertain rule above, so an uncertain raw
+API fact can be present on one side while API is `Unchanged`; Body `Changed` when a Body fact or a method with a body is, and
 otherwise the state of the first paired method, in the Body census's method
 order, whose body is not `Unchanged`, so an `Indeterminate` row after a `Changed` one folds to `Changed`
 as the Library level reads it, and every row keeps its own state. One name the

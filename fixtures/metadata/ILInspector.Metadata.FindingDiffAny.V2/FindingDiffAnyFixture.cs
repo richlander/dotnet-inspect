@@ -484,3 +484,8 @@ public class MemberFoldMethodImpl : IMemberFoldA, IMemberFoldB
     public void M() { }
     void IMemberFoldB.M() { }
 }
+
+public class MemberFoldUncertainGetterStatus
+{
+    public int Value { [EditorBrowsable(EditorBrowsableState.Never)] get => 1; }
+}
