@@ -762,7 +762,9 @@ public sealed record InspectionCapabilityModule
         IEnumerable<InspectionConsumerBinding>? bindings = null,
         IEnumerable<InspectionProductionAdoptionRequirement>?
             adoptionRequirements = null,
-        IEnumerable<InspectionAnalysisRegistration>? analyses = null)
+        IEnumerable<InspectionAnalysisRegistration>? analyses = null,
+        IEnumerable<InspectionStructuralCatalogRegistration>? structuralCatalogs = null,
+        IEnumerable<InspectionStructuralViewBinding>? structuralBindings = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
         Identity = identity;
@@ -771,6 +773,8 @@ public sealed record InspectionCapabilityModule
         Bindings = [.. bindings ?? []];
         AdoptionRequirements = [.. adoptionRequirements ?? []];
         Analyses = [.. analyses ?? []];
+        StructuralCatalogs = [.. structuralCatalogs ?? []];
+        StructuralBindings = [.. structuralBindings ?? []];
     }
 
     public string Identity { get; }
@@ -786,6 +790,10 @@ public sealed record InspectionCapabilityModule
 
     /// <summary>Analysis participation registrations, in product order.</summary>
     public ImmutableArray<InspectionAnalysisRegistration> Analyses { get; }
+
+    public ImmutableArray<InspectionStructuralCatalogRegistration> StructuralCatalogs { get; }
+
+    public ImmutableArray<InspectionStructuralViewBinding> StructuralBindings { get; }
 }
 
 public sealed record InspectionProductionAdoptionGap(
@@ -801,7 +809,9 @@ public sealed class InspectionCapabilityCatalog
         ImmutableArray<InspectionConsumerBinding> bindings,
         ImmutableArray<InspectionProductionAdoptionGap> adoptionGaps,
         ImmutableArray<InspectionAnalysisRegistration> analyses,
-        AnalysisCapabilityCatalog analysisCapabilities)
+        AnalysisCapabilityCatalog analysisCapabilities,
+        ImmutableArray<InspectionStructuralCatalogRegistration> structuralCatalogs,
+        ImmutableArray<InspectionStructuralViewBinding> structuralBindings)
     {
         Modules = modules;
         Documents = documents;
@@ -810,7 +820,13 @@ public sealed class InspectionCapabilityCatalog
         AdoptionGaps = adoptionGaps;
         Analyses = analyses;
         AnalysisCapabilities = analysisCapabilities;
+        StructuralCatalogs = structuralCatalogs;
+        StructuralBindings = structuralBindings;
     }
+
+    public ImmutableArray<InspectionStructuralCatalogRegistration> StructuralCatalogs { get; }
+
+    public ImmutableArray<InspectionStructuralViewBinding> StructuralBindings { get; }
 
     public ImmutableArray<InspectionCapabilityModule> Modules { get; }
 
@@ -1087,6 +1103,39 @@ public sealed class InspectionCapabilityCatalog
             }
         }
 
+        ImmutableArray<InspectionStructuralCatalogRegistration> structuralCatalogs =
+        [
+            .. moduleArray.SelectMany(static module => module.StructuralCatalogs),
+        ];
+        EnsureUnique(structuralCatalogs, static catalog => catalog.Identity, "structural catalog");
+        EnsureUnique(structuralCatalogs, static catalog => catalog.Document.Catalog, "structural catalog root");
+        var structuralSet = structuralCatalogs.ToHashSet(ReferenceEqualityComparer.Instance);
+        ImmutableArray<InspectionStructuralViewBinding> structuralBindings =
+        [
+            .. moduleArray.SelectMany(static module => module.StructuralBindings),
+        ];
+        EnsureUnique(
+            bindings.Select(static binding => binding.Descriptor)
+                .Concat(structuralBindings.Select(static binding => binding.Descriptor)),
+            static descriptor => descriptor.Identity,
+            "consumer binding");
+        foreach (InspectionStructuralViewBinding binding in structuralBindings)
+        {
+            if (!structuralSet.Contains(binding.Catalog))
+            {
+                throw new ArgumentException(
+                    $"Structural binding '{binding.Descriptor.Identity}' references an unregistered catalog.",
+                    nameof(modules));
+            }
+            if (binding.Resources.Any(resource =>
+                !binding.Catalog.ContainsSelectableResource(resource)))
+            {
+                throw new ArgumentException(
+                    $"Structural binding '{binding.Descriptor.Identity}' selects a resource its catalog does not admit.",
+                    nameof(modules));
+            }
+        }
+
         return new(
             moduleArray,
             documents,
@@ -1094,7 +1143,9 @@ public sealed class InspectionCapabilityCatalog
             bindings,
             gaps,
             analyses,
-            analysisCapabilities);
+            analysisCapabilities,
+            structuralCatalogs,
+            structuralBindings);
     }
 
     private static void EnsureUnique<T>(

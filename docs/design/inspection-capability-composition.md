@@ -21,7 +21,10 @@ partly implemented:
   through its CLI binding.
 - Diff's analyses are resources of the Compare route, composed and explained
   in the same graph. The CLI binding exposes them, and search admits them.
-- Structural sections are still outside the graph.
+- Structural catalogs register their shared Discovery declarations and paths
+  as host-executed resources. CLI view bindings select them, and search admits
+  only resources with a selecting binding. The separate structural search
+  population and host-supplied search entry types are retired.
 
 The [adoption sequence](#adoption-sequence) counts the steps that close each
 gap.
@@ -643,6 +646,14 @@ The allocation contract has three paths:
 | `-D` or `-Q` | The host reads the cached effective descriptor for the active route. No subject acquisition or producer execution occurs. |
 | `--explain` or adoption census | The host may construct and index the required capability graph. These are explicit cold operations. |
 
+Structural explanation consumes validated registration facts. A selected
+catalog does not construct an otherwise empty aggregate route/analysis graph.
+Path validation remains with Resource Explanation and is shared by registration
+and projection. Complete capability explanation composes snapshots before
+catalog validation, without constructing intermediate explanation catalogs
+only to combine and validate them again. The shared path boundary retains
+canonical shape, uniqueness, and owner-membership failures.
+
 Static registration arrays and cached providers may allocate once when their
 own discovery module is first initialized. Ordinary execution must not
 initialize unrelated discovery modules merely because it invokes a route.
@@ -1016,7 +1027,17 @@ numbered as in that issue:
      **Complete.**
 3. Register structural catalogs as host-executed resources, with one
    structural view binding per CLI view. Retire Capability Catalog Search's
-   structural population family and its host-assembled entries.
+   structural population family and its host-assembled entries. **Complete.**
+   Tracked by [#10746](https://github.com/richlander/dotnet-inspect/issues/10746).
+   The prerequisite shared declaration construction is tracked by #10743 and
+   implemented in #10745. Generated/composed schema authority stays with
+   [Schema Query](schema-query.md#shared-structural-declaration-construction);
+   graph registration consumes its shared declarations rather than rebuilding
+   their resources or paths. Existing catalog identities retain their installed
+   spelling. Search reads those declarations without constructing structural
+   explanation snapshots. CLI wiring gates preserve all six catalogs and
+   direct-versus-coordinate Library binding scope; shared composition tests
+   enforce path and binding validation and omission of unbound resources.
 4. Move the root's routing declarations from CLI code into a host-neutral
    module.
 5. Let the Browser admit every resource its bindings select. Sections and

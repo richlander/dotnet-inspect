@@ -227,9 +227,6 @@ public static partial class ResourceExplanationCommand
             CapabilityCatalogSearch.Search(
                 capabilityCatalog,
                 capabilityExplanation,
-                CreateStructuralSearchCatalogs()
-                ?? throw new InvalidOperationException(
-                    "The structural search catalogs could not be built."),
                 searchRequest);
         WriteSearch(
             search,
@@ -245,8 +242,7 @@ public static partial class ResourceExplanationCommand
         StructuralViewIdentity[] views) =>
         CreateStructuralProjection(catalogIdentity, views) is { } structural
             ? ResourceExplanationCatalog.CreateStructural(
-                structural.Document,
-                structural.ResourcePaths)
+                StructuralCatalogCapability.CreateModule(structural).StructuralCatalogs.Single())
             : null;
 
     /// <summary>
@@ -298,46 +294,30 @@ public static partial class ResourceExplanationCommand
     /// catalog, from the same projection its explanation catalog is created
     /// from, with one section-selection binding per view.
     /// </summary>
-    internal static ImmutableArray<CapabilityCatalogSearchStructuralCatalog>?
-        CreateStructuralSearchCatalogs()
+    internal static ImmutableArray<InspectionCapabilityModule> CreateStructuralCapabilityModules()
     {
-        var catalogs =
-            ImmutableArray.CreateBuilder<
-                CapabilityCatalogSearchStructuralCatalog>();
-        foreach ((
-                     InspectionCatalogIdentity identity,
-                     StructuralViewIdentity[] views)
+        var modules = ImmutableArray.CreateBuilder<InspectionCapabilityModule>();
+        foreach ((InspectionCatalogIdentity identity, StructuralViewIdentity[] views)
                  in ExplainableStructuralCatalogs)
         {
-            if (CreateStructuralProjection(identity, views)
-                is not { } structural)
-            {
-                return null;
-            }
-            var bindings =
-                new List<CapabilityCatalogSearchStructuralBinding>();
+            StructuralDiscoveryProjection structural = CreateStructuralProjection(identity, views)
+                ?? throw new InvalidOperationException("The structural catalog could not be built.");
+            string root = StructuralViewRegistry.CatalogPathName(identity);
+            InspectionCapabilityModule product = StructuralCatalogCapability.CreateModule(structural);
+            InspectionStructuralCatalogRegistration registration = product.StructuralCatalogs.Single();
+            var bindings = new List<InspectionStructuralViewBinding>();
             foreach (StructuralRoute route in Routes(identity, views))
             {
-                StructuralSchemaProjection routeProjection =
-                    StructuralViewRegistry.Project(route);
-                if (CreateDiscoveryProjection(routeProjection)
-                    is not { } routeDiscovery)
-                {
-                    return null;
-                }
-                bindings.Add(
-                    StructuralSearchBinding(
-                        route,
-                        isFirst: bindings.Count == 0,
-                        routeProjection,
-                        routeDiscovery.Document));
+                StructuralSchemaProjection projection = StructuralViewRegistry.Project(route);
+                bindings.Add(StructuralBinding(
+                    registration, route, bindings.Count == 0, projection));
             }
-            catalogs.Add(StructuralSearchCatalog(
-                identity,
-                structural,
-                bindings));
+            modules.Add(product);
+            modules.Add(new InspectionCapabilityModule(
+                $"dotnet-inspect.cli/{root}-structural",
+                structuralBindings: bindings));
         }
-        return catalogs.ToImmutable();
+        return modules.ToImmutable();
     }
 
     private static ResourceExplanationCatalog CreatePackageQueryExplanation()
@@ -367,7 +347,7 @@ public static partial class ResourceExplanationCommand
     private static (
         InspectionCapabilityCatalog Catalog,
         ResourceExplanationCatalog Explanation)
-        CreateCapabilityExplanation()
+        CreateCapabilityExplanation(bool includeStructuralExplanation = false)
     {
         InspectionCapabilityCatalog packageQuery =
             CreatePackageQueryCapabilityCatalog();
@@ -382,6 +362,7 @@ public static partial class ResourceExplanationCommand
                     PackageFileInventoryCommandCapability.Module,
                     DiffAnalysisCatalog.ProductModule,
                     DiffAnalysisCommandCapability.Module,
+                    .. CreateStructuralCapabilityModules(),
                 ]);
         ResourceExplanationCatalog explanation =
             ResourceExplanationCatalog.CreateCapabilities(
@@ -393,7 +374,8 @@ public static partial class ResourceExplanationCommand
                         packageFiles),
                     .. DiffAnalysisCapabilityResourcePaths.Create(
                         DiffAnalysisCommandCapability.Catalog),
-                ]);
+                ],
+                includeStructuralCatalogs: includeStructuralExplanation);
         return (catalog, explanation);
     }
 
@@ -472,25 +454,12 @@ public static partial class ResourceExplanationCommand
 
     internal static ResourceExplanationCatalog? CreateCompleteCatalog()
     {
-        var structuralCatalogs = new List<ResourceExplanationCatalog>();
-        foreach ((
-                     InspectionCatalogIdentity identity,
-                     StructuralViewIdentity[] views)
-                 in ExplainableStructuralCatalogs)
-        {
-            ResourceExplanationCatalog? catalog =
-                CreateStructuralCatalog(identity, views);
-            if (catalog is null)
-                return null;
-            structuralCatalogs.Add(catalog);
-        }
         (
             _,
             ResourceExplanationCatalog capabilities) =
-                CreateCapabilityExplanation();
+                CreateCapabilityExplanation(includeStructuralExplanation: true);
         return ResourceExplanationCatalog.Combine(
             [
-                .. structuralCatalogs,
                 capabilities,
                 ResourceExplanationCatalog.CreateVocabularies(
                     CliVocabularyComposition.Snapshot),
@@ -791,54 +760,30 @@ public static partial class ResourceExplanationCommand
     }
 
     /// <summary>
-    /// Admits one explained structural catalog to capability search: its
-    /// catalog root as the owning route, and each view's <c>-S</c> section
-    /// selection as a CLI binding over the sections that view addresses. The
-    /// section or category name stays a separate result value; search
-    /// composes no command line.
-    /// </summary>
-    private static CapabilityCatalogSearchStructuralCatalog
-        StructuralSearchCatalog(
-            InspectionCatalogIdentity identity,
-            StructuralDiscoveryProjection structural,
-            IEnumerable<CapabilityCatalogSearchStructuralBinding> bindings)
-    {
-        string root = StructuralViewRegistry.CatalogPathName(identity);
-        return new(
-            structural.Document,
-            structural.ResourcePaths,
-            new CapabilityCatalogSearchRoute(
-                $"dotnet-inspect.cli/{root}-catalog",
-                root,
-                root),
-            bindings);
-    }
-
-    /// <summary>
     /// One view's section-selection binding over the Sections it selects on
     /// its own and the Categories that contain one. A catalog's first view
     /// keeps the catalog's binding identity; a later view adds its view mode,
     /// as in <c>library-address-sections</c>.
     /// </summary>
-    private static CapabilityCatalogSearchStructuralBinding
-        StructuralSearchBinding(
+    private static InspectionStructuralViewBinding
+        StructuralBinding(
+            InspectionStructuralCatalogRegistration catalog,
             StructuralRoute route,
             bool isFirst,
-            StructuralSchemaProjection projection,
-            DiscoveryDocument addressed)
+            StructuralSchemaProjection projection)
     {
         string root = StructuralViewRegistry.CatalogPathName(route.Catalog);
         string name = isFirst ? root : $"{root}-{route.View.ViewMode}";
         IReadOnlySet<string> standalone =
             StructuralViewRegistry.StandaloneSelectableSections(projection);
         return new(
-            new CapabilityCatalogSearchBinding(
+            new InspectionConsumerDescriptor(
                 $"dotnet-inspect.cli/{name}-sections",
-                "dotnet-inspect CLI",
                 InspectionConsumerKind.Cli,
-                $"{route.View.DestinationCommand} -S",
-                root),
-            addressed.Resources
+                "dotnet-inspect CLI",
+                $"{route.View.DestinationCommand} -S"),
+            catalog,
+            catalog.Document.Resources
                 .Select(static resource => resource.Identity)
                 .Where(resource => resource.Kind switch
                 {

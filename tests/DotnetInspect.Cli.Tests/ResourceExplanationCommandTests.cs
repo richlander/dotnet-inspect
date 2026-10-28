@@ -1478,12 +1478,12 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         ResourceExplanationCatalog complete =
             ResourceExplanationCommand.CreateCompleteCatalog()!;
         var admitted = new HashSet<string>(StringComparer.Ordinal);
-        foreach (CapabilityCatalogSearchStructuralCatalog catalog
-                 in ResourceExplanationCommand
-                     .CreateStructuralSearchCatalogs()!.Value)
+        foreach (InspectionStructuralCatalogRegistration catalog
+                 in InspectionCapabilityCatalog.Create(ResourceExplanationCommand
+                     .CreateStructuralCapabilityModules()).StructuralCatalogs)
         {
             foreach (StructuralResourcePathRegistration registration
-                     in catalog.Paths.Where(static path =>
+                     in catalog.Projection.ResourcePaths.Where(static path =>
                          path.Identity.Kind
                              is DiscoveryResourceKind.Section
                              or DiscoveryResourceKind.Category))
