@@ -259,7 +259,7 @@ test("active subject continuity retains explicit browsing until the subject chan
 
   await page.keyboard.press("Escape");
   await expect(trigger).toBeFocused();
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
   await expect(libraryTab).toHaveAttribute("aria-selected", "true");
   await expectCurrentSubjectVisible(page, "library", "Library");
