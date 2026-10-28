@@ -457,7 +457,12 @@ public sealed class LibraryCallGraphProducer :
                     item.MethodHandle,
                     result.EncodedIlBytes);
             }
-            accumulator.Add(Project(result, lookup));
+            accumulator.Add(Project(
+                result,
+                lookup,
+                reader,
+                item.TypeHandle,
+                item.MethodHandle));
         }
 
         state.UnitsAttempted += results.Length;
@@ -475,7 +480,10 @@ public sealed class LibraryCallGraphProducer :
 
     static LibraryCallGraphBodyEvidence Project(
         LibraryMethodAnalysisResult result,
-        LibraryMethodAnalysisRunner lookup)
+        LibraryMethodAnalysisRunner lookup,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle)
     {
         ImmutableArray<DirectCall> directCalls =
             result.Calls.IsDefault ? [] : result.Calls;
@@ -485,32 +493,56 @@ public sealed class LibraryCallGraphProducer :
             exceptionTypes = null;
         HashSet<int>? nonHeapNewObjectTokens = null;
 
-        foreach (DirectCall call in directCalls)
+        var diagnostics =
+            ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
+        if (result.Diagnostic is not null)
+            diagnostics.Add(result.Diagnostic);
+        try
         {
-            if (call.Kind != CallKind.NewObject)
-                continue;
-            if (lookup.IsNonHeapNewObj(
-                    call.OperandToken,
-                    call.Callee.DeclaringType))
+            foreach (DirectCall call in directCalls)
             {
-                (nonHeapNewObjectTokens ??= []).Add(
-                    call.OperandToken);
+                if (call.Kind != CallKind.NewObject)
+                    continue;
+                if (lookup.IsNonHeapNewObj(
+                        call.OperandToken,
+                        call.Callee.DeclaringType))
+                {
+                    (nonHeapNewObjectTokens ??= []).Add(
+                        call.OperandToken);
+                }
+                if (lookup.IsInAssemblyExceptionType(
+                        call.OperandToken,
+                        call.Callee.DeclaringType)
+                    is bool isException)
+                {
+                    TypeRef definition =
+                        call.Callee.DeclaringType.Kind
+                            == TypeRefKind.GenericInstance
+                        ? call.Callee.DeclaringType.ElementType
+                            ?? call.Callee.DeclaringType
+                        : call.Callee.DeclaringType;
+                    (exceptionTypes ??= []).TryAdd(
+                        (definition.Namespace, definition.Name),
+                        isException);
+                }
             }
-            if (lookup.IsInAssemblyExceptionType(
-                    call.OperandToken,
-                    call.Callee.DeclaringType)
-                is bool isException)
-            {
-                TypeRef definition =
-                    call.Callee.DeclaringType.Kind
-                        == TypeRefKind.GenericInstance
-                    ? call.Callee.DeclaringType.ElementType
-                        ?? call.Callee.DeclaringType
-                    : call.Callee.DeclaringType;
-                (exceptionTypes ??= []).TryAdd(
-                    (definition.Namespace, definition.Name),
-                    isException);
-            }
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            diagnostics.Add(new AnalysisDiagnostic(
+                MetadataTokens.GetToken(methodHandle),
+                LibraryMethodAnalysisRunner.MethodLabel(
+                    reader,
+                    typeHandle,
+                    methodHandle),
+                $"{ex.GetType().Name}: {ex.Message}",
+                SourceMethodToken:
+                    result.DeclaredSource?.MetadataToken,
+                DeclaringType: result.Caller?.DeclaringType,
+                SourceDeclaringType:
+                    result.DeclaredSource?.DeclaringType));
         }
 
         return new(
@@ -525,9 +557,7 @@ public sealed class LibraryCallGraphProducer :
             nonHeapNewObjectTokens,
             result.DeclaredSource,
             result.DeclaredSourceSuppressesOpportunities,
-            result.Diagnostic is null
-                ? []
-                : [result.Diagnostic]);
+            diagnostics.ToImmutable());
     }
 
     internal override ImmutableArray<LibraryCallGraphBodyEvidence>.Builder
