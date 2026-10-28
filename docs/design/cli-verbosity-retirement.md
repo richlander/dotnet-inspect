@@ -677,10 +677,11 @@ Dependencies are explicit: 2 precedes 3, 4, and 7; 5 precedes 6 and 8;
 1 precedes the owner adoptions; 9 follows the shared and CLI adoptions and
 must inventory every remaining caller; 10 follows semantic adoption and
 retirement. CLI reaches the replacement through 1, 2, 3, 4, 5, 6, and 9
-(seven slices); Browser through 1, 2, 5, 7, and 8 (five slices). Shared work
-2 and 5 must not finish without their named production consumers. Any required
-new prerequisite becomes a separately owned issue and updates the counted plan
-before its scope is implemented.
+(seven slices); Browser through 1, 2, 5, 7, and 8 (five slices). The feature
+remains incomplete until shared work 2 and 5 reaches its named production
+consumers; landing a shared operation alone does not complete adoption. Any
+required new prerequisite becomes a separately owned issue and updates the
+counted plan before its scope is implemented.
 
 Each successor owns its adoption-specific request/result decisions and gates;
 this map does not redefine participating producers. Broader section families
