@@ -174,7 +174,8 @@ public static class TypeOptionsParser
         Option<string[]> RelationsOption,
         Option<string[]> RelationColorOption,
         Option<string[]> RequireRelationColorOption,
-        Option<string?> SuppressRuntimeTypeFallbackOption);
+        Option<string?> SuppressRuntimeTypeFallbackOption,
+        Option<bool> NamesakeLibraryOption);
 
     internal static bool IsTypeListingRowSelection(
         ParseResult parseResult,
@@ -545,6 +546,8 @@ public static class TypeOptionsParser
             PackagePath = source.PackagePath,
             PackageRangeAddress = parseResult.GetValue(args.AtOption),
             AssemblyPath = source.AssemblyPath,
+            NamesakeLibrary =
+                parseResult.GetValue(args.NamesakeLibraryOption),
             PlatformAssembly = source.PlatformAssembly,
             ProjectPath = projectPath,
             PlatformFramework = source.FrameworkOverride ?? parseResult.GetValue(args.FrameworkOption),

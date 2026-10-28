@@ -250,7 +250,22 @@ without a suggestion.
 Sectioned views such as `-S "Library Info"` keep the multi-Library aggregate.
 Package-scoped Type lookup is also aggregate by default: it searches every
 Library in the selected Package population. Its supported exact `--library`
-source narrows that lookup to one Library. Inspect Web's First Library entry
+source narrows that lookup to one Library. On `type`, `--namesake-library`
+also narrows lookup to the unique Library whose assembly name matches the
+Package ID:
+
+```bash
+dotnet-inspect type Microsoft.Azure.SignalR.ServiceRouteBuilder \
+  --package Microsoft.Azure.SignalR@1.33.1 --namesake-library
+```
+
+This requires an explicit `--package` name/version or local package file and
+one target framework, not `--tfm all`. It cannot be combined with `--library`,
+another source, `--workspace`, or `--match`. Exact Package references retain
+their explicit `--library <dll>` narrowing. A missing or ambiguous namesake
+fails without searching sibling Libraries.
+
+Inspect Web's First Library entry
 recommendation is a browser navigation default and does not change this CLI
 scope.
 Any other option, including `-S`, `-v:n`, `-v:d`, and every format option,
