@@ -70,6 +70,9 @@ public sealed class MethodDefinitionExecution
         _description = description;
         _instructionPlan = instructionPlan;
         _breadth = breadth;
+        HasUnboundedTerminalWork =
+            terminalWorkLimits
+                == MethodDefinitionTerminalWorkLimits.Unbounded;
         _sourceCoverage =
             new MethodDefinitionSourceCoverageBuilder(
                 tracksSourceCoverage,
@@ -81,6 +84,8 @@ public sealed class MethodDefinitionExecution
     }
 
     public WorkReceipt Receipt { get; private set; } = new(0, []);
+
+    internal bool HasUnboundedTerminalWork { get; }
 
     internal MethodDefinitionSourceCoverage SourceCoverage { get; private set; } =
         new(

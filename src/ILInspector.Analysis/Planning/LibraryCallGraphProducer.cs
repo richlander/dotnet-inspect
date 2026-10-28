@@ -367,6 +367,7 @@ public sealed class LibraryCallGraphProducer :
     {
         unitsVisited = 0;
         if (state.Terminal != ProducerTerminal.Rows
+            || !state.Execution.HasUnboundedTerminalWork
             || reader.MethodDefinitions.Count
                 < LibraryMethodAnalysisRunner.ParallelMethodThreshold
             || lookup is null)

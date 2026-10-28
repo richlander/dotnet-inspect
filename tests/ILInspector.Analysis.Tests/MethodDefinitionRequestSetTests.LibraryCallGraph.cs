@@ -68,6 +68,49 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        LibraryCallGraphProducer_FiniteTerminalLimitUsesInterpretedSource()
+    {
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                LibraryCallGraphProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.AllDefinitions,
+                limits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            ResultOf<LibraryCallGraphProducerResult>(
+                execution,
+                association).Outcome);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            receipt.Completion);
+        Assert.Contains(
+            "terminal physical-body limit",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    receipt.SourceFailure)
+                .Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            receipt.Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.Bodies,
+            receipt.Coverage.TerminalWork.ReachedLimit);
+        Assert.True(receipt.Coverage.MethodAnalysis.Constructed);
+    }
+
+    [Fact]
     public void LibraryCallGraphProducer_ExactMethodUsesInterpretedSource()
     {
         string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
