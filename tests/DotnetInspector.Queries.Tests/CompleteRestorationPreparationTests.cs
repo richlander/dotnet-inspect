@@ -2,11 +2,117 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
 using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
 public sealed class CompleteRestorationPreparationTests
 {
+    [Theory]
+    [InlineData(2, "net10.0")]
+    [InlineData(3, "net10.0")]
+    [InlineData(4, "net10.0")]
+    [InlineData(5, "net10.0")]
+    [InlineData(3, TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework)]
+    public void ConfiguredTraversalTarget_SurvivesPortableRestorationWithoutChangingRoot(
+        int version,
+        string targetFramework)
+    {
+        string sources = version == 5
+            ? "\"s\":[[\"https://api.nuget.org/v3/index.json\"]],"
+            : "";
+        string registrations = version >= 3 ? "\"r\":[]," : "";
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            $$$"""
+            {"f":{{{version}}},{{{sources}}}"t":[["Microsoft.Azure.SignalR","1.33.1","net8.0",null]],"g":[[0]],{{{registrations}}}"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"package"},"u":{"k":"package"}}],"b":"{{{targetFramework}}}"}
+            """,
+            TestContext.Current.CancellationToken);
+        CommittedScenarioDefinitionSet definitions =
+            WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                packet, TestContext.Current.CancellationToken);
+        var registry = new InspectionDefinitionRegistry();
+        foreach (InspectionDefinitionRecord record in definitions.Records)
+        {
+            registry.Add(InspectionDefinitionJson.Parse(
+                InspectionDefinitionJson.Serialize(record)));
+        }
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry, definitions.Scenario.Id, new TestIntentAuthority()));
+        Assert.Equal(
+            new TraversalTargetFrameworkPolicy(targetFramework),
+            ready.Plan.WorkspacePlan.TraversalTargetPolicy);
+        WorkspaceContextInput context =
+            Assert.Single(ready.Plan.WorkspacePlan.Contexts);
+        Assert.Equal("net8.0", context.Framework);
+        var root = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
+            Assert.Single(context.Members));
+        Assert.Equal("Microsoft.Azure.SignalR", root.PackageId);
+        Assert.Equal("net8.0", root.Framework);
+
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                definitions, TestContext.Current.CancellationToken);
+        Assert.True(projection.Succeeded, projection.Failure?.Message);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Encode(packet),
+            WorkspaceSharePacketCodec.Encode(
+                Assert.IsType<WorkspaceSharePacket>(projection.Packet)));
+    }
+
+    [Theory]
+    [InlineData(null, "net8.0")]
+    [InlineData("net10.0", "net10.0")]
+    public void LegacyHierarchy_CompleteCapturePreservesTargetSeparatelyFromRoot(
+        string? configuredTarget,
+        string expectedTarget)
+    {
+        string target = configuredTarget is null
+            ? ""
+            : $",\"b\":\"{configuredTarget}\"";
+        WorkspaceSharePacket legacy = WorkspaceSharePacketCodec.ParseJson(
+            $$$"""
+            {"f":1,"t":[["Microsoft.Azure.SignalR","1.33.1","net8.0",null]],"g":[[0]],"a":0,"x":0,"v":"hierarchy"{{{target}}}}
+            """,
+            TestContext.Current.CancellationToken);
+        WorkspaceSharePacketDefinitionSet definitions =
+            WorkspaceSharePacketTransposer.ToDefinitions(
+                legacy, TestContext.Current.CancellationToken);
+        WorkspaceSharePacketProjectionResult legacyProjection =
+            WorkspaceSharePacketTransposer.ToPacket(
+                definitions, TestContext.Current.CancellationToken);
+        Assert.True(legacyProjection.Succeeded, legacyProjection.Failure?.Message);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Encode(legacy),
+            WorkspaceSharePacketCodec.Encode(
+                Assert.IsType<WorkspaceSharePacket>(legacyProjection.Packet)));
+
+        var workspaceRoot = new WorkspaceSharePacketDefinitionSet(
+            definitions.Workspace,
+            definitions.Navigation,
+            new ViewDefinition(
+                InspectionDefinitionSchema.Version1,
+                definitions.View.Id),
+            definitions.Scenario);
+        WorkspaceSharePacketProjectionResult capture =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                workspaceRoot, TestContext.Current.CancellationToken);
+        Assert.True(capture.Succeeded, capture.Failure?.Message);
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                WorkspaceSharePacketCodec.Encode(
+                    Assert.IsType<WorkspaceSharePacket>(capture.Packet)),
+                new TestIntentAuthority()));
+        Assert.Equal(
+            expectedTarget,
+            ready.Plan.WorkspacePlan.TraversalTargetPolicy.TargetFramework);
+        Assert.Equal(
+            "net8.0",
+            Assert.Single(ready.Plan.WorkspacePlan.Contexts).Framework);
+    }
+
     [Theory]
     [InlineData(2)]
     [InlineData(3)]
@@ -25,6 +131,9 @@ public sealed class CompleteRestorationPreparationTests
                 WorkspaceSharePacketCodec.Encode(packet),
                 new TestIntentAuthority()));
 
+        Assert.Equal(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            ready.Plan.WorkspacePlan.TraversalTargetPolicy);
         WorkspaceContextInput context =
             Assert.Single(ready.Plan.WorkspacePlan.Contexts);
         Assert.Equal("net10.0", context.Framework);
@@ -152,6 +261,61 @@ public sealed class CompleteRestorationPreparationTests
                     ready.Plan.Recipe);
         Assert.Equal(registration.Declaration.Id, recipe.Ecosystem);
         Assert.Equal("ecosystem.overview", recipe.Facet.Value);
+        Assert.Empty(ready.Plan.ConfiguredPackageSources);
+    }
+
+    [Fact]
+    public void RegistrationOnlyPackageType_DerivesOneExactConstructionContext()
+    {
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        var library = new ExactLibrarySourceCoordinate.Package(
+            PackageSourceCoordinate.Create("Contoso.Widget", "1.2.3"),
+            new ManagedMetadataIdentity.Assembly(
+                new AssemblyReferenceIdentity(
+                    "Contoso.Widget",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null)));
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contoso",
+                    ["Widget"]))
+                .Name;
+        var request = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                plan,
+                registration.Declaration.Id,
+                library,
+                type);
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer
+                .PrepareEcosystemPackageTypeRestoration(
+                    request,
+                    new TestIntentAuthority(),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Same(request, ready.Plan.Request);
+        Assert.Empty(plan.Contexts);
+        WorkspaceContextInput context =
+            Assert.Single(ready.Plan.WorkspacePlan.Contexts);
+        Assert.Equal(
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
+            context.Framework);
+        var member = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
+            Assert.Single(context.Members));
+        Assert.Equal("contoso.widget", member.PackageId);
+        Assert.Equal("1.2.3", member.Version);
+        var recipe = Assert.IsType<CompleteRestorationRecipe
+            .RegistrationOnlyEcosystemPackageType>(ready.Plan.Recipe);
+        Assert.Same(library.PackageCoordinate, request.Package);
+        Assert.Same(library.PackageCoordinate, recipe.Package);
+        Assert.Equal(library, recipe.Library);
+        Assert.Equal(type, recipe.Type);
         Assert.Empty(ready.Plan.ConfiguredPackageSources);
     }
 

@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -208,6 +209,24 @@ public partial class DiffCommand
             }
         }
 
+        if (analysisPlan?.Views is [var adoptedView]
+            && (adoptedView == DiffSections.Summary.Name
+                || adoptedView == DiffSections.Transitions.Name))
+        {
+            if (options.Tree)
+            {
+                CommandError.Write($"{adoptedView} does not offer a Hierarchy representation.");
+                return 1;
+            }
+            if (!options.FormatExplicitlySet
+                && !options.JsonOutput && !options.EnvelopeOutput
+                && !options.Tabular && !options.Tsv && !options.Jsonl)
+                options = options with { Tabular = true, Tsv = true };
+        }
+        if (analysisPlan is null && hasLibrary && UsesSharedLibraryApiDiff(1, 1, options)
+            && !ValidateLibraryApiChangesFormat(options))
+            return 1;
+
         string? transportOption = options.EnvelopeOutput ? "--envelope"
             : options.CompactJson ? "--compact" : null;
         bool analysisTransport = analysisPlan is not null
@@ -392,7 +411,13 @@ public partial class DiffCommand
                         cancellationToken);
                 }
                 if (analysisPlan is not null)
-                    return await ExecuteAnalysisSetAsync(inputs, options, analysisPlan, cancellationToken);
+                {
+                    return await ExecuteAnalysisSetAsync(
+                        inputs,
+                        options,
+                        analysisPlan,
+                        cancellationToken);
+                }
                 if (transportOption is not null
                     && !UsesSharedLibraryApiDiff(inputs, options)
                     && !implementationTransport)
@@ -425,46 +450,8 @@ public partial class DiffCommand
                 }
                 if (UsesSharedLibraryApiDiff(inputs, options))
                 {
-                    if (options.IsContentJson && options.HasRenderedLineWindow)
-                    {
-                        CommandError.Write(
-                            "Unprojected Library API diff --json cannot be combined with rendered-line clipping.");
-                        return 1;
-                    }
-                    // The output keeps only Types the filter admits, so the
-                    // comparison extracts only those Types on each side.
-                    ApiTypeSelection? typeSelection = options.TypeFilter.Count > 0
-                        ? new ApiTypeSelection(name =>
-                            MatchesAnyDiffTypeFilter(name, options.TypeFilter))
-                        : null;
-                    var comparison =
-                        inputs.From.PackageScope is { } beforeScope
-                        && inputs.To.PackageScope is { } afterScope
-                            ? await LibraryApiDiffRunner.ExecuteAsync(
-                                beforeScope,
-                                afterScope,
-                                options.IncludeAll,
-                                typeSelection,
-                                cancellationToken)
-                            : await LibraryApiDiffRunner.ExecuteAsync(
-                                inputs.From.AssemblySet.Assemblies[0],
-                                inputs.To.AssemblySet.Assemblies[0],
-                                options.IncludeAll,
-                                typeSelection);
-                    int written = LibraryApiDiffOutput.Write(
-                        comparison,
-                        inputs.Name,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
-                        options,
-                        hasPackage ? inputs.From.Framework : null,
-                        hasPackage ? inputs.To.Framework : null);
-                    return PublishAcquisitionEvidence(
-                        inputs,
-                        options,
-                        comparison,
-                        LibraryApiDiffOutput.JsonContract,
-                        written);
+                    return await ExecuteLibraryApiChangesAsync(
+                        inputs, options, hasPackage, cancellationToken);
                 }
                 if (options.EvidenceEnvelopePath is not null)
                 {
@@ -956,6 +943,86 @@ public partial class DiffCommand
 #else
         return exitCode;
 #endif
+    }
+
+    static async Task<int> ExecuteLibraryApiChangesAsync(
+        DiffInputs inputs, DiffOptions options, bool hasPackage, CancellationToken cancellationToken)
+    {
+        if (!ValidateLibraryApiChangesFormat(options))
+            return 1;
+        if (!options.FormatExplicitlySet && !options.JsonOutput && !options.EnvelopeOutput
+            && !options.Tabular && !options.Tsv && !options.Jsonl)
+            options = options with { Tabular = true, Tsv = true };
+
+        ApiTypeSelection? typeSelection = options.TypeFilter.Count > 0
+            ? new(name => MatchesAnyDiffTypeFilter(name, options.TypeFilter)) : null;
+        var selection = new LibraryApiChangesSelection(
+            typeSelection,
+            [
+                .. options.Breaking ? new[] { ChangeClassification.Breaking } : [],
+                .. options.Additive ? new[] { ChangeClassification.Additive } : [],
+            ],
+            RowWindow.ToMarkout(options.Rows));
+        bool detailed = !options.NameOnly && options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
+        if ((options.Tabular || options.Tsv || options.Jsonl || options.NameOnly)
+            && !options.JsonOutput && !options.EnvelopeOutput)
+        {
+            if (detailed)
+                return await Complete(
+                    result => LibraryApiChangesInspection.ChangesTable(result, selection),
+                    LibraryApiDiffOutput.ChangesTableContract,
+                    table => LibraryApiDiffOutput.WriteChangesRows(table, options));
+            return await Complete(
+                result => LibraryApiChangesInspection.TypeTable(result, selection),
+                LibraryApiDiffOutput.TypeTableContract,
+                table => LibraryApiDiffOutput.WriteTypeRows(table, options));
+        }
+        if (detailed)
+            return await Complete(
+                result => LibraryApiChangesInspection.ChangesDocument(result, selection),
+                LibraryApiDiffOutput.ChangesDocumentContract,
+                document => LibraryApiDiffOutput.WriteChangesDocument(
+                    document, inputs.Name, inputs.FromVersion, inputs.ToVersion, options,
+                    hasPackage ? inputs.From.Framework : null, hasPackage ? inputs.To.Framework : null));
+        return await Complete(
+            result => LibraryApiChangesInspection.TypeDocument(result, selection),
+            LibraryApiDiffOutput.TypeDocumentContract,
+            document => LibraryApiDiffOutput.WriteTypeDocument(
+                document, inputs.Name, inputs.FromVersion, inputs.ToVersion, options,
+                hasPackage ? inputs.From.Framework : null, hasPackage ? inputs.To.Framework : null));
+
+        async Task<int> Complete<T>(
+            Func<AssemblyContextApiComparisonResult, InspectionEnvelope<LibraryApiChangesOutcome<T>>> complete,
+            InspectionEnvelopeJsonContract<LibraryApiChangesOutcome<T>> contract,
+            Action<T> render)
+        {
+            var envelope = inputs.From.PackageScope is { } beforeScope
+                && inputs.To.PackageScope is { } afterScope
+                    ? await LibraryApiDiffRunner.ExecuteAsync(
+                        beforeScope, afterScope, options.IncludeAll, complete, typeSelection, cancellationToken)
+                    : await LibraryApiDiffRunner.ExecuteAsync(
+                        inputs.From.AssemblySet.Assemblies[0], inputs.To.AssemblySet.Assemblies[0],
+                        options.IncludeAll, complete, typeSelection);
+            int written = LibraryApiDiffOutput.Write(envelope, contract, inputs.Name, options, render);
+            return PublishAcquisitionEvidence(inputs, options, envelope, contract, written);
+        }
+    }
+
+    static bool ValidateLibraryApiChangesFormat(DiffOptions options)
+    {
+        if (options.Tree)
+        {
+            CommandError.Write("Library API Changes does not offer a Hierarchy representation.");
+            return false;
+        }
+        if (options.JsonOutput && (options.HasRenderedLineWindow
+                || options.Columns is not null || options.Fields is not null))
+        {
+            CommandError.Write(
+                "Structured Library API Changes --json does not support rendered-line clipping or column/field projections.");
+            return false;
+        }
+        return true;
     }
 
     static bool UsesSharedLibraryApiDiff(DiffInputs inputs, DiffOptions options)
@@ -3387,9 +3454,28 @@ public partial class DiffCommand
             DiffInputs inputs,
             DiffOptions options)
     {
-        if (!RequestsWorkspaceImplementationTarget(options)
-            || !HasSinglePackageRoot(inputs.From, inputs.Name)
-            || !HasSinglePackageRoot(inputs.To, inputs.Name))
+        if (!RequestsWorkspaceImplementationTarget(options))
+            return null;
+
+        return TryCreateExactMemberTarget(inputs, options);
+    }
+
+    static WorkspaceImplementationTarget? TryCreateExactMemberTarget(
+        DiffInputs inputs,
+        DiffOptions options,
+        bool allowSingleLocalAssembly = false)
+    {
+        if (options.MemberFilter.Count != 1
+            || options.TypeFilter.Count != 1
+            || options.IncludePdbSource
+            || !HasSingleTargetRoot(
+                inputs.From,
+                inputs.Name,
+                allowSingleLocalAssembly)
+            || !HasSingleTargetRoot(
+                inputs.To,
+                inputs.Name,
+                allowSingleLocalAssembly))
         {
             return null;
         }
@@ -3432,20 +3518,91 @@ public partial class DiffCommand
             $"{typeName}.{selector.RequestedText}");
     }
 
+    static WorkspaceMethodAllocationTarget?
+        TryCreateExactAllocationTarget(
+            DiffInputs inputs,
+            DiffOptions options)
+    {
+        if (TryCreateExactMemberTarget(
+                inputs,
+                options,
+                allowSingleLocalAssembly: true)
+                is not { } target
+            || TryResolveExactMethodToken(
+                inputs.FromSurface,
+                target.DeclaringType,
+                target.Selector)
+                is not { } beforeMethod
+            || TryResolveExactMethodToken(
+                inputs.ToSurface,
+                target.DeclaringType,
+                target.Selector)
+                is not { } afterMethod
+            || beforeMethod.SurfaceAssetPath is null
+            || afterMethod.SurfaceAssetPath is null)
+        {
+            return null;
+        }
+
+        return new(
+            beforeMethod,
+            afterMethod);
+    }
+
+    static WorkspaceMethodSurfaceTarget?
+        TryResolveExactMethodToken(
+        ApiSurface surface,
+        MetadataTypeDefinitionName declaringType,
+        MemberTargetSelector selector)
+    {
+        ApiType[] matchingTypes =
+        [
+            .. surface.Types.Where(type =>
+                (type.DefinitionName
+                    ?? ParseWorkspaceImplementationTypeName(
+                        string.IsNullOrEmpty(type.Namespace)
+                            ? type.MetadataName ?? type.Name
+                            : $"{type.Namespace}."
+                                + $"{type.MetadataName ?? type.Name}"))
+                    ?.Equals(declaringType)
+                    == true),
+        ];
+        if (matchingTypes.Length != 1)
+            return null;
+
+        ApiType type = matchingTypes[0];
+        if (MemberTargetResolver.Resolve(
+                    type,
+                    selector).Target?.Body?.MetadataToken
+                is not { } methodToken
+            || (methodToken & unchecked((int)0xff000000))
+                != 0x06000000)
+        {
+            return null;
+        }
+
+        return new(
+            methodToken,
+            type.SourceAssemblyPath);
+    }
+
     /// <summary>
-    /// Whether the endpoint has one package-root assembly: an implementation
-    /// participant of its scope, or an extracted file of its assembly set.
+    /// Whether the endpoint has one package-root assembly, or one local
+    /// assembly when the focused caller explicitly admits that shape.
     /// </summary>
-    static bool HasSinglePackageRoot(
+    static bool HasSingleTargetRoot(
         ApiSurfaceEndpoint endpoint,
-        string packageName)
+        string packageName,
+        bool allowSingleLocalAssembly)
         => endpoint.PackageScope is { } scope
             ? WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
                 scope,
                 packageName)
-            : WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
-                endpoint.AssemblySet,
-                packageName);
+            : (allowSingleLocalAssembly
+                    && endpoint.AssemblySet.Assemblies.Count == 1)
+                || WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
+                    endpoint.AssemblySet,
+                    packageName);
 
     static async Task<int> ExecuteAnnotatedSourceDiffAsync(
         DiffInputs inputs,
@@ -3774,6 +3931,14 @@ public partial class DiffCommand
         MetadataTypeDefinitionName DeclaringType,
         MemberTargetSelector Selector,
         string Display);
+
+    sealed record WorkspaceMethodAllocationTarget(
+        WorkspaceMethodSurfaceTarget Before,
+        WorkspaceMethodSurfaceTarget After);
+
+    sealed record WorkspaceMethodSurfaceTarget(
+        int MethodToken,
+        string? SurfaceAssetPath);
 
     internal sealed record WorkspaceImplementationTypeSelection(
         MetadataTypeDefinitionName DefinitionName,

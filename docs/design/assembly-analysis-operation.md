@@ -26,6 +26,12 @@ uses request-set access while the PEReader overload remains the direct
 reference. Direct and request-set operations now carry an owner-issued source
 adapter opaquely: the service reads no Method breadth, layer, terminal, request,
 or receipt type and contains no source-kind switch.
+`AssemblyContextCallGraphAnalysis` now adopts the same boundary for one
+all-definition `LibraryCallGraphProducer` request. The producer composes
+physical Method, allocation, and declared-source evidence, and the sink
+publishes `LibraryCallGraphAnalysisResult` with exact Method-source and
+Producer Planning receipts. This production path no longer invokes
+`LibraryBodyAnalysisService`.
 Other source kinds, cancellation, residual request satisfaction, and mixed-
 hub composition remain **unverified**. The no-remainder rule and split
 exact-member prerequisites are recorded under
@@ -119,10 +125,11 @@ The stack answers each question in stages, and each stage has one owner:
 For example, "Does type `T` have unsafe members?" runs as follows:
 
 1. The type Unsafe Members check
-   (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the
-   unsafe-evidence producer, closed with `Exists`, over `T`'s TypeDef.
+   (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the unsafe
+   member presence producer, closed with `Exists`, over `T`'s TypeDef.
 2. Producer Planning closes that producer's description: it reads
-   declarations, and a body and module lookup only on demand.
+   declarations, semantic identity, and memory-safety contracts, and a body
+   and its calls only on demand.
 3. Query Space resolves the `Exists` request into the work the closed
    description carries. The request is direct, so it enters no request set
    and needs no grouping.
@@ -133,8 +140,10 @@ For example, "Does type `T` have unsafe members?" runs as follows:
    local functions
    ([Declared expansion](method-query-source.md#declared-expansion)), under
    finite bounds. It then visits that population in metadata order. Each visit
-   reads a body only when the declaration does not settle the answer, and
-   visits stop at the first evidence.
+   applies the
+   [unsafe member census rule](unsafe-member-findings.md#role-scan), which
+   materializes a body only when its role scan cannot decide it, and visits
+   stop at the first method with a census role.
 6. The execution publishes the answer with source and producer receipts that
    show the work stayed within `T` and its generated bodies, with the
    expansion work receipted separately.
@@ -493,18 +502,50 @@ attribute, and enclosing-relationship reads in the declared-source capability
 receipt. Caller attribution and generated-owner suppression consume the
 authenticated owner result.
 `AssemblyContextMethodAnalysisQuery` no longer invokes
-`LibraryBodyAnalysisService`. The unsafe member census
+`LibraryBodyAnalysisService`. The allocation-only matched-member route instead
+plans
+`ExactMethodAllocationProducer`, which publishes the same exact allocation
+rows without collecting calls, safety, signals, or optimization. Exact
+single-member CLI Diff requests for allocation alone use the same producer
+for the MethodDef selected from each endpoint's API surface. Package execution
+uses the endpoint's surface-to-implementation role correspondence and maps that
+surface MethodDef to the exact managed implementation body before analysis;
+local execution likewise validates that the selected MethodDef has a managed
+body. Their comparison does not construct `MethodBodyInspectionSession` or
+`LibraryBodyAnalysisService`. Mixed analysis sets, bodyless, forwarded, or
+absent declarations, and other target shapes retain the established
+body-signal fallback. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.
 
+`LibraryCallGraphProducer` is the first all-definition production adoption.
+It requests all MethodDefs plus the generated execution-body relation, visits
+physical Method and allocation facts once, and publishes detached declared
+methods, managed methods, direct calls, safety evidence, body signals,
+exception classification, declared-owner mappings, and diagnostics.
+`AssemblyContextCallGraphAnalysis` binds that Rows terminal through
+`AssemblyAnalysisOperation` and consumes only the focused result. Its
+`LibraryCallGraphAnalysisResult` compatibility receipt remains transitional;
+the exact Method-source receipt and Producer Planning work receipt are the
+authoritative execution evidence. Type Method Leverage and other consumers of
+the legacy whole-library Call Graph remain separate drain slices.
+
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
-same exact producer for safety-only IL-coordinate preparation. Direct CLI and
-host-neutral Library Address execution borrow the already-open prefetched image
-and issue one exact MethodDef request for the deduplicated coordinate methods.
-The resulting source receipt records exact breadth, bounded body acquisition,
-and no module lookup. Allocation, cost, and combined coordinate requests remain
-on `LibraryBodyAnalysisService` because their complete result ownership has
-not moved.
+exact method-analysis producer for safety-only IL-coordinate preparation.
+Direct CLI and host-neutral Library Address execution borrow the already-open
+prefetched image and issue one exact MethodDef request for the deduplicated
+coordinate methods. Allocation-only coordinate preparation independently
+plans `ExactMethodAllocationProducer` over that same bounded population.
+Cost-only preparation plans `FocusedMethodCallProducer` and retains only the
+direct-call rows needed by coordinate projection. QuerySpace selects any
+requested combination of allocation, safety, and cost associations over one
+deduplicated exact MethodDef population. Each focused input retains its own
+exact source and work receipt, while the request set records the shared
+physical group. Analysis-owned `ExactMethodSemanticAnalysis` constructs and
+executes that request set; Research-owned `ILOffsetSemanticAnalysis` maps its
+detached results into coordinate projection inputs without acquiring a
+QuerySpace dependency. No semantic coordinate request opens
+`LibraryBodyAnalysisService`.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first
@@ -638,6 +679,10 @@ generated-owner suppression, and exact publication parity without an LBA
 donor. The focused producers preserve the resolved direct-call prefix and
 independent exception-region, operation-safety, allocation, and
 safety-occurrence evidence when a later call operand fails recoverably.
+`ExactMethodAllocations_OmitUnrequestedCallAndOptimizationWork` separately
+proves that the allocation-only route acquires one body and local signature,
+publishes legacy-equivalent allocation rows, performs no call read or
+same-module call-target query, and executes one Method-analysis query.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).

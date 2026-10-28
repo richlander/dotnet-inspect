@@ -91,6 +91,19 @@ public static class AnalysisFindings
         FindingInspection<AllocationOccurrence> newInspection =
             new FindingInspection<AllocationOccurrence>.Complete(
                 InspectAllocations(newOccurrences, subject));
+        return CompareAllocations(
+            oldInspection,
+            newInspection,
+            acceptanceThreshold);
+    }
+
+    public static FindingComparison<AllocationOccurrence> CompareAllocations(
+        FindingInspection<AllocationOccurrence> oldInspection,
+        FindingInspection<AllocationOccurrence> newInspection,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentNullException.ThrowIfNull(oldInspection);
+        ArgumentNullException.ThrowIfNull(newInspection);
         return FindingComparison.Compare<AllocationOccurrence>(
                 oldInspection,
                 newInspection,

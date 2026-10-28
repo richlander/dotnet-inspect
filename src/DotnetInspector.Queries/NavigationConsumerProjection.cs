@@ -43,6 +43,7 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
         StructuralSubjectIdentity? parent = subject switch
         {
             StructuralSubjectIdentity.EcosystemSubject => snapshot.Workspace,
+            StructuralSubjectIdentity.ProjectSubject => snapshot.Workspace,
             StructuralSubjectIdentity.PackageSubject => snapshot.Workspace,
             StructuralSubjectIdentity.AllLibrariesSubject all => all.Package,
             StructuralSubjectIdentity.LibrarySubject library => library.Package,
@@ -57,6 +58,9 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             StructuralSubjectIdentity.EcosystemSubject ecosystem =>
                 (ecosystem.Id.Value,
                     "Registered Ecosystem in this Workspace."),
+            StructuralSubjectIdentity.ProjectSubject project =>
+                (project.Occurrence.Input.DeclaredName.ToString(),
+                    "Supplied Project evidence in this Workspace."),
             StructuralSubjectIdentity.PackageSubject package =>
                 (package.Occurrence.Package.PackageId,
                     $"{package.Occurrence.Package.PackageVersion} / {package.Occurrence.Package.TargetFramework}"),

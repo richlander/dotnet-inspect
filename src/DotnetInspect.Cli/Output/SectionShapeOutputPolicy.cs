@@ -91,6 +91,6 @@ internal static class SectionShapeOutputPolicy
             ? "--markdown, --json"
             : string.Join(
                 ", ",
-                formats.Select(OutputCapabilityCatalog.CliOption));
+                formats.Select(OutputModeOptions.CliOption));
     }
 }

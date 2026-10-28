@@ -239,6 +239,8 @@ public class SemanticFactsSectionTests
                 [method.MetadataToken, method.MetadataToken]);
 
         Assert.Null(preparation.Input);
+        Assert.Null(preparation.AllocationInput);
+        Assert.Null(preparation.CostInput);
         Assert.Null(preparation.Failure);
         ILOffsetSafetyAnalysisInput safety =
             Assert.IsType<ILOffsetSafetyAnalysisInput>(
@@ -258,7 +260,7 @@ public class SemanticFactsSectionTests
 
     [Fact]
     public void
-        ILAnalysisPreparation_AllocationRetainsLegacyAnalysis()
+        ILAnalysisPreparation_AllocationOnlyUsesExactMethodSource()
     {
         MethodInfo method =
             typeof(SemanticFactsFixture).GetMethod(
@@ -275,11 +277,154 @@ public class SemanticFactsSectionTests
             ILOffsetQuery.PrepareAnalysis(
                 source,
                 options,
-                [method.MetadataToken]);
+                [method.MetadataToken, method.MetadataToken]);
 
-        Assert.NotNull(preparation.Input);
+        Assert.Null(preparation.Input);
+        Assert.Null(preparation.SafetyInput);
+        Assert.Null(preparation.CostInput);
+        Assert.Null(preparation.Failure);
+        ILOffsetAllocationAnalysisInput allocation =
+            Assert.IsType<ILOffsetAllocationAnalysisInput>(
+                preparation.AllocationInput);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.ExactMethods,
+            allocation.SourceReceipt.Breadth.Kind);
+        Assert.Single(allocation.SourceReceipt.Breadth.Methods);
+        Assert.Equal(
+            source.Context.GetPrefetchedImage().Length,
+            allocation.SourceReceipt.TerminalWorkLimits
+                .MaximumEncodedIlBytes);
+        Assert.Equal(1, allocation.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, allocation.SourceReceipt.BodiesAcquired);
+        Assert.Equal(0, allocation.SourceReceipt.ModuleLookups);
+        Assert.Single(allocation.WorkReceipt.Producers);
+    }
+
+    [Fact]
+    public void
+        ILAnalysisPreparation_CostOnlyUsesExactMethodSource()
+    {
+        MethodInfo method =
+            typeof(SemanticFactsFixture).GetMethod(
+                nameof(SemanticFactsFixture.AllSignals))!;
+        using var source =
+            SourceLinkService.OpenPrefetched(TestAssemblyPath);
+        var options = new LibraryOptions
+        {
+            IncludeSections = [SectionNames.CostContext],
+            Select = [SectionNames.CostContext],
+        };
+
+        ILOffsetAnalysisPreparation preparation =
+            ILOffsetQuery.PrepareAnalysis(
+                source,
+                options,
+                [method.MetadataToken, method.MetadataToken]);
+
+        Assert.Null(preparation.Input);
+        Assert.Null(preparation.AllocationInput);
         Assert.Null(preparation.SafetyInput);
         Assert.Null(preparation.Failure);
+        ILOffsetCostAnalysisInput cost =
+            Assert.IsType<ILOffsetCostAnalysisInput>(
+                preparation.CostInput);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.ExactMethods,
+            cost.SourceReceipt.Breadth.Kind);
+        Assert.Single(cost.SourceReceipt.Breadth.Methods);
+        Assert.Equal(
+            source.Context.GetPrefetchedImage().Length,
+            cost.SourceReceipt.TerminalWorkLimits
+                .MaximumEncodedIlBytes);
+        Assert.Equal(1, cost.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, cost.SourceReceipt.BodiesAcquired);
+        Assert.Equal(0, cost.SourceReceipt.ModuleLookups);
+        Assert.Equal(1, cost.SourceReceipt.Coverage.Calls.CallReads);
+        Assert.Equal(
+            1,
+            cost.WorkReceipt.For(
+                FocusedMethodCallProducer.Instance)
+                .UnitsCompleted);
+    }
+
+    [Fact]
+    public void
+        ILAnalysisPreparation_MixedRequestsUseExactMethodSource()
+    {
+        MethodInfo method =
+            typeof(SemanticFactsFixture).GetMethod(
+                nameof(SemanticFactsFixture.AllSignals))!;
+        using var source =
+            SourceLinkService.OpenPrefetched(TestAssemblyPath);
+        string[][] sectionSets =
+        [
+            [
+                SectionNames.AllocationContext,
+                SectionNames.SafetyContext,
+            ],
+            [
+                SectionNames.AllocationContext,
+                SectionNames.CostContext,
+            ],
+            [
+                SectionNames.SafetyContext,
+                SectionNames.CostContext,
+            ],
+            [
+                SectionNames.AllocationContext,
+                SectionNames.SafetyContext,
+                SectionNames.CostContext,
+            ],
+        ];
+
+        foreach (string[] sections in sectionSets)
+        {
+            var options = new LibraryOptions
+            {
+                IncludeSections = [.. sections],
+                Select = [.. sections],
+            };
+
+            ILOffsetAnalysisPreparation preparation =
+                ILOffsetQuery.PrepareAnalysis(
+                    source,
+                    options,
+                    [method.MetadataToken]);
+
+            Assert.Null(preparation.Input);
+            Assert.Equal(
+                sections.Contains(
+                    SectionNames.AllocationContext,
+                    StringComparer.OrdinalIgnoreCase),
+                preparation.AllocationInput is not null);
+            Assert.Equal(
+                sections.Contains(
+                    SectionNames.SafetyContext,
+                    StringComparer.OrdinalIgnoreCase),
+                preparation.SafetyInput is not null);
+            Assert.Equal(
+                sections.Contains(
+                    SectionNames.CostContext,
+                    StringComparer.OrdinalIgnoreCase),
+                preparation.CostInput is not null);
+            Assert.Null(preparation.Failure);
+            Assert.All(
+                new[]
+                {
+                    preparation.AllocationInput?.SourceReceipt,
+                    preparation.SafetyInput?.SourceReceipt,
+                    preparation.CostInput?.SourceReceipt,
+                }.Where(static receipt => receipt is not null),
+                receipt =>
+                {
+                    Assert.Equal(
+                        MethodDefinitionSourceBreadthKind.ExactMethods,
+                        receipt!.Breadth.Kind);
+                    Assert.Single(receipt.Breadth.Methods);
+                    Assert.Equal(1, receipt.DefinitionsVisited);
+                    Assert.Equal(1, receipt.BodiesAcquired);
+                });
+        }
     }
 
     [Fact]

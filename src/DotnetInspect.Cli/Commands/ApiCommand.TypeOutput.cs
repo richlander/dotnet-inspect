@@ -108,8 +108,9 @@ public partial class ApiCommand
         return 1;
     }
 
-    /// <param name="bodyShapeCompletion">
-    /// Receives whether a selected Body Shapes search was incomplete. The
+    /// <param name="inspectionCompletion">
+    /// Receives whether a selected Body Shapes search or unsafe member census
+    /// was incomplete, or the census failed. The
     /// caller publishes the rendered output first and then exits nonzero, so
     /// incompleteness never withholds observed rows.
     /// </param>
@@ -125,7 +126,7 @@ public partial class ApiCommand
         ResolvedAssemblyReference? sourceAssembly = null,
         ResolvedAssemblyReference? memberCodeSourceAssembly = null,
         HttpClient? sourceClient = null,
-        BodyShapeCompletion? bodyShapeCompletion = null)
+        TypeInspectionCompletion? inspectionCompletion = null)
     {
         var sink = output ?? Console.Out;
 
@@ -433,8 +434,8 @@ public partial class ApiCommand
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
-        if (bodyShapeCompletion is not null)
-            bodyShapeCompletion.View = view;
+        if (inspectionCompletion is not null)
+            inspectionCompletion.View = view;
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;
@@ -522,7 +523,12 @@ public partial class ApiCommand
                             return 1;
                     }
                     var analysisInspection = new ApiMemberAnalysisInspection(
-                        mo4.DllPath!, methods, requestedSections, mo4.CallerScopeAssemblies, mo4);
+                        mo4.DllPath!,
+                        methods,
+                        requestedSections,
+                        mo4.CallerScopeAssemblies,
+                        mo4,
+                        memberCodeSourceAssembly);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         requestedSections, analysisInspection, mo4.PdbPath,
@@ -565,10 +571,13 @@ public partial class ApiCommand
                 ApiOutputFormatter.PopulateUnsafeMembers(
                     view,
                     type,
-                    TypeAnalysis().Safety);
+                    options.DllPath,
+                    sourceAssembly,
+                    options.Verbose);
             }
 
-            if (options.DllPath is { } exceptionRegionsDllPath
+            if (options is TypeOptions
+                && options.DllPath is { } exceptionRegionsDllPath
                 && (GetRequestedMemberSections(type, options).Contains(SectionNames.ExceptionRegions)
                     || options.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
             {

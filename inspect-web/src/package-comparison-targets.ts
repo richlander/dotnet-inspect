@@ -4,7 +4,21 @@ export interface ComparisonPackage {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
+  implementationComparisonRuntimeIdentifier?: string;
   source: { kind: string };
+}
+
+export function implementationComparisonRuntimeIdentifier(
+  pkg: Pick<ComparisonPackage, "implementationComparisonRuntimeIdentifier">,
+): string {
+  const runtimeIdentifier = pkg.implementationComparisonRuntimeIdentifier;
+  if (!runtimeIdentifier) {
+    throw new Error(
+      "The Package did not supply an implementation comparison runtime identifier.",
+    );
+  }
+  return runtimeIdentifier;
 }
 
 export type DiffTarget = { kind: "previous" } | { kind: "exact"; version: string };

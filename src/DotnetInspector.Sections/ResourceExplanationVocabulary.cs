@@ -48,6 +48,14 @@ internal static class ResourceExplanationVocabulary
         new(CoreSchemaIdentity, "integer");
     internal static readonly ExplanationDataShapeIdentity BooleanShape =
         new(CoreSchemaIdentity, "boolean");
+    internal static readonly ExplanationDataShapeIdentity ComponentFieldShape =
+        new(CoreSchemaIdentity, "component-field");
+    internal static readonly ExplanationDataShapeIdentity ComponentLimitShape =
+        new(CoreSchemaIdentity, "component-field-limit");
+    internal static readonly ExplanationResourceTypeIdentity ComponentContractType =
+        new(CoreSchemaIdentity, "component-contract");
+    internal static readonly ExplanationResourceTypeIdentity ComponentContractsType =
+        new(CoreSchemaIdentity, "component-contracts");
     internal static readonly ExplanationDataShapeIdentity
         OpaqueExternalIdentityShape =
             new(QuerySchemaIdentity, "opaque-external-identity");
@@ -611,6 +619,10 @@ internal static class ResourceExplanationVocabulary
                         "Routing destination",
                         NavigationCollectionType),
                     Relationship(
+                        "routing-destination-component-contracts",
+                        "Routing destination",
+                        ComponentContractsType),
+                    Relationship(
                         "accepts-subject-kind",
                         "Accepts subject kind",
                         RoutingEntryType),
@@ -723,9 +735,10 @@ internal static class ResourceExplanationVocabulary
                     TextFact("identity", "Identity"),
                     TextFact("name", "Name"),
                     TextFact("summary", "Summary"),
-                    TextFact("subject-role", "Subject role"),
-                    TextFact("result-grain", "Result grain"),
-                    TextFact("profile", "Profile"),
+                    TextFact("execution", "Execution"),
+                    OptionalTextFact("subject-role", "Subject role"),
+                    OptionalTextFact("result-grain", "Result grain"),
+                    OptionalTextFact("profile", "Profile"),
                     OpaqueExternalIdentityFact(
                         "result-contract",
                         "Result contract"),
@@ -743,6 +756,10 @@ internal static class ResourceExplanationVocabulary
                         "consumer-binding",
                         "Consumer binding",
                         ConsumerBindingType),
+                    Relationship(
+                        "analysis",
+                        "Analysis",
+                        AnalysisType),
                 ]);
         ExplanationResourceTypeDeclaration relatedOperation =
             Type(
@@ -856,6 +873,10 @@ internal static class ResourceExplanationVocabulary
                         "exposes",
                         "Exposes",
                         QueryFacetType),
+                    Relationship(
+                        "exposes-analysis",
+                        "Exposes analysis",
+                        AnalysisType),
                 ]);
         ExplanationResourceTypeDeclaration analysis =
             Type(
@@ -867,6 +888,7 @@ internal static class ResourceExplanationVocabulary
                     TextFact("name", "Name"),
                     IntegerFact("revision", "Revision"),
                     TextFact("cost", "Cost"),
+                    TextsFact("findings", "Findings", 64),
                     TextsFact("participations", "Participations", 256),
                 ],
                 [
@@ -878,6 +900,14 @@ internal static class ResourceExplanationVocabulary
                         "issues",
                         "Issues",
                         IssuedFindingType),
+                    Relationship(
+                        "route",
+                        "Route",
+                        HostNeutralRouteType),
+                    Relationship(
+                        "exposed-by",
+                        "Exposed by",
+                        ConsumerBindingType),
                 ]);
         ExplanationResourceTypeDeclaration operationSurface =
             Type(
@@ -945,13 +975,45 @@ internal static class ResourceExplanationVocabulary
                         VocabularyValueType),
                 ]);
 
+        var componentField = new ExplanationDataShapeDeclaration.Record(
+            ComponentFieldShape, "Component field", "One owner-issued declaration field.", valueBudget,
+            [
+                MapField(ComponentFieldShape, "id", "Identity", "Owner-issued fact identity.", TextShape),
+                MapField(ComponentFieldShape, "name", "Name", "Owner-issued field name.", TextShape),
+                MapField(ComponentFieldShape, "meaning", "Meaning", "Owner-issued field meaning.", TextShape),
+                MapField(ComponentFieldShape, "shape", "Shape", "Qualified owner-issued value shape.", TextShape),
+                MapField(ComponentFieldShape, "cardinality", "Cardinality", "Owner-issued cardinality.", TextShape),
+                new(new(ComponentFieldShape, "states"), "States", "Admitted observation states.",
+                    TextShape, ExplanationCardinality.OrderedMany, 4),
+            ]);
+        var componentLimit = new ExplanationDataShapeDeclaration.Record(
+            ComponentLimitShape, "Field limit", "An owner-issued finite field population limit.", valueBudget,
+            [
+                MapField(ComponentLimitShape, "field", "Field", "Owner-issued fact identity.", TextShape),
+                MapField(ComponentLimitShape, "maximum_values", "Maximum values", "Maximum field population.", IntegerShape),
+            ]);
+        var componentContract = Type(ComponentContractType, "Component contract",
+            "An owner-issued contract for a detached declarative component.",
+            [
+                TextFact("name", "Name"), TextFact("purpose", "Purpose"),
+                TextFact("contract", "Contract"), TextFact("owner", "Owner"),
+                TextFact("schema", "Schema"), IntegerFact("version", "Version"),
+                TextFact("resource_type", "Resource type"),
+                ShapedFact("fields", "Fields", ComponentFieldShape, 64),
+                ShapedFact("field_limits", "Field limits", ComponentLimitShape, 64),
+            ]);
+        var componentContracts = Type(ComponentContractsType, "Component contracts",
+            "The installed declaration contracts admitted for component explanation.",
+            [TextFact("name", "Name"), TextFact("purpose", "Purpose"), IntegerFact("members", "Members")],
+            [Relationship("collection-component-contract", "Component contract", ComponentContractType)]);
+
         return
         [
             new(
                 CoreSchemaIdentity,
                 Version,
-                [textShape, integerShape, booleanShape],
-                [navigation, root, routingCollection, routingEntry],
+                [textShape, integerShape, booleanShape, componentField, componentLimit],
+                [navigation, root, routingCollection, routingEntry, componentContract, componentContracts],
                 [address]),
             new(
                 StructuralSchemaIdentity,

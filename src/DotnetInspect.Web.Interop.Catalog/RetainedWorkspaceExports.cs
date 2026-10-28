@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
@@ -36,20 +37,36 @@ public static partial class CatalogExports
     }
 
     [JSExport]
-    public static async Task<string> PrepareHomeDemoWorkspaceDefinition(
+    public static async Task<string> PrepareRetainedWorkspaceDefinitionFromRecords(
         string retainedDefinitionId,
         string label,
         string canonicalLocation,
-        string scenarioId)
+        string scenarioId,
+        string definitionRecordsJson)
     {
-        BrowserRetainedWorkspacePreparationResult result =
-            await BrowserRetainedWorkspaceActivationService
-                .PrepareHomeDemoAsync(
+        BrowserRetainedWorkspacePreparationResult result;
+        try
+        {
+            string[] records = JsonSerializer.Deserialize(
+                    definitionRecordsJson,
+                    BrowserCatalogJsonContext.Default.StringArray)
+                ?? throw new JsonException();
+            result = await BrowserRetainedWorkspaceActivationService
+                .PrepareDefinitionRecordsAsync(
                     retainedDefinitionId,
                     label,
                     canonicalLocation,
-                    scenarioId)
+                    scenarioId,
+                    records)
                 .ConfigureAwait(false);
+        }
+        catch (JsonException)
+        {
+            result = BrowserRetainedWorkspaceActivationService
+                .FailedPreparation(
+                    "InvalidDefinition",
+                    "Serialized Workspace definition records must be a JSON array of strings.");
+        }
         return JsonSerializer.Serialize(
             result,
             BrowserCatalogJsonContext.Default
@@ -537,7 +554,7 @@ public static partial class CatalogExports
 }
 
 [SupportedOSPlatform("browser")]
-internal static class BrowserRetainedWorkspaceActivationService
+internal static partial class BrowserRetainedWorkspaceActivationService
 {
     internal const int PackageSourceCredentialsJsonLengthLimit = 2 * 1024 * 1024;
     internal const string InvalidPackageSourceCredentialsMessage =
@@ -701,66 +718,33 @@ internal static class BrowserRetainedWorkspaceActivationService
                     StringComparer.Ordinal)).ConfigureAwait(false);
 
     internal static async Task<BrowserRetainedWorkspacePreparationResult>
-        PrepareHomeDemoAsync(
+        PrepareDefinitionRecordsAsync(
         string retainedDefinitionId,
         string label,
         string canonicalLocation,
-        string scenarioId)
+        string scenarioId,
+        IReadOnlyList<string> definitionRecords)
     {
-        if (string.IsNullOrWhiteSpace(scenarioId))
-        {
-            return FailedPreparation(
-                "InvalidRequest",
-                "A product home demo identity is required.");
-        }
-
-        EcosystemDemoSelectionResult selectionResult =
-            EcosystemPackCatalog.SelectDemo(scenarioId);
-        if (selectionResult is EcosystemDemoSelectionResult.Unknown)
-        {
-            return FailedPreparation(
-                "UnknownDemo",
-                $"Product home demo '{scenarioId}' is not in the catalog.");
-        }
-
-        EcosystemDemoSelection selection =
-            ((EcosystemDemoSelectionResult.Known)selectionResult).Selection;
-        BrowserHomeDemoRunPlan plan;
         try
         {
-            plan = BrowserProductHomeDemos.ToRunPlan(selection.Scenario);
-        }
-        catch (InspectionDefinitionException ex)
-        {
-            return FailedPreparation("InvalidDefinition", ex.Message);
-        }
-        if (!string.Equals(
-                plan.Section,
-                ProductDemoSections.Methods,
-                StringComparison.Ordinal))
-        {
-            return FailedPreparation(
-                "UnsupportedDemoSection",
-                $"Product home demo '{scenarioId}' requires section "
-                    + $"'{plan.Section}'; retained activation currently "
-                    + $"supports '{ProductDemoSections.Methods}'.");
-        }
-
-        BrowserRetainedWorkspaceActivationRequest request;
-        try
-        {
-            request = new(
+            InspectionDefinitionRecord[] records =
+            [
+                .. definitionRecords.Select(InspectionDefinitionJson.Parse),
+            ];
+            var request = new BrowserRetainedWorkspaceActivationRequest(
                 retainedDefinitionId,
                 label,
                 canonicalLocation,
-                selection.RestorationRequest);
+                new CompleteRestorationRequestBasis.DefinitionInput(
+                    scenarioId,
+                    records));
+            return await PrepareAsync(request).ConfigureAwait(false);
         }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (ex is ArgumentException
+            or InspectionDefinitionException)
         {
-            return FailedPreparation("InvalidRequest", ex.Message);
+            return FailedPreparation("InvalidDefinition", ex.Message);
         }
-
-        return await PrepareAsync(request).ConfigureAwait(false);
     }
 
     internal static async Task<BrowserRetainedWorkspacePreparationResult>
@@ -1160,7 +1144,7 @@ internal static class BrowserRetainedWorkspaceActivationService
                     new(
                         "UnsupportedDefinition",
                         "packet.view.active",
-                        "Source-free complete Workspace link activation currently supports only Workspace or default Package selections."));
+                        "Source-free complete Workspace link activation currently supports only Workspace, default Package, or Package Hierarchy selections."));
             }
             return new(
                 true,
@@ -1203,7 +1187,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             WorkspaceShareViewState state = packet.ViewStates[index + 1];
             if (packet.Tabs[index].SourceKind
                     == WorkspaceShareSourceKind.Package
-                ? !IsPackageDefault(state)
+                ? !IsPackageRoot(state)
                 : !IsDormantGroup(state))
             {
                 return false;
@@ -1220,12 +1204,13 @@ internal static class BrowserRetainedWorkspaceActivationService
         && state.Facet is null or "workspace.overview";
 
     // Package views recorded before package.libraries became the default
-    // name package.overview; both remain the default Package state.
-    private static bool IsPackageDefault(WorkspaceShareViewState state) =>
+    // name package.overview; preserve both beside the explicit Hierarchy inspector.
+    private static bool IsPackageRoot(WorkspaceShareViewState state) =>
         IsUnscoped(state)
         && state.Subject is PortableSubjectRequest.Package
         && state.Context is PortableRetainedSubjectContext.Package
-        && state.Facet is null or "package.libraries" or "package.overview";
+        && state.Facet is null or "package.libraries" or "package.overview"
+            or "package.dependency-hierarchy";
 
     private static bool IsDormantGroup(WorkspaceShareViewState state) =>
         IsUnscoped(state)
@@ -1524,6 +1509,7 @@ internal static class BrowserRetainedWorkspaceActivationService
     {
         lock (Gate)
             Sessions.Clear();
+        ResetIndexedTypeFindForTests();
         await BrowserRetainedWorkspaceActivationRegistry
             .ResetForTestsAsync()
             .ConfigureAwait(false);
@@ -1579,6 +1565,8 @@ internal static class BrowserRetainedWorkspaceActivationService
                             package.NavigationId,
                             package.ContextIndex,
                             package.ConsumerPackageSubjectId,
+                            package.Inventory.Package.RuntimeIdentifier,
+                            ImplementationComparisonRuntimeIdentifier(package),
                             Summary(package.Surface),
                             DefaultLibrary(package))),
             ],
@@ -1614,6 +1602,8 @@ internal static class BrowserRetainedWorkspaceActivationService
                         package.NavigationId,
                         package.ContextIndex,
                         package.ConsumerPackageSubjectId,
+                        package.Inventory.Package.RuntimeIdentifier,
+                        ImplementationComparisonRuntimeIdentifier(package),
                         Summary(package.Surface),
                         DefaultLibrary(package))),
             ],
@@ -1644,6 +1634,12 @@ internal static class BrowserRetainedWorkspaceActivationService
             package.ConsumerPackageSubjectId,
             PageSurface(package.Surface, typeOffset),
             TypePage(package.Surface, typeOffset));
+
+    static string ImplementationComparisonRuntimeIdentifier(
+        BrowserRetainedWorkspacePackagePresentation package) =>
+        package.Inventory.Package.RuntimeIdentifier
+            ?? PackageRuntimePopulationChoice
+                .ProductDefaultRuntimeIdentifier;
 
     static BrowserRetainedWorkspacePlatform Platform(
         BrowserRetainedWorkspacePlatformPresentation platform,
@@ -1693,13 +1689,13 @@ internal static class BrowserRetainedWorkspaceActivationService
             : null;
 
     static string? CanonicalPacket(
-        CompleteRestorationProjection projection) =>
+        CompleteRestorationProjection? projection) =>
         projection is CompleteRestorationProjection.Projectable projectable
             ? projectable.CanonicalPacket
             : null;
 
     static BrowserRetainedWorkspaceDefinitionState Definition(
-        CompleteRestorationRequestBasis restorationRequest,
+        CompleteRestorationRequestBasis? restorationRequest,
         string? canonicalPacket,
         CommittedScenarioDefinitionSet? definition)
     {
@@ -1755,7 +1751,8 @@ internal static class BrowserRetainedWorkspaceActivationService
             ],
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
-            definition.Scenario.Context);
+            definition.Scenario.Context,
+            workspace.TraversalTargetPolicy.TargetFramework);
     }
 
     static BrowserRetainedWorkspaceDefinitionState
@@ -1772,7 +1769,8 @@ internal static class BrowserRetainedWorkspaceActivationService
             [],
             [.. request.Plan.Registrations.Select(Registration)],
             ActiveTabId: null,
-            SelectedContextId: null);
+            SelectedContextId: null,
+            request.Plan.TraversalTargetPolicy.TargetFramework);
     }
 
     static BrowserRetainedWorkspaceDefinitionState
@@ -1823,7 +1821,8 @@ internal static class BrowserRetainedWorkspaceActivationService
             [new BrowserWorkspaceShareContext(context.Name, [tab.Id])],
             [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
-            definition.Scenario.Context);
+            definition.Scenario.Context,
+            workspace.TraversalTargetPolicy.TargetFramework);
     }
 
     static T AssertSingle<T>(
@@ -1902,7 +1901,7 @@ internal static class BrowserRetainedWorkspaceActivationService
             settlement.Reason.ToString(),
             settlement.Failure?.Message);
 
-    static BrowserRetainedWorkspacePreparationResult FailedPreparation(
+    internal static BrowserRetainedWorkspacePreparationResult FailedPreparation(
         string kind,
         string message) =>
         new(

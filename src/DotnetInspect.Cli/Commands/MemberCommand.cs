@@ -42,6 +42,18 @@ public static partial class MemberCommand
             ? ExecuteWorkspaceAsync(options, plan, CreateWorkspaceLoadOptions(options))
             : ExecuteWithShareAsync(options, plan);
 
+    internal static Task<int> ExecuteAsync(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan,
+        PackageHouse packageHouse,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issuePackageOperation) =>
+        ExecuteCoreAsync(
+            options,
+            plan,
+            packageHouse: packageHouse,
+            issuePackageOperation: issuePackageOperation);
+
     internal static Task<int> ExecuteResolvedAsync(
         MemberOptions options,
         ApiSourceResult source,
@@ -59,6 +71,10 @@ public static partial class MemberCommand
         ApiServices.LoadedApiSurface? loadedSurface = null,
         Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
             ShareProjectionPlan>? resolvedMember = null,
+        PackageHouse? packageHouse = null,
+        Func<CancellationToken, PackageSourceOperationLease>?
+            issuePackageOperation = null,
+        bool allowImplicitDocumentation = true,
         ApiType? preselectedType = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
@@ -125,6 +141,38 @@ public static partial class MemberCommand
             return 1;
         if (ApiCommand.RejectRouteIndependentOptionShape(options))
             return 1;
+
+        if (resolvedSource is null
+            && loadedSurface is null
+            && TryCreateSharedMemberRequest(
+                options,
+                plan,
+                out ExactTypeInspectionRequest? exactTypeRequest,
+                out SharedMemberPackageDemand packageDemand))
+        {
+            int? exactMemberExitCode =
+                await (packageHouse is null
+                    ? ExecuteSharedMemberAsync(
+                        options,
+                        plan,
+                        exactTypeRequest,
+                        packageDemand,
+                        CancellationToken.None)
+                    : ExecuteSharedMemberAsync(
+                        options,
+                        plan,
+                        exactTypeRequest,
+                        packageDemand,
+                        packageHouse,
+                        (issuePackageOperation
+                            ?? throw new InvalidOperationException(
+                                "An injected Member PackageHouse requires "
+                                    + "a source-operation issuer.")),
+                        CancellationToken.None))
+                .ConfigureAwait(false);
+            if (exactMemberExitCode is { } completed)
+                return completed;
+        }
 
         var unresolvedOptions = options;
         bool memberGestureChanged = false;
@@ -289,49 +337,12 @@ public static partial class MemberCommand
                 var mergeOptions = options.RouterDeferredTypeOrMember
                     ? unresolvedOptions
                     : options;
-                var impliedSelector = MemberTargetSelector.Parse(impliedMember);
-                if (mergeOptions.MemberGenericArity is { } explicitArity
-                    && impliedSelector.GenericArity is { } impliedArity
-                    && explicitArity != impliedArity)
-                {
-                    CommandError.Write("A member selection cannot combine different generic arities.");
-                    return 1;
-                }
-                if (MemberOverloadSelectorsConflict(
+                if (!TryMergeImpliedMemberOptions(
                         mergeOptions,
-                        impliedSelector))
-                {
-                    CommandError.Write(
-                        "A member selection cannot combine different overload selectors.");
+                        impliedMember,
+                        out mergeOptions))
                     return 1;
-                }
 
-                var mergedFilter = new HashSet<string>(
-                    mergeOptions.MemberFilter,
-                    StringComparer.OrdinalIgnoreCase)
-                {
-                    impliedSelector.Name
-                };
-                var mergedArity =
-                    mergeOptions.MemberGenericArity
-                    ?? impliedSelector.GenericArity;
-                if (mergedArity.HasValue && mergedFilter.Count != 1)
-                {
-                    CommandError.Write("A generic arity selector requires exactly one member name.");
-                    return 1;
-                }
-
-                mergeOptions = mergeOptions with
-                {
-                    MemberFilter = mergedFilter,
-                    MemberGenericArity = mergedArity,
-                    OverloadIndex =
-                        mergeOptions.OverloadIndex
-                        ?? impliedSelector.OverloadIndex,
-                    MemberDigest = MergeDigestPrefixes(
-                        mergeOptions.MemberDigest,
-                        impliedSelector.DigestPrefix)
-                };
                 if (options.RouterDeferredTypeOrMember)
                     unresolvedOptions = mergeOptions;
                 else
@@ -498,7 +509,9 @@ public static partial class MemberCommand
             // Default --docs on for single-type view at Normal+ unless explicitly disabled
             MemberOptions contextualSubjectOptions = options;
             MemberOptions effectiveOptions = options;
-            if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
+            if (allowImplicitDocumentation
+                && !options.DocsExplicitlySet
+                && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
             if (effectiveOptions.HasCallerScope
                 && !ApiCommand.HasExactCallGraphDocumentSelection(
@@ -1639,12 +1652,12 @@ public static partial class MemberCommand
                 api,
                 apiType,
                 effectiveOptions.MemberFilter);
-            var bodyShapeCompletion = new BodyShapeCompletion();
+            var inspectionCompletion = new TypeInspectionCompletion();
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                 apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                 acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions,
                 memberCodeSourceAssembly: sourceAssembly,
-                bodyShapeCompletion: bodyShapeCompletion);
+                inspectionCompletion: inspectionCompletion);
             if (writeExitCode != 0)
                 return writeExitCode;
 
@@ -1661,7 +1674,7 @@ public static partial class MemberCommand
                 contextualExplanationSelector,
                 packageName,
                 packageVersion);
-            return companionExitCode == 0 && bodyShapeCompletion.Incomplete
+            return companionExitCode == 0 && inspectionCompletion.Incomplete
                 ? 1
                 : companionExitCode;
         }
@@ -1963,6 +1976,61 @@ public static partial class MemberCommand
     private static bool MemberFilterHasWildcard(string filter)
         => filter.Contains('*', StringComparison.Ordinal)
            || filter.Contains('?', StringComparison.Ordinal);
+
+    private static bool TryMergeImpliedMemberOptions(
+        MemberOptions options,
+        string impliedMember,
+        out MemberOptions mergedOptions)
+    {
+        MemberTargetSelector selector =
+            MemberTargetSelector.Parse(impliedMember);
+        if (options.MemberGenericArity is { } explicitArity
+            && selector.GenericArity is { } impliedArity
+            && explicitArity != impliedArity)
+        {
+            CommandError.Write(
+                "A member selection cannot combine different generic arities.");
+            mergedOptions = options;
+            return false;
+        }
+        if (MemberOverloadSelectorsConflict(options, selector))
+        {
+            CommandError.Write(
+                "A member selection cannot combine different overload selectors.");
+            mergedOptions = options;
+            return false;
+        }
+
+        var mergedFilter = new HashSet<string>(
+            options.MemberFilter,
+            StringComparer.OrdinalIgnoreCase)
+        {
+            selector.Name,
+        };
+        int? mergedArity =
+            options.MemberGenericArity
+            ?? selector.GenericArity;
+        if (mergedArity.HasValue && mergedFilter.Count != 1)
+        {
+            CommandError.Write(
+                "A generic arity selector requires exactly one member name.");
+            mergedOptions = options;
+            return false;
+        }
+
+        mergedOptions = options with
+        {
+            MemberFilter = mergedFilter,
+            MemberGenericArity = mergedArity,
+            OverloadIndex =
+                options.OverloadIndex
+                ?? selector.OverloadIndex,
+            MemberDigest = MergeDigestPrefixes(
+                options.MemberDigest,
+                selector.DigestPrefix),
+        };
+        return true;
+    }
 
     private static bool MemberOverloadSelectorsConflict(
         MemberOptions explicitOptions,
@@ -2641,19 +2709,17 @@ public static partial class MemberCommand
 
     internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
+        if (options.IncludeSections is not { Count: > 0 })
+            return false;
+
         var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
-        if (sections.Overlaps(
+        return sections.Overlaps(
                 [
                     SectionNames.Source,
                     SectionNames.PdbSource,
                     SectionNames.SourceDiff,
-                ]))
-            return true;
-
-        bool pdbAuthorized = options.IncludeSections is { Count: > 0 }
-                             || options.Verbosity >= Verbosity.Detailed;
-        return pdbAuthorized
-               && sections.Overlaps(MemberSourceResolutionSectionNames);
+                ])
+            || sections.Overlaps(MemberSourceResolutionSectionNames);
     }
 
     internal static bool AuthorizesMemberSourceResolution(

@@ -1,10 +1,12 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 using Inspector.Findings;
 
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.ILDiff;
 
@@ -54,6 +56,13 @@ public static class IlFindings
         IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
         => IlCensusCursor.Create(body, reader, subject, normalization).Drain();
 
+    /// <summary>Inspects one method body through its image's side, under the side's policy.</summary>
+    public static FindingInspection<CanonicalIlOperation> Inspect(
+        IlCensusSide side,
+        MethodInstructions? body,
+        FindingSubject subject)
+        => IlCensusCursor.Create(side, body, subject).Drain();
+
     public static FindingComparison<CanonicalIlOperation> Compare(
         MethodInstructions? oldBody,
         MetadataReader? oldReader,
@@ -81,6 +90,44 @@ public static class IlFindings
         FindingSubject subject,
         IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
         => IlCensusCursor.Create(pe, reader, method, subject, normalization).Drain();
+
+    /// <summary>Inspects a method definition from its image through the image's side.</summary>
+    public static FindingInspection<CanonicalIlOperation> Inspect(
+        IlCensusSide side,
+        PEReader pe,
+        MethodDefinitionHandle method,
+        FindingSubject subject)
+        => IlCensusCursor.Create(side, pe, method, subject).Drain();
+
+    /// <summary>
+    /// Exists over two method definitions through their images' sides
+    /// (<c>docs/design/finding-census.md#exists</c>): lockstep over the two
+    /// cursors under the sides' one policy, stopping at the first event that
+    /// decides, with nothing sealed or formatted.
+    /// </summary>
+    public static FindingExistsResult Exists(
+        IlCensusSide oldSide,
+        PEReader oldPe,
+        MethodDefinitionHandle oldMethod,
+        IlCensusSide newSide,
+        PEReader newPe,
+        MethodDefinitionHandle newMethod)
+    {
+        ArgumentNullException.ThrowIfNull(oldSide);
+        ArgumentNullException.ThrowIfNull(newSide);
+        IlBodyDiff.RequireOnePolicy(oldSide, newSide);
+        return Exists(IlCensusCursor.Create(oldSide, oldPe, oldMethod), IlCensusCursor.Create(newSide, newPe, newMethod));
+    }
+
+    /// <summary>Exists over two cursors, which one call creates under one policy; a mismatch is refused.</summary>
+    public static FindingExistsResult Exists(IlCensusCursor oldCursor, IlCensusCursor newCursor)
+    {
+        ArgumentNullException.ThrowIfNull(oldCursor);
+        ArgumentNullException.ThrowIfNull(newCursor);
+        if (oldCursor.Policy != newCursor.Policy)
+            throw new ArgumentException("Both cursors of one Exists call are under one policy.", nameof(newCursor));
+        return FindingExists.Decide(oldCursor, newCursor, default(IlAtomEquality));
+    }
 
     /// <summary>
     /// Compares already-acquired inspections. This overload preserves explicit absent sides for
@@ -121,6 +168,25 @@ public static class IlFindings
 
         var oldInspection = Inspect(oldPe, oldReader, oldMethod, subject, normalization);
         var newInspection = Inspect(newPe, newReader, newMethod, subject, normalization);
+        return CompareInspections(oldInspection, newInspection, acceptanceThreshold);
+    }
+
+    /// <summary>Compares two method definitions through their images' sides, under the sides' one policy.</summary>
+    public static FindingComparison<CanonicalIlOperation> Compare(
+        IlCensusSide oldSide,
+        PEReader oldPe,
+        MethodDefinitionHandle oldMethod,
+        IlCensusSide newSide,
+        PEReader newPe,
+        MethodDefinitionHandle newMethod,
+        FindingSubject subject,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentNullException.ThrowIfNull(oldSide);
+        ArgumentNullException.ThrowIfNull(newSide);
+        IlBodyDiff.RequireOnePolicy(oldSide, newSide);
+        var oldInspection = Inspect(oldSide, oldPe, oldMethod, subject);
+        var newInspection = Inspect(newSide, newPe, newMethod, subject);
         return CompareInspections(oldInspection, newInspection, acceptanceThreshold);
     }
 
@@ -175,25 +241,25 @@ public static class IlFindings
     }
 
     internal static FindingInspection<CanonicalIlOperation> InspectMethod(
+        IlCensusSide side,
         PEReader pe,
-        MetadataReader reader,
         MethodDefinitionHandle methodHandle,
         FindingSubject subject,
         out MethodInstructions? body,
-        out MethodBodyBlock? methodBody,
-        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
+        out MethodBodyBlock? methodBody)
     {
         body = null;
         methodBody = null;
         try
         {
+            MetadataReader reader = side.Reader;
             var method = reader.GetMethodDefinition(methodHandle);
             if (method.RelativeVirtualAddress == 0)
-                return Inspect(null, reader, subject, normalization);
+                return Inspect(side, null, subject);
 
             methodBody = pe.GetMethodBody(method.RelativeVirtualAddress);
             body = MethodInstructions.Decode(methodBody);
-            return IlCensusCursor.Create(body, reader, subject, normalization).Drain();
+            return IlCensusCursor.Create(side, body, subject).Drain();
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -265,7 +331,9 @@ public static class IlFindings
     /// The canonical content key for an operation, the matcher projection of its canonical bytes,
     /// defined so that key equality is exactly the <see cref="IlBodyDiff"/> canonical-equality
     /// relation (branch targets ignored; switch arms compared by count). This keeps the committed
-    /// core aligned with the existing diff. ScopeKey is left null: move detection is corroborated
+    /// core aligned with the existing diff. A token operand's key carries its Symbol Key's bytes
+    /// losslessly, one char per byte, never its formatted text, so two spellings whose bytes
+    /// differ never share a key string. ScopeKey is left null: move detection is corroborated
     /// by run contiguity, and EH/loop-region scope is the Attach layer's concern (issue #2564).
     /// </summary>
     public static string GetIdentityKey(CanonicalIlOperation operation)
@@ -274,11 +342,32 @@ public static class IlFindings
         if (operation.Operand is null)
             return operation.OpcodeFamily;
 
-        return operation.Operand.Kind switch
+        IlOperandIdentity operand = operation.Operand;
+        return operand.Kind switch
         {
             IlOperandIdentityKind.BranchTarget => $"{operation.OpcodeFamily}|br",
             IlOperandIdentityKind.SwitchTargets => $"{operation.OpcodeFamily}|switch:{operation.Targets.Length}",
-            _ => $"{operation.OpcodeFamily}|{operation.Operand.Kind}:{operation.Operand.Value}",
+            _ when operand.TryGetKey(out StagedSymbolKey<IlOperandPart> key) => KeyText($"{operation.OpcodeFamily}|{operand.Kind}:", key),
+            _ => $"{operation.OpcodeFamily}|{operand.Kind}:{operand.Value}",
         };
     }
+
+    // A key's bytes widened one per char after the prefix. A key's first byte is
+    // a marker below 0x40, which no formatted value's text begins with, so a
+    // value identity and a key identity of one kind never share a string.
+    static string KeyText(string prefix, StagedSymbolKey<IlOperandPart> key)
+        => string.Create(prefix.Length + key.Length, (prefix, key), static (chars, state) =>
+        {
+            state.prefix.AsSpan().CopyTo(chars);
+            Span<char> rest = chars[state.prefix.Length..];
+            byte[]? rented = null;
+            Span<byte> bytes = state.key.Length <= 512
+                ? stackalloc byte[512]
+                : (rented = System.Buffers.ArrayPool<byte>.Shared.Rent(state.key.Length));
+            bytes = bytes[..state.key.Length];
+            state.key.CopyTo(bytes);
+            Encoding.Latin1.GetChars(bytes, rest);
+            if (rented is not null)
+                System.Buffers.ArrayPool<byte>.Shared.Return(rented);
+        });
 }

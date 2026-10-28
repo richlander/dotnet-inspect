@@ -37,7 +37,8 @@ internal abstract record BrowserSpotlightRetainedCurrentActivationResult<
         TPackageRequest,
         TNavigationAction,
         TPlatformAction,
-        TLibraryIntent> Descriptor { get; }
+        TLibraryIntent> Descriptor
+    { get; }
 
     internal sealed record NotAdmitted :
         BrowserSpotlightRetainedCurrentActivationResult<
@@ -145,7 +146,8 @@ internal abstract record BrowserSpotlightRetainedCurrentActivationResult<
             TNavigationAction,
             TPlatformAction,
             TLibraryIntent,
-            TPackageFailure> Result { get; }
+            TPackageFailure> Result
+        { get; }
     }
 }
 
@@ -214,7 +216,17 @@ internal static class BrowserSpotlightRetainedCurrentActivation
                     TPackageRequest,
                     TNavigationAction,
                     TPlatformAction,
-                    TLibraryIntent>.ActivateCurrentPackageLibrary;
+                    TLibraryIntent>.AddCurrentPackageType
+                or BrowserSpotlightDestinationActivationPlan<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.ActivateCurrentPackageLibrary
+                or BrowserSpotlightDestinationActivationPlan<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
+                    TLibraryIntent>.ActivateCurrentPackageType;
         if (!isNavigation && !isPackage)
         {
             throw new ArgumentException(

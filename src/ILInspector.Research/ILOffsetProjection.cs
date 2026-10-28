@@ -31,7 +31,9 @@ public sealed record ILOffsetProjectionRequest(
     ILOffsetAnalysisInput? Analysis = null,
     string? AnalysisFailure = null,
     bool AllowNonBoundaryContextAbsence = false,
-    ILOffsetSafetyAnalysisInput? SafetyAnalysis = null);
+    ILOffsetSafetyAnalysisInput? SafetyAnalysis = null,
+    ILOffsetAllocationAnalysisInput? AllocationAnalysis = null,
+    ILOffsetCostAnalysisInput? CostAnalysis = null);
 
 /// <summary>The stage that prevented an IL-offset projection from being produced.</summary>
 public enum ILOffsetProjectionFailureKind

@@ -35,13 +35,17 @@ internal static class BodyShapeCompleteness
 }
 
 /// <summary>
-/// Carries a <c>type</c> or <c>member</c> Body Shapes search's completeness
-/// out of rendering, so the command publishes the observed output before it
-/// exits nonzero for an incomplete search.
+/// Carries a <c>type</c> or <c>member</c> inspection's completeness out of
+/// rendering, so the command publishes the observed output before it exits
+/// nonzero for an incomplete Body Shapes search or an incomplete or failed
+/// unsafe member census.
 /// </summary>
-internal sealed class BodyShapeCompletion
+internal sealed class TypeInspectionCompletion
 {
     internal TypeView? View { get; set; }
 
-    public bool Incomplete => View?.BodyShapeSearchIncomplete == true;
+    public bool Incomplete =>
+        View is { BodyShapeSearchIncomplete: true }
+            or { UnsafeMembersIncomplete: true }
+            or { UnsafeMembersFailed: true };
 }

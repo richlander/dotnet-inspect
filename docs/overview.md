@@ -593,6 +593,10 @@ producers that will extend that space.
 - `src/DotnetInspector.Sections/` also owns the cross-host completed-inspection
   envelope, portable-share outcome, and contained supplemental diagnostics.
   CLI and Inspect Web consume the same contract without either host owning it.
+  Its
+  [Library Reference Inspection](design/library-reference-inspection.md)
+  owns the detached, canonically ordered available, rejected, or failed answer
+  for one exact managed Library's direct metadata references.
   The sibling
   [host-observable content-kinds](design/host-observable-content-kinds.md)
   owner classifies the envelope's serialized content as a Result, Document, or
@@ -1074,6 +1078,10 @@ rules, this document describes subsystem ownership, and
   exact relationship and color registration, Type-focus and direction
   admission, terminal-specialized adapter-query binding, and immutable typed
   query demand without duplicating QuerySpace or inspection query execution.
+- [Annotated Type Relations request](design/annotated-type-relations-request.md):
+  explicit all-applicable or canonical-id family selection, deterministic
+  binding to one admitted relations catalog, preservation of requested and
+  resolved identities, and typed rejection before producer work.
 - [Annotated Type Relations generation](design/annotated-type-relations-generation.md):
   concrete typed contribution correspondence, independent relationship and
   color-family settlement, and canonical Rows/Count/Exists document generation

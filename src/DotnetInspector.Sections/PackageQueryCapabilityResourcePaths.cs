@@ -59,6 +59,7 @@ public static class PackageQueryCapabilityResourcePaths
 
         foreach (QuerySpaceBinding querySpace in catalog.Routes
                      .Select(static route => route.QuerySpace)
+                     .OfType<QuerySpaceBinding>()
                      .DistinctBy(
                          static querySpace =>
                              querySpace.Descriptor.Identity,

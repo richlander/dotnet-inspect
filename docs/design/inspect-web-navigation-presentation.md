@@ -758,10 +758,11 @@ Library Metadata does not repeat Package Version or Framework controls.
 The RID inventory follows the same Package-coordinate transition model. Its
 active row is the exact RID retained by the current coordinate. An ambiguous
 choice shows the complete inventory with no active row until the user selects
-one. Packages whose neutral implementation population answers the request show
-no RID inventory. Changing the RID replaces every derived Library, Type,
-Member, Source, and implementation-Compare result rather than mutating one of
-those descendants in place.
+one. Packages with no eligible runtime implementation population show no RID
+inventory; a neutral `lib` fallback does not suppress eligible runtime
+overlays. Changing the RID replaces every derived Library, Type, Member, Source,
+and implementation-Compare result rather than mutating one of those descendants
+in place.
 
 The persistent subject path discloses that exact active framework after the
 Package name across Package, Library, Type, and Member. The qualifier is
@@ -1090,6 +1091,18 @@ parallel host catalog merely to observe the renderer.
 
 The descriptor/status, product-action, generation, effect-authority, and
 complete Navigation-result gates above remain pending with #5510 and #5511.
+As a bounded presentation-only contribution to #5510, the ordinary Type strip
+now consumes Registry-issued Type descriptor identity, labels, and order
+through `CatalogExports.ListTypeViewFacets`. Browser route bindings and current
+applicability filters remain local until subject-scoped Navigation descriptors,
+statuses, and actions replace them; this partial adoption does not claim the
+pending gates.
+The ordinary Library strip also consumes Registry-issued descriptor identity
+and labels for the exact `library.references`, `library.metadata`, and
+`library.compare` matches through `CatalogExports.ListLibraryViewFacets`.
+Browser Overview and Analysis remain local composites, and Browser route
+tokens, order, applicability, activation, and rendering remain local; this
+bounded adoption does not alias either composite to one Registry facet.
 Until those owners' migrations land, this implementation claims the adaptive
 Browser presentation and retirement contract, not full product Navigation
 descriptor or consumer conformance.

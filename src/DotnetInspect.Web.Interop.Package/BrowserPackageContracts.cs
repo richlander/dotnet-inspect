@@ -75,12 +75,14 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageChildrenInspection? PackageChildren,
     BrowserPackageDocument[] Documents,
     BrowserPackageSurface? Surface,
+    string ImplementationComparisonRuntimeIdentifier,
     string? DefaultLibraryId = null,
     BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
 
 public sealed record BrowserPackageRootLoadResult(
     BrowserPackageChildrenInspection PackageChildren,
     BrowserPackageDocument[] Documents,
+    string ImplementationComparisonRuntimeIdentifier,
     string? DefaultLibraryId = null,
     BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
 
@@ -482,7 +484,8 @@ public sealed record BrowserWorkspacePackageOccurrenceActivation(
     bool Activated,
     bool Superseded,
     BrowserPackageSurface? Package,
-    string RuntimeIdentifier);
+    string RuntimeIdentifier,
+    string? ImplementationComparisonRuntimeIdentifier);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryAcquisitionTier>))]
 public enum BrowserPackageQueryAcquisitionTier
@@ -1333,6 +1336,7 @@ public sealed record BrowserPackageHierarchy(
     string Package,
     string Version,
     string Framework,
+    string TraversalFramework,
     bool IsComplete,
     string Completion,
     BrowserPackageHierarchyRow[] Rows,

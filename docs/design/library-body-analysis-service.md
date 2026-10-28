@@ -77,12 +77,20 @@ call-graph composition consume those focused types. The compatibility index
 delegated its leverage and local graph members to the same results; it no
 longer owned a second implementation.
 
-The next call-graph adoption moves pairwise direct-use acquisition and bounded
-local root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries
-execute Analysis once per participant and consume the focused result directly;
-root-path analysis accepts that result rather than requiring the compatibility
-aggregate. Existing pair completion, path limits, diagnostics, and output
-remain unchanged.
+The call-graph adoption moves pairwise direct-use acquisition and bounded local
+root-path analysis to `LibraryCallGraphAnalysisResult`. Pairwise queries retain
+the complete focused call-graph operation.
+`AssemblyPairClusterRootPathQuery` instead executes a root-path producer whose
+Method Query Source declaration requests semantic identity, caller safety
+contracts, managed bodies, and resolved call operands. It does not request
+typed call targets, local signatures, allocation multiplicity, loop
+classification, body signals, exception classification, or general
+method-analysis resolution. The detached result preserves the declared-method
+inventory, generated-body attribution, local caller/callee identity, and each
+physical evidence method, IL offset, operand token, call kind, opcode, and
+return address required by bounded path analysis. Existing pair completion,
+path limits, diagnostics, and rendered output remain unchanged, and root-path
+analysis no longer opens `LibraryBodyAnalysisService`.
 
 The group-wide call-census adoption uses the same focused execution boundary.
 `AssemblyContextCallCensusQuery` acquires every available participant from one
@@ -109,15 +117,22 @@ the selected physical MethodDef tokens, and reuses the input across coordinate
 file rows. The Research producer validates source-module correspondence and
 result participation without reopening Analysis.
 
-The next drain slice moves safety-only IL-coordinate preparation to
+The safety-only drain slice moves IL-coordinate preparation to
 `ExactMethodAnalysisProducer`. CLI and Library Address borrow their existing
 prefetched metadata context, deduplicate the requested MethodDef tokens, and
 execute one owner-issued exact request. `ILOffsetSafetyAnalysisInput` carries
 the safety evidence, unsafe occurrences, diagnostics, source receipt, and work
-receipt independently of the legacy three-result input. Allocation, cost, and
-combined coordinate requests still use this service: allocation requires
-`LibraryAllocationAnalysisResult`, while cost requires the donor-owned public
-direct-call rows.
+receipt independently of the legacy three-result input.
+
+The allocation-only follow-up plans `ExactMethodAllocationProducer` over the
+same deduplicated MethodDef population. `ILOffsetAllocationAnalysisInput`
+carries detached allocation occurrences, diagnostics, source receipt, and work
+receipt. The cost-only follow-up plans `FocusedMethodCallProducer`;
+`ILOffsetCostAnalysisInput` carries detached direct-call rows keyed by their
+physical evidence MethodDef, diagnostics, source receipt, and work receipt.
+QuerySpace selects any requested combination of those associations over one
+deduplicated exact MethodDef population. Direct CLI and Library Address reuse
+the focused inputs across every coordinate row and do not execute this service.
 
 The method-analysis-support prerequisite for exact allocation and optimization
 is tracked by
@@ -129,9 +144,16 @@ generic-constraint classifier, and stable-receiver classifier. The primary
 resolver's memory-safety index is lazy, so allocation and optimization support
 does not silently construct unrelated safety infrastructure. This is a
 composition and ownership transfer, not production QuerySpace adoption:
-allocation, cost, and combined coordinate requests still use this service
-until #10285 moves their shared CLI and Browser/Wasm operation. Final donor
-drainage and deletion remain with #8965 and #9959.
+allocation and optimization for the shared CLI and Browser/Wasm exact-method
+operation moved in #10285. `ExactMethodAllocationProducer` owns the canonical
+allocation context and facts consumed by `ExactMethodOptimizationProducer`,
+while the composed exact bundle publishes direct calls, final signals,
+allocations, and optimization opportunities without constructing this service.
+Allocation-only matched-member requests plan
+`ExactMethodAllocationProducer` and therefore omit call collection, safety,
+signals, and optimization entirely. IL-coordinate semantic requests no longer
+use this service. Final fallback drainage and deletion remain with issues #8965
+and #9959.
 
 The CLI session adoption moved both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
@@ -1412,13 +1434,16 @@ optional annotations. The existing `CallTreeNode`, `CallGraphProjection`, and
 Markout lowering remain the structured and rendered output path; the slice
 changes evidence ownership, not output shape or host rendering.
 
-The next call-graph slice moves `AssemblyPairCallUseQuery` participant
-acquisition and `LibraryBodyRootPathAnalysis` onto
-`LibraryCallGraphAnalysisResult`. `AssemblyPairClusterRootPathQuery` executes
-the service over its retained participant image and passes the focused result
-to the bounded path operation. The wider member Research projection retains
-its compatibility index for unrelated evidence but passes its associated
-call-graph result to root-path analysis.
+The root-path call-graph slice moves
+`AssemblyPairClusterRootPathQuery` participant acquisition and
+`LibraryBodyRootPathAnalysis` onto `LibraryCallGraphAnalysisResult`. The query
+uses a separate snapshot-bound producer for the narrower root-path evidence
+contract and passes its detached result to the bounded path operation. Method
+Query Source resolves IL-ordered call operands and definition tokens without
+also acquiring typed targets, local signatures, allocation facts, body
+signals, or exception classification. The wider member Research projection
+retains its current unrelated evidence but passes its associated call-graph
+result to root-path analysis.
 
 The following slice shares that participant-analysis path with
 `AssemblyContextCallCensusQuery`. Analysis publishes one generation-bound
@@ -1576,14 +1601,14 @@ CallTreeNode callees = graph.BuildCallTree(methodToken);
 Inspect Web continues to receive owner-typed query exports. The browser host
 remains compiler-banned from calling the Analysis service directly; Workspace
 queries own service execution and project its evidence.
-The cluster root-path query follows the same request/service shape for
-`MethodEvidence` and passes the resulting `LibraryCallGraphAnalysisResult`
-directly to bounded path analysis; its existing section and CLI continue to own
-composition and presentation. `MethodBodyInspectionSession` similarly
-translates command capability and scope policy into one request, delegates path
-or prefetched-image execution to the service, retains the returned execution
-for the command, and creates its detached compatibility index only when an
-unmigrated consumer requests it.
+The cluster root-path query follows the same request/service shape with its
+root-path-specific QuerySpace work description and passes the resulting
+`LibraryCallGraphAnalysisResult` directly to bounded path analysis; its
+existing section and CLI continue to own composition and presentation.
+`MethodBodyInspectionSession` similarly translates command capability and
+scope policy into one request, delegates path or prefetched-image execution to
+the service, and retains the returned focused execution for the command. The
+compatibility index no longer exists.
 
 ## Evidence
 
@@ -1623,15 +1648,23 @@ established by the production call sites and focused behavior gates.
 
 `AssemblyContextMethodAnalysisQuery` is now a mixed consumer. Its focused
 `ExactMethodAnalysisProducer` owns semantic identity, safety evidence and
-occurrences, diagnostics, and detached physical exception regions. This
-service still owns the query's public direct-call rows, final `MethodSignals`,
-allocation occurrences, and optimization opportunities. Calls remain a
-focused source input only for call-safety evidence; declared async-source
-attribution, execution multiplicity, and complete external MethodSpec
-definition-token provenance remain donor-owned. Those retained products may
-incidentally perform work that the focused producer also needs; #9832 moves
-only complete result ownership and planning authority and does not claim that
-incidental donor work is retired.
+occurrences, direct calls, allocation occurrences, intrinsic optimization
+opportunities, call-site multiplicities, diagnostics, and detached physical
+exception regions through its focused producer bundle. Public direct-call
+rows, final `MethodSignals`, declared-source attribution, and
+optimization-row enrichment complete without this service.
+`MatchedApiMemberAnalysisQuery.InspectAllocations` no longer consumes that
+complete envelope. It plans an exact allocation-only producer and publishes
+its rows directly, so an allocation finding cannot accidentally select call,
+safety, signal, string-materialization, or optimization work.
+Exact single-member CLI Diff requests containing only allocation analysis now
+consume the same focused producer for the direct MethodDef selected from each
+endpoint's API surface. Package endpoints map that surface MethodDef through
+the endpoint's surface-to-implementation role correspondence before analysis;
+bodyless or unavailable mappings fall back. That route opens no
+`MethodBodyInspectionSession` and does not execute this service. Mixed
+body-analysis sets, forwarded or one-sided targets, and target shapes without
+one direct managed body continue through the established shared service path.
 Recoverable whole-body Calls failure does not erase independent focused
 evidence: exception regions are already detached, and a recovery-only
 owner-issued operand resolver preserves the safety-occurrence prefix while the

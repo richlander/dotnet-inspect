@@ -314,6 +314,7 @@ internal sealed class DeclaredSourceResolver(
             directMethods.ToDictionary(
                 static handle => MetadataTokens.GetToken(handle),
                 static handle => handle);
+        var suppressionByToken = new Dictionary<int, bool>();
         var pending = new Queue<MethodDefinitionHandle>(directMethods);
         var expanded =
             ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
@@ -335,18 +336,37 @@ internal sealed class DeclaredSourceResolver(
                         sourceMethod,
                         work,
                         out MethodDefinitionHandle executionMethod,
-                        out TypeDefinitionHandle stateMachineType))
+                        out TypeDefinitionHandle stateMachineType,
+                        out bool isAsyncStateMachine))
                 {
                     work.RecordCandidateDefinition(executionMethod);
                     work.RecordRelationshipNode(executionMethod);
                     MethodDefinitionHandle stateMachineOwner =
                         declaredOwnerByToken[
                             MetadataTokens.GetToken(sourceHandle)];
+                    int sourceToken =
+                        MetadataTokens.GetToken(sourceHandle);
+                    if (!suppressionByToken.TryGetValue(
+                            sourceToken,
+                            out bool suppressesOpportunities))
+                    {
+                        suppressesOpportunities =
+                            DirectSourceSuppressesOpportunities(
+                                sourceHandle,
+                                sourceMethod);
+                        suppressionByToken.Add(
+                            sourceToken,
+                            suppressesOpportunities);
+                    }
                     AddGenerated(
                         executionMethod,
                         stateMachineOwner,
                         MethodDefinitionGeneratedExpansionOriginKind
-                            .StateMachineExecutionBody);
+                            .StateMachineExecutionBody,
+                        isAsyncStateMachine:
+                            isAsyncStateMachine,
+                        suppressesOpportunities:
+                            suppressesOpportunities);
                     if (helperRoles != MethodDefinitionGeneratedBodyRoles.None
                         || reachesNestedTypes)
                     {
@@ -366,7 +386,11 @@ internal sealed class DeclaredSourceResolver(
                                         stateMachineOwner,
                                         MethodDefinitionGeneratedExpansionOriginKind
                                             .StateMachineExecutionBody,
-                                        role));
+                                        role,
+                                        DeclaredOwnerSuppressesOpportunities:
+                                            suppressesOpportunities,
+                                        IsAsyncStateMachine:
+                                            isAsyncStateMachine));
                                 continue;
                             }
                             AddGenerated(
@@ -374,7 +398,10 @@ internal sealed class DeclaredSourceResolver(
                                 stateMachineOwner,
                                 MethodDefinitionGeneratedExpansionOriginKind
                                     .StateMachineExecutionBody,
-                                role);
+                                role,
+                                isAsyncStateMachine:
+                                    isAsyncStateMachine,
+                                suppressesOpportunities);
                         }
                     }
                 }
@@ -431,7 +458,9 @@ internal sealed class DeclaredSourceResolver(
                         liftedHandle,
                         ownerHandle,
                         MethodDefinitionGeneratedExpansionOriginKind
-                            .LiftedExecutionBody);
+                            .LiftedExecutionBody,
+                        suppressesOpportunities:
+                            owner.SuppressesOpportunities);
                 }
             }
 
@@ -485,22 +514,61 @@ internal sealed class DeclaredSourceResolver(
             MethodDefinitionHandle owner,
             MethodDefinitionGeneratedExpansionOriginKind kind,
             MethodDefinitionGeneratedBodyRoles role =
-                MethodDefinitionGeneratedBodyRoles.Execution)
+                MethodDefinitionGeneratedBodyRoles.Execution,
+            bool isAsyncStateMachine = false,
+            bool suppressesOpportunities = false)
         {
             var origin =
                 new MethodDefinitionGeneratedExpansionOrigin(
                     method,
                     owner,
                     kind,
-                    role);
+                    role,
+                    suppressesOpportunities,
+                    isAsyncStateMachine);
             work.RecordGeneratedMethod(origin);
             int token = MetadataTokens.GetToken(method);
             attributed.Add(token);
+            suppressionByToken[token] = suppressesOpportunities;
             if (!selected.Add(token))
                 return;
             declaredOwnerByToken.Add(token, owner);
             expanded.Add(method);
             pending.Enqueue(method);
+        }
+
+        bool DirectSourceSuppressesOpportunities(
+            MethodDefinitionHandle sourceHandle,
+            MethodDefinition sourceMethod)
+        {
+            CustomAttributeHandleCollection attributes =
+                sourceMethod.GetCustomAttributes();
+            if (_primaryMetadataResolver.HasGeneratedCodeAttribute(
+                    attributes))
+            {
+                return true;
+            }
+            TypeDefinitionHandle sourceTypeHandle =
+                sourceMethod.GetDeclaringType();
+            if (!_primaryMetadataResolver.HasCompilerGeneratedAttribute(
+                    attributes)
+                && !_primaryMetadataResolver
+                    .IsCompilerGeneratedTypeOrEnclosing(sourceTypeHandle))
+            {
+                return false;
+            }
+            TypeDefinition sourceType =
+                _reader.GetTypeDefinition(sourceTypeHandle);
+            MethodIdentity sourceIdentity =
+                _primaryMetadataResolver.CreateMethodIdentity(
+                    sourceTypeHandle,
+                    sourceHandle,
+                    sourceMethod,
+                    _primaryMetadataResolver.CreateScope(
+                        sourceType,
+                        sourceMethod));
+            return CreateAuthenticatedSourceOwner(sourceIdentity)
+                .SuppressesOpportunities;
         }
 
         // Every method of a compiler-generated type reached from a selected

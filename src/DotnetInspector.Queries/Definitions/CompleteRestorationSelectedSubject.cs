@@ -279,4 +279,43 @@ public static class CompleteRestorationSelectedSubjectOperation
         };
         return new CompleteRestorationSubjectPreparation.Ready(target);
     }
+
+    internal static CompleteRestorationSubjectPreparation PreparePackageType(
+        CompleteWorkspaceSnapshot snapshot,
+        NavigationPackageEvaluation package,
+        PackageRootBinding root,
+        NavigationLibraryEvaluation library)
+    {
+        NavigationWorkspaceSnapshot navigation =
+            snapshot.Navigation.State.CurrentSnapshot;
+        if (navigation.LensOutcome.EffectiveLens is not { } lens)
+        {
+            return new CompleteRestorationSubjectPreparation.Unavailable(
+                new(
+                    CompleteRestorationSubjectUnavailableReason
+                        .LensUnavailable));
+        }
+        if (navigation.ActiveSubject
+            is not StructuralSubjectIdentity.TypeSubject subject
+            || !ReferenceEquals(
+                NavigationRegistrationIdentity.From(
+                    library.Library.Participant.Assembly.Registration),
+                subject.Library.Identity.Registration))
+        {
+            return new CompleteRestorationSubjectPreparation.Unavailable(
+                new(
+                    CompleteRestorationSubjectUnavailableReason
+                        .UnsupportedSubject));
+        }
+
+        var target = new CompleteRestorationSelectedSubject.Type(
+            subject,
+            root,
+            package.Occurrence,
+            library,
+            lens,
+            [],
+            []);
+        return new CompleteRestorationSubjectPreparation.Ready(target);
+    }
 }

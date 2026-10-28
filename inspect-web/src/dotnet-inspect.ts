@@ -36,7 +36,7 @@ import {
   memberRequestKey,
   isMemberSection,
   isEmptyPackageFramework,
-  libraryLenses,
+  libraryLensDefinitions,
   memberSectionDefinitions,
   memberSectionIdsFor,
   packageCoordinateLabel,
@@ -60,6 +60,9 @@ import {
   runtimePackForFramework,
   scopedRequestState,
   searchableMemberGroups,
+  setLibraryViewFacetCatalog,
+  setMemberViewFacetCatalog,
+  setTypeViewFacetCatalog,
   sourceReloadKind,
   spotlightCandidateKey,
   spotlightCandidateSignature,
@@ -506,6 +509,10 @@ import {
   workspaceOccurrenceActionsAreVisible,
 } from "./workspace-subject.ts";
 import {
+  bindWorkspaceExplanation,
+  createWorkspaceExplanation,
+} from "./workspace-explanation.ts";
+import {
   activateRetainedWorkspace as activateRetainedWorkspaceState,
   createRetainedWorkspaceCollection,
   deleteRetainedWorkspace as deleteRetainedWorkspaceState,
@@ -672,6 +679,7 @@ import {
   bindDiffContent,
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
+  implementationComparisonRuntimeIdentifier,
   isCompareMode,
   renderPackageComparisonTargets,
   resolveEffectiveDiffTarget,
@@ -2506,6 +2514,15 @@ RetainedWorkspaceActivationController {
   return retainedWorkspaceActivation;
 }
 
+function currentRetainedDefinitionPosting():
+BrowserRetainedWorkspacePosting | null {
+  const activeDefinitionId =
+    retainedWorkspaceActivation?.state.activeDefinitionId;
+  return activeDefinitionId === null || activeDefinitionId === undefined
+    ? null
+    : retainedWorkspacePostings.get(activeDefinitionId) ?? null;
+}
+
 function parkActiveCompatibilityWorkspace(): void {
   const activeId = retainedWorkspaces.activeWorkspaceId;
   if (activeId === null) return;
@@ -2730,6 +2747,17 @@ function supersedeRetainedLocationIntentForRoutedNavigation(): void {
   }
 }
 
+function retainedPackageRootLens(
+  posting: BrowserRetainedWorkspacePosting,
+  fallback: PackageLens = "overview",
+): PackageLens {
+  const outcome = posting.navigation.snapshot.lensOutcome;
+  return (outcome.request ?? outcome.effectiveLens)?.facet
+    === "package.dependency-hierarchy"
+    ? "hierarchy"
+    : fallback;
+}
+
 async function installRetainedWorkspacePosting(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
@@ -2786,7 +2814,9 @@ async function installRetainedWorkspacePosting(
       packageModel = admittedPackage && packageInventory
         ? createNuGetPackageModelWithDefaultLibrary(
           admittedPackage.surface,
-          packageInventory.defaultLibrary)
+          packageInventory.defaultLibrary,
+          packageInventory.implementationComparisonRuntimeIdentifier,
+          packageInventory.runtimeIdentifier)
         : null;
       platformModel = admittedPlatform
         ? createRuntimePackageModel(admittedPlatform.surface)
@@ -2812,8 +2842,8 @@ async function installRetainedWorkspacePosting(
     state.workspaceSubjectOpen = state.package === null;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
-    if (initialPackageLens !== undefined && state.rootKind === "package") {
-      state.packageLens = initialPackageLens;
+    if (state.rootKind === "package") {
+      state.packageLens = retainedPackageRootLens(posting, initialPackageLens);
     }
     if (detailFailure !== null) {
       if (packageInventory !== undefined) {
@@ -2842,11 +2872,11 @@ async function installRetainedWorkspacePosting(
   state.errorTitle = "";
   state.errorDetail = "";
   state.retryAction = null;
-  publishRetainedLocationAssociation(
+  if (!publishRetainedLocationAssociation(
     posting,
     locationIntent,
     browserRestoration,
-  );
+  )) return;
   if (renderAfterInstall) render({ synchronizeUrl: false });
 }
 
@@ -2854,7 +2884,7 @@ function publishRetainedLocationAssociation(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
   browserRestoration?: "exact" | "changed",
-): void {
+): boolean {
   activeWorkspaceUrl = posting.canonicalLocation;
   const association: InstalledLocationAssociation = {
     identity: Symbol(posting.retainedDefinitionId),
@@ -2873,7 +2903,7 @@ function publishRetainedLocationAssociation(
   });
   if (effect.kind === "none" && effect.reason === "stale") {
     installedRetainedLocation = association;
-    return;
+    return false;
   }
   let published: boolean;
   try {
@@ -2890,6 +2920,7 @@ function publishRetainedLocationAssociation(
     );
   }
   installedRetainedLocation = association;
+  return true;
 }
 
 function completeRetainedActivationPresentation(
@@ -2933,7 +2964,9 @@ async function activateRetainedPackageAction(
     const admitted = await admitRetainedPackage(posting, inventory);
     packageModel = createNuGetPackageModelWithDefaultLibrary(
       admitted.surface,
-      inventory.defaultLibrary);
+      inventory.defaultLibrary,
+      inventory.implementationComparisonRuntimeIdentifier,
+      inventory.runtimeIdentifier);
   } catch (error) {
     const currentPresentation = retainedWorkspacePresentation;
     const currentPosting = activeRetainedWorkspacePosting;
@@ -3351,7 +3384,12 @@ async function activateManagedRetainedWorkspace(
           throw new Error(
             "The active retained product demo omitted its posting.");
         }
-        if (!retainedHomeDemoPresentationInstalled(posting)) {
+        const requiresLocationPublication =
+          locationPolicy !== "none"
+          && (posting.canonicalLocation !== location.href
+            || scope() !== "workspace");
+        if (!retainedHomeDemoPresentationInstalled(posting)
+          || requiresLocationPublication) {
           const locationIntent = retainedLocationIntents.admitNonBrowser(
             locationPolicy,
             installedRetainedLocation,
@@ -3369,6 +3407,26 @@ async function activateManagedRetainedWorkspace(
         }
         render({ synchronizeUrl: false });
       } else {
+        const posting = retainedWorkspacePostings.get(retainedDefinitionId);
+        if (posting === undefined) {
+          throw new Error(
+            "The active retained Workspace omitted its posting.");
+        }
+        const requiresLocationPublication =
+          locationPolicy !== "none"
+          && (posting.canonicalLocation !== location.href
+            || scope() !== "workspace");
+        if (requiresLocationPublication) {
+          const locationIntent = retainedLocationIntents.admitNonBrowser(
+            locationPolicy,
+            installedRetainedLocation,
+            history,
+          );
+          if (!publishRetainedLocationAssociation(
+            posting,
+            locationIntent,
+          )) return;
+        }
         openDefaultWorkspace();
       }
       return;
@@ -3533,7 +3591,7 @@ async function retainedDefinitionInitialPresentation(
   ]["definitions"][number],
 ): Promise<RetainedDefinitionInitialPresentation> {
   if ("homeDemo" in definition && definition.homeDemo !== undefined) {
-    const demo = await resolveProductHomeDemo(definition.homeDemo.id);
+    const demo = definition.homeDemo;
     if (demo.view.section !== "Methods") {
       throw new Error(
         `Retained product home demo '${demo.id}' requires unsupported section '${demo.view.section ?? "(none)"}'.`,
@@ -3674,6 +3732,9 @@ async function deleteManagedRetainedWorkspace(
   const controller = requireRetainedWorkspaceActivation();
   const wasActive =
     controller.state.activeDefinitionId === retainedDefinitionId;
+  const incumbentRealizationId = wasActive
+    ? retainedWorkspacePostings.get(retainedDefinitionId)?.realizationId ?? null
+    : null;
   const definitionIndex = controller.state.definitions.findIndex(
     definition => definition.id === retainedDefinitionId);
   const successor = definitionIndex < 0
@@ -3699,42 +3760,73 @@ async function deleteManagedRetainedWorkspace(
       history,
     )
     : null;
-  await controller.delete(
-    retainedDefinitionId,
-    successor && successorInitialPresentation && locationIntent
-    ? {
-      successorDefinitionId: successor.id,
-      acceptSuccessor: () =>
-        navigationSequence.isCurrent(navigationSeq)
-        && retainedLocationIntents.currentIntentId === locationIntent.id,
-      completeSuccessor: posting =>
-        installRetainedDefinitionPosting(
-          posting,
-          locationIntent,
-          successorInitialPresentation,
-          navigationSeq),
-      isSuccessorPresentationCurrent: posting =>
-        navigationSequence.isCurrent(navigationSeq)
-        && retainedLocationPresentationCurrent(
-          locationIntent,
-          posting.canonicalLocation,
-        ),
-    }
-    : compatibilitySuccessor && locationIntent
+  try {
+    await controller.delete(
+      retainedDefinitionId,
+      successor && successorInitialPresentation && locationIntent
       ? {
+        successorDefinitionId: successor.id,
+        acceptSuccessor: () =>
+          navigationSequence.isCurrent(navigationSeq)
+          && retainedLocationIntents.currentIntentId === locationIntent.id,
+        completeSuccessor: posting =>
+          installRetainedDefinitionPosting(
+            posting,
+            locationIntent,
+            successorInitialPresentation,
+            navigationSeq),
+        isSuccessorPresentationCurrent: posting =>
+          navigationSequence.isCurrent(navigationSeq)
+          && retainedLocationPresentationCurrent(
+            locationIntent,
+            posting.canonicalLocation,
+          ),
+      }
+      : compatibilitySuccessor && locationIntent
+        ? {
+          successorDefinitionId: null,
+          completeDeactivation: () => {
+            if (!activateRetainedWorkspaceProjection(
+              compatibilitySuccessor.id,
+              false,
+            )) {
+              throw new Error(
+                "The compatibility Workspace is no longer available.",
+              );
+            }
+            const association: InstalledLocationAssociation = {
+              identity: Symbol(compatibilitySuccessor.id),
+              canonicalLocation: activeWorkspaceUrl ?? "/demos",
+              historyState: withRetainedWorkspaceHistoryId(history.state),
+            };
+            const effect = retainedLocationIntents.classify(locationIntent, {
+              outcome: "applied",
+              synchronization: "current",
+              association,
+            });
+            if (!retainedLocationIntents.publish(effect, history)) {
+              throw new Error(
+                "The compatibility successor location intent was superseded.",
+              );
+            }
+            installedRetainedLocation = null;
+          },
+        }
+      : {
         successorDefinitionId: null,
         completeDeactivation: () => {
-          if (!activateRetainedWorkspaceProjection(
-            compatibilitySuccessor.id,
-            false,
-          )) {
-            throw new Error(
-              "The compatibility Workspace is no longer available.",
-            );
-          }
+          state.error = "";
+          state.errorTitle = "";
+          state.errorDetail = "";
+          state.retryAction = null;
+          state.workspaceSubjectOpen = true;
+          state.atPackageRoot = true;
+          state.atLibraryRoot = false;
+          activeWorkspaceUrl = "/demos";
+          if (locationIntent === null) return undefined;
           const association: InstalledLocationAssociation = {
-            identity: Symbol(compatibilitySuccessor.id),
-            canonicalLocation: activeWorkspaceUrl ?? "/demos",
+            identity: Symbol("no-workspace"),
+            canonicalLocation: "/demos",
             historyState: withRetainedWorkspaceHistoryId(history.state),
           };
           const effect = retainedLocationIntents.classify(locationIntent, {
@@ -3744,44 +3836,28 @@ async function deleteManagedRetainedWorkspace(
           });
           if (!retainedLocationIntents.publish(effect, history)) {
             throw new Error(
-              "The compatibility successor location intent was superseded.",
+              "The no-Workspace location intent was superseded.",
             );
           }
           installedRetainedLocation = null;
+          return undefined;
         },
-      }
-    : {
-      successorDefinitionId: null,
-      completeDeactivation: () => {
-        state.error = "";
-        state.errorTitle = "";
-        state.errorDetail = "";
-        state.retryAction = null;
-        state.workspaceSubjectOpen = true;
-        state.atPackageRoot = true;
-        state.atLibraryRoot = false;
-        activeWorkspaceUrl = "/demos";
-        if (locationIntent === null) return undefined;
-        const association: InstalledLocationAssociation = {
-          identity: Symbol("no-workspace"),
-          canonicalLocation: "/demos",
-          historyState: withRetainedWorkspaceHistoryId(history.state),
-        };
-        const effect = retainedLocationIntents.classify(locationIntent, {
-          outcome: "applied",
-          synchronization: "current",
-          association,
-        });
-        if (!retainedLocationIntents.publish(effect, history)) {
-          throw new Error(
-            "The no-Workspace location intent was superseded.",
-          );
-        }
-        installedRetainedLocation = null;
-        return undefined;
       },
-    },
-  );
+    );
+  } catch (error) {
+    const incumbentPreserved =
+      wasActive
+      && incumbentRealizationId !== null
+      && controller.state.activeDefinitionId === retainedDefinitionId
+      && retainedWorkspacePostings.get(retainedDefinitionId)?.realizationId
+        === incumbentRealizationId
+      && controller.state.definitions.some(
+        definition => definition.id === retainedDefinitionId,
+      );
+    if (!navigationSequence.isCurrent(navigationSeq)
+      && incumbentPreserved) return;
+    throw error;
+  }
   if (!controller.state.definitions.some(
     definition => definition.id === retainedDefinitionId,
   )) {
@@ -3905,6 +3981,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.metadataToken,
         request.documentBaselineOrdinal,
         request.taste,
+        request.runtimeIdentifier ?? null,
         request.view)
     : inspectPlatformMemberSource(
         request.framework,
@@ -3938,6 +4015,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.assembly,
         request.type,
         request.taste,
+        request.runtimeIdentifier ?? null,
         request.view),
   queryGraphSource: (request, taste) => inspectTypeMemberSource(
     request.packageId,
@@ -3948,7 +4026,8 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.member,
     request.selectorKey,
     request.metadataToken,
-    taste),
+    taste,
+    request.runtimeIdentifier ?? null),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => {
     if (cancelSourceInspection) {
@@ -4200,7 +4279,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.member,
           request.selectorKey,
           request.metadataToken,
-          request.implementationMember),
+          request.implementationMember,
+          request.runtimeIdentifier),
   queryDocumentation: (request, documentationId) =>
     request.isRuntimePack
       ? inspectPlatformMemberDocumentation(
@@ -4214,7 +4294,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.version,
           request.framework,
           request.assembly,
-          documentationId),
+          documentationId,
+          request.runtimeIdentifier),
   queryFindingCensus: async request => {
     const result = await (request.kind === "platform"
       ? inspectPlatformMemberFindingCensus(
@@ -4241,7 +4322,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.memberSignature,
           request.selectorKey,
           request.metadataToken,
-          request.taste));
+          request.taste,
+          request.runtimeIdentifier));
     const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
     const findingEvidenceDocuments =
@@ -4297,7 +4379,8 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
       request.traversalFramework,
       platformRuntimePruningInventory(
         target,
-        request.traversalFramework));
+        request.traversalFramework),
+      request.runtimeIdentifier);
   },
   queryPlatform: request =>
     queryPlatformCallGraph(inspectExpandPlatformCallGraph, request),
@@ -4942,8 +5025,9 @@ function withRetainedWorkspaceHistoryId(historyState: unknown): unknown {
 }
 
 function memberSectionsFor(member: AppMemberGroup) {
+  const definitions = memberSectionDefinitions();
   if (state.rootKind === "library") {
-    return memberSectionDefinitions.filter(([id]) => id === "overview");
+    return definitions.filter(([id]) => id === "overview");
   }
   const allowed = new Set(
     memberSectionIdsFor(
@@ -4951,7 +5035,7 @@ function memberSectionsFor(member: AppMemberGroup) {
       state.package?.isRuntimePack,
       memberHasSelectedBody(member)));
   if (!compareAvailableFor(state.package)) allowed.delete("compare");
-  return memberSectionDefinitions.filter(([id]) => allowed.has(id));
+  return definitions.filter(([id]) => allowed.has(id));
 }
 
 function memberHasSelectedBody(member: AppMemberGroup) {
@@ -5447,6 +5531,16 @@ const packageRemoval = createPackageRemoval({
     localStorage.setItem("inspect-recent-packages", JSON.stringify(entries)),
   activate: activateAfterPackageRemoval,
   release: finishPackageRemoval,
+});
+const workspaceExplanation = createWorkspaceExplanation({
+  catalog: {
+    explainResources: (...args) => engineClient.catalog.explainResources(...args),
+    describeWorkspaceComponents: (...args) => engineClient.catalog.describeWorkspaceComponents(...args),
+    explainWorkspaceComponent: (...args) => engineClient.catalog.explainWorkspaceComponent(...args),
+  },
+  capturePacket: captureSavedWorkspacePacket,
+  contextKey: () => navigationSequence.current(),
+  changed: () => render({ synchronizeUrl: false }),
 });
 const savedWorkspaces = createSavedWorkspaces({
   read: () => localStorage.getItem("inspect-saved-workspaces"),
@@ -6390,14 +6484,11 @@ function selectedTypeMetadataLibraryIdentity() {
     : "";
 }
 
-function selectDefaultPackageSubject(pkg: AppPackage) {
+function selectDefaultPackageSubject() {
   state.workspaceSubjectOpen = false;
-  state.atLibraryRoot =
-    packageLibrariesForModel(pkg).some(library => library.id === pkg.assemblyId);
-  state.atPackageRoot = !state.atLibraryRoot;
-  state.libraryScope = state.atLibraryRoot
-    ? new Set([pkg.assemblyId])
-    : null;
+  state.atLibraryRoot = false;
+  state.atPackageRoot = true;
+  state.libraryScope = null;
   state.packageLens = "overview";
   state.libraryLens = "overview";
 }
@@ -6760,7 +6851,7 @@ function selectWorkspacePackage(
     const firstLibrary = packageLibraries()[0];
     state.libraryScope = firstLibrary ? new Set([firstLibrary.id]) : null;
   } else {
-    selectDefaultPackageSubject(packageModel);
+    selectDefaultPackageSubject();
   }
   state.selectedTypeId = defaultVisibleTypeId(packageModel);
   reconcileAccessibilityFilter(
@@ -6919,10 +7010,16 @@ async function activateWorkspacePackageOccurrence(action: string) {
     );
     return;
   }
+  if (!result.implementationComparisonRuntimeIdentifier) {
+    throw new Error(
+      "The activated Package did not supply an implementation comparison runtime identifier.",
+    );
+  }
 
   const packageModel = createWorkspaceOccurrencePackageModel(
     result.package,
     result.runtimeIdentifier,
+    result.implementationComparisonRuntimeIdentifier,
     state.package,
     state.packages);
   retainPackageModel(packageModel);
@@ -7845,6 +7942,7 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
 }
 
 function libraryLensesFor(pkg: AppPackage | null) {
+  const libraryLenses = libraryLensDefinitions();
   if (state.rootKind === "library")
     return libraryLenses.filter(([id]) => id === "overview");
   return libraryLenses.filter(([id]) => {
@@ -8339,7 +8437,9 @@ function currentMemberBodyDiffContext(): MemberBodyDiffContext | null {
     packageModel: subject.pkg,
     request: {
       packageId: subject.pkg.id, beforeVersion: target.version, afterVersion: subject.pkg.version,
-      framework: subject.pkg.activeFramework, compileAssetId: subject.library.id,
+      framework: subject.pkg.activeFramework,
+      runtimeIdentifier: implementationComparisonRuntimeIdentifier(subject.pkg),
+      compileAssetId: subject.library.id,
       generation: typeAnalysisWorkspaceGeneration(subject.pkg), inventoryId: null, memberId: null,
     },
     subject: subject.kind, subjectLabel: compareSubjectLabel(subject),
@@ -8625,6 +8725,7 @@ function currentLibraryFindingDiffAnyBaseline(): LibraryFindingDiffAnyBaseline |
     currentVersion: pkg.version,
     targetVersion: target.version,
     targetFramework: pkg.activeFramework,
+    runtimeIdentifier: implementationComparisonRuntimeIdentifier(pkg),
     compileAssetId: library.id,
     axes: "ApiAndBody",
   };
@@ -9847,7 +9948,8 @@ function renderCore(options: RenderOptions) {
     restorePackageRouteReturnFocus();
     return;
   }
-  if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
+  if (state.workspaceSubjectOpen
+    && isProductHomeDemosPath(location.pathname)) {
     renderProductDemosPage();
     if (state.settings) {
       document.querySelector<HTMLElement>("#settings-title")
@@ -11338,6 +11440,10 @@ function renderWorkspaceView() {
           frameworkPackage.assemblyId)
       : null);
   return renderWorkspaceViewPure({
+    explanation: {
+      state: workspaceExplanation.view(),
+      available: state.engineReady && !state.loading && !state.error,
+    },
     savedWorkspaces: {
       state: savedWorkspaces.state,
       canSave: state.engineReady
@@ -11414,7 +11520,8 @@ function packageLensBody() {
 function libraryLensBody() {
   if (aggregateLibrarySubjectIsActive()
     && libraryLensRequiresExactLibrary(state.libraryLens)) {
-    const label = libraryLenses.find(([id]) => id === state.libraryLens)?.[1]
+    const label = libraryLensDefinitions()
+      .find(([id]) => id === state.libraryLens)?.[1]
       ?? "This inspector";
     return `<section class="document-section empty-document">
       <span class="large-glyph">◇</span>
@@ -11618,15 +11725,21 @@ function renderPackageDependencies() {
     packageDependenciesStatus(data, selectedGroupIndex));
 }
 
-function packageHierarchySignature() {
-  const pkg = currentPackage();
-  return `${pkg.id}@${pkg.version}/${packageHierarchyTargetFramework(pkg)}`;
+function workspaceTraversalTargetFramework(): string | null {
+  return activeRetainedWorkspacePosting?.definition.traversalTargetFramework
+    ?? state.workspaceShareBasis?.traversalTargetFramework
+    ?? null;
 }
 
-function packageHierarchyTargetFramework(pkg: AppPackage): string {
-  return hierarchyShareTargetFramework(
-    state.workspaceShareBasis, pkg, state.packageLens)
-    ?? pkg.activeFramework;
+function packageHierarchySignature() {
+  const pkg = currentPackage();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}/${packageHierarchyTargetFramework(pkg) ?? "product-default"}`;
+}
+
+function packageHierarchyTargetFramework(pkg: AppPackage): string | null {
+  return workspaceTraversalTargetFramework()
+    ?? hierarchyShareTargetFramework(
+      state.workspaceShareBasis, pkg, state.packageLens);
 }
 
 function renderPackageHierarchy() {
@@ -12265,6 +12378,8 @@ function maybeAutoLoadPackageHierarchy() {
     || state.packageLens !== "hierarchy"
     || state.package?.source.kind !== "nuget.org") return;
   const pkg = currentPackage();
+  const rootFramework = pkg.activeFramework;
+  const traversalFramework = packageHierarchyTargetFramework(pkg);
   const key = packageHierarchySignature();
   if (state.packageHierarchyKey === key) {
     if (state.packageHierarchy)
@@ -12278,7 +12393,7 @@ function maybeAutoLoadPackageHierarchy() {
   observeAsync((async () => {
     try {
       const hierarchy = await inspectPackageHierarchy(
-        pkg.id, pkg.version, packageHierarchyTargetFramework(pkg));
+        pkg.id, pkg.version, rootFramework, traversalFramework);
       if (state.packageHierarchyKey === key) state.packageHierarchy = hierarchy;
     } catch (error) {
       if (state.packageHierarchyKey === key)
@@ -15758,6 +15873,7 @@ const graphBackActions: GraphBackBindingActions = {
 };
 
 function bindWorkspaceSubjectEvents() {
+  bindWorkspaceExplanation(document, workspaceExplanation);
   bindSavedWorkspaces(document, savedWorkspaces);
   bindWorkspaceSubject(document, {
     onSelect: selectRetainedWorkspace,
@@ -15830,7 +15946,8 @@ function bindTriageCodeEvents() {
             target.memberName, "", target.selector, target.methodToken, triageTaste, null)
         : await inspectMemberFindingCensus(triagePackage.id, triagePackage.version, triagePackage.activeFramework,
             target.assembly, target.typeId, target.typeId, target.memberName, "",
-            target.selector, target.methodToken, triageTaste);
+            target.selector, target.methodToken, triageTaste,
+            triagePackage.runtimeIdentifier ?? null);
       const preview = triageIssuePreview(census.annotatedSource.document, target.issueOffsets);
       if (!preview) return null;
       const carets: string[] = [];
@@ -18130,7 +18247,9 @@ async function projectManagedNavigationType(
   const admitted = await admitRetainedPackage(updatedPosting, inventory);
   const pkg = createNuGetPackageModelWithDefaultLibrary(
     admitted.surface,
-    inventory.defaultLibrary);
+    inventory.defaultLibrary,
+    inventory.implementationComparisonRuntimeIdentifier,
+    inventory.runtimeIdentifier);
   const matches = pkg.types.filter(type =>
     type.definitionId === selection.definitionId
     && type.assemblyName.toLowerCase()
@@ -18366,9 +18485,7 @@ BrowserWorkspaceShareState["tabs"] {
     kind: pkg.isRuntimePack ? "group" : "package",
     source: pkg.isRuntimePack ? ":Platform" : pkg.id,
     version: pkg.version || null,
-    framework: (hierarchyShareTargetFramework(
-      state.workspaceShareBasis, pkg, state.packageLens)
-      ?? pkg.activeFramework) || null,
+    framework: pkg.activeFramework || null,
     runtimeIdentifier: pkg.runtimeIdentifier ?? null,
   }));
   if (state.platformSelection && !tabs.some(tab => tab.kind === "group" && tab.source === ":Platform")) {
@@ -18446,9 +18563,7 @@ function activeShareTabIndex(
   tabs: BrowserWorkspaceShareState["tabs"],
   resolvedTabs = tabs,
 ) {
-  const packageFramework = state.package
-    ? packageHierarchyTargetFramework(state.package)
-    : null;
+  const packageFramework = state.package?.activeFramework;
   return state.rootKind === "platform"
     ? tabs.findIndex(tab => tab.kind === "group" && tab.source === ":Platform")
     : resolvedTabs.findIndex(tab => tab.kind === "package" && tab.source === state.package?.id
@@ -18565,6 +18680,13 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     workspaceSubjectOpen || platformRoot || packageSubjectOpen || !library
       ? []
       : [library];
+  if (packageSubjectOpen
+    && state.packageLens === "hierarchy"
+    && activeRetainedWorkspacePosting !== null
+    && activeRetainedWorkspacePosting.canonicalPacket === null) {
+    throw new Error(
+      "This Hierarchy's Workspace context cannot be projected into a share packet.");
+  }
   return {
     package: state.rootKind === "platform" ? "" : state.package?.id ?? "",
     subject: workspaceSubjectOpen ? "workspace" : null,
@@ -18572,6 +18694,12 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     contexts,
     activeTabId: activeTab.id,
     selectedContextId,
+    traversalTargetFramework: workspaceTraversalTargetFramework(),
+    hierarchyWorkspacePacket: packageSubjectOpen && state.packageLens === "hierarchy"
+      ? activeRetainedWorkspacePosting?.canonicalPacket
+        ?? basis?.hierarchyWorkspacePacket
+        ?? null
+      : null,
     analysisMode: librarySubjectOpen && state.libraryLens === "analysis"
       ? state.analysisMode
       : null,
@@ -18657,6 +18785,8 @@ async function captureSavedWorkspacePacket(): Promise<string> {
     activeTabId: snapshot.activeTabId,
     selectedContextId: snapshot.selectedContextId,
     view: snapshot.view,
+    traversalTargetFramework: snapshot.traversalTargetFramework ?? null,
+    hierarchyWorkspacePacket: snapshot.hierarchyWorkspacePacket ?? null,
   });
   if (!captured.succeeded || !captured.packet) {
     throw new Error(
@@ -18672,14 +18802,6 @@ async function buildStateUrl(base = location.href): Promise<URL> {
   return snapshot
     ? await workspaceLocation.build(snapshot, base)
     : new URL(base);
-}
-
-function retainedWorkspaceProductDestinationUrl(): URL | null {
-  const posting = activeRetainedWorkspacePosting;
-  if (posting === null || posting.canonicalPacket === null) return null;
-  const destination = new URL(posting.canonicalLocation, location.href);
-  destination.hash = "workspace";
-  return destination;
 }
 
 async function buildShareUrl(base = location.href): Promise<URL> {
@@ -19752,12 +19874,6 @@ function runHomeDemo(kind: ProductHomeDemoId) {
 
 type HomeDemoLocationPolicy = "push" | "replace";
 
-function homeDemoCanonicalLocation(kind: ProductHomeDemoId): string {
-  const url = new URL("/demos", location.origin);
-  url.searchParams.set("demo", kind);
-  return url.toString();
-}
-
 function routedHomeDemoId(): ProductHomeDemoId | null {
   if (!isProductHomeDemosPath(location.pathname)) return null;
   const value = new URL(location.href).searchParams.get("demo");
@@ -19815,10 +19931,23 @@ async function activateMethodsHomeDemo(
   navigationSeq: number,
 ): Promise<void> {
   const controller = requireRetainedWorkspaceActivation();
-  const destination = homeDemoCanonicalLocation(demo.id);
   let definitionId: string | null = null;
   let locationIntent: LocationIntentDeclaration | null = null;
   try {
+    const encodedLocation = await engineClient.catalog.encodeWorkspaceShareState(
+      demo.workspace,
+    );
+    if (!encodedLocation.succeeded || encodedLocation.packet === null) {
+      throw new Error(
+        encodedLocation.failure?.message
+          ?? "The product demo view could not be serialized.",
+      );
+    }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    const destinationUrl = new URL("/", location.origin);
+    destinationUrl.searchParams.set("w", encodedLocation.packet);
+    destinationUrl.hash = "workspace";
+    const destination = destinationUrl.toString();
     const admittedLocationIntent = retainedLocationIntents.admitNonBrowser(
       locationPolicy,
       installedRetainedLocation,
@@ -19828,7 +19957,7 @@ async function activateMethodsHomeDemo(
     const definition = controller.retain({
       label: demo.title,
       canonicalLocation: destination,
-      homeDemo: { id: demo.id },
+      homeDemo: demo,
     });
     definitionId = definition.id;
     issuedManagedRetainedDefinitionIds.add(definition.id);
@@ -20444,7 +20573,9 @@ function goHome(): boolean {
 function currentProductDestination(): ProductDestination | null {
   if (isDiagnosticsPath(location.pathname) || state.credits) return null;
   if (isProductEcosystemsPath(location.pathname)) return "ecosystems";
-  if (isProductHomeDemosPath(location.pathname)) return "demos";
+  if (state.workspaceSubjectOpen
+    && !state.home
+    && isProductHomeDemosPath(location.pathname)) return "demos";
   if (state.packageQueryOpen) return "query";
   if (state.packageActivityOpen) return "activity";
   if (state.workspaceSubjectOpen && !state.home) return "workspace";
@@ -20458,7 +20589,7 @@ function productNavigationUnavailableReason(
   if (destination === "workspace"
     && state.package === null
     && state.platformSelection === null
-    && activeRetainedWorkspacePosting === null) {
+    && currentRetainedDefinitionPosting() === null) {
     return "No workspace is open";
   }
   if (destination !== "query" && destination !== "activity") return null;
@@ -20482,7 +20613,8 @@ function productNavigationOwnsFocus(): boolean {
 }
 
 function navigateProductDestination(destination: ProductDestination): void {
-  if (destination === currentProductDestination()) {
+  if (destination === currentProductDestination()
+    && (destination !== "workspace" || scope() === "workspace")) {
     focusProductNavigationButton();
     return;
   }
@@ -21448,6 +21580,7 @@ async function inspectTypeExplorerBody(
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     });
   }
   if (sequence !== typeExplorerBodyRequestSequence
@@ -21498,6 +21631,7 @@ async function loadTypeExplorer() {
       type.assembly,
       type.definitionId ?? type.id,
       JSON.stringify(state.taste),
+      pkg.runtimeIdentifier ?? null,
       typeExplorerRequest(state.typeExplorerIntent));
     if (!state.typeExplorerOpen
       || sequence !== typeExplorerLoadSequence
@@ -21958,13 +22092,56 @@ async function openWorkspaceProductDestination(): Promise<{
   readonly restoreDestinationFocus: boolean;
 } | null> {
   const pkg = state.package;
+  const retainedPosting = currentRetainedDefinitionPosting();
   if (!pkg && !state.platformSelection
-    && activeRetainedWorkspacePosting === null) return null;
+    && retainedPosting === null) return null;
   const fallbackPackage = pkg?.source.kind === "platform" ? null : pkg;
 
   dismissModalsForRoutedNavigation();
   const navigationSeq = navigationSequence.begin();
   const initiatingFocusGeneration = documentFocusGeneration;
+  if (retainedPosting !== null) {
+    try {
+      await activateManagedRetainedWorkspace(
+        retainedPosting.retainedDefinitionId,
+        "push",
+        navigationSeq,
+      );
+    } catch (error) {
+      if (navigationSequence.isCurrent(navigationSeq)) {
+        reportProductNavigationFailure(
+          "workspace",
+          error,
+          navigationSeq,
+          initiatingFocusGeneration,
+          true,
+        );
+      }
+      return null;
+    }
+    if (!navigationSequence.isCurrent(navigationSeq)) return null;
+    discardPackageQueryTermEditors();
+    state.packageQueryOpen = false;
+    state.packageActivityOpen = false;
+    packageQueryController.cancel();
+    packageChangesController.cancel("disposed");
+    state.packageQueryNavigationError = "";
+    state.credits = false;
+    state.home = false;
+    spotlight.reset();
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.selectedOverloadIndex = null;
+    render();
+    return {
+      navigationSeq,
+      focusGeneration: null,
+      restoreDestinationFocus: false,
+    };
+  }
   const routeState = {
     packageQueryOpen: state.packageQueryOpen,
     packageActivityOpen: state.packageActivityOpen,
@@ -21987,10 +22164,7 @@ async function openWorkspaceProductDestination(): Promise<{
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
-  const retainedDestination = retainedWorkspaceProductDestinationUrl();
-  const projection = retainedDestination === null
-    ? buildStateUrl()
-    : Promise.resolve(retainedDestination);
+  const projection = buildStateUrl();
   Object.assign(state, routeState);
 
   let projected: URL | null = null;
@@ -22983,6 +23157,7 @@ async function loadSelectedMemberDocumentation() {
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly,
       platformPack,
       overload,
@@ -23004,6 +23179,7 @@ async function loadSelectedMemberDocumentation() {
         overload.declarationMetadataToken ?? overload.metadataToken ?? 0,
       implementationMember:
         selectedMemberUsesImplementationDeclaration(type, overload),
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       isCurrent: () => memberRequestIsCurrent(signature),
     }),
   ]);
@@ -23422,6 +23598,7 @@ async function loadSelectedMemberSource() {
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly: type.assembly,
     });
   }
@@ -23482,6 +23659,7 @@ async function loadSelectedMemberAnnotatedSource() {
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     });
   }
   return signature;
@@ -23510,6 +23688,7 @@ function memberRequestSignature(
     pkg?.id,
     pkg?.version,
     pkg?.activeFramework,
+    pkg?.runtimeIdentifier,
     platformDemoContextIdFor(pkg ?? null),
     type?.assembly,
     type?.queryId ?? type?.id,
@@ -23577,6 +23756,7 @@ async function loadSelectedTypeSource() {
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     assembly: type.assembly,
   });
 }
@@ -24302,6 +24482,7 @@ async function loadSelectedMemberCallGraph() {
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,
@@ -24885,7 +25066,7 @@ function graphExplorerTarget() {
       role: "dependency" as const,
       kind: hierarchy ? "Dependency hierarchy" : "Dependency graph",
       subject: packageCoordinateLabel(pkg),
-      context: `Target framework ${hierarchy ? packageHierarchyTargetFramework(pkg) : pkg.activeFramework}`,
+      context: `Target framework ${hierarchy ? state.packageHierarchy?.traversalFramework ?? packageHierarchyTargetFramework(pkg) ?? "product default" : pkg.activeFramework}`,
       summary: hierarchy ? "occurrences from root to leaves" : DEPENDENCY_GRAPH_SUMMARY,
       content,
       invoker,
@@ -24989,6 +25170,7 @@ function resolveLoadedGraphTarget(
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly: type.assembly,
       type: callGraphTargetTypeId(target),
       member: target.memberName,
@@ -25024,7 +25206,8 @@ async function loadGraphMemberSurface(
     target.typeDefinitionId ?? "",
     target.memberName,
     target.selectorKey,
-    target.metadataToken ?? 0);
+    target.metadataToken ?? 0,
+    pkg.runtimeIdentifier ?? null);
 }
 
 function singleProjectedGraphMember(
@@ -26656,7 +26839,7 @@ async function loadPackage(
     );
     const deep = options.location;
     if (isEmptyPackageFramework(packageModel)) {
-      selectDefaultPackageSubject(packageModel);
+      selectDefaultPackageSubject();
     } else if (deep) {
       const libraryFailure = applyLoadedPackageLibraryScope(
         packageModel,
@@ -26664,7 +26847,7 @@ async function loadPackage(
       if (libraryFailure) appendQueryNotice(libraryFailure);
       applyLocationView(deep);
     } else if (!options.replacePackage) {
-      selectDefaultPackageSubject(packageModel);
+      selectDefaultPackageSubject();
     } else {
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
@@ -27185,11 +27368,7 @@ function applyMethodsHomeDemoSelection(
     throw new Error(
       `Product home demo '${demo.id}' is not an unscoped Methods view.`);
   }
-  const focus = demo.tabs[demo.focusTabIndex];
-  if (focus === undefined) {
-    throw new Error(
-      `Product home demo '${demo.id}' has no focused navigation tab.`);
-  }
+  const focus = methodsHomeDemoFocus(demo);
   const packageModel = state.package;
   if (packageModel === null) {
     throw new Error(
@@ -27235,6 +27414,17 @@ function applyMethodsHomeDemoSelection(
   );
 }
 
+function methodsHomeDemoFocus(
+  demo: BrowserHomeDemoResolved,
+): BrowserHomeDemoResolved["tabs"][number] {
+  const focus = demo.tabs[demo.focusTabIndex];
+  if (focus === undefined) {
+    throw new Error(
+      `Product home demo '${demo.id}' has no focused navigation tab.`);
+  }
+  return focus;
+}
+
 async function installMethodsHomeDemoPosting(
   posting: BrowserRetainedWorkspacePosting,
   demo: BrowserHomeDemoResolved,
@@ -27246,11 +27436,16 @@ async function installMethodsHomeDemoPosting(
     || retainedLocationIntents.currentIntentId !== locationIntent.id) {
     return false;
   }
+  if (currentRetainedDefinitionPosting()?.realizationId
+      !== posting.realizationId) {
+    throw new Error(
+      "A newer retained Workspace replaced this product demo.");
+  }
   const models = await loadRetainedWorkspaceModels(
     engineClient.catalog,
     posting,
   );
-  if (activeRetainedWorkspacePosting?.realizationId
+  if (currentRetainedDefinitionPosting()?.realizationId
       !== posting.realizationId) {
     throw new Error(
       "A newer retained Workspace replaced this product demo.");
@@ -27259,12 +27454,19 @@ async function installMethodsHomeDemoPosting(
     || retainedLocationIntents.currentIntentId !== locationIntent.id) {
     return false;
   }
-  installRetainedWorkspaceModels(posting, models, null, false);
-  publishRetainedLocationAssociation(
+  const focus = methodsHomeDemoFocus(demo);
+  installRetainedWorkspaceModels(
+    posting,
+    models,
+    null,
+    false,
+    focus.id,
+  );
+  if (!publishRetainedLocationAssociation(
     posting,
     locationIntent,
     browserRestoration,
-  );
+  )) return false;
   applyMethodsHomeDemoSelection(demo);
   return true;
 }
@@ -27299,6 +27501,8 @@ function retainPackageHomeDemoShareBasis(
     contexts: topology.contexts,
     activeTabId: activeTab.id,
     selectedContextId: topology.selectedContextId,
+    traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: "api",
       type: selection.type.id,
@@ -27942,8 +28146,11 @@ function applyLocationView(loc: ParsedLocation) {
     && !loc.atPackageRoot && !loc.type && !loc.member && !loc.lens) {
     if (loc.library) {
       state.atLibraryRoot = true;
+    } else if (loc.atLibraryRoot
+      && packageLibrariesForModel(pkg).some(library => library.id === pkg.assemblyId)) {
+      state.libraryScope = new Set([pkg.assemblyId]);
     } else {
-      selectDefaultPackageSubject(pkg);
+      selectDefaultPackageSubject();
     }
   }
   state.packageLens = loc.packageLens || "overview";
@@ -28131,6 +28338,7 @@ function installRetainedWorkspaceModels(
   models: RetainedWorkspaceModels,
   workspaceFeedUrl: string | null,
   renderAfterInstall = true,
+  selectedNavigationId?: string,
 ): void {
   const allModels = [
     ...models.packages.map(item => item.packageModel),
@@ -28147,14 +28355,33 @@ function installRetainedWorkspaceModels(
     createNavigationDescriptorPresentation(posting);
   retainedWorkspaceInitialDetailAuthority = null;
   installedRetainedLocation = null;
-  const activeTab = posting.definition.activeTabId === null
+  const activeTabId =
+    selectedNavigationId ?? posting.definition.activeTabId;
+  const activeTab = activeTabId === null
     ? null
     : posting.definition.tabs.find(
-        tab => tab.id === posting.definition.activeTabId);
+        tab => tab.id === activeTabId);
+  if (activeTabId !== null && activeTab === undefined) {
+    throw new Error(
+      "The retained Workspace selected an unavailable navigation tab.");
+  }
   const activePackageSubjectId =
     posting.navigation.snapshot.activePackage;
-  const activePackage = models.packages.find(item =>
-    item.consumerPackageSubjectId === activePackageSubjectId)?.packageModel
+  const explicitlySelected = selectedNavigationId === undefined
+    ? null
+    : models.packages.find(item =>
+        item.navigationId === selectedNavigationId)?.packageModel
+      ?? models.platforms.find(item =>
+        item.navigationId === selectedNavigationId)?.packageModel
+      ?? null;
+  if (selectedNavigationId !== undefined
+      && explicitlySelected === null) {
+    throw new Error(
+      "The retained product demo did not publish its focused surface.");
+  }
+  const activePackage = explicitlySelected
+    ?? models.packages.find(item =>
+      item.consumerPackageSubjectId === activePackageSubjectId)?.packageModel
     ?? (activeTab?.kind === "package"
     ? models.packages.find(item =>
         item.packageModel.id.toLowerCase() === activeTab.source.toLowerCase()
@@ -28182,7 +28409,7 @@ function installRetainedWorkspaceModels(
   state.workspaceSubjectOpen = activeTab === null;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
-  state.packageLens = "overview";
+  state.packageLens = retainedPackageRootLens(posting);
   state.libraryLens = "overview";
   state.selectedTypeId = defaultVisibleTypeId(selected);
   state.selectedMemberKey = "";
@@ -28343,6 +28570,12 @@ async function bootstrap() {
       productHomeDemoCatalogError =
         `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
+    setLibraryViewFacetCatalog(
+      (await engineClient.catalog.listLibraryViewFacets()).facets);
+    setTypeViewFacetCatalog(
+      (await engineClient.catalog.listTypeViewFacets()).facets);
+    setMemberViewFacetCatalog(
+      (await engineClient.catalog.listMemberViewFacets()).facets);
     try {
       setProductEcosystemCatalog(
         (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
@@ -29355,7 +29588,9 @@ window.addEventListener("popstate", () => {
             initial.homeDemo,
             locationIntent,
             navigationSeq,
-            posting.canonicalLocation === location.href ? "exact" : "changed",
+            posting.canonicalLocation === location.href
+              ? "exact"
+              : "changed",
           );
           if (!installed) return;
         } else {

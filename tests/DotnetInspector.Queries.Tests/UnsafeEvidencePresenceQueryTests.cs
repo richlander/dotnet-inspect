@@ -41,7 +41,7 @@ public sealed class UnsafeEvidencePresenceQueryTests
         Assert.Equal(
             ProducerTerminal.Exists,
             accepted.Work.TerminalOf(
-                UnsafeEvidencePresenceProducer.Instance));
+                UnsafeMemberPresenceProducer.Instance));
     }
 
     [Fact]
@@ -225,7 +225,7 @@ public sealed class UnsafeEvidencePresenceQueryTests
                 StringComparison.Ordinal);
             ProducerParticipation participation =
                 incomplete.Receipt.For(
-                    UnsafeEvidencePresenceProducer.Instance);
+                    UnsafeMemberPresenceProducer.Instance);
             Assert.Equal(ProducerOutcome.Failed, participation.Outcome);
             Assert.Equal(1, participation.UnitsAttempted);
             Assert.Equal(1, participation.UnitsFailed);

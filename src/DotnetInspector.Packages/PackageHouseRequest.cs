@@ -519,6 +519,18 @@ public sealed class PackageHouseRequest
                 Terminals.Count: 1,
             }
             && contentQuery.CompileLibraryTerminal.AssetDemand == assetDemand;
+        bool compileLibraries = realizes
+            && assetSelection == PackageHouseAssetSelectionKind.Compile
+            && libraryHandoff == PackageHouseLibraryHandoffMode.PackageOnly
+            && libraryCompanionDemand == PackageHouseLibraryCompanionDemand.None
+            && contentQuery is
+            {
+                Narrowing: PackageHouseContentNarrowing.TfmWide,
+                CompileLibrariesTerminal: not null,
+                Terminals.Count: 1,
+            }
+            && contentQuery.CompileLibrariesTerminal.AssetDemand
+                == assetDemand;
         if (materializeCompileAssets && !compileInventory)
         {
             throw new ArgumentException(
@@ -529,10 +541,10 @@ public sealed class PackageHouseRequest
             throw new ArgumentException("An exact compile Library terminal requires its package-only compile realization.", nameof(contentQuery));
         if (contentQuery is not null
             && operation.Profile != PackageHouseOperationProfile.Acquire
-            && !compileInventory && !compileLibrary)
+            && !compileInventory && !compileLibrary && !compileLibraries)
         {
             throw new ArgumentException(
-                "A semantic content query requires Acquire or a package-only compile inventory or exact Library realization.",
+                "A semantic content query requires Acquire or a package-only compile inventory, aggregate Libraries, or exact Library realization.",
                 nameof(contentQuery));
         }
         if (contentQuery is not null && fileDemand is not null)
@@ -629,6 +641,7 @@ public sealed class PackageHouseRequest
 
         IsCompileInventory = compileInventory;
         IsCompileLibrary = compileLibrary;
+        IsCompileLibraries = compileLibraries;
         MaterializeCompileAssets = materializeCompileAssets;
         Demand = demand;
         Operation = operation;
@@ -670,6 +683,12 @@ public sealed class PackageHouseRequest
 
     /// <summary>Whether this request declares exact compile Library content.</summary>
     public bool IsCompileLibrary { get; }
+
+    /// <summary>
+    /// Whether this request declares every compatible compile Library for one
+    /// exact target.
+    /// </summary>
+    public bool IsCompileLibraries { get; }
 
     internal bool MaterializeCompileAssets { get; }
 
@@ -741,6 +760,62 @@ public sealed class PackageHouseRequest
             contentQuery: new PackageHouseContentQuery(
                 new PackageHouseContentNarrowing.PackageWide(),
                 [new PackageHouseContentTerminal.CompileLibrary(selector, assetDemand)]));
+
+    /// <summary>
+    /// Declares every compatible compile Library for one exact target before
+    /// House acquisition planning, optionally naming only the implementation
+    /// assemblies the consumer requires.
+    /// </summary>
+    public static PackageHouseRequest CompileLibraries(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand) =>
+        CompileLibrariesCore(
+            demand,
+            operation,
+            target,
+            assetDemand,
+            implementationNames: null);
+
+    /// <summary>
+    /// Declares every compatible compile Library while narrowing the
+    /// implementation role to the named assemblies.
+    /// </summary>
+    public static PackageHouseRequest CompileLibraries(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string> implementationNames)
+    {
+        ArgumentNullException.ThrowIfNull(implementationNames);
+        return CompileLibrariesCore(
+            demand,
+            operation,
+            target,
+            assetDemand,
+            implementationNames);
+    }
+
+    static PackageHouseRequest CompileLibrariesCore(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
+        IEnumerable<string>? implementationNames) =>
+        new(
+            demand,
+            operation,
+            target,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            assetDemand: assetDemand,
+            implementationNames: implementationNames,
+            contentQuery:
+                PackageHouseContentQuery.GetLibrariesForTarget(
+                    target,
+                    assetDemand));
 
     /// <summary>
     /// Which assets the consumer reads. A ranged Realize reads only these;

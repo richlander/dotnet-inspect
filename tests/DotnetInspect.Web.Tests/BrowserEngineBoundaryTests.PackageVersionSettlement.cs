@@ -151,7 +151,10 @@ public sealed partial class BrowserEngineBoundaryTests
             PackageInfo: null,
             PackageChildren: null,
             Documents: [],
-            Surface: null);
+            Surface: null,
+            ImplementationComparisonRuntimeIdentifier:
+                PackageRuntimePopulationChoice
+                    .ProductDefaultRuntimeIdentifier);
         string json = JsonSerializer.Serialize(
             wireResult,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -298,7 +301,7 @@ public sealed partial class BrowserEngineBoundaryTests
             realization.Coordinate.Root.RequestedTargetFramework);
         Assert.Equal(
             measurements.SelectedLibraryCount,
-            realization.Coordinate.Root.AssetSelection.Assets.Count);
+            Assert.IsType<PackageCompileAssetSelection>(realization.Coordinate.Root.AssetSelection).Assets.Count);
         Assert.All(handler.Requested, url => Assert.Equal(
             $"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg", url));
         if (archive.LongLength > PackageRangedRead.DefaultSizeCut)
@@ -626,7 +629,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 TotalMembers: 0,
                 Documents: [],
                 InspectionErrors: [],
-                InspectionError: null));
+                InspectionError: null),
+            ImplementationComparisonRuntimeIdentifier:
+                PackageRuntimePopulationChoice
+                    .ProductDefaultRuntimeIdentifier);
 
         string json = JsonSerializer.Serialize(
             result,

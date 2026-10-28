@@ -149,7 +149,7 @@ public static class AssemblyContextReferencesQuery
                                 selection.Selection);
                     evidence.Add(
                         new(
-                            AssemblyReferencesQuery.Row(reference),
+                            AssemblyReferencesQuery.ToRow(reference),
                             request,
                             ReferenceEquals(
                                 validated,

@@ -1267,9 +1267,6 @@ test.describe("Package Query website over real Wasm", () => {
       .toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toBeVisible({ timeout: 180_000 });
-    await expect.poll(() => new URL(page.url()).searchParams.get("w"))
-      .toBe(packet);
-
     await page.locator('[data-inspector-tab][data-package-lens="overview"]').click();
     await expect(page.locator(".package-overview-surface")).toBeVisible();
     await selectFirstExactLibrary(page);
@@ -1288,11 +1285,58 @@ test.describe("Package Query website over real Wasm", () => {
       (window as Window & { copiedShare?: string }).copiedShare ?? "")).not.toBe("");
     const shared = await page.evaluate(() =>
       (window as Window & { copiedShare?: string }).copiedShare!);
+    const sharedPacket: unknown = JSON.parse(Buffer.from(
+      new URL(shared).searchParams.get("w")!, "base64url").toString());
+    expect(sharedPacket).toMatchObject({
+      f: 3,
+      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+        "net10.0", null]],
+      b: fixtureFramework,
+    });
+    const reopened = await context.newPage();
+    await reopened.goto(shared);
+    await expect(reopened.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+  });
+
+  test("reopens a Runtime-free Hierarchy without substituting product context", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { value: { write: async (items: ClipboardItem[]) => {
+        (window as Window & { copiedShare?: string }).copiedShare =
+          await (await items[0]!.getType("text/plain")).text();
+      } } });
+    });
+    const packet = Buffer.from(JSON.stringify({
+      f: 3,
+      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+        fixtureFramework, null]],
+      g: [[0]], r: [], a: 0, x: 0,
+      v: [
+        { t: null, u: { k: "workspace" } },
+        { t: 0, r: { k: "package" }, u: { k: "package" },
+          f: "package.dependency-hierarchy" },
+      ],
+      b: "net10.0",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await page.locator('[data-application-action="share"]').dispatchEvent("click");
+    await expect.poll(() => page.evaluate(() =>
+      (window as Window & { copiedShare?: string }).copiedShare ?? "")).not.toBe("");
+    const shared = await page.evaluate(() =>
+      (window as Window & { copiedShare?: string }).copiedShare!);
     expect(new URL(shared).searchParams.get("w")).toBe(packet);
     const reopened = await context.newPage();
     await reopened.goto(shared);
     await expect(reopened.locator('[data-package-references-tab="hierarchy"]'))
       .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await expect(reopened.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
+    await expect.poll(() => new URL(reopened.url()).searchParams.get("w"))
+      .toBe(packet);
   });
 
   test("opens a shared Package Dependency Hierarchy and reports partial traversal", async ({ page, context }) => {
@@ -4051,6 +4095,8 @@ test.describe("bounded network-backed Worker smoke", () => {
       }],
       contexts: [{ id: "g", tabIds: ["p"] }],
       activeTabId: "p", selectedContextId: "g",
+      traversalTargetFramework: null,
+      hierarchyWorkspacePacket: null,
       view: {
         lens: "library:overview", type: null,
         memberAnchor: null, memberSignature: null, section: null,

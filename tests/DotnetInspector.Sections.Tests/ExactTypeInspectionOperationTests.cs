@@ -123,6 +123,70 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task
+        DefiningImplementationTargetUsesTheNonNamesakeImplementationAsset()
+    {
+        const string selectedAssembly = "DotnetInspector.Sections.dll";
+        byte[] selected = await File.ReadAllBytesAsync(
+            typeof(ExactTypeInspectionOperation).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] sibling = BuildMetadataAssembly(
+            PackageId,
+            Guid.NewGuid(),
+            definesType: true,
+            "Other",
+            "Sibling");
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll", sibling),
+            ($"lib/{Framework}/{PackageId}.dll", sibling),
+            ($"ref/{Framework}/{selectedAssembly}", selected),
+            ($"lib/{Framework}/{selectedAssembly}", selected));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new NotFoundHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            typeof(ExactTypeInspectionOperation).FullName!);
+
+        string? assetPath =
+            await ExactTypeInspectionOperation
+                .ExecuteFirstAvailableWithDefiningImplementationTargetAsync(
+                    [request],
+                    house,
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken),
+                    ApiSurfaceScope.Public,
+                    (envelope, target, _) =>
+                    {
+                        Assert.True(envelope.Content.IsAvailable);
+                        Assert.NotNull(target);
+                        using Stream stream = target.Assembly.OpenRead();
+                        Assert.True(stream.Length > 0);
+                        return ValueTask.FromResult(
+                            target.PackageAssetPath);
+                    },
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            $"lib/{Framework}/{selectedAssembly}",
+            assetPath);
+    }
+
+    [Fact]
     public void ExactTypeEnvelope_PublicSurfaceCarriesNoLiveAuthorityOrContent()
     {
         var visited = new HashSet<Type>();
@@ -568,6 +632,46 @@ public sealed partial class ExactTypeInspectionOperationTests
                     envelope.Share).Packet,
                 TestContext.Current.CancellationToken);
         Assert.Equal("N.Outer+Inner", packet.Type);
+    }
+
+    [Fact]
+    public async Task
+        ExecuteAsync_HiddenExactNestedTypeDoesNotHideVisibleSuffixMatch()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Hidden.dll",
+                BuildNestedSelectionAssembly(
+                    "Hidden",
+                    "N.Outer",
+                    TypeAttributes.NotPublic,
+                    obsoleteNested: true)),
+            ("lib/net11.0/Visible.dll",
+                BuildNestedSelectionAssembly(
+                    "Visible",
+                    "Different.N.Outer",
+                    TypeAttributes.Public,
+                    obsoleteNested: false)));
+        using var client = new HttpClient(new FailingHandler());
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExecuteHouseAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "N.Outer+Widget"),
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            envelope.Content.Outcome);
+        Assert.Equal(
+            "Different.N.Outer+Widget",
+            envelope.Content.MatchedType);
+        Assert.Equal(
+            "Visible",
+            envelope.Content.SupplierAssembly?.Identity.Name);
     }
 
     [Fact]
@@ -1498,7 +1602,7 @@ public sealed partial class ExactTypeInspectionOperationTests
                     authority => clients[authority.Association]);
             var house = new PackageHouse(
                 capabilities.SourceAuthorization,
-                new PackagePayloadAcquisitionPlan(
+                PackagePayloadAcquisitionPlan.ForContentQueries(
                     (_, _) => capabilities.PackageStore,
                     capabilities.PayloadLimits,
                     capabilities.PackageTransferPolicy,
@@ -1674,6 +1778,44 @@ public sealed partial class ExactTypeInspectionOperationTests
             TypeAttributes.NestedPublic
                 | TypeAttributes.Abstract
                 | TypeAttributes.Class);
+        nested.AddInterfaceImplementation(typeof(IDisposable));
+        nested.CreateType();
+        outer.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildNestedSelectionAssembly(
+        string assemblyName,
+        string outerName,
+        TypeAttributes outerVisibility,
+        bool obsoleteNested)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder outer = module.DefineType(
+            outerName,
+            outerVisibility
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        TypeBuilder nested = outer.DefineNestedType(
+            "Widget",
+            TypeAttributes.NestedPublic
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        if (obsoleteNested)
+        {
+            nested.SetCustomAttribute(
+                new CustomAttributeBuilder(
+                    typeof(ObsoleteAttribute).GetConstructor(
+                        Type.EmptyTypes)!,
+                    []));
+        }
         nested.AddInterfaceImplementation(typeof(IDisposable));
         nested.CreateType();
         outer.CreateType();

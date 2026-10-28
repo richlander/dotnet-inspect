@@ -105,6 +105,10 @@ public static class NavigationTransitions
         }
         StructuralSubjectIdentity.WorkspaceSubject workspaceSubject =
             StructuralSubjectIdentity.ForWorkspace(workspace);
+        StructuralSubjectIdentity.ProjectSubject? projectSubject =
+            facts.Scope.Project is { } project
+                ? StructuralSubjectIdentity.ForProject(workspaceSubject, project)
+                : null;
         if (facts.Ecosystem is { } ecosystem
             && !ReferenceEquals(
                 ecosystem.Occurrence.WorkspaceIdentity,
@@ -145,6 +149,7 @@ public static class NavigationTransitions
         }
         if (initialization.Subject is { } subjectWithoutContext
             && subjectWithoutContext != workspaceSubject
+            && subjectWithoutContext != projectSubject
             && subjectWithoutContext != ecosystemSubject
             && initialization.Context is null)
         {
@@ -153,7 +158,7 @@ public static class NavigationTransitions
                 initialization,
                 NavigationRestorationRejectionKind.InvalidContext,
                 "A restoration subject without Package context must be the "
-                    + "exact Workspace or prepared Ecosystem.");
+                    + "exact Workspace, Project, or prepared Ecosystem.");
         }
         if (initialization.Subject is { } retainedSubject
             && retainedSubject != workspaceSubject
@@ -681,6 +686,9 @@ public static class NavigationTransitions
                 NavigationOperationKind.RetainedType =>
                     ((StructuralSubjectIdentity.TypeSubject)target.Subject)
                         .Library.Package.Occurrence,
+                NavigationOperationKind.Subject
+                    when target.Subject is StructuralSubjectIdentity.ProjectSubject =>
+                    null,
                 _ => next.Current.ActiveOccurrence,
             };
         var work = new NavigationEvaluationRequest(identity, attempt, next, occurrence, target, request);

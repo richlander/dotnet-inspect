@@ -11,6 +11,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -22,6 +23,7 @@ using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using InertText;
 using Inspector.Findings;
+using InspectWeb.MethodBodyFixtures;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -336,7 +338,7 @@ public sealed partial class BrowserEngineBoundaryTests
         byte[] neighbor)
     {
         byte[] selected = File.ReadAllBytes(
-            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+            FixtureCatalog.InspectWebMethodBodies.AssemblyPath());
         BrowserPackageCoordinate coordinate = await Coordinate(
             packageId,
             PackageEntries(
@@ -358,7 +360,8 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Null(performance.InspectionError);
         Assert.True(performance.TotalOpportunities > 0);
         Assert.Contains(performance.Members, member =>
-            member.MemberName == nameof(PerformanceBoxingProbe));
+            member.MemberName
+                == nameof(PerformanceProbes.PerformanceBoxingProbe));
         Assert.Equal(expected, actual);
 
         string neighborId = coordinate.Selection.Assets.Single(
@@ -435,7 +438,10 @@ public sealed partial class BrowserEngineBoundaryTests
         return coordinate;
     }
 
-    static async Task<BrowserPackageCoordinate> Coordinate(string id, byte[] nupkg)
+    static async Task<BrowserPackageCoordinate> Coordinate(
+        string id,
+        byte[] nupkg,
+        string? runtimeIdentifier = null)
     {
         var package = new BrowserPackage(id, "1.0.0", nupkg, fromCache: false);
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(package);
@@ -443,8 +449,9 @@ public sealed partial class BrowserEngineBoundaryTests
             package.Content,
             id,
             package.Version,
-            "net11.0");
-        Assert.True(assemblyContext.AssetSelection.IsSelected);
+            "net11.0",
+            runtimeIdentifier);
+        Assert.True(Assert.IsType<PackageCompileAssetSelection>(assemblyContext.AssetSelection).IsSelected);
         return new BrowserPackageCoordinate(package, assemblyContext);
     }
 
@@ -1006,6 +1013,43 @@ public sealed partial class BrowserEngineBoundaryTests
                 cancellationToken);
             throw new InvalidOperationException(
                 "The stalling handler completed without cancellation.");
+        }
+    }
+
+    sealed class MultipleGalleryPackageHandler(
+        string version,
+        IReadOnlyDictionary<string, HttpMessageHandler> packages)
+        : HttpMessageHandler
+    {
+        readonly Dictionary<string, HttpMessageInvoker> _handlers =
+            packages.ToDictionary(
+                pair =>
+                    "https://globalcdn.nuget.org/packages/"
+                    + $"{pair.Key.ToLowerInvariant()}.{version}.nupkg",
+                pair => new HttpMessageInvoker(pair.Value),
+                StringComparer.OrdinalIgnoreCase);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string url = request.RequestUri!.AbsoluteUri;
+            return _handlers.TryGetValue(url, out HttpMessageInvoker? handler)
+                ? handler.SendAsync(request, cancellationToken)
+                : Task.FromResult(
+                    new HttpResponseMessage(
+                        System.Net.HttpStatusCode.NotFound));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                foreach (HttpMessageInvoker handler in _handlers.Values)
+                    handler.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 

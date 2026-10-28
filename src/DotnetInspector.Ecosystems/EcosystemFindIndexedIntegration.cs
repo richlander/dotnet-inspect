@@ -292,7 +292,7 @@ public static class EcosystemFindIndexedIntegration
                                 symbol.SymbolOrdinal,
                                 AssemblyTypeDeclarationKind.Definition,
                                 DefinitionKind: null,
-                                IsDefinitionPublic: true,
+                                IsPublicSurface: true,
                                 symbol.TypeDiscoveryAttributes)),
                 ];
                 int? remaining = maximum is int finite

@@ -7,19 +7,105 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
+internal sealed class MethodCallOperandsProbe
+    : MethodDefinitionProducer<
+        ImmutableArray<KeyValuePair<CallSiteKey, MethodCallOperandSite>>,
+        ImmutableDictionary<CallSiteKey, MethodCallOperandSite>.Builder,
+        ImmutableDictionary<CallSiteKey, MethodCallOperandSite>>
+{
+    MethodCallOperandsProbe(string identity)
+        : base(
+            identity,
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.CallOperands)
+    {
+    }
+
+    public static MethodCallOperandsProbe Instance { get; } =
+        new("MethodCallOperandsProbe");
+
+    public static MethodCallOperandsProbe Second { get; } =
+        new("SecondMethodCallOperandsProbe");
+
+    internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+        InstructionAnalyzers =>
+        [MethodBodyAnalyzerDeclarations.ResolvedCalls];
+
+    internal override ImmutableArray<
+        KeyValuePair<CallSiteKey, MethodCallOperandSite>> Visit(
+            scoped MethodDefinitionView view)
+    {
+        if (!view.HasManagedBody)
+            return [];
+
+        MethodInstructions instructions =
+            view.MaterializeInstructions(out _);
+        MethodCallOperandSites calls =
+            view.GetCallOperands(instructions);
+        int token = view.Token;
+        return
+        [
+            .. calls.Sites.Select(
+                call => new KeyValuePair<
+                    CallSiteKey,
+                    MethodCallOperandSite>(
+                        new(
+                            token,
+                            call.ILOffset,
+                            call.OperandToken),
+                        call)),
+        ];
+    }
+
+    internal override ImmutableDictionary<
+        CallSiteKey,
+        MethodCallOperandSite>.Builder Seed() =>
+        ImmutableDictionary.CreateBuilder<
+            CallSiteKey,
+            MethodCallOperandSite>();
+
+    internal override ImmutableDictionary<
+        CallSiteKey,
+        MethodCallOperandSite>.Builder Accumulate(
+            ImmutableDictionary<
+                CallSiteKey,
+                MethodCallOperandSite>.Builder accumulator,
+            ImmutableArray<
+                KeyValuePair<
+                    CallSiteKey,
+                    MethodCallOperandSite>> fact)
+    {
+        accumulator.AddRange(fact);
+        return accumulator;
+    }
+
+    internal override ImmutableDictionary<
+        CallSiteKey,
+        MethodCallOperandSite> Complete(
+            ImmutableDictionary<
+                CallSiteKey,
+                MethodCallOperandSite>.Builder accumulator,
+            MethodDefinitionCompletionView completion) =>
+        accumulator.ToImmutable();
+}
+
 internal sealed class MethodCallsProbe
     : MethodDefinitionProducer<
         ImmutableArray<KeyValuePair<CallSiteKey, MethodCallSite>>,
         ImmutableDictionary<CallSiteKey, MethodCallSite>.Builder,
         ImmutableDictionary<CallSiteKey, MethodCallSite>>
 {
-    MethodCallsProbe(string identity)
+    readonly bool _sharesCalleeIdentities;
+
+    MethodCallsProbe(string identity, bool sharesCalleeIdentities = true)
         : base(
             identity,
             version: 1,
             tier: 0,
             MethodDefinitionLayers.Calls)
     {
+        _sharesCalleeIdentities = sharesCalleeIdentities;
     }
 
     public static MethodCallsProbe Instance { get; } =
@@ -27,6 +113,11 @@ internal sealed class MethodCallsProbe
 
     public static MethodCallsProbe Second { get; } =
         new("SecondMethodCallsProbe");
+
+    public static MethodCallsProbe Unshared { get; } =
+        new("UnsharedMethodCallsProbe", sharesCalleeIdentities: false);
+
+    internal override bool SharesCalleeIdentities => _sharesCalleeIdentities;
 
     internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
         InstructionAnalyzers =>

@@ -12,7 +12,7 @@ namespace ILInspector.Analysis.Tests;
 public sealed partial class MethodDefinitionRequestSetTests
 {
     [Fact]
-    public void ExactMethodAnalysis_PreservesIndependentEvidenceWhenCallsFail()
+    public void MethodAnalysis_PreservesIndependentEvidenceWhenCallsFail()
     {
         byte[] image = File.ReadAllBytes(
             typeof(ExactMethodAnalysisFixture).Assembly.Location);
@@ -52,6 +52,7 @@ public sealed partial class MethodDefinitionRequestSetTests
                 fieldToken);
         }
 
+        ImmutableArray<byte> input = ImmutableArray.Create(image);
         MethodDefinitionSourceAssociation association =
             Association(
                 ExactMethodAnalysisProducer.Instance,
@@ -63,7 +64,7 @@ public sealed partial class MethodDefinitionRequestSetTests
         MethodDefinitionSourceRequestSetExecution execution =
             Execute(
                 AcceptedPlan([association]),
-                ImmutableArray.Create(image));
+                input);
         ExactMethodAnalysisBody result = Assert.Single(
             ResultOf<ExactMethodAnalysisProducerResult>(
                 execution,
@@ -83,5 +84,45 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Contains(
             result.SafetyEvidence,
             evidence => evidence.Detail == "localloc");
+
+        MethodDefinitionSourceAssociation callGraphAssociation =
+            Association(
+                LibraryCallGraphProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth
+                    .AllDefinitions
+                    .IncludeGeneratedExecutionBodies());
+        MethodDefinitionSourceRequestSetExecution callGraphExecution =
+            Execute(
+                AcceptedPlan([callGraphAssociation]),
+                input);
+        LibraryCallGraphProducerResult produced =
+            Assert.IsType<LibraryCallGraphProducerResult>(
+                ResultOf<LibraryCallGraphProducerResult>(
+                    callGraphExecution,
+                    callGraphAssociation).Value);
+        MethodDefinitionSourceRequestResult sourceResult =
+            callGraphExecution.ResultOf(callGraphAssociation);
+        LibraryCallGraphAnalysisResult graph =
+            LibraryCallGraphAnalysisResult.FromProducer(
+                "malformed call fixture",
+                produced,
+                sourceResult.SourceReceipt,
+                sourceResult.WorkReceipt);
+        try
+        {
+            Assert.Contains(
+                graph.Diagnostics,
+                diagnostic => diagnostic.Message.Contains(
+                    "call operand is a FieldDefinition",
+                    StringComparison.Ordinal));
+            MethodSignals signals =
+                graph.MethodSignals[MetadataTokens.GetToken(method)];
+            Assert.True(signals.Catches > 0);
+        }
+        finally
+        {
+            graph.ReleaseCaches();
+        }
     }
 }

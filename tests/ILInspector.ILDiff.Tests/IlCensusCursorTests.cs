@@ -70,6 +70,53 @@ public class IlCensusCursorTests
         Assert.True(complete > 100, $"{complete} complete censuses, {absent} absent");
     }
 
+    /// <summary>
+    /// A sealed census outlives its side's reader: the operand text a view
+    /// shows is projected at <see cref="IlCensusCursor.Drain"/>, so reading it
+    /// after the image is disposed (and, over a file, unmapped) is safe and
+    /// equal to the text read while the reader lived.
+    /// </summary>
+    [Fact]
+    public void SealedCensus_KeepsItsOperandText_AfterTheReaderIsDisposed()
+    {
+        string path = typeof(IlBodyDiff).Assembly.Location;
+        var expected = new Dictionary<int, string>();
+        FindingInspection<CanonicalIlOperation> retained;
+        MethodDefinitionHandle method;
+        using (var pe = new PEReader(File.OpenRead(path)))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            method = reader.MethodDefinitions.First(handle =>
+                reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0
+                && MethodInstructions.Decode(pe.GetMethodBody(reader.GetMethodDefinition(handle).RelativeVirtualAddress))
+                    .Instructions.Count(instruction => instruction.OpCode == ILOpCode.Call) >= 2);
+            IlCensusSide side = IlCensusSide.Create(reader, IlBodyDiffPolicy.Body);
+            retained = IlFindings.Inspect(side, pe, method, Subject);
+            using var again = new PEReader(File.OpenRead(path));
+            var check = IlFindings.Inspect(IlCensusSide.Create(again.GetMetadataReader(), IlBodyDiffPolicy.Body), again, method, Subject);
+            foreach (var atom in ((FindingInspection<CanonicalIlOperation>.Complete)check.Value).Findings)
+            {
+                if (atom.Payload.Operand is { } operand)
+                    expected[atom.Payload.Offset] = operand.Value;
+            }
+        }
+
+        var census = Assert.IsType<FindingInspection<CanonicalIlOperation>.Complete>(retained.Value);
+        int calls = 0;
+        foreach (var atom in census.Findings)
+        {
+            if (atom.Payload.Operand is not { } operand)
+                continue;
+            Assert.Equal(expected[atom.Payload.Offset], operand.Value);
+            if (atom.Payload.OpcodeFamily == "call")
+            {
+                Assert.Contains("::", operand.Value, StringComparison.Ordinal);
+                calls++;
+            }
+        }
+        Assert.True(calls >= 2, $"{calls} call atoms");
+    }
+
     [Fact]
     public void Drain_IsRepeatable_AndCanonicalOrderIsInstructionsThenClauses()
     {
@@ -117,7 +164,7 @@ public class IlCensusCursorTests
         Assert.Equal("ret", cursor.Current!.OpcodeFamily);
         Assert.False(cursor.Advance());
         Assert.Null(cursor.Current);
-        Assert.Equal(IlCensusTerminalKind.Complete, cursor.Terminal!.Kind);
+        Assert.Equal(FindingCursorTerminalKind.Complete, cursor.Terminal!.Kind);
         Assert.Equal(4, cursor.Terminal.Position);
         Assert.False(cursor.Advance());
         Assert.Equal(4, cursor.Position);
@@ -174,8 +221,8 @@ public class IlCensusCursorTests
         Assert.True(cursor.Advance());
         Assert.True(cursor.Advance());
         Assert.False(cursor.Advance());
-        Assert.Equal(IlCensusTerminalKind.Failed, cursor.Terminal!.Kind);
-        Assert.Equal(IlCensusFailureStage.Reading, cursor.Terminal.Stage);
+        Assert.Equal(FindingCursorTerminalKind.Failed, cursor.Terminal!.Kind);
+        Assert.Equal(FindingCursorFailureStage.Reading, cursor.Terminal.Stage);
         Assert.Equal(2, cursor.Terminal.Position);
         Assert.Contains("IL_0002", cursor.Terminal.Reason);
 
@@ -191,7 +238,7 @@ public class IlCensusCursorTests
 
         Assert.True(cursor.Advance());
         Assert.False(cursor.Advance());
-        Assert.Equal(IlCensusTerminalKind.Failed, cursor.Terminal!.Kind);
+        Assert.Equal(FindingCursorTerminalKind.Failed, cursor.Terminal!.Kind);
         Assert.Equal(1, cursor.Terminal.Position);
     }
 
@@ -202,7 +249,7 @@ public class IlCensusCursorTests
 
         Assert.False(cursor.Advance());
         Assert.Equal(0, cursor.Position);
-        Assert.Equal(IlCensusTerminalKind.Failed, cursor.Terminal!.Kind);
+        Assert.Equal(FindingCursorTerminalKind.Failed, cursor.Terminal!.Kind);
         Assert.Equal(0, cursor.Terminal.Position);
     }
 
@@ -223,7 +270,7 @@ public class IlCensusCursorTests
         for (int i = 0; i < atoms; i++)
             Assert.True(cursor.Advance(), $"atom {i}");
         Assert.False(cursor.Advance());
-        Assert.Equal(IlCensusTerminalKind.Failed, cursor.Terminal!.Kind);
+        Assert.Equal(FindingCursorTerminalKind.Failed, cursor.Terminal!.Kind);
         Assert.Equal(0, cursor.Terminal.Position);
 
         IlCensusCursor again = Raw(il);
@@ -284,8 +331,8 @@ public class IlCensusCursorTests
         IlCensusCursor cursor = IlCensusCursor.Create(pe, reader, method, Subject);
 
         Assert.False(cursor.Advance());
-        Assert.Equal(IlCensusTerminalKind.Failed, cursor.Terminal!.Kind);
-        Assert.Equal(IlCensusFailureStage.Reading, cursor.Terminal.Stage);
+        Assert.Equal(FindingCursorTerminalKind.Failed, cursor.Terminal!.Kind);
+        Assert.Equal(FindingCursorFailureStage.Reading, cursor.Terminal.Stage);
         Assert.Equal(0, cursor.Terminal.Position);
         Assert.IsType<FindingInspection<CanonicalIlOperation>.Failed>(IlFindings.Inspect(pe, reader, method, Subject).Value);
     }
@@ -296,7 +343,7 @@ public class IlCensusCursorTests
         IlCensusCursor cursor = IlCensusCursor.Create(body: null, reader: null, Subject);
 
         Assert.False(cursor.Advance());
-        Assert.Equal(IlCensusTerminalKind.Absent, cursor.Terminal!.Kind);
+        Assert.Equal(FindingCursorTerminalKind.Absent, cursor.Terminal!.Kind);
         Assert.Equal(FindingInspectionAbsenceKind.NoApplicableInput, cursor.Terminal.AbsenceKind);
         var absent = Assert.IsType<FindingInspection<CanonicalIlOperation>.Absent>(IlCensusCursor.Create(body: null, reader: null, Subject).Drain().Value);
         Assert.Equal(FindingInspectionAbsenceKind.NoApplicableInput, absent.Kind);
@@ -311,7 +358,7 @@ public class IlCensusCursorTests
         IlCensusCursor cursor = IlCensusCursor.Create(incomplete, reader: null, Subject);
 
         Assert.False(cursor.Advance());
-        Assert.Equal(IlCensusTerminalKind.Failed, cursor.Terminal!.Kind);
+        Assert.Equal(FindingCursorTerminalKind.Failed, cursor.Terminal!.Kind);
         Assert.Equal(0, cursor.Terminal.Position);
         Assert.Equal(incomplete.Blocks.IncompleteReason, cursor.Terminal.Reason);
     }

@@ -158,8 +158,17 @@ internal readonly record struct MethodCallOperandSites(
 /// Execution-scoped operand and signature resolution for Method call
 /// producers. The lookup owns metadata decoding; callers own interpretation.
 /// </summary>
-internal sealed class MethodCallMetadataLookup(MetadataReader reader)
+internal sealed class MethodCallMetadataLookup(
+    MetadataReader reader,
+    bool shareCalleeIdentities)
 {
+    readonly Dictionary<MethodDefinitionHandle, MemberRef>
+        _methodDefinitions = [];
+    readonly Dictionary<MemberReferenceHandle, MemberRef>
+        _scopeIndependentMemberReferences = [];
+    readonly Dictionary<
+        (EntityHandle Handle, GenericScopeIdentity Scope),
+        MemberRef> _scopeDependentMethods = [];
     int _callSites;
     int _methodOperands;
     int _fieldOperands;
@@ -228,10 +237,7 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
                     }
                     RecordMethodOperand(handle);
                     ValidateMethodOperand(handle);
-                    callee = MemberResolver.ResolveMethod(
-                        reader,
-                        handle,
-                        scope);
+                    callee = ResolveMethod(handle, scope);
                 }
 
                 _callSites = checked(_callSites + 1);
@@ -305,10 +311,79 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
         }
         RecordMethodOperand(handle);
         ValidateMethodOperand(handle);
-        return MemberResolver.ResolveMethod(
+        return ResolveMethod(handle, scope);
+    }
+
+    MemberRef ResolveMethod(
+        EntityHandle handle,
+        GenericScope scope)
+    {
+        // Shared identities outlive their bodies; only a producer that
+        // retains callees across bodies is worth that retained heap.
+        if (!shareCalleeIdentities)
+            return MemberResolver.ResolveMethod(reader, handle, scope);
+
+        if (handle.Kind == HandleKind.MethodDefinition)
+        {
+            MethodDefinitionHandle method =
+                (MethodDefinitionHandle)handle;
+            if (_methodDefinitions.TryGetValue(
+                    method,
+                    out MemberRef? resolved))
+            {
+                return resolved;
+            }
+
+            resolved = MemberResolver.ResolveMethod(
+                reader,
+                method,
+                scope);
+            _methodDefinitions.Add(method, resolved);
+            return resolved;
+        }
+
+        if (handle.Kind == HandleKind.MemberReference)
+        {
+            MemberReferenceHandle member =
+                (MemberReferenceHandle)handle;
+            EntityHandle parent =
+                reader.GetMemberReference(member).Parent;
+            if (parent.Kind != HandleKind.TypeSpecification)
+            {
+                if (_scopeIndependentMemberReferences.TryGetValue(
+                        member,
+                        out MemberRef? resolved))
+                {
+                    return resolved;
+                }
+
+                resolved = MemberResolver.ResolveMethod(
+                    reader,
+                    member,
+                    scope);
+                _scopeIndependentMemberReferences.Add(
+                    member,
+                    resolved);
+                return resolved;
+            }
+        }
+
+        var key = (
+            Handle: handle,
+            Scope: new GenericScopeIdentity(scope));
+        if (_scopeDependentMethods.TryGetValue(
+                key,
+                out MemberRef? scopeDependent))
+        {
+            return scopeDependent;
+        }
+
+        scopeDependent = MemberResolver.ResolveMethod(
             reader,
             handle,
             scope);
+        _scopeDependentMethods.Add(key, scopeDependent);
+        return scopeDependent;
     }
 
     public MethodFieldOperand ResolveField(
@@ -585,14 +660,18 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
     };
 }
 
-internal sealed class MethodCallMetadataSupport(MetadataReader reader)
+internal sealed class MethodCallMetadataSupport(
+    MetadataReader reader,
+    bool shareCalleeIdentities)
 {
     MethodCallMetadataLookup? _lookup;
 
     public MethodCallMetadataLookup Acquire(out bool constructed)
     {
         constructed = _lookup is null;
-        return _lookup ??= new MethodCallMetadataLookup(reader);
+        return _lookup ??= new MethodCallMetadataLookup(
+            reader,
+            shareCalleeIdentities);
     }
 }
 

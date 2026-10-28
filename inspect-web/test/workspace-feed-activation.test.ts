@@ -6,6 +6,7 @@ import type {
   BrowserRetainedWorkspacePosting,
   BrowserRetainedWorkspacePreparationResult,
   BrowserTypeSurface,
+  BrowserWorkspacePackageSourceRequirementsResult,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import {
   createWorkspaceFeedActivationCoordinator,
@@ -135,6 +136,7 @@ function posting(
       registrations: [],
       activeTabId: null,
       selectedContextId: null,
+      traversalTargetFramework: "net11.0",
     },
     navigation: {
       operation: "Initialize",
@@ -209,6 +211,8 @@ function posting(
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "subject",
+      runtimeIdentifier: "win-x64",
+      implementationComparisonRuntimeIdentifier: "osx-arm64",
       defaultLibrary: {
         assetId: "Example",
         assetPath: "ref/net10.0/Example.dll",
@@ -1236,6 +1240,56 @@ test("retained package admission joins all Type pages", async () => {
     ["One", "Two"]);
   assert.deepEqual(models.packages[0]?.packageModel.source, { kind: "unknown" });
   assert.equal(models.packages[0]?.packageModel.producerLabel, "NuGet");
+  assert.equal(
+    models.packages[0]?.packageModel
+      .implementationComparisonRuntimeIdentifier,
+    "osx-arm64",
+  );
+  assert.equal(
+    models.packages[0]?.packageModel.runtimeIdentifier,
+    "win-x64",
+  );
+});
+
+for (const authentication of [null, "Anonymous", "AuthenticationRequired"] as const) {
+  test(`retained package provenance follows admitted ${authentication ?? "Gallery"} sources`, async () => {
+    const client = createWorkspaceTestClient([]);
+    client.describeWorkspacePackageSources = packet => {
+      assert.equal(packet, "packet");
+      return {
+        succeeded: true,
+        sources: authentication === null ? [] : [{
+          endpoint: "https://packages.example.test/v3/index.json",
+          authentication,
+        }],
+        failure: null,
+      };
+    };
+
+    const models = await loadRetainedWorkspaceModels(client, posting());
+
+    assert.deepEqual(models.packages[0]?.packageModel.source, {
+      kind: authentication === null ? "nuget.org" : "unknown",
+    });
+  });
+}
+
+test("an unadmitted source description does not claim Gallery provenance", async () => {
+  const client = createWorkspaceTestClient([]);
+  client.describeWorkspacePackageSources =
+    (): BrowserWorkspacePackageSourceRequirementsResult => ({
+      succeeded: false,
+      sources: [],
+      failure: {
+        kind: "UnsupportedDefinition",
+        path: "packet",
+        message: "This packet has no admitted source description.",
+      },
+    });
+
+  const models = await loadRetainedWorkspaceModels(client, posting());
+
+  assert.deepEqual(models.packages[0]?.packageModel.source, { kind: "unknown" });
 });
 
 test("retained package activation preserves a failed First Library", async () => {

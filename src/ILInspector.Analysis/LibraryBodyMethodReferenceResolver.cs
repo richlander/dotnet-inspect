@@ -481,44 +481,6 @@ internal sealed class LibraryBodyMethodReferenceResolver
         public override int GetHashCode() => _hashCode;
     }
 
-    sealed class GenericScopeIdentity : IEquatable<GenericScopeIdentity>
-    {
-        readonly int _hashCode;
-
-        internal GenericScopeIdentity(GenericScope scope)
-        {
-            TypeParameters = scope.TypeParameters;
-            MethodParameters = scope.MethodParameters;
-            var hash = new HashCode();
-            foreach (string parameter in TypeParameters)
-                hash.Add(parameter, StringComparer.Ordinal);
-            hash.Add(TypeParameters.Length);
-            foreach (string parameter in MethodParameters)
-                hash.Add(parameter, StringComparer.Ordinal);
-            hash.Add(MethodParameters.Length);
-            _hashCode = hash.ToHashCode();
-        }
-
-        internal ImmutableArray<string> TypeParameters { get; }
-        internal ImmutableArray<string> MethodParameters { get; }
-
-        public bool Equals(GenericScopeIdentity? other) =>
-            ReferenceEquals(this, other)
-            || other is not null
-            && _hashCode == other._hashCode
-            && TypeParameters.SequenceEqual(
-                other.TypeParameters,
-                StringComparer.Ordinal)
-            && MethodParameters.SequenceEqual(
-                other.MethodParameters,
-                StringComparer.Ordinal);
-
-        public override bool Equals(object? obj) =>
-            Equals(obj as GenericScopeIdentity);
-
-        public override int GetHashCode() => _hashCode;
-    }
-
     readonly record struct MemberReferenceMetadataKey(
         ScopeAwareTypeIdentity DeclaringType,
         string Name,

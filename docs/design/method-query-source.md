@@ -35,19 +35,20 @@ path decodes call opcodes without module lookup, target resolution, signature
 enrichment, canonical method context, or `DirectCall` row construction. The
 two superseded `LibraryBodyAnalysis` Count request branches are deleted.
 
-Compatible all-definition request sets now partition into physical
-instruction-source cost classes, then execute one MethodDef traversal per
-class with independent terminal-specialized lanes. Forward-only shallow lanes
-share one no-retention stream; retained or selective-detail lanes share one
-lazy retained sequence. Each lane retains its own gate, optional module lookup,
-traversal ordinal, Producer Planning work, completion, exact source coverage,
-and terminal body and encoded-IL bounds.
+Compatible all-definition and identical exact-Method request sets now
+partition into physical instruction-source cost classes, then execute one
+MethodDef traversal per class with independent terminal-specialized lanes.
+Forward-only shallow lanes share one no-retention stream; retained or
+selective-detail lanes share one lazy retained sequence. Each lane retains its
+own gate, optional module lookup, traversal ordinal, Producer Planning work,
+completion, exact source coverage, and terminal body and encoded-IL bounds.
 Bound exhaustion is source-incomplete for that lane and its receipt preserves
 the admitted work; another shared lane continues under its own limits. A
 settled lane keeps its result when a later lane aborts or encounters source
 failure, and source failure reaches only active lanes whose type scope required
-the failed enumeration. Sparse breadth and incompatible requests remain
-separate groups. Exact-method and exact-type requests may opt into bounded
+the failed enumeration. Distinct sparse breadth, exact-type breadth, and
+incompatible requests remain separate groups. Exact-method and exact-type
+requests may opt into bounded
 generated execution-body expansion, and an all-definition request may declare
 the [declared-source relation](#declared-source-relation), which settles at
 source completion in its own lane. The source uses targeted nested metadata
@@ -57,8 +58,15 @@ probe bodies and bytes, relationship nodes, and
 authenticated origins from terminal work. Declaring producers read the
 subject's public MethodDef roots and reference-assembly status at completion
 through [image exposure support](#image-exposure-support), receipted apart from
-breadth. Metadata-predicate breadth, body
-packets, and collapsed sparse request groups remain **unverified**.
+breadth. Metadata-predicate breadth, body packets, and collapsed exact-type
+request groups remain **unverified**.
+
+IL-offset semantic preparation is the first identical exact-Method request-set
+adopter. Allocation, safety, and cost remain independent Rows associations,
+while their selected combination shares one physical body and instruction
+source for each deduplicated coordinate MethodDef. The Analysis-owned
+`ExactMethodSemanticAnalysis` operation issues those structural requests;
+Research only maps their detached results into coordinate projection inputs.
 
 ## Demo and pathological case
 
@@ -642,6 +650,16 @@ request receipt records construction only for the lane whose access created
 the lookup, and only that lane's queries. Construction is absent when no
 producer declares the support or no declaring producer queries it.
 
+The support also owns the
+[unsafe member role scan](unsafe-member-findings.md#role-scan)'s
+call-operand facts for the execution. They are constructed at first use by a
+producer that declares this support and `Calls`. The facts hold the scan's
+memoized per-operand verdicts and whether the image names a
+`RequiresUnsafeAttribute` type. They read contracts only through this
+support's lookup and operands only through the declared Calls and
+call-target support, so their work appears in those receipts. The type-name
+scan over the TypeDef and TypeRef tables is not separately receipted.
+
 ### Same-module call-target support
 
 `CallTargets` is declared shared lookup support for producers that need the
@@ -756,12 +774,24 @@ The same declared support exposes two facts only when the producer asks:
 
 One execution-scoped lookup owns signature decoding. The packet caches Calls,
 the local signature, and each distinct field token for one physical MethodDef.
-Lanes in one shared execution group reuse those packet facts. The physical
-receipt charges each decode once; each request receipt receives the shared
-decode work once and retains its own logical read counts. Work records call
-sites, method and field operands, local signatures, generic-parameter rows,
-and signature bytes. `CallTargets` separately receipts target-resolution work
-for every site, including replay to a lane that reads cached Calls.
+When a planned producer declares that its result retains resolved callees
+across bodies, as Physical Method Analysis does, the lookup also shares callee
+identities across physical bodies:
+
+- resolved MethodDef identities are shared, as are MemberRef identities whose
+  parent is not a caller-scoped TypeSpec;
+- TypeSpec parents and MethodSpecs share identity only when the operand handle
+  and the structural caller scope both match.
+
+Otherwise each call site resolves its callee afresh, and no identity outlives
+the body that read it. A whole-library pass that retains no callee therefore
+doesn't hold one `MemberRef` graph per distinct callee for the execution's
+lifetime. Lanes in one shared execution group reuse those packet facts. The physical receipt charges each decode once; each request
+receipt receives the shared decode work once and retains its own logical read
+counts. Work records call sites, method and field operands, local signatures,
+generic-parameter rows, and signature bytes. `CallTargets` separately receipts
+target-resolution work for every site, including replay to a lane that reads
+cached Calls.
 
 Shallow call-count producers do not declare `Calls`. They retain no
 instructions, decode no call operand or external signature, construct no
@@ -841,7 +871,11 @@ terminal breadth:
   TypeDef, attribute, and enclosing-relationship reads; and
 - exact local-allocation exception classification follows the operand's
   TypeDef or TypeSpec definition and its bounded base chain rather than
-  constructing a module-wide type-name index.
+  constructing a module-wide type-name index. An exact `System.Exception`
+  anchor is positive, exact `System.Object`, `System.ValueType`, and
+  `System.Enum` anchors are negative, and any other external or generic base is
+  unknown so the consuming signal policy can apply the constructed type's own
+  name heuristic.
 
 Those reads are supporting probes, not terminal methods. They do not add
 MethodDefs to the producer's visited population or bodies to its terminal body
@@ -892,13 +926,20 @@ suppression, and exception classification. Public direct calls and final
 no Library Body Analysis donor. A recoverable allocation-operand failure
 retains the classified prefix and publishes its exact stopping offset and
 operation; optimization consumes that same partial fact rather than rebuilding
-or replacing it with successful-empty evidence. Optimization uses a scoped generated-code evidence query rather than reading
-metadata from the visit. Method and enclosing-type generated-code attributes,
-bounded enclosing TypeDefs, and declaring-type relationships are separately
-reported when read. The producer owns suppression policy and can stop evidence
-acquisition as soon as a fact is decisive, before intrinsic opportunity
-collection.
-Its performance case is
+or replacing it with successful-empty evidence. Optimization uses a scoped
+generated-code evidence query rather than reading metadata from the visit.
+Method and enclosing-type generated-code attributes, bounded enclosing
+TypeDefs, and declaring-type relationships are separately reported when read.
+The producer owns suppression policy and can stop evidence acquisition as soon
+as a fact is decisive, before intrinsic opportunity collection.
+Allocation-only matched-member requests plan
+`ExactMethodAllocationProducer` instead, so they do not collect direct calls,
+safety, signals, string materialization, or optimization opportunities. The
+exact single-member CLI Diff allocation route also selects the two MethodDef
+tokens from the endpoint API surfaces and executes that producer once per
+endpoint. It bypasses the complete body-analysis session only when both sides
+publish one direct managed body; mixed analysis sets and unsupported target
+shapes retain the shared body-signal route. The performance case is
 `System.Text.Json@10.0.0`
 `System.Text.Json.Schema.JsonSchemaExporter.MapJsonSchemaCore(...)`, whose
 allocation-hotspot result reports 20 `newobj`, `newarr`, or `box`
@@ -1195,6 +1236,8 @@ One detached `MethodSourceReceipt` records actual source work, not requested
 work or a cost estimate. It contains:
 
 - the exact request or execution-group association and subject identity;
+- the source module's assembly-definition identity, MVID, and module name, so
+  a detached sink need not reopen the image to recover module identity;
 - direct breadth, declared expansion, terminal, and demanded depth;
 - completion for every served request and its settlement position, when any;
 - exact MethodDef coverage for definitions examined, physical methods
@@ -1339,7 +1382,29 @@ Migration is incremental:
     and attribution IL probes; caller attribution and owner suppression consume
     that answer. Final opportunity enrichment consumes only the exact evidence,
     and the query has no `LibraryBodyAnalysisService` execution.
-13. Move remaining producers and delete each superseded legacy scan and index
+    `MatchedApiMemberAnalysisQuery.InspectAllocations` and exact
+    single-member, allocation-only CLI Diff instead select
+    `ExactMethodAllocationProducer`. That request retains only semantic
+    identity, memory-safety contracts, local signatures, allocation analyzers,
+    and Method-analysis support; calls, safety, signals, and optimization do
+    not participate.
+13. The all-definition Call Graph adoption splits reusable physical Method
+    evidence from exact-target attribution. `PhysicalMethodAnalysisProducer`
+    owns semantic identity, calls, local signatures, safety, and body context;
+    `ExactMethodAnalysisProducer` adds sparse declared-source attribution.
+    `LibraryCallGraphProducer` consumes the physical fact, method-local
+    construction judgments without allocation or escape collection, and the
+    settled all-definition declared-source relation. That relation
+    admits only the inferred lifted-owner methods of a top-level
+    compiler-generated type while excluding its unrelated methods and nested
+    generated implementation types. Its origin preserves whether an
+    authenticated state-machine body is classic async or async-iterator rather
+    than sync iterator; the Call Graph sink maps lifted and async execution
+    bodies while retaining sync iterator identity, without re-inferring the
+    lowering from the declared return type.
+    `AssemblyContextCallGraphAnalysis` consumes the resulting focused
+    operation and no longer executes `LibraryBodyAnalysisService`.
+14. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result
@@ -1476,6 +1541,7 @@ Calls support is gated in Release:
 - `MethodQuerySource_CallsAbsentWhenUndeclared`
 - `MethodQuerySource_CallsRequireDeclaration`
 - `MethodQuerySource_CallsReceiptExactMethodWork`
+- `MethodQuerySource_SharesScopeIndependentCalleeIdentityAcrossBodies`
 - `MethodQuerySource_ClosedGenericFieldTypeIsInstantiated`
 - `MethodQuerySource_CalleeIdentityPreservesPlatformContractHit`
 - `MethodQuerySource_CallsAreDecodedOnceAcrossLanes`

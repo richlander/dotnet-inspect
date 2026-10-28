@@ -397,6 +397,7 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    public bool NamesakeLibrary { get; init; }
     internal bool MermaidExplicitlySet { get; init; }
     internal bool NonHierarchyFormatExplicitlySet { get; init; }
     internal bool LineWindowExplicitlySet { get; init; }
@@ -419,6 +420,9 @@ public record TypeOptions : ApiOptions
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
     internal bool RouterCompletedPlatformLookup { get; init; }
+    internal string[]? AnnotatedRelationIds { get; init; }
+    internal string[] AnnotatedRelationColorIds { get; init; } = [];
+    internal string[] AnnotatedRelationRequiredColorIds { get; init; } = [];
     public InspectionEnvelope<CSharpTypeDocumentOutcome>?
         TypeDocumentInspection
     {

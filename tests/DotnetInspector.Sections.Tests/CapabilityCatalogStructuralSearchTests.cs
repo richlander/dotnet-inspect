@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
 namespace DotnetInspector.Sections.Tests;
@@ -25,6 +26,9 @@ public sealed class CapabilityCatalogStructuralSearchTests
     {
         CapabilityCatalogSearchDocument document = Search("unsafe");
 
+        Assert.Equal(
+            CapabilityCatalogSearch.SimilarityThreshold,
+            document.SimilarityThreshold);
         CapabilityCatalogSearchResult result = document.Results[0];
         Assert.Equal(1.0, result.Similarity);
         Assert.Equal("Unsafe", result.MatchedTerm);
@@ -98,6 +102,113 @@ public sealed class CapabilityCatalogStructuralSearchTests
     }
 
     [Fact]
+    public void Phrase_AveragesTheBestScoreOfEachWord()
+    {
+        CapabilityCatalogSearchDocument document = Search("unsafe code");
+
+        Assert.Equal(
+            CapabilityCatalogSearch.PhraseThreshold,
+            document.SimilarityThreshold);
+        CapabilityCatalogSearchResult result = Assert.Single(document.Results);
+        Assert.Equal("Unsafe Members", result.ResourceName);
+        Assert.Equal(0.5, result.Similarity);
+        Assert.Equal("Unsafe", result.MatchedTerm);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.OwnerIdentity,
+            result.MatchSource);
+        Assert.True(result.IsSegment);
+    }
+
+    [Fact]
+    public void PhraseWord_InTheResourceHeadingOutweighsASummaryWord()
+    {
+        CapabilityCatalogSearchResult[] results =
+            [.. Search("members volume").Results];
+
+        Assert.Equal(
+            ["Unsafe Members", "Library Metrics"],
+            results.Select(static result => result.ResourceName));
+        Assert.Equal(0.5, results[0].Similarity);
+        // The summary word counts at the context weight 1/1.5, averaged
+        // over two words.
+        Assert.Equal(0.333, results[1].Similarity);
+        Assert.Equal("volume", results[1].MatchedTerm);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.Summary,
+            results[1].MatchSource);
+    }
+
+    [Fact]
+    public void PhraseWord_InAScopingPathSegmentIsContext()
+    {
+        CapabilityCatalogSearchResult[] results =
+            [.. Search("unsafe library").Results];
+
+        // `library` scopes `library/sections/unsafe-members` but names
+        // `library/sections/library-metrics`.
+        Assert.Equal(
+            [
+                ("Unsafe Members", 0.833),
+                ("Library Metrics", 0.5),
+            ],
+            results
+                .Take(2)
+                .Select(static result =>
+                    (result.ResourceName, result.Similarity)));
+        Assert.All(
+            results.Skip(2),
+            static result => Assert.Equal(0.333, result.Similarity));
+    }
+
+    [Fact]
+    public void Phrase_IgnoresFunctionWordsAndShortWords()
+    {
+        CapabilityCatalogSearchDocument document = Search("is the unsafe");
+
+        Assert.Equal(
+            CapabilityCatalogSearch.PhraseThreshold,
+            document.SimilarityThreshold);
+        CapabilityCatalogSearchResult result = Assert.Single(document.Results);
+        Assert.Equal("Unsafe Members", result.ResourceName);
+        Assert.Equal(1.0, result.Similarity);
+    }
+
+    [Fact]
+    public void TextWithNoSearchWord_UsesTheWholeTextRule()
+    {
+        CapabilityCatalogSearchDocument document = Search("is it");
+
+        Assert.Equal(
+            CapabilityCatalogSearch.SimilarityThreshold,
+            document.SimilarityThreshold);
+        Assert.Equal(0, document.MatchCount);
+    }
+
+    [Fact]
+    public void PhraseEqualToATerm_MatchesTheCompleteTerm()
+    {
+        CapabilityCatalogSearchResult result =
+            Search("unsafe members").Results[0];
+
+        Assert.Equal(1.0, result.Similarity);
+        Assert.Equal("Unsafe Members", result.MatchedTerm);
+        Assert.False(result.IsSegment);
+    }
+
+    [Fact]
+    public void PhraseBelowThePhraseThreshold_IsCompleteEmpty()
+    {
+        CapabilityCatalogSearchDocument document =
+            Search("unsafe alpha bravo charlie delta");
+
+        Assert.Equal(0, document.MatchCount);
+        Assert.Empty(document.Results);
+        Assert.Equal(
+            CapabilityCatalogSearch.PhraseThreshold,
+            document.SimilarityThreshold);
+    }
+
+    [Fact]
     public void PopulationIsEverySectionAndCategoryAndNoItem()
     {
         CapabilityCatalogSearchDocument document = Search("unsafe");
@@ -132,294 +243,208 @@ public sealed class CapabilityCatalogStructuralSearchTests
     }
 
     [Fact]
-    public void EveryCandidatePathResolvesInTheStructuralExplanation()
+    public void EveryCandidatePathResolvesInTheComposedExplanation()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-        ResourceExplanationCatalog explanation =
-            ResourceExplanationCatalog.CreateStructural(document, paths);
-
-        CapabilityCatalogSearchDocument search =
-            CapabilityCatalogSearch.Search(
-                    EmptyCapabilities(),
-                    EmptyExplanation(),
-                    [Admit(document, paths)],
-                    // The catalog route name is a term of every candidate.
-                    new("library", CapabilityCatalogSearchRequest
-                        .MaximumResultLimit))
-                .Content;
-
+        var (document, paths) = Structural();
+        InspectionCapabilityCatalog catalog = Admit(document, paths);
+        ResourceExplanationCatalog explanation = ResourceExplanationCatalog.CreateCapabilities(catalog, []);
+        CapabilityCatalogSearchDocument search = CapabilityCatalogSearch.Search(
+            catalog, explanation, new("library", 100)).Content;
         Assert.Equal(4, search.Results.Length);
-        foreach (CapabilityCatalogSearchResult result in search.Results)
-        {
-            Assert.IsType<ResourcePathResolution.Resolved>(
-                explanation.Resolve(result.ResourcePath));
-        }
+        Assert.All(search.Results, result =>
+            Assert.IsType<ResourcePathResolution.Resolved>(explanation.Resolve(result.ResourcePath)));
     }
 
     [Fact]
     public void StructuralResourceRequiresAPathRegistration()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-
-        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            Search(
-                Admit(
-                    document,
-                    [
-                        .. paths.Where(static path =>
-                            path.Identity != UnsafeMembers),
-                    ]),
-                "unsafe"));
+        var (document, paths) = Structural();
+        var exception = Assert.Throws<ArgumentException>(() =>
+            Admit(document, paths.Where(path => path.Identity != UnsafeMembers)));
         Assert.Contains("has no path registration", exception.Message);
     }
 
     [Fact]
     public void StructuralResourceHasOnePathRegistration()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-
-        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            Search(
-                Admit(
-                    document,
-                    [
-                        .. paths,
-                        new(
-                            UnsafeMembers,
-                            new ResourcePath("library/sections/unsafe")),
-                    ]),
-                "unsafe"));
+        var (document, paths) = Structural();
+        var exception = Assert.Throws<ArgumentException>(() => Admit(document,
+            [.. paths, new(UnsafeMembers, new ResourcePath("library/sections/unsafe"))]));
         Assert.Contains("more than one path registration", exception.Message);
     }
 
     [Fact]
     public void StructuralPathRegistrationRequiresADiscoveryResource()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-
-        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            Search(
-                Admit(
-                    document,
-                    [
-                        .. paths,
-                        new(
-                            new DiscoveryResourceIdentity(
-                                DiscoveryResourceKind.Section,
-                                "Phantom"),
-                            new ResourcePath("library/sections/phantom")),
-                    ]),
-                "unsafe"));
+        var (document, paths) = Structural();
+        var exception = Assert.Throws<ArgumentException>(() => Admit(document,
+            [.. paths, new(new(DiscoveryResourceKind.Section, "Phantom"), new("library/sections/phantom"))]));
         Assert.Contains("no Discovery resource", exception.Message);
     }
 
     [Fact]
     public void StructuralPathMustBeUnderTheCatalogRoot()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-
-        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            Search(
-                Admit(
-                    document,
-                    [
-                        .. paths.Select(static path =>
-                            path.Identity == UnsafeMembers
-                                ? new StructuralResourcePathRegistration(
-                                    path.Identity,
-                                    new ResourcePath(
-                                        "package/sections/unsafe-members"))
-                                : path),
-                    ]),
-                "unsafe"));
+        var (document, paths) = Structural();
+        var exception = Assert.Throws<ArgumentException>(() => Admit(document,
+            paths.Select(path => path.Identity == UnsafeMembers
+                ? new StructuralResourcePathRegistration(path.Identity, new("package/sections/unsafe-members"))
+                : path)));
         Assert.Contains("is not under catalog root", exception.Message);
     }
 
     [Fact]
-    public void StructuralCatalogIsAdmittedOnce()
+    public void DuplicateStructuralRegistrationFailsDuringComposition()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-
-        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            CapabilityCatalogSearch.Search(
-                EmptyCapabilities(),
-                EmptyExplanation(),
-                [Admit(document, paths), Admit(document, paths)],
-                new("unsafe")));
-        Assert.Contains("more than once", exception.Message);
+        var registration = Registration();
+        Assert.Throws<ArgumentException>(() => InspectionCapabilityCatalog.Create(
+            [new("test", structuralCatalogs: [registration, registration])]));
     }
 
     [Fact]
-    public void StructuralRoutePathMustBeTheCatalogRoot()
+    public void DifferentRegistrationsCannotIssueTheSameCatalogRoot()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-
-        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            Admit(document, paths, root: "package"));
-        Assert.Contains("is not the root", exception.Message);
+        var registration = Registration();
+        var other = new InspectionStructuralCatalogRegistration(
+            "other/library-catalog", "library", registration.Projection);
+        Assert.Throws<ArgumentException>(() => InspectionCapabilityCatalog.Create(
+            [new("test", structuralCatalogs: [registration, other])]));
     }
 
     [Fact]
-    public void StructuralRouteAndBindingShareTheCatalogRoot()
+    public void DifferentResourcesCannotShareACanonicalPath()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-
-        Assert.Throws<ArgumentException>(() =>
-            new CapabilityCatalogSearchStructuralCatalog(
-                document,
-                paths,
-                new("test/library-catalog", "library", "library"),
-                [
-                    Binding(
-                        "library -S",
-                        [Audit, UnsafeMembers, LibraryMetrics, Undeclared],
-                        root: "package"),
-                ]));
+        var (document, paths) = Structural();
+        ResourcePath duplicate = paths.Single(path => path.Identity == UnsafeMembers).Path;
+        Assert.Throws<ArgumentException>(() => Admit(document,
+            paths.Select(path => path.Identity == LibraryMetrics
+                ? new StructuralResourcePathRegistration(path.Identity, duplicate)
+                : path)));
     }
 
     [Fact]
-    public void StructuralResource_CarriesOnlyTheBindingsThatAddressIt()
+    public void StructuralResourcesCarryExactlyTheirViewsBindings()
     {
-        // A catalog two command views project admits one binding per view;
-        // a section only the second view selects carries only its binding.
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-        CapabilityCatalogSearchStructuralCatalog catalog = new(
-            document,
-            paths,
-            new("test/library-catalog", "library", "library"),
+        var (document, paths) = Structural();
+        var registration = new InspectionStructuralCatalogRegistration(
+            "test/library-catalog", "library", new(document, [.. paths]));
+        InspectionCapabilityCatalog catalog = InspectionCapabilityCatalog.Create(
+            [new("test", structuralCatalogs: [registration], structuralBindings:
             [
-                Binding(
-                    "library -S",
-                    [Audit, UnsafeMembers, LibraryMetrics, Undeclared]),
-                Binding(
-                    "library address -S",
-                    [UnsafeMembers],
-                    identity: "test/library-address-sections"),
-            ]);
-
-        CapabilityCatalogSearchResult unsafeMembers =
-            Search(catalog, "unsafe").Results[0];
-        Assert.Equal(
-            ["library -S", "library address -S"],
-            unsafeMembers.ProductionBindings.Select(
-                static binding => binding.Gesture));
-        CapabilityCatalogSearchResult metrics =
-            Search(catalog, "metrics").Results[0];
-        Assert.Equal(
-            "library -S",
-            Assert.Single(metrics.ProductionBindings).Gesture);
+                Binding(registration, "library -S", [Audit, UnsafeMembers, LibraryMetrics, Undeclared]),
+                Binding(registration, "library address -S", [UnsafeMembers], "test/library-address-sections"),
+            ])]);
+        CapabilityCatalogSearchResult unsafeMembers = Search(catalog, "unsafe").Results[0];
+        Assert.Equal(["library -S", "library address -S"],
+            unsafeMembers.ProductionBindings.Select(binding => binding.Gesture));
+        Assert.Equal("library -S", Assert.Single(
+            Search(catalog, "metrics").Results[0].ProductionBindings).Gesture);
     }
 
     [Fact]
-    public void StructuralResourceWithNoBinding_IsRejected()
+    public void RegisteredResourceWithoutAHostBindingIsExplainedButNotAdvertised()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-        CapabilityCatalogSearchStructuralCatalog catalog = new(
-            document,
-            paths,
-            new("test/library-catalog", "library", "library"),
-            [Binding("library -S", [Audit, UnsafeMembers, LibraryMetrics])]);
-
-        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            Search(catalog, "unsafe"));
-        Assert.Contains("has no binding", exception.Message);
+        var registration = Registration();
+        InspectionCapabilityCatalog catalog = InspectionCapabilityCatalog.Create(
+            [new("test", structuralCatalogs: [registration], structuralBindings:
+                [Binding(registration, "library -S", [UnsafeMembers])])]);
+        Assert.Equal(1, Search(catalog, "unsafe").CandidateResourceCount);
+        Assert.DoesNotContain(Search(catalog, "metrics").Results,
+            result => result.ResourceName == "Library Metrics");
+        ResourceExplanationCatalog explanation = ResourceExplanationCatalog.CreateCapabilities(catalog, []);
+        Assert.IsType<ResourcePathResolution.Resolved>(explanation.Resolve("library/sections/library-metrics"));
     }
 
     [Fact]
-    public void BindingOverAnUnadmittedResource_IsRejected()
+    public void CatalogWithoutAnyBindingHasNoSearchCandidates()
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-        CapabilityCatalogSearchStructuralCatalog catalog = new(
-            document,
-            paths,
-            new("test/library-catalog", "library", "library"),
-            [
-                Binding(
-                    "library -S",
-                    [
-                        Audit,
-                        UnsafeMembers,
-                        LibraryMetrics,
-                        Undeclared,
-                        new DiscoveryResourceIdentity(
-                            DiscoveryResourceKind.Section,
-                            "Absent"),
-                    ]),
-            ]);
+        InspectionCapabilityCatalog catalog = InspectionCapabilityCatalog.Create(
+            [new("test", structuralCatalogs: [Registration()])]);
+        Assert.Equal(0, Search(catalog, "unsafe").CandidateResourceCount);
+    }
 
-        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            Search(catalog, "unsafe"));
+    [Fact]
+    public void BindingOverAnUnregisteredResourceFailsDuringComposition()
+    {
+        var registration = Registration();
+        var exception = Assert.Throws<ArgumentException>(() => InspectionCapabilityCatalog.Create(
+            [new("test", structuralCatalogs: [registration], structuralBindings:
+                [Binding(registration, "library -S", [new(DiscoveryResourceKind.Section, "Absent")])])]));
         Assert.Contains("does not admit", exception.Message);
+    }
+
+    [Fact]
+    public void BindingMustReferenceTheExactRegisteredCatalog()
+    {
+        var registration = Registration();
+        Assert.Throws<ArgumentException>(() => InspectionCapabilityCatalog.Create(
+            [new("test", structuralCatalogs: [registration], structuralBindings:
+                [Binding(Registration(), "library -S", [UnsafeMembers])])]));
+    }
+
+    [Fact]
+    public void StructuralBindingsHaveUniqueIdentities()
+    {
+        var registration = Registration();
+        Assert.Throws<ArgumentException>(() => InspectionCapabilityCatalog.Create(
+            [new("test", structuralCatalogs: [registration], structuralBindings:
+            [
+                Binding(registration, "library -S", [UnsafeMembers]),
+                Binding(registration, "library address -S", [UnsafeMembers]),
+            ])]));
+    }
+
+    [Fact]
+    public void StructuralAndRouteBindingsShareOneIdentityScope()
+    {
+        var registration = Registration();
+        var routeBinding = new InspectionConsumerBinding<
+            PackageQueryInspectionRequest, PackageQueryDocument>(
+                new("test/library-sections", InspectionConsumerKind.Cli,
+                    "test CLI", "package query"),
+                PackageQueryCapability.Route, []);
+        Assert.Throws<ArgumentException>(() => InspectionCapabilityCatalog.Create(
+        [
+            PackageQueryCapability.ProductModule,
+            new("test", bindings: [routeBinding],
+                structuralCatalogs: [registration], structuralBindings:
+                [Binding(registration, "library -S", [UnsafeMembers])]),
+        ]));
+    }
+
+    private static InspectionStructuralCatalogRegistration Registration()
+    {
+        var (document, paths) = Structural();
+        return new("test/library-catalog", "library", new(document, [.. paths]));
     }
 
     private static CapabilityCatalogSearchDocument Search(string text)
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
+        var (document, paths) = Structural();
         return Search(Admit(document, paths), text);
     }
 
-    private static CapabilityCatalogSearchDocument Search(
-        CapabilityCatalogSearchStructuralCatalog catalog,
-        string text) =>
-        CapabilityCatalogSearch.Search(
-                EmptyCapabilities(),
-                EmptyExplanation(),
-                [catalog],
-                new(text))
-            .Content;
+    private static CapabilityCatalogSearchDocument Search(InspectionCapabilityCatalog catalog, string text) =>
+        CapabilityCatalogSearch.Search(catalog,
+            ResourceExplanationCatalog.CreateCapabilities(catalog, []),
+            new(text)).Content;
 
-    private static InspectionCapabilityCatalog EmptyCapabilities() =>
-        InspectionCapabilityCatalog.Create([]);
-
-    // Search resolves only capability paths in its explanation catalog;
-    // with no capabilities, any catalog serves.
-    private static ResourceExplanationCatalog EmptyExplanation()
+    private static InspectionCapabilityCatalog Admit(
+        DiscoveryDocument document, IEnumerable<StructuralResourcePathRegistration> paths)
     {
-        (DiscoveryDocument document,
-            StructuralResourcePathRegistration[] paths) = Structural();
-        return ResourceExplanationCatalog.CreateStructural(document, paths);
+        var registration = new InspectionStructuralCatalogRegistration(
+            "test/library-catalog", "library", new(document, [.. paths]));
+        return InspectionCapabilityCatalog.Create(
+            [new("test", structuralCatalogs: [registration], structuralBindings:
+                [Binding(registration, "library -S", [Audit, UnsafeMembers, LibraryMetrics, Undeclared])])]);
     }
 
-    private static CapabilityCatalogSearchStructuralCatalog Admit(
-        DiscoveryDocument document,
-        IEnumerable<StructuralResourcePathRegistration> paths,
-        string root = "library") =>
-        new(
-            document,
-            paths,
-            new($"test/{root}-catalog", root, root),
-            [
-                Binding(
-                    "library -S",
-                    [Audit, UnsafeMembers, LibraryMetrics, Undeclared],
-                    root),
-            ]);
-
-    private static CapabilityCatalogSearchStructuralBinding Binding(
+    private static InspectionStructuralViewBinding Binding(
+        InspectionStructuralCatalogRegistration catalog,
         string gesture,
         IEnumerable<DiscoveryResourceIdentity> resources,
-        string root = "library",
-        string? identity = null) =>
-        new(
-            new(
-                identity ?? $"test/{root}-sections",
-                "test CLI",
-                InspectionConsumerKind.Cli,
-                gesture,
-                root),
-            resources);
+        string identity = "test/library-sections") =>
+        new(new(identity, InspectionConsumerKind.Cli, "test CLI", gesture), catalog, resources);
 
     // The fixture's Discovery projection and its path registrations: the
     // inputs a host creates its structural explanation catalog from.

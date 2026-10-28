@@ -119,6 +119,9 @@ public static partial class PackageExports
                             packageChildren),
                         BrowserPackageWireProjection.Project(
                             coordinate.Package.Documents()),
+                        BrowserPackageWireProjection
+                            .ImplementationComparisonRuntimeIdentifier(
+                                coordinate),
                         defaultLibraryId)
                     {
                         RuntimePopulation =
@@ -161,6 +164,9 @@ public static partial class PackageExports
                 PackageChildren: null,
                 Documents: [],
                 Surface: null,
+                ImplementationComparisonRuntimeIdentifier:
+                    PackageRuntimePopulationChoice
+                        .ProductDefaultRuntimeIdentifier,
                 RuntimePopulation: null);
         }
 
@@ -202,7 +208,10 @@ public static partial class PackageExports
             BrowserPackageWireProjection.Project(packageChildren),
             BrowserPackageWireProjection.Project(
                 realization.Coordinate.Package.Documents()),
-            surface)
+            surface,
+            BrowserPackageWireProjection
+                .ImplementationComparisonRuntimeIdentifier(
+                realization.Coordinate))
         {
             DefaultLibraryId = defaultLibraryId,
             RuntimePopulation =
@@ -1262,7 +1271,8 @@ public static partial class PackageExports
         string version,
         string framework,
         string assemblyName,
-        string documentationId)
+        string documentationId,
+        string? runtimeIdentifier)
     {
         DocumentationQueryOutcome documentation =
             await BrowserPackageWorkspace.QueryMemberDocumentationAsync(
@@ -1270,13 +1280,28 @@ public static partial class PackageExports
                     version,
                     framework,
                     assemblyName,
-                    documentationId)
+                    documentationId,
+                    runtimeIdentifier)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             documentation,
             DocumentationQueryJsonContext.Default
                 .DocumentationQueryOutcome);
     }
+
+    public static Task<string> QueryMemberDocumentation(
+        string packageId,
+        string version,
+        string framework,
+        string assemblyName,
+        string documentationId) =>
+        QueryMemberDocumentation(
+            packageId,
+            version,
+            framework,
+            assemblyName,
+            documentationId,
+            runtimeIdentifier: null);
 
     /// <summary>
     /// One exact member's shared compiled-documentation outcome from a

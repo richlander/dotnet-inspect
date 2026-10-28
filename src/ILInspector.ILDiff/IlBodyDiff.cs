@@ -3,6 +3,9 @@ using System.Runtime.InteropServices;
 using System.Reflection.Metadata;
 
 using ILInspector.Instructions;
+using ILInspector.Metadata;
+
+using Inspector.Findings;
 
 namespace ILInspector.ILDiff;
 
@@ -89,7 +92,81 @@ public enum IlBodyDiffOutcome
     ExceptionRegionDiff,
 }
 
-public sealed record IlOperandIdentity(IlOperandIdentityKind Kind, string Value);
+/// <summary>
+/// An operation's operand identity under its policy
+/// (<c>docs/design/finding-census.md#the-cursor</c>). A metadata token
+/// operand is its row's Symbol Key, spelled by the operand's
+/// <see cref="IlCensusSide"/> and compared as bytes; an immediate, a slot, a
+/// branch or switch target, and a user string are values, compared as their
+/// text. <see cref="Value"/> is the text a view shows: a value's text, or a
+/// token's formatted spelling, projected from the side when first read and
+/// never compared.
+/// </summary>
+public sealed class IlOperandIdentity : IEquatable<IlOperandIdentity>
+{
+    readonly StagedSymbolKey<IlOperandPart> _key;
+    readonly IlCensusSide? _side;
+    readonly OperandKind _operandKind;
+    readonly int _token;
+    string? _value;
+
+    /// <summary>A value identity, or a token identity given as its text, which compares as text.</summary>
+    public IlOperandIdentity(IlOperandIdentityKind kind, string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        Kind = kind;
+        _value = value;
+    }
+
+    internal IlOperandIdentity(StagedSymbolKey<IlOperandPart> key, IlCensusSide side, OperandKind operandKind, int token)
+    {
+        Kind = IlOperandIdentityKind.Token;
+        _key = key;
+        _side = side;
+        _operandKind = operandKind;
+        _token = token;
+    }
+
+    public IlOperandIdentityKind Kind { get; }
+
+    /// <summary>
+    /// The text a view shows; a token's is formatted from its side when first
+    /// read, or when its census is sealed (<see cref="IlCensusCursor.Drain"/>),
+    /// since a sealed census may outlive its side's reader. Before sealing,
+    /// the text is available while the reader lives.
+    /// </summary>
+    public string Value => _value ??= _side!.Format(_operandKind, _token);
+
+    /// <summary>Formats the text now, so the identity no longer needs its side's reader.</summary>
+    internal void Seal() => _ = Value;
+
+    /// <summary>
+    /// The row's key in its side's population, when this identity is a row's
+    /// and compared as bytes; false for a value identity. A method, so the
+    /// identity's serialized shape stays its kind and text.
+    /// </summary>
+    public bool TryGetKey(out StagedSymbolKey<IlOperandPart> key)
+    {
+        key = _key;
+        return _side is not null;
+    }
+
+    public bool Equals(IlOperandIdentity? other)
+    {
+        if (other is null || Kind != other.Kind)
+            return false;
+        if (_side is null)
+            return other._side is null && string.Equals(_value, other._value, StringComparison.Ordinal);
+        return other._side is not null && _key.Equals(other._key);
+    }
+
+    public override bool Equals(object? obj) => obj is IlOperandIdentity other && Equals(other);
+
+    public override int GetHashCode()
+        => HashCode.Combine(Kind, _side is null ? _value!.GetHashCode() : _key.GetHashCode());
+
+    public override string ToString() => Value;
+}
 
 /// <param name="Targets">
 /// The IL offsets an operation points at: a branch's target, a switch's arms,
@@ -255,13 +332,13 @@ public static partial class IlBodyDiff
     }
 
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
-        => Compare(oldBody, newBody, oldResolver: null, newResolver: null, IlBodyDiffNormalization.None);
+        => Compare(oldBody, newBody, oldSide: null, newSide: null, IlBodyDiffNormalization.None);
 
     public static IlBodyDiffResult Compare(
         MethodInstructions oldBody,
         MethodInstructions newBody,
         IlBodyDiffNormalization normalization)
-        => Compare(oldBody, newBody, oldResolver: null, newResolver: null, normalization);
+        => Compare(oldBody, newBody, oldSide: null, newSide: null, normalization);
 
     public static IlBodyDiffResult Compare(
         MetadataReader oldReader,
@@ -282,17 +359,38 @@ public static partial class IlBodyDiff
         ArgumentNullException.ThrowIfNull(newReader);
         ArgumentNullException.ThrowIfNull(newBody);
 
-        var (oldCorrespondence, newCorrespondence) =
-            (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
-                ? CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader, normalization)
-                : (CompilerGeneratedOrdinalCorrespondence.Empty, CompilerGeneratedOrdinalCorrespondence.Empty);
+        var (oldSide, newSide) = IlCensusSide.CreatePair(oldReader, newReader, normalization);
+        return Compare(oldSide, oldBody, newSide, newBody);
+    }
 
+    /// <summary>
+    /// Compares two bodies through their sides, under the sides' one policy,
+    /// so the rows every body of one image names are spelled once per side
+    /// rather than once per comparison.
+    /// </summary>
+    public static IlBodyDiffResult Compare(
+        IlCensusSide oldSide,
+        MethodBodyBlock oldBody,
+        IlCensusSide newSide,
+        MethodBodyBlock newBody)
+    {
+        ArgumentNullException.ThrowIfNull(oldSide);
+        ArgumentNullException.ThrowIfNull(oldBody);
+        ArgumentNullException.ThrowIfNull(newSide);
+        ArgumentNullException.ThrowIfNull(newBody);
+        RequireOnePolicy(oldSide, newSide);
         return Compare(
             MethodInstructions.Decode(oldBody),
             MethodInstructions.Decode(newBody),
-            new MetadataOperandResolver(oldReader, normalization, oldCorrespondence),
-            new MetadataOperandResolver(newReader, normalization, newCorrespondence),
-            normalization);
+            oldSide,
+            newSide,
+            oldSide.Policy);
+    }
+
+    internal static void RequireOnePolicy(IlCensusSide oldSide, IlCensusSide newSide)
+    {
+        if (oldSide.Policy != newSide.Policy)
+            throw new ArgumentException("Both sides of one comparison are under one policy.", nameof(newSide));
     }
 
     /// <summary>
@@ -324,21 +422,36 @@ public static partial class IlBodyDiff
     {
         ArgumentNullException.ThrowIfNull(body);
         RequireSingleSidePolicy(normalization);
-        var resolver = reader is null ? null : new MetadataOperandResolver(reader, normalization, CompilerGeneratedOrdinalCorrespondence.Empty);
-        return TryBuildOperations(
-            body,
-            resolver,
-            side: "",
-            normalization,
-            out operations,
-            out failure);
+        IlCensusSide? side = reader is null ? null : IlCensusSide.Create(reader, normalization);
+        return TryBuildOperations(body, side, label: "", normalization, out operations, out failure) && Seal(operations);
+    }
+
+    /// <summary>Canonicalizes one body through its side, under the side's policy.</summary>
+    public static bool TryCanonicalize(
+        IlCensusSide side,
+        MethodInstructions body,
+        out ImmutableArray<CanonicalIlOperation> operations,
+        out string? failure)
+    {
+        ArgumentNullException.ThrowIfNull(side);
+        ArgumentNullException.ThrowIfNull(body);
+        return TryBuildOperations(body, side, label: "", side.Policy, out operations, out failure) && Seal(operations);
+    }
+
+    // Operations handed out of the comparison may outlive their side's reader,
+    // so their text is projected before they leave.
+    static bool Seal(ImmutableArray<CanonicalIlOperation> operations)
+    {
+        foreach (CanonicalIlOperation operation in operations)
+            operation.Operand?.Seal();
+        return true;
     }
 
     static IlBodyDiffResult Compare(
         MethodInstructions oldBody,
         MethodInstructions newBody,
-        MetadataOperandResolver? oldResolver,
-        MetadataOperandResolver? newResolver,
+        IlCensusSide? oldSide,
+        IlCensusSide? newSide,
         IlBodyDiffNormalization normalization)
     {
         ArgumentNullException.ThrowIfNull(oldBody);
@@ -362,12 +475,12 @@ public static partial class IlBodyDiff
                 newBody.Blocks.IncompleteReason ?? "new body decode failed",
                 side: "new");
 
-        if (!TryBuildOperations(oldBody, oldResolver, "old", normalization, out var oldOperations, out var oldFailure))
+        if (!TryBuildOperations(oldBody, oldSide, "old", normalization, out var oldOperations, out var oldFailure))
             return IlBodyDiffResult.Failed(
                 IlDiffFailureKind.TokenResolutionFailure,
                 oldFailure ?? "old body token resolution failed",
                 side: "old");
-        if (!TryBuildOperations(newBody, newResolver, "new", normalization, out var newOperations, out var newFailure))
+        if (!TryBuildOperations(newBody, newSide, "new", normalization, out var newOperations, out var newFailure))
             return IlBodyDiffResult.Failed(
                 IlDiffFailureKind.TokenResolutionFailure,
                 newFailure ?? "new body token resolution failed",
@@ -417,20 +530,20 @@ public static partial class IlBodyDiff
     /// </summary>
     static bool TryBuildOperations(
         MethodInstructions body,
-        MetadataOperandResolver? resolver,
-        string side,
+        IlCensusSide? side,
+        string label,
         IlBodyDiffNormalization normalization,
         out ImmutableArray<CanonicalIlOperation> operations,
         out string? failure)
     {
-        var cursor = IlCensusCursor.Create(body, resolver, normalization);
+        var cursor = IlCensusCursor.Create(body, side, normalization);
         var builder = ImmutableArray.CreateBuilder<CanonicalIlOperation>(body.Instructions.Length + body.Blocks.Regions.Length);
         while (cursor.Advance())
             builder.Add(cursor.Current!);
-        if (cursor.Terminal!.Kind != IlCensusTerminalKind.Complete)
+        if (cursor.Terminal!.Kind != FindingCursorTerminalKind.Complete)
         {
             operations = [];
-            failure = side.Length == 0 ? cursor.Terminal.Reason : $"{side} body {cursor.Terminal.Reason}";
+            failure = label.Length == 0 ? cursor.Terminal.Reason : $"{label} body {cursor.Terminal.Reason}";
             return false;
         }
 
@@ -446,7 +559,7 @@ public static partial class IlBodyDiff
     /// </summary>
     internal static bool TryToClause(
         ExceptionRegionModel clause,
-        MetadataOperandResolver? resolver,
+        IlCensusSide? side,
         InstructionMap map,
         out CanonicalIlOperation atom,
         out string? failure)
@@ -466,13 +579,13 @@ public static partial class IlBodyDiff
         IlOperandIdentity? operand = null;
         if (clause.Kind == HandlerKind.Catch)
         {
-            if (resolver is null)
+            if (side is null)
             {
                 atom = new CanonicalIlOperation(clause.TryStart, family, Operand: null, targets, indexes);
                 failure = $"catch Type of the clause at IL_{clause.TryStart:X4} requires a MetadataReader-backed comparison";
                 return false;
             }
-            if (!resolver.TryResolveCatchType(clause.CatchTypeToken, clause.TryStart, out operand, out failure))
+            if (!side.TryResolveCatchType(clause.CatchTypeToken, clause.TryStart, out operand, out failure))
             {
                 atom = new CanonicalIlOperation(clause.TryStart, family, Operand: null, targets, indexes);
                 return false;
@@ -639,18 +752,18 @@ public static partial class IlBodyDiff
         if (oldOperation.Operand?.Kind is IlOperandIdentityKind.SwitchTargets)
             return newOperation.Operand?.Kind is IlOperandIdentityKind.SwitchTargets
                 && oldOperation.Targets.Length == newOperation.Targets.Length;
-        return oldOperation.Operand == newOperation.Operand;
+        return Equals(oldOperation.Operand, newOperation.Operand);
     }
 
     internal static bool TryToOperation(
         DecodedInstruction instruction,
-        MetadataOperandResolver? resolver,
+        IlCensusSide? side,
         IlBodyDiffNormalization normalization,
         InstructionMap map,
         out CanonicalIlOperation operation,
         out string? failure)
     {
-        if (!TryOperandIdentity(instruction, resolver, normalization, out var operand, out failure))
+        if (!TryOperandIdentity(instruction, side, normalization, out var operand, out failure))
         {
             operation = new CanonicalIlOperation(
                 instruction.Offset,
@@ -669,11 +782,26 @@ public static partial class IlBodyDiff
         return true;
     }
 
+    // Each opcode's family is spelled once per policy; the per-instruction
+    // spelling allocated three strings per atom (docs/design/finding-census.md,
+    // Exists, ablation of the gap).
+    static readonly string?[] s_familyPlain = new string?[0x200];
+    static readonly string?[] s_familyVariableLayout = new string?[0x200];
+
     static string OpcodeFamily(
         DecodedInstruction instruction,
         IlBodyDiffNormalization normalization)
     {
-        var opcode = instruction.OpCode;
+        int value = (int)instruction.OpCode;
+        int index = value <= 0xFF ? value : 0x100 + (value & 0xFF);
+        string?[] table = (normalization & IlBodyDiffNormalization.NormalizeVariableLayout) != 0
+            ? s_familyVariableLayout
+            : s_familyPlain;
+        return table[index] ??= ComputeOpcodeFamily(instruction.OpCode, normalization);
+    }
+
+    static string ComputeOpcodeFamily(ILOpCode opcode, IlBodyDiffNormalization normalization)
+    {
         if ((normalization & IlBodyDiffNormalization.NormalizeVariableLayout) != 0)
         {
             if (opcode is ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2
@@ -714,21 +842,21 @@ public static partial class IlBodyDiff
 
     static bool TryOperandIdentity(
         DecodedInstruction instruction,
-        MetadataOperandResolver? resolver,
+        IlCensusSide? side,
         IlBodyDiffNormalization normalization,
         out IlOperandIdentity? operand,
         out string? failure)
     {
         if (IsMetadataTokenOperand(instruction.Operand))
         {
-            if (resolver is null)
+            if (side is null)
             {
                 operand = null;
                 failure = $"metadata token operand at IL_{instruction.Offset:X4} requires a MetadataReader-backed comparison";
                 return false;
             }
 
-            return resolver.TryResolve(instruction, out operand, out failure);
+            return side.TryResolve(instruction, out operand, out failure);
         }
 
         operand = ImmediateOperandIdentity(instruction)
@@ -830,7 +958,7 @@ public static partial class IlBodyDiff
     /// them: each instruction's start offset and whether a target may land on
     /// it (an instruction following a prefix cannot be targeted).
     /// </summary>
-    internal sealed class InstructionMap
+    internal sealed class InstructionMap : IInstructionBoundaries
     {
         readonly int[] _starts;
         readonly bool[] _admitted;
@@ -923,6 +1051,9 @@ public static partial class IlBodyDiff
         /// </summary>
         public int ClauseBoundaryIndex(int offset)
             => offset == IlLength ? CanonicalIlOperation.BodyEndTarget : BranchTargetIndex(offset);
+
+        /// <summary>The decoder's admitted boundaries, answered from the map: a clause boundary this map places.</summary>
+        public bool Contains(int offset) => ClauseBoundaryIndex(offset) != CanonicalIlOperation.UndecidedTarget;
 
         public ImmutableArray<int> BranchTargetIndexes(ImmutableArray<int> targets)
         {

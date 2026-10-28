@@ -370,21 +370,23 @@ public static class CallGraphMemberResolver
 
     static string AccessorMethodName(ApiMember member, string kind, string fallback)
     {
-        string? name = member.SignatureModel?.Accessors
-            .FirstOrDefault(accessor =>
-                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
-            ?.Name;
+        string? name = Accessor(member, kind)?.Name;
         return string.IsNullOrEmpty(name) ? fallback : name;
     }
 
     static string AccessorStructuralReturn(ApiMember member, string kind, string fallback)
     {
-        string? structural = member.SignatureModel?.Accessors
-            .FirstOrDefault(accessor =>
-                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
-            ?.StructuralReturnType;
+        string? structural = Accessor(member, kind)?.StructuralReturnType;
         return string.IsNullOrEmpty(structural) ? fallback : structural;
     }
+
+    // The setter selector reads the setter entry whether it is spelled `set`
+    // or `init`; an init setter's entry carries modreq(IsExternalInit).
+    static ApiAccessor? Accessor(ApiMember member, string kind)
+        => member.SignatureModel?.Accessors
+            .FirstOrDefault(accessor =>
+                string.Equals(accessor.Kind, kind, StringComparison.Ordinal)
+                || kind == "set" && ApiAccessor.IsSetterKind(accessor.Kind));
 
     static CallGraphMemberSelector CreateSelector(
         string name,

@@ -236,11 +236,22 @@ public sealed class TypeSubjectInspectionOperationTests
         Assert.Equal(
             GenericParameterAttributes.None,
             parameter.Attributes);
+        MetadataTypeGenericParameterDeclarationEvidence declaration =
+            Assert.Single(
+                document.Subject.DeclarationSignature!
+                    .GenericParameters);
+        Assert.True(declaration.Name.ValueTextEquals("T"u8));
+        Assert.True(declaration.Annotations.IsCanonical);
+        Assert.Equal(
+            ["JsonConverter"],
+            document.Subject.ContainDisplayType()!.Segments
+                .Select(segment => segment.ToString()));
 
         string json =
             JsonSerializer.Serialize<TypeSubjectInspectionOutcome>(
                 new TypeSubjectInspectionOutcome.Available(document));
         Assert.Contains("\"Name\":\"T\"", json);
+        Assert.DoesNotContain("DeclarationSignature", json);
         Assert.Contains("\"DefinitionSegmentIndex\":0", json);
         Assert.Contains("\"MetadataIndex\":0", json);
 

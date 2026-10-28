@@ -27,6 +27,8 @@ export interface EngineStartupClient {
   readonly catalog: Pick<
     EngineClient["catalog"],
     "inspectVocabulary" | "listEcosystems" | "listHomeDemos"
+      | "listLibraryViewFacets" | "listMemberViewFacets"
+      | "listTypeViewFacets"
   >;
   readonly package:
     Pick<EngineClient["package"], "listPackageActivityEcosystems">
@@ -43,6 +45,12 @@ interface StartupReads {
   readonly inspectVocabulary: EngineStartupClient["catalog"]["inspectVocabulary"];
   readonly listEcosystems: EngineStartupClient["catalog"]["listEcosystems"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
+  readonly listLibraryViewFacets:
+    EngineStartupClient["catalog"]["listLibraryViewFacets"];
+  readonly listMemberViewFacets:
+    EngineStartupClient["catalog"]["listMemberViewFacets"];
+  readonly listTypeViewFacets:
+    EngineStartupClient["catalog"]["listTypeViewFacets"];
   readonly listPackageActivityEcosystems:
     EngineStartupClient["package"]["listPackageActivityEcosystems"];
   readonly inspectPackageQueryFacets:
@@ -86,6 +94,15 @@ export function registerEngineWorkerStartupOperations(
     engineStartupOperations.packageQueryDurableRowLayout,
     reads.packageQueryDurableRowLayout);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
+  register(
+    engineStartupOperations.listLibraryViewFacets,
+    reads.listLibraryViewFacets);
+  register(
+    engineStartupOperations.listMemberViewFacets,
+    reads.listMemberViewFacets);
+  register(
+    engineStartupOperations.listTypeViewFacets,
+    reads.listTypeViewFacets);
   register(
     engineStartupOperations.listPackageActivityEcosystems,
     reads.listPackageActivityEcosystems);
@@ -171,6 +188,12 @@ export function bindEngineWorkerStartupClient(
       inspectVocabulary: readVocabulary,
       listEcosystems: bind(engineStartupOperations.listEcosystems),
       listHomeDemos: bind(engineStartupOperations.listHomeDemos),
+      listLibraryViewFacets:
+        bind(engineStartupOperations.listLibraryViewFacets),
+      listMemberViewFacets:
+        bind(engineStartupOperations.listMemberViewFacets),
+      listTypeViewFacets:
+        bind(engineStartupOperations.listTypeViewFacets),
     },
     package: {
       listPackageActivityEcosystems:

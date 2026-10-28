@@ -220,6 +220,8 @@ A retained record may contain only state that remains meaningful without a live
 Workspace realization:
 
 - the canonical Workspace packet or another complete restoration request,
+- shared inspected Project evidence and traversal policy under
+  [Local Project input](#local-project-input),
 - the stable retained-definition identity and user-visible label,
 - the canonical browser location,
 - detached Navigation input and focus identities that the Navigation owners
@@ -241,6 +243,58 @@ The record must not contain or retain:
 - result models whose validity depends on a realization,
 - retry closures capturing realization-owned state, or
 - any other owner-issued live authority.
+
+### Local Project input
+
+The managed Browser owner may retain the resource-free
+`InspectionEnvelope<ProjectInputDocument>` produced by
+[Dependency Inspection](dependency-inspection-command.md), including its original
+Content, Share outcome, and diagnostics. It consumes
+`ProjectWorkspaceConstruction` and the Workspace-owned Project occurrence;
+it does not reparse or reinterpret the document.
+
+Selecting that local record constructs a fresh candidate through the same
+realization host, consumer-acceptance, cutover, Navigation posting, and
+settlement transaction as other retained Workspaces. Initial Navigation
+selects the exact newly issued Project occurrence. Reselecting an inactive
+record preserves the input evidence, not the old realization or Project
+identity. The input's declared dependencies do not become acquired Package
+membership.
+
+Whole-document rejection leaves the incumbent selected and admits no
+candidate. Incomplete authored declarations, unavailable restored targets, and
+partial or failed graphs retain the shared construction owner's admission
+semantics. Cancellation, supersession, and consumer rejection settle an
+unpublished candidate without replacing the incumbent.
+
+This record is local to the page session and nonprojectable. It is not a
+Workspace Definitions request or a portable packet. Project input does not
+authorize MSBuild evaluation, restore, neighboring-file discovery, feed
+inference, or dependency acquisition. This profile changes no realization
+scheduling or consumer-completion protocol; the existing owner models remain
+the basis for those interactions.
+
+The motivating asset is
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at commit
+`bebfab236a6a3061bc74c53d22067acb86050afc`. Its centrally versioned declarations
+motivate retaining incomplete authored evidence without acquiring Packages.
+Managed host tests use deterministic versions of that declaration shape and
+the restored `Newtonsoft.Json@13.0.3` control, plus rejection and cancellation
+neighbors.
+
+The enforcing managed gate is
+[Project activation tests](../../tests/DotnetInspect.Web.Tests/BrowserRetainedWorkspaceActivationTests.Project.cs):
+original provider retention and Project Navigation, fresh occurrences across a
+Project/packet/Project selection, incumbent preservation on rejection or
+cancellation, and the explicit consumer-completion handshake.
+
+Overall tracker [#10478](https://github.com/richlander/dotnet-inspect/issues/10478)
+counts six slices, three merged at the start of this work.
+[#10716](https://github.com/richlander/dotnet-inspect/issues/10716) owns this
+managed activation prerequisite; production facade/wire, file opening, views,
+and real Browser/Wasm evidence remain
+[#10517](https://github.com/richlander/dotnet-inspect/issues/10517). This profile
+does not claim that Project upload is already available in the website.
 
 ### Retained package selection
 
@@ -584,6 +638,20 @@ Demo, share, and initial-location restoration produce a retained definition
 before requesting activation. They do not receive a private alternate
 realization path.
 
+A demo resolves and serializes its complete resource-free Definitions request
+before retention. Its canonical location independently encodes the selected
+view; presentation focus is not part of the restoration definition. Demo
+identity selects catalog content but is neither the retained restoration
+definition nor an alternate history address. Projectable definitions may also
+publish a canonical packet; nonprojectable definitions, including exact
+Platform membership and scanner-bearing ecosystem registrations, retain their
+serialized Definitions request without manufacturing one.
+
+The committed restoration records enter at Workspace root. After exact
+membership is installed, the retained demo presentation selects its saved
+Package or Platform tab and then applies the Type/Methods view. The host does
+not rewrite committed Navigation focus to encode presentation.
+
 ## Browser history
 
 The retained-realization owner supplies resource-free selection intent to
@@ -599,6 +667,10 @@ Navigation Consumer remains the sole owner of browser-history push, replace,
 adopt, and traversal realignment, plus atomic result posting and deferred
 effects. This design constrains the realization input to that owner:
 
+- Product Navigation entering the already-active retained definition publishes
+  its canonical Workspace location before presenting the Workspace root. From a
+  routed product such as Demos this is a push, so Back returns to that product
+  rather than leaving its URL attached to Workspace presentation.
 - Back or Forward within the currently active retained definition may apply a
   Navigation transition against that exact active realization.
 - Back or Forward to another retained definition requests fresh activation.
@@ -757,6 +829,11 @@ Deleting the active definition follows one of two paths:
   completion failure remains visible but cannot preserve active presentation or
   selection after managed authority has been removed. A rejection before
   deactivation begins preserves the incumbent.
+
+The Browser may suppress a displaced active-deletion failure only while the
+exact definition and realization that deletion started from remain current.
+Selecting away and then reselecting the same retained definition creates a
+fresh realization, so the displaced deletion failure remains visible.
 
 Deletion never revives a predecessor or searches for a compatible retained
 scope.

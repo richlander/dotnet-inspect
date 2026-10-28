@@ -1022,7 +1022,9 @@ public static class MethodDefinitionSourceRequestSet
             // A shared traversal carries no declared-source relation, so a
             // request that declares one keeps its own lane.
             if (first.Breadth.Kind
-                    != MethodDefinitionSourceBreadthKind.AllDefinitions
+                    is not (
+                        MethodDefinitionSourceBreadthKind.AllDefinitions
+                        or MethodDefinitionSourceBreadthKind.ExactMethods)
                 || first.Breadth.Expansion
                     != MethodDefinitionSourceExpansion.None
                 || !SameBreadth(first.Breadth, request.Breadth)
@@ -1183,7 +1185,9 @@ public sealed record MethodDefinitionGeneratedExpansionOrigin(
     MethodDefinitionHandle DeclaredOwner,
     MethodDefinitionGeneratedExpansionOriginKind Kind,
     MethodDefinitionGeneratedBodyRoles Role =
-        MethodDefinitionGeneratedBodyRoles.Execution);
+        MethodDefinitionGeneratedBodyRoles.Execution,
+    bool DeclaredOwnerSuppressesOpportunities = false,
+    bool IsAsyncStateMachine = false);
 
 /// <summary>
 /// Exact generated breadth-discovery work and the declared-source outcome of
@@ -1282,10 +1286,38 @@ public sealed record MethodDefinitionSourceFailure(
     string Unit,
     string Message);
 
+/// <summary>Image identity read by the Method source that executed a request.</summary>
+public sealed record MethodDefinitionSourceModuleIdentity(
+    AssemblyReferenceIdentity? AssemblyIdentity,
+    Guid ModuleVersionId,
+    string ModuleName)
+{
+    internal static MethodDefinitionSourceModuleIdentity FromImage(
+        MetadataReader reader)
+    {
+        Guid moduleVersionId = reader.GetGuid(
+            reader.GetModuleDefinition().Mvid);
+        if (moduleVersionId == Guid.Empty)
+        {
+            throw new BadImageFormatException(
+                "The analyzed module must have a non-empty MVID "
+                + "(module version identifier).");
+        }
+
+        return new(
+            reader.IsAssembly
+                ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+                : null,
+            moduleVersionId,
+            reader.GetString(reader.GetModuleDefinition().Name));
+    }
+}
+
 /// <summary>Detached evidence of the Method-source work actually performed.</summary>
 public sealed record MethodDefinitionSourceReceipt(
     MethodDefinitionSourceRequestIdentity Request,
     AssemblyInspectionSubjectIdentity Subject,
+    MethodDefinitionSourceModuleIdentity Module,
     MethodDefinitionSourceBreadth Breadth,
     MethodDefinitionTerminalWorkLimits TerminalWorkLimits,
     ProducerTerminal Terminal,
@@ -1520,6 +1552,9 @@ internal static class MethodQuerySource
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         ArgumentNullException.ThrowIfNull(peReader);
 
+        MethodDefinitionSourceModuleIdentity module =
+            MethodDefinitionSourceModuleIdentity.FromImage(
+                peReader.GetMetadataReader());
         MethodDefinitionExecution interim =
             MethodDefinitionExecution.Execute(
                 request.Work,
@@ -1539,6 +1574,7 @@ internal static class MethodQuerySource
         var receipt = new MethodDefinitionSourceReceipt(
             request.Identity,
             subject,
+            module,
             request.Breadth,
             request.TerminalWorkLimits,
             request.Terminal,
@@ -1562,6 +1598,9 @@ internal static class MethodQuerySource
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
         ArgumentNullException.ThrowIfNull(peReader);
 
+        MethodDefinitionSourceModuleIdentity module =
+            MethodDefinitionSourceModuleIdentity.FromImage(
+                peReader.GetMetadataReader());
         var byAssociation = new Dictionary<
             QuerySpaceRequestAssociationIdentity,
             MethodDefinitionSourceRequestResult>(
@@ -1589,14 +1628,6 @@ internal static class MethodQuerySource
             }
             else
             {
-                if (group.Breadth.Kind
-                    != MethodDefinitionSourceBreadthKind.AllDefinitions)
-                {
-                    throw new ProducerContractException(
-                        "Shared Method-source groups currently require "
-                        + "all-definition breadth.");
-                }
-
                 MethodDefinitionSharedExecution shared =
                     MethodDefinitionExecution.ExecuteShared(
                         group.Lanes
@@ -1606,6 +1637,7 @@ internal static class MethodQuerySource
                             .Select(static lane =>
                                 lane.TerminalWorkLimits)
                             .ToArray(),
+                        group.Breadth,
                         group.InstructionPlan,
                         sourceName,
                         peReader,
@@ -1646,6 +1678,7 @@ internal static class MethodQuerySource
                         new MethodDefinitionSourceReceipt(
                             request.Identity,
                             subject,
+                            module,
                             request.Breadth,
                             request.TerminalWorkLimits,
                             request.Terminal,

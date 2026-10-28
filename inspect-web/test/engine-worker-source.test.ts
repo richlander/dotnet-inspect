@@ -85,6 +85,7 @@ const request: TypeSourceLoadRequest = {
   packageId: "Example.Package",
   version: "1.2.3",
   framework: "net11.0",
+  runtimeIdentifier: "win-x64",
   assembly: "Example.dll",
   type: "Example.Widget",
   taste: "[\"readable-locals\"]",
@@ -300,6 +301,7 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
     request.assembly,
     request.type,
     request.taste,
+    request.runtimeIdentifier ?? null,
     request.view,
   ]]);
   const start = harness.worker.receivedMessages.find(message =>
@@ -309,6 +311,7 @@ test("Type Source Worker adapter projects clone-safe input and returns source", 
   assert.deepEqual(payload, {
     kind: "package",
     packageId: request.packageId,
+    runtimeIdentifier: request.runtimeIdentifier,
     version: request.version,
     framework: request.framework,
     assembly: request.assembly,
@@ -440,6 +443,7 @@ test("Type Source binding preserves caller identity and expected diagnostics", a
     request.assembly,
     request.type,
     request.taste,
+    request.runtimeIdentifier ?? null,
     request.view,
   ), failed(
     "Expected",
@@ -591,6 +595,7 @@ test("Type Source codecs enforce request, result, and no-progress bounds", () =>
   const oversizedInput = engineWorkerTypeSourceInput.decode({
     kind: "package",
     packageId: request.packageId,
+    runtimeIdentifier: request.runtimeIdentifier,
     version: request.version,
     framework: request.framework,
     assembly: request.assembly,

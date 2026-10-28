@@ -138,7 +138,7 @@ public static class LibrarySections
             .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeMembers>(
-                UnsafeEvidenceQuery.Definition,
+                UnsafeMemberCensusQuery.Definition,
                 UnsafeMembersDiscoverable)
             .Add<TopLeverage>(
                 TopLeverageQuery.Definition,
@@ -398,10 +398,10 @@ public static class LibrarySections
                     ctx.AssemblyPath,
                     metadata);
             })
-            .Add(UnsafeEvidenceQuery.Definition, ctx =>
-                ExecuteUnsafeEvidenceQuery(
-                    ctx.MetadataContext?.HasMetadata != false,
-                    () => ctx.BodyAnalysis().Safety))
+            .Add(UnsafeMemberCensusQuery.Definition, ctx =>
+                ExecuteUnsafeMemberCensusQuery(
+                    ctx.AssemblyPath,
+                    ctx.MetadataContext))
             .Add(
                 ResourceTriageQuery.Definition,
                 ExecuteResourceTriageQuery)
@@ -434,29 +434,14 @@ public static class LibrarySections
             .Compile();
     }
 
-    internal static UnsafeEvidenceResult ExecuteUnsafeEvidenceQuery(
-        bool hasMetadata,
-        Func<ILInspector.Analysis.LibrarySafetyAnalysisResult>
-            acquireAnalysis)
-    {
-        ArgumentNullException.ThrowIfNull(acquireAnalysis);
-
-        if (!hasMetadata)
-            return new UnsafeEvidenceResult.NoMetadata();
-
-        try
-        {
-            return UnsafeEvidenceQuery.Execute(acquireAnalysis());
-        }
-        catch (CostDeclarationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            return new UnsafeEvidenceResult.Failed(ex);
-        }
-    }
+    internal static UnsafeMemberCensusQueryResult ExecuteUnsafeMemberCensusQuery(
+        string path,
+        PdbContext? metadata)
+        => metadata is null
+            ? new UnsafeMemberCensusQueryResult.Failed(
+                new InvalidOperationException(
+                    "The unsafe member census requires the command's opened metadata context."))
+            : UnsafeMemberCensusQuery.Execute(path, metadata);
 
     internal static ResourceTriageResult ExecuteResourceTriageQuery(
         InspectionQueryContext context)
@@ -1227,10 +1212,9 @@ public static class LibrarySections
         => model.HasMethodBodies;
 
     private static bool UnsafeMembersDiscoverable(LibraryInspection model)
-        => model.UnsafeEvidenceInspection is not null
-            ? UnsafeMembers.CanRender(model)
+        => model.UnsafeMemberInspection is not null
+            ? UnsafeMembers.Advertises(model)
             : model.UnsafeEvidencePresent is true
-              || UnsafeMembers.CanRender(model)
               || (model.UnsafeEvidencePresent is null && model.HasMethodBodies);
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
@@ -1347,10 +1331,22 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
+        // A complete census renders its rows or the explicit empty state.
         public static bool CanRender(LibraryInspection model)
-            => model.UnsafeEvidenceInspection.CanRenderWithPresence(
-                model.HasUnsafeCode
-                || model.UnsafeSignatureDecodeStatus is not null);
+            => model.UnsafeMemberInspection
+                is ILInspector.Analysis.UnsafeMemberFindingInspection.Complete
+                    or ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete;
+
+        // Discovery advertises the section only for a finding or an
+        // incomplete census, never for the empty state.
+        internal static bool Advertises(LibraryInspection model)
+            => model.UnsafeMemberInspection switch
+            {
+                ILInspector.Analysis.UnsafeMemberFindingInspection.Complete complete =>
+                    !complete.Inspection.Findings.IsEmpty,
+                ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete => true,
+                _ => false,
+            };
     }
 
     public sealed class TopLeverage : ISectionDescriptor<LibraryInspection>
@@ -1464,9 +1460,10 @@ public static class LibrarySections
         public static string Name => SectionNames.DependencyStructure;
         public static SectionDescription? Description =>
             LibrarySectionDescriptions.DependencyStructure;
-        // Dependency Structure is a Graph of namespace nodes and typed
-        // edges, not one of the three section shapes; its diagram formats
-        // stay with the Graph owner (docs/design/section-shapes.md, Non-goals).
+        // Dependency Structure offers a Table of namespace edges and a
+        // Document (docs/design/library-dependency-structure.md); its
+        // Mermaid diagram stays an explicit lowering of the same graph.
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>
