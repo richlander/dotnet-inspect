@@ -7,7 +7,8 @@ namespace ILInspector.Metadata;
 // One home for each rule that admits a Type's metadata record as an API
 // declaration. API-surface extraction, the compact public Member Count, and the
 // declarable field surface call these rules instead of repeating them, so a
-// Count and the Rows it counts cannot drift apart.
+// Count and the Rows it counts cannot drift apart. The unchanged prefilter's
+// closure hash (ApiTypeClosureHash) admits API-axis members through them too.
 public static partial class ApiSurfaceExtractor
 {
     /// <summary>
@@ -16,7 +17,7 @@ public static partial class ApiSurfaceExtractor
     /// or the population is the API axis and its effective access is in the
     /// <c>protected</c> bucket and reachable from another assembly.
     /// </summary>
-    static bool AdmitsMethodAccess(
+    internal static bool AdmitsMethodAccess(
         MethodAttributes effectiveAccess,
         bool includeAll,
         bool apiAxis = false)
@@ -248,7 +249,7 @@ public static partial class ApiSurfaceExtractor
     /// The Type definition a MemberRef parent names in this assembly, or null
     /// when it names a Type in another assembly.
     /// </summary>
-    static TypeDefinitionHandle? DeclaringTypeDefinition(
+    internal static TypeDefinitionHandle? DeclaringTypeDefinition(
         MetadataReader reader,
         EntityHandle parent)
     {
@@ -495,7 +496,7 @@ public static partial class ApiSurfaceExtractor
     /// A property's access is the join of its accessors' effective access, so
     /// an explicit implementation's property takes its interface's bucket.
     /// </summary>
-    static MethodAttributes PropertyAccess(
+    internal static MethodAttributes PropertyAccess(
         MetadataReader reader,
         PropertyAccessors accessors,
         Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
@@ -513,7 +514,7 @@ public static partial class ApiSurfaceExtractor
     /// An event's access is the join of its adder's and remover's effective
     /// access; an event without an adder is not an API declaration.
     /// </summary>
-    static MethodAttributes? EventAccess(
+    internal static MethodAttributes? EventAccess(
         MetadataReader reader,
         EventAccessors accessors,
         Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
@@ -568,7 +569,7 @@ public static partial class ApiSurfaceExtractor
     /// A field passes the access rule as a method does; field and method
     /// access share their encoding.
     /// </summary>
-    static bool AdmitsFieldAccess(
+    internal static bool AdmitsFieldAccess(
         FieldAttributes access,
         bool includeAll,
         bool apiAxis)
