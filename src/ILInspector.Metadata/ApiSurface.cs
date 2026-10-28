@@ -138,6 +138,13 @@ public class ApiSurface
     public ApiAssemblyIdentity? AssemblyIdentity { get; set; }
 
     /// <summary>
+    /// The extraction scope that built this surface, or <see langword="null"/> for a surface
+    /// no single extraction built (merged, projected, summarized, or deserialized).
+    /// </summary>
+    [JsonIgnore]
+    public ApiSurfaceExtractionScope? ExtractionScope { get; set; }
+
+    /// <summary>
     /// Package or assembly name.
     /// </summary>
     public string? Name { get; set; }
@@ -295,6 +302,37 @@ public class ApiSurface
             foreach (ApiSurfaceInspectionFailure failure in failures)
                 AddConstraintResolutionFailure(subject, failure);
         }
+    }
+
+    /// <summary>
+    /// Keeps this merged surface's <see cref="ExtractionScope"/>, the scope its merge
+    /// requested, only while each contributor was extracted with that same scope; a
+    /// contributor of another scope leaves the merged surface with none.
+    /// </summary>
+    public void MergeExtractionScope(ApiSurfaceExtractionScope? contributorScope)
+    {
+        if (ExtractionScope != contributorScope)
+            ExtractionScope = null;
+    }
+
+    /// <summary>
+    /// Adds one assembly's surface to this merged surface: its Types, type
+    /// forwarders, inspection failures, and counts. The caller orders the
+    /// merged Types once every assembly is added.
+    /// </summary>
+    public void MergeAssemblySurface(ApiSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        MergeExtractionScope(surface.ExtractionScope);
+        Types.AddRange(surface.Types);
+        TypeForwarders.AddRange(surface.TypeForwarders);
+        IsTypeForwardingAssembly |= surface.IsTypeForwardingAssembly;
+        MergeInspectionFailuresFrom(surface);
+        PublicTypeCount += surface.PublicTypeCount;
+        PublicMethodCount += surface.PublicMethodCount;
+        PublicPropertyCount += surface.PublicPropertyCount;
+        PublicEventCount += surface.PublicEventCount;
+        PublicFieldCount += surface.PublicFieldCount;
     }
 
     public void SetInspectionSourceAssemblyPath(string path)
@@ -706,6 +744,13 @@ public enum ApiMethodSemanticsKind
 
 public class ApiAccessor
 {
+    /// <summary>
+    /// Whether an accessor kind names a property setter: <c>set</c>, or
+    /// <c>init</c> for a setter whose return carries
+    /// <c>modreq(IsExternalInit)</c>.
+    /// </summary>
+    public static bool IsSetterKind(string? kind) => kind is "set" or "init";
+
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
 
@@ -869,8 +914,46 @@ public class ApiType
     /// </summary>
     public string? Accessibility { get; set; }
 
+    /// <summary>
+    /// Whether another assembly can reach every Type enclosing this one: each is public, or a
+    /// nested public, protected, or protected internal Type. True for a top-level Type. Null
+    /// when not recorded; only an include-all extraction records it.
+    /// </summary>
+    [JsonIgnore]
+    public bool? EnclosingTypesExternallyReachable { get; set; }
+
+    /// <summary>
+    /// Whether every Type enclosing this one has the ordinary population's reach: public or
+    /// nested public. An enclosing Type's hidden status does not pass to this one. True for a
+    /// top-level Type. Read from metadata, so it holds when a Type selection or scope does not
+    /// project the enclosing Type. Every extraction records it; null only on a surface built
+    /// another way.
+    /// </summary>
+    [JsonIgnore]
+    public bool? EnclosingTypesOrdinary { get; set; }
+
+    /// <summary>
+    /// Whether the Type carries <c>EditorBrowsable(EditorBrowsableState.Never)</c>: its hidden
+    /// API status (docs/design/api-status-analysis.md). Obsolete status is separate.
+    /// </summary>
     [JsonIgnore]
     public bool IsHidden { get; set; }
+
+    /// <summary>
+    /// Whether the Type carries <c>[Obsolete]</c>, other than the compiler's compatibility
+    /// marker: its obsolete API status (docs/design/api-status-analysis.md). Not serialized,
+    /// as <see cref="IsHidden"/> is not, so existing Type JSON is unchanged.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsObsolete { get; set; }
+
+    /// <summary>The <see cref="IsObsolete"/> message, or null when it has none.</summary>
+    [JsonIgnore]
+    public string? ObsoleteMessage { get; set; }
+
+    /// <summary>Whether <see cref="IsObsolete"/> makes references a compile-time error.</summary>
+    [JsonIgnore]
+    public bool ObsoleteIsError { get; set; }
 
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
     public List<string> Attributes { get; set; } = [];
@@ -962,6 +1045,10 @@ public class ApiType
     [JsonIgnore]
     public List<ApiJsExportJsonOutputDeclaration> JsExportJsonOutputDeclarations
         { get; set; } = [];
+
+    [JsonIgnore]
+    public ApiJsExportJsonSchemaDeclaration? JsExportJsonSchemaDeclaration
+        { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
@@ -1519,6 +1606,10 @@ public class ApiMember
 
     [JsonIgnore]
     public bool HasUnsupportedJsonWireAttributes { get; set; }
+
+    [JsonIgnore]
+    public ApiJsExportJsonSchemaSlotDeclaration?
+        JsExportJsonSchemaSlotDeclaration { get; set; }
 
     /// <summary>
     /// Compatibility projection of authentic valid <c>[JSExport]</c> evidence.
@@ -2119,6 +2210,23 @@ public sealed record ApiJsExportJsonOutputDeclaration(
     string? MethodName,
     ApiTypeShape? WireType,
     bool DeferParsing,
+    string? UnsupportedReason);
+
+public sealed record ApiJsExportJsonSchemaDeclaration(
+    ApiAssemblyIdentity? AttributeAssembly,
+    string? ContractIdentity,
+    string? Direction,
+    string? VocabularyCatalog,
+    string? VocabularySnapshotIdentity,
+    string? UnsupportedReason);
+
+public sealed record ApiJsExportJsonSchemaSlotDeclaration(
+    ApiAssemblyIdentity? AttributeAssembly,
+    int? Order,
+    string? NodeIdentity,
+    string? Vocabulary,
+    string? Term,
+    bool Displayable,
     string? UnsupportedReason);
 
 public sealed record ApiJsonSerializableRoot(

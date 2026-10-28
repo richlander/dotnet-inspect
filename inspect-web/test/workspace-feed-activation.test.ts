@@ -6,6 +6,7 @@ import type {
   BrowserRetainedWorkspacePosting,
   BrowserRetainedWorkspacePreparationResult,
   BrowserTypeSurface,
+  BrowserWorkspacePackageSourceRequirementsResult,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import {
   createWorkspaceFeedActivationCoordinator,
@@ -13,6 +14,9 @@ import {
   workspaceCredentialPromptHtml,
   type RetainedWorkspaceSurfaceClient,
 } from "../src/workspace-feed-activation.ts";
+import {
+  packageLibrariesForModel,
+} from "../src/package-acquisition.ts";
 import type {
   RetainedWorkspaceActivationClient,
   RetainedWorkspaceActivationController,
@@ -132,6 +136,7 @@ function posting(
       registrations: [],
       activeTabId: null,
       selectedContextId: null,
+      traversalTargetFramework: "net11.0",
     },
     navigation: {
       operation: "Initialize",
@@ -206,6 +211,13 @@ function posting(
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "subject",
+      runtimeIdentifier: "win-x64",
+      implementationComparisonRuntimeIdentifier: "osx-arm64",
+      defaultLibrary: {
+        assetId: "Example",
+        assetPath: "ref/net10.0/Example.dll",
+        assemblyName: "Example.dll",
+      },
       summary: {
         selectedCompileFramework: "net10.0",
         libraryCount: 1,
@@ -1228,6 +1240,129 @@ test("retained package admission joins all Type pages", async () => {
     ["One", "Two"]);
   assert.deepEqual(models.packages[0]?.packageModel.source, { kind: "unknown" });
   assert.equal(models.packages[0]?.packageModel.producerLabel, "NuGet");
+  assert.equal(
+    models.packages[0]?.packageModel
+      .implementationComparisonRuntimeIdentifier,
+    "osx-arm64",
+  );
+  assert.equal(
+    models.packages[0]?.packageModel.runtimeIdentifier,
+    "win-x64",
+  );
+});
+
+for (const authentication of [null, "Anonymous", "AuthenticationRequired"] as const) {
+  test(`retained package provenance follows admitted ${authentication ?? "Gallery"} sources`, async () => {
+    const client = createWorkspaceTestClient([]);
+    client.describeWorkspacePackageSources = packet => {
+      assert.equal(packet, "packet");
+      return {
+        succeeded: true,
+        sources: authentication === null ? [] : [{
+          endpoint: "https://packages.example.test/v3/index.json",
+          authentication,
+        }],
+        failure: null,
+      };
+    };
+
+    const models = await loadRetainedWorkspaceModels(client, posting());
+
+    assert.deepEqual(models.packages[0]?.packageModel.source, {
+      kind: authentication === null ? "nuget.org" : "unknown",
+    });
+  });
+}
+
+test("an unadmitted source description does not claim Gallery provenance", async () => {
+  const client = createWorkspaceTestClient([]);
+  client.describeWorkspacePackageSources =
+    (): BrowserWorkspacePackageSourceRequirementsResult => ({
+      succeeded: false,
+      sources: [],
+      failure: {
+        kind: "UnsupportedDefinition",
+        path: "packet",
+        message: "This packet has no admitted source description.",
+      },
+    });
+
+  const models = await loadRetainedWorkspaceModels(client, posting());
+
+  assert.deepEqual(models.packages[0]?.packageModel.source, { kind: "unknown" });
+});
+
+test("retained package activation preserves a failed First Library", async () => {
+  const firstId = "compile:lib/net10.0/Example.Package.dll";
+  const siblingId = "compile:lib/net10.0/Example.Sibling.dll";
+  const notice = "Example.Package could not be inspected.";
+  const failedSurface: BrowserPackageSurface = {
+    ...surface([]),
+    defaultAssemblyId: firstId,
+    assemblies: [{
+      id: siblingId,
+      name: "Example.Sibling.dll",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null,
+      asset: "lib/net10.0/Example.Sibling.dll",
+      platformPack: null,
+      publicTypes: 1,
+      publicMembers: 2,
+    }],
+    inspectionErrors: [notice],
+    inspectionError: notice,
+  };
+  const client: RetainedWorkspaceSurfaceClient = {
+    async admitRetainedWorkspacePackage() {
+      return {
+        status: "admitted",
+        package: {
+          navigationId: "package-navigation",
+          contextIndex: 0,
+          consumerPackageSubjectId: "subject",
+          surface: failedSurface,
+          typePage: {
+            offset: 0,
+            totalTypes: 0,
+            nextOffset: null,
+          },
+        },
+        message: null,
+      };
+    },
+    async admitRetainedWorkspacePlatform() {
+      throw new Error("Unexpected Platform admission.");
+    },
+  };
+  const retained = posting();
+  const inventory = retained.packages[0];
+  assert.ok(inventory);
+  const models = await loadRetainedWorkspaceModels(client, {
+    ...retained,
+    packages: [{
+      ...inventory,
+      defaultLibrary: {
+        assetId: firstId,
+        assetPath: "lib/net10.0/Example.Package.dll",
+        assemblyName: "Example.Package.dll",
+      },
+    }],
+  });
+
+  const model = models.packages[0]?.packageModel;
+  assert.ok(model);
+  assert.equal(model.assemblyId, firstId);
+  assert.equal(model.assembly, "Example.Package.dll");
+  assert.equal(model.assemblyAsset, "lib/net10.0/Example.Package.dll");
+  assert.equal(model.selectedCompileAssetId, firstId);
+  assert.equal(model.assemblies[0]?.id, siblingId);
+  assert.equal(model.inspectionError, notice);
+  const libraries = packageLibrariesForModel(model);
+  assert.equal(libraries[0]?.id, firstId);
+  assert.equal(libraries[0]?.surfaceAvailable, false);
+  assert.equal(libraries[1]?.id, siblingId);
+  assert.equal(libraries[1]?.surfaceAvailable, true);
 });
 
 test("retained admission rejects non-progressing Type pages", async () => {

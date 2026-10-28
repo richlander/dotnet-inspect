@@ -10,9 +10,12 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Cache;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
+using Inspector.Findings;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using CoreHttpClientFactory =
@@ -54,6 +57,104 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 _root,
                 "cache"),
             skipNuGetCache: true);
+    }
+
+    [Fact]
+    public async Task
+        ExactAllocations_UseSelectedSecondaryAssembly()
+    {
+        string root =
+            typeof(WorkspaceImplementationComparisonRunnerTests)
+                .Assembly.Location;
+        string packageName =
+            Path.GetFileNameWithoutExtension(root);
+        string beforePath =
+            FixtureCatalog.DiffPair.OldAssemblyPath();
+        string afterPath =
+            FixtureCatalog.DiffPair.NewAssemblyPath();
+        using var before = new AssemblySet(
+            [
+                Entry(root, packageName, "1.0.0"),
+                Entry(beforePath, packageName, "1.0.0"),
+            ],
+            [],
+            []);
+        using var after = new AssemblySet(
+            [
+                Entry(root, packageName, "2.0.0"),
+                Entry(afterPath, packageName, "2.0.0"),
+            ],
+            [],
+            []);
+
+        WorkspaceMethodAllocationComparisonResult result =
+            await WorkspaceImplementationComparisonRunner
+                .ExecuteAllocationsAsync(
+                    before,
+                    after,
+                    packageName,
+                    beforePath,
+                    MethodToken(beforePath),
+                    afterPath,
+                    MethodToken(afterPath),
+                    TestContext.Current.CancellationToken);
+
+        var compared = Assert.IsType<
+            WorkspaceMethodAllocationComparisonResult.Compared>(
+                result);
+        FindingComparison<AllocationOccurrence> comparison =
+            Assert.Single(
+                compared.Comparison.RetainedComparisons
+                    .Get<AllocationOccurrence>(
+                        AnalysisFindings.AllocationDescriptor))
+                .Comparison;
+        var complete = Assert.IsType<
+            FindingComparison<AllocationOccurrence>.Complete>(
+                comparison.Value);
+        Assert.All(
+            complete.OldAtoms.Concat(complete.NewAtoms),
+            finding => Assert.Equal(
+                "RegressesAllocInLoop",
+                finding.Payload.Method.Name));
+        Assert.Contains(
+            complete.Pairs,
+            pair =>
+                pair.Value
+                    is PairFinding<AllocationOccurrence>.Added);
+
+        static AssemblySetEntry Entry(
+            string path,
+            string package,
+            string version) =>
+            new(
+                path,
+                package,
+                version,
+                AssemblySetSourceKind.Package);
+
+        static int MethodToken(string path)
+        {
+            using var stream = File.OpenRead(path);
+            using var image = new PEReader(stream);
+            ApiSurface surface =
+                ApiSurfaceExtractor.Extract(
+                    image,
+                    includeAll: true);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate =>
+                    candidate.FullName
+                        == "DiffFixtureSample.DiffSample");
+            ResolvedMemberTarget target =
+                Assert.IsType<ResolvedMemberTarget>(
+                    MemberTargetResolver.Resolve(
+                        type,
+                        MemberTargetSelector.Parse(
+                            "RegressesAllocInLoop"))
+                    .Target);
+            return Assert.IsType<int>(
+                target.Body!.MetadataToken);
+        }
     }
 
     [Fact]
@@ -660,9 +761,9 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 allocRegressions: true,
                 table: true);
 
-        Assert.Equal(
-            0,
-            exitCode);
+        Assert.True(
+            exitCode == 0,
+            error + output);
         Assert.True(
             string.IsNullOrEmpty(error),
             error);
@@ -729,6 +830,115 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Package endpoint scope gate 14
+    /// (docs/design/package-endpoint-scope.md#pathological-cases-and-gates):
+    /// the workspace implementation comparison and Annotated Source Diff read
+    /// each endpoint's implementation participants, and open a forwarded
+    /// Type's target from the package the Root's manifest declares through
+    /// the House, never through a pinned extraction. Each view equals the
+    /// recording, made while the legacy oracle, which extracted both
+    /// endpoints and the target, was still the comparison.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_ScopeRouteReadsParticipants()
+    {
+        _ = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1);
+        _ = CreateForwardedSide(
+            "2.0.0",
+            methodResult: 2);
+        (string Sections, bool Json, bool IncludeIl)[] views =
+        [
+            ("Implementation Diff", true, false),
+            ("Implementation Diff", false, false),
+            ("Annotated Source Diff", true, true),
+        ];
+
+        foreach ((string sections, bool json, bool includeIl) in views)
+        {
+            UseCache("scoped-" + sections + json);
+            var scoped = await RunPackageCommandAsync(
+                type: "N.Type",
+                member: "Value",
+                sections: sections,
+                json: json,
+                includeIl: includeIl,
+                verbose: true);
+
+            Assert.True(scoped.ExitCode == 0, scoped.Error);
+            RecordedOutput.AssertEqual("PackageEndpointScope", scoped.Output, scoped.Error, Array.IndexOf(views, (sections, json, includeIl)));
+            if (includeIl)
+            {
+                Assert.Equal(
+                    2,
+                    AnnotatedSourceDiffJson.Deserialize(scoped.Output).Forwarders.Count);
+            }
+            else
+            {
+                Assert.Contains("Type Forwarder", scoped.Output, StringComparison.Ordinal);
+            }
+            foreach (string version in new[] { "1.0.0", "2.0.0" })
+            {
+                Assert.Contains(
+                    $"Using package endpoint scope for {Facade}@{version} ",
+                    scoped.Error,
+                    StringComparison.Ordinal);
+                Assert.True(
+                    scoped.Error.Contains(
+                        $"Using package endpoint scope for forwarded target {Terminal}@{version} ",
+                        StringComparison.Ordinal),
+                    scoped.Error);
+            }
+            Assert.DoesNotContain(
+                "Extracting package",
+                scoped.Error,
+                StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// A Type the Root defines takes the same route with no forwarded
+    /// target, and equals the recording.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_DirectTypeScopeRouteReadsParticipants()
+    {
+        _ = CreateDirectSide(
+            "1.0.0",
+            methodResult: 1,
+            writePackage: true);
+        _ = CreateDirectSide(
+            "2.0.0",
+            methodResult: 2,
+            writePackage: true);
+
+        UseCache("scoped-direct");
+        var scoped = await RunPackageCommandAsync(
+            type: "N.Type",
+            member: "Value",
+            sections: "Implementation Diff",
+            verbose: true);
+
+        Assert.True(scoped.ExitCode == 0, scoped.Error);
+        RecordedOutput.AssertEqual("PackageEndpointScope", scoped.Output, scoped.Error);
+        Assert.Contains(
+            $"Using package endpoint scope for {Facade}@2.0.0 ",
+            scoped.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "forwarded target",
+            scoped.Error,
+            StringComparison.Ordinal);
+    }
+
+    void UseCache(string name) =>
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            Path.Combine(_root, "cache-" + name.Replace(' ', '-')),
+            skipNuGetCache: true);
+
     Task<(int ExitCode, string Output, string Error)>
         RunPackageCommandAsync(
         string type,
@@ -737,7 +947,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         bool json = true,
         bool allocRegressions = false,
         bool table = false,
-        bool includeIl = false)
+        bool includeIl = false,
+        bool verbose = false)
     {
         Dictionary<string, byte[]> packages =
             PackagePayloads();
@@ -770,6 +981,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                     arguments.Add("--table");
                 if (includeIl)
                     arguments.Add("--il");
+                if (verbose)
+                    arguments.Add("--verbose");
                 arguments.AddRange(
                     [
                         "--source",

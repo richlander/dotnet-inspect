@@ -216,6 +216,7 @@ function posting(): BrowserRetainedWorkspacePosting {
       registrations: [],
       activeTabId: null,
       selectedContextId: null,
+      traversalTargetFramework: "net11.0",
     },
     navigation: {
       operation: "Initialize",
@@ -244,11 +245,17 @@ function posting(): BrowserRetainedWorkspacePosting {
       navigationId: "navigation-1",
       contextIndex: 0,
       consumerPackageSubjectId: packageOne.id,
+      runtimeIdentifier: null,
+      implementationComparisonRuntimeIdentifier: "linux-x64",
+      defaultLibrary: null,
       summary: packageSummary("net10.0"),
     }, {
       navigationId: "navigation-2",
       contextIndex: 1,
       consumerPackageSubjectId: packageTwo.id,
+      runtimeIdentifier: "win-x64",
+      implementationComparisonRuntimeIdentifier: "win-x64",
+      defaultLibrary: null,
       summary: packageSummary("net11.0"),
     }],
     platforms: [],
@@ -293,6 +300,7 @@ test("active Ecosystem uses the catalog-authored retained label", () => {
       registrations: [],
       activeTabId: null,
       selectedContextId: null,
+      traversalTargetFramework: "net11.0",
     },
     navigation: {
       ...source.navigation,

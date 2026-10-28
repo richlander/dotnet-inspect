@@ -189,20 +189,32 @@ public sealed partial class DesktopPackageSourceComposition
         PackageHouseLibraryHandoffMode libraryHandoff =
             PackageHouseLibraryHandoffMode.PackageOnly,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-            PackageHouseLibraryCompanionDemand.None)
+            PackageHouseLibraryCompanionDemand.None,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile)
     {
         ArgumentNullException.ThrowIfNull(createStore);
+        if (!Enum.IsDefined(assetSelection))
+            throw new ArgumentOutOfRangeException(nameof(assetSelection));
+        if (compileTargetContext is null
+            && assetSelection
+                != PackageHouseAssetSelectionKind.Compile)
+        {
+            throw new ArgumentException(
+                "A non-compile asset selection requires a target context.",
+                nameof(assetSelection));
+        }
         if ((compileTargetContext is not null || fileDemand is not null)
             && operationContext is not null)
         {
             throw new ArgumentException(
-                "PackageHouse compile realization and file demand cannot use a legacy operation context.",
+                "PackageHouse asset realization and file demand cannot use a legacy operation context.",
                 nameof(operationContext));
         }
         if (fileDemand is not null && compileTargetContext is not null)
         {
             throw new ArgumentException(
-                "A file demand is carried by an Acquire operation, not a compile realization.",
+                "A file demand is carried by an Acquire operation, not an asset realization.",
                 nameof(fileDemand));
         }
         RequireRealizationForRangedAccess(
@@ -212,7 +224,7 @@ public sealed partial class DesktopPackageSourceComposition
         if (implementationNames is not null && compileTargetContext is null)
         {
             throw new ArgumentException(
-                "Named implementation assemblies require a compile realization.",
+                "Named implementation assemblies require an asset realization.",
                 nameof(implementationNames));
         }
         if (operationContext is not null)
@@ -268,7 +280,8 @@ public sealed partial class DesktopPackageSourceComposition
                     implementationNames,
                     fileDemand,
                     libraryHandoff,
-                    libraryCompanionDemand);
+                    libraryCompanionDemand,
+                    assetSelection);
             sourceOperation = null;
             return execution;
         }

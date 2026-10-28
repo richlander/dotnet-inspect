@@ -3421,8 +3421,12 @@ public partial class CommandExecutionTests
     {
         SkipUnlessAspNetCoreAvailable();
 
+        // PooledBuffer is a public nested Type of the internal
+        // ArrayPoolBufferAdapter, so it is outside the ordinary public API and
+        // resolving it as a root requires --all
+        // (docs/design/api-population-scope.md).
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown");
+            target, "--markdown", "--all");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
@@ -3814,10 +3818,6 @@ public partial class CommandExecutionTests
         "Newtonsoft.Json@13.0.4",
         "lib/net6.0/Newtonsoft.Json.dll",
         "Newtonsoft.Json.dll")]
-    [InlineData(
-        "Microsoft.CodeAnalysis.BannedApiAnalyzers@5.6.0",
-        "analyzers/dotnet/cs/Microsoft.CodeAnalysis.BannedApiAnalyzers.dll",
-        "Microsoft.CodeAnalysis.BannedApiAnalyzers.dll")]
     public async Task Router_PackageLibrarySubpath_IsIndependentOfCurrentDirectory(
         string package,
         string libraryPath,

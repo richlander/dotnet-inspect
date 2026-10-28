@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.ProductVocabularyTesting;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Decompiler;
@@ -55,12 +56,25 @@ public sealed class ProductVocabularySnapshotTests
                 StyleOptionVocabularies.StyleTiersId,
                 StyleOptionVocabularies.StyleChoicesId,
                 BodyShapeVocabulary.BodyKindsId,
+                PackageQueryDurableRowContract.Vocabulary,
             ],
             snapshot.Vocabularies.Select(vocabulary => vocabulary.Identity.Value));
         AssertComposed(snapshot, ApiAccessibilityVocabulary.Declare(catalog));
         AssertComposed(snapshot, StyleOptionVocabularies.DeclareStyleTiers(catalog));
         AssertComposed(snapshot, StyleOptionVocabularies.DeclareStyleChoices(catalog));
         AssertComposed(snapshot, BodyShapeVocabulary.Declare(catalog));
+        AssertComposed(
+            snapshot,
+            PackageQueryDurableRowVocabulary.Declare(catalog));
+        VocabularySnapshotReference reference =
+            PackageQueryDurableRowContract.CreateVocabularySnapshotReference();
+        Assert.Equal(snapshot.Catalog, reference.Catalog);
+        Assert.Equal(snapshot.Identity, reference.Identity);
+        foreach (VocabularyTerm term in
+            PackageQueryDurableRowVocabulary.Declare(catalog).Terms)
+        {
+            Assert.True(reference.Contains(term.Identity));
+        }
     }
 
     private static void AssertComposed(

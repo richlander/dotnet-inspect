@@ -15,9 +15,16 @@ import type {
 import type {
   BrowserCallGraph,
   BrowserHomeDemoCatalogEntry,
+  BrowserHomeDemoResolved,
   BrowserHomeDemoRunResult,
   BrowserWorkspacePackageSourceRequirement,
 } from "../src/facades/inspect-web-catalog.d.ts";
+import type {
+  PackageQueryDurableRowDescriptors,
+} from "../src/package-query-durable-row.ts";
+import {
+  parseGeneratedStaticJson,
+} from "../scripts/generated-static-json.ts";
 import type { PlatformAssemblyRow, PlatformCatalogTarget } from "../src/platform-index.ts";
 
 function subjectTab(page: Page, subject: string) {
@@ -208,9 +215,6 @@ const run: BrowserMemberSurface = {
   returnType: "void",
   parameters: [],
   documentationId: "M:Example.Widget.Run",
-  summary: "Runs the widget.",
-  returns: null,
-  exceptions: [],
   stableSelector: "Run",
   anchorDigest: "widget-run",
   canonicalSignature: "void Example.Widget.Run()",
@@ -343,12 +347,20 @@ interface PlatformFixture {
 
 interface HomeDemoFixture {
   catalog: readonly BrowserHomeDemoCatalogEntry[];
+  resolutions?: Readonly<Record<string, BrowserHomeDemoResolved>>;
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
   catalogPending?: boolean;
+  resolutionPendingOrdinal?: number;
+  resolutionFailureOrdinal?: number;
+  preparationPendingOrdinal?: number;
+  preparationFailureOrdinal?: number;
+  surfaceAdmissionPendingOrdinal?: number;
 }
 
 interface DiagnosticsFixture {
   packageDocumentTitles?: "ready" | "deferred";
+  packageDocumentContainment?: "ready" | "deferred" | "rejected";
+  packageDocumentText?: string;
   libraryApiDiffPilot?: "ready" | "empty";
   runtimeFailure?: boolean;
   buildIdentity?: "ready" | "pending" | "failed";
@@ -357,6 +369,7 @@ interface DiagnosticsFixture {
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
   deferTypeMemberPopulation?: boolean;
+  rejectedPerformanceTypeMemberPopulation?: boolean;
   qualifiedStructuralSalience?: boolean;
   physicalOnlyStructuralSalience?: boolean;
   rejectedOwnershipStructuralSalience?: boolean;
@@ -376,13 +389,25 @@ interface PackageLoadingFixture {
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
 
+function isPackageQueryDurableRowDescriptors(
+  value: unknown,
+): value is PackageQueryDurableRowDescriptors {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every(descriptor =>
+      typeof descriptor === "object"
+      && descriptor !== null
+      && "schema" in descriptor
+      && "bindings" in descriptor);
+}
+
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
 async function installFacades(
   page: Page,
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
-  references: "ready" | "workspace-library" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
+  references: "ready" | "workspace-library" | "external-supplier" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
@@ -639,6 +664,32 @@ async function installFacades(
     },
     noBody: false,
   };
+  const packageFacadeSource = await readFile(new URL(
+    "../DotnetInspect.Web/facades/inspect-web-package.ts",
+    import.meta.url), "utf8");
+  const descriptorLine = packageFacadeSource.split("\n").find(candidate =>
+    candidate.startsWith(
+      "export const jsonSchemaVocabularyDescriptors = "));
+  if (descriptorLine === undefined) {
+    throw new Error("Generated Package facade has no schema descriptors.");
+  }
+  const durableRowDescriptorsSource = descriptorLine.slice(
+    descriptorLine.indexOf("=") + 1,
+    descriptorLine.lastIndexOf(" as const;")).trim();
+  const parsedDescriptors =
+    parseGeneratedStaticJson(durableRowDescriptorsSource);
+  if (!isPackageQueryDurableRowDescriptors(parsedDescriptors)) {
+    throw new Error("Generated Package facade descriptor export is invalid.");
+  }
+  const durableRowDescriptors = parsedDescriptors;
+  const durableRowDescriptor = durableRowDescriptors[0];
+  if (durableRowDescriptor === undefined) {
+    throw new Error("Generated Package facade has no durable-row descriptor.");
+  }
+  const durableRowTerms =
+    durableRowDescriptor.bindings.map(binding => binding.term);
+  const durableRowSnapshotIdentity =
+    durableRowDescriptor.vocabularySnapshotIdentity;
   const modules: Record<string, string> = {
     host: `
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
@@ -677,6 +728,70 @@ async function installFacades(
       }`,
     package: `
       ${surfaceLookup}
+      export const jsonSchemaVocabularyDescriptors =
+         ${durableRowDescriptorsSource};
+      function packageDocumentContainedText(policy, text) {
+        let contained = "";
+        for (const scalar of text) {
+          const value = scalar.codePointAt(0);
+          if (value === undefined) continue;
+          if (scalar === "\\\\") {
+            contained += "\\\\\\\\";
+            continue;
+          }
+          const categoryRefused = /[\\p{Cf}\\p{Cs}]/u.test(scalar)
+            || value === 0x2028 || value === 0x2029
+            || (/[\\p{Cc}]/u.test(scalar)
+              && (policy === "Field"
+                || (value !== 0x09 && value !== 0x0A && value !== 0x0D)));
+          if (!categoryRefused) {
+            contained += scalar;
+            continue;
+          }
+          if (value <= 0x1F) {
+            contained += "\\\\^" + String.fromCodePoint(value + 0x40);
+          } else if (value === 0x7F) {
+            contained += "\\\\^?";
+          } else if (value <= 0xFFFF) {
+            contained += "\\\\u" + value.toString(16).toUpperCase().padStart(4, "0");
+          } else {
+            contained += "\\\\U" + value.toString(16).toUpperCase().padStart(8, "0");
+          }
+        }
+        return contained;
+      }
+      export async function containPackageDocumentLeaves(generation, leaves) {
+        document.documentElement.dataset.packageDocumentContainment =
+          JSON.stringify({ generation, leaves });
+        if (diagnosticsOptions.packageDocumentContainment === "deferred"
+          && /^package-document-\\d+$/.test(generation)) {
+          await new Promise(resolve =>
+            document.addEventListener("package-document-containment", resolve));
+        }
+        document.documentElement.dataset.packageDocumentContainmentCompletion =
+          generation;
+        if (diagnosticsOptions.packageDocumentContainment === "rejected") {
+          return {
+            outcome: "rejected",
+            generation,
+            failure: {
+              kind: "OutputTextTooLarge",
+              identity: null,
+              actual: 2,
+              limit: 1,
+            },
+          };
+        }
+        return {
+          outcome: "contained",
+          generation,
+          leaves: leaves.map(leaf => ({
+            identity: leaf.identity,
+            policy: leaf.policy,
+            text: packageDocumentContainedText(leaf.policy, leaf.text),
+          })),
+        };
+      }
       ${diagnostics.packageDocumentTitles ? `
       const documentTitleReads = new Set();
       export async function getPackageDocument(packageId, version, path) {
@@ -692,7 +807,14 @@ async function installFacades(
           "untitled.md": "## Secondary heading\nNo H1",
         })};
         document.documentElement.dataset.packageDocumentTitleCompletion = JSON.stringify([version, path]);
-        return { kind: "Markdown", name: path, path, text: version === "0.9.0" ? "# Older package" : texts[path] ?? "# Document" };
+        return {
+          kind: "Markdown",
+          name: path,
+          path,
+          text: version === "0.9.0"
+            ? "# Older package"
+            : diagnosticsOptions.packageDocumentText ?? texts[path] ?? "# Document"
+        };
       }` : ""}
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
@@ -1085,7 +1207,14 @@ async function installFacades(
           }],
         };
       }
-      export function listPackageQueryCatalog() { return { presets: [], terms: [] }; }
+      export function inspectPackageQueryFacets() {
+        return JSON.stringify({
+          scope: { profile: "query-preparation/v1", completeness: "Complete" },
+          facet_order: [],
+          facets: {},
+          bindings: {},
+        });
+      }
       const packageQueryOperations = new Map();
       function packageQueryRow(ecosystemId, index) {
         const packageId = index === 0
@@ -1357,8 +1486,14 @@ async function installFacades(
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
           dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
+          platformReferences: [], defaultPlatformReference: null, platformReferenceError: null,
           assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
             : { references: scenario === "empty" ? [] : scenario === "workspace-library"
+            ? [{
+                name: "Reference.Target", version: "1.0.0.0",
+                culture: "neutral", publicKeyToken: null
+              }]
+            : scenario === "external-supplier"
             ? [{
                 name: "Reference.Target", version: "1.0.0.0",
                 culture: "neutral", publicKeyToken: null
@@ -1372,6 +1507,17 @@ async function installFacades(
             : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
           compileLibrary: surface.compileLibrary
         };
+      }
+      export async function queryReferencePackageSuppliers(id, version, framework, asset) {
+        document.documentElement.dataset.referenceSupplierRequest =
+          JSON.stringify([id, version, framework, asset]);
+        const scenario = ${JSON.stringify(references)};
+        if (scenario !== "external-supplier") return [];
+        await new Promise(resolve => document.addEventListener(
+          "fixture-reference-suppliers-ready", resolve, { once: true }));
+        return [{ name: "Reference.Target", version: "1.0.0.0",
+          culture: "neutral", publicKeyToken: null,
+          packageId: "Reference.Target", packageVersion: "2.0.0" }];
       }
       export async function queryPackageVulnerabilities(id, version) {
         document.documentElement.dataset.packageVulnerabilitiesRequest =
@@ -1466,11 +1612,11 @@ async function installFacades(
           value: {
             libraryIdentifier: "Example.Core", libraryDisplay: "Example.Core",
             target: endpoint(request.targetVersion), current: endpoint(request.currentVersion),
-            aggregate: { changedTypeCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 1}, addedTypeCount: 0, removedTypeCount: 0, changedMemberCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, breakingCount: 0, additiveCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, potentiallyBreakingCount: 0 },
+            aggregate: { changedTypeCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 1}, addedTypeCount: 0, removedTypeCount: 0, changedMemberCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, breakingCount: 0, additiveCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, potentiallyBreakingCount: 0, nonBreakingCount: 0 },
             types: ${JSON.stringify(diagnostics.libraryApiDiffPilot === "empty" ? [] : [{
               documentIdentifier: "Example.Widget", display: "Example.Widget", state: "Diff",
               typeDefinitionChanged: false, changedMemberCount: 3,
-              breakingCount: 0, additiveCount: 3, potentiallyBreakingCount: 0,
+              breakingCount: 0, additiveCount: 3, potentiallyBreakingCount: 0, nonBreakingCount: 0,
               before: { identifier: "before-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
               after: { identifier: "after-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
               members: [], changes: [],
@@ -1705,6 +1851,14 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
+        if (${JSON.stringify(diagnostics.rejectedPerformanceTypeMemberPopulation === true)}) {
+          return {
+            outcome: "Rejected",
+            detail: "The ranked Member population was rejected.",
+            population: null,
+            diagnostics: [],
+          };
+        }
         return typeMemberPopulation(
           implementationPerformanceSurface(
             surfaceFor(id, version, framework)),
@@ -3173,10 +3327,147 @@ async function installFacades(
         hasWorkspaceRegistration: true,
       }];
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
+      const homeDemoResolutions =
+        ${JSON.stringify(homeDemos?.resolutions ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
+      const homeDemoResolutionPendingOrdinal =
+        ${homeDemos?.resolutionPendingOrdinal ?? 0};
+      const homeDemoResolutionFailureOrdinal =
+        ${homeDemos?.resolutionFailureOrdinal ?? 0};
+      const homeDemoPreparationPendingOrdinal =
+        ${homeDemos?.preparationPendingOrdinal ?? 0};
+      const homeDemoPreparationFailureOrdinal =
+        ${homeDemos?.preparationFailureOrdinal ?? 0};
+      const homeDemoSurfaceAdmissionPendingOrdinal =
+        ${homeDemos?.surfaceAdmissionPendingOrdinal ?? 0};
+      let homeDemoResolutionOrdinal = 0;
+      let homeDemoPreparationOrdinal = 0;
+      let homeDemoSurfaceAdmissionOrdinal = 0;
+      function homeDemoCoordinateKey(coordinate) {
+        return JSON.stringify([
+          coordinate.kind,
+          coordinate.id ?? null,
+          coordinate.family ?? null,
+          coordinate.assembly ?? null,
+          coordinate.version,
+          coordinate.framework,
+          coordinate.rid ?? coordinate.runtimeIdentifier ?? null,
+        ]);
+      }
+      function parseHomeDemoDefinitionRecords(
+        scenarioId,
+        definitionRecords,
+      ) {
+        const records = definitionRecords.map((record, index) => {
+          if (typeof record !== "string") {
+            throw new Error(
+              "Definition record " + index + " is not serialized JSON.");
+          }
+          const parsed = JSON.parse(record);
+          if (!parsed || typeof parsed !== "object"
+              || parsed.schemaVersion !== 4
+              || typeof parsed.kind !== "string"
+              || typeof parsed.id !== "string") {
+            throw new Error(
+              "Definition record " + index + " is not valid.");
+          }
+          return parsed;
+        });
+        const byId = new Map(records.map(record => [record.id, record]));
+        const scenario = byId.get(scenarioId);
+        if (scenario?.kind !== "scenario") {
+          throw new Error(
+            "The retained scenario definition is unavailable.");
+        }
+        const workspace = byId.get(scenario.workspace);
+        const navigation = byId.get(scenario.navigation);
+        const view = byId.get(scenario.view);
+        if (workspace?.kind !== "workspace"
+            || navigation?.kind !== "navigation"
+            || view?.kind !== "view") {
+          throw new Error(
+            "The retained Workspace definition is incomplete.");
+        }
+        if (navigation.focus !== null) {
+          throw new Error(
+            "The committed retained Navigation must select Workspace.");
+        }
+        const context = workspace.contexts?.find(
+          candidate => candidate.name === scenario.context);
+        if (!context || !Array.isArray(context.members)
+            || !Array.isArray(navigation.tabs)) {
+          throw new Error(
+            "The retained Workspace context is incomplete.");
+        }
+        const membersByCoordinate = new Map(
+          context.members.map(member => [
+            homeDemoCoordinateKey(member),
+            member,
+          ]));
+        const tabs = navigation.tabs.map(tab => {
+          if (typeof tab.id !== "string" || !tab.coordinate) {
+            throw new Error(
+              "The retained Navigation tab is incomplete.");
+          }
+          const member = membersByCoordinate.get(
+            homeDemoCoordinateKey(tab.coordinate));
+          if (!member) {
+            throw new Error(
+              "The retained Navigation tab is outside its Workspace.");
+          }
+          return { id: tab.id, member };
+        });
+        if (!Array.isArray(view.states)
+            || view.states.length !== tabs.length + 1
+            || view.states[0]?.navigation !== null
+            || view.states[0]?.subject?.kind !== "workspace"
+            || tabs.some((tab, index) =>
+              view.states[index + 1]?.navigation !== tab.id)) {
+          throw new Error(
+            "The committed retained View is incomplete.");
+        }
+        return {
+          members: [...membersByCoordinate.values()],
+          tabs,
+          activeTabId: null,
+          selectedContextId: context.name,
+        };
+      }
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
+      const homeDemoResultsByCoordinate = new Map();
+      for (const [scenarioId, demo] of Object.entries(
+        homeDemoResolutions)) {
+        const result = homeDemoResults[scenarioId];
+        if (!result?.activation) continue;
+        let definition;
+        try {
+          definition = parseHomeDemoDefinitionRecords(
+            scenarioId,
+            demo.restorationDefinitions);
+        } catch {
+          continue;
+        }
+        for (const member of definition.members) {
+          const packageResult = member.kind === "package"
+            ? result.packages.find(candidate =>
+              candidate.surface.package === member.id
+              && candidate.surface.version === member.version
+              && candidate.surface.activeFramework === member.framework)
+            : result.packages.find(candidate =>
+              candidate.surface.assemblies.some(
+                assembly => assembly.name === member.assembly));
+          if (packageResult) {
+            homeDemoResultsByCoordinate.set(
+              homeDemoCoordinateKey(member),
+              packageResult,
+            );
+          }
+        }
+      }
       let preparedRetainedWorkspace = null;
+      const retainedWorkspacePreparations = new Map();
+      const retainedWorkspacesByRealization = new Map();
       let nextRetainedPublicationOrdinal = 0;
       let ecosystemPackageAdmissionCount = 0;
       let ecosystemPackageAcknowledgementCount = 0;
@@ -3498,13 +3789,234 @@ async function installFacades(
           cleanup: null,
         };
       }
+      function homeDemoWorkspacePosting(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        scenarioId,
+        definitionRecords,
+        canonicalPacket,
+      ) {
+        const restored = parseHomeDemoDefinitionRecords(
+          scenarioId,
+          definitionRecords);
+        const publicationOrdinal = ++nextRetainedPublicationOrdinal;
+        const workspaceId = "home-demo-workspace";
+        const packageMembers = restored.members.filter(
+          member => member.kind === "package");
+        const platformMembers = restored.members.filter(
+          member => member.kind === "platform");
+        const tabs = restored.tabs.map(tab => ({
+          id: tab.id,
+          kind: tab.member.kind === "package" ? "package" : "group",
+          source: tab.member.kind === "package"
+            ? tab.member.id
+            : ":Platform",
+          version: tab.member.version,
+          framework: tab.member.framework,
+          runtimeIdentifier:
+            tab.member.rid ?? tab.member.runtimeIdentifier ?? null,
+        }));
+        const activeTabId = restored.activeTabId;
+        const packageResults = Object.fromEntries(
+          restored.tabs
+            .filter(tab => tab.member.kind === "package")
+            .map(tab => [
+              tab.id,
+              homeDemoResultsByCoordinate.get(
+                homeDemoCoordinateKey(tab.member)),
+            ]));
+        const packageSurfaces = Object.fromEntries(
+          Object.entries(packageResults).map(([navigationId, packageResult]) =>
+            [navigationId, packageResult?.surface]));
+        const platformSurface = platformMembers.length === 0
+          ? null
+          : homeDemoResultsByCoordinate.get(
+            homeDemoCoordinateKey(platformMembers[0]))?.surface;
+        const packageSubjects = packageMembers.map((member, index) => {
+          const navigationId = restored.tabs.find(tab =>
+            tab.member === member)?.id ?? "package-" + index;
+          return {
+            navigationId,
+            subject: {
+              id: "home-demo-package-" + index,
+              kind: "Package",
+              label: member.id,
+              summary: null,
+              parent: workspaceId,
+            },
+            member,
+          };
+        });
+        const activePackage = packageSubjects.find(
+          item => item.navigationId === activeTabId);
+        const workspaceSubject = {
+          id: workspaceId,
+          kind: "Workspace",
+          label,
+          summary: null,
+          parent: null,
+        };
+        const activeSubject = activePackage?.subject ?? workspaceSubject;
+        const packages = packageSubjects.map((item, index) => {
+          const surface = packageSurfaces[item.navigationId];
+          const packageResult = packageResults[item.navigationId];
+          return {
+            navigationId: item.navigationId,
+            contextIndex: 0,
+            consumerPackageSubjectId: item.subject.id,
+            runtimeIdentifier: packageResult?.runtimeIdentifier ?? null,
+            implementationComparisonRuntimeIdentifier:
+              packageResult?.implementationComparisonRuntimeIdentifier ?? "",
+            summary: {
+              selectedCompileFramework: item.member.framework,
+              libraryCount: surface?.assemblies.length ?? 0,
+              typeCount: surface?.types.length ?? 0,
+              memberCount: surface?.totalMembers ?? 0,
+              documentCount: surface?.documents.length ?? 0,
+              hasInspectionNotices:
+                (surface?.inspectionErrors.length ?? 0) > 0,
+            },
+            defaultLibrary: null,
+          };
+        });
+        const platforms = platformMembers.map((member, index) => ({
+          navigationId: restored.tabs.find(tab =>
+            tab.member === member)?.id ?? "platform-" + index,
+          contextIndex: 0,
+          family: member.family,
+          runtimeIdentifier: null,
+          summary: {
+            selectedCompileFramework: member.framework,
+            libraryCount: platformSurface?.assemblies.length ?? 0,
+            typeCount: platformSurface?.types.length ?? 0,
+            memberCount: platformSurface?.totalMembers ?? 0,
+            documentCount: platformSurface?.documents.length ?? 0,
+            hasInspectionNotices:
+              (platformSurface?.inspectionErrors.length ?? 0) > 0,
+          },
+        }));
+        return {
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          canonicalPacket,
+          realizationId: "home-demo-realization-" + publicationOrdinal,
+          publicationOrdinal,
+          definition: {
+            tabs,
+            contexts: [{
+              id: restored.selectedContextId,
+              tabIds: tabs.map(tab => tab.id),
+            }],
+            registrations: [],
+            activeTabId,
+            selectedContextId: restored.selectedContextId,
+          },
+          navigation: {
+            operation: "Initialize",
+            request: "home-demo-request",
+            snapshot: {
+              generation: "home-demo-generation",
+              scope: { kind: "Current", runtimeFailure: null },
+              workspace: workspaceSubject,
+              activePackage: activePackage?.subject.id ?? null,
+              activeSubject,
+              typeInventoryLibraryContext: null,
+              packages: packageSubjects.map((item, index) => ({
+                order: index,
+                subject: item.subject,
+                packageId: item.member.id,
+                version: item.member.version,
+                framework: item.member.framework,
+                runtimeIdentifier: null,
+                realization: "home-demo-package-realization-" + index,
+                realizationFailure: null,
+                state: item === activePackage ? "Active" : "Available",
+                isCurrent: item === activePackage,
+                action: null,
+              })),
+              hierarchy: [{
+                kind: "Workspace",
+                label,
+                subject: workspaceSubject,
+                state: "Active",
+                isActive: activePackage === undefined,
+                isRetained: true,
+                evidence: [],
+                action: null,
+              }, ...packageSubjects.map(item => ({
+                kind: "Package",
+                label: item.member.id,
+                subject: item.subject,
+                state: item === activePackage ? "Active" : "Available",
+                isActive: item === activePackage,
+                isRetained: true,
+                evidence: [],
+                action: null,
+              }))],
+              libraries: [],
+              types: [],
+              members: [],
+              lenses: [],
+              lensOutcome: {
+                kind: "Unavailable",
+                basis: "NoSelection",
+                subject: activeSubject,
+                effectiveLens: null,
+                request: null,
+                preferredRole: null,
+                policyFailure: null,
+                resolution: null,
+                suspension: null,
+              },
+              diagnostics: [],
+            },
+            outcome: {
+              kind: "Applied",
+              rejection: null,
+              failureSource: null,
+              message: null,
+              request: null,
+              resolution: null,
+              scope: null,
+              diagnostics: [],
+              coordinateRetention: null,
+            },
+            synchronization: "SynchronizationRequired",
+            authority: {
+              session: "home-demo-session",
+              revision: "home-demo-revision",
+              intent: "home-demo-intent",
+              epoch: "home-demo-epoch",
+            },
+          },
+          packages,
+          platforms,
+          predecessor: null,
+          cleanup: null,
+          fixturePackageSurfaces: packageSurfaces,
+          fixturePlatformSurface: platformSurface,
+        };
+      }
       export function inspectVocabulary() {
         return {
           content: {
             formatVersion: 1,
             catalog: { value: "dotnet-inspect.product" },
-            identity: { value: "sha256:${"0".repeat(64)}" },
-            vocabularies: [],
+            identity: { value: "${durableRowSnapshotIdentity}" },
+            vocabularies: [{
+              identity: { value: "package-query.durable-row" },
+              displayLabel: "Package Query durable row",
+              summary: "Durable Package Query fields.",
+              maps: [],
+              terms: ${JSON.stringify(durableRowTerms.map(term => ({
+                identity: { value: term },
+                displayLabel: `Label ${term}`,
+                summary: `Summary ${term}.`,
+                mapEntries: [],
+              })))},
+            }],
           },
           share: {
             kind: "nonProjectable",
@@ -3522,8 +4034,212 @@ async function installFacades(
         }
         return { demos: homeDemos };
       }
+      export async function resolveHomeDemo(id) {
+        document.documentElement.dataset.homeDemoResolve = id;
+        homeDemoResolutionOrdinal++;
+        document.documentElement.dataset.homeDemoResolveCount =
+          String(homeDemoResolutionOrdinal);
+        if (homeDemoResolutionOrdinal
+            === homeDemoResolutionPendingOrdinal) {
+          document.documentElement.dataset.homeDemoResolutionPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-home-demo-resolution", resolve, { once: true }));
+          document.documentElement.dataset.homeDemoResolutionPending = "false";
+        }
+        if (homeDemoResolutionOrdinal
+            === homeDemoResolutionFailureOrdinal) {
+          throw new Error("Fixture product demo resolution failed.");
+        }
+        return {
+          found: homeDemoResolutions[id] !== undefined,
+          demo: homeDemoResolutions[id] ?? null,
+        };
+      }
+      document.addEventListener("remove-home-demo-catalog", () => {
+        homeDemos.splice(0, homeDemos.length);
+        for (const id of Object.keys(homeDemoResolutions)) {
+          delete homeDemoResolutions[id];
+        }
+        for (const id of Object.keys(homeDemoResults)) {
+          delete homeDemoResults[id];
+        }
+        document.documentElement.dataset.homeDemoCatalogRemoved = "true";
+      });
       export function listEcosystems() {
         return { ecosystems: productEcosystems };
+      }
+      export function listLibraryViewFacets() {
+        return {
+          facets: [
+            {
+              id: "library.types",
+              kind: "Library",
+              title: "Types",
+              summary: "",
+              order: 100,
+              role: null,
+            },
+            {
+              id: "library.info",
+              kind: "Library",
+              title: "Info",
+              summary: "",
+              order: 200,
+              role: null,
+            },
+            {
+              id: "library.references",
+              kind: "Library",
+              title: "Uses",
+              summary: "",
+              order: 300,
+              role: null,
+            },
+            {
+              id: "library.ecosystem-dependencies",
+              kind: "Library",
+              title: "Ecosystem dependencies",
+              summary: "",
+              order: 400,
+              role: null,
+            },
+            {
+              id: "library.reference-hierarchy",
+              kind: "Library",
+              title: "Reference hierarchy",
+              summary: "",
+              order: 500,
+              role: null,
+            },
+            {
+              id: "library.integrations",
+              kind: "Library",
+              title: "Integrations",
+              summary: "",
+              order: 600,
+              role: null,
+            },
+            {
+              id: "library.analysis",
+              kind: "Library",
+              title: "Analysis facts",
+              summary: "",
+              order: 700,
+              role: null,
+            },
+            {
+              id: "library.metadata",
+              kind: "Library",
+              title: "Metadata facts",
+              summary: "",
+              order: 800,
+              role: null,
+            },
+            {
+              id: "library.compare",
+              kind: "Library",
+              title: "Compare builds",
+              summary: "",
+              order: 900,
+              role: null,
+            },
+          ],
+        };
+      }
+      export function listMemberViewFacets() {
+        return {
+          facets: [
+            {
+              id: "member.overview",
+              kind: "Member",
+              title: "Overview",
+              summary:
+                "Signature, documentation, and overload context for the active Member.",
+              order: 100,
+              role: "MemberOverview",
+            },
+            {
+              id: "member.call-graph",
+              kind: "Member",
+              title: "Call graph",
+              summary: "Incoming and outgoing calls for the active Member.",
+              order: 200,
+              role: null,
+            },
+            {
+              id: "member.facts",
+              kind: "Member",
+              title: "Facts",
+              summary:
+                "Metadata, IL, safety, and analysis facts for the active Member.",
+              order: 300,
+              role: null,
+            },
+            {
+              id: "member.source",
+              kind: "Member",
+              title: "Source",
+              summary: "Source or decompiled code for the active Member.",
+              order: 400,
+              role: null,
+            },
+            {
+              id: "member.annotated-source",
+              kind: "Member",
+              title: "Annotated source",
+              summary:
+                "Source for the active Member with product analysis annotations.",
+              order: 500,
+              role: null,
+            },
+            {
+              id: "member.compare",
+              kind: "Member",
+              title: "Compare",
+              summary: "Detailed diff and clone results for the active Member.",
+              order: 600,
+              role: null,
+            },
+          ],
+        };
+      }
+      export function listTypeViewFacets() {
+        return {
+          facets: [
+            {
+              id: "type.api",
+              kind: "Type",
+              title: "Public API",
+              summary: "",
+              order: 100,
+              role: null,
+            },
+            {
+              id: "type.metadata",
+              kind: "Type",
+              title: "Metadata",
+              summary: "",
+              order: 200,
+              role: null,
+            },
+            {
+              id: "type.source",
+              kind: "Type",
+              title: "Source",
+              summary: "",
+              order: 300,
+              role: null,
+            },
+            {
+              id: "type.compare",
+              kind: "Type",
+              title: "Compare",
+              summary: "",
+              order: 400,
+              role: null,
+            },
+          ],
+        };
       }
       export async function runHomeDemo(id) {
         document.documentElement.dataset.homeDemoRun = id;
@@ -3566,6 +4282,9 @@ async function installFacades(
           packet: btoa(JSON.stringify(state)),
           failure: null,
         };
+      }
+      export async function captureCompleteWorkspaceShareState(state) {
+        return encodeWorkspaceShareState(state);
       }
       export function decodeWorkspaceShareState(packet) {
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };
@@ -3656,24 +4375,100 @@ async function installFacades(
         canonicalLocation,
         canonicalPacket,
       ) {
-        preparedRetainedWorkspace = retainedWorkspacePosting(
+        const posting = retainedWorkspacePosting(
           retainedDefinitionId,
           label,
           canonicalLocation,
           canonicalPacket,
         );
+        const receipt = "source-receipt-" + posting.realizationId;
+        retainedWorkspacePreparations.set(receipt, posting);
+        retainedWorkspacesByRealization.set(posting.realizationId, posting);
         return {
           status: "prepared",
-          receipt: "source-receipt",
+          receipt,
           preparation: {
-            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
-            label: preparedRetainedWorkspace.label,
-            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
-            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
-            definition: preparedRetainedWorkspace.definition,
-            navigation: preparedRetainedWorkspace.navigation,
-            packages: preparedRetainedWorkspace.packages,
-            platforms: preparedRetainedWorkspace.platforms,
+            retainedDefinitionId: posting.retainedDefinitionId,
+            label: posting.label,
+            canonicalLocation: posting.canonicalLocation,
+            canonicalPacket: posting.canonicalPacket,
+            definition: posting.definition,
+            navigation: posting.navigation,
+            packages: posting.packages,
+            platforms: posting.platforms,
+          },
+          posting: null,
+          failure: null,
+        };
+      }
+      export async function prepareRetainedWorkspaceDefinitionFromRecords(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        scenarioId,
+        definitionRecords,
+      ) {
+        document.documentElement.dataset.homeDemoPrepare = scenarioId;
+        document.documentElement.dataset.homeDemoDefinitionRecordCount =
+          String(definitionRecords.length);
+        const preparationOrdinal = ++homeDemoPreparationOrdinal;
+        document.documentElement.dataset.homeDemoPreparationCount =
+          String(homeDemoPreparationOrdinal);
+        if (preparationOrdinal === homeDemoPreparationPendingOrdinal) {
+          document.documentElement.dataset.homeDemoPreparationPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-home-demo-preparation", resolve, { once: true }));
+          document.documentElement.dataset.homeDemoPreparationPending = "false";
+        }
+        if (preparationOrdinal === homeDemoPreparationFailureOrdinal) {
+          throw new Error("Fixture product demo preparation failed.");
+        }
+        let posting;
+        try {
+          posting = homeDemoWorkspacePosting(
+            retainedDefinitionId,
+            label,
+            canonicalLocation,
+            scenarioId,
+            definitionRecords,
+            null,
+          );
+        } catch (error) {
+          return {
+            status: "failed",
+            receipt: null,
+            preparation: null,
+            posting: null,
+            failure: {
+              kind: "InvalidDefinition",
+              message: error instanceof Error
+                ? error.message
+                : "Fixture product demo definition is invalid.",
+            },
+          };
+        }
+        document.documentElement.dataset.homeDemoPreparedSubjects =
+          JSON.stringify([
+            ...posting.packages.map(
+              candidate => candidate.navigationId),
+            ...posting.platforms.map(
+              candidate => candidate.navigationId),
+          ]);
+        const receipt = "home-demo-receipt-" + posting.realizationId;
+        retainedWorkspacePreparations.set(receipt, posting);
+        retainedWorkspacesByRealization.set(posting.realizationId, posting);
+        return {
+          status: "prepared",
+          receipt,
+          preparation: {
+            retainedDefinitionId: posting.retainedDefinitionId,
+            label: posting.label,
+            canonicalLocation: posting.canonicalLocation,
+            canonicalPacket: posting.canonicalPacket,
+            definition: posting.definition,
+            navigation: posting.navigation,
+            packages: posting.packages,
+            platforms: posting.platforms,
           },
           posting: null,
           failure: null,
@@ -3685,24 +4480,27 @@ async function installFacades(
         canonicalLocation,
         ecosystemId,
       ) {
-        preparedRetainedWorkspace = ecosystemWorkspacePosting(
+        const posting = ecosystemWorkspacePosting(
           retainedDefinitionId,
           label,
           canonicalLocation,
           ecosystemId,
         );
+        const receipt = "ecosystem-receipt-" + posting.realizationId;
+        retainedWorkspacePreparations.set(receipt, posting);
+        retainedWorkspacesByRealization.set(posting.realizationId, posting);
         return {
           status: "prepared",
-          receipt: "ecosystem-receipt",
+          receipt,
           preparation: {
-            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
-            label: preparedRetainedWorkspace.label,
-            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
-            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
-            definition: preparedRetainedWorkspace.definition,
-            navigation: preparedRetainedWorkspace.navigation,
-            packages: preparedRetainedWorkspace.packages,
-            platforms: preparedRetainedWorkspace.platforms,
+            retainedDefinitionId: posting.retainedDefinitionId,
+            label: posting.label,
+            canonicalLocation: posting.canonicalLocation,
+            canonicalPacket: posting.canonicalPacket,
+            definition: posting.definition,
+            navigation: posting.navigation,
+            packages: posting.packages,
+            platforms: posting.platforms,
           },
           posting: null,
           failure: null,
@@ -3823,6 +4621,10 @@ async function installFacades(
             packageInventory,
           ],
         };
+        retainedWorkspacesByRealization.set(
+          preparedRetainedWorkspace.realizationId,
+          preparedRetainedWorkspace,
+        );
         document.documentElement.dataset.ecosystemPackageAdmissions =
           JSON.stringify([
             packageId,
@@ -3838,18 +4640,41 @@ async function installFacades(
           message: null,
         };
       }
-      export async function commitRetainedWorkspaceActivation() {
+      export async function commitRetainedWorkspaceActivation(receipt) {
+        const posting = retainedWorkspacePreparations.get(receipt);
+        if (posting === undefined) {
+          throw new Error("Fixture retained Workspace receipt is unavailable.");
+        }
+        preparedRetainedWorkspace = posting;
         return {
           status: "activated",
-          posting: preparedRetainedWorkspace,
+          posting,
+          failure: null,
+        };
+      }
+      export async function cancelRetainedWorkspaceActivation(receipt) {
+        const posting = retainedWorkspacePreparations.get(receipt);
+        retainedWorkspacePreparations.delete(receipt);
+        if (posting !== undefined) {
+          retainedWorkspacesByRealization.delete(posting.realizationId);
+        }
+        if (posting !== undefined
+          && preparedRetainedWorkspace?.realizationId
+            === posting.realizationId) {
+          preparedRetainedWorkspace = null;
+        }
+        return {
+          status: "superseded",
+          posting: null,
           failure: null,
         };
       }
       export function completeRetainedWorkspaceActivation(
-        _receipt,
+        receipt,
         succeeded,
         failure,
       ) {
+        retainedWorkspacePreparations.delete(receipt);
         return {
           status: "completed",
           succeeded,
@@ -3898,17 +4723,73 @@ async function installFacades(
       export function abandonRetainedWorkspaceNavigation() {
         return "accepted";
       }
-      export async function admitRetainedWorkspacePackage() {
+      async function holdHomeDemoSurfaceAdmission() {
+        homeDemoSurfaceAdmissionOrdinal++;
+        if (homeDemoSurfaceAdmissionOrdinal
+            !== homeDemoSurfaceAdmissionPendingOrdinal) return;
+        document.documentElement.dataset.homeDemoSurfaceAdmissionPending =
+          "true";
+        await new Promise(resolve => document.addEventListener(
+          "finish-home-demo-surface-admission", resolve, { once: true }));
+        document.documentElement.dataset.homeDemoSurfaceAdmissionPending =
+          "false";
+      }
+      export async function admitRetainedWorkspacePackage(
+        _retainedDefinitionId,
+        _realizationId,
+        navigationId,
+      ) {
+        await holdHomeDemoSurfaceAdmission();
+        const retainedWorkspace =
+          retainedWorkspacesByRealization.get(_realizationId)
+          ?? preparedRetainedWorkspace;
+        const surface =
+          retainedWorkspace?.fixturePackageSurfaces?.[navigationId]
+          ?? retainedWorkspaceSurface;
+        const inventory = retainedWorkspace?.packages.find(
+          item => item.navigationId === navigationId);
         return {
           status: "admitted",
           package: {
-            navigationId: "source-package-navigation",
-            contextIndex: 0,
-            consumerPackageSubjectId: "source-package",
-            surface: retainedWorkspaceSurface,
+            navigationId,
+            contextIndex: inventory?.contextIndex ?? 0,
+            consumerPackageSubjectId:
+              inventory?.consumerPackageSubjectId ?? "source-package",
+            surface,
             typePage: {
               offset: 0,
-              totalTypes: retainedWorkspaceSurface.types.length,
+              totalTypes: surface.types.length,
+              nextOffset: null,
+            },
+          },
+          message: null,
+        };
+      }
+      export async function admitRetainedWorkspacePlatform(
+        _retainedDefinitionId,
+        _realizationId,
+        navigationId,
+      ) {
+        await holdHomeDemoSurfaceAdmission();
+        const retainedWorkspace =
+          retainedWorkspacesByRealization.get(_realizationId)
+          ?? preparedRetainedWorkspace;
+        const surface =
+          retainedWorkspace?.fixturePlatformSurface
+          ?? platformFocusSurface;
+        const inventory = retainedWorkspace?.platforms.find(
+          item => item.navigationId === navigationId);
+        return {
+          status: "admitted",
+          platform: {
+            navigationId,
+            contextIndex: inventory?.contextIndex ?? 0,
+            family: inventory?.family ?? "runtime",
+            runtimeIdentifier: inventory?.runtimeIdentifier ?? null,
+            surface,
+            typePage: {
+              offset: 0,
+              totalTypes: surface.types.length,
               nextOffset: null,
             },
           },
@@ -4165,6 +5046,7 @@ export type {
   BrowserTypeSurface,
   BrowserCallGraph,
   BrowserHomeDemoCatalogEntry,
+  BrowserHomeDemoResolved,
   BrowserHomeDemoRunResult,
   PlatformAssemblyRow,
   PlatformCatalogTarget,

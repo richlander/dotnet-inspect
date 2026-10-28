@@ -31,7 +31,7 @@ public sealed class CapabilityCatalogSearchTests
         Assert.True(result.IsSegment);
         Assert.Equal(
             InspectionCapabilityResourceKind.QueryFacet,
-            result.ResourceIdentity.Kind);
+            result.ResourceIdentity!.Kind);
         Assert.Equal(["library-literal"], result.CanonicalKeys);
         Assert.Equal(
             "package-query/query/facets/library-literal",
@@ -44,6 +44,31 @@ public sealed class CapabilityCatalogSearchTests
             Assert.Single(result.ProductionBindings).Identity);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public void SeparatorJoinedKey_MatchesTheCompleteCanonicalKey()
+    {
+        (InspectionCapabilityCatalog catalog,
+            ResourceExplanationCatalog explanation) = CreateCatalog();
+
+        CapabilityCatalogSearchDocument document =
+            CapabilityCatalogSearch.Search(
+                    catalog,
+                    explanation,
+                    new("library-literal"))
+                .Content;
+
+        Assert.Equal(
+            CapabilityCatalogSearch.PhraseThreshold,
+            document.SimilarityThreshold);
+        CapabilityCatalogSearchResult result = document.Results[0];
+        Assert.Equal(1.0, result.Similarity);
+        Assert.Equal("library-literal", result.MatchedTerm);
+        Assert.Equal(
+            CapabilityCatalogSearchMatchSource.CanonicalKey,
+            result.MatchSource);
+        Assert.False(result.IsSegment);
     }
 
     [Fact]
@@ -195,7 +220,7 @@ public sealed class CapabilityCatalogSearchTests
             executable.ResourceKind);
         Assert.Equal(
             PackageQueryCapability.Route.Descriptor.Identity,
-            executable.ResourceIdentity.Identity);
+            executable.ResourceIdentity!.Identity);
         Assert.Equal(
             CapabilityCatalogSearchMatchSource.Summary,
             executable.MatchSource);
@@ -254,8 +279,8 @@ public sealed class CapabilityCatalogSearchTests
 
         Assert.Equal(
             InspectionCapabilityResourceKind.QueryFacet,
-            result.ResourceIdentity.Kind);
-        Assert.Equal("alpha", result.ResourceIdentity.Identity);
+            result.ResourceIdentity!.Kind);
+        Assert.Equal("alpha", result.ResourceIdentity!.Identity);
         Assert.Equal(
             CapabilityCatalogSearchMatchSource.OwnerIdentity,
             result.MatchSource);

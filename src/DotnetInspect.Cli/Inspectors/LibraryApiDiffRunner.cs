@@ -1,5 +1,4 @@
 using DotnetInspector.PackageQueries;
-using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -13,10 +12,11 @@ internal static class LibraryApiDiffRunner
         new(1, 1_000_000, 1_000_000, 1_000, 1_000_000, 10_000_000);
 
     internal static async Task<
-        InspectionEnvelope<LibraryApiDiffOutcome>> ExecuteAsync(
+        InspectionEnvelope<T>> ExecuteAsync<T>(
             AssemblySetEntry before,
             AssemblySetEntry after,
             bool includeAll,
+            Func<AssemblyContextApiComparisonResult, InspectionEnvelope<T>> complete,
             ApiTypeSelection? typeSelection = null)
     {
         AssemblyContextParticipant beforeParticipant = CreateParticipant(before);
@@ -27,14 +27,14 @@ internal static class LibraryApiDiffRunner
         using AssemblyContextGroup afterGroup =
             workspace.CreateAssemblyContextGroup([afterParticipant]);
 
-        return LibraryApiDiffInspection.Execute(
+        return complete(AssemblyContextApiComparisonQuery.Execute(
             beforeGroup,
             beforeParticipant,
             afterGroup,
             afterParticipant,
-            includeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public,
+            includeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.ApiAxis,
             Limits,
-            typeSelection);
+            typeSelection));
     }
 
     /// <summary>
@@ -42,10 +42,11 @@ internal static class LibraryApiDiffRunner
     /// each participant through the scope that holds its group.
     /// </summary>
     internal static async Task<
-        InspectionEnvelope<LibraryApiDiffOutcome>> ExecuteAsync(
+        InspectionEnvelope<T>> ExecuteAsync<T>(
             PackageEndpointScope before,
             PackageEndpointScope after,
             bool includeAll,
+            Func<AssemblyContextApiComparisonResult, InspectionEnvelope<T>> complete,
             ApiTypeSelection? typeSelection = null,
             CancellationToken cancellationToken = default)
     {
@@ -54,7 +55,7 @@ internal static class LibraryApiDiffRunner
         PackageEndpointParticipant afterLibrary =
             after.SurfaceParticipants.Single();
         ArtifactRootResult<ArtifactRootResult<
-            InspectionEnvelope<LibraryApiDiffOutcome>>> result =
+            InspectionEnvelope<T>>> result =
             await before.UseSurfaceParticipantAsync(
                     beforeLibrary,
                     (beforeGroup, beforeParticipant, token) =>
@@ -62,37 +63,37 @@ internal static class LibraryApiDiffRunner
                             afterLibrary,
                             (afterGroup, afterParticipant, _) =>
                                 ValueTask.FromResult(
-                                    LibraryApiDiffInspection.Execute(
+                                    complete(AssemblyContextApiComparisonQuery.Execute(
                                         beforeGroup,
                                         beforeParticipant,
                                         afterGroup,
                                         afterParticipant,
                                         includeAll
                                             ? ApiSurfaceScope.IncludeAll
-                                            : ApiSurfaceScope.Public,
+                                            : ApiSurfaceScope.ApiAxis,
                                         Limits,
-                                        typeSelection)),
+                                        typeSelection))),
                             token),
                     cancellationToken)
                 .ConfigureAwait(false);
         return result switch
         {
             ArtifactRootResult<ArtifactRootResult<
-                InspectionEnvelope<LibraryApiDiffOutcome>>>.Available
+                InspectionEnvelope<T>>>.Available
             {
                 Value: ArtifactRootResult<
-                    InspectionEnvelope<LibraryApiDiffOutcome>>.Available inner,
+                    InspectionEnvelope<T>>.Available inner,
             } => inner.Value,
             ArtifactRootResult<ArtifactRootResult<
-                InspectionEnvelope<LibraryApiDiffOutcome>>>.Available
+                InspectionEnvelope<T>>>.Available
             {
                 Value: ArtifactRootResult<
-                    InspectionEnvelope<LibraryApiDiffOutcome>>.Rejected rejected,
+                    InspectionEnvelope<T>>.Rejected rejected,
             } => throw new InvalidOperationException(
                 "API comparison not compared: the after endpoint rejected its query: "
                     + rejected.Failure),
             ArtifactRootResult<ArtifactRootResult<
-                InspectionEnvelope<LibraryApiDiffOutcome>>>.Rejected rejected =>
+                InspectionEnvelope<T>>>.Rejected rejected =>
                 throw new InvalidOperationException(
                     "API comparison not compared: the before endpoint rejected its query: "
                         + rejected.Failure),

@@ -11,8 +11,8 @@ internal static class ApiCoordinateMatchCommand
         ApiCoordinateMatchOptionsParser.Success options,
         CancellationToken cancellationToken)
     {
-        await using var provider =
-            new ConfiguredPackageRootPayloadProvider(
+        await using var executor =
+            new ConfiguredApiCoordinateMatchHouseExecutor(
                 HttpClientFactory.Shared.Timeout,
                 options.SourceOptions);
         try
@@ -20,7 +20,7 @@ internal static class ApiCoordinateMatchCommand
             InspectionEnvelope<ApiCoordinateMatchContent> envelope =
                 await ApiCoordinateMatchInspection.ExecuteAsync(
                     options.Request,
-                    provider,
+                    executor.Execution,
                     cancellationToken).ConfigureAwait(false);
             return ApiCoordinateMatchOutput.Write(envelope, options);
         }

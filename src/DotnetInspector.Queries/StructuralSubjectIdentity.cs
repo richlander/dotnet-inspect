@@ -12,6 +12,7 @@ public enum StructuralSubjectKind
     Library,
     Type,
     Member,
+    Project,
 }
 
 /// <summary>
@@ -60,6 +61,11 @@ public abstract record StructuralSubjectIdentity
         WorkspaceEcosystemRegistrationOccurrenceIdentity occurrence,
         WorkspaceEcosystemRegistrationId id) =>
         new(workspace, occurrence, id);
+
+    public static ProjectSubject ForProject(
+        WorkspaceSubject workspace,
+        WorkspaceProjectOccurrence occurrence) =>
+        new(workspace, occurrence);
 
     /// <summary>Creates one exact retained Package subject.</summary>
     public static PackageSubject ForPackage(
@@ -156,6 +162,33 @@ public abstract record StructuralSubjectIdentity
 
         /// <summary>The canonical identity of the registered Ecosystem.</summary>
         public WorkspaceEcosystemRegistrationId Id { get; }
+    }
+
+    public sealed record ProjectSubject : StructuralSubjectIdentity
+    {
+        internal ProjectSubject(
+            WorkspaceSubject workspace,
+            WorkspaceProjectOccurrence occurrence)
+        {
+            ArgumentNullException.ThrowIfNull(workspace);
+            ArgumentNullException.ThrowIfNull(occurrence);
+            if (!ReferenceEquals(occurrence.Workspace, workspace.Identity))
+            {
+                throw new ArgumentException(
+                    "The Project occurrence must belong to the exact Workspace.",
+                    nameof(occurrence));
+            }
+
+            Workspace = workspace;
+            Occurrence = occurrence;
+        }
+
+        public override WorkspaceSubject Workspace { get; }
+
+        public override StructuralSubjectKind Kind =>
+            StructuralSubjectKind.Project;
+
+        public WorkspaceProjectOccurrence Occurrence { get; }
     }
 
     /// <summary>One exact retained Package occurrence.</summary>

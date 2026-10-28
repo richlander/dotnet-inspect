@@ -1,0 +1,171 @@
+using DotnetInspect.Cli.Inspectors;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+
+namespace DotnetInspect.Cli.Commands;
+
+public partial class PackageCommand
+{
+    static async Task<int?> TryExecuteOnlinePackageAsync(
+        PackageReferenceTarget target,
+        InspectionOptions options,
+        CommandContext context,
+        PackageHouseTargetContext? targetContext)
+    {
+        if (target.IsLocalFile
+            || options.DeclaredPackageTarget is { IsLocalFile: true }
+            || DotnetInspector.Networking.HttpClientFactory.IsOffline
+            || options.ShowContent
+            || options.AllLibraries
+            || options.PackageLibrary is not null)
+        {
+            return null;
+        }
+
+        await using DesktopPackageSourceComposition composition =
+            context.CreatePackageSourceComposition();
+        using var stores = new SearchPackageStores("inspect-package");
+        bool isPinned = PackageExtractor.TryNormalizePackageVersion(
+            target.Version, out string pinnedVersion);
+        PackageHouseTargetContext compileTarget =
+            targetContext
+            ?? (string.IsNullOrWhiteSpace(options.Tfm)
+                || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
+                    ? PackageHouseTargetContext.OwnerDefault()
+                    : PackageHouseTargetContext.Exact(options.Tfm));
+        ConfiguredPackagePayloadResult acquisition = isPinned
+            ? await composition.AcquirePinnedAsync(
+                target.PackageName,
+                pinnedVersion,
+                stores.GetStore,
+                options.SourceOptions,
+                context.Logger.Log,
+                compileTargetContext: compileTarget).ConfigureAwait(false)
+            : await composition.AcquireSelectedAsync(
+                target.PackageName,
+                target.Version.Length > 0 ? target.Version : null,
+                stores.GetStore,
+                options.SourceOptions,
+                context.Logger.Log,
+                options.IncludePrerelease,
+                compileTargetContext: compileTarget).ConfigureAwait(false);
+        if (acquisition.HouseSettlement
+            is not PackageHouseSettlement.Acquired settlement)
+        {
+            WritePackageInfoAcquisitionFailure(
+                target.PackageName,
+                isPinned ? pinnedVersion : target.Version,
+                acquisition,
+                isPinned,
+                context.Logger.Log);
+            return 1;
+        }
+
+        if (MayRequireLegacyToolWrapperHandling(
+                settlement.Payload.Content.EnumerateEntries()))
+        {
+            context.Logger.Log(
+                "Tool-wrapper inspection retains the legacy redirect path.");
+            return null;
+        }
+
+        foreach (PackageAuthorityFailure failure in acquisition.Failures)
+            context.Logger.Log($"{failure.Authority}: {failure.Message}");
+        foreach (PackageHouseFailure.Stage failure
+            in settlement.Result.Evidence.Failures
+                .OfType<PackageHouseFailure.Stage>())
+        {
+            context.Logger.Log(failure.Reason.ToString());
+        }
+
+        PackageHouseRootContributionOutcome rootContribution =
+            PackageHouseRootContributionAdapter.Create(settlement);
+        if (rootContribution
+            is not PackageHouseRootContributionOutcome.Contributed contribution)
+        {
+            var unavailable =
+                (PackageHouseRootContributionOutcome.NoContribution)
+                    rootContribution;
+            CommandError.Write(
+                "The acquired package could not contribute a Workspace Root: "
+                + unavailable.Reason);
+            return 1;
+        }
+
+        PackageRootBinding binding =
+            contribution.Contribution.Binding.ForContentInspection();
+        var workspace = new InspectionWorkspace(WorkspacePlan.Empty);
+        return await WorkspacePacketRestorationLifetime.ExecuteAsync(
+            workspace,
+            async () =>
+            {
+                WorkspaceScopeReadResult read =
+                    await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
+                if (read is not WorkspaceScopeReadResult.Available available)
+                {
+                    CommandError.Write(
+                        "The package Workspace is unavailable: " + read);
+                    return 1;
+                }
+
+                WorkspaceScopeOperationResult admission =
+                    await workspace.AddPackagesAsync(
+                        available.Snapshot.Revision,
+                        [binding],
+                        DateTimeOffset.UtcNow.AddMinutes(5))
+                        .ConfigureAwait(false);
+                if (admission
+                    is not WorkspaceScopeOperationResult.Committed committed)
+                {
+                    CommandError.Write(
+                        "The package Root could not be admitted: " + admission);
+                    return 1;
+                }
+
+                WorkspacePackageOccurrenceDescriptor package =
+                    committed.Snapshot.Packages.Single();
+                if (package.Occurrence.Correspondence
+                        is not PackageArtifactRootCorrespondence correspondence
+                    || package.Realization.Status
+                        is not ArtifactRootRealizationStatus.Ready ready)
+                {
+                    throw new InvalidOperationException(
+                        "The committed package Root did not publish query admission.");
+                }
+
+                context.Logger.Log(
+                    "Using committed content-only package Root for inspection: "
+                    + $"{binding.Root.PackageId}@{binding.Root.PackageVersion}.");
+                ArtifactRootResult<WorkspacePackageInspectionContent> query =
+                    await workspace.ExecutePackageRootQueryAsync(
+                        correspondence,
+                        ready.Generation,
+                        async (_, token) =>
+                        {
+                            token.ThrowIfCancellationRequested();
+                            return await ExecuteAdmittedPackageAsync(
+                                options,
+                                context,
+                                binding,
+                                contextTargetFramework: null,
+                                acquisition: acquisition).ConfigureAwait(false);
+                        }).ConfigureAwait(false);
+                if (query
+                    is ArtifactRootResult<WorkspacePackageInspectionContent>
+                        .Available inspected)
+                {
+                    return inspected.Value.ExitCode;
+                }
+
+                var rejected =
+                    (ArtifactRootResult<WorkspacePackageInspectionContent>
+                        .Rejected)query;
+                CommandError.Write(
+                    "The package Root query was rejected: " + rejected.Failure);
+                return 1;
+            }).ConfigureAwait(false);
+    }
+}

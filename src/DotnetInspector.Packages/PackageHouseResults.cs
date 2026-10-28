@@ -671,6 +671,43 @@ public abstract class PackageHouseLibraryHandoff
 
         public PackageAssetEntry Asset { get; }
     }
+
+    public sealed class Tool : PackageHouseLibraryHandoff
+    {
+        internal Tool(
+            PackageHouseAcquisitionReceipt acquisition,
+            PackageToolSliceMeasurementEvidence evidence,
+            PackageToolSliceSelection selection,
+            string assetPath)
+            : base(acquisition)
+        {
+            ArgumentNullException.ThrowIfNull(evidence);
+            ArgumentNullException.ThrowIfNull(selection);
+            ArgumentException.ThrowIfNullOrWhiteSpace(assetPath);
+            PackageHouseRealizationCorrespondence.RequireTool(
+                acquisition,
+                evidence,
+                selection);
+            if (!selection.SelectedEntries.Contains(
+                    assetPath,
+                    StringComparer.Ordinal))
+            {
+                throw new ArgumentException(
+                    "A tool handoff must use one exact selected entry.",
+                    nameof(assetPath));
+            }
+
+            Evidence = evidence;
+            Selection = selection;
+            AssetPath = assetPath;
+        }
+
+        public PackageToolSliceMeasurementEvidence Evidence { get; }
+
+        public PackageToolSliceSelection Selection { get; }
+
+        public string AssetPath { get; }
+    }
 }
 
 /// <summary>
@@ -744,7 +781,7 @@ public abstract class PackageHouseRealizationReceipt
             selection.Assets
                 .Where(asset =>
                     selection.FindImplementationAsset(asset) is null)
-                .Select(asset => Path.GetFileName(asset.Path)),
+                .Select(asset => asset.AssemblyName),
             StringComparer.OrdinalIgnoreCase);
         return
         [
@@ -872,6 +909,124 @@ public abstract class PackageHouseRealizationReceipt
         public override ImmutableArray<PackageHouseLibraryHandoff>
             LibraryHandoffs { get; }
     }
+
+    public sealed class LibraryPopulation : PackageHouseRealizationReceipt
+    {
+        internal LibraryPopulation(
+            PackageHouseAcquisitionReceipt acquisition,
+            PackageLibraryPopulationSelection selection)
+            : base(acquisition)
+        {
+            ArgumentNullException.ThrowIfNull(selection);
+            PackageHouseRealizationCorrespondence
+                .RequireLibraryPopulation(
+                    acquisition,
+                    selection);
+
+            Selection = selection;
+            Completion = selection switch
+            {
+                PackageLibraryPopulationSelection.Compile =>
+                    PackageHouseRealizationCompletion.Settled,
+                PackageLibraryPopulationSelection.Runtime =>
+                    PackageHouseRealizationCompletion.Settled,
+                PackageLibraryPopulationSelection.Tool =>
+                    PackageHouseRealizationCompletion.Settled,
+                PackageLibraryPopulationSelection.NonSuccess
+                    {
+                        ToolSelection.Status:
+                            PackageToolSliceSelectionStatus.InvalidSelection,
+                    } =>
+                    PackageHouseRealizationCompletion.Rejected,
+                PackageLibraryPopulationSelection.NonSuccess
+                    {
+                        RuntimeReceipt.Selection:
+                            PackageAssetSelection.Ambiguous,
+                    } =>
+                    PackageHouseRealizationCompletion.Ambiguous,
+                PackageLibraryPopulationSelection.NonSuccess
+                    {
+                        RuntimeReceipt.Selection:
+                            PackageAssetSelection.NoMatch,
+                    } =>
+                    PackageHouseRealizationCompletion.NoMatch,
+                PackageLibraryPopulationSelection.NonSuccess
+                    {
+                        RuntimeReceipt.Selection:
+                            PackageAssetSelection.Invalid,
+                    } =>
+                    PackageHouseRealizationCompletion.Rejected,
+                PackageLibraryPopulationSelection.NonSuccess nonSuccess =>
+                    nonSuccess.CompileReceipt.Selection.Status switch
+                    {
+                        PackageCompileAssetSelectionStatus.NoCompileAssets
+                            or PackageCompileAssetSelectionStatus
+                                .NoMatchingTargetFramework =>
+                            PackageHouseRealizationCompletion.NoMatch,
+                        _ => PackageHouseRealizationCompletion.Rejected,
+                    },
+                _ => PackageHouseRealizationCompletion.Rejected,
+            };
+            LibraryHandoffs =
+                acquisition.Decision.Request.LibraryHandoff
+                    == PackageHouseLibraryHandoffMode.SelectedLibraries
+                && Completion == PackageHouseRealizationCompletion.Settled
+                    ? CreateHandoffs(acquisition, selection)
+                    : [];
+        }
+
+        public PackageLibraryPopulationSelection Selection { get; }
+
+        internal override PackageHouseRealizationCompletion Completion
+            { get; }
+
+        public override ImmutableArray<PackageHouseLibraryHandoff>
+            LibraryHandoffs { get; }
+
+        private static ImmutableArray<PackageHouseLibraryHandoff>
+            CreateHandoffs(
+                PackageHouseAcquisitionReceipt acquisition,
+                PackageLibraryPopulationSelection selection) =>
+            selection switch
+            {
+                PackageLibraryPopulationSelection.Compile compile =>
+                [
+                    .. compile.CompileReceipt.Selection.Assets.Select(
+                        asset =>
+                            (PackageHouseLibraryHandoff)
+                                new PackageHouseLibraryHandoff.Compile(
+                                    acquisition,
+                                    compile.CompileReceipt,
+                                    asset,
+                                    compile.CompileReceipt.Selection
+                                        .FindImplementationAsset(asset))),
+                ],
+                PackageLibraryPopulationSelection.Runtime runtime
+                    when runtime.RuntimeReceipt.Selection
+                        is PackageAssetSelection.Selected selected =>
+                [
+                    .. selected.Universe.Assets.Select(
+                        asset =>
+                            (PackageHouseLibraryHandoff)
+                                new PackageHouseLibraryHandoff.Runtime(
+                                    acquisition,
+                                    runtime.RuntimeReceipt,
+                                    asset)),
+                ],
+                PackageLibraryPopulationSelection.Tool tool =>
+                [
+                    .. tool.ToolSelection.SelectedEntries.Select(
+                        assetPath =>
+                            (PackageHouseLibraryHandoff)
+                                    new PackageHouseLibraryHandoff.Tool(
+                                        acquisition,
+                                        tool.ToolEvidence,
+                                        tool.ToolSelection,
+                                        assetPath)),
+                ],
+                _ => [],
+            };
+    }
 }
 
 internal static class PackageHouseRealizationCorrespondence
@@ -886,7 +1041,8 @@ internal static class PackageHouseRealizationCorrespondence
             acquisition.Decision.Request;
         bool compileRealization =
             request.AssetSelection
-                == PackageHouseAssetSelectionKind.Compile;
+                is PackageHouseAssetSelectionKind.Compile
+                    or PackageHouseAssetSelectionKind.LibraryPopulation;
         bool compositeContent =
             request.ContentQuery?.LibraryAndInventoryTerminal
                 is not null;
@@ -905,6 +1061,8 @@ internal static class PackageHouseRealizationCorrespondence
             || !PolicyMatches(
                 request.TargetContext,
                 receipt.Policy)
+            || receipt.IncludesNestedCompileAssets
+                != (request.TargetContext?.IncludesNestedCompileAssets ?? true)
             || !RequestMatches(
                 request.TargetContext,
                 receipt.RequestedTargetFramework,
@@ -931,10 +1089,12 @@ internal static class PackageHouseRealizationCorrespondence
         ArgumentNullException.ThrowIfNull(acquisition);
         ArgumentNullException.ThrowIfNull(receipt);
         if (acquisition.Decision.Request.AssetSelection
-            != PackageHouseAssetSelectionKind.Runtime)
+            is not (
+                PackageHouseAssetSelectionKind.Runtime
+                    or PackageHouseAssetSelectionKind.LibraryPopulation))
         {
             throw new ArgumentException(
-                "A runtime selection requires a runtime realization request.",
+                "A runtime selection requires a runtime or Library-population realization request.",
                 nameof(acquisition));
         }
         if (!ReferenceEquals(
@@ -951,6 +1111,93 @@ internal static class PackageHouseRealizationCorrespondence
         }
     }
 
+    internal static void RequireLibraryPopulation(
+        PackageHouseAcquisitionReceipt acquisition,
+        PackageLibraryPopulationSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        ArgumentNullException.ThrowIfNull(selection);
+        if (acquisition.Decision.Request.AssetSelection
+            != PackageHouseAssetSelectionKind.LibraryPopulation)
+        {
+            throw new ArgumentException(
+                "A Library population requires a Library-population realization request.",
+                nameof(acquisition));
+        }
+
+        RequireCompile(
+            acquisition,
+            selection.CompileReceipt);
+        PackageAssetSelectionReceipt? runtimeReceipt = selection switch
+        {
+            PackageLibraryPopulationSelection.Runtime runtime =>
+                runtime.RuntimeReceipt,
+            PackageLibraryPopulationSelection.Tool toolSelection =>
+                toolSelection.RuntimeReceipt,
+            PackageLibraryPopulationSelection.NonSuccess nonSuccess =>
+                nonSuccess.RuntimeReceipt,
+            _ => null,
+        };
+        if (runtimeReceipt is not null)
+        {
+            RequireRuntime(
+                acquisition,
+                runtimeReceipt);
+        }
+
+        (PackageToolSliceMeasurementEvidence Evidence,
+            PackageToolSliceSelection Selection)? retainedTool =
+            selection switch
+        {
+            PackageLibraryPopulationSelection.Tool selected =>
+                (selected.ToolEvidence, selected.ToolSelection),
+            PackageLibraryPopulationSelection.NonSuccess
+                {
+                    ToolEvidence: not null,
+                    ToolSelection: not null,
+                } nonSuccess =>
+                (nonSuccess.ToolEvidence, nonSuccess.ToolSelection),
+            _ => null,
+        };
+        if (retainedTool is { } tool)
+        {
+            RequireTool(
+                acquisition,
+                tool.Evidence,
+                tool.Selection);
+        }
+    }
+
+    internal static void RequireTool(
+        PackageHouseAcquisitionReceipt acquisition,
+        PackageToolSliceMeasurementEvidence evidence,
+        PackageToolSliceSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        ArgumentNullException.ThrowIfNull(evidence);
+        ArgumentNullException.ThrowIfNull(selection);
+        PackageHouseRequest request = acquisition.Decision.Request;
+        if (request.AssetSelection
+                != PackageHouseAssetSelectionKind.LibraryPopulation
+            || !evidence.Coordinate.Equals(
+                acquisition.Candidate.Coordinate)
+            || !ReferenceEquals(
+                evidence.Generation,
+                acquisition.Generation)
+            || !string.Equals(
+                evidence.RequestedTargetFramework,
+                request.TargetContext?.RequestedFramework,
+                StringComparison.OrdinalIgnoreCase)
+            || !evidence.AvailableTargetFrameworks.SequenceEqual(
+                selection.AvailableTargetFrameworks,
+                StringComparer.Ordinal))
+        {
+            throw new ArgumentException(
+                "Tool selection evidence must describe the acquired generation and exact House Library-population request.",
+                nameof(evidence));
+        }
+    }
+
     private static bool PolicyMatches(
         PackageHouseTargetContext? target,
         PackageCompileAssetSelectionPolicy policy) =>
@@ -958,6 +1205,10 @@ internal static class PackageHouseRealizationCorrespondence
         {
             PackageHouseTargetSelectionMode.Exact =>
                 policy == PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            PackageHouseTargetSelectionMode.ExactTarget =>
+                policy == PackageCompileAssetSelectionPolicy.ExactTarget,
+            PackageHouseTargetSelectionMode.FrozenTarget =>
+                policy == PackageCompileAssetSelectionPolicy.ExactTarget,
             PackageHouseTargetSelectionMode.OwnerDefault or null =>
                 policy == PackageCompileAssetSelectionPolicy.HighestAvailable,
             _ => false,
@@ -970,7 +1221,9 @@ internal static class PackageHouseRealizationCorrespondence
     {
         bool frameworkMatches = target?.Mode switch
         {
-            PackageHouseTargetSelectionMode.Exact =>
+            PackageHouseTargetSelectionMode.Exact
+                or PackageHouseTargetSelectionMode.ExactTarget
+                or PackageHouseTargetSelectionMode.FrozenTarget =>
                 target.RequestedFramework!.Equals(
                     framework,
                     StringComparison.OrdinalIgnoreCase),
@@ -1189,7 +1442,9 @@ public sealed class PackageHouseEvidence
             && (acquisition is null
                 || (request.ContentQuery?.LibraryInventoryTerminal is null
                     && request.ContentQuery
-                        ?.LibraryAndInventoryTerminal is null)
+                        ?.LibraryAndInventoryTerminal is null
+                    && request.ContentQuery
+                        ?.CompileLibrariesTerminal is null)
                 || !ReferenceEquals(
                     libraryInventory.Narrowing,
                     contentNarrowing)

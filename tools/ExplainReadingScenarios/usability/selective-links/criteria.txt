@@ -1,0 +1,17 @@
+Fixed before dispatch. Assess Query/Style domain answers with unchanged criteria;
+assess the navigation task separately. Domain correctness is distinct from
+unnecessary reads. Preserve uncertainty and failed/ignored instructions.
+Compare 2 Query, 2 Style and 1 boundary participant to the historical strong-guide
+cohort as independent, nonrandomized observations, with no causal/latency/token
+or general adherence claim. No schema request alone proves success. Detect
+re-fetching embedded self resources and known paths despite omitted relation
+links. Preserve explicit contract selection as an available operation.
+Verify original CLI responses byte-for-byte against the frozen source; replay
+projection and jq views; verify all domain state and self identities unchanged;
+verify only _links spans changed and every removed relation satisfies policy.
+Validate partial binding links still reach missing dependency facts. Use separate request-start, request-completion and view timestamps to establish
+what had been viewed before each request started; retain parallel request order. Retain original and
+projected stdout separately: agent-visible retrieved bytes differ from raw
+source stdout; this is not a production bandwidth/runtime measurement.
+Freeze answers/receipts/events/responses/views before the unchanged neutral
+post-task question, whose feedback may not modify the trial or add product reads.

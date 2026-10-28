@@ -367,6 +367,159 @@ bugs remain unchanged. Exact `reference-slot-target-binding` impact grows from
 the retired population. The five non-reference `UnrenderableStoreType` split
 webs remain outside this claim.
 
+### Bounded I4 slot identity preservation
+
+An evaluation-stack I4 carrier does not acquire Boolean storage identity merely
+because one store is the canonical integer zero or one and one load is observed
+as a condition. `BooleanFoldingPass` may retype the I4 family of one slot to
+`bool` only when **every** store in that family is already Boolean or a
+canonical `0`/`1` integer constant, every I4 load has Boolean-or-integer stack
+identity, and every such load is consumed where Boolean is valid. Proven
+reference and other non-I4 uses of the same numeric slot are unrelated reuse
+and remain outside the decision. A non-Boolean I4 producer, including a count,
+declines the whole retype; candidate subsets are not proof of the slot's
+Boolean identity.
+
+Integer arithmetic over comparison results supplies the complementary bounded
+case. IL comparison results are I4 values, so a compiler may add several of
+them, spill the sum, and later add that carrier to another integer. Before
+`ArithmeticBoolOperandPass` spells each Boolean operand as `condition ? 1 : 0`,
+it preserves the carrier's `int` result identity only when, within one function
+scope:
+
+- every store is an arithmetic Boolean/`int` mix that the pass itself will
+  normalize to `int` arithmetic; and
+- every load is Boolean-typed only because it is an operand of the same
+  integer-arithmetic domain.
+
+The load is then retagged `int` before arithmetic normalization. This keeps the
+producer normalization while preventing the slot load from becoming a second
+`? 1 : 0`, which would collapse a multi-term count to zero-or-one and sever it
+from its integer store.
+
+These two owner-local checks do not form a general bidirectional slot-typing
+rule. They exclude arbitrary Boolean producers, partial store or load subsets,
+mixed scopes, enum identity, and loads outside the owning Boolean or arithmetic
+domain. In particular, they do not admit
+`TypeRef.FunctionPointerParameterText`, whose Boolean branch joins an
+`ArgumentRefKind` producer and requires separate enum-specific proof.
+
+The pinned Microsoft.CodeAnalysis 5.0.0 witnesses are
+`ForEachLoopOperation.get_ChildOperationsCount` and
+`ForToLoopOperation.get_ChildOperationsCount` for arithmetic-result identity,
+and Microsoft.CodeAnalysis.CSharp 5.0.0
+`EarlyWellKnownAttributeBinder.CanBeValidAttributeArgument` plus the
+repository's `EhStructuringPass.InlineFilterLocalLoads` for complete-store
+Boolean-folding decline. Synthetic gates require all stores and loads to belong
+to the admitted domain and reject an arbitrary Boolean producer.
+
+On the fixed 14-assembly, 89,065-method corpus at base `de207b24a`, the four
+admitted webs retire. Residual-bound webs fall from 61 to 57, residual-bound
+locals from 104 to 96, affected methods from 35 to 31, and split webs from 30
+to 26. The `UnrenderableStoreType` split group falls from five webs and ten
+locals to the one two-local Boolean-to-enum web above. Every other residual
+group, zero late-decidable and nested webs, and the same four known pass bugs
+remain unchanged.
+
+### Decimal constant receiver spills
+
+The ordinary `StructReceiverInliningPass` may recompose an unnamed spill of a
+known core-library `System.Decimal` constant field (`Zero`, `One`, or
+`MinusOne`) into its adjacent member receiver. Both the field
+owner and field type must have exact canonical core-library decimal identity;
+the load must be static and nonvolatile. These known immutable fields are not
+mutable places. Ordinary field receivers, unknown field names, and foreign
+same-name types remain excluded.
+`MinValue` and `MaxValue` use a different compiler lowering and remain outside
+this field-read reconstruction.
+The separately scoped late arithmetic-carrier fold does not admit these fields.
+
+Roslyn lowers `decimal.Zero.CompareTo(value)` as a field read, receiver spill,
+and address load. Introducing `decimal zero = decimal.Zero` instead lets the
+compiler substitute the constant, changing `ldsfld; stloc` into `ldloca;
+initobj`. The pinned `Newtonsoft.Json` 13.0.4 `JValue.CompareBigInteger` body
+exposed by #9980 has this exact distinction. The pipeline must decide the
+receiver before printing; the writer must not recognize or repair the spill.
+
+The fold retains the existing unnamed-local, whole-slot receiver-use,
+same-basic-block adjacency, and evaluation-order proof. It consumes no control
+flow and does not admit field writes, alias escapes, multiply read values, or
+movement across effects. Compiler-produced Release fixtures pin the constant
+receiver lowering, and synthetic near misses retain these decline boundaries.
+
+### Decided enum conditional identity
+
+A conditional whose merged result type is a proven enum keeps that identity
+through Boolean folding. A Boolean condition selects the result arms; it does
+not by itself establish that the result is Boolean. Consequently,
+`BooleanFoldingPass` does not reinterpret enum-typed zero/one arms as
+`bool` merely because the condition is Boolean or because the slot range has
+no load before its next redefinition.
+
+The proof requires an existing enum `TypeShape` for the conditional's decided
+merged type. It preserves typed identity already established by earlier passes;
+it does not infer enum identity from names or numeric backing values, convert
+an independently Boolean result to an enum, admit mixed-type arms, or widen
+slot materialization. Non-enum zero/one conditionals retain their existing
+Boolean-folding behavior.
+
+The repository witness is
+`TypeRef.FunctionPointerParameterText`. Its fallback arm selects
+`ArgumentRefKind.Ref` or `ArgumentRefKind.Value`, while the other range of the
+same evaluation-stack slot loads an `ArgumentRefKind` from
+`FunctionPointerParameterRefKinds`. Preserving the first conditional's decided
+enum result lets the complete slot materialize as one `ArgumentRefKind` local
+instead of splitting into disconnected Boolean and enum residual locals.
+
+On the fixed 14-assembly, 89,065-method corpus at base `17aace859`, this retires
+exactly that one web. Residual-bound webs fall from 57 to 56, residual-bound
+locals from 96 to 94, affected methods from 31 to 30, and split webs from 26 to
+25. Every other residual group, zero late-decidable and nested webs, and the
+same four known pass bugs remain unchanged. Exact `boolean-folding` impact
+falls from 8,093 to 8,092 methods; the sole base/head delta is
+`TypeRef.FunctionPointerParameterText`.
+
+### Late typed spill recomposition
+
+Typed identity decisions may make a previously separated expression tail safe
+to recompose. The late `StructReceiverInliningPass` run owns one exact adjacent
+tail: a single-use stack carrier whose store and load have the same decided
+`int` type and whose value is the canonical two-term additive Boolean-count
+form issued by `ArithmeticBoolOperandPass`, followed by a single-use value-type
+rvalue receiver store, followed by a return that reads the carrier before the
+receiver. The carrier read neither throws, mutates, nor invokes user code.
+Requiring that tail prevents the late run from rediscovering ordinary receiver
+folds outside this claim. Every other carrier shape, local or slot read, call,
+property or field read, conversion, conditional position, and unrecognized
+operation remains a barrier, while the existing adjacency,
+single-receiver-use, unnamed-local, and whole-slot safety requirements remain
+unchanged.
+
+The fold runs immediately before the final slots-only
+`ExpressionInliningPass`. Removing the receiver local can therefore make a
+typed arithmetic stack carrier adjacent to its sole consumer; the existing
+slots-only rule then substitutes that carrier without admitting user locals or
+duplicating any operand. This is a sequenced composition of two existing typed
+raises, not general local elimination or permission to rerun the broad early
+inliner.
+
+Microsoft.CodeAnalysis.Common 5.0.0
+`ForEachLoopOperation.get_ChildOperationsCount` is the pinned witness. Its
+proved I4 count, `NextVariables` value-type receiver, and final `Body` test
+recompose to one four-term return expression matching the checksum-verified
+Roslyn source shape. Synthetic tests separately gate the stable-read receiver
+prefix, effectful-prefix decline, and adjacent arithmetic-carrier substitution.
+
+On the fixed 14-assembly, 89,065-method corpus, the late pass changes exactly
+this one method; the same four known pass bugs remain. The residual-storage
+census is unchanged at 57 webs, 96 locals, 31 methods, and 26 split webs, so
+this is source-shape recovery rather than additional storage retirement. The
+result remains `Full`, but exact compile-back is not claimed: product-artifact
+ReturnToSender currently stalls its declaration closure on missing
+`OperationVisitor`, while the whole-module scaffold reaches an unrelated
+`CS0075` negative-cast error. Both are explicit `RecompileFail` outcomes rather
+than semantic-difference evidence.
+
 ### Join target testimony
 
 Join target compatibility is decided before printing (#2095). Its

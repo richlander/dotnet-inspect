@@ -68,11 +68,13 @@ public sealed class ProductionFacadeContextTests
             "ClassifyPackageGraphIdentities",
             "ClearWorkspacePackageOccurrences",
             "ClosePlatformForwarderView",
+            "ContainPackageDocumentLeaves",
+            "ExplainPackageQuery",
             "GetPackageDocument",
             "GetPlatformCatalog",
             "GetPlatformVersions",
+            "InspectPackageQueryFacets",
             "ListPackageActivityEcosystems",
-            "ListPackageQueryCatalog",
             "LoadRuntimePack",
             "LoadRuntimePackAssembly",
             "MatchPackageDependencyCoordinate",
@@ -85,11 +87,13 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
             "QueryPackageDependencies",
+            "QueryPackageHierarchy",
             "QueryPackageIcon",
             "QueryPackageRoot",
             "QueryPackageSummary",
             "QueryPackageVulnerabilities",
             "QueryPackageVersions",
+            "QueryReferencePackageSuppliers",
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
@@ -107,11 +111,11 @@ public sealed class ProductionFacadeContextTests
         [MetadataAssembly] =
         [
             "CancelLibraryApiDiff",
-            "CancelLibraryFastDiff",
+            "CancelLibraryFindingDiffAny",
             "FindTypes",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
-            "QueryLibraryFastDiff",
+            "QueryLibraryFindingDiffAny",
             "QueryMemberDeclaration",
             "QueryMemberDocument",
             "QueryMemberGroupDocument",
@@ -120,6 +124,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformMemberGroupDocument",
             "QueryPlatformPerformanceTypeMemberPopulation",
             "QueryPlatformTypeMemberPopulation",
+            "QueryPlatformTypeOverviewDocument",
             "QueryPackageHeapEntries",
             "QueryPackageMetadata",
             "QueryPackageMetadataTable",
@@ -128,11 +133,13 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformMetadata",
             "QueryPlatformMetadataTable",
             "QueryTypeMemberPopulation",
+            "QueryTypeOverviewDocument",
             "QueryTypeProjection",
             "QueryUploadedLibraryMemberDocument",
             "QueryUploadedLibraryMemberGroupDocument",
             "QueryUploadedLibraryPerformanceTypeMemberPopulation",
             "QueryUploadedLibraryTypeMemberPopulation",
+            "QueryUploadedLibraryTypeOverviewDocument",
         ],
         [AnalysisAssembly] =
         [
@@ -211,15 +218,22 @@ public sealed class ProductionFacadeContextTests
             "DeactivateRetainedWorkspaceDefinition",
             "DecodeWorkspaceShareState",
             "DescribeWorkspacePackageSources",
+            "DescribeWorkspaceComponents",
             "EncodeWorkspaceShareState",
             "ExplainVocabularies",
+            "ExplainResources",
+            "ExplainWorkspaceComponent",
             "ListEcosystems",
             "ListHomeDemos",
+            "ListLibraryViewFacets",
+            "ListMemberViewFacets",
+            "ListTypeViewFacets",
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
             "PrepareEcosystemWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
+            "PrepareRetainedWorkspaceDefinitionFromRecords",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",
             "RecordRetainedWorkspaceNavigationPosting",
             "ResolveHomeDemo",
@@ -272,7 +286,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(154, everyExport.Length);
+        Assert.Equal(168, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -360,6 +374,11 @@ public sealed class ProductionFacadeContextTests
             Collect(derived, sharedSourceContractTypes);
         }
 
+        // This facade carries owner-issued declaration JSON as an opaque string.
+        // Its serializer must retain the owner type and converters, not a Browser copy.
+        var sharedCatalogContractTypes = new HashSet<Type>();
+        Collect(typeof(DotnetInspector.Queries.Definitions.WorkspacePackageComponentDescriptor),
+            sharedCatalogContractTypes);
         foreach (Type root in RootTypes())
         {
             Assembly assembly = root.Assembly;
@@ -387,7 +406,8 @@ public sealed class ProductionFacadeContextTests
             {
                 string declaring = AssemblyNameOf(type.Assembly);
                 if ((owner == MetadataAssembly && sharedContractTypes.Contains(type))
-                    || (owner == SourceAssembly && sharedSourceContractTypes.Contains(type)))
+                    || (owner == SourceAssembly && sharedSourceContractTypes.Contains(type))
+                    || (owner == CatalogAssembly && sharedCatalogContractTypes.Contains(type)))
                 {
                     continue;
                 }
@@ -428,8 +448,29 @@ public sealed class ProductionFacadeContextTests
 
         Assert.Contains(
             "queryMemberDocumentation(packageId: string, version: string, "
-            + "framework: string, assemblyName: string, documentationId: string): "
+            + "framework: string, assemblyName: string, documentationId: string, "
+            + "runtimeIdentifier: string | null): "
             + "Promise<DocumentationQueryOutcome>",
+            facade,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductionMetadataFacade_PublishesRuntimeAwareMemberDocument()
+    {
+        string facade = File.ReadAllText(Path.Combine(
+            InspectWebRoot(),
+            "DotnetInspect.Web",
+            "facades",
+            "inspect-web-metadata.ts"));
+
+        Assert.Contains(
+            "queryMemberDocument(packageId: string, version: string, "
+            + "targetFramework: string, assemblyName: string, "
+            + "typeIdentity: string, memberName: string, "
+            + "baselineOrdinal: number, fingerprintPrefix: string, "
+            + "runtimeIdentifier: string | null): "
+            + "Promise<BrowserMemberDocumentInspection>",
             facade,
             StringComparison.Ordinal);
     }

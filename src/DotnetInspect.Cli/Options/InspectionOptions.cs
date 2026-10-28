@@ -96,6 +96,17 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public bool NamesakeLibrary { get; init; }
 
+    /// <summary>
+    /// Narrow Package Library inspection to the owner-issued First Library.
+    /// </summary>
+    public bool FirstLibrary { get; init; }
+
+    /// <summary>
+    /// The First Library was selected because no Library was named, so a
+    /// Package with several Libraries reports that only one is shown.
+    /// </summary>
+    internal bool ReportUnnamedLibrarySelection { get; init; }
+
     internal string? TypeNamespace { get; init; }
 
     internal bool IncludeNamespaceChildren { get; init; }
@@ -484,6 +495,8 @@ internal abstract record WorkspaceLibrarySelection
     internal sealed record Aggregate : WorkspaceLibrarySelection;
 
     internal sealed record Namesake : WorkspaceLibrarySelection;
+
+    internal sealed record First : WorkspaceLibrarySelection;
 
     internal sealed record Exact(string Library) : WorkspaceLibrarySelection;
 }

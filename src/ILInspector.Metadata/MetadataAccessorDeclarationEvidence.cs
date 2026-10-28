@@ -226,16 +226,16 @@ public sealed record MetadataPropertySignatureIdentity(
 }
 
 public abstract record MetadataAccessorRootDeclarationEvidence(
-    InertString Name)
+    MetadataUtf8Name Name)
 {
     public sealed record Property(
-        InertString Name,
+        MetadataUtf8Name Name,
         PropertyAttributes Attributes,
         MetadataPropertySignatureIdentity Signature)
         : MetadataAccessorRootDeclarationEvidence(Name);
 
     public sealed record Event(
-        InertString Name,
+        MetadataUtf8Name Name,
         EventAttributes Attributes,
         MetadataTypeIdentity EventType,
         MetadataEventTypeCategoryStatus TypeCategory)
@@ -1002,7 +1002,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 MetadataAccessorDeclarationMechanism.TextRetention,
         };
         return new(
-            Retain(ReadName(nameHandle)),
+            RetainName(nameHandle),
             attributes,
             identity);
     }
@@ -1060,7 +1060,7 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
                 MetadataAccessorDeclarationMechanism.TextRetention,
         };
         return new(
-            Retain(ReadName(nameHandle)),
+            RetainName(nameHandle),
             attributes,
             identity,
             typeCategory);
@@ -1678,10 +1678,10 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         }
     }
 
-    string ReadName(StringHandle handle)
+    MetadataUtf8Name RetainName(StringHandle handle)
     {
-        int bytes = _reader.GetBlobReader(handle).Length;
-        if (bytes
+        BlobReader reader = _reader.GetBlobReader(handle);
+        if (reader.Length
             > MetadataSafetyPolicy.MaxStructuralSignatureChars)
         {
             throw new AccessorDeclarationRejectedException(
@@ -1690,15 +1690,18 @@ internal sealed class MetadataAccessorDeclarationEvidenceOperation
         }
         _context.Charge(
             MetadataOperationDimension.StructuredNodes,
-            bytes);
-        string name = MetadataSafetyPolicy.ReadStructuralString(
-            _reader,
-            handle);
-        if (name.Length == 0)
+            reader.Length);
+        if (reader.Length == 0)
         {
             throw new BadImageFormatException(
                 "An accessor root name cannot be empty.");
         }
+        MetadataUtf8Name name = MetadataUtf8Name.Detach(
+            MetadataUtf8Name.ReadExactBytes(reader),
+            out int containedLength);
+        _context.Charge(
+            MetadataOperationDimension.RetainedText,
+            containedLength);
         return name;
     }
 

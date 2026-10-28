@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Views;
 
 namespace DotnetInspect.Cli;
@@ -65,8 +66,9 @@ internal partial class SimpleTableJsonlContext : JsonSerializerContext
 [JsonSerializable(typeof(List<IntegrationOpportunityInfo>))]
 [JsonSerializable(typeof(SwitchInfo))]
 [JsonSerializable(typeof(List<SwitchInfo>))]
-[JsonSerializable(typeof(UnsafeMemberSummary))]
-[JsonSerializable(typeof(List<UnsafeMemberSummary>))]
+[JsonSerializable(typeof(UnsafeMemberFindingJson))]
+[JsonSerializable(typeof(List<UnsafeMemberFindingJson>))]
+[JsonSerializable(typeof(UnsafeMemberEvidenceJson))]
 [JsonSerializable(typeof(OptimizationOpportunitySummary))]
 [JsonSerializable(typeof(List<OptimizationOpportunitySummary>))]
 [JsonSerializable(typeof(RidPackageReference))]
@@ -302,6 +304,12 @@ internal partial class MemberFindResultJsonContext : JsonSerializerContext { }
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(List<MemberFindResult>))]
 internal partial class MemberFindResultCompactJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(DotnetInspector.Queries.EcosystemFindSearchSummary<FindCommand.LayeredSearchBlock>))]
+internal partial class EcosystemFindResultJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {

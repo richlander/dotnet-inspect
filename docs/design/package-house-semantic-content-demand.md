@@ -29,6 +29,153 @@ version demand. One request therefore retains both:
 
 None of these values is reconstructed from another or from display text.
 
+## Consumer result requirements
+
+A consumer declares the evidence its answer requires, not an acquisition
+algorithm or an instruction to construct the richest package result.
+PackageHouse uses the complete known requirement set to choose a provision
+before the corresponding acquisition or content preparation begins.
+
+The requirement preserves the package resource, target and asset role,
+population or exact selection, required evidence shape, and completion
+meaning. These are distinct: compile plus First Library identifies a role and
+selection, but does not itself request API signatures or implementation facts.
+CLI rendering format is not a demand strength; the fields actually promised by
+the result determine the evidence required.
+
+This adopts the consumer-requirement and producer-provision distinction from
+[Query Space producer capabilities](query-space-producer-capabilities.md).
+That owner defines structural grouping, coverage, and satisfaction paths.
+PackageHouse owns the package evidence those requirements mean and the
+physical provision that satisfies them. This is not a new global
+`Count < Name < Signature` enum or a cross-producer cost optimizer.
+
+The initial consumer distinctions are bounded by existing product questions:
+
+| Required answer | Evidence boundary |
+| --- | --- |
+| Count entries in an operation's selected space | Enough entry evidence to decide membership and exact cardinality; no rich per-file result merely to discard it. |
+| Entry names and archive attributes | The admitted directory evidence and requested attributes; no assembly inspection merely because an entry ends in `.dll`. |
+| Compile inventory or selected-slice measurements | The selector-issued compile receipt and matching directory evidence, including declared lengths; no Library content solely for membership, folders, counts, or archive lengths. |
+| First or exact compile Library | The owner-issued selected population, selection evidence, and requested facts for the chosen Library; no implicit aggregate Library inspection. |
+| API or implementation facts for that Library | The declared surface or implementation evidence required by those facts; one does not silently request the other. |
+
+These are consumer requirements, not declarations of new House terminals.
+Existing File List, Files, compile-inventory, and exact-Library demands remain
+the starting vocabulary. A new concrete demand arm requires a production
+consumer. Predicate evaluation, row selection, Count semantics, and API
+projection shapes stay with their existing operation owners.
+
+First Library retains the selection semantics owned by
+[Navigation](inspection-subject-navigation.md#initial-aggregate-and-package).
+It is not the first path encountered, nor the separate alphabetical policy of
+`GetLibraryAndInventoryForTarget`. Selection may require identity evidence
+from several candidates in the selected population. That dependency does not
+authorize their API or implementation inspection. PackageHouse does not
+replace owner-issued identity evidence with a host-derived file stem.
+
+### Provision and coverage
+
+A stronger provision may cover a weaker requirement only when its owner
+certifies the same resource, population or exact selection, evidence meaning,
+and required completion. Complete entry rows may cover their exact Count;
+windowed rows do not cover an unwindowed Count. One chosen Library does not
+cover an aggregate Library inventory. Archive lengths and API signatures are
+different facts, not successive levels of one universal richness order.
+
+The producer may reuse an already available covering result or choose a shared
+provision for several known requirements. It must preserve each requirement's
+association, satisfaction, and typed non-success. Count-only demand must not
+default to constructing rich rows, and identity-only demand must not default
+to full Library inspection. Selection dependencies and mandatory admission
+remain necessary work, rather than unrequested result shapes.
+
+The validated archive directory remains the common evidence source. Its
+complete validation and a selector's required complete available-slice receipt
+are not weakened to make a narrow request appear cheaper. Narrow consumers
+reuse that evidence rather than rediscovering it through terminal-specific
+package scans. A size-policy complete transfer may still be the House's chosen
+physical provision; it does not enlarge the requested inspection semantics.
+
+This section constrains PackageHouse requirements, plans, and published
+evidence. It does not redesign Root construction, Workspace lifetime, host
+result contracts, or Library selection. Those owners adopt the retained demand
+through separate focused changes.
+
+### Motivation and adoption evidence
+
+`Newtonsoft.Json@13.0.4` and `Microsoft.NETCore.App.Ref@10.0.0` motivate this
+boundary under #10427. Together they contain 246 physical DLL entries and 168
+selected compile assets. Exact NativeAOT base
+`e3822c9208165479bf1b0fb95c8b3522f9fa21a1` and candidate
+`8213c9ae5904da94207bd4e90add39e03eadb646` preserve the established result
+contracts, including explicitly approved additive JSON measurements, but the
+20-case matrix retains +0.53% to +2.90% median overhead.
+
+Diagnostic traces on that same pair show package-root directory opens rising
+from 6 to 8 per package for Count and from 6 to 9 for JSON. JSON additionally
+performs 168 DLL length lookups and two archive length lookups; DLL read opens
+remain 246 in all four traces. These observations motivate demand-preserving
+work reduction. They do not partition elapsed time, establish an accepted
+budget, or prove that a proposed implementation is faster.
+
+Implementation evidence must pair equivalent results with the work boundary
+of the adopted requirement: no rich file rows for an independently answerable
+Count, no Library inspection for directory-only facts, no unrequested sibling
+API or implementation inspection for First Library, and complete aggregate
+evidence when aggregate scope is requested. Exact/empty/no-match outcomes and
+reference/implementation correspondence remain neighboring controls. Focused
+fixtures preserve the motivating many-entry and many-Library shapes without
+retaining package binaries; pinned-package evidence follows the existing
+acquisition paths. The contract-only merge #10599 claimed no runtime work
+reduction.
+
+The first producer adoption, #10595, is motivated additionally by the pinned
+`PCLStorage@1.0.2` archive: its `net45` projection has two Libraries while
+other target slices must remain in the complete receipt. Existing
+compile-inventory, compile-inspection, and exact compile-Library demands
+resolve their selection from the admitted directory rather than enumerating
+payload content again. A ranged plan may carry that resource-free selection
+into settlement only for the same successful content generation; fallback to
+another generation resolves against that generation's directory. Complete and
+cached acquisition use the same directory-based provision.
+
+This adoption preserves existing demand types, role selection, complete
+receipts, and Library-content boundaries. It does not change generic legacy
+realization, Root preparation, or host requirement lowering. The focused gate
+is `DeclaredCompileDemand_UsesDirectoryWithoutPayloadEnumeration`, alongside
+the existing ranged/complete exact-Library and compile-inventory controls.
+Its three cached-demand cases require zero payload enumerations and no
+Library-body opens; the pre-change inventory and exact-Library controls each
+enumerate the payload twice.
+`ExactCompileLibrary_ArchiveChangedFallbackUsesWinningDirectorySelection`
+gates recomputation after a changed archive removes the requested Library.
+Runtime performance evidence belongs to the implementation candidate, not the
+earlier contract-only merge.
+
+### Focused adoption sequence
+
+[#10593](https://github.com/richlander/dotnet-inspect/issues/10593) tracks five
+slices under the end-to-end PackageHouse/Workspace tracker #6638:
+
+1. Lock this PackageHouse consumer-result and provision contract.
+2. Implement demand-preserving House provision through existing semantic
+   requests and shared directory evidence (#10595).
+3. Adopt the retained demand at the shared Package Root handoff under
+   [content-only admission](artifact-acquisition-and-workspaces.md#content-only-package-admission)
+   (#10596).
+4. Adopt the complete result requirements in CLI Package inspection under
+   [online Package admission](../cli-architecture.md#online-package-inspection-admission)
+   and retire its replaced eager preparation (#10594).
+5. Adopt the same requirements in the existing Browser/Wasm compile-inventory
+   and Library-entry consumers below, retiring their replaced eager preparation
+   (#10598).
+
+House provision precedes the shared handoff. CLI and Browser adoption may then
+proceed independently. Each implementation slice owns its demand lowering and
+evidence; this sequence does not specify another owner's internals. Final
+PackageExtractor retirement and other consumers remain #6638 work.
+
 ## Content query
 
 One `PackageHouseContentQuery` carries one narrowing and one or more result
@@ -38,8 +185,11 @@ package space and retains the same owner-issued narrowing receipt.
 The narrowing forms are:
 
 - **Package-wide.** Every admitted package entry is in scope.
-- **TFM-wide.** Every admitted entry associated with one requested target
-  framework is in scope. A runtime target also carries its RID.
+- **TFM-wide.** Every admitted entry associated with one compatible explicit
+  target framework is in scope. It accepts only PackageHouse's `Exact` target
+  mode because its realization requires an `ExplicitTarget` receipt;
+  exact-target-only, frozen-target, and owner-default contexts are rejected at
+  construction. A runtime target also carries its RID.
 - **TFM and ordered root preference.** The query carries one target framework
   and an arbitrary non-empty ordered list of distinct package library root
   families: `ref`, `lib`, or `runtimes`. PackageHouse selects the first
@@ -77,6 +227,8 @@ The result terminals are:
 - **Files.** Return the complete validated content of one or more exact package
   entries within the base narrowed space.
 - **Libraries.** Return every compatible library in the base narrowed space.
+  The terminal carries the declared Surface or SurfaceAndImplementation role
+  demand and materializes only the exact owner-issued assembly entries.
 - **Library and inventory for target.**
   `GetLibraryAndInventoryForTarget` requires TFM-wide narrowing and returns one
   policy-selected Library plus the complete logical Library inventory for that
@@ -101,6 +253,9 @@ references through later retained Files queries.
 `GetLibraryInventoryForTarget` is supported by Portable PDB settlement for an
 already-realized Browser/Wasm package assembly; it binds the exact provenance
 path to an inventory row before requesting only that row's PDB reference.
+The Libraries terminal is supported first by Package-scoped exact Type
+inspection. It preserves aggregate lookup across the complete owner-issued
+Library population while excluding unrelated sibling files.
 
 Package-wide and TFM-wide Files and File List are implemented. Their results
 retain the exact acquired generation and, for TFM-wide narrowing, the existing
@@ -146,8 +301,8 @@ The snapshot is the singular basis for:
 - logical TFM Library inventory, implementation correspondence, and
   adjacent-PDB entry evidence;
 - the detached File List terminal;
-- entry offsets, compressed and expanded lengths, and compression facts used
-  by ranged-entry planning; and
+- entry offsets, compressed and expanded lengths, archive timestamps, and
+  compression facts used by ranged-entry planning; and
 - the entry identities used to query which content the entry cache already
   holds.
 
@@ -329,6 +484,14 @@ it. That inventory Root must be realized with Library-content demand before
 entering an assembly inspection. Complete acquisition below the size cut or
 when ranges are unavailable preserves the same inventory result.
 
+A compile inspection is the adjacent demand for a Package facts view that also
+contains a body-backed rollup. It preserves the same package-wide File List and
+compile-selection evidence, but additionally materializes the selected compile
+surface and implementation assets. It still does not authorize unrelated
+package entries or a complete archive; House chooses ranged acquisition,
+complete acquisition below the size cut, or fallback from that combined
+demand.
+
 The motivating asset is `Avalonia@12.1.3`, observed on 2026-10-07: a
 10,157,510-byte archive with 121 entries and separate reference and
 implementation folders. The website Summary currently obtains its Library rows
@@ -340,13 +503,24 @@ complete JSON equality against the base and cold/warm measurements.
 
 The website is the first production adopter, under website download-flow
 tracker [#9678](https://github.com/richlander/dotnet-inspect/issues/9678)
-and focused issue [#9754](https://github.com/richlander/dotnet-inspect/issues/9754). The CLI's inventory-only
-Package Info selection is the next adoption boundary; its complete-content
-sections retain their existing demand until that selection reaches acquisition.
+and focused issue [#9754](https://github.com/richlander/dotnet-inspect/issues/9754).
+The CLI Package Info selection consumes a compile-inspection settlement:
+package-wide File List evidence plus the selected compile assets required by
+its body-backed Ecosystem Dependencies rollup. It projects package structure
+and the existing `Built` field from owner-issued File List evidence, including
+archive timestamps for files and explicit directory entries, without mixing
+directories into the file-entry sequence or downloading unrelated package
+content. Full typed JSON retains the complete-package path because its
+serialized document includes body-backed binary signals beyond the selected
+visual section. Tool
+settings and dependency manifests that require body-backed tool
+classification, local archives, metadata enrichment, signature verification,
+and all complete-content sections retain the existing complete-package path.
 Release gates are `CompileInventoryDemandIsDeclaredBeforeAcquisition`,
 `CompileInventory_UsesHousePlanningAndPreservesMeasurementReceipts`,
 `PackageInventory_RangePreservesSelectionWithoutLibraryBodies`,
-`PackageInventory_RangePreservesEmptyAndNoMatch`, and the existing
+`PackageInventory_RangePreservesEmptyAndNoMatch`,
+`PackageInfo_RangedRead_UsesSelectedLibrariesWithoutUnrelatedBody`, and the existing
 `QueryPackageSummary_ToolPayloadPublishesExactManagedLibraries` and
 `PackageSummary_PreservesProductDefaultAlongsideCompleteLibraryInventory`. This slice consumes existing selection, measurement,
 Root, and QuerySpace child-row contracts rather than changing them.
@@ -374,12 +548,15 @@ substantial acquisition work on the subsequent Library operation. Earlier
 Roslyn measurements requested `net8.0` and returned PackageMismatch, so they
 are not evidence of a successful Library API sequence. Valid measurements
 use the browser-selected `netstandard2.0` target and explicitly retain its
-existing API projection-limit outcome. The production browser API and
-Library enablements exports must adopt the exact shared demand before this
-candidate is ready. The CLI exact-Library caller is the subsequent shared
-adoption boundary under #9754. Before/after evidence uses the existing
-`eng/measure-inspect-web-library-open.cs` sequence and complete result parity;
-synthetic multi-Library fixtures enforce that sibling bodies stay unread.
+existing API projection-limit outcome. The production browser API and Library
+enablements exports adopt the exact shared demand first. The CLI exact-Library
+caller adopts the same semantic demand under
+[#10056](https://github.com/richlander/dotnet-inspect/issues/10056):
+one already-selected exact compile Library enters PackageHouse before
+acquisition and opens through `PackageEndpointScope`. Before/after evidence
+uses the existing `eng/measure-inspect-web-library-open.cs` sequence and
+complete result parity; synthetic multi-Library fixtures enforce that sibling
+bodies stay unread.
 The gates are `ExactCompileLibraryDemand_RequiresDeclaredRolesAndPackageOnlyHandoff`,
 `ExactCompileLibrary_PreservesInventoryAndNarrowsParticipants`, and
 `ExactLibraryDemand_NarrowsTransferAndWorkspace`, plus existing tool-package
@@ -425,8 +602,11 @@ gates standalone Surface demand through the shared planner.
 `OverviewDemand_ImplementationFailurePreservesIndependentApi` gate successful
 sharing, cancellation, sibling exclusion, and independent acquisition failure.
 `library-overview-demand.test.ts` checks the website's companion declaration.
-QuerySpace producer capabilities supplies plan validation; existing Root,
-Workspace, cache, and range contracts retain their respective ownership.
+`ExactLibraryWorkspaceRouteTests` and
+`EndpointScope_ExactLibraryDemandNarrowsTransferAndParticipants` gate the CLI
+adoption, typed output parity, complete compile evidence, and sibling-body
+exclusion. QuerySpace producer capabilities supplies plan validation; existing
+Root, Workspace, cache, and range contracts retain their respective ownership.
 
 ### Adopted shared-demand measurements
 
@@ -880,6 +1060,7 @@ All implementation gates run in Release.
 | Repeated exact dependency coordinate | Workspace enrichment requests its Nuspec once and reuses the immutable result across contexts. |
 | Package-wide file list | Every admitted path appears once; no expanded entry content is opened. |
 | TFM-wide file list | Every path in the owner-issued target scope appears once; unrelated target paths do not appear. |
+| TFM-wide target mode | `TfmWideQueryRetainsOneExactTarget` rejects exact-target-only, frozen-target, and owner-default contexts before execution. |
 | Ordered root preference | The first applicable family is selected from an arbitrary-length chain; a later family cannot contribute candidates or inventory. |
 | Shared directory evidence | File List, exact-file admission, logical Library inventory, package-symbol evidence, and range spans derive from one validated snapshot plus owner-issued narrowing and correspondence. |
 | Exact files | Ranged execution expands only the exact referenced entries; complete fallback may transfer the archive but publishes only those entries. Every reference lies in the base narrowed space and is complete and validated; an outside, missing, or ambiguous reference fails visibly. |

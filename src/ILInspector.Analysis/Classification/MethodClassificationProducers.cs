@@ -97,7 +97,8 @@ static class ClassifiedRows
 
 /// <summary>
 /// The extension-method scope: static (sealed abstract) types carrying
-/// <c>[Extension]</c> and not hidden; within them, public static methods
+/// <c>[Extension]</c>, not hidden, and public through every enclosing type;
+/// within them, public static methods
 /// carrying <c>[Extension]</c> and not hidden. It is the scope
 /// <c>ExtensionMethodScanner.FindAllExtensions(includeAll: false)</c> selects
 /// for methods, minus the signature decode, which Roslyn never fails and
@@ -130,7 +131,8 @@ public sealed class ExtensionMethodScope : MethodRowClassifier<ExtensionMethodSc
             const TypeAttributes Static = TypeAttributes.Sealed | TypeAttributes.Abstract;
             return (attributes & Static) == Static
                 && type.HasAttributeOfType(ExtensionAttribute)
-                && !type.IsHidden;
+                && !type.IsHidden
+                && type.IsPublicScopeType;
         }
 
         public int Classify(scoped MethodDefinitionView row)
@@ -258,16 +260,20 @@ public sealed class PointerSignatureClassificationProducer
 
 static class AsyncClassification
 {
-    internal const MethodImplAttributes RuntimeAsyncFlag = (MethodImplAttributes)0x2000;
-
-    internal static readonly MetadataTypeNameTarget AsyncStateMachine =
-        new(KnownAttributeNames.AsyncStateMachineAttribute);
-
-    internal static readonly MetadataTypeNameTarget AsyncIteratorStateMachine =
-        new(KnownAttributeNames.AsyncIteratorStateMachineAttribute);
-
     internal static bool IsRuntimeAsync(scoped MethodDefinitionView view) =>
-        (view.ImplAttributes & RuntimeAsyncFlag) != 0;
+        (view.ImplAttributes & StateMachineClaims.RuntimeAsyncFlag) != 0;
+
+    /// <summary>Whether the method claims a compiler async state machine, through the shared claim targets.</summary>
+    internal static bool ClaimsCompilerAsync(scoped MethodDefinitionView view)
+    {
+        foreach (StateMachineClaimTarget claim in StateMachineClaims.Targets)
+        {
+            if (claim.IsAsync && view.HasAttributeOfType(claim.Type))
+                return true;
+        }
+
+        return false;
+    }
 }
 
 /// <summary>Runtime async: the <c>MethodImplAttributes.Async</c> (0x2000) flag.</summary>
@@ -313,8 +319,7 @@ public struct CompilerAsyncTest : IMethodDefinitionPredicate
 {
     public readonly bool Test(scoped MethodDefinitionView view) =>
         !AsyncClassification.IsRuntimeAsync(view)
-        && (view.HasAttributeOfType(AsyncClassification.AsyncStateMachine)
-            || view.HasAttributeOfType(AsyncClassification.AsyncIteratorStateMachine));
+        && AsyncClassification.ClaimsCompilerAsync(view);
 }
 
 public struct CompilerAsyncRowProjection : IMethodDefinitionProjection<ClassifiedMethodRow>

@@ -394,6 +394,17 @@ public sealed class InMemoryPackageContent :
         return directories is not null;
     }
 
+    bool IPackageArchiveEntryManifest.TryGetArchiveDirectoryEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? directoryEntries)
+    {
+        directoryEntries =
+            _admission.TryGetArchive(out PackageArchivePayload? archive)
+                ? archive.GetDirectoryEntries()
+                : null;
+        return directoryEntries is not null;
+    }
+
     /// <inheritdoc />
     public IEnumerable<string> EnumerateEntries() =>
         EnumerateEntriesWithLengths().Select(entry => entry.Path);

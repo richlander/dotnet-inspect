@@ -148,6 +148,86 @@ public sealed partial class BrowserSpotlightRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    public async Task CurrentPackageTypeUsesAdmittedActiveRealization()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateCurrentSourceAsync(owner, "source");
+        BrowserSpotlightExternalPackageWorkspaceRequest external =
+            ExternalRequest(WorkspacePlan.Empty);
+        var intent = new BrowserSpotlightPackageTypeIntent(
+            PackageLibrary(
+                external.Package,
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "Spotlight",
+                    "package",
+                    "System.Text.Json.dll")),
+            Type("System.Text.Json.JsonNamingPolicy"));
+        CurrentDescriptor descriptor;
+        InspectionWorkspace workspace;
+        using (WorkspaceRealizationOperationLease operation =
+            await EnterAsync(owner, "source"))
+        {
+            workspace = operation.Workspace;
+            var request =
+                new BrowserSpotlightPackageRequest<
+                    BrowserSpotlightExternalPackageWorkspaceRequest>(
+                        external.Package,
+                        external);
+            descriptor = Assert.IsType<
+                CurrentProjectionResult.Projected>(
+                    BrowserSpotlightDestinationProjection.Project(
+                        Basis(operation, generation: 1),
+                        new CurrentDestination.PackageType(
+                            request,
+                            intent))).Descriptor;
+        }
+        PackageRootBinding binding = CurrentPackageBinding(external.Package);
+        BrowserSpotlightPackageFocusRequest<
+            BrowserSpotlightExternalPackageWorkspaceRequest,
+            TestLibraryIntent>? focused = null;
+
+        CurrentActivationResult result =
+            await ExecuteCurrentAsync(
+                owner,
+                "source",
+                descriptor,
+                (_, _) => throw new InvalidOperationException(
+                    "Current Package Type activation must not navigate directly."),
+                (_, _) => ValueTask.FromResult<PackageAcquisition>(
+                    new PackageAcquisition.Acquired(binding)),
+                (request, _) =>
+                {
+                    focused = request;
+                    return ValueTask.FromResult(
+                        CurrentNavigationResult(
+                            workspace,
+                            request.Scope));
+                });
+
+        var package =
+            Assert.IsType<CurrentActivationResult.PackageOperation>(
+                result);
+        var settled =
+            Assert.IsType<PackageActivationResult.Settled>(
+                package.Result);
+        var committed = Assert.IsType<
+            BrowserSpotlightPackageMembershipResult.Committed>(
+                settled.Membership);
+        var typeFocus = Assert.IsType<
+            BrowserSpotlightPackageFocusRequest<
+                BrowserSpotlightExternalPackageWorkspaceRequest,
+                TestLibraryIntent>.AfterScopeType>(focused);
+        Assert.Same(intent, typeFocus.Intent);
+        Assert.Same(committed.Occurrence, typeFocus.Occurrence);
+        Assert.Same(posting, owner.Active);
+    }
+
+    [Fact]
     public async Task AcquisitionFailureDoesNotCreateFreshRealization()
     {
         CompleteRestorationExecutionOptions options = await OptionsAsync();

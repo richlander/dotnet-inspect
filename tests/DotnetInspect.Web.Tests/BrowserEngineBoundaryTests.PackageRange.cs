@@ -49,7 +49,7 @@ public sealed partial class BrowserEngineBoundaryTests
             await using var apiLease = await api;
             Assert.Same(documentLease.Scope, apiLease.Scope);
         }
-        Assert.Equal(1, inner.OrdinaryPackageResponses);
+        Assert.Equal(0, inner.OrdinaryPackageResponses);
         Assert.Single(documentLease.Scope.SurfaceParticipants);
         Assert.Single(documentLease.Scope.ImplementationParticipants);
         RangedPackageContent content = Assert.IsType<RangedPackageContent>(documentLease.Scope.Coordinates[0].Package.Content);
@@ -300,7 +300,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(selectedContent.IsMaterialized($"lib/net11.0/{id}.dll"));
         Assert.Equal(rangesBeforeLibrary + (string.IsNullOrEmpty(target) ? 1 : 2),
             handler.RangedPackageResponses);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
     }
 
     [Theory]
@@ -542,10 +542,27 @@ public sealed partial class BrowserEngineBoundaryTests
             JsonSerializer.Deserialize(await PackageExports.QueryPackageSummary(id, "1.0.0", "net11.0"),
                 BrowserPackageJsonContext.Default.BrowserPackageLoadResult));
         Assert.Null(summary.Surface);
+        Assert.Equal(
+            PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
+            summary.ImplementationComparisonRuntimeIdentifier);
         Assert.Equal($"compile:lib/net11.0/{id}.dll", summary.DefaultLibraryId);
         Assert.Equal(2, summary.PackageChildren!.Content.Libraries.Length);
         Assert.Equal("AAA.dll", summary.PackageChildren.Content.Libraries[0].AssemblyName);
         Assert.Contains(summary.PackageChildren.Content.Libraries, library => library.AssetId == summary.DefaultLibraryId);
+        BrowserPackageLoadResult retained =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0",
+                        "win-x64"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Null(retained.RuntimePopulation);
+        Assert.Equal(
+            "win-x64",
+            retained.ImplementationComparisonRuntimeIdentifier);
         BrowserPackageRealization realization = Assert.IsType<BrowserPackageRealizationResult.Realized>(
             await BrowserPackageWorkspace.RealizeWithSettlementAsync(id, "1.0.0", "net11.0",
                 cancellationToken: TestContext.Current.CancellationToken)).Realization;
@@ -554,7 +571,542 @@ public sealed partial class BrowserEngineBoundaryTests
             JsonSerializer.Deserialize(await PackageExports.QueryPackageRoot(rootRequest),
                 BrowserPackageJsonContext.Default.BrowserPackageRootLoadResult));
         Assert.Equal(summary.DefaultLibraryId, root.DefaultLibraryId);
+        Assert.Equal(
+            PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
+            root.ImplementationComparisonRuntimeIdentifier);
         Assert.Equal("AAA.dll", root.PackageChildren.Content.Libraries[0].AssemblyName);
+    }
+
+    [Fact]
+    public async Task PackageSummary_RuntimeSelectionSurvivesExactRootReopening()
+    {
+        string id = $"Summary.Runtime.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"lib/net11.0/{id}.dll", assembly),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net9.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            summary.RuntimePopulation!.Status);
+        Assert.Equal(
+            "linux-x64",
+            summary.RuntimePopulation.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            "linux-x64",
+            summary.ImplementationComparisonRuntimeIdentifier);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net11.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Equal(
+            "linux-x64",
+            realization.Coordinate.RuntimeIdentifier);
+        PackageCompileAssetSelection selectedAssets =
+            Assert.IsType<PackageCompileAssetSelection>(
+                realization.Coordinate.Root.AssetSelection);
+        Assert.Equal(
+            "net9.0",
+            selectedAssets.ImplementationTargetFramework);
+        Assert.Equal(
+            $"runtimes/linux-x64/lib/net9.0/{id}.dll",
+            Assert.Single(selectedAssets.ImplementationAssets).Path);
+        string rootRequest = realization.Coordinate.Binding!
+            .CreateReacquisitionRequest()
+            .Encode();
+
+        BrowserPackageRootLoadResult root =
+            Assert.IsType<BrowserPackageRootLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageRoot(rootRequest),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageRootLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            root.RuntimePopulation!.Status);
+        Assert.Equal(
+            "linux-x64",
+            root.RuntimePopulation.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers,
+            root.RuntimePopulation.AvailableRuntimeIdentifiers);
+        Assert.Equal(
+            summary.ImplementationComparisonRuntimeIdentifier,
+            root.ImplementationComparisonRuntimeIdentifier);
+
+        BrowserPackageLoadResult ownerDefault =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        targetFramework: ""),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            "net11.0",
+            ownerDefault.PackageInfo!.Content.SelectedTargetFramework);
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            ownerDefault.RuntimePopulation!.Status);
+        Assert.Equal(
+            "linux-x64",
+            ownerDefault.RuntimePopulation.SelectedRuntimeIdentifier);
+
+        BrowserPackageLoadResult retained =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0",
+                        "win-x64"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            "win-x64",
+            retained.ImplementationComparisonRuntimeIdentifier);
+    }
+
+    [Fact]
+    public async Task PackageSummary_OwnerDefaultRuntimeEligibilitySurvivesExactRootReopening()
+    {
+        string id = $"Summary.Runtime.OwnerDefault.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"lib/net10.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        targetFramework: ""),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            "net10.0",
+            summary.PackageInfo!.Content.SelectedTargetFramework);
+        Assert.Null(summary.RuntimePopulation);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    targetFramework: "",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Null(realization.Coordinate.Root.RequestedTargetFramework);
+        PackageCompileAssetSelection selectedAssets =
+            Assert.IsType<PackageCompileAssetSelection>(
+                realization.Coordinate.Root.AssetSelection);
+        Assert.Equal("net10.0", selectedAssets.TargetFramework);
+        Assert.Equal(
+            "net10.0",
+            selectedAssets.ImplementationTargetFramework);
+        Assert.Equal(
+            $"lib/net10.0/{id}.dll",
+            Assert.Single(selectedAssets.ImplementationAssets).Path);
+        Assert.Equal(
+            "net10.0",
+            realization.Coordinate.Binding!
+                .CreateReacquisitionRequest()
+                .RuntimePopulationTargetFramework);
+
+        string rootRequest = realization.Coordinate.Binding!
+            .CreateReacquisitionRequest()
+            .Encode();
+        BrowserPackageRootLoadResult root =
+            Assert.IsType<BrowserPackageRootLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageRoot(rootRequest),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageRootLoadResult));
+        Assert.Null(root.RuntimePopulation);
+    }
+
+    [Fact]
+    public async Task PackageSummary_RuntimeOnlyEligibilitySurvivesExactRootReopening()
+    {
+        string id = $"Summary.Runtime.Only.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"runtimes/linux-x64/lib/net10.0/{id}.dll", assembly),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        targetFramework: ""),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            summary.RuntimePopulation!.Status);
+        Assert.Equal(
+            "linux-x64",
+            summary.RuntimePopulation.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    targetFramework: "",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        PackageRootBinding binding =
+            Assert.IsType<PackageRootBinding>(
+                realization.Coordinate.Binding);
+        Assert.Null(binding.Root.RequestedTargetFramework);
+        Assert.Equal("net10.0", binding.Root.AssetSelection!.TargetFramework);
+        Assert.Null(
+            binding.CreateReacquisitionRequest()
+                .RuntimePopulationTargetFramework);
+
+        string rootRequest = binding.CreateReacquisitionRequest().Encode();
+        BrowserPackageRootLoadResult root =
+            Assert.IsType<BrowserPackageRootLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageRoot(rootRequest),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageRootLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            root.RuntimePopulation!.Status);
+        Assert.Equal(
+            summary.RuntimePopulation.SelectedRuntimeIdentifier,
+            root.RuntimePopulation.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers,
+            root.RuntimePopulation.AvailableRuntimeIdentifiers);
+    }
+
+    [Fact]
+    public async Task PackageSummary_ExplicitRuntimeEligibilitySurvivesCompatibleCompileFallbackReopening()
+    {
+        string id = $"Summary.Runtime.ExplicitCompatible.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"lib/net10.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            "net10.0",
+            summary.PackageInfo!.Content.SelectedTargetFramework);
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            summary.RuntimePopulation!.Status);
+        Assert.Equal(
+            "linux-x64",
+            summary.RuntimePopulation.SelectedRuntimeIdentifier);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net11.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Equal(
+            "net11.0",
+            realization.Coordinate.Root.RequestedTargetFramework);
+        PackageCompileAssetSelection selectedAssets =
+            Assert.IsType<PackageCompileAssetSelection>(
+                realization.Coordinate.Root.AssetSelection);
+        Assert.Equal("net10.0", selectedAssets.TargetFramework);
+        Assert.Equal(
+            "net11.0",
+            selectedAssets.ImplementationTargetFramework);
+        Assert.Equal(
+            $"runtimes/linux-x64/lib/net11.0/{id}.dll",
+            Assert.Single(selectedAssets.ImplementationAssets).Path);
+        Assert.Equal(
+            "net11.0",
+            realization.Coordinate.Binding!
+                .CreateReacquisitionRequest()
+                .RuntimePopulationTargetFramework);
+
+        string rootRequest = realization.Coordinate.Binding!
+            .CreateReacquisitionRequest()
+            .Encode();
+        BrowserPackageRootLoadResult root =
+            Assert.IsType<BrowserPackageRootLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageRoot(rootRequest),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageRootLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            root.RuntimePopulation!.Status);
+        Assert.Equal(
+            summary.RuntimePopulation.SelectedRuntimeIdentifier,
+            root.RuntimePopulation.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers,
+            root.RuntimePopulation.AvailableRuntimeIdentifiers);
+    }
+
+    [Fact]
+    public async Task PackageSummary_RuntimeAmbiguityRetainsFrameworkInventory()
+    {
+        string id = $"Summary.Runtime.Ambiguous.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"lib/net11.0/{id}.dll", assembly),
+            ($"lib/net9.0/{id}.dll", assembly),
+            ($"runtimes/osx-arm64/lib/net9.0/{id}.dll", assembly),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Ambiguous,
+            summary.RuntimePopulation!.Status);
+        Assert.Equal(
+            PackageRuntimePopulationChoice.ProductDefaultRuntimeIdentifier,
+            summary.ImplementationComparisonRuntimeIdentifier);
+        Assert.Equal(
+            ["net11.0", "net9.0"],
+            Assert.IsType<string[]>(
+                summary.PackageInfo!.Content.AvailableTargetFrameworks));
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net11.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        string rootRequest = realization.Coordinate.Binding!
+            .CreateReacquisitionRequest()
+            .Encode();
+
+        BrowserPackageRootLoadResult root =
+            Assert.IsType<BrowserPackageRootLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageRoot(rootRequest),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageRootLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Ambiguous,
+            root.RuntimePopulation!.Status);
+        Assert.Equal(
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers,
+            root.RuntimePopulation.AvailableRuntimeIdentifiers);
+        Assert.Equal(
+            summary.ImplementationComparisonRuntimeIdentifier,
+            root.ImplementationComparisonRuntimeIdentifier);
+    }
+
+    [Fact]
+    public async Task PackageRealization_RuntimeDefaultOpensSelectedRangedSurface()
+    {
+        string id = $"browser.runtime.range.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net10.0/{id}.dll", assembly),
+            ("content/padding.bin", new byte[2_000_000]));
+        var handler = new GalleryPackageHandler(id, "1.0.0", archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageRealization explicitRealization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net10.0",
+                    source,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Equal(
+            "net10.0",
+            explicitRealization.Coordinate.Binding!
+                .CreateReacquisitionRequest()
+                .RuntimePopulationTargetFramework);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "",
+                    source,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Equal("linux-x64", realization.Coordinate.RuntimeIdentifier);
+        PackageRuntimePopulationChoiceResult.Selected runtimePopulation =
+            Assert.IsType<PackageRuntimePopulationChoiceResult.Selected>(
+                realization.Coordinate.RuntimePopulationChoice);
+        Assert.Equal(
+            PackageRuntimePopulationChoiceSource.ProductDefault,
+            runtimePopulation.ChoiceSource);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            runtimePopulation.AvailableRuntimeIdentifiers);
+        RangedPackageContent ranged =
+            Assert.IsType<RangedPackageContent>(
+                realization.Coordinate.Package.Content);
+        string implementationPath = Assert.Single(
+                realization.Coordinate.Root.RealizedSurfaceAssets)
+            .Path;
+        Assert.True(
+            ranged.IsMaterialized(implementationPath),
+            $"Expected {implementationPath} to be materialized.");
+        PackageRootReacquisitionRequest rootRequest =
+            realization.Coordinate.Binding!
+                .CreateReacquisitionRequest();
+        Assert.Null(rootRequest.RequestedTargetFramework);
+        Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
+        Assert.Equal("net10.0", rootRequest.SelectionTargetFramework);
+        Assert.Null(rootRequest.RuntimePopulationTargetFramework);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                rootRequest.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+        Assert.Null(decoded.RuntimePopulationTargetFramework);
+
+        await using var lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                realization,
+                TestContext.Current.CancellationToken);
+        Assert.Single(lease.Scope.SurfaceParticipants);
+
+        int rangedResponses = handler.RangedPackageResponses;
+        BrowserPackageRealization retained = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "",
+                    source,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Same(
+            realization.Coordinate.Package.Content.GenerationIdentity,
+            retained.Coordinate.Package.Content.GenerationIdentity);
+        Assert.Equal(rangedResponses, handler.RangedPackageResponses);
+
+        BrowserWorkspacePackageOccurrenceView occurrences =
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+                [realization.Coordinate]);
+        Assert.Equal(
+            "linux-x64",
+            Assert.Single(occurrences.Occurrences).RuntimeIdentifier);
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
     }
 
     [Fact]

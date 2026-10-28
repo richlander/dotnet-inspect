@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Diff;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
@@ -33,7 +34,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 .NewAssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiAsync(
+            await DiffOperation.ExecuteAsync(
                 new DiffHistoryApiOperationRequest(
                     ApiHistoryRequest(
                         DiffHistoryApiFindingKind.Members,
@@ -42,7 +43,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                         member: MemberTargetSelector.Parse(OrdinalMember)),
                     new DiffHistoryCountRequest(
                         DiffHistoryCountCohort.ChangedVersions)),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
         var available = Assert.IsType<DiffHistorySectionAvailable>(
             envelope.Content);
@@ -82,13 +83,13 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 .OldAssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiAsync(
-                ApiHistoryRequest(
+            await DiffOperation.ExecuteAsync(
+                new DiffHistoryApiOperationRequest(ApiHistoryRequest(
                     DiffHistoryApiFindingKind.Members,
                     population,
                     OrdinalType,
-                    member: MemberTargetSelector.Parse("Pick")),
-                executor,
+                    member: MemberTargetSelector.Parse("Pick"))),
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
         var unavailable =
             Assert.IsType<DiffHistoryOutcome.ExactApiMemberUnavailable>(
@@ -124,7 +125,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             MemberTargetSelector.Parse("Removed:1");
 
         var available = Assert.IsType<DiffHistoryOutcome.Available>(
-            await DiffHistoryInspector.InspectApiAsync(
+            await DiffHistoryEngine.InspectApiAsync(
                 ApiHistoryRequest(
                     DiffHistoryApiFindingKind.Members,
                     population,
@@ -166,14 +167,14 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 .OldAssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectAnalysisAsync(
+            await DiffOperation.ExecuteAsync(
                 new DiffHistoryAnalysisOperationRequest(
                     AnalysisHistoryRequest(
                         PackageVersionCellAnalysisProducerKind.Allocation,
                         population),
                     new DiffHistoryCountRequest(
                         DiffHistoryCountCohort.ChangedVersions)),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
         var available = Assert.IsType<DiffHistorySectionAvailable>(
             envelope.Content);
@@ -232,7 +233,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 .AssemblyPath()));
 
         var available = Assert.IsType<DiffHistoryOutcome.Available>(
-            await DiffHistoryInspector.InspectAnalysisAsync(
+            await DiffHistoryEngine.InspectAnalysisAsync(
                 AnalysisHistoryRequest(
                     PackageVersionCellAnalysisProducerKind.Allocation,
                     population,
@@ -273,7 +274,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 member: "Missing");
 
         var available = Assert.IsType<DiffHistoryOutcome.Available>(
-            await DiffHistoryInspector.InspectAnalysisAsync(
+            await DiffHistoryEngine.InspectAnalysisAsync(
                 request,
                 executor,
                 TestContext.Current.CancellationToken));
@@ -335,7 +336,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[1], FixtureCatalog.LibraryApiDiffV2.AssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiAsync(
+            await DiffOperation.ExecuteAsync(
                 new DiffHistoryApiOperationRequest(
                     ApiHistoryRequest(
                         DiffHistoryApiFindingKind.Type,
@@ -343,7 +344,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                         type),
                     new DiffHistoryCountRequest(
                         DiffHistoryCountCohort.ChangedVersions)),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
         var outcome = Assert.IsType<DiffHistorySectionAvailable>(
             envelope.Content);
@@ -386,7 +387,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[1], FixtureCatalog.LibraryApiDiffV2.AssemblyPath()));
 
         var outcome = Assert.IsType<DiffHistoryOutcome.Available>(
-            await DiffHistoryInspector.InspectApiAsync(
+            await DiffHistoryEngine.InspectApiAsync(
                 ApiHistoryRequest(
                     DiffHistoryApiFindingKind.Attributes,
                     population,
@@ -427,7 +428,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[1], FixtureCatalog.LibraryApiDiffV2.AssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiAsync(
+            await DiffOperation.ExecuteAsync(
                 new DiffHistoryApiOperationRequest(
                     ApiHistoryRequest(
                         DiffHistoryApiFindingKind.Type,
@@ -435,7 +436,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                         type),
                     new DiffHistoryCountRequest(
                         DiffHistoryCountCohort.ChangedVersions)),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
         var available = Assert.IsType<DiffHistorySectionAvailable>(
             envelope.Content);
@@ -487,7 +488,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[2], FixtureCatalog.LibraryApiDiffV2.AssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiAsync(
+            await DiffOperation.ExecuteAsync(
                 new DiffHistoryApiOperationRequest(
                     ApiHistoryRequest(
                         DiffHistoryApiFindingKind.Attributes,
@@ -497,7 +498,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                         maximumEvaluations: 3),
                     new DiffHistoryCountRequest(
                         DiffHistoryCountCohort.ChangedVersions)),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
         var available = Assert.IsType<DiffHistorySectionAvailable>(
             envelope.Content);
@@ -562,7 +563,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[1], FixtureCatalog.DiffV2.AssemblyPath()));
 
         var outcome = Assert.IsType<DiffHistoryOutcome.Available>(
-            await DiffHistoryInspector.InspectApiAsync(
+            await DiffHistoryEngine.InspectApiAsync(
                 ApiHistoryRequest(
                     DiffHistoryApiFindingKind.Members,
                     population,
@@ -812,7 +813,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 maximumEvaluations: 2);
 
         var available = Assert.IsType<DiffHistoryOutcome.Available>(
-            await DiffHistoryInspector.InspectAnalysisAsync(
+            await DiffHistoryEngine.InspectAnalysisAsync(
                 request,
                 executor,
                 TestContext.Current.CancellationToken));
@@ -1098,7 +1099,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[4], FixtureCatalog.DiffV1.AssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
@@ -1107,7 +1108,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                         evaluationPlan:
                             new DiffHistoryEvaluationPlan
                                 .AdaptiveBisect(8))),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         Assert.Equal([0, 4], executor.Positions);
@@ -1445,9 +1446,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         SettlementExecutor prefixExecutor = CreateExecutor();
 
         InspectionEnvelope<DiffHistoryOutcome> prefixEnvelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(request, headOne),
-                prefixExecutor,
+                new DiffAcquisition(prefixExecutor),
                 TestContext.Current.CancellationToken);
 
         Assert.Equal([0, 6, 3, 1, 4, 2], prefixExecutor.Positions);
@@ -1480,9 +1481,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         Assert.Equal(1, Assert.Single(completed.Counts).Value);
 
         InspectionEnvelope<DiffHistoryOutcome> fullEnvelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(request),
-                CreateExecutor(),
+                new DiffAcquisition(CreateExecutor()),
                 TestContext.Current.CancellationToken);
         var source = Assert.IsType<
             SectionCountOutcome<
@@ -1642,10 +1643,10 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[2], FixtureCatalog.DiffV1.AssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(population, HistoryType)),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var available =
@@ -1688,10 +1689,10 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[1], FixtureCatalog.DiffV1.AssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(population, HistoryType)),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var completed = Assert.IsType<
@@ -1743,12 +1744,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 contents[position]);
         });
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
                         "ComparisonBudgetTypes.Type0")),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var available =
@@ -1826,12 +1827,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         });
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
                         "N.Fixture")),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var available =
@@ -1910,12 +1911,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         });
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
                         "ComparisonBudgetTypes.Type0")),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var available =
@@ -1981,12 +1982,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         });
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
                         "N.Consumer`1")),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var available =
@@ -2041,7 +2042,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[2], FixtureCatalog.DiffV2.AssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
@@ -2050,7 +2051,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                             population[0].Cell.Address,
                             population[2].Cell.Address,
                         ])),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var available =
@@ -2094,7 +2095,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[3], FixtureCatalog.DiffV2.AssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
@@ -2103,7 +2104,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                         evaluationPlan:
                             new DiffHistoryEvaluationPlan
                                 .RepresentativeSurvey(50))),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var available =
@@ -2150,7 +2151,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 [RowSelectionIntentOperation<string>.Tail(1)]);
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
@@ -2160,7 +2161,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                             population[1].Cell.Address,
                         ]),
                     tailOne),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var available =
@@ -2273,11 +2274,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             })
         {
             InspectionEnvelope<DiffHistoryOutcome> prefixEnvelope =
-                await DiffHistoryInspection.InspectApiMembersAsync(
+                await DiffOperation.ExecuteAsync(
                     CountRequest(
                         HistoryRequest(population, HistoryType),
                         selection),
-                    lateFailure,
+                    new DiffAcquisition(lateFailure),
                     TestContext.Current.CancellationToken);
 
             var prefixCompleted = Assert.IsType<
@@ -2300,11 +2301,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                     RowSelectionIntentOperation<string>.Window(1, 2),
                 ]);
         InspectionEnvelope<DiffHistoryOutcome> semanticEnvelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(population, HistoryType),
                     boundedStrictFailure),
-                lateFailure,
+                new DiffAcquisition(lateFailure),
                 TestContext.Current.CancellationToken);
         var semantic = Assert.IsType<
             SectionCountOutcome<
@@ -2323,11 +2324,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             in new[] { unboundedSuffix, tailOne })
         {
             InspectionEnvelope<DiffHistoryOutcome> unboundedEnvelope =
-                await DiffHistoryInspection.InspectApiMembersAsync(
+                await DiffOperation.ExecuteAsync(
                     CountRequest(
                         HistoryRequest(population, HistoryType),
                         selection),
-                    lateFailure,
+                    new DiffAcquisition(lateFailure),
                     TestContext.Current.CancellationToken);
             var unbounded = Assert.IsType<
                 SectionCountOutcome<
@@ -2361,11 +2362,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         });
 
         InspectionEnvelope<DiffHistoryOutcome> blockedEnvelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(population, HistoryType),
                     headOne),
-                earlyFailure,
+                new DiffAcquisition(earlyFailure),
                 TestContext.Current.CancellationToken);
 
         var blocked = Assert.IsType<
@@ -2399,11 +2400,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 [RowSelectionIntentOperation<string>.Window(2, 3)]);
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(population, HistoryType),
                     window),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var semantic = Assert.IsType<
@@ -2605,10 +2606,10 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         });
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(population, HistoryType)),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
         var available =
             Assert.IsType<DiffHistorySectionAvailable>(envelope.Content);
@@ -2696,9 +2697,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                     Reason("Fixture rejection."))));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
-                HistoryRequest(population, HistoryType),
-                executor,
+            await DiffOperation.ExecuteAsync(
+                new DiffHistoryApiMemberOperationRequest(HistoryRequest(population, HistoryType)),
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
         var share = Assert.IsType<InspectionShare.NonProjectable>(
@@ -2731,13 +2732,13 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[2], "system.text.json.10.0.0.nupkg"));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
                         "System.Text.Json.JsonSerializer",
                         framework: "net8.0")),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
         var available =
             Assert.IsType<DiffHistorySectionAvailable>(envelope.Content);
@@ -2783,13 +2784,13 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[2], "system.text.json.10.0.0.nupkg"));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(
                         population,
                         "System.Text.Json.JsonEncodedText",
                         framework: "net8.0")),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
         var available =
             Assert.IsType<DiffHistorySectionAvailable>(envelope.Content);
@@ -2813,7 +2814,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     }
 
     [Fact]
-    public async Task HistoryCountWithoutTransitionsIsObservedZero()
+    public async Task HistoryCountForOneEvaluatedVersionIsExactZero()
     {
         ImmutableArray<CellFixture> population =
             CellFixture.CreatePopulation(
@@ -2823,12 +2824,51 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[0], FixtureCatalog.DiffV1.AssemblyPath()));
 
         InspectionEnvelope<DiffHistoryOutcome> envelope =
-            await DiffHistoryInspection.InspectApiMembersAsync(
+            await DiffOperation.ExecuteAsync(
                 CountRequest(
                     HistoryRequest(population, HistoryType)),
-                executor,
+                new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
+        // One evaluated version has no adjacent transitions, so the Changed
+        // Versions cohort is exactly empty
+        // (diff-history.md#subject-specific-history-count).
+        var count = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
+                    Assert.IsType<DiffHistorySectionAvailable>(
+                        envelope.Content).Count);
+        SectionCountEntry<DiffHistoryCountCohort> entry =
+            Assert.Single(count.Counts);
+        Assert.True(entry.IsExact);
+        Assert.Equal(0, entry.Value);
+        Assert.Empty(count.Sources);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task HistoryCountForOneFailedVersionIsObservedZero()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0");
+        var executor = new SettlementExecutor(execution =>
+            new PackageHouseSettlement.ResourceFree(
+                new PackageHouseResult.Rejected(
+                    new PackageHouseEvidence(execution.Request),
+                    Reason("Fixture rejection."))));
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffOperation.ExecuteAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType)),
+                new DiffAcquisition(executor),
+                TestContext.Current.CancellationToken);
+
+        // A failed evaluation establishes nothing: zero is observed, not
+        // exact, even though the population has no transitions.
         var failure = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
@@ -2841,6 +2881,10 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             Assert.Single(failure.Sources).Evidence;
         Assert.Equal(0, evidence.TotalAssessmentCount);
         Assert.Null(evidence.FirstUnestablishedAssessment);
+        Assert.Contains(
+            envelope.Diagnostics,
+            static diagnostic =>
+                diagnostic.Code == "diff-history.count-incomplete");
     }
 
     [Fact]
@@ -2867,7 +2911,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         });
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => DiffHistoryInspector.InspectApiMembersAsync(
+            () => DiffHistoryEngine.InspectApiMembersAsync(
                 HistoryRequest(population, HistoryType),
                 executor,
                 cancellation.Token));
@@ -2952,7 +2996,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         IPackageHouseVersionPopulationCellExecutor executor)
     {
         var outcome = Assert.IsType<DiffHistoryOutcome.Available>(
-            await DiffHistoryInspector.InspectApiMembersAsync(
+            await DiffHistoryEngine.InspectApiMembersAsync(
                 request,
                 executor,
                 TestContext.Current.CancellationToken));

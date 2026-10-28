@@ -151,10 +151,10 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(TargetVersion, value.Target.Version);
         Assert.Equal(CurrentVersion, value.Current.Version);
         Assert.Equal(
-            BrowserLibraryApiDiffSurfaceScope.Public,
+            BrowserLibraryApiDiffSurfaceScope.ApiAxis,
             value.Target.Scope);
         Assert.Equal(
-            BrowserLibraryApiDiffSurfaceScope.Public,
+            BrowserLibraryApiDiffSurfaceScope.ApiAxis,
             value.Current.Scope);
         Assert.Equal(fixture.CompileAssetId, value.Target.Asset.Id);
         Assert.Equal(fixture.CompileAssetId, value.Current.Asset.Id);
@@ -309,7 +309,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
         Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(8, 1, 1, 10, 5, 3, 0),
+            new BrowserLibraryApiDiffAggregate(8, 1, 1, 10, 5, 3, 0, 0, 0),
             value.Aggregate);
     }
 
@@ -942,7 +942,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
             type.Changes.Length
             + type.Members.Sum(member => member.Changes.Length));
         int issued = value.Types.Sum(type =>
-            type.BreakingCount + type.AdditiveCount + type.PotentiallyBreakingCount);
+            type.BreakingCount + type.AdditiveCount + type.PotentiallyBreakingCount
+                + type.NonBreakingCount);
         Assert.Equal(issued, placed);
     }
 
@@ -967,8 +968,128 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(TargetVersion, value.Current.Version);
         Assert.Empty(value.Types);
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(0, 0, 0, 0, 0, 0, 0),
+            new BrowserLibraryApiDiffAggregate(0, 0, 0, 0, 0, 0, 0, 0, 0),
             value.Aggregate);
+    }
+
+    [Fact]
+    public void ApiAxisInventoryPresentsTheOrdinaryPopulation()
+    {
+        // The wire inventory shows rows with an ordinary side and counts the rest;
+        // the Inspection baseline keeps the complete document
+        // (docs/design/library-api-diff-presentation.md#ordinary-presentation).
+        BrowserLibraryApiDiffRequest request = Request("Ordinary.Package");
+        var endpoint = new LibraryApiDiffEndpointSummary(
+            AssemblyIdentity(),
+            ApiSurfaceScope.ApiAxis,
+            IsComplete: true,
+            []);
+        ComparisonSubject<LibraryApiTypeDiff>[] subjects =
+        [
+            // A Type made hidden keeps its ordinary Before side; obsolete stays ordinary.
+            Changed(
+                "Hidden",
+                new(IsOrdinary: true, IsHidden: false, IsObsolete: true),
+                new(IsOrdinary: false, IsHidden: true, IsObsolete: true),
+                ChangeKind.TypeHiddenChanged,
+                ChangeClassification.NonBreaking,
+                ApiChangeCategory.Status),
+            // A protected Type's change is outside the ordinary population.
+            Changed(
+                "Outside",
+                new(IsOrdinary: false, IsHidden: false, IsObsolete: false),
+                new(IsOrdinary: false, IsHidden: false, IsObsolete: false),
+                ChangeKind.SealedAdded,
+                ChangeClassification.Breaking,
+                ApiChangeCategory.Signature),
+        ];
+        var document = new ComparisonDocument<LibraryApiTypeDiff>(
+            ComparisonDocument<LibraryApiTypeDiff>.CurrentSchemaVersion,
+            SubjectCoordinateBasis.RootRelative,
+            "transport-library",
+            "Transport",
+            new ComparisonSubjectChange.Diff(),
+            new ComparisonRootComparison<LibraryApiTypeDiff>.NotApplicable(),
+            [.. subjects],
+            []);
+
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Inspection(new LibraryApiDiffOutcome.Available(
+                    new LibraryApiDiffDocument(
+                        endpoint,
+                        endpoint,
+                        new LibraryApiDiffSummary(
+                            ChangedTypeCount: 2,
+                            AddedTypeCount: 0,
+                            RemovedTypeCount: 0,
+                            ChangedMemberCount: 0,
+                            BreakingCount: 1,
+                            AdditiveCount: 0,
+                            PotentiallyBreakingCount: 0,
+                            NonBreakingCount: 1),
+                        document))),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffSucceeded value =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(result.Value);
+        Assert.Equal(BrowserLibraryApiDiffSurfaceScope.ApiAxis, value.Target.Scope);
+        BrowserLibraryApiDiffType type = Assert.Single(value.Types);
+        Assert.Equal("Transport.Hidden", type.Display);
+        Assert.True(type.After!.IsObsolete);
+        BrowserLibraryApiDiffChange change = Assert.Single(type.Changes);
+        Assert.Equal(BrowserLibraryApiDiffChangeState.Hidden, change.State);
+        Assert.Equal(
+            new BrowserLibraryApiDiffAggregate(1, 0, 0, 0, 0, 0, 0, 1, 1),
+            value.Aggregate);
+        Assert.Contains(
+            "Transport.Outside",
+            result.Inspection!.Content.GetRawText(),
+            StringComparison.Ordinal);
+
+        static ComparisonSubject<LibraryApiTypeDiff> Changed(
+            string name,
+            LibraryApiDeclarationStatus beforeStatus,
+            LibraryApiDeclarationStatus afterStatus,
+            ChangeKind kind,
+            ChangeClassification classification,
+            ApiChangeCategory category)
+        {
+            var before = new LibraryApiTypeIdentity(
+                TypeName(name),
+                $"Transport.{name}",
+                beforeStatus);
+            var after = new LibraryApiTypeIdentity(
+                TypeName(name),
+                $"Transport.{name}",
+                afterStatus);
+            var change = new LibraryApiCompatibilityChange(
+                kind,
+                classification,
+                category,
+                new InertString(TextPolicy.Field, $"Type 'Transport.{name}' changed"),
+                OldValue: null,
+                NewValue: null,
+                new LibraryApiChangeSubject(
+                    ApiChangeSubjectKind.Type,
+                    before,
+                    after,
+                    BeforeMember: null,
+                    AfterMember: null));
+            return new ComparisonSubject<LibraryApiTypeDiff>(
+                after.Identifier,
+                after.Display,
+                new ComparisonSubjectChange.Diff(),
+                new LibraryApiTypeDiff(
+                    before,
+                    after,
+                    LibraryApiTypePairKind.Changed,
+                    TypeDefinitionChanged: true,
+                    [change],
+                    []));
+        }
     }
 
     [Fact]
@@ -1798,6 +1919,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "display",
                 "documentIdentifier",
                 "members",
+                "nonBreakingCount",
                 "potentiallyBreakingCount",
                 "state",
                 "typeDefinitionChanged",
@@ -1838,6 +1960,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "declaringTypeIdentifier",
                 "display",
                 "fingerprint",
+                "isObsolete",
                 "memberName",
                 "stableSelector",
                 "typeFullName",
@@ -1884,7 +2007,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
                         TypeName($"Type{index}", segmentCount);
                     var typeIdentity = new LibraryApiTypeIdentity(
                         name,
-                        display ?? $"Transport.Type{index}");
+                        display ?? $"Transport.Type{index}",
+                        Ordinary);
                     var diff = new LibraryApiTypeDiff(
                         typeIdentity,
                         typeIdentity,
@@ -1924,6 +2048,9 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 document)));
     }
 
+    static readonly LibraryApiDeclarationStatus Ordinary =
+        new(IsOrdinary: true, IsHidden: false, IsObsolete: false);
+
     static InspectionEnvelope<DiffAnalysisDocument> AvailableWithMembers(
         int memberCount,
         string? memberDisplay = null,
@@ -1941,7 +2068,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
         MetadataTypeDefinitionName name = TypeName("MemberContainer");
         var typeIdentity = new LibraryApiTypeIdentity(
             name,
-            "Transport.MemberContainer");
+            "Transport.MemberContainer",
+            Ordinary);
         ImmutableArray<LibraryApiMemberDiff> members =
         [
             .. Enumerable.Range(0, memberCount).Select(index =>
@@ -1960,13 +2088,15 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     anchor,
                     anchorKind,
                     memberKind,
-                    memberDisplay ?? memberName);
+                    memberDisplay ?? memberName,
+                    Ordinary);
                 var afterIdentity = new LibraryApiMemberIdentity(
                     typeIdentity,
                     anchor,
                     afterAnchorKind ?? anchorKind,
                     afterMemberKind ?? memberKind,
-                    memberDisplay ?? memberName);
+                    memberDisplay ?? memberName,
+                    Ordinary);
                 return new LibraryApiMemberDiff(
                     new LibraryApiMemberRelation(
                         $"member-relation:{index}",

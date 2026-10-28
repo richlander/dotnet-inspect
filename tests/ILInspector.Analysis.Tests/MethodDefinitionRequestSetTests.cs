@@ -53,6 +53,131 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        Execute_IdenticalExactMethodRequestsShareOnePhysicalGroup()
+    {
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth.ExactMethods(
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        MethodDefinitionSourceAssociation rows =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Rows,
+                breadth);
+        MethodDefinitionSourceAssociation count =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                breadth);
+
+        MethodDefinitionSourceRequestSetPlan plan =
+            AcceptedPlan([rows, count]);
+        MethodDefinitionSourceGroupPlan group =
+            Assert.Single(plan.Groups);
+        Assert.Equal(2, group.Lanes.Length);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(plan);
+
+        Assert.Equal(2, ValueOf(execution, rows));
+        Assert.Equal(2, ValueOf(execution, count));
+        MethodDefinitionSourceGroupReceipt receipt =
+            Assert.Single(execution.GroupReceipts);
+        Assert.Equal(2, receipt.LaneReceipts.Length);
+        Assert.Equal(
+            2,
+            receipt.PhysicalCoverage.DefinitionsExamined.Count);
+        Assert.Equal(
+            2,
+            execution.ResultOf(rows)
+                .SourceReceipt.DefinitionsVisited);
+        Assert.Equal(
+            2,
+            execution.ResultOf(count)
+                .SourceReceipt.DefinitionsVisited);
+    }
+
+    [Fact]
+    public void
+        Execute_ExcludedExactTypeDoesNotRecordPhysicalMethodSelection()
+    {
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth.ExactMethods(
+                MetadataTokens.MethodDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        MethodDefinitionSourceAssociation rows =
+            Association(
+                PInvokeClassificationProducer.Instance,
+                ProducerTerminal.Rows,
+                breadth);
+        MethodDefinitionSourceAssociation count =
+            Association(
+                PInvokeClassificationProducer.Instance,
+                ProducerTerminal.Count,
+                breadth);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([rows, count]),
+                TwoMethodsInExcludedTypeWithFirstBody(
+                    [0x06, 0x2A]));
+
+        Assert.Empty(
+            ResultOf<ClosedQueryResult<ClassifiedMethodRow>>(
+                    execution,
+                    rows)
+                .Value!
+                .Rows);
+        Assert.Equal(
+            0,
+            ResultOf<ClosedQueryResult<ClassifiedMethodRow>>(
+                    execution,
+                    count)
+                .Value!
+                .Count);
+        Assert.Equal(
+            0,
+            execution.ResultOf(rows)
+                .SourceReceipt.DefinitionsVisited);
+        Assert.Equal(
+            0,
+            execution.ResultOf(count)
+                .SourceReceipt.DefinitionsVisited);
+        MethodDefinitionSourceGroupReceipt receipt =
+            Assert.Single(execution.GroupReceipts);
+        Assert.Equal(
+            2,
+            receipt.PhysicalCoverage.DefinitionsExamined.Count);
+        Assert.Equal(
+            0,
+            receipt.PhysicalCoverage.MethodsSelected.Count);
+    }
+
+    [Fact]
+    public void Plan_DistinctExactMethodBreadthsRemainSeparate()
+    {
+        MethodDefinitionSourceAssociation first =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        MethodDefinitionSourceAssociation second =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MetadataTokens.MethodDefinitionHandle(2)));
+
+        MethodDefinitionSourceRequestSetPlan plan =
+            AcceptedPlan([first, second]);
+
+        Assert.Equal(2, plan.Groups.Length);
+        Assert.All(plan.Groups, group => Assert.Single(group.Lanes));
+    }
+
+    [Fact]
     public void Plan_DuplicateAssociationReturnsTypedRejection()
     {
         MethodDefinitionSourceAssociation association =
@@ -100,6 +225,41 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Same(
             work,
             Assert.Single(Assert.Single(plan.Groups).Lanes).Work);
+    }
+
+    // A shared traversal carries no declared-source relation, so each
+    // all-definition request that declares one keeps its own lane, and its
+    // relation settles in that lane.
+    [Fact]
+    public void Plan_KeepsAllDefinitionRelationRequestsInTheirOwnLanes()
+    {
+        MethodDefinitionSourceBreadth relation =
+            MethodDefinitionSourceBreadth.AllDefinitions
+                .IncludeGeneratedExecutionBodies();
+        MethodDefinitionSourceAssociation first =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                relation);
+        MethodDefinitionSourceAssociation second =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                relation);
+
+        MethodDefinitionSourceRequestSetPlan plan =
+            AcceptedPlan([first, second]);
+
+        Assert.Equal(2, plan.Groups.Length);
+        Assert.All(plan.Groups, group => Assert.Single(group.Lanes));
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(plan);
+        Assert.All(
+            execution.GroupReceipts,
+            group => Assert.NotEqual(
+                0,
+                group.PhysicalCoverage.GeneratedExpansion
+                    .TraversalReferenceBodies));
     }
 
     [Fact]
@@ -1153,6 +1313,10 @@ public sealed partial class MethodDefinitionRequestSetTests
             AssemblyInspectionSession.Open(path);
         AssemblyAnalysisRequestSetOperation operation =
             AssemblyAnalysisRequestSetOperation.Create(path, plan);
+        Assert.Same(plan, operation.Source);
+        Assert.Same(
+            MethodDefinitionSourceRequest.SourceIdentity,
+            operation.Source.Identity);
 
         var result = session.SnapshotOperation(
             operation,
@@ -1218,7 +1382,8 @@ public sealed partial class MethodDefinitionRequestSetTests
                             AssemblyAnalysisService.Instance.Execute(
                                 operation,
                                 access)))
-            .Execution;
+            .Execution
+            .MethodDefinitionExecution();
     }
 
     static MethodDefinitionSourceRequestSetExecution Execute(
@@ -1242,7 +1407,8 @@ public sealed partial class MethodDefinitionRequestSetTests
                             AssemblyAnalysisService.Instance.Execute(
                                 operation,
                                 access)))
-            .Execution;
+            .Execution
+            .MethodDefinitionExecution();
     }
 
     static ImmutableArray<byte> TwoMethodsInExcludedTypeWithFirstBody(
@@ -1749,14 +1915,16 @@ public sealed partial class MethodDefinitionRequestSetTests
                 ProducerTerminal terminal,
                 int? rowLimit,
                 ImmutableArray<int> dependencies,
-                UnitFactRetention retention) =>
+                UnitFactRetention retention,
+                bool retainResult) =>
             new FusedState(
                 this,
                 execution,
                 terminal,
                 rowLimit,
                 dependencies,
-                retention);
+                retention,
+                retainResult);
 
         internal override int Visit(
             scoped MethodDefinitionView view)
@@ -1806,14 +1974,16 @@ public sealed partial class MethodDefinitionRequestSetTests
                 ProducerTerminal terminal,
                 int? rowLimit,
                 ImmutableArray<int> dependencies,
-                UnitFactRetention retention)
+                UnitFactRetention retention,
+                bool retainResult)
                 : base(
                     producer,
                     execution,
                     terminal,
                     rowLimit,
                     dependencies,
-                    retention)
+                    retention,
+                    retainResult)
             {
             }
 

@@ -60,15 +60,67 @@ public sealed class PackageLibrarySelector
             if (Kind == PackageLibrarySelectionKind.AssetId || identities.Length > 0)
                 return identities;
         }
+        string path = Kind == PackageLibrarySelectionKind.Query
+            && Value.Contains('/')
+            && !Value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? Value + ".dll"
+                : Value;
         return [.. selection.Assets.Where(asset =>
         {
             PackageCompileAsset? implementation = selection.FindImplementationAsset(asset);
             return Kind == PackageLibrarySelectionKind.AssetPath || Value.Contains('/')
-                ? asset.Path.Equals(Value, StringComparison.OrdinalIgnoreCase)
-                    || implementation?.Path.Equals(Value, StringComparison.OrdinalIgnoreCase) == true
+                ? asset.Path.Equals(path, StringComparison.OrdinalIgnoreCase)
+                    || implementation?.Path.Equals(path, StringComparison.OrdinalIgnoreCase) == true
                 : NameMatches(asset.AssemblyName, Value)
                     || implementation is not null && NameMatches(implementation.AssemblyName, Value);
         })];
+    }
+
+    /// <summary>Resolves this selector against one available runtime population.</summary>
+    public IReadOnlyList<PackageAssetEntry> Select(
+        PackageRuntimeAssetPopulation population)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        if (Kind == PackageLibrarySelectionKind.AssetPath)
+        {
+            return
+            [
+                .. population.Assets.Where(asset =>
+                    asset.EntryPath.Equals(
+                        Value,
+                        StringComparison.OrdinalIgnoreCase)),
+            ];
+        }
+        if (Kind == PackageLibrarySelectionKind.Query
+            && !Value.Contains('/'))
+        {
+            return
+            [
+                .. population.Assets.Where(asset =>
+                    NameMatches(asset.FileName, Value)),
+            ];
+        }
+
+        string path = Kind == PackageLibrarySelectionKind.AssetId
+            && Value.StartsWith("compile:", StringComparison.Ordinal)
+                ? Value["compile:".Length..]
+                : Value;
+        string? relativePath =
+            PackageEntryPath.TryGetLibraryRelativePath(
+                path,
+                population.TargetFramework);
+        if (relativePath is null)
+            return [];
+        return
+        [
+            .. population.Assets.Where(asset =>
+                PackageEntryPath.TryGetLibraryRelativePath(
+                    asset.EntryPath,
+                    population.TargetFramework)?.Equals(
+                        relativePath,
+                        StringComparison.OrdinalIgnoreCase)
+                    is true),
+        ];
     }
 
     private static bool NameMatches(string name, string query) =>
@@ -86,7 +138,7 @@ public sealed class PackageLibrarySelector
                     StringComparison.Ordinal)
                 ? Value["compile:".Length..]
                 : Value;
-            string name = Path.GetFileName(value);
+            string name = PackageEntryPath.GetLeafName(value);
             return name.EndsWith(
                     ".dll",
                     StringComparison.OrdinalIgnoreCase)
@@ -134,7 +186,8 @@ public sealed class PackageLibraryRealizationRequest
         PackageLibraryRealizationDepth depth,
         PackageHouseOperation operation,
         PackageHouseLibraryCompanionDemand companionDemand =
-            PackageHouseLibraryCompanionDemand.None)
+            PackageHouseLibraryCompanionDemand.None,
+        string? runtimeIdentifier = null)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
@@ -168,6 +221,7 @@ public sealed class PackageLibraryRealizationRequest
         Depth = depth;
         Operation = operation;
         CompanionDemand = companionDemand;
+        RuntimeIdentifier = runtimeIdentifier;
     }
 
     public PackageHouseDemand Package { get; }
@@ -181,6 +235,8 @@ public sealed class PackageLibraryRealizationRequest
     public PackageHouseOperation Operation { get; }
 
     public PackageHouseLibraryCompanionDemand CompanionDemand { get; }
+
+    public string? RuntimeIdentifier { get; }
 }
 
 public enum PackageLibraryRealizationStatus
@@ -284,7 +340,9 @@ public static class PackageLibraryRealization
         new(
             request.Package,
             request.Operation,
-            PackageHouseTargetContext.Exact(request.TargetFramework),
+            PackageHouseTargetContext.Exact(
+                request.TargetFramework,
+                request.RuntimeIdentifier),
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.SelectedLibraries,
             association: null,
@@ -296,7 +354,8 @@ public static class PackageLibraryRealization
             evidenceDemand: PackageHouseEvidenceDemand.None,
             libraryCompanionDemand: request.CompanionDemand,
             contentQuery: null,
-            allowReferenceOnlyImplementationNames: implementation);
+            allowReferenceOnlyImplementationNames: implementation,
+            materializeCompileAssets: false);
 
     private static PackageLibraryRealizationResult Project(
         PackageHouseSettlement settlement,

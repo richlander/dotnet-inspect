@@ -90,7 +90,7 @@ public sealed record NavigationPackageEvaluation
                 nameof(libraries));
         }
         IReadOnlyList<PackageCompileAsset> selectedAssets =
-            binding.Root.AssetSelection.Assets;
+            binding.Root.AssetSelection?.Assets ?? [];
         if (libraries.Length != selectedAssets.Count)
         {
             throw new ArgumentException(
@@ -127,7 +127,7 @@ public sealed record NavigationPackageEvaluation
 
         Occurrence = occurrence;
         PrimaryAssetId =
-            binding.Root.AssetSelection.DefaultAsset?.Id;
+            binding.Root.AssetSelection?.DefaultAsset?.Id;
         Libraries = libraries;
         Surface = surface;
     }
@@ -364,6 +364,11 @@ public sealed class NavigationWorkspaceSnapshot
 
     public StructuralSubjectIdentity.WorkspaceSubject Workspace { get; }
 
+    public StructuralSubjectIdentity.ProjectSubject? Project =>
+        Scope.Project is { } occurrence
+            ? StructuralSubjectIdentity.ForProject(Workspace, occurrence)
+            : null;
+
     public WorkspacePackageOccurrence? ActiveOccurrence { get; }
 
     public StructuralSubjectIdentity ActiveSubject { get; }
@@ -545,14 +550,19 @@ public static class NavigationWorkspaceSnapshotEvaluation
                         workspace,
                         request.Ecosystem.Occurrence,
                         request.Ecosystem.Id);
+            StructuralSubjectIdentity.ProjectSubject? project =
+                request.Scope.Project is { } occurrence
+                    ? StructuralSubjectIdentity.ForProject(workspace, occurrence)
+                    : null;
             if (requestedSubject is not null
                 && requestedSubject != workspace
-                && requestedSubject != ecosystem)
+                && requestedSubject != ecosystem
+                && requestedSubject != project)
             {
                 return new NavigationRestorationSubjectPreparation.Rejected(
                     NavigationRestorationRejectionKind.InvalidContext,
                     "A restoration without a prepared Package can select only "
-                        + "the exact Workspace or prepared Ecosystem subject.");
+                        + "the exact Workspace, Project, or prepared Ecosystem subject.");
             }
             return new NavigationRestorationSubjectPreparation.Ready(
                 PrepareComposition(
@@ -690,6 +700,10 @@ public static class NavigationWorkspaceSnapshotEvaluation
         if (request.Package is null)
         {
             StructuralSubjectIdentity.EcosystemSubject? ecosystem = null;
+            StructuralSubjectIdentity.ProjectSubject? project =
+                request.Scope.Project is { } occurrence
+                    ? StructuralSubjectIdentity.ForProject(workspace, occurrence)
+                    : null;
             if (request.Ecosystem is { } ecosystemEvaluation)
             {
                 if (!ReferenceEquals(
@@ -708,10 +722,11 @@ public static class NavigationWorkspaceSnapshotEvaluation
             if (request.RetainedContext is not null
                 || request.ActiveSubject is not null
                     && request.ActiveSubject != workspace
-                    && request.ActiveSubject != ecosystem)
+                    && request.ActiveSubject != ecosystem
+                    && request.ActiveSubject != project)
             {
                 throw new ArgumentException(
-                    "A snapshot without a Package occurrence can retain only the Workspace or prepared Ecosystem subject.",
+                    "A snapshot without a Package occurrence can retain only the Workspace, Project, or prepared Ecosystem subject.",
                     nameof(request));
             }
 
@@ -884,6 +899,23 @@ public static class NavigationWorkspaceSnapshotEvaluation
         if (subject == source.ActiveSubject)
             return source;
 
+        if (subject is StructuralSubjectIdentity.ProjectSubject)
+        {
+            return Compose(
+                source.Scope,
+                source.Workspace,
+                source.Ecosystem,
+                activeOccurrence: null,
+                subject,
+                retainedContext: null,
+                source.Packages,
+                libraries: [],
+                inventory: null,
+                registry,
+                availability,
+                lensOutcome: null);
+        }
+
         NavigationRetainedSubjectContext? context =
             subject is StructuralSubjectIdentity.EcosystemSubject
                 ? null
@@ -969,6 +1001,11 @@ public static class NavigationWorkspaceSnapshotEvaluation
             && fresh.Ecosystem == activeEcosystem)
         {
             active = fresh.Ecosystem;
+        }
+        if (source.ActiveSubject is StructuralSubjectIdentity.ProjectSubject project
+            && fresh.Project == project)
+        {
+            active = project;
         }
         if (prior is not null && context?.Package == prior.Package)
         {
@@ -1076,7 +1113,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
             scope, source.Workspace, source.ActiveOccurrence, source.ActiveSubject,
             source.RetainedContext, source.TypeInventoryLibraryContext,
             PackageDescriptors(scope),
-            [.. source.Hierarchy.Select(row => row.Kind == StructuralSubjectKind.Workspace
+            [.. source.Hierarchy.Select(row => row.Kind is StructuralSubjectKind.Workspace or StructuralSubjectKind.Project
                 ? row : row with { State = state })],
             [.. source.Libraries.Select(row => row with { State = state })],
             [.. source.Types.Select(row => row with { State = state })],
@@ -1177,6 +1214,14 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 state,
                 IsActive: false),
         ];
+        if (workspace.Project is { } project)
+        {
+            hierarchy = hierarchy.Insert(1, new(
+                StructuralSubjectKind.Project,
+                project,
+                NavigationDescriptorState.Available,
+                IsActive: false));
+        }
         return new NavigationWorkspaceSnapshot(
             scope,
             workspace.Workspace,
@@ -1275,6 +1320,9 @@ public static class NavigationWorkspaceSnapshotEvaluation
         ImmutableArray<NavigationHierarchyDescriptor> hierarchy =
             Hierarchy(
                 workspace,
+                scope.Project is { } occurrence
+                    ? StructuralSubjectIdentity.ForProject(workspace, occurrence)
+                    : null,
                 ecosystem,
                 activeSubject,
                 retainedContext,
@@ -1407,6 +1455,8 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 workspace == snapshot.Workspace,
             StructuralSubjectIdentity.EcosystemSubject ecosystem =>
                 ecosystem == snapshot.Ecosystem,
+            StructuralSubjectIdentity.ProjectSubject project =>
+                project == snapshot.Project,
             StructuralSubjectIdentity.PackageSubject package =>
                 package.Occurrence == snapshot.ActiveOccurrence
                 && snapshot.Packages.Any(row => row.Occurrence == package.Occurrence
@@ -1690,6 +1740,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
 
     static ImmutableArray<NavigationHierarchyDescriptor> Hierarchy(
         StructuralSubjectIdentity.WorkspaceSubject workspace,
+        StructuralSubjectIdentity.ProjectSubject? project,
         StructuralSubjectIdentity.EcosystemSubject? ecosystem,
         StructuralSubjectIdentity activeSubject,
         NavigationRetainedSubjectContext? retainedContext,
@@ -1787,7 +1838,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 retainedContext?.Member,
                 memberState,
                 retainedContext?.Member == activeSubject);
-        return
+        ImmutableArray<NavigationHierarchyDescriptor> hierarchy =
         [
             workspaceSlot,
             ecosystemSlot,
@@ -1796,6 +1847,13 @@ public static class NavigationWorkspaceSnapshotEvaluation
             typeSlot,
             memberSlot,
         ];
+        return project is null
+            ? hierarchy
+            : hierarchy.Insert(1, new(
+                StructuralSubjectKind.Project,
+                project,
+                NavigationDescriptorState.Available,
+                project == activeSubject));
     }
 
     static NavigationDescriptorState MemberState(

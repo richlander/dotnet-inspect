@@ -44,21 +44,26 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
             await using var composition =
                 new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
             var manifestProvider = new CachedManifestProvider(store);
+            var sourceOptions = new NuGetSourceOptions
+            {
+                Sources = [feed],
+            };
+            var authorization = new RecordingAuthorization(
+                composition.CreateDependencySourceAuthorization(
+                    sourceOptions));
+            using PackageSourceOperationLease operation =
+                composition.IssueSettlementOperation(
+                    TestContext.Current.CancellationToken);
 
             InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
                 envelope =
                     await WorkspacePackageDependencyEnrichmentInspection
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
-                                Definitions(),
-                                manifestProvider,
-                                new DesktopPackageDependencyCandidateSource(
-                                    composition,
-                                    new NuGetSourceOptions
-                                    {
-                                        Sources = [feed],
-                                    })),
-                            TestContext.Current.CancellationToken);
+                                Definitions(new TraversalTargetFrameworkPolicy("net10.0")),
+                                manifestProvider),
+                            authorization,
+                            operation);
 
             Assert.True(
                 envelope.Content
@@ -75,6 +80,14 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
             Assert.Equal(3, success.SelectedRootCount);
             Assert.Equal(3, success.AddedMemberCount);
             Assert.Equal(2, manifestProvider.RequestCount);
+            Assert.Equal(
+                [
+                    "dependency.a",
+                    "dependency.shared",
+                    "dependency.b",
+                    "dependency.shared",
+                ],
+                authorization.Requests);
             Assert.All(
                 success.Definitions.Records,
                 record => Assert.Equal(
@@ -82,6 +95,9 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                     record.SchemaVersion));
 
             WorkspaceDefinition workspace = success.Definitions.Workspace!;
+            Assert.Equal(
+                new TraversalTargetFrameworkPolicy("net10.0"),
+                workspace.TraversalTargetPolicy);
             Assert.Equal(
                 [
                     $"{RootPackageId}@{RootVersion}",
@@ -169,6 +185,13 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
             await using var composition =
                 new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
             var manifestProvider = new CachedManifestProvider(store);
+            var sourceOptions = new NuGetSourceOptions
+            {
+                Sources = [feed],
+            };
+            using PackageSourceOperationLease operation =
+                composition.IssueSettlementOperation(
+                    TestContext.Current.CancellationToken);
 
             var inheritedRoot =
                 new DefinitionMemberCoordinate.PackageCoordinate(
@@ -224,14 +247,10 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
                                 definitions,
-                                manifestProvider,
-                                new DesktopPackageDependencyCandidateSource(
-                                    composition,
-                                    new NuGetSourceOptions
-                                    {
-                                        Sources = [feed],
-                                    })),
-                            TestContext.Current.CancellationToken);
+                                manifestProvider),
+                            composition.CreateDependencySourceAuthorization(
+                                sourceOptions),
+                            operation);
 
             Assert.True(
                 envelope.Content
@@ -303,6 +322,13 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
             await using var composition =
                 new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
             var manifestProvider = new CachedManifestProvider(store);
+            var sourceOptions = new NuGetSourceOptions
+            {
+                Sources = [feed],
+            };
+            using PackageSourceOperationLease operation =
+                composition.IssueSettlementOperation(
+                    TestContext.Current.CancellationToken);
 
             InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
                 envelope =
@@ -310,14 +336,10 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
                                 SingleContextDefinitions(),
-                                manifestProvider,
-                                new DesktopPackageDependencyCandidateSource(
-                                    composition,
-                                    new NuGetSourceOptions
-                                    {
-                                        Sources = [feed],
-                                    })),
-                            TestContext.Current.CancellationToken);
+                                manifestProvider),
+                            composition.CreateDependencySourceAuthorization(
+                                sourceOptions),
+                            operation);
 
             var failed = Assert.IsType<
                 WorkspacePackageDependencyEnrichmentOutcome.Failed>(
@@ -341,6 +363,86 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_ExpiredOperationStopsCandidateAuthorization()
+    {
+        var manifestProvider = new StaticManifestProvider(
+            ManifestBytes(
+                RootPackageId,
+                RootVersion,
+                """
+                <dependencies>
+                  <group targetFramework="net8.0">
+                    <dependency id="dependency.late" version="[1.0.0,2.0.0)" />
+                  </group>
+                </dependencies>
+                """),
+            TimeSpan.FromMilliseconds(100));
+        await using var composition =
+            new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
+        var authorization = new RecordingAuthorization(
+            composition.CreateDependencySourceAuthorization(
+                new NuGetSourceOptions
+                {
+                    Sources = [SourceUrl],
+                }));
+        using PackageSourceOperationLease operation =
+            composition.IssueSettlementOperation(
+                TimeSpan.FromMilliseconds(25),
+                TestContext.Current.CancellationToken);
+
+        InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
+            envelope =
+                await WorkspacePackageDependencyEnrichmentInspection
+                    .ExecuteAsync(
+                        new WorkspacePackageDependencyEnrichmentRequest(
+                            SingleContextDefinitions(),
+                            manifestProvider),
+                        authorization,
+                        operation);
+
+        var failed = Assert.IsType<
+            WorkspacePackageDependencyEnrichmentOutcome.Failed>(
+                envelope.Content);
+        Assert.Equal(
+            WorkspacePackageDependencyEnrichmentFailureKind
+                .CandidateResolution,
+            failed.Failure.Kind);
+        Assert.Empty(authorization.Requests);
+        Assert.Equal(1, manifestProvider.RequestCount);
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CallerCancellationRetainsIdentity()
+    {
+        var manifestProvider = new StaticManifestProvider(
+            ManifestBytes(RootPackageId, RootVersion, ""));
+        await using var composition =
+            new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
+        using var cancellation = new CancellationTokenSource();
+        using PackageSourceOperationLease operation =
+            composition.IssueSettlementOperation(cancellation.Token);
+        cancellation.Cancel();
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => WorkspacePackageDependencyEnrichmentInspection
+                    .ExecuteAsync(
+                        new WorkspacePackageDependencyEnrichmentRequest(
+                            SingleContextDefinitions(),
+                            manifestProvider),
+                        composition.CreateDependencySourceAuthorization(
+                            new NuGetSourceOptions
+                            {
+                                Sources = [SourceUrl],
+                            }),
+                        operation));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.Equal(0, manifestProvider.RequestCount);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AcquisitionTargetOutsideNuGetFrameworksSucceeds()
     {
         string feed = CreateTemporaryDirectory();
@@ -350,6 +452,13 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
             await using var composition =
                 new DesktopPackageSourceComposition(TimeSpan.FromSeconds(10));
             var manifestProvider = new CachedManifestProvider(store);
+            var sourceOptions = new NuGetSourceOptions
+            {
+                Sources = [feed],
+            };
+            using PackageSourceOperationLease operation =
+                composition.IssueSettlementOperation(
+                    TestContext.Current.CancellationToken);
 
             InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>
                 envelope =
@@ -357,14 +466,10 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
                                 SingleContextDefinitions("custom"),
-                                manifestProvider,
-                                new DesktopPackageDependencyCandidateSource(
-                                    composition,
-                                    new NuGetSourceOptions
-                                    {
-                                        Sources = [feed],
-                                    })),
-                            TestContext.Current.CancellationToken);
+                                manifestProvider),
+                            composition.CreateDependencySourceAuthorization(
+                                sourceOptions),
+                            operation);
 
             var success = Assert.IsType<
                 WorkspacePackageDependencyEnrichmentOutcome.Succeeded>(
@@ -387,7 +492,8 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
         }
     }
 
-    private static CommittedScenarioDefinitionSet Definitions()
+    private static CommittedScenarioDefinitionSet Definitions(
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
     {
         var root8 = new DefinitionMemberCoordinate.PackageCoordinate(
             RootPackageId,
@@ -421,7 +527,8 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                 new NavigationTabDefinition("t2", coordinate: root9),
             ],
             focus: "t0",
-            schemaVersion: InspectionDefinitionSchema.Version4);
+            schemaVersion: InspectionDefinitionSchema.Version4,
+            traversalTargetPolicy: traversalTargetPolicy);
     }
 
     private static CommittedScenarioDefinitionSet SingleContextDefinitions(
@@ -446,12 +553,14 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
         IReadOnlyList<WorkspaceContextDefinition> contexts,
         IReadOnlyList<NavigationTabDefinition> tabs,
         string? focus,
-        int schemaVersion = InspectionDefinitionSchema.Version3)
+        int schemaVersion = InspectionDefinitionSchema.Version3,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
     {
         var workspace = new WorkspaceDefinition(
             schemaVersion,
             WorkspaceSharePacketTransposer.WorkspaceId,
-            contexts);
+            contexts,
+            traversalTargetPolicy: traversalTargetPolicy);
         var navigation = new CommittedNavigationDefinition(
             schemaVersion,
             WorkspaceSharePacketTransposer.NavigationId,
@@ -668,6 +777,42 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                     new WorkspacePackageDependencyManifestResult.Available(
                         buffer.ToArray()));
             }
+        }
+    }
+
+    private sealed class StaticManifestProvider(
+        byte[] content,
+        TimeSpan delay = default) :
+        IWorkspacePackageDependencyManifestProvider
+    {
+        public int RequestCount { get; private set; }
+
+        public Task<WorkspacePackageDependencyManifestResult> GetManifestAsync(
+            PackageSourceCoordinate coordinate,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RequestCount++;
+            if (delay > TimeSpan.Zero)
+                Thread.Sleep(delay);
+            return Task.FromResult<WorkspacePackageDependencyManifestResult>(
+                new WorkspacePackageDependencyManifestResult.Available(
+                    content));
+        }
+    }
+
+    private sealed class RecordingAuthorization(
+        IPackageSourceAuthorization inner) : IPackageSourceAuthorization
+    {
+        private readonly List<string> _requests = [];
+
+        public IReadOnlyList<string> Requests => _requests;
+
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId)
+        {
+            _requests.Add(packageId);
+            return inner.AuthorizeSourcesFor(packageId);
         }
     }
 }

@@ -372,6 +372,8 @@ public static class NavigationLensRecommendation
                 ViewFacetRole.WorkspaceOverview,
             StructuralSubjectIdentity.EcosystemSubject =>
                 ViewFacetRole.EcosystemOverview,
+            StructuralSubjectIdentity.ProjectSubject =>
+                ViewFacetRole.ProjectOverview,
             StructuralSubjectIdentity.PackageSubject =>
                 ViewFacetRole.PackageLibraries,
             StructuralSubjectIdentity.AllLibrariesSubject =>

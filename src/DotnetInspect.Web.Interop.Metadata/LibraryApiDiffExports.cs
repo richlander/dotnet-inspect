@@ -254,7 +254,7 @@ public static partial class MetadataExports
                                 target,
                                 currentGroup,
                                 current,
-                                ApiSurfaceScope.Public,
+                                ApiSurfaceScope.ApiAxis,
                                 BrowserApiSurfacePolicy.Limits,
                                 new DiffAnalysisLibraryInspectionRequest(
                                     request.PackageId,

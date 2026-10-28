@@ -138,7 +138,7 @@ public static class ExternalCallGraphCommand
                         CreateRuntimePlatformPruning(
                             traversalTargetPolicy,
                             workspacePlan,
-                            DesktopPackageDependencyMemberCallGraphContinuationSource
+                            PackageDependencyMemberCallGraphContinuationSource
                                 .FindActiveDotnetRoot(),
                             InstalledPlatformPruneSource.Read));
             InspectionEnvelope<
@@ -310,34 +310,29 @@ public static class ExternalCallGraphCommand
         await using var composition =
             new DesktopPackageSourceComposition(
                 fetchOptions.RequestTimeout);
-        var candidateSource =
-            new DesktopPackageDependencyCandidateSource(
-                composition,
-                options.SourceOptions,
-                options.Verbose
-                    ? CommandError.WriteLine
-                    : null);
+        Action<string>? log = options.Verbose
+            ? CommandError.WriteLine
+            : null;
         var source = new PackageDependencyMemberCallGraphInspectionSource(
             new PackageDependencyTraversalCandidateAdapter(
-                candidateSource),
-            new DesktopPackageDependencyTraversalManifestSource(
-                composition),
+                composition.CreateDependencySourceAuthorization(
+                    options.SourceOptions),
+                log),
+            new AuthorizedPackageDependencyManifestSource(),
             composition.CreateDependencySettlementHouse(
                 (_, _) => new FileSystemPackageStore(),
                 options.SourceOptions,
-                options.Verbose
-                    ? CommandError.WriteLine
-                    : null),
+                log),
             (operation, token) =>
-                composition.IssueSettlementOperation(token),
+                composition.IssueSettlementOperation(
+                    operation.OperationTimeout,
+                    token),
             composition.CreateDependencyContentQueryHouse(
                 (_, _) => new FileSystemPackageStore(),
                 options.SourceOptions,
-                options.Verbose
-                    ? CommandError.WriteLine
-                    : null));
+                log));
         await using var continuationSource =
-            new DesktopPackageDependencyMemberCallGraphContinuationSource(
+            new PackageDependencyMemberCallGraphContinuationSource(
                 source,
                 request.RealizationOperation,
                 () => new DesktopPackageSourceComposition(

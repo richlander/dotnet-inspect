@@ -336,8 +336,10 @@ dnx dotnet-inspect -y -- library query --platform runtime \
 
 Repeated `references` terms are ANDed at Library grain. `--take` bounds
 candidate Metadata inspection; `-n` and `--rows` select matching Library rows
-afterward. Missing or malformed Metadata remains visible and can prevent an
-exact Count.
+afterward, and a lone `-n` stops at its Nth match. A reached explicit `--take`
+is the answer's scope (a note, exit 0); the default limit omitting Libraries is
+a partial view (a warning, exit 1). Missing or malformed Metadata remains
+visible and makes the count observed rather than exact.
 
 The positional-Type Dependency route exposes Source, Target, and Kind
 predicates, field and Traversal ordering, Top ranking, row stages, and Depth:
@@ -387,16 +389,19 @@ assemblies from every target-framework group, matches `AssemblyRef` simple
 names case-insensitively, and reports framework/path evidence without resolving
 or traversing the reference.
 `--take` bounds candidate work, while `-n` and `--rows` select final
-matched-package rows. Without explicit `--take`, a simple `-n N` is pushed into
-execution: direct package rows use an effective candidate bound of N, while
-filtered queries scan until N matches or their default candidate bound.
+matched-package rows. A simple `-n N` is pushed into execution: filtered queries
+scan until N matches or the end of the `--take` window or default candidate
+bound, and without explicit `--take` direct package rows use an effective
+candidate bound of N.
 Pushdown is capped at 1,000 candidates; larger semantic heads remain valid and
 are applied after bounded execution. Selecting a package-content term is
 itself approval for archive acquisition and permits at most 20 candidates; use
-`--nuspec-only` to reject such a query. `--count` counts the selected rows the
-same query would render, with the same warnings and exit status: a reached
-candidate bound or partial failure gives an observed count, disclosed on
-stderr, not the scope's total.
+`--nuspec-only` to reject such a query. A reached explicit `--take` is the
+answer's scope, named by a note, with exit 0; a default candidate bound that
+stops evaluation, a page limit, or a partial failure is a partial view with a
+warning and exit 1. `--count` counts the selected rows the same query would
+render, with the same notes, warnings, and exit status: exact for a reached
+explicit `--take`, observed otherwise, and never the scope's total.
 Default non-count output shows `Packages` when at least one package matched and
 `Query Summary` otherwise. The summary separates candidate, match, and
 evaluation-failure counts; select a stable shape with `-S Packages` or
@@ -538,8 +543,11 @@ Partially adopted modes fall back to rendered lines.
 Where a route supports it, `--count` is a terminal projection over the selected
 semantic rows. On sectioned output, select one concrete table for a scalar
 count. Count does not mean “count the unselected input,” and it does not by
-itself authorize unbounded work; incomplete population evidence can prevent an
-exact count.
+itself authorize unbounded work. When a source failed or a default limit
+stopped evaluation, `--count` prints the observed count with the same stderr
+warnings and exit status as the rows, and the exit is 1. A reached explicit
+`--take` is the requested scope instead: the count is exact for that
+population and the exit is 0.
 
 Bare `type ... --count` follows the resolved subject: a Library subject counts
 public Type declarations, while a Type subject counts Members. Explicit `-S`
@@ -573,7 +581,9 @@ These browser-restorable format-1 URLs carry canonical datapackets, not
 captured output. The receiving Inspect Web host re-runs the represented member
 or package-dependency operation. Format-1 packets are not accepted by CLI
 complete restoration. For formats 2–4, pass opaque packet text to
-`workspace --packet "$packet"`; it rejects URL input. The CLI can issue
+`workspace --packet "$packet" --inventory` for explicit complete restoration
+and inventory; omit `--inventory` to validate and re-emit the declaration
+without realization. These packet entrances reject URL input. The CLI can issue
 Workspace format-3 and derived-Type format-4 packet or URL Shares, but current
 Inspect Web rejects both formats. Keep them as packet strings for supported
 CLI workflows. Package Query Share is currently `nonProjectable`, and Inspect

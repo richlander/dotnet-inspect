@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
@@ -10,13 +11,115 @@ namespace ILInspector.Metadata;
 public static partial class ApiSurfaceExtractor
 {
     /// <summary>
-    /// A method record passes the access rule when the population admits every
-    /// accessibility or its effective access is public.
+    /// A method, property, or event record passes the access rule when the
+    /// population admits every accessibility, its effective access is public,
+    /// or the population is the API axis and its effective access is in the
+    /// <c>protected</c> bucket and reachable from another assembly.
     /// </summary>
     static bool AdmitsMethodAccess(
         MethodAttributes effectiveAccess,
-        bool includeAll)
-        => includeAll || effectiveAccess == MethodAttributes.Public;
+        bool includeAll,
+        bool apiAxis = false)
+        => includeAll
+            || effectiveAccess == MethodAttributes.Public
+            || (apiAxis && IsApiAxisProtectedAccess(effectiveAccess));
+
+    /// <summary>
+    /// The <c>protected</c> bucket less <c>private protected</c>: the accesses
+    /// a derived Type in another assembly can reach. <c>private protected</c>
+    /// (<see cref="MethodAttributes.FamANDAssem"/>) belongs to the Body axis.
+    /// Field access shares this encoding.
+    /// </summary>
+    static bool IsApiAxisProtectedAccess(MethodAttributes access)
+        => access is MethodAttributes.Family or MethodAttributes.FamORAssem;
+
+    /// <summary>
+    /// The Public scope admits a Type by accessibility when its own row and every
+    /// enclosing Type's row is public or nested public
+    /// (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
+    /// A public nested Type of a non-public Type is not admitted: no other
+    /// assembly can reach it. Nor is one nested in a protected Type, which only a
+    /// derived Type can reach.
+    /// Type discovery's public surface applies the same rule, and every other
+    /// reader that means "public Type" calls this one (Type counts and lookups,
+    /// the integration, hierarchy, and dependency scanners, and the extension
+    /// scan's declaring Type). A malformed nesting graph is admitted here so
+    /// the Type identity read that follows rejects the row with its typed
+    /// relationship failure.
+    /// </summary>
+    public static bool AdmitsPublicScopeType(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        TypeDefinition typeDef)
+    {
+        if (!typeDef.IsPublic)
+            return false;
+
+        TypeDefinitionHandle declaringType = typeDef.GetDeclaringType();
+        if (declaringType.IsNil)
+            return true;
+
+        try
+        {
+            return MetadataVisibility.IsExternallyVisible(reader, declaringType);
+        }
+        catch (BadImageFormatException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The API axis admits a Type, as Finding Diff Any does, when its own row and
+    /// every enclosing Type's row is public, nested public, nested protected,
+    /// or nested protected internal. A public nested Type of a non-public Type
+    /// is not admitted: no other assembly can reach it. A nested
+    /// <c>private protected</c> Type is not admitted either.
+    /// </summary>
+    static bool AdmitsApiAxisType(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        TypeDefinition typeDef)
+        => (typeDef.Attributes & TypeAttributes.VisibilityMask)
+            is TypeAttributes.Public
+            or TypeAttributes.NestedPublic
+            or TypeAttributes.NestedFamily
+            or TypeAttributes.NestedFamORAssem
+            && MetadataVisibility.AreEnclosingTypesExternallyReachable(reader, handle);
+
+    /// <summary>
+    /// Whether every Type enclosing <paramref name="handle"/> has the ordinary population's
+    /// reach (docs/design/library-api-diff-presentation.md#per-side-facts): public or nested
+    /// public. Hidden status is a fact of each declaration, so an enclosing Type's
+    /// <c>EditorBrowsable(Never)</c> does not hide the Types it nests. A top-level Type has no
+    /// enclosing Type. Read from metadata, so the answer does not depend on which Types a
+    /// selection projects.
+    /// </summary>
+    static bool AreEnclosingTypesOrdinary(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        int remaining = reader.GetTableRowCount(TableIndex.TypeDef);
+        TypeDefinitionHandle current =
+            reader.GetTypeDefinition(handle).GetDeclaringType();
+        while (!current.IsNil)
+        {
+            if (remaining-- == 0)
+            {
+                throw new BadImageFormatException(
+                    "The nested type graph contains a cycle.");
+            }
+
+            TypeDefinition definition = reader.GetTypeDefinition(current);
+            if ((definition.Attributes & TypeAttributes.VisibilityMask)
+                is not (TypeAttributes.Public or TypeAttributes.NestedPublic))
+            {
+                return false;
+            }
+            current = definition.GetDeclaringType();
+        }
+        return true;
+    }
 
     internal static MetadataMethodAccessibilityFilter AccessibilityBucket(
         MethodAttributes access) =>
@@ -441,6 +544,16 @@ public static partial class ApiSurfaceExtractor
     /// </summary>
     static bool AdmitsMemberAccess(bool isPublic, bool includeAll)
         => includeAll || isPublic;
+
+    /// <summary>
+    /// A field passes the access rule as a method does; field and method
+    /// access share their encoding.
+    /// </summary>
+    static bool AdmitsFieldAccess(
+        FieldAttributes access,
+        bool includeAll,
+        bool apiAxis)
+        => AdmitsMethodAccess((MethodAttributes)(int)access, includeAll, apiAxis);
 
     /// <summary>
     /// An enum's <c>value__</c> storage slot supplies a Type fact, not a member.

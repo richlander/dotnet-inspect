@@ -23,6 +23,8 @@ const data: BrowserPackageDependencies = {
   package: "Example.Package", version: "1.0.0", activeFramework: "net10.0",
   assembly: "Example.Core",
   dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
+  platformReferences: [], defaultPlatformReference: null,
+  platformReferenceError: null,
   assemblyReferences: referenceList,
   compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
 };
@@ -36,6 +38,7 @@ function render(overrides: Partial<LibraryReferencesOptions> = {}) {
     error: "",
     data,
     referenceDestinations: [null, null],
+    referenceIcons: [null, null],
     escapeHtml: value => String(value).replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;").replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
@@ -159,6 +162,19 @@ test("resolved assembly references expose their exact Workspace Library destinat
   assert.doesNotMatch(
     html,
     /data-library-reference-library="[^"]+"[^>]*>Example\.Other<\/button>/);
+});
+
+test("only a uniquely attributed reference displays its package icon", () => {
+  const html = render({
+    referenceDestinations: [{
+      packageKey: "example.package|1.0.0|net10.0",
+      libraryId: "asset:system-runtime",
+    }, null],
+    referenceIcons: ["data:image/png;base64,aGVsbG8=", null],
+  });
+  assert.match(html,
+    /<img class="dep-icon" src="data:image\/png;base64,aGVsbG8=" alt="" data-package-icon data-library-reference-icon="0">/);
+  assert.doesNotMatch(html, /data-library-reference-icon="1"/);
 });
 
 test("a single direct reference uses a singular count", () => {

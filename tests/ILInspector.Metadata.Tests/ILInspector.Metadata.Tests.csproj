@@ -86,8 +86,8 @@
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SignatureUseFixtures/ILInspector.Metadata.SignatureUseFixtures.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1/ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2/ILInspector.Metadata.ApiDeclarationCorrespondence.V2.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.FastDiff.V1/ILInspector.Metadata.FastDiff.V1.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.FastDiff.V2/ILInspector.Metadata.FastDiff.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V1/ILInspector.Metadata.FindingDiffAny.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V2/ILInspector.Metadata.FindingDiffAny.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/presentation/LibraryApiDiff.V1/LibraryApiDiff.V1.csproj" ReferenceOutputAssembly="false" />
@@ -100,6 +100,8 @@
     <ProjectReference Include="../ILInspector.Metadata.PerformanceOracles.Tests/ILInspector.Metadata.PerformanceOracles.Tests.csproj" />
     <ProjectReference Include="../../fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.StateMachineFixtures.Debug/ILInspector.Metadata.StateMachineFixtures.Debug.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures/ILInspector.Metadata.SourceProvenanceFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard/ILInspector.Metadata.SourceProvenanceNetStandard.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />

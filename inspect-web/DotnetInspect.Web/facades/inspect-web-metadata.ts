@@ -24,17 +24,19 @@ export type BrowserDiffAnalysisSurface = "Member" | "Type" | "Library" | number;
 
 export type BrowserDiffAnalysisViews = string | number;
 
-export type BrowserFastDiffAxes = "ApiAndBody" | "Api" | number;
+export type BrowserFindingDiffAnyAxes = "ApiAndBody" | "Api" | number;
 
-export type BrowserFastDiffState = "Unchanged" | "Changed" | "Indeterminate" | "NotCompared" | number;
+export type BrowserFindingDiffAnyState = "Unchanged" | "Changed" | "Indeterminate" | "NotCompared" | number;
 
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
-export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | number;
+export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | "Status" | number;
 
-export type BrowserLibraryApiDiffChangeClassification = "Additive" | "Breaking" | "PotentiallyBreaking" | number;
+export type BrowserLibraryApiDiffChangeClassification = "Additive" | "Breaking" | "PotentiallyBreaking" | "NonBreaking" | number;
 
-export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | number;
+export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | "TypeAccessibilityChanged" | "MemberAccessibilityChanged" | "TypeHiddenChanged" | "MemberHiddenChanged" | "TypeObsoleteChanged" | "MemberObsoleteChanged" | number;
+
+export type BrowserLibraryApiDiffChangeState = "Changed" | "Added" | "Removed" | "Hidden" | "Unhidden" | "Obsoleted" | number;
 
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 
@@ -58,13 +60,15 @@ export type BrowserLibraryApiDiffRejectionKind = "LogicalLibraryMismatch" | "Fin
 
 export type BrowserLibraryApiDiffResultKind = "Succeeded" | "Unavailable" | "Rejected" | "Failed" | "Canceled" | number;
 
-export type BrowserLibraryApiDiffSurfaceScope = "Public" | "IncludeAll" | "PublicWithNonPublicTypes" | number;
+export type BrowserLibraryApiDiffSurfaceScope = "Public" | "IncludeAll" | "PublicWithNonPublicTypes" | "ApiAxis" | number;
 
 export type BrowserLibraryApiDiffTypeState = "Diff" | "Addition" | "Deletion" | number;
 
 export type BrowserLibraryApiDiffUnavailableKind = "TargetIncomplete" | "CurrentIncomplete" | "BothIncomplete" | number;
 
-export type BrowserLibraryFastDiffResultKind = "Succeeded" | "Rejected" | "Failed" | "Canceled" | number;
+export type BrowserLibraryFindingDiffAnyEndpoint = "Target" | "Current" | number;
+
+export type BrowserLibraryFindingDiffAnyResultKind = "Succeeded" | "MissingCounterpart" | "Rejected" | "Failed" | "Canceled" | number;
 
 export type BrowserMemberDocumentOutcome = "Available" | "Rejected" | "Incomplete" | "Failed" | number;
 
@@ -77,6 +81,8 @@ export type BrowserTypeFindActivationStatus = "Available" | "Unavailable" | "Sta
 export type BrowserTypeFindResultStatus = "Completed" | "Rejected" | "Unavailable" | "Stale" | number;
 
 export type BrowserTypeMemberPopulationOutcome = "Available" | "Rejected" | "Incomplete" | "Failed" | number;
+
+export type BrowserTypeOverviewOutcome = "Available" | "Rejected" | "Incomplete" | "Failed" | number;
 
 export type CandidateOpenFailureKind = number;
 
@@ -162,16 +168,11 @@ export interface BrowserDiffAnalysisPredicate {
   readonly value: string;
 }
 
-export interface BrowserExceptionSurface {
-  readonly type: string;
-  readonly description: string;
-}
-
-export interface BrowserFastDiffType {
+export interface BrowserFindingDiffAnyType {
   readonly identifier: string;
   readonly fullName: string;
-  readonly api: BrowserFastDiffState;
-  readonly body: BrowserFastDiffState;
+  readonly api: BrowserFindingDiffAnyState;
+  readonly body: BrowserFindingDiffAnyState;
 }
 
 export interface BrowserGraphMemberSurface {
@@ -204,6 +205,8 @@ export interface BrowserLibraryApiDiffAggregate {
   readonly breakingCount: number;
   readonly additiveCount: number;
   readonly potentiallyBreakingCount: number;
+  readonly nonBreakingCount: number;
+  readonly outsideOrdinaryRowCount: number;
 }
 
 export interface BrowserLibraryApiDiffAssemblyIdentity {
@@ -222,6 +225,7 @@ export interface BrowserLibraryApiDiffChange {
   readonly kind: BrowserLibraryApiDiffChangeKind;
   readonly classification: BrowserLibraryApiDiffChangeClassification;
   readonly category: BrowserLibraryApiDiffChangeCategory;
+  readonly state: BrowserLibraryApiDiffChangeState;
   readonly message: string;
   readonly oldValue: string | null;
   readonly newValue: string | null;
@@ -303,6 +307,7 @@ export interface BrowserLibraryApiDiffMemberIdentity {
   readonly typeFullName: string;
   readonly memberName: string;
   readonly display: string;
+  readonly isObsolete: boolean;
 }
 
 export interface BrowserLibraryApiDiffProjectionTruncation {
@@ -373,6 +378,7 @@ export interface BrowserLibraryApiDiffType {
   readonly breakingCount: number;
   readonly additiveCount: number;
   readonly potentiallyBreakingCount: number;
+  readonly nonBreakingCount: number;
   readonly before: BrowserLibraryApiDiffTypeIdentity | null;
   readonly after: BrowserLibraryApiDiffTypeIdentity | null;
   readonly members: ReadonlyArray<BrowserLibraryApiDiffMember>;
@@ -384,6 +390,7 @@ export interface BrowserLibraryApiDiffTypeIdentity {
   readonly namespace: string;
   readonly segments: ReadonlyArray<string>;
   readonly display: string;
+  readonly isObsolete: boolean;
 }
 
 export interface BrowserLibraryApiDiffUnavailable {
@@ -392,36 +399,45 @@ export interface BrowserLibraryApiDiffUnavailable {
   readonly current: BrowserLibraryApiDiffEndpoint;
 }
 
-export interface BrowserLibraryFastDiffCancellation {
+export interface BrowserLibraryFindingDiffAnyCancellation {
   readonly kind: BrowserLibraryApiDiffCancellationKind;
   readonly reason: string | null;
 }
 
-export interface BrowserLibraryFastDiffRequest {
+export interface BrowserLibraryFindingDiffAnyMissingCounterpart {
+  readonly endpoint: BrowserLibraryFindingDiffAnyEndpoint;
+  readonly version: string;
+  readonly runtimeIdentifier: string;
+  readonly availableRuntimeIdentifiers: ReadonlyArray<string>;
+}
+
+export interface BrowserLibraryFindingDiffAnyRequest {
   readonly schemaVersion: number;
   readonly packageId: string;
   readonly currentVersion: string;
   readonly targetVersion: string;
   readonly targetFramework: string;
+  readonly runtimeIdentifier: string | null;
   readonly compileAssetId: string;
-  readonly axes: BrowserFastDiffAxes;
+  readonly axes: BrowserFindingDiffAnyAxes;
 }
 
-export interface BrowserLibraryFastDiffResult {
+export interface BrowserLibraryFindingDiffAnyResult {
   readonly schemaVersion: number;
-  readonly request: BrowserLibraryFastDiffRequest | null;
-  readonly kind: BrowserLibraryFastDiffResultKind;
-  readonly value: BrowserLibraryFastDiffValue | null;
+  readonly request: BrowserLibraryFindingDiffAnyRequest | null;
+  readonly kind: BrowserLibraryFindingDiffAnyResultKind;
+  readonly value: BrowserLibraryFindingDiffAnyValue | null;
   readonly error: string | null;
   readonly diagnostic: string | null;
   readonly reason: string | null;
+  readonly missingCounterpart: BrowserLibraryFindingDiffAnyMissingCounterpart | null;
 }
 
-export interface BrowserLibraryFastDiffValue {
+export interface BrowserLibraryFindingDiffAnyValue {
   readonly targetAssetId: string;
   readonly currentAssetId: string;
   readonly comparedTypeCount: number;
-  readonly types: ReadonlyArray<BrowserFastDiffType>;
+  readonly types: ReadonlyArray<BrowserFindingDiffAnyType>;
 }
 
 export interface BrowserMemberBodySelector {
@@ -481,8 +497,6 @@ export interface BrowserMemberGroupDocumentRow {
   readonly metadataToken: number;
   readonly baselineOrdinal: number;
   readonly displaySignature: string;
-  readonly canonicalSignature: string;
-  readonly fingerprint: string;
   readonly accessibility: string;
   readonly receiver: string;
 }
@@ -505,9 +519,6 @@ export interface BrowserMemberSurface {
   readonly returnType: string | null;
   readonly parameters: ReadonlyArray<BrowserParameterSurface>;
   readonly documentationId: string | null;
-  readonly summary: string | null;
-  readonly returns: string | null;
-  readonly exceptions: ReadonlyArray<BrowserExceptionSurface>;
   readonly stableSelector: string;
   readonly anchorDigest: string;
   readonly canonicalSignature: string;
@@ -618,7 +629,6 @@ export interface BrowserParameterSurface {
   readonly modifier: string | null;
   readonly hasDefault: boolean;
   readonly defaultValue: string | null;
-  readonly description: string | null;
 }
 
 export interface BrowserReadyToRunImage {
@@ -800,6 +810,61 @@ export interface BrowserTypeMetadata {
   readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
   readonly typeDependencyInspection: InspectionEnvelope<TypeDependencySectionResult>;
   readonly inspectionFailures: ReadonlyArray<string>;
+}
+
+export interface BrowserTypeOverview {
+  readonly assembly: BrowserTypeOverviewAssemblyIdentity;
+  readonly moduleVersionId: string;
+  readonly typeIdentity: string;
+  readonly typeDefinitionToken: number;
+  readonly category: string;
+  readonly isByRefLike: boolean;
+  readonly genericParameters: ReadonlyArray<BrowserTypeOverviewGenericParameter>;
+  readonly population: BrowserTypeOverviewPopulation;
+}
+
+export interface BrowserTypeOverviewAssemblyIdentity {
+  readonly name: string;
+  readonly version: string;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
+}
+
+export interface BrowserTypeOverviewGenericParameter {
+  readonly name: string;
+  readonly metadataIndex: number;
+  readonly definitionSegmentIndex: number;
+  readonly attributes: string;
+}
+
+export interface BrowserTypeOverviewGroup {
+  readonly key: string;
+  readonly name: string;
+  readonly displayName: string;
+  readonly kind: string;
+  readonly baselineOrdinal: number;
+  readonly completeCount: number;
+  readonly receivers: ReadonlyArray<string>;
+  readonly traits: BrowserTypeMemberTraitCounts;
+}
+
+export interface BrowserTypeOverviewInspection {
+  readonly outcome: BrowserTypeOverviewOutcome;
+  readonly detail: string | null;
+  readonly document: BrowserTypeOverview | null;
+  readonly share: InspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserMemberGroupDocumentDiagnostic>;
+}
+
+export interface BrowserTypeOverviewPopulation {
+  readonly spelling: string;
+  readonly accessibility: string;
+  readonly receiver: string;
+  readonly ordering: string;
+  readonly includeHidden: boolean;
+  readonly composition: BrowserTypeMemberComposition;
+  readonly selectorCounts: BrowserTypeMemberSelectorCounts;
+  readonly groups: ReadonlyArray<BrowserTypeOverviewGroup>;
 }
 
 export interface BrowserTypeSurface {
@@ -1289,32 +1354,35 @@ type $ManagedExports = {
         readonly "Metadata": {
           readonly "MetadataExports": {
             readonly "CancelLibraryApiDiff.271973316": (operationId: string, reason: string) => string;
-            readonly "CancelLibraryFastDiff.271973316": (operationId: string, reason: string) => string;
+            readonly "CancelLibraryFindingDiffAny.271973316": (operationId: string, reason: string) => string;
             readonly "FindTypes.2036514267": (retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string) => Promise<string>;
-            readonly "QueryGraphMemberSurface.1542089313": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
+            readonly "QueryGraphMemberSurface.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, runtimeIdentifier: string | null) => Promise<string>;
             readonly "QueryLibraryApiDiff.451505237": (operationId: string, requestJson: string) => Promise<string>;
-            readonly "QueryLibraryFastDiff.451505237": (operationId: string, requestJson: string) => Promise<string>;
-            readonly "QueryMemberDeclaration.340032695": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, implementationMember: boolean) => Promise<string>;
-            readonly "QueryMemberDocument.1541609119": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, baselineOrdinal: number, fingerprintPrefix: string) => Promise<string>;
-            readonly "QueryMemberGroupDocument.649160465": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string) => Promise<string>;
+            readonly "QueryLibraryFindingDiffAny.451505237": (operationId: string, requestJson: string) => Promise<string>;
+            readonly "QueryMemberDeclaration.681522374": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, implementationMember: boolean, runtimeIdentifier: string | null) => Promise<string>;
+            readonly "QueryMemberDocument.1271709870": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, baselineOrdinal: number, fingerprintPrefix: string, runtimeIdentifier: string | null) => Promise<string>;
+            readonly "QueryMemberGroupDocument.1809822789": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, accessibility: string, receiver: string, includeHidden: boolean) => Promise<string>;
             readonly "QueryPackageHeapEntries.649160465": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string) => Promise<string>;
             readonly "QueryPackageMetadata.1579276339": (packageId: string, version: string, targetFramework: string, assemblyFileName: string) => Promise<string>;
             readonly "QueryPackageMetadataTable.1945598111": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
-            readonly "QueryPerformanceTypeMemberPopulation.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
+            readonly "QueryPerformanceTypeMemberPopulation.335255791": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string, runtimeIdentifier: string | null) => Promise<string>;
             readonly "QueryPlatformHeapEntries.649160465": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, heap: string) => Promise<string>;
             readonly "QueryPlatformMemberDeclaration.1542089313": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
             readonly "QueryPlatformMemberDocument.1541609119": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, baselineOrdinal: number, fingerprintPrefix: string) => Promise<string>;
-            readonly "QueryPlatformMemberGroupDocument.649160465": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string) => Promise<string>;
+            readonly "QueryPlatformMemberGroupDocument.1809822789": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, accessibility: string, receiver: string, includeHidden: boolean) => Promise<string>;
             readonly "QueryPlatformMetadata.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
             readonly "QueryPlatformMetadataTable.1945598111": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
             readonly "QueryPlatformPerformanceTypeMemberPopulation.1160082336": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
             readonly "QueryPlatformTypeMemberPopulation.1160082336": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
-            readonly "QueryTypeMemberPopulation.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
-            readonly "QueryTypeProjection.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string) => Promise<string>;
+            readonly "QueryPlatformTypeOverviewDocument.1160082336": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
+            readonly "QueryTypeMemberPopulation.335255791": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string, runtimeIdentifier: string | null) => Promise<string>;
+            readonly "QueryTypeOverviewDocument.335255791": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string, runtimeIdentifier: string | null) => Promise<string>;
+            readonly "QueryTypeProjection.335255791": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, runtimeIdentifier: string | null, workspaceJson: string) => Promise<string>;
             readonly "QueryUploadedLibraryMemberDocument.766012950": (declaredName: string, content: number[], typeIdentity: string, memberName: string, baselineOrdinal: number, fingerprintPrefix: string) => Promise<string>;
-            readonly "QueryUploadedLibraryMemberGroupDocument.838892986": (declaredName: string, content: number[], typeIdentity: string, memberName: string) => Promise<string>;
+            readonly "QueryUploadedLibraryMemberGroupDocument.1382439150": (declaredName: string, content: number[], typeIdentity: string, memberName: string, accessibility: string, receiver: string, includeHidden: boolean) => Promise<string>;
             readonly "QueryUploadedLibraryPerformanceTypeMemberPopulation.239675273": (declaredName: string, content: number[], typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
             readonly "QueryUploadedLibraryTypeMemberPopulation.239675273": (declaredName: string, content: number[], typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
+            readonly "QueryUploadedLibraryTypeOverviewDocument.239675273": (declaredName: string, content: number[], typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
           };
         };
       };
@@ -1383,9 +1451,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "CancelLibraryFastDiff.271973316");
+    value = $ownDataProperty(value, "CancelLibraryFindingDiffAny.271973316");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.CancelLibraryFastDiff.271973316\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.CancelLibraryFindingDiffAny.271973316\u0027 is not callable.");
     }
   }
   {
@@ -1407,9 +1475,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryGraphMemberSurface.1542089313");
+    value = $ownDataProperty(value, "QueryGraphMemberSurface.641907440");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryGraphMemberSurface.1542089313\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryGraphMemberSurface.641907440\u0027 is not callable.");
     }
   }
   {
@@ -1431,9 +1499,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryLibraryFastDiff.451505237");
+    value = $ownDataProperty(value, "QueryLibraryFindingDiffAny.451505237");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryLibraryFastDiff.451505237\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryLibraryFindingDiffAny.451505237\u0027 is not callable.");
     }
   }
   {
@@ -1443,9 +1511,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryMemberDeclaration.340032695");
+    value = $ownDataProperty(value, "QueryMemberDeclaration.681522374");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDeclaration.340032695\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDeclaration.681522374\u0027 is not callable.");
     }
   }
   {
@@ -1455,9 +1523,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryMemberDocument.1541609119");
+    value = $ownDataProperty(value, "QueryMemberDocument.1271709870");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDocument.1541609119\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDocument.1271709870\u0027 is not callable.");
     }
   }
   {
@@ -1467,9 +1535,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryMemberGroupDocument.649160465");
+    value = $ownDataProperty(value, "QueryMemberGroupDocument.1809822789");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberGroupDocument.649160465\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberGroupDocument.1809822789\u0027 is not callable.");
     }
   }
   {
@@ -1515,9 +1583,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryPerformanceTypeMemberPopulation.1160082336");
+    value = $ownDataProperty(value, "QueryPerformanceTypeMemberPopulation.335255791");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPerformanceTypeMemberPopulation.1160082336\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPerformanceTypeMemberPopulation.335255791\u0027 is not callable.");
     }
   }
   {
@@ -1563,9 +1631,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryPlatformMemberGroupDocument.649160465");
+    value = $ownDataProperty(value, "QueryPlatformMemberGroupDocument.1809822789");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPlatformMemberGroupDocument.649160465\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPlatformMemberGroupDocument.1809822789\u0027 is not callable.");
     }
   }
   {
@@ -1623,9 +1691,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryTypeMemberPopulation.1160082336");
+    value = $ownDataProperty(value, "QueryPlatformTypeOverviewDocument.1160082336");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeMemberPopulation.1160082336\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPlatformTypeOverviewDocument.1160082336\u0027 is not callable.");
     }
   }
   {
@@ -1635,9 +1703,33 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryTypeProjection.1160082336");
+    value = $ownDataProperty(value, "QueryTypeMemberPopulation.335255791");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.1160082336\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeMemberPopulation.335255791\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Metadata");
+    value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "QueryTypeOverviewDocument.335255791");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeOverviewDocument.335255791\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Metadata");
+    value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "QueryTypeProjection.335255791");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.335255791\u0027 is not callable.");
     }
   }
   {
@@ -1659,9 +1751,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryUploadedLibraryMemberGroupDocument.838892986");
+    value = $ownDataProperty(value, "QueryUploadedLibraryMemberGroupDocument.1382439150");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryUploadedLibraryMemberGroupDocument.838892986\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryUploadedLibraryMemberGroupDocument.1382439150\u0027 is not callable.");
     }
   }
   {
@@ -1686,6 +1778,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryUploadedLibraryTypeMemberPopulation.239675273");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryUploadedLibraryTypeMemberPopulation.239675273\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Metadata");
+    value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "QueryUploadedLibraryTypeOverviewDocument.239675273");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryUploadedLibraryTypeOverviewDocument.239675273\u0027 is not callable.");
     }
   }
 }
@@ -1745,10 +1849,10 @@ export function cancelLibraryApiDiff(operationId: string, reason: string): Brows
   return $parsed as BrowserLibraryApiDiffCancellation;
 }
 
-export function cancelLibraryFastDiff(operationId: string, reason: string): BrowserLibraryFastDiffCancellation {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["CancelLibraryFastDiff.271973316"](operationId, reason);
+export function cancelLibraryFindingDiffAny(operationId: string, reason: string): BrowserLibraryFindingDiffAnyCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["CancelLibraryFindingDiffAny.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserLibraryFastDiffCancellation;
+  return $parsed as BrowserLibraryFindingDiffAnyCancellation;
 }
 
 export async function findTypes(retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string): Promise<BrowserTypeFindResult> {
@@ -1757,8 +1861,8 @@ export async function findTypes(retainedDefinitionId: string, realizationId: str
   return $parsed as BrowserTypeFindResult;
 }
 
-export async function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserGraphMemberSurface> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryGraphMemberSurface.1542089313"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
+export async function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, runtimeIdentifier: string | null): Promise<BrowserGraphMemberSurface> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryGraphMemberSurface.641907440"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserGraphMemberSurface;
 }
@@ -1769,26 +1873,26 @@ export async function queryLibraryApiDiff(operationId: string, requestJson: Brow
   return $parsed as BrowserLibraryApiDiffResult;
 }
 
-export async function queryLibraryFastDiff(operationId: string, requestJson: BrowserLibraryFastDiffRequest): Promise<BrowserLibraryFastDiffResult> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryLibraryFastDiff.451505237"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryLibraryFastDiff.451505237", "requestJson"));
+export async function queryLibraryFindingDiffAny(operationId: string, requestJson: BrowserLibraryFindingDiffAnyRequest): Promise<BrowserLibraryFindingDiffAnyResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryLibraryFindingDiffAny.451505237"](operationId, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryLibraryFindingDiffAny.451505237", "requestJson"));
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserLibraryFastDiffResult;
+  return $parsed as BrowserLibraryFindingDiffAnyResult;
 }
 
-export async function queryMemberDeclaration(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, implementationMember: boolean): Promise<BrowserMemberDeclaration> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryMemberDeclaration.340032695"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, implementationMember);
+export async function queryMemberDeclaration(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, implementationMember: boolean, runtimeIdentifier: string | null): Promise<BrowserMemberDeclaration> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryMemberDeclaration.681522374"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, implementationMember, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberDeclaration;
 }
 
-export async function queryMemberDocument(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, baselineOrdinal: number, fingerprintPrefix: string): Promise<BrowserMemberDocumentInspection> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryMemberDocument.1541609119"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, baselineOrdinal, fingerprintPrefix);
+export async function queryMemberDocument(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, baselineOrdinal: number, fingerprintPrefix: string, runtimeIdentifier: string | null): Promise<BrowserMemberDocumentInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryMemberDocument.1271709870"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, baselineOrdinal, fingerprintPrefix, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberDocumentInspection;
 }
 
-export async function queryMemberGroupDocument(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string): Promise<BrowserMemberGroupDocumentInspection> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryMemberGroupDocument.649160465"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName);
+export async function queryMemberGroupDocument(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, accessibility: string, receiver: string, includeHidden: boolean): Promise<BrowserMemberGroupDocumentInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryMemberGroupDocument.1809822789"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, accessibility, receiver, includeHidden);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberGroupDocumentInspection;
 }
@@ -1811,8 +1915,8 @@ export async function queryPackageMetadataTable(packageId: string, version: stri
   return $parsed as BrowserMetadataWindow;
 }
 
-export async function queryPerformanceTypeMemberPopulation(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string): Promise<BrowserTypeMemberPopulationInspection> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryPerformanceTypeMemberPopulation.1160082336"](packageId, version, targetFramework, assemblyName, typeIdentity, spelling, accessibility);
+export async function queryPerformanceTypeMemberPopulation(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string, runtimeIdentifier: string | null): Promise<BrowserTypeMemberPopulationInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryPerformanceTypeMemberPopulation.335255791"](packageId, version, targetFramework, assemblyName, typeIdentity, spelling, accessibility, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMemberPopulationInspection;
 }
@@ -1835,8 +1939,8 @@ export async function queryPlatformMemberDocument(targetFramework: string, platf
   return $parsed as BrowserMemberDocumentInspection;
 }
 
-export async function queryPlatformMemberGroupDocument(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string): Promise<BrowserMemberGroupDocumentInspection> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryPlatformMemberGroupDocument.649160465"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, memberName);
+export async function queryPlatformMemberGroupDocument(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, accessibility: string, receiver: string, includeHidden: boolean): Promise<BrowserMemberGroupDocumentInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryPlatformMemberGroupDocument.1809822789"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, memberName, accessibility, receiver, includeHidden);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberGroupDocumentInspection;
 }
@@ -1865,14 +1969,26 @@ export async function queryPlatformTypeMemberPopulation(targetFramework: string,
   return $parsed as BrowserTypeMemberPopulationInspection;
 }
 
-export async function queryTypeMemberPopulation(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string): Promise<BrowserTypeMemberPopulationInspection> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeMemberPopulation.1160082336"](packageId, version, targetFramework, assemblyName, typeIdentity, spelling, accessibility);
+export async function queryPlatformTypeOverviewDocument(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, spelling: string, accessibility: string): Promise<BrowserTypeOverviewInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryPlatformTypeOverviewDocument.1160082336"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, spelling, accessibility);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeOverviewInspection;
+}
+
+export async function queryTypeMemberPopulation(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string, runtimeIdentifier: string | null): Promise<BrowserTypeMemberPopulationInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeMemberPopulation.335255791"](packageId, version, targetFramework, assemblyName, typeIdentity, spelling, accessibility, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMemberPopulationInspection;
 }
 
-export async function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string): Promise<BrowserTypeMetadata> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.1160082336"](packageId, version, targetFramework, assemblyName, typeQueryId, typeDefinitionId, workspaceJson);
+export async function queryTypeOverviewDocument(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string, runtimeIdentifier: string | null): Promise<BrowserTypeOverviewInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeOverviewDocument.335255791"](packageId, version, targetFramework, assemblyName, typeIdentity, spelling, accessibility, runtimeIdentifier);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeOverviewInspection;
+}
+
+export async function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, runtimeIdentifier: string | null, workspaceJson: string): Promise<BrowserTypeMetadata> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.335255791"](packageId, version, targetFramework, assemblyName, typeQueryId, typeDefinitionId, runtimeIdentifier, workspaceJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMetadata;
 }
@@ -1883,8 +1999,8 @@ export async function queryUploadedLibraryMemberDocument(declaredName: string, c
   return $parsed as BrowserMemberDocumentInspection;
 }
 
-export async function queryUploadedLibraryMemberGroupDocument(declaredName: string, content: number[], typeIdentity: string, memberName: string): Promise<BrowserMemberGroupDocumentInspection> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryUploadedLibraryMemberGroupDocument.838892986"](declaredName, content, typeIdentity, memberName);
+export async function queryUploadedLibraryMemberGroupDocument(declaredName: string, content: number[], typeIdentity: string, memberName: string, accessibility: string, receiver: string, includeHidden: boolean): Promise<BrowserMemberGroupDocumentInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryUploadedLibraryMemberGroupDocument.1382439150"](declaredName, content, typeIdentity, memberName, accessibility, receiver, includeHidden);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserMemberGroupDocumentInspection;
 }
@@ -1899,5 +2015,11 @@ export async function queryUploadedLibraryTypeMemberPopulation(declaredName: str
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryUploadedLibraryTypeMemberPopulation.239675273"](declaredName, content, typeIdentity, spelling, accessibility);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMemberPopulationInspection;
+}
+
+export async function queryUploadedLibraryTypeOverviewDocument(declaredName: string, content: number[], typeIdentity: string, spelling: string, accessibility: string): Promise<BrowserTypeOverviewInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryUploadedLibraryTypeOverviewDocument.239675273"](declaredName, content, typeIdentity, spelling, accessibility);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeOverviewInspection;
 }
 

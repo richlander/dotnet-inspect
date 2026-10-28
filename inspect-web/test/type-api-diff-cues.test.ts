@@ -22,6 +22,7 @@ const request: TypeApiDiffCueRequest = {
     currentVersion: "2.0.0",
     targetVersion: "1.0.0",
     targetFramework: "net11.0",
+    runtimeIdentifier: "win-x64",
     compileAssetId: "lib/net11.0/Example.dll",
     axes: "ApiAndBody",
   },
@@ -102,7 +103,7 @@ test("member cues ask for the API changes of the one selected Type", async () =>
   await settle();
 
   assert.deepEqual(state.sent, [{
-    schemaVersion: 3,
+    schemaVersion: 4,
     packageId: "Example.Package",
     currentVersion: "2.0.0",
     targetVersion: "1.0.0",

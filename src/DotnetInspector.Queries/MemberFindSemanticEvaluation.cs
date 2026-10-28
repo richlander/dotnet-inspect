@@ -268,6 +268,166 @@ public sealed record MemberFindSemanticMatch(
     string? Signature,
     string? ReturnType);
 
+/// <summary>
+/// One portable Member candidate supplied to the Find semantic owner.
+/// </summary>
+public sealed record MemberFindSemanticCandidate(
+    MetadataTypeDefinitionName DeclaringType,
+    MemberAnchor Member,
+    int DeclarationOrder,
+    int MemberOrder,
+    string MemberName,
+    string DeclaringTypeDisplay,
+    string? DeclaringNamespace,
+    string Kind,
+    string? Signature,
+    string? ReturnType,
+    TypeDeclarationDiscoveryAttributes?
+        DeclaringTypeDiscoveryAttributes = null,
+    bool IsEditorBrowsableNever = false);
+
+/// <summary>One pattern's portable Member candidate evaluation.</summary>
+public sealed record MemberFindCandidateEvaluation(
+    ImmutableArray<MemberFindSemanticMatch> Matches,
+    ImmutableArray<int> EvaluatedDeclarationOrders,
+    FindCandidateEvaluationCompletion Completion);
+
+/// <summary>
+/// Applies established Member Find semantics to portable declaration facts.
+/// </summary>
+public static class MemberFindCandidateEvaluator
+{
+    public static MemberFindCandidateEvaluation Evaluate(
+        MemberFindQuestion question,
+        MemberFindPattern pattern,
+        FindSourceIdentity source,
+        IEnumerable<MemberFindSemanticCandidate> candidates,
+        int? maximumMatches = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        ArgumentNullException.ThrowIfNull(pattern);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(candidates);
+        if (!question.Patterns.Any(candidate =>
+                ReferenceEquals(candidate, pattern)))
+        {
+            throw new ArgumentException(
+                "The Member pattern must belong to the evaluated question.",
+                nameof(pattern));
+        }
+        if (maximumMatches is < 0)
+            throw new ArgumentOutOfRangeException(nameof(maximumMatches));
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new(
+                [],
+                [],
+                FindCandidateEvaluationCompletion.Canceled);
+        }
+        if (maximumMatches == 0)
+        {
+            return new(
+                [],
+                [],
+                FindCandidateEvaluationCompletion.MatchLimitReached);
+        }
+        ImmutableArray<MemberFindSemanticCandidate> candidateArray =
+            [.. candidates];
+        if (candidateArray.Any(static candidate =>
+                candidate is null
+                || candidate.DeclaringType is null
+                || candidate.Member is null
+                || string.IsNullOrWhiteSpace(candidate.MemberName)
+                || string.IsNullOrWhiteSpace(candidate.DeclaringTypeDisplay)
+                || string.IsNullOrWhiteSpace(candidate.Kind)))
+        {
+            throw new ArgumentException(
+                "Portable Member candidates must contain structured identities and display facts.",
+                nameof(candidates));
+        }
+
+        var matches =
+            ImmutableArray.CreateBuilder<MemberFindSemanticMatch>();
+        var evaluated = ImmutableArray.CreateBuilder<int>();
+        foreach (MemberFindSemanticCandidate candidate
+            in candidateArray
+                .OrderBy(static candidate =>
+                    candidate.DeclarationOrder)
+                .ThenBy(static candidate =>
+                    candidate.MemberOrder))
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return new(
+                    matches.DrainToImmutable(),
+                    evaluated.DrainToImmutable(),
+                    FindCandidateEvaluationCompletion.Canceled);
+            }
+            if (maximumMatches is int maximum
+                && matches.Count >= maximum)
+            {
+                return new(
+                    matches.DrainToImmutable(),
+                    evaluated.DrainToImmutable(),
+                    FindCandidateEvaluationCompletion.MatchLimitReached);
+            }
+
+            evaluated.Add(candidate.DeclarationOrder);
+            if (!IsVisible(candidate, question.Visibility))
+                continue;
+            if (question.DeclaringTypeFilter is { } typeFilter
+                && !typeFilter.Matches(candidate.DeclaringType))
+            {
+                continue;
+            }
+
+            bool matched = pattern is MemberFindPattern.Glob
+                ? TypeMatcher.MatchesGlob(
+                    candidate.MemberName,
+                    pattern.Text)
+                : TypeMatcher.MatchesMemberName(
+                    candidate.MemberName,
+                    pattern.Text);
+            if (!matched)
+                continue;
+
+            matches.Add(
+                new(
+                    pattern,
+                    pattern is MemberFindPattern.Glob
+                        ? MemberFindSemanticMatchKind.Glob
+                        : MemberFindSemanticMatchKind.Direct,
+                    new(
+                        source,
+                        candidate.DeclaringType,
+                        candidate.Member,
+                        candidate.DeclarationOrder,
+                        candidate.MemberOrder),
+                    candidate.MemberName,
+                    candidate.DeclaringTypeDisplay,
+                    candidate.DeclaringNamespace,
+                    candidate.Kind,
+                    candidate.Signature,
+                    candidate.ReturnType));
+        }
+
+        return new(
+            matches.DrainToImmutable(),
+            evaluated.DrainToImmutable(),
+            FindCandidateEvaluationCompletion.Exhausted);
+    }
+
+    private static bool IsVisible(
+        MemberFindSemanticCandidate candidate,
+        FindVisibility visibility) =>
+        visibility is FindVisibility.All
+        || (candidate.DeclaringTypeDiscoveryAttributes
+                is not { IsEditorBrowsableNever: true }
+                and not { IsObsolete: true }
+            && !candidate.IsEditorBrowsableNever);
+}
+
 /// <summary>Evaluation coverage established for one exact Member source.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<MemberFindSourceCoverageKind>))]
 public enum MemberFindSourceCoverageKind
@@ -792,8 +952,15 @@ public static class MemberFindSourceEvaluator
         ImmutableArray<MemberFindPattern> evaluatedPatterns,
         ImmutableArray<MemberSearchResult> rows)
     {
-        var matches =
-            ImmutableArray.CreateBuilder<MemberFindSemanticMatch>();
+        var candidates =
+            ImmutableArray.CreateBuilder<MemberFindSemanticCandidate>();
+        var candidatesByIdentity =
+            new Dictionary<(
+                MetadataTypeDefinitionName DeclaringType,
+                MemberAnchor Member,
+                int DeclarationOrder,
+                int MemberOrder),
+                MemberFindSemanticCandidate>();
         foreach (MemberSearchResult row in rows)
         {
             if ((uint)row.PatternOrdinal
@@ -812,43 +979,49 @@ public static class MemberFindSourceEvaluator
                 throw new InvalidOperationException(
                     "Member search did not retain the evaluated pattern spelling.");
             }
-            if (question.DeclaringTypeFilter is { } typeFilter
-                && !typeFilter.Matches(row.DeclaringTypeName))
+            var candidate = new MemberFindSemanticCandidate(
+                row.DeclaringTypeName,
+                row.Anchor,
+                row.DeclarationOrder,
+                row.MemberOrder,
+                row.MemberName,
+                row.DeclaringType,
+                row.DeclaringNamespace,
+                row.Kind,
+                row.Signature,
+                row.ReturnType);
+            var identity = (
+                    row.DeclaringTypeName,
+                    row.Anchor,
+                    row.DeclarationOrder,
+                    row.MemberOrder);
+            if (candidatesByIdentity.TryGetValue(
+                    identity,
+                    out MemberFindSemanticCandidate? existing))
             {
+                if (existing != candidate)
+                {
+                    throw new InvalidOperationException(
+                        "Member search returned inconsistent facts for one declaration.");
+                }
                 continue;
             }
-
-            matches.Add(
-                new(
-                    pattern,
-                    pattern is MemberFindPattern.Glob
-                        ? MemberFindSemanticMatchKind.Glob
-                        : MemberFindSemanticMatchKind.Direct,
-                    new(
-                        source,
-                        row.DeclaringTypeName,
-                        row.Anchor,
-                        row.DeclarationOrder,
-                        row.MemberOrder),
-                    row.MemberName,
-                    row.DeclaringType,
-                    row.DeclaringNamespace,
-                    row.Kind,
-                    row.Signature,
-                    row.ReturnType));
+            candidatesByIdentity.Add(identity, candidate);
+            candidates.Add(candidate);
         }
 
-        return
-        [
-            .. matches
-                .OrderBy(static match => match.Pattern.Ordinal)
-                .ThenBy(
-                    static match =>
-                        match.Declaration.DeclarationOrder)
-                .ThenBy(
-                    static match =>
-                        match.Declaration.MemberOrder),
-        ];
+        var matches =
+            ImmutableArray.CreateBuilder<MemberFindSemanticMatch>();
+        foreach (MemberFindPattern pattern in evaluatedPatterns)
+        {
+            matches.AddRange(
+                MemberFindCandidateEvaluator.Evaluate(
+                    question,
+                    pattern,
+                    source,
+                    candidates).Matches);
+        }
+        return matches.DrainToImmutable();
     }
 
     private static void ValidateSource(

@@ -23,6 +23,7 @@ export interface TypeMetadataLoadRequest {
   packageId: string;
   version: string;
   framework: string;
+  runtimeIdentifier: string | null;
   assembly: string;
   type: string;
   typeIdentity: string;

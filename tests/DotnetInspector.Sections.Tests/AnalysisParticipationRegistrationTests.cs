@@ -188,7 +188,9 @@ public sealed class AnalysisParticipationRegistrationTests
     {
         InspectionCapabilityCatalog catalog = ProductCatalog();
         ResourceExplanationCatalog explanation =
-            ResourceExplanationCatalog.CreateAnalyses(catalog);
+            ResourceExplanationCatalog.CreateCapabilities(
+                catalog,
+                DiffAnalysisCapabilityResourcePaths.Create(catalog));
 
         // Explanation lists exactly the registered analyses, by identity.
         Assert.Equal(

@@ -457,14 +457,6 @@ internal static class LibraryAddressCommandDefinitions
             return false;
         }
 
-        if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
-        {
-            error =
-                "library address requires one selected Library; "
-                + "--tfm all selects multiple Libraries.";
-            return false;
-        }
-
         bool structuralDiscovery =
             IsStructuralDiscovery(opts, parseResult);
         if (!hasLibrary && !hasPackage && !hasPlatform

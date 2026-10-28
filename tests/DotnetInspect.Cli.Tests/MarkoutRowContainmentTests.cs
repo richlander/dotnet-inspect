@@ -155,10 +155,6 @@ public class MarkoutRowContainmentTests
         "CallerSiteRow.OperandToken",
         "CallerSiteRow.ReturnAddress",
         "CallerSiteRow.Source",
-        "CliSchemaView.Description",
-        "CliSchemaView.Name",
-        "CliSchemaView.Title",
-        "CliSchemaView.Version",
         "ConstructorOverloadView.Title",
         "ConstructorParameterRow.Notes",
         "ConstructorParameterRow.Parameter",
@@ -330,10 +326,8 @@ public class MarkoutRowContainmentTests
         "TypeView.Title",
         "TypeView.TypeParametersInline",
         "TypeView.Version",
-        "UnsafeMemberRow.Detail",
-        "UnsafeMemberRow.IL",
+        "UnsafeMemberRow.Evidence",
         "UnsafeMemberRow.Member",
-        "UnsafeMemberRow.Token",
         "UnsafeOperationRow.Detail",
         "UnsafeOperationRow.IL",
         "UnsafeOperationRow.Kind",
@@ -342,11 +336,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt220MembersAcross43Types()
+    public void ResidualCensus_IsPinnedAt214MembersAcross42Types()
     {
-        Assert.Equal(220, NotSelfContaining.Length);
+        Assert.Equal(214, NotSelfContaining.Length);
         Assert.Equal(
-            43,
+            42,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)

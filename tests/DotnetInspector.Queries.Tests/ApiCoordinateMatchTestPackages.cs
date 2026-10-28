@@ -5,13 +5,38 @@ using InertText;
 namespace DotnetInspector.Queries.Tests;
 
 /// <summary>Pinned NuGet archives admitted by the real typed payload acquisition path.</summary>
-internal sealed class ApiCoordinateMatchTestPackages : IPackageRootPayloadProvider, IDisposable
+internal sealed class ApiCoordinateMatchTestPackages :
+    IPackageRootPayloadProvider,
+    IApiCoordinateMatchHouseExecutor,
+    IDisposable
 {
     readonly InMemoryPackageStore _store = new();
     readonly IPackageSourceClient _source = PackageSourceClientFactory.Create(
         PackageSource.NuGetOrg, PackageSourceAssociation.Create(), new NoNetworkHandler());
+    readonly DesktopPackageSourceComposition _composition =
+        new(TimeSpan.FromSeconds(5));
+    readonly PackagePayloadAcquisitionPlan _payloadAcquisition;
+
+    internal ApiCoordinateMatchTestPackages()
+    {
+        _payloadAcquisition = new(
+            (_, _) => _store,
+            PackagePayloadLimits.Default,
+            access: PackagePayloadAccess.Ranged);
+        HouseExecution = new(
+            _composition.CreateHouseOperation(
+                PackageHouseOperationProfile.Realize),
+            this);
+    }
 
     public List<PackageSourceCoordinate> Requests { get; } = [];
+
+    public List<(PackageHouseRequest Request, PackageProducerIdentity? RequiredProducer)>
+        HouseRequests { get; } = [];
+
+    public ApiCoordinateMatchHouseExecution HouseExecution { get; }
+
+    internal string? RequiredProducerKeyOverride { get; set; }
 
     public async Task AddAsync(string packageId, string version)
     {
@@ -56,7 +81,38 @@ internal sealed class ApiCoordinateMatchTestPackages : IPackageRootPayloadProvid
         return PackageRootBinding.CreateFromSource(result.Payload, framework);
     }
 
-    public void Dispose() => _source.Dispose();
+    public async Task<PackageHouseSettlement> ExecuteAsync(
+        PackageHouseRequest request,
+        PackageProducerIdentity? requiredProducer,
+        CancellationToken cancellationToken = default)
+    {
+        HouseRequests.Add((request, requiredProducer));
+        PackageHouse house = _composition.CreateRealizationHouse(
+            _payloadAcquisition,
+            requiredProducerKey: requiredProducer is null
+                ? null
+                : RequiredProducerKeyOverride
+                    ?? requiredProducer.PortableKey);
+        PackageSourceOperationLease? operation =
+            _composition.IssueSettlementOperation(cancellationToken);
+        try
+        {
+            Task<PackageHouseSettlement> pending =
+                house.ExecuteAsync(request, operation);
+            operation = null;
+            return await pending.ConfigureAwait(false);
+        }
+        finally
+        {
+            operation?.Dispose();
+        }
+    }
+
+    public void Dispose()
+    {
+        _source.Dispose();
+        _composition.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
 
     sealed class NoNetworkHandler : HttpMessageHandler
     {

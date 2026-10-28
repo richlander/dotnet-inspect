@@ -93,123 +93,169 @@ internal static class MemberGroupDocumentOutput
             ?? throw new InvalidOperationException(
                 "The native MemberGroup route requires one unambiguous "
                 + "ordinary method name.");
-        var plan = new MemberOverloadPopulationInspectionPlan(
-            subject,
-            new MemberOverloadPopulationRequest(
-                new MemberOverloadCountRequest(),
-                new MemberOverloadRowsRequest(
-                    maximumRows: s_bounds.MaxMembers),
-                MemberOverloadAccessibilityFilter.Public,
-                MemberOverloadReceiverFilter.All,
-                includeHidden: false),
-            s_bounds);
         MemberDocumentationAttachmentRequest? documentation =
             options.ShowDocs
                 && RequestsReturnedRowDocumentation(options)
                 ? new(DocumentationDemand.CompiledXml)
                 : null;
-        InspectionEnvelope<MemberGroupDocumentInspectionOutcome>? inspection =
-            documentation is null
-                ? await ExactLibraryInspectionExecutor.ExecuteAsync<
-                    InspectionEnvelope<
-                        MemberGroupDocumentInspectionOutcome>>(
-                    assemblyPath,
-                    "member group document",
-                    session =>
-                        session.ExecuteMemberGroupDocument(
-                            plan,
-                            cancellationToken),
-                    cancellationToken)
-                : await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
-                    InspectionEnvelope<
-                        MemberGroupDocumentInspectionOutcome>>(
-                    assemblyPath,
-                    "member group document",
-                    session =>
-                        session.ExecuteMemberGroupDocumentAsync(
-                            plan,
-                            documentation,
-                            cancellationToken),
-                    includeCompiledDocumentation: true,
-                    cancellationToken: cancellationToken);
+        return documentation is null
+            ? await WriteResolvedAsync(
+                type,
+                subject,
+                assemblyPath,
+                cancellationToken)
+                .ConfigureAwait(false)
+            : await WriteDocumentedAsync(
+                type,
+                subject,
+                assemblyPath,
+                documentation,
+                cancellationToken)
+                .ConfigureAwait(false);
+    }
+
+    private static async Task<int> WriteResolvedAsync(
+        ApiType type,
+        MemberGroupSubject subject,
+        string assemblyPath,
+        CancellationToken cancellationToken)
+    {
+        var plan = new MemberDocumentResolutionPlan(
+            subject,
+            s_bounds);
+        InspectionEnvelope<MemberDocumentResolutionOutcome>? inspection =
+            await ExactLibraryInspectionExecutor.ExecuteAsync<
+                InspectionEnvelope<MemberDocumentResolutionOutcome>>(
+                assemblyPath,
+                "member group document",
+                session =>
+                session.ExecuteMemberDocumentResolution(
+                    plan,
+                    cancellationToken),
+                cancellationToken);
         if (inspection is null)
             return 1;
 
-        foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+        WriteDiagnostics(inspection.Diagnostics);
+        switch (inspection.Content)
         {
-            CommandError.WriteLine(
-                $"{diagnostic.Code}: {diagnostic.Summary}");
+            case MemberDocumentResolutionOutcome.Exact exact:
+                MemberGroupPresentation.WriteTree(
+                    exact.Document,
+                    type.FullName,
+                    Console.Out);
+                return 0;
+            case MemberDocumentResolutionOutcome.Overview overview:
+                MemberGroupPresentation.WriteTree(
+                    overview.Document,
+                    type.FullName,
+                    Console.Out);
+                return 0;
+            default:
+                CommandError.Write(Describe(inspection.Content));
+                return 1;
         }
-        if (inspection.Content
-            is not MemberGroupDocumentInspectionOutcome.Available available)
-        {
-            CommandError.Write(Describe(inspection.Content));
-            return 1;
-        }
+    }
 
-        MemberGroupDocument document = available.Document;
-        if (document.Overloads.Count
-                is not MemberOverloadCountOutcome.Counted count)
+    private static async Task<int> WriteDocumentedAsync(
+        ApiType type,
+        MemberGroupSubject subject,
+        string assemblyPath,
+        MemberDocumentationAttachmentRequest documentation,
+        CancellationToken cancellationToken)
+    {
+        var plan = new MemberDocumentResolutionPlan(
+            subject,
+            s_bounds);
+        InspectionEnvelope<MemberDocumentAttachmentCompositionResult>?
+            inspection =
+            await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
+                InspectionEnvelope<
+                    MemberDocumentAttachmentCompositionResult>>(
+                assemblyPath,
+                "member group document",
+                session =>
+                session.ExecuteMemberDocumentAttachmentCompositionAsync(
+                    plan,
+                    documentation,
+                    cancellationToken),
+                includeCompiledDocumentation: true,
+                cancellationToken: cancellationToken);
+        if (inspection is null)
+            return 1;
+        WriteDiagnostics(inspection.Diagnostics);
+        MemberGroupSubject resolvedSubject;
+        IReadOnlyList<MemberDeclaration> declarations;
+        switch (inspection.Content.Resolution)
+        {
+            case MemberDocumentResolutionOutcome.Exact exact:
+                resolvedSubject = exact.Document.Subject.Group;
+                declarations =
+                [
+                    exact.Document,
+                ];
+                break;
+            case MemberDocumentResolutionOutcome.Overview overview:
+                resolvedSubject = overview.Document.Subject;
+                declarations = overview.Document.Members;
+                break;
+            default:
+                CommandError.Write(
+                    Describe(inspection.Content.Resolution));
+                return 1;
+        }
+        if (inspection.Content.Documentation
+                is not MemberDocumentationAttachmentOutcome.Available
+                    available)
         {
             CommandError.Write(
-                "The member-group document did not produce its requested Count.");
+                inspection.Content.Documentation is { } attachment
+                    ? Describe(attachment)
+                    : "The member-group documentation attachment did not settle.");
             return 1;
-        }
-        if (document.Overloads.Rows
-                is not MemberOverloadRowsOutcome.Read rows)
-        {
-            CommandError.Write(
-                DescribeRows(document.Overloads.Rows));
-            return 1;
-        }
-        if (rows.Continuation is not null
-            || rows.Items.Length != count.Value)
-        {
-            CommandError.Write(
-                "The member-group document did not contain its complete overload population.");
-            return 1;
-        }
-
-        if (document.ReturnedRowDocumentation.IsEmpty)
-        {
-            MemberGroupPresentation.WriteTree(
-                document,
-                type.FullName,
-                Console.Out);
-            return 0;
         }
 
         Console.WriteLine(
             MemberGroupPresentation.FormatTitle(
-                document.Subject,
+                resolvedSubject,
                 type.FullName,
-                count.Value));
+                declarations.Count));
         var writer = new MarkoutWriter(
             Console.Out,
             new MarkdownFormatter());
-        IReadOnlyDictionary<int, MemberDocumentationAttachment>
-            attachmentsByOrdinal =
-                document.ReturnedRowDocumentation.ToDictionary(
+        IReadOnlyDictionary<MemberSubject, MemberDocumentationAttachment>
+            attachmentsBySubject =
+                available.Attachments.ToDictionary(
                     static attachment =>
-                        attachment.Subject.BaselineOrdinal);
+                        attachment.Subject);
         writer.WriteTable(
             ["Signature", "Description"],
             ["signature", "description"],
             [
-                .. rows.Items.Select(row =>
+                .. declarations.Select(declaration =>
                     new string[]
                     {
                         MarkoutInline.Code(
                             MemberGroupPresentation.FormatOverload(
-                                row)),
+                                declaration)),
                         MemberDocumentOutput
                             .DescribeDocumentation(
-                                attachmentsByOrdinal[
-                                    row.BaselineOrdinal]
+                                attachmentsBySubject[
+                                    declaration.Subject]
                                     .Outcome),
                     }),
             ]);
         return 0;
+    }
+
+    private static void WriteDiagnostics(
+        IReadOnlyList<InspectionDiagnostic> diagnostics)
+    {
+        foreach (InspectionDiagnostic diagnostic in diagnostics)
+        {
+            CommandError.WriteLine(
+                $"{diagnostic.Code}: {diagnostic.Summary}");
+        }
     }
 
     internal static string? ResolveCanonicalMethodName(
@@ -291,32 +337,28 @@ internal static class MemberGroupDocumentOutput
             StringComparer.OrdinalIgnoreCase);
 
     private static string Describe(
-        MemberGroupDocumentInspectionOutcome outcome) =>
+        MemberDocumentationAttachmentOutcome outcome) =>
         outcome switch
         {
-            MemberGroupDocumentInspectionOutcome.Rejected rejected =>
+            MemberDocumentationAttachmentOutcome.Failed failed =>
+                "The member-group documentation attachment failed "
+                    + $"({failed.Reason}).",
+            _ =>
+                "The member-group documentation attachment returned an unknown outcome.",
+        };
+
+    private static string Describe(
+        MemberDocumentResolutionOutcome outcome) =>
+        outcome switch
+        {
+            MemberDocumentResolutionOutcome.Rejected rejected =>
                 $"The member-group document was rejected ({rejected.Reason}).",
-            MemberGroupDocumentInspectionOutcome.Incomplete incomplete =>
+            MemberDocumentResolutionOutcome.Incomplete incomplete =>
                 $"The member-group document reached {incomplete.Bound} "
                     + $"({incomplete.Measured} > {incomplete.Limit}).",
-            MemberGroupDocumentInspectionOutcome.Failed failed =>
+            MemberDocumentResolutionOutcome.Failed failed =>
                 $"The member-group document failed ({failed.Reason}).",
             _ => "The member-group document returned an unknown outcome.",
         };
 
-    private static string DescribeRows(MemberOverloadRowsOutcome? outcome) =>
-        outcome switch
-        {
-            null =>
-                "The member-group document did not produce its requested Rows.",
-            MemberOverloadRowsOutcome.Rejected rejected =>
-                $"The member-group Rows were rejected ({rejected.Reason}).",
-            MemberOverloadRowsOutcome.Incomplete incomplete =>
-                $"The member-group Rows reached {incomplete.Bound} "
-                    + $"({incomplete.Measured} > {incomplete.Limit}).",
-            MemberOverloadRowsOutcome.Failed failed =>
-                $"The member-group Rows failed ({failed.Reason}).",
-            _ =>
-                "The member-group document returned an unknown Rows outcome.",
-        };
 }

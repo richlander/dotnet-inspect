@@ -200,7 +200,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             log?.Invoke(
                 $"Using committed package Root for search: "
                 + $"{binding.Root.PackageId}@{binding.Root.PackageVersion} "
-                + $"({binding.Root.AssetSelection.Status}; payload {origin}).");
+                + $"({binding.Root.AssetSelection?.Status.ToString() ?? "Library selection not requested"}; payload {origin}).");
             return new(
                 workspace,
                 correspondence,
@@ -315,6 +315,62 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         return null;
     }
 
+    internal async ValueTask<ConfiguredPackageIntegrationScan?>
+        ScanIntegrationsAsync(
+            EcosystemIntegrationScannerBinding binding,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        ConfiguredPackageSearchQueryResult<
+            AssemblyContextIntegrationScanResult>? execution =
+                await QuerySurfaceAsync(
+                    context => AssemblyContextIntegrationScanQuery.Execute(
+                        context.Group,
+                        binding),
+                    cancellationToken).ConfigureAwait(false);
+        if (execution is not { Sources: { } sources, Result: { } result })
+            return null;
+
+        var selected =
+            ImmutableArray.CreateBuilder<ConfiguredPackageIntegrationSource>();
+        var failures =
+            ImmutableArray.CreateBuilder<ConfiguredPackageIntegrationFailure>();
+        foreach (AssemblyIntegrationsEntry entry in result.Assemblies)
+        {
+            switch (entry)
+            {
+                case AssemblyIntegrationsEntry.Selected available:
+                    PackageAssemblyRoleParticipant participant =
+                        sources.ParticipantFor(available.Subject);
+                    Guid moduleVersionId =
+                        available.Subject.Registration.ModuleVersionId
+                        ?? throw new InvalidOperationException(
+                            "Integration scanning did not bind the assembly module version.");
+                    selected.Add(new(
+                        participant.Package,
+                        participant.Asset,
+                        available.Subject.Identity,
+                        moduleVersionId,
+                        available.EcosystemSignals));
+                    break;
+                case AssemblyIntegrationsEntry.Rejected rejected:
+                    failures.Add(new(
+                        rejected.Subject.Identity.Name,
+                        rejected.Failure.ToString()));
+                    break;
+                case AssemblyIntegrationsEntry.Failed failed:
+                    failures.Add(new(
+                        failed.Subject.Identity.Name,
+                        failed.ErrorMessage));
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "The selected Integration scan returned an unknown outcome.");
+            }
+        }
+        return new(selected.ToImmutable(), failures.ToImmutable());
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_closed)
@@ -420,8 +476,11 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
         if (payload is null)
             return (null, default);
+        PackageCompileAssetSelection selection = binding?.Root.AssetSelection
+            ?? throw new InvalidOperationException(
+                "Package search requires a realized Library selection.");
         if (payload.Content is RangedPackageContent ranged
-            && !CoversSelection(binding!.Root.AssetSelection, ranged))
+            && !CoversSelection(selection, ranged))
         {
             log?.Invoke(
                 $"The ranged read of {member.PackageId}@{member.Version} did not "
@@ -480,7 +539,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 payload,
                 targetFramework,
                 member.PackageId);
-        if (binding.Root.AssetSelection.Status
+        if (binding.Root.AssetSelection?.Status
                 == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
             && PackageAssetSelector.Select(payload.Content, targetFramework)
                 is PackageAssetSelection.Selected compatible)
@@ -609,6 +668,9 @@ internal sealed class PackageSearchQuerySources
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
         ExactLibrarySourceCoordinate> _memberCoordinates;
+    readonly Dictionary<
+        AssemblyAcquisitionRegistration,
+        PackageAssemblyRoleParticipant> _participants;
     readonly FindPackageSourceRequest _packageRequest;
     readonly Dictionary<
         FindSourceIdentity,
@@ -623,6 +685,9 @@ internal sealed class PackageSearchQuerySources
             participants.Length,
             ReferenceEqualityComparer.Instance);
         _memberCoordinates = new(
+            participants.Length,
+            ReferenceEqualityComparer.Instance);
+        _participants = new(
             participants.Length,
             ReferenceEqualityComparer.Instance);
         _packageRequest = packageRequest;
@@ -642,6 +707,9 @@ internal sealed class PackageSearchQuerySources
                         participant.Package.PackageVersion),
                     new ManagedMetadataIdentity.Assembly(
                         participant.Participant.Assembly.Identity)));
+            _participants.Add(
+                participant.Participant.Assembly.Registration,
+                participant);
         }
     }
 
@@ -656,6 +724,15 @@ internal sealed class PackageSearchQuerySources
             : throw new InspectionQueryException(
                 $"No committed package asset corresponds to "
                 + $"'{subject.Identity.Name}'.");
+
+    internal PackageAssemblyRoleParticipant ParticipantFor(
+        AssemblyContextSubject subject) =>
+        _participants.TryGetValue(
+            subject.Registration,
+            out PackageAssemblyRoleParticipant? participant)
+            ? participant
+            : throw new InspectionQueryException(
+                "No committed package asset corresponds to the Integration source.");
 
     internal FindSourceIdentity MemberFindSourceFor(
         AssemblyContextSubject subject,
@@ -689,6 +766,21 @@ internal sealed class PackageSearchQuerySources
             : throw new InspectionQueryException(
                 "No committed package asset corresponds to the semantic Member source.");
 }
+
+internal sealed record ConfiguredPackageIntegrationSource(
+    PackageRootIdentity Package,
+    PackageCompileAsset Asset,
+    AssemblyReferenceIdentity Assembly,
+    Guid ModuleVersionId,
+    ImmutableArray<EcosystemIntegrationSignalInfo> Signals);
+
+internal sealed record ConfiguredPackageIntegrationFailure(
+    string Library,
+    string Message);
+
+internal sealed record ConfiguredPackageIntegrationScan(
+    ImmutableArray<ConfiguredPackageIntegrationSource> Sources,
+    ImmutableArray<ConfiguredPackageIntegrationFailure> Failures);
 
 /// <summary>
 /// One authority-scoped desktop store per configured authority for one

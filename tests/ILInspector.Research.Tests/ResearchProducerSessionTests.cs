@@ -418,6 +418,37 @@ public partial class ResearchProducerSessionTests
         Assert.Single(completion.Cleanup);
     }
 
+    /// <summary>
+    /// The IL producer compares under the normalization the request names:
+    /// the Body policy when Member Body Diff asks for it, none by default.
+    /// </summary>
+    [Theory]
+    [InlineData(IlBodyDiffNormalization.None)]
+    [InlineData(IlBodyDiffPolicy.Body)]
+    public void ResearchProducerSession_PassesTheRequestedIlNormalizationToTheIlProducer(
+        IlBodyDiffNormalization normalization)
+    {
+        SessionFixture fixture = SessionFixture.Create(
+            Occurrence(FixtureCatalog.ResearchTargetSample.AssemblyPath()),
+            Occurrence(FixtureCatalog.ResearchTargetSample.AssemblyPath()));
+        ResearchTargetResolution resolution = fixture.Resolve(
+            SampleType,
+            "Method");
+        var invoker = new TrackingInvoker();
+        var request = new ResearchProducerSessionRequest(
+            fixture.Population,
+            resolution,
+            [ResearchProducerKind.IlBody],
+            ilNormalization: normalization);
+
+        Assert.Equal(normalization, request.IlNormalization);
+        Assert.Equal(
+            IlBodyDiffNormalization.None,
+            Request(fixture, resolution).IlNormalization);
+        Complete(request, invoker);
+        Assert.Equal([normalization], invoker.IlNormalizations);
+    }
+
     [Fact]
     public void ResearchProducerSession_InvokesOnlyTotalNativeAdapters()
     {
@@ -1088,6 +1119,8 @@ public partial class ResearchProducerSessionTests
 
         public List<IlMemberEndpointComparison> IlResults { get; } = [];
 
+        public List<IlBodyDiffNormalization> IlNormalizations { get; } = [];
+
         public List<(ResearchProducerKind Kind, string Old, string New)>
             EndpointShapes { get; } = [];
 
@@ -1127,9 +1160,11 @@ public partial class ResearchProducerSessionTests
 
         public IlMemberEndpointComparison CompareIl(
             IlMemberDiffEndpoint oldEndpoint,
-            IlMemberDiffEndpoint newEndpoint)
+            IlMemberDiffEndpoint newEndpoint,
+            IlBodyDiffNormalization normalization)
         {
             InvocationCount++;
+            IlNormalizations.Add(normalization);
             EndpointShapes.Add(
                 (
                     ResearchProducerKind.IlBody,
@@ -1138,7 +1173,8 @@ public partial class ResearchProducerSessionTests
             IlMemberEndpointComparison result =
                 IlAssemblyDiff.CompareMemberEndpoints(
                 oldEndpoint,
-                newEndpoint);
+                newEndpoint,
+                normalization);
             IlResults.Add(result);
             return result;
         }

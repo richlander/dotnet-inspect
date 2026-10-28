@@ -9,6 +9,9 @@
     "test/**/*.ts",
     "scripts/*.ts"
   ],
+  "ignore": [
+    "DotnetInspect.Web/facades/**"
+  ],
   "ignoreDependencies": [
     "type-fest"
   ]

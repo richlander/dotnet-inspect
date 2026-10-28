@@ -1,9 +1,52 @@
 using System.Security;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Output;
 
 internal static class EvidenceEnvelopeOutput
 {
+#if DEBUG
+    /// <summary>
+    /// Serializes one inspection and the House acquisitions its operation
+    /// made, and publishes them to the evidence path, reporting any failure
+    /// (docs/design/package-transfer-receipt.md#delivery).
+    /// </summary>
+    internal static bool TryPublishAcquisitionEvidence<TContent>(
+        string evidencePath,
+        EvidenceInspectionEnvelope<TContent, PackageAcquisitionEvidence> enriched,
+        InspectionEnvelopeJsonContract<TContent> contract)
+    {
+        if (!InspectionEnvelopeOutput.TrySerializeEvidence(
+                enriched,
+                contract,
+                PackageAcquisitionEvidenceJsonContext.Default
+                    .PackageAcquisitionEvidence,
+                compactJson: false,
+                out byte[] payload,
+                out Exception? serializationError))
+        {
+            CommandError.Write(
+                $"Evidence envelope serialization failed for "
+                    + $"'{evidencePath}': "
+                    + serializationError!.Message);
+            return false;
+        }
+        if (!TryPublish(
+                evidencePath,
+                payload,
+                out Exception? publicationError))
+        {
+            CommandError.Write(
+                $"Evidence envelope publication failed for "
+                    + $"'{evidencePath}': "
+                    + publicationError!.Message);
+            return false;
+        }
+        CommandError.WriteLine($"Evidence envelope: {evidencePath}");
+        return true;
+    }
+#endif
+
     internal static bool TryResolvePath(
         string path,
         out string fullPath,

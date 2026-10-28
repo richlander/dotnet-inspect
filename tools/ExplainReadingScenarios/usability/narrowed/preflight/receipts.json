@@ -1,0 +1,198 @@
+[
+  {
+    "name": "version",
+    "argv": [
+      "--version"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 15,
+    "stdout_sha256": "e1c140afe4471f6ff5f9af05630c86266f4365f027f53b5a83e52d89a72d1b85",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "package-help",
+    "argv": [
+      "package",
+      "query",
+      "--help"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 3255,
+    "stdout_sha256": "8f8d67e605dbefada6bbed2310fa8c3b40a68b06859400b1a4452b9aef6b1386",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "extensions-help",
+    "argv": [
+      "extensions",
+      "--help"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 3307,
+    "stdout_sha256": "bb9827a9710b3f84fb446d94fd2690870bf325f951b8caee3e4fb5cf071f122a",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "package-hal",
+    "argv": [
+      "package",
+      "query",
+      "--explain"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 18678,
+    "stdout_sha256": "4194a836a0716448ea3f655ce165dde5519fdb6a20ab1848d94c5e5a63b426c2",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "package-hal-selected",
+    "argv": [
+      "package",
+      "query",
+      "--explain",
+      "-Q",
+      "depends,dependency-target"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 4469,
+    "stdout_sha256": "00b13c0fe164fbef89f01906cef2580050f3350ff1a82cfe9b33e6ad7478f3a3",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "package-data",
+    "argv": [
+      "explain",
+      "package-query/query",
+      ".data",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 18700,
+    "stdout_sha256": "7473dd92a752e73a930078f45fefcf59dcaba85508dc52721e7f029f3155fc4c",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "facet-data",
+    "argv": [
+      "explain",
+      "package-query/query/facets/depends",
+      ".data",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 2125,
+    "stdout_sha256": "36479e5ae44feb554faf68ddb08520dae9b068593a832b617a8496883727adaf",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "vocabulary-hal",
+    "argv": [
+      "explain",
+      "vocabularies/csharp.body-kinds",
+      ".hal",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 2710,
+    "stdout_sha256": "7c71e657a02cf87fa6856b24f6baeb83388a41e1cd763e455b5da6ffe8157f1c",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "vocabulary-hal-selected",
+    "argv": [
+      "explain",
+      "vocabularies/csharp.body-kinds",
+      ".hal",
+      "--json",
+      "-Q",
+      "ObjectCreationExpression,BreakStatement"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 656,
+    "stdout_sha256": "7b3a345547eddb8723a12856855081c4cf4b865852e4109705b7e8b6a6310ca0",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "vocabulary-data",
+    "argv": [
+      "explain",
+      "vocabularies/csharp.body-kinds",
+      ".data",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 3873,
+    "stdout_sha256": "b1c32f59f3e33c81023ca7bd8c499adb5e87ab18f000d3543a69779b9681b6dc",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "vocabulary-data-selected",
+    "argv": [
+      "explain",
+      "vocabularies/csharp.body-kinds",
+      ".data",
+      "--json",
+      "-Q",
+      "ObjectCreationExpression,BreakStatement"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 540,
+    "stdout_sha256": "f732f0ecf4de1fb69de71d836cbfb61657ec9096828cab035d181908ef52ef91",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "vocabulary-wrong-case",
+    "argv": [
+      "explain",
+      "vocabularies/csharp.body-kinds",
+      ".hal",
+      "--json",
+      "-Q",
+      "objectcreationexpression"
+    ],
+    "exit": 1,
+    "expected_exit": 1,
+    "stdout_bytes": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_bytes": 67,
+    "stderr_sha256": "4aa716a4ee5f6a8def3e8f381b8b33d29005c5dc00391bbe7b006fee25a7effe"
+  },
+  {
+    "name": "package-invalid-data",
+    "argv": [
+      "package",
+      "query",
+      "--explain",
+      ".data",
+      "--json"
+    ],
+    "exit": 1,
+    "expected_exit": 1,
+    "stdout_bytes": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_bytes": 121,
+    "stderr_sha256": "add27f40439cebff43b2df5c20f5e3d0f359830864538ecea0d22fb6517f1d9b"
+  }
+]

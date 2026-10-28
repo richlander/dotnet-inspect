@@ -236,11 +236,107 @@ Metadata's first soft tier is `api.member.extension-instance` at confidence 85.
 It projects structured method receiver, name, generic arity, return type, and
 non-receiver parameters while retaining extension/instance as the variant.
 Same-role relocations, signature near misses, ambiguous endpoints, and
-observations lacking structured signatures do not correlate. `ApiDiffAnalyzer`
-remains the compatibility authority even when an exploratory Finding consumer
-accepts this correspondence.
+observations lacking structured signatures do not correlate. Compatibility
+classification stays with `ApiFindingClassifier`, which reports an accepted
+pair as an unrelated removal and addition unless the caller requests
+`NormalizeMemberProjection`.
 
-## 7. Keep higher rungs separate
+## 7. Compare typed facts; spell at presentation
+
+A producer pairs and classifies observations by typed facts and typed
+identities read from the source: metadata handles and definition names,
+access and modifier flags, structural types, and enums for kinds. C# or other
+human-facing spelling is a presentation of those facts. The producer renders it
+only for the rows a consumer shows, and it never compares, parses, or slices
+the spelling to decide whether a row exists or how it is classified. A string
+may take part in a comparison only when it is a canonical encoding that the
+typed source produces and that is lossless for the comparison's equivalence:
+two encodings are equal exactly when the facts that equivalence compares are
+equal. A spelling written for readers never qualifies, nor does a string
+derived by slicing one. For a producer whose source is text, such as Text or
+ordered C#, the text is the typed fact.
+
+The API producer does not yet follow this rule. `ApiFindingClassifier` and
+`MetadataFindings` pair and classify partly on spelled text: member identity
+uses a canonical name sliced from the display `Signature`, Types pair by
+flattened full name, a changed member is found by comparing `Signature` text,
+`SignatureBeforeAccessors` slices that text, accessibility is read through
+`ApiDiffAnalyzer.ExternalReach`, an exact switch over accessibility strings,
+and Type kind through `Kind` string equality. Every correctness gap under
+[#10227](https://github.com/richlander/dotnet-inspect/issues/10227) sat on that
+boundary: [#10679](https://github.com/richlander/dotnet-inspect/issues/10679)
+(an `init` setter spelled `set`, so no row),
+[#10628](https://github.com/richlander/dotnet-inspect/issues/10628) (accessor
+reach recovered from text),
+[#10656](https://github.com/richlander/dotnet-inspect/issues/10656) and
+[#10657](https://github.com/richlander/dotnet-inspect/issues/10657) (pairing by
+degraded or flattened text), and
+[#10676](https://github.com/richlander/dotnet-inspect/issues/10676) and
+[#10354](https://github.com/richlander/dotnet-inspect/issues/10354), where the
+typed Finding Diff Any census and the spelled comparer disagree. It is also the
+dominant cost: a NativeAOT profile of the CoreLib 10.0.12 to 11 rc.1 diff
+spends about half its time in `ApiSurfaceExtractor.GetMethodSignature`, which
+decodes and spells every member's signature for the comparer to read, unchanged
+members included. How that half splits between decoding and spelling is not
+yet measured.
+
+Of the 27 sites where the API producer decides a row's existence or
+classification, 21 compare or parse strings. A typed fact that suffices already
+exists on the model for 6 of them, 9 are partial, and 6 have none. Every gap can
+close by *adding* a typed field beside the spelled one, so none of the slices
+below changes the C# renderer or the decompiler, which keep reading the spelled
+fields; replacing the spelled field instead would reach them at 12 of the 21
+sites. `StructuralReturnType`, produced from the decoded type tree, is a
+qualifying encoding; `CanonicalSignature` is not, because it is partly sliced
+from the display `Signature`. The API
+producer adopts this rule in slices, each byte-identical on the runtime-pack
+population and measured with NativeAOT unless it is marked as a behavior
+change:
+
+1. Compare signatures by their stored components (`SignatureModel`) instead of
+   by the whole `Signature` text, gated by component equality agreeing with
+   text equality over the corpus. This slice is transitional: the components
+   are still spelled (parameter and return types, default value text), and
+   slice 5 replaces them.
+2. Render `ApiMember.Signature` on first read and cache it, from detached
+   inputs so inspected assemblies stay unloaded and the retention charge stays
+   exact, and move the remaining forced readers off it, so the diff renders
+   signatures only for changed rows. This slice and the first land together;
+   neither saves time alone.
+3. Render each type position once where its display and canonical spellings
+   agree, compute member anchors and fingerprints only for changed rows, and
+   join and format facet details only after a field comparison differs.
+4. Add typed population accessibility, accessor kind, member kind, and Type
+   kind beside the strings, and switch the comparer's reach, accessor, and kind
+   decisions, and the member key's kind component, to them.
+5. Add annotated type shapes for base Types, interfaces, constraints,
+   parameters, and returns, keep the raw constant behind each default value,
+   and pair members by a typed canonical key instead of `CanonicalSignature`,
+   keeping canonical text only for output rows.
+6. Behavior changes: pair Types by definition name
+   ([#10657](https://github.com/richlander/dotnet-inspect/issues/10657)) and
+   keep a degraded signature out of pairing or fail visibly
+   ([#10656](https://github.com/richlander/dotnet-inspect/issues/10656)).
+   Identity on the shared census `SymbolKey`
+   ([#10476](https://github.com/richlander/dotnet-inspect/issues/10476)) follows
+   that work rather than preceding it: the census key includes the return type
+   and omits nullability, the opposite of the API comparer's member key, so it
+   serves Type identity and an Exists prefilter for unchanged Types, not member
+   pairing as it stands.
+7. The remaining spelled comparisons: attribute constructor identity and
+   decoded arguments for the opt-in Attributes scope instead of attribute text
+   sets, and variance from generic parameter flags instead of `Variance`
+   strings. Once every compare path extracts its surfaces, the comparer has no
+   model-less text fallback. The compiler-generated member filter checks
+   prefixes of the definition name, a typed fact, so it is not a spelled
+   comparison; replacing it with the `[CompilerGenerated]` fact would change
+   which `--all` rows exist and is a separate policy decision.
+
+Demand-shaped Metadata performance
+([#9257](https://github.com/richlander/dotnet-inspect/issues/9257)) tracks the
+cost side of this rule.
+
+## 8. Keep higher rungs separate
 
 Some useful product concepts are intentionally not one raw Finding stream:
 
@@ -276,6 +372,8 @@ Before approving a producer, answer:
 - Which two or more consumers need the same census?
 - Is any proposed field actually a downstream fact, verdict, or presentation?
 - Does comparison reuse the shared matcher and fold?
+- Does it pair and classify on typed facts, rendering spelling only for the
+  rows it shows?
 - Which bespoke producer, adapter, or comparison path will this replace?
 
 The first end-to-end Analysis proof uses one allocation census for

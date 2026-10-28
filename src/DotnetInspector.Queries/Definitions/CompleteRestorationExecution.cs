@@ -1,10 +1,15 @@
 using System.Collections.Immutable;
+using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries.Definitions;
 
 public sealed record CompleteRestorationExecutionOptions
 {
     public required WorkspaceContextLoadOptions ContextLoad { get; init; }
+
+    public PackageRootHouseExecution? PackageRootHouse { get; init; }
 
     public required DateTimeOffset ScopeDeadline { get; init; }
 
@@ -20,6 +25,9 @@ public sealed record CompleteRestorationExecutionOptions
         NavigationPackageEvaluationFactory.DefaultSurfaceLimits;
 
     public bool CaptureInventory { get; init; }
+
+    /// <summary>Retain exact saved-subject associations for borrowed execution.</summary>
+    public bool CaptureSelectedSubject { get; init; }
 
     public ApiSurfaceProjectionLimits PlatformSurfaceLimits { get; init; } =
         NavigationPackageEvaluationFactory.DefaultSurfaceLimits;
@@ -193,6 +201,13 @@ public abstract record CompleteRestorationResolvedState
             LensResolution
             ?? throw new ArgumentNullException(nameof(LensResolution));
     }
+
+    public sealed record RegistrationOnlyEcosystemPackageType(
+        WorkspaceEcosystemRegistrationId Ecosystem,
+        ExactLibrarySourceCoordinate.Package Library,
+        MetadataTypeDefinitionName Type,
+        NavigationInitialization Initialization)
+        : CompleteRestorationResolvedState;
 }
 
 public sealed record CompleteRestorationResolvedViewState
@@ -270,6 +285,15 @@ public static class CompleteRestorationProjections
                 new CompleteRestorationProjection.NonProjectable(
                     $"Registration-only Ecosystem '{ecosystem.Ecosystem}' "
                         + "has no portable complete-restoration projection."));
+        }
+        if (request.Request is CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput packageType)
+        {
+            return new CompleteRestorationProjectionResult.Projected(
+                new CompleteRestorationProjection.NonProjectable(
+                    $"Registration-only Ecosystem '{packageType.Ecosystem}' "
+                        + "package-Type preparation has no portable "
+                        + "complete-restoration projection."));
         }
 
         CommittedScenarioDefinitionSet definitions =
@@ -375,8 +399,10 @@ public sealed record CompleteWorkspaceActivation
         InspectionWorkspaceIdentity workspace,
         ImmutableArray<WorkspaceDeclarationContext> contexts,
         CompleteWorkspaceSnapshot snapshot,
-        CompleteRestorationProjection projection)
+        CompleteRestorationProjection projection,
+        CompleteRestorationSubjectPreparation? selectedSubject = null)
     {
+        SelectedSubject = selectedSubject;
         Intent = intent ?? throw new ArgumentNullException(nameof(intent));
         Request = request ?? throw new ArgumentNullException(nameof(request));
         Workspace = workspace
@@ -428,6 +454,9 @@ public sealed record CompleteWorkspaceActivation
                 version5.Definitions,
             CompleteRestorationResolvedState.RegistrationOnlyEcosystem =>
                 null,
+            CompleteRestorationResolvedState
+                .RegistrationOnlyEcosystemPackageType =>
+                null,
             _ => throw new InvalidOperationException(
                 "Unknown complete-restoration resolved state."),
         };
@@ -467,6 +496,35 @@ public sealed record CompleteWorkspaceActivation
     public CompleteWorkspaceSnapshot Snapshot { get; }
 
     public CompleteRestorationProjection Projection { get; }
+
+    /// <summary>
+    /// Reports whether private construction prepared the exact requested
+    /// package-backed Type.
+    /// </summary>
+    public bool HasPreparedPackageType(
+        ExactLibrarySourceCoordinate.Package library,
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentNullException.ThrowIfNull(type);
+        return SelectedSubject
+                is CompleteRestorationSubjectPreparation.Ready
+        {
+            Target: CompleteRestorationSelectedSubject.Type prepared,
+        }
+            && prepared.Root.Coordinate.PackageId.Equals(
+                library.PackageCoordinate.PackageId,
+                StringComparison.OrdinalIgnoreCase)
+            && prepared.Root.Coordinate.Version.Equals(
+                library.PackageCoordinate.Version,
+                StringComparison.OrdinalIgnoreCase)
+            && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                prepared.Subject.Library.Identity.Assembly,
+                library.LibraryIdentity.Identity)
+            && prepared.Subject.Identity.Type == type;
+    }
+
+    internal CompleteRestorationSubjectPreparation? SelectedSubject { get; }
 }
 
 public abstract record CompleteWorkspacePreparationResult
@@ -880,6 +938,11 @@ public static class CompleteRestorationCoordinator
 
             return null;
         }
+        if (recipe is CompleteRestorationRecipe
+            .RegistrationOnlyEcosystemPackageType)
+        {
+            return null;
+        }
 
         CommittedScenarioDefinitionSet definitions = recipe switch
         {
@@ -1097,6 +1160,18 @@ public static class CompleteRestorationCoordinator
                 return new CompleteWorkspacePreparationResult.Failed(
                     resolved.Failure);
             }
+            IReadOnlyDictionary<string, PackageArtifactRootRequest>
+                effectivePackageRequests = packageRequests.Requests!;
+            if (resolved.SelectedPackageRequest is { } selectedPackageRequest)
+            {
+                var requests = packageRequests.Requests!
+                    .ToImmutableDictionary(StringComparer.Ordinal)
+                    .ToBuilder();
+                requests.Add(
+                    resolved.SelectedPackageNavigationId!,
+                    selectedPackageRequest);
+                effectivePackageRequests = requests.ToImmutable();
+            }
 
             if (CurrentnessFailure(authority) is { } stale)
             {
@@ -1167,7 +1242,7 @@ public static class CompleteRestorationCoordinator
                         plan,
                         loadedContexts,
                         roots,
-                        packageRequests.Requests!,
+                        effectivePackageRequests,
                         resolved.PackageEvaluations!,
                         options.PlatformSurfaceLimits,
                         token);
@@ -1207,13 +1282,45 @@ public static class CompleteRestorationCoordinator
             CompleteRestorationProjection projection =
                 ((CompleteRestorationProjectionResult.Projected)
                     projectionResult).Projection;
+            CompleteRestorationSubjectPreparation? selectedSubject =
+                resolved.SelectedTypeLibrary is { } selectedTypeLibrary
+                    ? CompleteRestorationSelectedSubjectOperation
+                        .PreparePackageType(
+                            snapshot,
+                            resolved.Package!,
+                            resolved.SelectedPackageRoot!,
+                            selectedTypeLibrary)
+                    : options.CaptureSelectedSubject
+                        ? CompleteRestorationSelectedSubjectOperation.Prepare(
+                            snapshot,
+                            resolved.SelectedPackageState,
+                            resolved.SelectedPackageState is { } selected
+                                ? ReadyPackageBinding(
+                                    selected.NavigationId!,
+                                    new CompleteRestorationInvocation(
+                                        roots,
+                                        effectivePackageRequests,
+                                        resolved.PackageEvaluations!))
+                                : null)
+                        : null;
+            if (resolved.SelectedTypeLibrary is not null
+                && selectedSubject
+                    is CompleteRestorationSubjectPreparation.Unavailable
+                        unavailableSubject)
+            {
+                return new CompleteWorkspacePreparationResult.Failed(
+                    new CompleteRestorationFailure
+                        .PackageTypePreparationFailed(
+                            unavailableSubject.Failure));
+            }
             var activation = new CompleteWorkspaceActivation(
                 plan.Intent,
                 plan.Request,
                 workspace.Identity,
                 contexts.MoveToImmutable(),
                 snapshot,
-                projection);
+                projection,
+                selectedSubject);
             if (operation is not null)
             {
                 await operation(
@@ -1221,7 +1328,7 @@ public static class CompleteRestorationCoordinator
                     activation,
                     new CompleteRestorationInvocation(
                         roots,
-                        packageRequests.Requests!,
+                        effectivePackageRequests,
                         resolved.PackageEvaluations!),
                     token).ConfigureAwait(false);
             }
@@ -1294,27 +1401,8 @@ public static class CompleteRestorationCoordinator
 
             string navigationId = evaluations[0].Key;
             NavigationPackageEvaluation evaluation = evaluations[0].Value;
-            if (!invocation.PackageRequests.TryGetValue(
-                    navigationId,
-                    out PackageArtifactRootRequest request))
-            {
-                throw new InvalidOperationException(
-                    $"Restored Navigation row '{navigationId}' omitted its "
-                        + "exact Package request.");
-            }
-
-            PackageRootBinding[] bindings =
-            [
-                .. invocation.PackageRoots.Where(
-                    binding => PackageArtifactRootRequest.From(binding)
-                        == request),
-            ];
-            if (bindings.Length != 1)
-            {
-                throw new InvalidOperationException(
-                    $"Restored Navigation row '{navigationId}' did not retain "
-                        + "one exact Package Root binding.");
-            }
+            PackageRootBinding binding = ReadyPackageBinding(
+                navigationId, invocation);
 
             NavigationConsumerPackageDescriptor[] consumers =
             [
@@ -1331,7 +1419,7 @@ public static class CompleteRestorationCoordinator
             ready.Add(new(
                 navigationId,
                 consumers[0].Subject.Id,
-                bindings[0],
+                binding,
                 evaluation));
         }
         if (ready.Count != invocation.PackageEvaluations.Count)
@@ -1341,6 +1429,29 @@ public static class CompleteRestorationCoordinator
                     + "from the projection.");
         }
         return new(ready.MoveToImmutable());
+    }
+
+    private static PackageRootBinding ReadyPackageBinding(
+        string navigationId,
+        CompleteRestorationInvocation invocation)
+    {
+        if (!invocation.PackageRequests.TryGetValue(
+                navigationId, out PackageArtifactRootRequest request))
+        {
+            throw new InvalidOperationException(
+                $"Restored Navigation row '{navigationId}' omitted its exact Package request.");
+        }
+        PackageRootBinding[] bindings =
+        [
+            .. invocation.PackageRoots.Where(
+                binding => PackageArtifactRootRequest.From(binding) == request),
+        ];
+        if (bindings.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"Restored Navigation row '{navigationId}' did not retain one exact Package Root binding.");
+        }
+        return bindings[0];
     }
 
     private static PackageNavigationRequestResolution
@@ -1461,6 +1572,18 @@ public static class CompleteRestorationCoordinator
                 workspace,
                 options);
         }
+        if (plan.Recipe is CompleteRestorationRecipe
+            .RegistrationOnlyEcosystemPackageType packageType)
+        {
+            return await ResolveRegistrationOnlyEcosystemPackageTypeAsync(
+                plan,
+                packageType,
+                workspace,
+                scope,
+                roots,
+                options,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         (CommittedScenarioDefinitionSet definitions, int schemaVersion) =
             plan.Recipe switch
@@ -1563,7 +1686,11 @@ public static class CompleteRestorationCoordinator
             package,
             detached.State,
             packageEvaluations,
-            null);
+            null)
+        {
+            SelectedPackageState = resolution.ActiveState
+                as ResolvedCommittedPackageViewState,
+        };
     }
 
     private static ResolvedPreparation ResolveRegistrationOnlyEcosystem(
@@ -1572,54 +1699,25 @@ public static class CompleteRestorationCoordinator
         InspectionWorkspace workspace,
         CompleteRestorationExecutionOptions options)
     {
-        WorkspaceRegistration.Ecosystem selected =
-            plan.WorkspacePlan.Registrations
-                .OfType<WorkspaceRegistration.Ecosystem>()
-                .Single(registration =>
-                    registration.Declaration.Id == recipe.Ecosystem);
-        WorkspaceRegistrationReadResult registrations =
-            workspace.GetRegistrationSnapshot();
-        if (registrations is WorkspaceRegistrationReadResult.Unavailable
-            unavailable)
+        EcosystemOccurrenceResolution resolvedOccurrence =
+            ResolveRegistrationOnlyEcosystemOccurrence(
+                plan,
+                recipe.Ecosystem,
+                workspace);
+        if (resolvedOccurrence.Failure is not null)
         {
             return new(
                 null,
                 null,
                 null,
                 null,
-                new CompleteRestorationFailure.RegistrationReadFailed(
-                    unavailable.RuntimeFailure));
+                resolvedOccurrence.Failure);
         }
 
         WorkspaceRegistrationRevision revision =
-            ((WorkspaceRegistrationReadResult.Available)registrations)
-                .Revision;
-        WorkspaceEcosystemRegistrationOccurrence[] occurrences =
-        [
-            .. revision.EcosystemContributions
-                .Select(contribution => contribution.Ecosystem)
-                .Where(occurrence =>
-                    ReferenceEquals(
-                        occurrence.Declaration,
-                        selected.Declaration)),
-        ];
-        if (occurrences.Length != 1)
-        {
-            return new(
-                null,
-                null,
-                null,
-                null,
-                new CompleteRestorationFailure.EcosystemResolutionFailed(
-                    recipe.Ecosystem,
-                    occurrences.Length == 0
-                        ? $"Fresh Workspace contains no Ecosystem occurrence "
-                            + $"'{recipe.Ecosystem}'."
-                        : $"Fresh Workspace contains multiple Ecosystem "
-                            + $"occurrences '{recipe.Ecosystem}'."));
-        }
-
-        WorkspaceEcosystemRegistrationOccurrence occurrence = occurrences[0];
+            resolvedOccurrence.Revision!;
+        WorkspaceEcosystemRegistrationOccurrence occurrence =
+            resolvedOccurrence.Occurrence!;
         var evaluation = new NavigationEcosystemEvaluation(
             revision,
             occurrence);
@@ -1665,6 +1763,238 @@ public static class CompleteRestorationCoordinator
         {
             Ecosystem = evaluation,
         };
+    }
+
+    private static async ValueTask<ResolvedPreparation>
+        ResolveRegistrationOnlyEcosystemPackageTypeAsync(
+            CompleteRestorationPlan plan,
+            CompleteRestorationRecipe.RegistrationOnlyEcosystemPackageType
+                recipe,
+            InspectionWorkspace workspace,
+            WorkspaceScopeSnapshot scope,
+            ImmutableArray<PackageRootBinding> roots,
+            CompleteRestorationExecutionOptions options,
+            CancellationToken cancellationToken)
+    {
+        EcosystemOccurrenceResolution resolvedOccurrence =
+            ResolveRegistrationOnlyEcosystemOccurrence(
+                plan,
+                recipe.Ecosystem,
+                workspace);
+        if (resolvedOccurrence.Failure is not null)
+        {
+            return new(
+                null,
+                null,
+                null,
+                null,
+                resolvedOccurrence.Failure);
+        }
+
+        PackageSourceCoordinate package = recipe.Package;
+        PackageRootBinding[] bindings =
+        [
+            .. roots.Where(binding =>
+                string.Equals(
+                    binding.Coordinate.PackageId,
+                    package.PackageId,
+                    StringComparison.Ordinal)
+                && string.Equals(
+                    binding.Coordinate.Version,
+                    package.Version,
+                    StringComparison.Ordinal)),
+        ];
+        const string navigationId = "registration-only-package-type";
+        if (bindings.Length != 1)
+        {
+            return new(
+                null,
+                null,
+                null,
+                null,
+                new CompleteRestorationFailure.PackageEvaluationFailed(
+                    navigationId,
+                    bindings.Length == 0
+                        ? "The exact package-Type request did not produce a "
+                            + "Package root."
+                        : "The exact package-Type request produced multiple "
+                            + "Package roots."));
+        }
+
+        PackageEvaluationResult evaluated =
+            await EvaluatePackageAsync(
+                navigationId,
+                PackageArtifactRootRequest.From(bindings[0]),
+                workspace,
+                scope,
+                roots,
+                options.PackageSurfaceLimits,
+                cancellationToken).ConfigureAwait(false);
+        if (evaluated.Failure is not null)
+            return new(null, null, null, null, evaluated.Failure);
+
+        NavigationPackageEvaluation packageEvaluation = evaluated.Package!;
+        NavigationLibraryEvaluation[] libraries =
+        [
+            .. packageEvaluation.Libraries.Where(library =>
+                AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    library.Library.Participant.Assembly.Identity,
+                    recipe.Library.LibraryIdentity.Identity)),
+        ];
+        if (libraries.Length != 1)
+        {
+            return new(
+                null,
+                null,
+                null,
+                null,
+                new CompleteRestorationFailure.PackageTypeSelectionFailed(
+                    libraries.Length == 0
+                        ? CompleteRestorationFailure
+                            .PackageTypeSelectionFailureKind.LibraryMissing
+                        : CompleteRestorationFailure
+                            .PackageTypeSelectionFailureKind.LibraryAmbiguous,
+                    recipe.Library,
+                    recipe.Type,
+                    libraries.Length == 0
+                        ? "The exact package-Type Library was not present in "
+                            + "the selected Package assets."
+                        : "The exact package-Type Library occurred more than "
+                            + "once in the selected Package assets."));
+        }
+
+        StructuralSubjectIdentity.WorkspaceSubject workspaceSubject =
+            StructuralSubjectIdentity.ForWorkspace(workspace.Identity);
+        StructuralSubjectIdentity.PackageSubject packageSubject =
+            StructuralSubjectIdentity.ForPackage(
+                workspaceSubject,
+                packageEvaluation.Occurrence.Occurrence);
+        StructuralSubjectIdentity.LibrarySubject librarySubject =
+            StructuralSubjectIdentity.ForLibrary(
+                packageSubject,
+                libraries[0].Library);
+        StructuralSubjectIdentity.TypeSubject typeSubject =
+            StructuralSubjectIdentity.ForType(librarySubject, recipe.Type);
+        NavigationSubjectInventory inventory =
+            NavigationWorkspaceSnapshotEvaluation.ClassifySubjectInventory(
+                packageSubject,
+                packageEvaluation);
+        NavigationLibraryInventory libraryInventory =
+            inventory.Libraries.Single(candidate =>
+                candidate.Subject == librarySubject);
+        int typeMatches = libraryInventory.Types.Rows.Count(candidate =>
+            candidate.Subject == typeSubject);
+        if (typeMatches != 1)
+        {
+            CompleteRestorationFailure.PackageTypeSelectionFailureKind kind =
+                typeMatches > 1
+                    ? CompleteRestorationFailure
+                        .PackageTypeSelectionFailureKind.TypeAmbiguous
+                    : libraryInventory.Types.Evidence.IsEmpty
+                        ? CompleteRestorationFailure
+                            .PackageTypeSelectionFailureKind.TypeMissing
+                        : CompleteRestorationFailure
+                            .PackageTypeSelectionFailureKind
+                                .IncompleteInventory;
+            return new(
+                null,
+                null,
+                null,
+                null,
+                new CompleteRestorationFailure.PackageTypeSelectionFailed(
+                    kind,
+                    recipe.Library,
+                    recipe.Type,
+                    kind switch
+                    {
+                        CompleteRestorationFailure
+                            .PackageTypeSelectionFailureKind.TypeAmbiguous =>
+                            "The exact package-Type identity occurred more "
+                                + "than once in the selected Library.",
+                        CompleteRestorationFailure
+                            .PackageTypeSelectionFailureKind
+                                .IncompleteInventory =>
+                            "Incomplete inventory cannot establish the exact "
+                                + "package-Type identity.",
+                        _ =>
+                            "The exact package-Type identity was not present "
+                                + "in the selected Library.",
+                    }));
+        }
+        var initialization = new NavigationInitialization(
+            typeSubject,
+            new NavigationRetainedSubjectContext(
+                packageSubject,
+                librarySubject,
+                typeSubject));
+        return new(
+            initialization,
+            packageEvaluation,
+            new CompleteRestorationResolvedState
+                .RegistrationOnlyEcosystemPackageType(
+                    recipe.Ecosystem,
+                    recipe.Library,
+                    recipe.Type,
+                    initialization),
+            ImmutableDictionary<string, NavigationPackageEvaluation>.Empty
+                .Add(navigationId, packageEvaluation),
+            null)
+        {
+            SelectedPackageNavigationId = navigationId,
+            SelectedPackageRoot = bindings[0],
+            SelectedPackageRequest =
+                PackageArtifactRootRequest.From(bindings[0]),
+            SelectedTypeLibrary = libraries[0],
+        };
+    }
+
+    private static EcosystemOccurrenceResolution
+        ResolveRegistrationOnlyEcosystemOccurrence(
+            CompleteRestorationPlan plan,
+            WorkspaceEcosystemRegistrationId ecosystem,
+            InspectionWorkspace workspace)
+    {
+        WorkspaceRegistration.Ecosystem selected =
+            plan.WorkspacePlan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Single(registration =>
+                    registration.Declaration.Id == ecosystem);
+        WorkspaceRegistrationReadResult registrations =
+            workspace.GetRegistrationSnapshot();
+        if (registrations is WorkspaceRegistrationReadResult.Unavailable
+            unavailable)
+        {
+            return new(
+                null,
+                null,
+                new CompleteRestorationFailure.RegistrationReadFailed(
+                    unavailable.RuntimeFailure));
+        }
+
+        WorkspaceRegistrationRevision revision =
+            ((WorkspaceRegistrationReadResult.Available)registrations)
+                .Revision;
+        WorkspaceEcosystemRegistrationOccurrence[] occurrences =
+        [
+            .. revision.EcosystemContributions
+                .Select(contribution => contribution.Ecosystem)
+                .Where(occurrence =>
+                    ReferenceEquals(
+                        occurrence.Declaration,
+                        selected.Declaration)),
+        ];
+        return occurrences.Length == 1
+            ? new(revision, occurrences[0], null)
+            : new(
+                null,
+                null,
+                new CompleteRestorationFailure.EcosystemResolutionFailed(
+                    ecosystem,
+                    occurrences.Length == 0
+                        ? $"Fresh Workspace contains no Ecosystem occurrence "
+                            + $"'{ecosystem}'."
+                        : $"Fresh Workspace contains multiple Ecosystem "
+                            + $"occurrences '{ecosystem}'."));
     }
 
     private static DetachedCommittedResult DetachCommitted(
@@ -1937,7 +2267,26 @@ public static class CompleteRestorationCoordinator
         CompleteRestorationFailure? Failure)
     {
         public NavigationEcosystemEvaluation? Ecosystem { get; init; }
+
+        public PackageRootBinding? SelectedPackageRoot { get; init; }
+
+        public string? SelectedPackageNavigationId { get; init; }
+
+        public PackageArtifactRootRequest? SelectedPackageRequest { get; init; }
+
+        public ResolvedCommittedPackageViewState? SelectedPackageState
+        {
+            get;
+            init;
+        }
+
+        public NavigationLibraryEvaluation? SelectedTypeLibrary { get; init; }
     }
+
+    private sealed record EcosystemOccurrenceResolution(
+        WorkspaceRegistrationRevision? Revision,
+        WorkspaceEcosystemRegistrationOccurrence? Occurrence,
+        CompleteRestorationFailure? Failure);
 
     private sealed record PackageEvaluationResult(
         NavigationPackageEvaluation? Package,

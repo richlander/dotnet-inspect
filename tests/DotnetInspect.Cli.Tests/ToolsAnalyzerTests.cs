@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli;
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspector.Packages;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -298,5 +299,54 @@ public class ToolsAnalyzerTests : IDisposable
         Assert.NotNull(result.SupportedRids);
         Assert.Contains("linux-x64", result.SupportedRids);
         Assert.DoesNotContain("any", result.SupportedRids);
+    }
+
+    [Fact]
+    public void AnalyzePackageInventory_ProjectsToolRuntimeIdentifiers()
+    {
+        PackageContentEntry[] entries =
+        [
+            new("lib/net8.0/Example.dll", 1),
+            new("tools/net8.0/designer/Example.Tool.dll", 1),
+        ];
+        string[] directories =
+        [
+            "lib",
+            "lib/net8.0",
+            "tools",
+            "tools/net8.0",
+            "tools/net8.0/designer",
+        ];
+        var result = new InspectionResult();
+
+        ToolsAnalyzer.AnalyzePackageInventory(
+            entries,
+            directories,
+            result);
+
+        Assert.Equal(["designer"], result.SupportedRids);
+        Assert.True(result.HasRidSpecificAssets);
+    }
+
+    [Fact]
+    public void AnalyzePackageInventory_InfersToolsOnlyPackageType()
+    {
+        PackageContentEntry[] entries =
+        [
+            new("tools/net8.0/Example.Tool.dll", 1),
+        ];
+        string[] directories =
+        [
+            "tools",
+            "tools/net8.0",
+        ];
+        var result = new InspectionResult();
+
+        ToolsAnalyzer.AnalyzePackageInventory(
+            entries,
+            directories,
+            result);
+
+        Assert.True(result.IsToolPackage);
     }
 }

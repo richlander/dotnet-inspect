@@ -134,11 +134,52 @@ public static class DiffAnalysisCatalog
 
         Operation = new AnalysisOperationDefinition(
             AnalysisOperationKind.Compare,
+            AnalysisQuestionMode.Targeted,
             ["api"]);
+        Document = new(
+            new(
+                DocumentIdentity,
+                "Diff analysis",
+                "The registered analyses' comparison of two versions of one "
+                    + "library, type, or member, with the selected Changes, "
+                    + "Summary, and Transitions views.",
+                DiffAnalysisInspection.ResultContractIdentity));
+        Route = new(
+            new(
+                RouteIdentity,
+                "Diff analysis",
+                "Compares two endpoints through one validated analysis set "
+                    + "and returns the Diff analysis document."),
+            Document,
+            static (request, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(
+                    DiffAnalysisInspection.Execute(request));
+            },
+            Operation);
         ProductModule = new InspectionCapabilityModule(
             "diff.analyses",
+            documents: [Document],
+            routes: [Route],
             analyses: Registrations);
     }
+
+    public const string DocumentIdentity = "diff-analysis/document/v1";
+
+    public const string RouteIdentity = "diff-analysis/route/compare";
+
+    /// <summary>The Diff analysis document Compare produces.</summary>
+    public static InspectionDocumentRegistration<DiffAnalysisDocument>
+        Document { get; }
+
+    /// <summary>
+    /// Diff's Compare operation as an inspection route: its typed entry
+    /// point runs one validated analysis set without a Query Space.
+    /// </summary>
+    public static InspectionRouteRegistration<
+        DiffAnalysisInspectionRequest,
+        DiffAnalysisDocument> Route { get; }
 
     /// <summary>Registrations in product order.</summary>
     public static ImmutableArray<InspectionAnalysisRegistration> Registrations { get; }
@@ -163,6 +204,21 @@ public static class DiffAnalysisCatalog
                     ReferenceEquals(registration.Analysis, analysis))
                 .ProducerFor(selection.Operation, selection.Surface)?
                 .Participation.ProducerRoute == RetainedResearchRoute);
+    }
+
+    /// <summary>
+    /// Whether every selected analysis compares API metadata only, through
+    /// the API or API-attribute route, and reads no method body.
+    /// </summary>
+    public static bool ReadsOnlyApiSurface(
+        AnalysisSetValidationResult.Accepted selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return selection.Analyses.All(analysis =>
+            analysis.ParticipationFor(selection.Operation)
+                ?.For(selection.Surface)
+                ?.ProducerRoute is { } route
+            && (route == ApiRoute || route == ApiAttributeRoute));
     }
 
     public static bool RequiresStringLiteralQuery(

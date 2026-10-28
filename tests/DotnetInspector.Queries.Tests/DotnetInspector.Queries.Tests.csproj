@@ -37,6 +37,7 @@
     <PackageDownload Include="Avalonia" Version="[11.3.14];[12.1.2]" />
     <PackageDownload Include="Polly.Core" Version="[8.8.0]" />
     <PackageDownload Include="Dapper" Version="[2.1.89]" />
+    <PackageDownload Include="Aspire.StackExchange.Redis" Version="[13.6.3]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -46,6 +47,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Metadata.LegacyOracles\ILInspector.Metadata.LegacyOracles.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Diff\DotnetInspector.Diff.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="..\..\src\QuerySpace\QuerySpace.csproj" />
@@ -61,6 +63,7 @@
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchSections\DotnetInspector.ResearchSections.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.IteratorFixtures\ILInspector.Analysis.IteratorFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\research\ILInspector.Research.NameFamilyFixtures\ILInspector.Research.NameFamilyFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\research\ILInspector.Research.DependencyStructureFixtures\ILInspector.Research.DependencyStructureFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AsyncSiblingRepositoryFixture\ILInspector.Analysis.AsyncSiblingRepositoryFixture.csproj" ReferenceOutputAssembly="false" />
@@ -98,6 +101,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="$(NuGetPackageRoot)aspire.stackexchange.redis/13.6.3/aspire.stackexchange.redis.13.6.3.nupkg"
+          Link="RealAssets/CompleteRestoration/aspire.stackexchange.redis.13.6.3.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/microsoft.netcore.app.ref.10.0.10.nupkg"
           Link="RealAssets/CompleteRestoration/microsoft.netcore.app.ref.10.0.10.nupkg"
           CopyToOutputDirectory="PreserveNewest" />

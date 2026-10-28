@@ -666,6 +666,100 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CatalogFacade_PreparesResolvedHomeDemoDefinitionRecords()
+    {
+        _ = await OptionsAsync();
+        await Catalog.BrowserRetainedWorkspaceActivationService
+            .ResetForTestsAsync();
+        try
+        {
+            using JsonDocument resolved = JsonDocument.Parse(
+                Catalog.CatalogExports.ResolveHomeDemo(
+                    ProductDemoIds.StjSerializer));
+            string[] records =
+            [
+                .. resolved.RootElement.GetProperty("demo")
+                    .GetProperty("restorationDefinitions")
+                    .EnumerateArray()
+                    .Select(record =>
+                        Assert.IsType<string>(record.GetString())),
+            ];
+
+            string preparationJson =
+                await Catalog.CatalogExports
+                    .PrepareRetainedWorkspaceDefinitionFromRecords(
+                        "facade-home-demo",
+                        "System.Text.Json",
+                        "/?w=view#workspace",
+                        ProductDemoIds.StjSerializer,
+                        JsonSerializer.Serialize(
+                            records,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .StringArray));
+            Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspacePreparationResult>(
+                        JsonSerializer.Deserialize(
+                            preparationJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspacePreparationResult));
+
+            Assert.Equal("prepared", preparation.Status);
+            Catalog.BrowserRetainedWorkspacePreparedPosting prepared =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspacePreparedPosting>(
+                        preparation.Preparation);
+            Assert.Null(prepared.CanonicalPacket);
+            Assert.Single(prepared.Platforms);
+
+            string receipt = Assert.IsType<string>(preparation.Receipt);
+            string cancellationJson =
+                await Catalog.CatalogExports
+                    .CancelRetainedWorkspaceActivation(receipt);
+            Catalog.BrowserRetainedWorkspaceActivationResult cancellation =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspaceActivationResult>(
+                        JsonSerializer.Deserialize(
+                            cancellationJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspaceActivationResult));
+            Assert.NotEqual("failed", cancellation.Status);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .ResetForTestsAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData("not-json")]
+    [InlineData("[\"{}\"]")]
+    public async Task CatalogFacade_RejectsInvalidDefinitionRecords(
+        string definitionRecordsJson)
+    {
+        string preparationJson =
+            await Catalog.CatalogExports
+                .PrepareRetainedWorkspaceDefinitionFromRecords(
+                    "invalid-records",
+                    "Invalid",
+                    "/?w=invalid#workspace",
+                    ProductDemoIds.StjSerializer,
+                    definitionRecordsJson);
+        Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+            Assert.IsType<
+                Catalog.BrowserRetainedWorkspacePreparationResult>(
+                    JsonSerializer.Deserialize(
+                        preparationJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspacePreparationResult));
+
+        Assert.Equal("failed", preparation.Status);
+        Assert.Equal("InvalidDefinition", preparation.Failure?.Kind);
+    }
+
+    [Fact]
     public async Task CatalogFacade_PackageQueryPreparesProductDefinition()
     {
         _ = await OptionsAsync();
@@ -845,7 +939,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         await Catalog.BrowserRetainedWorkspaceActivationService.ResetForTestsAsync();
         try
         {
-            string packet = includePlatform ? MixedInventoryPacket(false) : Packet();
+            string packet = includePlatform
+                ? MixedInventoryPacket(false)
+                : Packet(runtimeIdentifier: "win-x64");
             string activeTab = includePlatform ? "t1" : "t0";
             string json = await Catalog.CatalogExports.ActivateRetainedWorkspaceDefinition(
                 "facade", "Package", "/workspace", packet);
@@ -929,6 +1025,20 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.True(package.Summary.TypeCount > 0);
             Assert.True(package.Summary.DocumentCount > 0);
             Assert.Equal("net9.0", package.Summary.SelectedCompileFramework);
+            string expectedRuntimeIdentifier =
+                includePlatform ? "linux-x64" : "win-x64";
+            Assert.Equal(
+                expectedRuntimeIdentifier,
+                package.RuntimeIdentifier);
+            Assert.Equal(
+                expectedRuntimeIdentifier,
+                package.ImplementationComparisonRuntimeIdentifier);
+            Catalog.BrowserRetainedWorkspacePackageLibraryIdentity defaultLibrary =
+                Assert.IsType<Catalog.BrowserRetainedWorkspacePackageLibraryIdentity>(
+                    package.DefaultLibrary);
+            Assert.NotEmpty(defaultLibrary.AssetId);
+            Assert.NotEmpty(defaultLibrary.AssetPath);
+            Assert.NotEmpty(defaultLibrary.AssemblyName);
             using (JsonDocument compact = JsonDocument.Parse(json))
             {
                 Assert.All(compact.RootElement.GetProperty("posting")
@@ -948,6 +1058,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.Equal(package.Summary.TypeCount, admitted.Package.TypePage.TotalTypes);
             Assert.Equal(0, admitted.Package.TypePage.Offset);
             Assert.InRange(admitted.Package.Surface.Types.Length, 1, 100);
+            Assert.Equal(
+                defaultLibrary.AssetId,
+                admitted.Package.Surface.DefaultAssemblyId);
             Assert.Equal(package.Summary.DocumentCount, admitted.Package.Surface.Documents.Length);
             Assert.Equal(package.Summary.MemberCount, admitted.Package.Surface.TotalMembers);
             json = await Catalog.CatalogExports.AdmitRetainedWorkspacePackage(

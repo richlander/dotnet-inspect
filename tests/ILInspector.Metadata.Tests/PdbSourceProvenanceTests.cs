@@ -111,6 +111,59 @@ public class PdbSourceProvenanceTests
     }
 
     [Theory]
+    [InlineData("Markers.pdb", "Markers.pdb", true)]
+    [InlineData("/_/src/Markers.pdb", "Markers.pdb", true)]
+    [InlineData("/home/agent/Markers.pdb", "Markers.pdb", false)]
+    [InlineData(@"C:\agent\_work\Markers.pdb", "Markers.pdb", false)]
+    [InlineData(@"C:Markers.pdb", "Markers.pdb", false)]
+    [InlineData(@"\\server\share\Markers.pdb", "Markers.pdb", false)]
+    public void CodeViewPaths_UseProducerIndependentSeparators(
+        string codeViewPath,
+        string expectedFileName,
+        bool expectedNormalized)
+    {
+        byte[] image =
+            BuildMarkerMetadata(codeViewPath: codeViewPath).Image;
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+
+        Assert.Equal(codeViewPath, context.CodeViewPdbPath);
+        Assert.Equal(expectedFileName, context.PdbId?.PdbFileName);
+        Assert.Equal(expectedNormalized, context.HasNormalizedPaths);
+        if (expectedNormalized)
+        {
+            Assert.Null(context.NonNormalizedPaths);
+        }
+        else
+        {
+            Assert.Equal(
+                [$"PDB Path: {codeViewPath}"],
+                context.NonNormalizedPaths);
+        }
+    }
+
+    [Fact]
+    public void MultipleCodeViewPaths_PreserveNonNormalizedEvidence()
+    {
+        const string NonNormalizedPath =
+            @"C:\agent\_work\Markers.native.pdb";
+        byte[] image = BuildMarkerMetadata(
+            codeViewPath: NonNormalizedPath,
+            secondCodeViewPath: "Markers.pdb").Image;
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+
+        Assert.False(context.HasNormalizedPaths);
+        Assert.Equal(
+            [$"PDB Path: {NonNormalizedPath}"],
+            context.NonNormalizedPaths);
+    }
+
+    [Theory]
     [InlineData(@"\\server\share\Ordinary.cs")]
     [InlineData("/repo/Ordinary\tSource.cs")]
     public void EncodingExpandingPaths_PreserveRawReceiptCounts(
@@ -1025,7 +1078,9 @@ public class PdbSourceProvenanceTests
         int generatedToolLength = 0,
         Guid? portablePdbGuid = null,
         int documentCount = 1,
-        int sharedChecksumLength = 0)
+        int sharedChecksumLength = 0,
+        string codeViewPath = "Markers.pdb",
+        string? secondCodeViewPath = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1338,9 +1393,16 @@ public class PdbSourceProvenanceTests
         {
             debugDirectory = new();
             debugDirectory.AddCodeViewEntry(
-                "Markers.pdb",
+                codeViewPath,
                 contentId,
                 portablePdbVersion: 0x0100);
+            if (secondCodeViewPath is not null)
+            {
+                debugDirectory.AddCodeViewEntry(
+                    secondCodeViewPath,
+                    contentId,
+                    portablePdbVersion: 0x0100);
+            }
         }
         var finalPe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

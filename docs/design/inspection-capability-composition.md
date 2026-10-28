@@ -11,22 +11,45 @@ Query now composes its existing document, executable Query Space, typed route,
 and real CLI and Browser bindings without changing Package Query behavior.
 Remaining modern owners adopt the same substrate one focused owner at a time.
 
+[Registration, execution, and binding](#registration-execution-and-binding)
+is the design for
+[#10700](https://github.com/richlander/dotnet-inspect/issues/10700). It is
+partly implemented:
+
+- A route declares its [execution](#execution) kind. Diff's Compare operation
+  is an inspection route, and `diff --analysis` executes every analysis set
+  through its CLI binding.
+- Diff's analyses are resources of the Compare route, composed and explained
+  in the same graph. The CLI binding exposes them, and search admits them.
+- Structural catalogs register their shared Discovery declarations and paths
+  as host-executed resources. CLI view bindings select them, and search admits
+  only resources with a selecting binding. The separate structural search
+  population and host-supplied search entry types are retired.
+
+The [adoption sequence](#adoption-sequence) counts the steps that close each
+gap.
+
 ## Owner and exact claim
 
 **Inspection Capability Composition** owns this exact claim:
 
-> Given explicit owner-issued definitions for modern host-neutral inspection
-> documents and routes, and explicit consumer-owned bindings to those routes,
-> construct one deterministic resource-free capability graph that preserves
-> the direct typed dependency from each consumer to its producer and derives
-> the reverse relationships required for discovery, explanation, and
-> production-adoption assessment.
+> Given explicit owner-issued registrations for host-neutral inspection
+> documents and routes and the query facets and analyses they expose, and for
+> structural catalogs and their sections and categories, together with
+> explicit host-owned bindings that select those resources, construct one
+> deterministic resource-free capability graph.
+> The graph preserves the direct typed dependency from each consumer to its
+> producer, records how each registered resource executes, and derives the
+> reverse relationships required for discovery, explanation, search
+> admission, and production-adoption assessment.
 
 This owner defines:
 
 - the distinction among an inspection document, its section and query
   surfaces, a host-neutral route, and a consumer binding;
 - the direction and authority of registration;
+- the separation of registration, execution, and host binding, and the
+  execution kinds a resource declares;
 - static capability modules and their composition boundary;
 - construction-time graph validation;
 - available-capability and production-adoption projections;
@@ -321,10 +344,19 @@ It retains:
 A route identity is independent of CLI command text, Browser control labels,
 section names, and Resource Explanation paths.
 
+A route's surface profile may include a Query Space, but a route doesn't need
+one. A route that executes through Query Space references its binding. A route
+that executes its typed entry point directly, such as Diff's Compare
+operation over an analysis set, references none. See
+[execution](#execution).
+
 ### Consumer binding
 
-A **consumer binding** records one real dependency from a consumer to the exact
-host-neutral route it uses. Consumers include:
+A **consumer binding** is the route kind of [host binding](#host-binding). It
+records one real dependency from a consumer to the exact host-neutral route it
+uses. Operation analysis bindings and structural view bindings are the other
+kinds; they select analyses and structural resources rather than a route.
+Consumers include:
 
 - a CLI command or command mode;
 - a Browser/Wasm gesture or managed export;
@@ -353,6 +385,100 @@ section, facet, route, or command individually.
 The **capability catalog** is the immutable validated graph constructed from
 the selected product and consumer modules. It is a derived index, not another
 semantic authority and not an execution service locator.
+
+## Registration, execution, and binding
+
+A capability has three independent properties. Composition keeps them apart,
+so that one never stands in for another.
+
+| Property | Question it answers | Owner |
+| --- | --- | --- |
+| Registration | Does this capability exist, and what is it? | The resource's owner, through a host-neutral module |
+| Execution | How does it run, and which effectiveness gates apply? | The route or operation owner |
+| Host binding | Can this host run it, and through which gesture? | The host, through a host module |
+
+Discovery depends on registration and binding only. Execution decides how a
+resource runs and how it is gated. It never decides whether the resource is
+discoverable.
+
+### Registration
+
+A registered resource is one of:
+
+- an inspection document or a host-neutral route;
+- a query facet of a route's Query Space;
+- an analysis that takes part in an operation; or
+- a structural section or category of a structural catalog.
+
+Each registration carries the resource's stable owner-issued identity, its
+name, and its purpose text where the owner issues one. It also names the route
+or catalog the resource belongs to. Resource Explanation assigns each
+registered resource exactly one canonical path. A host explains and searches
+the same registered resources from one composed graph. It doesn't combine
+per-kind catalogs or assemble Discovery projections, paths, or routes for
+discovery.
+
+Registration modules live in host-neutral assemblies. A host composes them; it
+doesn't define them. The root's [routing declarations](#routing-declarations)
+are registrations too; they move out of CLI code in adoption step 4.
+
+### Execution
+
+Each registered resource has one execution kind. A route declares the kind
+for itself and its resources. A structural catalog's resources that no route
+produces are host-executed.
+
+| Execution kind | Meaning | Gates |
+| --- | --- | --- |
+| Query Space route | The route executes through its Query Space binding. | The Query Space gates for [terminal correctness and least-work execution](../evidence-and-validation.md#terminal-correctness-and-least-work-execution), plus the route gates |
+| Inspection route | The route's typed entry point returns `InspectionEnvelope<TContent>` without a Query Space. | The route owner's gates |
+| Host-executed | No host-neutral route produces the resource yet; only a host path does. | The host path's existing gates |
+
+A structural section whose producing command has no host-neutral route
+registers under its structural catalog with the host-executed kind. The graph
+records that fact; it never presents a host-executed resource as a route.
+When a host-neutral route later produces that section's document, the section
+moves under the route, and its execution kind becomes the route's.
+
+Joining Query Space, as Diff may through
+[#10227](https://github.com/richlander/dotnet-inspect/issues/10227), changes
+a route's execution kind and gates. It doesn't change which resources are
+registered or how hosts bind them.
+
+### Host binding
+
+A host binding selects registered resources and names the host's own gesture:
+
+| Binding | Selects | Example |
+| --- | --- | --- |
+| Route binding | A route, and the query facets it exposes | `package query` |
+| Operation analysis binding | The analyses it exposes on its route, under the selection rule below | `diff --analysis` |
+| Structural view binding | The sections and categories one structural view selects | `library -S`, `library address -S` |
+
+A resource is **available** in a host when it is registered and at least one
+of that host's bindings selects it. An available resource carries exactly the
+bindings that select it. A section selected by two views is one registered
+resource with two bindings.
+
+An operation analysis binding selects an analysis only when, at one or more
+of the report surfaces the analysis takes part in for that operation, the
+analysis's report-surface support admits the question mode the operation
+requests. Diff's Compare requests Targeted. The analysis owner,
+[Inspection Analysis Requests](analysis-surfaces-and-universes.md#report-surface),
+issues report-surface support and
+[question mode](analysis-surfaces-and-universes.md#question-mode). The
+operation owner declares the mode in its `AnalysisOperationDefinition`, and
+set validation reads the same mode. Participation alone isn't enough.
+
+An operation analysis binding is a route binding of a route that runs an
+analysis operation. It lists the analyses it exposes, as a route binding lists
+the query facets it exposes. Exposing an analysis that its route's operation
+can't select, or exposing analyses on a route that runs no analysis
+operation, prevents construction.
+
+The owning route of an available resource is the route it belongs to. For a
+host-executed structural resource, it is its structural catalog's root. For
+an analysis, it is the routes of the operations whose bindings select it.
 
 ## Authority and knowledge direction
 
@@ -430,6 +556,16 @@ gestures; facet keys, labels, examples, and result evidence are not binding
 currency. The route does not issue a Browser lens, URL, command spelling, or
 universal next-action ranking.
 
+A route may also register host-neutral presentation facts for one effective
+query facet: order, control and presentation kinds, execution class, selection
+and replacement groups, combining behavior, inline options, and an external
+option-source identity. These declarations are optional descriptive structure,
+not execution authority. Every presentation source must belong to the route's
+effective Query Space; source identities are unique; and inline option values
+must exactly match the effective facet values. Resource Explanation projects
+the declaration without creating a host-specific catalog. Consumers still own
+rendering, interaction, and layout.
+
 The non-generic registration projection contains only resource-free
 descriptive structure. The typed route retains execution. Catalog enumeration
 cannot acquire packages, open a Workspace, decode metadata, invoke a producer,
@@ -437,7 +573,13 @@ or inspect Content.
 
 ## Consumer registration
 
-A consumer binding contains:
+Every [host binding](#host-binding) has one stable binding identity, one
+consumer kind and owner, a host-owned gesture, and the registered resources it
+selects. It selects them only within one owning route or structural catalog.
+An operation analysis binding names its operation's route. A structural view
+binding names its structural catalog and view.
+
+A consumer binding, the route kind, contains:
 
 - one stable binding identity;
 - one consumer kind and owner;
@@ -466,7 +608,15 @@ capability module. The registration contains:
   [Inspection Analysis Requests](analysis-surfaces-and-universes.md#operation-participation);
 - the typed producer binding that the operation dispatches for each declared
   report surface; and
-- the operation consumer binding that selects analyses by that identity.
+- the route of the operation it takes part in, which declares that
+  operation's `AnalysisOperationDefinition`.
+
+The analysis is a registered resource of its operation's route. An operation
+analysis binding is a [host binding](#host-binding) of that route that
+exposes analyses under the [selection rule](#host-binding). Analysis
+registrations and the
+operation route are composed into the same graph as every other route. Hosts
+don't compose them as a separate catalog.
 
 The same registration serves discovery and dispatch. An operation must not
 list one analysis set for explanation while dispatching another. Catalog
@@ -496,6 +646,14 @@ The allocation contract has three paths:
 | `-D` or `-Q` | The host reads the cached effective descriptor for the active route. No subject acquisition or producer execution occurs. |
 | `--explain` or adoption census | The host may construct and index the required capability graph. These are explicit cold operations. |
 
+Structural explanation consumes validated registration facts. A selected
+catalog does not construct an otherwise empty aggregate route/analysis graph.
+Path validation remains with Resource Explanation and is shared by registration
+and projection. Complete capability explanation composes snapshots before
+catalog validation, without constructing intermediate explanation catalogs
+only to combine and validate them again. The shared path boundary retains
+canonical shape, uniqueness, and owner-membership failures.
+
 Static registration arrays and cached providers may allocate once when their
 own discovery module is first initialized. Ordinary execution must not
 initialize unrelated discovery modules merely because it invokes a route.
@@ -523,12 +681,15 @@ Construction validates:
 4. Every query capability has the executable binding required by Query Space.
 5. Every query-facet related operation references one effective facet and is
    unique within that route.
-6. Every consumer binding references one registered route.
-7. A consumer cannot add a section, facet, effect, result grain, or completion
-   meaning outside that route.
-8. Equivalent top-level and operation-backed-section bindings reference the
+6. Every query-facet presentation references one effective facet, is unique
+   within that route, and preserves the effective facet's listed values.
+7. Every host binding references one registered route or structural catalog,
+   and every resource it selects is registered under that route or catalog.
+8. A consumer cannot add a section, facet, analysis, effect, result grain, or
+   completion meaning outside that route or catalog.
+9. Equivalent top-level and operation-backed-section bindings reference the
    same route and compatible subject roles.
-9. Every declared production-adoption requirement has the required binding
+10. Every declared production-adoption requirement has the required binding
    kind or produces one explicit adoption gap.
 
 Duplicate, missing, incompatible, or out-of-profile registration prevents
@@ -564,16 +725,21 @@ route with no production binding
 route with CLI binding only
 route with Browser binding only
 route with CLI and Browser bindings
+host-executed resource with its host bindings
 ```
 
 The graph reports facts rather than assuming that every route requires every
 host. A focused owner or overall tracker declares the intended production
 binding kinds. Missing intended bindings are adoption gaps.
 
-Legacy paths that do not return `InspectionEnvelope<TContent>` remain outside
-the capability graph. The composition does not describe, wrap, or preserve
-them solely to make discovery appear complete. Their absence identifies
-migration work; it is not a success-shaped compatibility adapter.
+Legacy paths that do not return `InspectionEnvelope<TContent>` are not
+wrapped as routes. The composition doesn't describe a legacy execution path as
+a host-neutral route, or preserve one to make adoption look complete. An
+owner-issued resource that such a path produces, such as a structural section
+with a Section Model description, still registers as a resource with the
+host-executed [execution kind](#execution). The adoption projection reports it
+as host-executed, which is migration work and not success. Discovery describes
+it and the gesture that runs it, and nothing more.
 
 ## Discovery and explanation projections
 
@@ -607,6 +773,35 @@ An explanation must identify which level it describes. It cannot present a
 document capability omitted by the current binding as though the user can
 invoke it through that host.
 
+### Routing declarations
+
+Inspection Capability Composition issues the explanation root's operation
+declarations for the capability families a host composes, under the
+[Resource Explanation routing contract](resource-explanation.md#routing-declarations):
+
+| Operation | Destination | Accepts |
+| --- | --- | --- |
+| `package-query` | The Package Query inspection document | `package` |
+| `package-files` | The Package Files inspection document | `package` |
+| `diff-analysis` | The Diff analysis inspection document and the `analyses` collection | The subject kinds the registered analyses' Compare participation names |
+
+The Diff operation derives its accepted subject kinds from the registered
+participation surfaces. In product order these are Library, Type, and
+Member; Root and Workspace surfaces have no subject-kind declaration. Each
+declaration also carries an owner-written purpose, representative questions,
+grain, and scope, in `CapabilityRoutingDeclarations`.
+
+Every host that composes a declaration's owner modules projects the same
+declaration. A host that doesn't compose them admits no declaration for them,
+under the [Resource Explanation root composition](resource-explanation.md#root-composition)
+rule. Moving the declarations from `CapabilityRoutingDeclarations` in CLI code
+into a host-neutral module is adoption step 4 below.
+
+Every operation accepts Schema Query subject kinds. A host therefore admits
+these declarations only together with
+[Schema Query's](schema-query.md#routing-declarations); admitting them alone
+names undeclared subject kinds and is an invalid registry.
+
 ## Failure and diagnostics
 
 Capability composition is resource-free. Registration failure is a product
@@ -619,7 +814,7 @@ It must distinguish:
 
 - absent modern registration;
 - invalid registration;
-- valid route with no current-host binding; and
+- valid route or registered resource with no current-host binding; and
 - valid binding omitted from an intended production host.
 
 It does not infer a missing capability from parser commands, rendered help,
@@ -660,7 +855,17 @@ The implementation must preserve these cases:
 - two modules register the same stable identity;
 - a descriptor provider is enumerated without executing its producer; and
 - an unrelated ordinary command runs without initializing the aggregate
-  capability catalog.
+  capability catalog;
+- a registered resource that no binding of the current host selects is not
+  available in that host, and the adoption projection reports it;
+- one structural section selected by two views is one resource with two
+  bindings;
+- an analysis that takes part in an operation, but whose report-surface
+  support admits the operation's question mode at none of its surfaces, is
+  registered but not selected by that operation's binding;
+- a host-executed resource is never presented as a host-neutral route; and
+- a host binding that selects an unregistered resource, or a resource outside
+  its owning route or structural catalog, prevents construction.
 
 These are construction and composition fixtures. They do not require hostile
 in-process caller defenses beyond the public registration contract.
@@ -700,10 +905,71 @@ Browser-managed binding and
 resource-free catalog construction. NativeAOT and single-threaded Wasm remain
 **unverified** until their existing product gates exercise the new substrate.
 
+The routing declarations' gate is the CLI root test
+`ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog`, with the
+bare-explain routing-table tests for the Diff analysis document destination.
+Together they assert four things:
+
+- the three operations route to their destinations;
+- the Diff operation accepts Library, Type, and Member;
+- the Package subject lists both package operations; and
+- every resource of the complete catalog, including every Package Query,
+  Package Files, and analysis resource, is reachable from the root.
+
 Catalog construction accepts only caller-supplied modules and exposes no
 assembly-scan or CLR-type-discovery entrypoint. Construction tests provide
 partial gate coverage for that bounded API shape. This design makes no
 repository-wide claim that unrelated components contain no reflection.
+
+The [registration, execution, and binding](#registration-execution-and-binding)
+adoption must add Release gates for:
+
+- one composed graph containing Query Space routes, an inspection route with
+  analyses, and host-executed structural catalogs;
+- availability by registration plus binding, including an unbound resource,
+  a resource with two bindings, and an analysis whose report-surface support
+  doesn't admit the operation's question mode;
+- each host's search and explanation root admitting exactly its available
+  resources, with no host-assembled discovery input; and
+- NativeAOT search cost no worse than the current structural population's
+  measured cost class. Today that is 41 ms to read the six projections,
+  against 75 ms to create and combine their explanation catalogs.
+
+The inspection-route part of step 2 is gated by:
+
+- the `InspectionRoute_*` composition tests: the execution kind, the rejection
+  of a binding that exposes a query term on an inspection route, and the
+  route's explanation without Query Space facts;
+- the CLI test `DiffAnalysisRoute_ExplainsAsAnInspectionRouteBoundToDiff`,
+  which explains the route and document from the complete CLI catalog;
+- `AnalysisRepresentation_SharedTablesMatchDocumentsAndKeepFailureEvidence`,
+  which shows each table projection equals its document view and keeps its
+  diagnostics; and
+- the Diff command tests that invoke `diff --analysis`, every accepted run of
+  which goes through the CLI binding. The `BuildAnalysisTransitions` tests
+  call the route's entry point directly and don't gate the binding.
+
+The analyses-as-route-resources part of step 2 is gated by:
+
+- `AnalysisOperation_RequestsTargetedQuestions` and
+  `CompareRoute_OwnsTheAnalysesItsOperationDispatches`: the operation's
+  requested mode, and the route's analyses;
+- `AnalysisBinding_SelectsOnlyItsRoutesAnalyses`: construction rejects a
+  binding that exposes an analysis outside its route, or exposes analyses on a
+  route with no analysis operation;
+- `AnalysisExplanation_NamesItsRouteBindingAndFindings`: an analysis explains
+  its Finding titles, its route, and the bindings that expose it, and an
+  unexposed analysis names no binding;
+- the `CapabilityCatalogAnalysisSearchTests` and the CLI tests
+  `Search_AdmitsEveryAnalysisDiffBinds` and `Phrase_RanksTheAnalysisFirst`:
+  search admits exactly the exposed analyses, with their route and binding,
+  and resolves each path through exact explanation.
+
+The selection rule's question-mode clause is **unverified** by a dedicated
+case. No registered analysis takes part in Compare without Targeted support,
+and set validation accepts only a Targeted operation, so the case needs a
+synthetic descriptor; it's added with the first operation or analysis that can
+reach it.
 
 ## Non-claims
 
@@ -737,6 +1003,48 @@ counted path:
    top-level-operation composition.
 6. Migrate remaining modern owners one focused owner at a time and retire
    superseded CLI-local capability inventories.
+
+[#10700](https://github.com/richlander/dotnet-inspect/issues/10700) extends
+the sequence after step 6 with five steps for
+[registration, execution, and binding](#registration-execution-and-binding),
+numbered as in that issue:
+
+1. Lock the registration, execution, and binding design. **Complete.**
+2. Admit analyses through their operation's route, in two parts.
+   - **Inspection route.** A route declares its execution kind, so it needs
+     no Query Space. Diff's Compare operation registers as one inspection
+     route over the Diff analysis document. The CLI binds it, and
+     `diff --analysis` executes every analysis set through that binding.
+     The Summary and Transitions tables that the CLI writes for tabular
+     output are projections of the document's Summary and Transitions views,
+     not separate entry points. **Complete.**
+   - **Analyses as route resources.** The analyses become resources of the
+     Compare route. `diff --analysis` binds as an operation analysis binding
+     in the same composed graph, and search admits the available analyses.
+     This part records the question mode Compare requests and completes the
+     search part of
+     [#10445](https://github.com/richlander/dotnet-inspect/issues/10445).
+     **Complete.**
+3. Register structural catalogs as host-executed resources, with one
+   structural view binding per CLI view. Retire Capability Catalog Search's
+   structural population family and its host-assembled entries. **Complete.**
+   Tracked by [#10746](https://github.com/richlander/dotnet-inspect/issues/10746).
+   The prerequisite shared declaration construction is tracked by #10743 and
+   implemented in #10745. Generated/composed schema authority stays with
+   [Schema Query](schema-query.md#shared-structural-declaration-construction);
+   graph registration consumes its shared declarations rather than rebuilding
+   their resources or paths. Existing catalog identities retain their installed
+   spelling. Search reads those declarations without constructing structural
+   explanation snapshots. CLI wiring gates preserve all six catalogs and
+   direct-versus-coordinate Library binding scope; shared composition tests
+   enforce path and binding validation and omission of unbound resources.
+4. Move the root's routing declarations from CLI code into a host-neutral
+   module.
+5. Let the Browser admit every resource its bindings select. Sections and
+   analyses join Browser search when Browser binds them.
+
+Each step lands with its production consumer. The CLI's search results stay
+equal to today's except where a step intends a change.
 
 Each adoption after the bounded first witness is a focused owner change.
 Neither this design nor its first implementation sweeps every current command,

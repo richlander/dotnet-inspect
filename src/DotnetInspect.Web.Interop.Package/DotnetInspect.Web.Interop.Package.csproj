@@ -11,12 +11,12 @@
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
     <!--
-      Every browser interaction that inspects an assembly runs inside a workspace, through a
-      public product query that owns the session. BannedSymbols.txt makes the compiler enforce
-      that for every export assembly; BrowserEngineLayeringTests pins this wiring.
+      Owner-issued operations plus the exact positive dependency ceilings own product semantics.
+      Keep only runtime platform hazards that dependency layering cannot distinguish.
     -->
-    <AdditionalFiles Include="..\DotnetInspect.Web\BannedSymbols.txt" />
+    <AdditionalFiles Include="..\DotnetInspect.Web\PlatformHazards\BannedSymbols.txt" />
     <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
+    <ProjectReference Include="..\DotnetInspector.InspectionContracts\DotnetInspector.InspectionContracts.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
@@ -25,5 +25,6 @@
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\TsJsExport.Contracts\TsJsExport.Contracts.csproj" />
   </ItemGroup>
 </Project>

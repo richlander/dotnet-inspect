@@ -16,6 +16,52 @@ public sealed partial class ExactTypeInspectionOperationTests
         "Microsoft.Extensions.Logging.Abstractions";
 
     [Fact]
+    public async Task
+        SelectedContext_PackageLiveTargetCarriesOwnerIssuedAssetPath()
+    {
+        const string typeName = "Exact.PackageTarget";
+        const string assemblyPath = "lib/net11.0/PackageTarget.dll";
+        var store = new InMemoryPackageStore();
+        await CommitPackageAsync(
+            store,
+            HostingPackageId,
+            (assemblyPath,
+                BuildAssembly(
+                    "PackageTarget",
+                    typeName,
+                    typeof(IDisposable))));
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextInput input =
+            SelectedContextInput(HostingPackageId);
+        await using var coordinator =
+            new WorkspaceReplacementCoordinator();
+        (WorkspaceRealizationCandidate candidate,
+            WorkspaceDeclarationContext context) =
+            await PrepareSelectedContextCandidateAsync(
+                coordinator,
+                input,
+                LoadOptions(client, store));
+        await ActivateAsync(coordinator, candidate);
+        using WorkspaceRealizationOperationLease authority =
+            await AdmitAsync(coordinator);
+        SelectedContextExactTypeLiveTarget? liveTarget = null;
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
+                authority.Workspace,
+                context,
+                new SelectedContextExactTypeInspectionRequest(typeName),
+                target => liveTarget = target);
+
+        Assert.True(envelope.Content.Inspection.IsAvailable);
+        Assert.NotNull(liveTarget);
+        Assert.Null(liveTarget.AssemblyPath);
+        Assert.Equal(assemblyPath, liveTarget.PackageAssetPath);
+        Assert.Null(liveTarget.PackageExtractPath);
+        Assert.Null(liveTarget.OpenCompiledDocumentation);
+    }
+
+    [Fact]
     public async Task SelectedContext_ResolvesTypeFromNonFirstPackageMember()
     {
         const string typeName = "Microsoft.Extensions.Logging.ILogger";
@@ -79,6 +125,26 @@ public sealed partial class ExactTypeInspectionOperationTests
             package.LibraryIdentity.Name);
         Assert.Equal(0, source.Observation.ContextOrder);
         Assert.Equal(1, source.Observation.MemberOrder);
+        WorkspaceTypeHierarchySubjectRelationsFocus hierarchyFocus =
+            WorkspaceTypeHierarchySubjectRelationsFocus
+                .FromExactTypeDefinition(
+                    source.Occurrence,
+                    source.Type);
+        Assert.Same(
+            source.Occurrence,
+            hierarchyFocus.Occurrence);
+        Assert.Equal(
+            source.Type.Namespace,
+            hierarchyFocus.Type.Namespace);
+        Assert.Equal(
+            source.Type.Segments,
+            hierarchyFocus.Type.Segments);
+        ArgumentException invalidIdentity = Assert.Throws<ArgumentException>(
+            () => WorkspaceTypeHierarchySubjectRelationsFocus
+                .FromExactTypeDefinition(
+                    source.Occurrence,
+                    new("", [])));
+        Assert.Equal("type", invalidIdentity.ParamName);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
     }
 
@@ -402,6 +468,108 @@ public sealed partial class ExactTypeInspectionOperationTests
             Assert.Single(context.Receipt.Members).Occurrence,
             source.Occurrence);
         Assert.NotNull(liveTarget);
+    }
+
+    [Fact]
+    public async Task
+        SelectedContext_UnrelatedLibraryDoesNotProjectRichFailure()
+    {
+        const string selectedName = "Selected";
+        const string selectedType = "Exact.Selected";
+        const string unrelatedName = "Malformed";
+        ResolvedAssemblyReference selected =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(
+                    BuildAssembly(
+                        selectedName,
+                        selectedType,
+                        typeof(IDisposable)),
+                    writable: false),
+                AssemblyResolutionProvenance.Local(selectedName))
+            ?? throw new InvalidOperationException(
+                "The selected fixture must contain managed metadata.");
+        ResolvedAssemblyReference unrelated =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(
+                    BuildMalformedTypeAssembly(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local(unrelatedName))
+            ?? throw new InvalidOperationException(
+                "The unrelated fixture must contain managed metadata.");
+        await using var workspace = new InspectionWorkspace();
+        AssemblyContextParticipant[] participants =
+        [
+            new(selected, NoResolverAssemblyBindingPolicy.Instance),
+            new(unrelated, NoResolverAssemblyBindingPolicy.Instance),
+        ];
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(participants);
+        WorkspaceMemberCoordinate[] declared =
+        [
+            WorkspaceMemberCoordinate.Embedded(
+                "assemblies/Selected.dll",
+                new string('0', 64),
+                selectedName),
+            WorkspaceMemberCoordinate.Embedded(
+                "assemblies/Constraint.dll",
+                new string('1', 64),
+                unrelatedName),
+        ];
+        RealizedMemberCoordinate.Embedded[] realized =
+        [
+            new(
+                "assemblies/Selected.dll",
+                new string('0', 64),
+                selectedName),
+            new(
+                "assemblies/Constraint.dll",
+                new string('1', 64),
+                unrelatedName),
+        ];
+        var input =
+            new WorkspaceContextInput
+            {
+                Members = declared,
+            };
+        WorkspaceDeclarationContext context =
+            Assert.IsType<
+                WorkspaceAssemblyDeclarationContextAdmissionOutcome.Admitted>(
+                    WorkspaceAssemblyDeclarationContextAdmission.Admit(
+                        workspace,
+                        group,
+                        input,
+                        [
+                            new(
+                                participants[0],
+                                new ExactLibrarySourceCoordinate.Local(
+                                    new ManagedMetadataIdentity.Assembly(
+                                        selected.Identity)),
+                                declared[0],
+                                realized[0],
+                                packageRequest: null),
+                            new(
+                                participants[1],
+                                new ExactLibrarySourceCoordinate.Local(
+                                    new ManagedMetadataIdentity.Assembly(
+                                        unrelated.Identity)),
+                                declared[1],
+                                realized[1],
+                                packageRequest: null),
+                        ]))
+                .Context;
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.ExecuteWithLiveTarget(
+                workspace,
+                context,
+                new SelectedContextExactTypeInspectionRequest(
+                    selectedType),
+                static _ => { });
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            envelope.Content.Inspection.Outcome);
+        Assert.Empty(envelope.Content.Inspection.InspectionFailures);
     }
 
     [Fact]

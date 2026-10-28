@@ -31,10 +31,11 @@
                      Version="[1.2.0]" />
     <PackageDownload Include="Newtonsoft.Json" Version="[13.0.4]" />
     <PackageDownload Include="System.Text.Json" Version="[9.0.0];[10.0.0]" />
+    <PackageDownload Include="Microsoft.Azure.SignalR" Version="[1.20.0];[1.33.1]" />
     <PackageDownload Include="NUnit" Version="[4.1.0];[4.2.2]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64" Version="[11.0.0-rc.1.26425.128]" />
     <PackageDownload Include="Microsoft.NETCore.App.Ref" Version="[11.0.0-rc.1.26425.128]" />
-    <PackageDownload Include="System.Runtime.CompilerServices.Unsafe" Version="[6.0.0]" />
+    <PackageDownload Include="System.Runtime.CompilerServices.Unsafe" Version="[4.7.1];[5.0.0];[6.0.0]" />
     <PackageDownload Include="Antlr" Version="[3.5.0.2]" />
     <PackageDownload Include="Gee.External.Capstone" Version="[2.3.0]" />
   </ItemGroup>
@@ -85,6 +86,8 @@
     <None Include="$(NuGetPackageRoot)crestapps.agentskills.mcp.orchardcore/1.2.0/crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg"
           Link="RealAssets/SectionGrowth/crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="RecordedOutput/**/*.txt"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/system.text.json.9.0.0.nupkg"
           Link="RealAssets/PackageEndpointScope/system.text.json.9.0.0.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
@@ -96,6 +99,12 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)nunit/4.2.2/nunit.4.2.2.nupkg"
           Link="RealAssets/PackageEndpointScope/nunit.4.2.2.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.runtime.compilerservices.unsafe/4.7.1/system.runtime.compilerservices.unsafe.4.7.1.nupkg"
+          Link="RealAssets/PackageEndpointScope/system.runtime.compilerservices.unsafe.4.7.1.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.runtime.compilerservices.unsafe/5.0.0/system.runtime.compilerservices.unsafe.5.0.0.nupkg"
+          Link="RealAssets/PackageEndpointScope/system.runtime.compilerservices.unsafe.5.0.0.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)newtonsoft.json/13.0.4/newtonsoft.json.13.0.4.nupkg"
           Link="RealAssets/FileDemand/newtonsoft.json.13.0.4.nupkg"
@@ -124,6 +133,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspect.Cli\DotnetInspect.Cli.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.InspectionContracts\DotnetInspector.InspectionContracts.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\..\src\QuerySpace\QuerySpace.csproj" />
     <ProjectReference Include="..\..\src\NuGetFetch\NuGetFetch.csproj" />
@@ -131,11 +141,14 @@
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.IteratorFixtures\ILInspector.Analysis.IteratorFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.ClassicAsync\ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.LegacyUnsafe\ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V1\LibraryApiDiff.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V2\LibraryApiDiff.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FindingDiffAny.V1\ILInspector.Metadata.FindingDiffAny.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FindingDiffAny.V2\ILInspector.Metadata.FindingDiffAny.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\cli\DotnetInspector.HostileNameFixtures\DotnetInspector.HostileNameFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.DocumentationFixtures\InspectWeb.DocumentationFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />

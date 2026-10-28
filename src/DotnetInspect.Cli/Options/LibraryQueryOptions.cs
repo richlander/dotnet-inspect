@@ -33,6 +33,13 @@ public abstract record LibraryQueryPopulation
 public sealed record LibraryQueryOptions : IProjectionOptions
 {
     public required LibraryQueryPlan Plan { get; init; }
+
+    /// <summary>
+    /// The user set the candidate bound with --take, so reaching it is the
+    /// answer's scope; the default ceiling is not requested, so reaching it
+    /// leaves a partial view (cli-execution-bounds.md#count).
+    /// </summary>
+    public bool ExplicitTake { get; init; }
     public LibraryQueryPopulation? Population { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
     public bool Count { get; init; }

@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
@@ -27,7 +28,7 @@ public static class PackageCommandDefinitions
 
         var packageNameArg = new Argument<string[]>("package")
         {
-            Description = "NuGet package name or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
+            Description = "NuGet package name, exact Package reference, or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
             Arity = ArgumentArity.ZeroOrMore
         };
         var workspaceOption = new Option<string?>("--workspace")
@@ -82,6 +83,11 @@ public static class PackageCommandDefinitions
         {
             Description =
                 "Narrow to the Library whose assembly name matches the package ID",
+        };
+        var firstLibraryOption = new Option<bool>("--first-library")
+        {
+            Description =
+                "Narrow to the first namesake in Library order, otherwise the first Library",
         };
         var allLibrariesOption = new Option<bool>("--all-libraries")
         {
@@ -153,6 +159,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(toolsOption);
         packageCommand.Options.Add(libraryOption);
         packageCommand.Options.Add(namesakeLibraryOption);
+        packageCommand.Options.Add(firstLibraryOption);
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
@@ -171,7 +178,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, filesOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, namesakeLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            libOption, toolsOption, libraryOption, namesakeLibraryOption, firstLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption,
@@ -226,7 +233,8 @@ public static class PackageCommandDefinitions
             opts.Lines, opts.TailLines,
             dependenciesOption, filesOption, pathOption, pathMatchOption,
             skipEmptyOption, tfmsOption, libOption, toolsOption,
-            libraryOption, namesakeLibraryOption, allLibrariesOption,
+            libraryOption, namesakeLibraryOption, firstLibraryOption,
+            allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption, rootsOption);
@@ -518,11 +526,12 @@ public static class PackageCommandDefinitions
 
                 case PackageOptionsParser.Success success:
                     {
-                        var exitCode = await PackageCommand.ExecuteAsync(success.Options);
+                        var exitCode = await PackageCommand.ExecuteAsync(success.Options, ct);
 
                         if (exitCode == 0
                             && success.Options.CompanionOutput != CompanionOutput.None
                             && success.Options.PackageArgs.Length > 0
+                            && !PackageReferenceAdmission.Contains(success.Options.PackageArgs)
                             && success.Options.PackageLibrary == null
                             && !success.Options.AllLibraries)
                         {
@@ -562,6 +571,13 @@ public static class PackageCommandDefinitions
         {
             Description =
                 "Exact package ID or literal package-ID prefix ending in '*'",
+            Arity = ArgumentArity.ZeroOrOne
+        };
+        var explainOption = new Option<string?>("--explain")
+        {
+            Description =
+                "Explain installed Package Query facets and CLI bindings as HAL JSON "
+                + "without executing a query (use -Q facet keys to narrow)",
             Arity = ArgumentArity.ZeroOrOne
         };
         var ecosystemOption = new Option<string?>("--ecosystem")
@@ -604,6 +620,7 @@ public static class PackageCommandDefinitions
             Description = "Minified JSON (use with --json or --envelope)"
         };
         queryCommand.Arguments.Add(inputArg);
+        queryCommand.Options.Add(explainOption);
         queryCommand.Options.Add(ecosystemOption);
         queryCommand.Options.Add(takeOption);
         queryCommand.Options.Add(prereleaseOption);
@@ -641,6 +658,45 @@ public static class PackageCommandDefinitions
             opts.Select);
         queryCommand.Validators.Add(result =>
         {
+            if (result.GetResult(explainOption) is { Implicit: false })
+            {
+                if (result.GetValue(explainOption) is not null)
+                {
+                    result.AddError(
+                        "Package Query --explain supports only the bare installed-query "
+                        + "explanation; dotted projections are not available.");
+                }
+                if (result.GetValue(inputArg) is not null
+                    || result.GetValue(inheritedPackageArgument) is { Length: > 0 })
+                {
+                    result.AddError(
+                        "Package Query --explain is command-only and cannot be "
+                        + "combined with a package argument.");
+                }
+                Option? unsupportedOption = null;
+                for (CommandResult? scope = result;
+                     scope is not null;
+                     scope = scope.Parent as CommandResult)
+                {
+                    unsupportedOption = scope.Command.Options.FirstOrDefault(
+                        option => option != explainOption
+                        && option != opts.Json
+                        && option != opts.QueryHelp
+                        && !(scope.Command is RootCommand
+                            && option.Name is "--offline" or HttpTimeoutConfiguration.Flag)
+                        && scope.GetResult(option) is { Implicit: false });
+                    if (unsupportedOption is not null)
+                        break;
+                }
+                if (unsupportedOption is not null)
+                {
+                    result.AddError(
+                        $"{unsupportedOption.Name} is not available with package query --explain; "
+                        + "only -Q facet keys, --json, and process-wide controls may accompany "
+                        + "the installed-query explanation.");
+                }
+                return;
+            }
             if (result.GetResult(compactOption) is { Implicit: false }
                 && !result.GetValue(opts.Json)
                 && !result.GetValue(opts.Envelope))
@@ -659,6 +715,25 @@ public static class PackageCommandDefinitions
 
         queryCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetResult(explainOption) is { Implicit: false })
+            {
+                if (opts.ResolveFormat(parseResult, OutputFormat.Json) != OutputFormat.Json)
+                {
+                    CommandError.Write(
+                        "Package Query --explain requires HAL JSON; use --json "
+                        + "to override DOTNET_INSPECT_FORMAT.");
+                    return 1;
+                }
+                string[]? facetKeys = opts.ParseQueryHelp(parseResult);
+                if (parseResult.GetValue(opts.QueryHelp) is not null
+                    && facetKeys is not { Length: > 0 })
+                {
+                    CommandError.Write("-Q requires at least one exact facet key when a value is supplied.");
+                    return 1;
+                }
+                return ResourceExplanationCommand.ExplainPackageQuery(facetKeys);
+            }
+
             var acceptedParentOptions = new HashSet<Option>
             {
                 opts.Envelope,

@@ -62,6 +62,23 @@ const longFrameworkSurface: BrowserPackageSurface = {
 const longFrameworkRoot =
   `/?package=System.Text.Json&version=10.0.0&framework=${longFramework}#pkg`;
 
+test("first Library load does not report the deferred package surface as unavailable", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "System.Text.Json", version: "10.0.0", framework: "net10.0" }]),
+  ));
+  await installPackageLoadingFacades(page);
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .not.toHaveClass(/engine-pending/);
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="System.Text.Json"]').click();
+
+  await expect(page.locator(".library-overview-surface")).toBeVisible();
+  await expect(page.locator(".library-subject-list"))
+    .not.toContainText("unavailable");
+});
+
 function packageCoordinateControl(
   page: Page,
   change: typeof packageCoordinateChanges[number],
@@ -150,7 +167,7 @@ async function expectPackageCoordinateView(
   await expect(page.locator(view.surface).locator("#framework"))
     .toHaveCount(0);
   if (view.id === "dependencies") {
-    await expect(page.locator("[data-package-dependencies-status]")).toHaveText("0 packages");
+    await expect(page.locator("[data-package-dependencies-status]")).toHaveText("0 packages · 0 platforms");
     await expect(page.locator("html")).toHaveAttribute(
       "data-package-dependencies-request",
       JSON.stringify(["System.Text.Json", version, framework]));
@@ -411,6 +428,41 @@ test("Package Overview opens an owner-issued RID Package child", async ({
     JSON.stringify(["Tool.Pointer.linux-x64", "10.0.0", ""]));
   await expect(page.locator(".package-overview-surface h1"))
     .toHaveText("Tool.Pointer.linux-x64");
+});
+
+test("selecting an empty framework retires a retained Library and offers only Overview", async ({ page }) => {
+  await installFacades(page, frameworkSurface, [{
+    ...frameworkSurface,
+    activeFramework: "net9.0",
+    defaultAssemblyId: null,
+    compileLibrary: {
+      status: "EmptyCompileGroup", targetFramework: "net9.0", message: null,
+    },
+    assemblies: [], types: [], accessibility: [], totalMembers: 0,
+  }]);
+  await page.goto(frameworkRoot);
+  await selectLibrary(page, other.id);
+  await chooseSubject(page, "package", "Package");
+  await selectPackageCoordinate(page, packageCoordinateChanges[0]!, "net9.0");
+
+  const expectEmptyOverview = async () => {
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+    await expect(page.locator("[data-inspector-tab][data-package-lens]"))
+      .toHaveCount(1);
+    await expect(page.locator('[data-inspector-tab][data-package-lens="overview"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".query-notice-text"))
+      .toContainText("selected compile group contains no Libraries");
+    await expect(page.locator(".query-notice-text"))
+      .not.toContainText("not uniquely available");
+  };
+  await expectEmptyOverview();
+  await page.reload();
+  await expectEmptyOverview();
+  await selectPackageCoordinate(page, packageCoordinateChanges[0]!, "net10.0");
+  await expect(page.locator('[data-inspector-tab][data-package-lens="compare"]'))
+    .toBeVisible();
 });
 
 for (const change of packageCoordinateChanges) {

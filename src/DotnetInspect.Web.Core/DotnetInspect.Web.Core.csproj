@@ -36,8 +36,6 @@
     <ProjectReference Include="..\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
-    <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
-    <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
     <ProjectReference Include="..\DotnetInspector.SourceHouse\DotnetInspector.SourceHouse.csproj" />

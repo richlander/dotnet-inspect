@@ -17,7 +17,7 @@ internal static class ProductVocabularyPin
     public const int FormatVersion = 1;
 
     public const string SnapshotIdentity =
-        "sha256:3c526189fbe5ae5f1bb7da3e2578c82c2980d0cd02fc3c040ee591fa1ef6e82d";
+        "sha256:1c48720af80cda1e0c37e0759f6b3c987c35b6358db7a44a1eadd1671e47ec73";
 
     /// <summary>
     /// The SHA-256 of the Resource Explanation Document JSON each host
@@ -30,7 +30,7 @@ internal static class ProductVocabularyPin
         new(
             "vocabularies",
             1,
-            "sha256:2887b25039ddbeb12559b1a41a0e559f76d8c8168859536e7011c5a73bc1dba7"),
+            "sha256:58263258740332351e046325187a2780a104c86e26c48f45204029fdd3511418"),
         new(
             "vocabularies/csharp.style-choices",
             1,
@@ -43,9 +43,9 @@ internal static class ProductVocabularyPin
         new("vocabularies/csharp.style-choices", 1,
             "sha256:1bdcda51e030a5d1cf430751feaa72082b3da996f134ecd34491f9d58b88aa95"),
         new("vocabularies/csharp.style-choices", 0,
-            "sha256:7467eb944127bbb922868e316257d72cc2600102673e38359c57335288718599", "data"),
+            "sha256:b728f429ac8d2166fbe17f9b3beba032a6b4813674662b1153cef8fe53f3c50e", "data"),
         new("vocabularies/csharp.style-choices", 0,
-            "sha256:bc1e3c9beb4694a2a9bb605c0da43a2bc490fe8ad471c8009e26aad3dc56fa7c", "hal"),
+            "sha256:ffc3639e94ee0dd9972af847103e79b12abc58e0f228337cd45ac8eba3ba76da", "hal"),
     ];
 }
 

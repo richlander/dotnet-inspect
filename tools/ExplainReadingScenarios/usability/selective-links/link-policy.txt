@@ -1,0 +1,10 @@
+Trial-only policy fixed before dispatch. Hold the strong guide and domain tasks unchanged.
+For ordinary selected HAL resources, omit describedby. Omit non-self relation
+links whose exact href identifies complete data in the returned root/embedded
+closure. Root data_scope Complete admits the selected closure, except explicit
+non-Complete child scopes and partial binding exposure inventories. A binding
+with fewer exposed_facets than its members total is partial: retain navigation
+to it. Retain self, every non-local/partial target, data and embedded resources,
+order, scope/state qualifiers, ordinary discovery/detail JSON and explicit
+.contract requests. Only _links value spans may change, with no bytes changed
+outside them. This experimental recorder projection is not shipped behavior.

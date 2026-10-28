@@ -194,7 +194,7 @@ public static class DiffSections
                 "C#",
                 "IL")
             .Add(Summary.Name, "section", "Analysis", "Outcome", "Added", "Removed", "Changed", "Present", "Detail")
-            .Add(Transitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail");
+            .Add(Transitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail", "Old Inspection", "New Inspection");
     }
 
     public sealed class Changes : ISectionDescriptor<DiffDiscoveryModel>

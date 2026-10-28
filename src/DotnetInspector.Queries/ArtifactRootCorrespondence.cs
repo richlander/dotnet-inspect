@@ -44,12 +44,15 @@ public sealed record PackageArtifactRootCorrespondence :
 
 internal readonly record struct PackageArtifactRootRequest(
     RealizedMemberCoordinate.Package Coordinate,
+    string? RequestedTargetFramework,
     string? CompileTargetFramework,
     string? SelectionTargetFramework,
     string? SelectionRuntimeIdentifier,
     bool HasSelectedImplementationUniverse,
     bool UsesCompatibleImplementationSelection,
-    bool AllowsCompatibleTargetSelection)
+    bool AllowsCompatibleTargetSelection,
+    string? RuntimePopulationTargetFramework,
+    bool ContentOnly = false)
 {
     internal static PackageArtifactRootRequest From(
         PackageRootBinding binding)
@@ -57,6 +60,7 @@ internal readonly record struct PackageArtifactRootRequest(
         ArgumentNullException.ThrowIfNull(binding);
         return Create(
             binding.Coordinate,
+            binding.Root.RequestedTargetFramework,
             binding.CompileTargetFramework,
             binding.ImplementationSelectionTargetFramework,
             binding.Root.RequestedRuntimeIdentifier,
@@ -65,19 +69,28 @@ internal readonly record struct PackageArtifactRootRequest(
             allowsCompatibleTargetSelection:
                 binding.AllowsCompatibleTargetSelection,
             hasSelectedImplementationUniverse:
-                binding.HasSelectedImplementationUniverse);
+                binding.HasSelectedImplementationUniverse,
+            runtimePopulationTargetFramework:
+                binding.RuntimePopulationTargetFramework) with
+        {
+            ContentOnly = binding.Root.ContentOnly,
+        };
     }
 
     internal static PackageArtifactRootRequest Create(
         RealizedMemberCoordinate.Package coordinate,
+        string? requestedTargetFramework,
         string? compileTargetFramework,
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
         bool hasSelectedImplementationUniverse,
         bool usesCompatibleImplementationSelection,
-        bool allowsCompatibleTargetSelection)
+        bool allowsCompatibleTargetSelection,
+        string? runtimePopulationTargetFramework)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
+        string? normalizedRequestedTarget =
+            NormalizeFramework(requestedTargetFramework);
         string? normalizedCompileTarget =
             NormalizeFramework(compileTargetFramework);
         string? normalizedSelectionTarget =
@@ -100,13 +113,15 @@ internal readonly record struct PackageArtifactRootRequest(
 
         return new(
             coordinate,
+            normalizedRequestedTarget,
             normalizedCompileTarget,
             normalizedSelectionTarget,
             NormalizeRuntime(selectionRuntimeIdentifier),
             hasSelectedImplementationUniverse,
             usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection
-                || usesCompatibleImplementationSelection);
+                || usesCompatibleImplementationSelection,
+            NormalizeFramework(runtimePopulationTargetFramework));
     }
 
     internal static string? NormalizeFramework(string? framework)

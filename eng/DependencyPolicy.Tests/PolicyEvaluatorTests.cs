@@ -985,6 +985,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "CSharpText",
                 "DotnetInspector.Cache",
+                "DotnetInspector.Diff",
                 "DotnetInspector.Ecosystems",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
@@ -1060,8 +1061,10 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "CSharpText",
                 "DotnetInspector.Cache",
+                "DotnetInspector.Diff",
                 "DotnetInspector.DocumentationHouse.Contracts",
                 "DotnetInspector.Ecosystems",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
                 "DotnetInspector.MetadataRendering",
@@ -1200,8 +1203,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Sections",
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceHouse",
-                "ILInspector.Analysis",
-                "ILInspector.CallGraph",
                 "ILInspector.Metadata",
                 "NuGetFetch",
             ],
@@ -1218,6 +1219,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "$platform",
                 "DotnetInspector.DocumentationHouse.Contracts",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
@@ -1232,8 +1234,6 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Services",
                 "DotnetInspector.SourceHouse",
                 "DotnetInspector.SourceSelection",
-                "ILInspector.Analysis",
-                "ILInspector.CallGraph",
                 "ILInspector.Metadata",
                 "InertText",
                 "Inspector.Artifacts",
@@ -1275,6 +1275,30 @@ public sealed class PolicyEvaluatorTests
             "ILInspector.Research",
             DependencyGraphKind.Assembly,
             projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.CallGraph",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.CallGraph",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            projectRule.Id,
+            target[0],
+            "ILInspector.Analysis",
+            DependencyGraphKind.Project,
+            projectPath[0]);
+        AssertCheckedInRuleRejectsRepositoryDependencyInGraph(
+            assemblyRule.Id,
+            target[0],
+            "ILInspector.Analysis",
+            DependencyGraphKind.Assembly,
+            projectPath[0]);
     }
 
     [Fact]
@@ -1303,6 +1327,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "$platform",
                 "DotnetInspect.Web.Core",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Queries",
                 "DotnetInspector.Sections",
             ],
@@ -1343,6 +1368,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "DotnetInspect.Web.Core",
                 "DotnetInspector.Ecosystems",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.Presentation",
@@ -1350,6 +1376,7 @@ public sealed class PolicyEvaluatorTests
                 "DotnetInspector.Sections",
                 "DotnetInspector.Services",
                 "QuerySpace",
+                "TsJsExport.Contracts",
             ],
             Assert.IsType<string[]>(projectRule.AllowOnly));
         Assert.Null(projectRule.Deny);
@@ -1365,6 +1392,7 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "DotnetInspect.Web.Core",
                 "DotnetInspector.Ecosystems",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.PackageQueries",
                 "DotnetInspector.Packages",
                 "DotnetInspector.PlatformHouse",
@@ -1378,6 +1406,7 @@ public sealed class PolicyEvaluatorTests
                 "NuGetFetch",
                 "QuerySpace",
                 "QuerySpace.Primitives",
+                "TsJsExport.Contracts",
             ],
             Assert.IsType<string[]>(assemblyRule.AllowOnly));
         Assert.Null(assemblyRule.Deny);
@@ -1457,6 +1486,7 @@ public sealed class PolicyEvaluatorTests
             [
                 "$platform",
                 "DotnetInspect.Web.Core",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
                 "DotnetInspector.Packages",
@@ -1550,6 +1580,7 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "DotnetInspect.Web.Core",
                 "DotnetInspector.Ecosystems",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Packages",
                 "DotnetInspector.Platforms",
                 "DotnetInspector.Queries",
@@ -1635,6 +1666,7 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "DotnetInspect.Web.Core",
                 "DotnetInspector.DocumentationHouse.Contracts",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Libraries",
                 "DotnetInspector.LibraryMetadata",
                 "DotnetInspector.Packages",
@@ -1730,6 +1762,7 @@ public sealed class PolicyEvaluatorTests
                 "$platform",
                 "CSharpText",
                 "DotnetInspect.Web.Core",
+                "DotnetInspector.InspectionContracts",
                 "DotnetInspector.Packages",
                 "DotnetInspector.Presentation",
                 "DotnetInspector.Queries",

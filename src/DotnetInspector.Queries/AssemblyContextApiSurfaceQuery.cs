@@ -24,11 +24,21 @@ public enum ApiSurfaceScope
     /// <summary>
     /// The default consumer surface, plus non-public types from the include-all surface. A type
     /// present in both keeps its default-surface member list, so asking for non-public types never
-    /// silently adds private members to a public type. Public types the extractor deliberately
+    /// silently adds private members to a public type. Extensions declared by a non-public type
+    /// still attach to a public receiver, but only in their narrower accessibility bucket, so the
+    /// receiver's default bucket is unchanged. Public types the extractor deliberately
     /// suppresses remain suppressed rather than re-entering the default public bucket with their
     /// include-all member list.
     /// </summary>
     PublicWithNonPublicTypes,
+
+    /// <summary>
+    /// The diff's API axis (docs/design/api-population-scope.md#the-diffs-api-axis-population):
+    /// the <c>public</c> and <c>protected</c> buckets less <c>private protected</c>, with hidden
+    /// and obsolete declarations admitted. Library API Diff compares it by default and presents
+    /// its ordinary population (docs/design/library-api-diff-presentation.md#ordinary-presentation).
+    /// </summary>
+    ApiAxis,
 }
 
 /// <summary>
@@ -640,11 +650,13 @@ public static class AssemblyContextApiSurfaceQuery
                 "Unknown assembly context participant outcome."),
         };
 
-    static ApiSurfaceExtractionScope ExtractionScope(ApiSurfaceScope scope) => scope switch
+    /// <summary>The extraction scope that projects <paramref name="scope"/>.</summary>
+    public static ApiSurfaceExtractionScope ExtractionScope(ApiSurfaceScope scope) => scope switch
     {
         ApiSurfaceScope.IncludeAll => ApiSurfaceExtractionScope.IncludeAll,
         ApiSurfaceScope.PublicWithNonPublicTypes =>
             ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
+        ApiSurfaceScope.ApiAxis => ApiSurfaceExtractionScope.ApiAxis,
         _ => ApiSurfaceExtractionScope.Public,
     };
 

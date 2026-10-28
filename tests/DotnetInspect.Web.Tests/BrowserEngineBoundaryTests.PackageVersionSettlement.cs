@@ -151,7 +151,10 @@ public sealed partial class BrowserEngineBoundaryTests
             PackageInfo: null,
             PackageChildren: null,
             Documents: [],
-            Surface: null);
+            Surface: null,
+            ImplementationComparisonRuntimeIdentifier:
+                PackageRuntimePopulationChoice
+                    .ProductDefaultRuntimeIdentifier);
         string json = JsonSerializer.Serialize(
             wireResult,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -199,6 +202,41 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.DoesNotContain(
             handler.Requested,
             request => request.EndsWith(".nupkg", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PackageRealization_ExactMissingPayloadReturnsTypedFailure()
+    {
+        var handler = new GalleryPackageHandler(
+            "WrongTurn",
+            "0.14.0",
+            PackageDocuments(1),
+            packageStatus: System.Net.HttpStatusCode.NotFound);
+        using IPackageSourceClient source = Gallery(handler);
+
+        var result = Assert.IsType<BrowserPackageRealizationResult.NotSettled>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                "WrongTurn",
+                "0.14.0",
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken));
+        var failure = Assert.IsType<PackageVersionSettlementOutcome.NotSettled>(
+            result.VersionSettlement.Content).Failure;
+
+        Assert.Equal("wrongturn", failure.Request.PackageId);
+        Assert.Equal("0.14.0", failure.Request.Version);
+        Assert.Equal(PackageVersionSettlementFailureKind.NotFound, failure.Kind);
+        Assert.Contains(
+            "No authorized source supplied the exact package payload",
+            failure.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            handler.Requested,
+            request => request.EndsWith(
+                "/wrongturn.0.14.0.nupkg",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -263,7 +301,7 @@ public sealed partial class BrowserEngineBoundaryTests
             realization.Coordinate.Root.RequestedTargetFramework);
         Assert.Equal(
             measurements.SelectedLibraryCount,
-            realization.Coordinate.Root.AssetSelection.Assets.Count);
+            Assert.IsType<PackageCompileAssetSelection>(realization.Coordinate.Root.AssetSelection).Assets.Count);
         Assert.All(handler.Requested, url => Assert.Equal(
             $"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg", url));
         if (archive.LongLength > PackageRangedRead.DefaultSizeCut)
@@ -591,7 +629,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 TotalMembers: 0,
                 Documents: [],
                 InspectionErrors: [],
-                InspectionError: null));
+                InspectionError: null),
+            ImplementationComparisonRuntimeIdentifier:
+                PackageRuntimePopulationChoice
+                    .ProductDefaultRuntimeIdentifier);
 
         string json = JsonSerializer.Serialize(
             result,

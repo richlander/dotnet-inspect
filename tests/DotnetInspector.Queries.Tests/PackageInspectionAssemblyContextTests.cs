@@ -58,7 +58,7 @@ public sealed class PackageInspectionAssemblyContextTests
                 content, content.ProducerKey, PackagePayloadOrigin.Cache),
             "net11.0");
         Assert.Equal(PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-            binding.Root.AssetSelection.Status);
+            Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Status);
         PackageInspectionInput input = PackageInspectionInput.CreateFromBinding(binding);
         PackageInspectionSelection selection = input.SelectAssemblies(requested);
         requested[0] = new("not-selected.dll", null);
@@ -89,7 +89,7 @@ public sealed class PackageInspectionAssemblyContextTests
                     .Assemblies.Assemblies));
         }
         Assert.Equal(PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-            binding.Root.AssetSelection.Status);
+            Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).Status);
         Assert.Equal(5, content.Opened.Count);
     }
 

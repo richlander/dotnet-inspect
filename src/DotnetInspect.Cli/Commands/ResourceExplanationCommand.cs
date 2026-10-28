@@ -1,19 +1,34 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Queries.Definitions;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using Markout;
 
 namespace DotnetInspect.Cli.Commands;
 
-public static class ResourceExplanationCommand
+public static partial class ResourceExplanationCommand
 {
     public const string Name = "explain";
 
+    internal static int ExplainPackageQuery(string[]? facetKeys = null) => ExplainFromCatalog(
+        CreatePackageQueryExplanation(),
+        PackageQueryCapabilityResourcePaths.QuerySpace,
+        depth: 0,
+        maximumResults: null,
+        format: OutputFormat.Json,
+        envelopeOutput: false,
+        outputPath: null,
+        contract: false,
+        selection: ".hal",
+        facetKeys: facetKeys is { Length: > 0 } ? facetKeys : null);
+
     public static int Execute(
-        string operand,
+        string? operand,
         int depth,
         bool depthExplicitlySet,
         int? maximumResults,
@@ -22,7 +37,8 @@ public static class ResourceExplanationCommand
         bool noHeaders,
         string? outputPath,
         bool contract = false,
-        string? selection = null)
+        string? selection = null,
+        string[]? valueIds = null)
     {
         if ((contract || selection is not null) && format != OutputFormat.Json)
         {
@@ -35,7 +51,11 @@ public static class ResourceExplanationCommand
             return 1;
         }
         const string resourcePrefix = "inspect-resource:/";
-        string normalizedOperand = operand.Trim();
+        // Bare explain reads the root, expanded through its entries unless
+        // the caller chose a depth.
+        if (operand is null && !depthExplicitlySet)
+            depth = BareRootDepth;
+        string normalizedOperand = (operand ?? RootSegmentName).Trim();
         bool resourceAddress = normalizedOperand.StartsWith(resourcePrefix, StringComparison.Ordinal);
         if (resourceAddress)
         {
@@ -55,24 +75,35 @@ public static class ResourceExplanationCommand
                 normalizedOperand = normalizedOperand[..normalizedOperand.LastIndexOf('?')];
             }
         }
+        if (valueIds is not null && selection is not (".data" or ".hal"))
+        {
+            CommandError.Write("-Q requires a vocabulary .data or .hal reading projection and JSON output.");
+            return 1;
+        }
         ResourcePath.TryCreate(
             normalizedOperand,
             out ResourcePath? canonicalPath,
             out _);
+        if (valueIds is not null && (canonicalPath is null
+            || RootSegment(canonicalPath) != ResourceExplanationCatalog.VocabulariesCollectionSegment
+            || canonicalPath.Value.Split('/').Length != 2))
+        {
+            CommandError.Write("-Q value selection requires an exact vocabulary root.");
+            return 1;
+        }
         if (canonicalPath is not null)
         {
             string root = RootSegment(canonicalPath);
-            ResourceExplanationCatalog? rootCatalog = null;
             foreach ((
-                         StructuralViewIdentity view,
-                         InspectionCatalogIdentity identity)
-                     in ExactExplanationRoutes)
+                         InspectionCatalogIdentity identity,
+                         StructuralViewIdentity[] views)
+                     in ExplainableStructuralCatalogs)
             {
                 if (StructuralViewRegistry.CatalogPathName(identity) != root)
                     continue;
 
                 ResourceExplanationCatalog? structuralCatalog =
-                    CreateStructuralCatalog(view, identity);
+                    CreateStructuralCatalog(identity, views);
                 if (structuralCatalog is null)
                 {
                     CommandError.Write(
@@ -80,13 +111,6 @@ public static class ResourceExplanationCommand
                         + "be built.");
                     return 1;
                 }
-
-                // A later route under the same root publishes the sections
-                // the first cannot address, so a path the first route does
-                // not resolve is tried there before it fails.
-                rootCatalog ??= structuralCatalog;
-                if (!structuralCatalog.TryResolveExact(canonicalPath, out _))
-                    continue;
 
                 return ExplainFromCatalog(
                     structuralCatalog,
@@ -96,11 +120,27 @@ public static class ResourceExplanationCommand
                     format,
                     envelopeOutput,
                     outputPath,
-                    contract, selection);
+                    contract, selection, valueIds: valueIds);
             }
 
-            if (rootCatalog is not null)
+            if (IsRootPath(root))
             {
+                if (CreatePublishedRootCatalog() is not { } rootCatalog)
+                    return 1;
+                if (format is OutputFormat.Table
+                    or OutputFormat.Tsv
+                    or OutputFormat.Jsonl)
+                {
+                    return WriteRoutingTable(
+                        rootCatalog,
+                        canonicalPath,
+                        depthExplicitlySet,
+                        maximumResults,
+                        format,
+                        envelopeOutput,
+                        noHeaders,
+                        outputPath);
+                }
                 return ExplainFromCatalog(
                     rootCatalog,
                     canonicalPath,
@@ -109,15 +149,20 @@ public static class ResourceExplanationCommand
                     format,
                     envelopeOutput,
                     outputPath,
-                    contract, selection);
+                    contract, selection, valueIds: valueIds);
             }
 
             ResourceExplanationCatalog? exactCatalog = root switch
             {
+                ResourceExplanationCatalog.ComponentContractsCollectionSegment =>
+                    ResourceExplanationCatalog.CreateWorkspaceComponents(),
+                "workspace" when canonicalPath.Value == WorkspacePackageComponentExplanation.Contract =>
+                    ResourceExplanationCatalog.CreateWorkspaceComponents(),
                 "package-query" => CreatePackageQueryExplanation(),
                 "package-files" => CreatePackageFilesExplanation(),
+                "diff-analysis" => CreateDiffAnalysisExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
-                    CreateAnalysisExplanation(),
+                    CreateDiffAnalysisExplanation(),
                 ResourceExplanationCatalog.VocabulariesCollectionSegment =>
                     ResourceExplanationCatalog.CreateVocabularies(
                         CliVocabularyComposition.Snapshot),
@@ -133,7 +178,7 @@ public static class ResourceExplanationCommand
                     format,
                     envelopeOutput,
                     outputPath,
-                    contract, selection);
+                    contract, selection, valueIds: valueIds);
             }
 
             if (canonicalPath.Value.Contains('/'))
@@ -158,10 +203,6 @@ public static class ResourceExplanationCommand
             return 1;
         }
 
-        (
-            InspectionCapabilityCatalog capabilityCatalog,
-            ResourceExplanationCatalog capabilityExplanation) =
-                CreateCapabilityExplanation();
         CapabilityCatalogSearchRequest searchRequest;
         try
         {
@@ -176,6 +217,12 @@ public static class ResourceExplanationCommand
             return 1;
         }
 
+        (
+            InspectionCapabilityCatalog capabilityCatalog,
+            ResourceExplanationCatalog capabilityExplanation) =
+                CreateCapabilityExplanation();
+        // Search reads the structural Discovery projections directly; it does
+        // not build or combine the structural explanation graphs.
         InspectionEnvelope<CapabilityCatalogSearchDocument> search =
             CapabilityCatalogSearch.Search(
                 capabilityCatalog,
@@ -191,35 +238,86 @@ public static class ResourceExplanationCommand
     }
 
     private static ResourceExplanationCatalog? CreateStructuralCatalog(
-        StructuralViewIdentity view,
-        InspectionCatalogIdentity catalogIdentity)
+        InspectionCatalogIdentity catalogIdentity,
+        StructuralViewIdentity[] views) =>
+        CreateStructuralProjection(catalogIdentity, views) is { } structural
+            ? ResourceExplanationCatalog.CreateStructural(
+                StructuralCatalogCapability.CreateModule(structural).StructuralCatalogs.Single())
+            : null;
+
+    /// <summary>
+    /// One structural catalog across every view that selects its sections,
+    /// so a section any of those commands can address is explained once
+    /// under the catalog root.
+    /// </summary>
+    private static StructuralDiscoveryProjection?
+        CreateStructuralProjection(
+            InspectionCatalogIdentity catalogIdentity,
+            StructuralViewIdentity[] views) =>
+        CreateDiscoveryProjection(
+            StructuralViewRegistry.ProjectCatalog(
+                Routes(catalogIdentity, views)));
+
+    private static StructuralDiscoveryProjection?
+        CreateDiscoveryProjection(StructuralSchemaProjection projection)
     {
-        StructuralSchemaProjection projection =
-            StructuralViewRegistry.Project(
-                StructuralViewRegistry.Route(view, catalogIdentity));
         string catalog =
-            StructuralViewRegistry.CatalogPathName(catalogIdentity);
-        DiscoveryDocumentFactory.Projection? structural =
-            DiscoveryDocumentFactory.CreateProjection(
-                catalog,
-                discover: null,
-                projection.Schema,
-                projection.SectionCategories,
-                projection.CatalogHiddenSections,
-                projection.ListedCategoryDoors,
-                projection.SectionCostAnnotations,
-                projection.ExactOnlySections,
-                projection.OutputCapabilities
-                ?? throw new InvalidOperationException(
-                    $"{catalog} output capabilities are required."),
-                sectionCardinalities:
-                    projection.SectionCardinalities,
-                sectionShapes: projection.SectionShapes);
-        return structural is null
-            ? null
-            : ResourceExplanationCatalog.CreateStructural(
-                structural.Document,
-                structural.ResourcePaths);
+            StructuralViewRegistry.CatalogPathName(projection.Route.Catalog);
+        return DiscoveryDocumentFactory.CreateProjection(
+            catalog,
+            discover: null,
+            projection.Schema,
+            projection.SectionCategories,
+            projection.CatalogHiddenSections,
+            projection.ListedCategoryDoors,
+            projection.SectionCostAnnotations,
+            projection.ExactOnlySections,
+            projection.OutputCapabilities
+            ?? throw new InvalidOperationException(
+                $"{catalog} output capabilities are required."),
+            sectionCardinalities:
+                projection.SectionCardinalities,
+            sectionShapes: projection.SectionShapes,
+            sectionDescriptions: projection.SectionDescriptions);
+    }
+
+    private static StructuralRoute[] Routes(
+        InspectionCatalogIdentity catalogIdentity,
+        StructuralViewIdentity[] views) =>
+        [
+            .. views.Select(view =>
+                StructuralViewRegistry.Route(view, catalogIdentity)),
+        ];
+
+    /// <summary>
+    /// The structural catalogs search admits: every explainable structural
+    /// catalog, from the same projection its explanation catalog is created
+    /// from, with one section-selection binding per view.
+    /// </summary>
+    internal static ImmutableArray<InspectionCapabilityModule> CreateStructuralCapabilityModules()
+    {
+        var modules = ImmutableArray.CreateBuilder<InspectionCapabilityModule>();
+        foreach ((InspectionCatalogIdentity identity, StructuralViewIdentity[] views)
+                 in ExplainableStructuralCatalogs)
+        {
+            StructuralDiscoveryProjection structural = CreateStructuralProjection(identity, views)
+                ?? throw new InvalidOperationException("The structural catalog could not be built.");
+            string root = StructuralViewRegistry.CatalogPathName(identity);
+            InspectionCapabilityModule product = StructuralCatalogCapability.CreateModule(structural);
+            InspectionStructuralCatalogRegistration registration = product.StructuralCatalogs.Single();
+            var bindings = new List<InspectionStructuralViewBinding>();
+            foreach (StructuralRoute route in Routes(identity, views))
+            {
+                StructuralSchemaProjection projection = StructuralViewRegistry.Project(route);
+                bindings.Add(StructuralBinding(
+                    registration, route, bindings.Count == 0, projection));
+            }
+            modules.Add(product);
+            modules.Add(new InspectionCapabilityModule(
+                $"dotnet-inspect.cli/{root}-structural",
+                structuralBindings: bindings));
+        }
+        return modules.ToImmutable();
     }
 
     private static ResourceExplanationCatalog CreatePackageQueryExplanation()
@@ -240,10 +338,16 @@ public static class ResourceExplanationCommand
             PackageFileInventoryCapabilityResourcePaths.Create(catalog));
     }
 
+    private static ResourceExplanationCatalog CreateDiffAnalysisExplanation() =>
+        ResourceExplanationCatalog.CreateCapabilities(
+            DiffAnalysisCommandCapability.Catalog,
+            DiffAnalysisCapabilityResourcePaths.Create(
+                DiffAnalysisCommandCapability.Catalog));
+
     private static (
         InspectionCapabilityCatalog Catalog,
         ResourceExplanationCatalog Explanation)
-        CreateCapabilityExplanation()
+        CreateCapabilityExplanation(bool includeStructuralExplanation = false)
     {
         InspectionCapabilityCatalog packageQuery =
             CreatePackageQueryCapabilityCatalog();
@@ -256,6 +360,9 @@ public static class ResourceExplanationCommand
                     PackageQueryCommandCapability.Module,
                     PackageFileInventoryCapability.ProductModule,
                     PackageFileInventoryCommandCapability.Module,
+                    DiffAnalysisCatalog.ProductModule,
+                    DiffAnalysisCommandCapability.Module,
+                    .. CreateStructuralCapabilityModules(),
                 ]);
         ResourceExplanationCatalog explanation =
             ResourceExplanationCatalog.CreateCapabilities(
@@ -265,7 +372,10 @@ public static class ResourceExplanationCommand
                         packageQuery),
                     .. PackageFileInventoryCapabilityResourcePaths.Create(
                         packageFiles),
-                ]);
+                    .. DiffAnalysisCapabilityResourcePaths.Create(
+                        DiffAnalysisCommandCapability.Catalog),
+                ],
+                includeStructuralCatalogs: includeStructuralExplanation);
         return (catalog, explanation);
     }
 
@@ -285,49 +395,76 @@ public static class ResourceExplanationCommand
                 PackageFileInventoryCommandCapability.Module,
             ]);
 
-    private static ResourceExplanationCatalog? CreateCompleteCatalog()
+    /// <summary>
+    /// The CLI's explanation root over its complete catalog, from the
+    /// routing declarations of the owners the CLI admits. Bare
+    /// <c>explain</c> reads the root at <see cref="RootSegment"/>; its role
+    /// collections and entries are top-level paths. The CLI withholds the
+    /// root while any resource is unreachable from it.
+    /// </summary>
+    internal static ResourceExplanationRootComposition? CreateRootComposition() =>
+        CreateCompleteCatalog() is { } complete
+            ? ResourceExplanationCatalog.ComposeRoot(
+                complete,
+                new ResourcePath(RootSegmentName),
+                [
+                    .. StructuralRoutingDeclarations.Create(),
+                    .. CapabilityRoutingDeclarations.Create(),
+                    .. VocabularyRoutingDeclarations.Create(),
+                    ResourceExplanationCatalog.ComponentContractsRoutingDeclaration,
+                ])
+            : null;
+
+    /// <summary>The explanation root's path, which bare <c>explain</c> reads.</summary>
+    internal const string RootSegmentName = "root";
+
+    /// <summary>
+    /// The default traversal depth of bare <c>explain</c>: the root, its role
+    /// collections, and every routing entry, in one Document.
+    /// </summary>
+    internal const int BareRootDepth = 2;
+
+    private static bool IsRootPath(string root) =>
+        root is RootSegmentName
+            or ResourceExplanationCatalog.RoutingSubjectKindsSegment
+            or ResourceExplanationCatalog.RoutingOperationsSegment
+            or ResourceExplanationCatalog.RoutingReferencesSegment;
+
+    /// <summary>
+    /// The complete catalog with its root, or a visible error while the root
+    /// is withheld because a resource is unreachable from it.
+    /// </summary>
+    private static ResourceExplanationCatalog? CreatePublishedRootCatalog()
     {
-        var structuralCatalogs = new List<ResourceExplanationCatalog>();
-        foreach ((
-                     StructuralViewIdentity view,
-                     InspectionCatalogIdentity identity)
-                 in ExplainableStructuralRoutes)
-        {
-            ResourceExplanationCatalog? catalog =
-                CreateStructuralCatalog(view, identity);
-            if (catalog is null)
-                return null;
-            structuralCatalogs.Add(catalog);
-        }
-        (
-            _,
-            ResourceExplanationCatalog capabilities) =
-                CreateCapabilityExplanation();
-        ResourceExplanationCatalog analyses =
-            ResourceExplanationCatalog.CreateAnalyses(
-                DiffAnalysisCommandCapability.Catalog);
-        return ResourceExplanationCatalog.Combine(
-            [
-                .. structuralCatalogs,
-                capabilities,
-                analyses,
-                ResourceExplanationCatalog.CreateVocabularies(
-                    CliVocabularyComposition.Snapshot),
-            ]);
+        ResourceExplanationRootComposition composition =
+            CreateRootComposition()
+            ?? throw new InvalidOperationException(
+                "The complete resource explanation catalog could not "
+                + "be built.");
+        if (composition.IsPublishable)
+            return composition.Catalog;
+
+        CommandError.Write(
+            "The explanation root is withheld: "
+            + $"{composition.Unreachable.Length} installed resources are not "
+            + "reachable from it, starting with "
+            + $"'{composition.Unreachable[0].Value}'.");
+        return null;
     }
 
-    private static ResourceExplanationCatalog CreateAnalysisExplanation()
+    internal static ResourceExplanationCatalog? CreateCompleteCatalog()
     {
         (
             _,
             ResourceExplanationCatalog capabilities) =
-                CreateCapabilityExplanation();
-        ResourceExplanationCatalog analyses =
-            ResourceExplanationCatalog.CreateAnalyses(
-                DiffAnalysisCommandCapability.Catalog);
+                CreateCapabilityExplanation(includeStructuralExplanation: true);
         return ResourceExplanationCatalog.Combine(
-            capabilities,
-            analyses);
+            [
+                capabilities,
+                ResourceExplanationCatalog.CreateVocabularies(
+                    CliVocabularyComposition.Snapshot),
+                ResourceExplanationCatalog.CreateWorkspaceComponents(),
+            ]);
     }
 
     private static int ExplainFromCatalog(
@@ -339,7 +476,9 @@ public static class ResourceExplanationCommand
         bool envelopeOutput,
         string? outputPath,
         bool contract,
-        string? selection)
+        string? selection,
+        IEnumerable<string>? facetKeys = null,
+        string[]? valueIds = null)
     {
         if (!catalog.TryResolveExact(
                 path,
@@ -362,7 +501,7 @@ public static class ResourceExplanationCommand
             format,
             envelopeOutput,
             outputPath,
-            contract, selection);
+            contract, selection, facetKeys, valueIds);
     }
 
     private static int WriteCompleteResolutionFailure(string path)
@@ -391,7 +530,9 @@ public static class ResourceExplanationCommand
         bool envelopeOutput,
         string? outputPath,
         bool contract,
-        string? selection)
+        string? selection,
+        IEnumerable<string>? facetKeys = null,
+        string[]? valueIds = null)
     {
         if (envelopeOutput
             || format is not (
@@ -409,11 +550,11 @@ public static class ResourceExplanationCommand
         {
             try
             {
-                ResourceExplanationDataset dataset = ResourceExplanationDataset.Create(catalog, resolution);
+                ResourceExplanationDataset dataset = ResourceExplanationDataset.Create(catalog, resolution, facetKeys,
+                    valueIds: valueIds is { Length: > 0 } ? valueIds : null);
                 JsonElement data = dataset.ToJson(static path => "inspect-resource:/" + path.Value,
                     hal: selection == ".hal",
-                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal",
-                    bindContractAddress: static path => "inspect-resource:/" + path.Value + "?projection=contract");
+                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal");
                 OutputDestination.Write(outputPath, rowWindow: null,
                     output => output.WriteLine(data.GetRawText()));
                 return 0;
@@ -429,6 +570,16 @@ public static class ResourceExplanationCommand
                 resolution,
                 ResourceExplanationRequest.ForHost(depth));
         ResourceExplanationDocument document = explanation.Content;
+        return WriteExplanation(document, format, outputPath, contract);
+    }
+
+    private static int WriteExplanation(
+        ResourceExplanationDocument document,
+        OutputFormat format,
+        string? outputPath,
+        bool contract,
+        bool hal = false)
+    {
         OutputDestination.Write(
             outputPath,
             rowWindow: null,
@@ -440,8 +591,11 @@ public static class ResourceExplanationCommand
                         contract
                             ? JsonSerializer.Serialize(document,
                                 ResourceExplanationJsonContext.Default.ResourceExplanationDocument)
-                            : ResourceExplanationDataProjection.Create(document,
-                                static path => "inspect-resource:/" + path.Value).GetRawText());
+                            : hal
+                                ? ResourceExplanationDataProjection.CreateHal(document,
+                                    static path => "inspect-resource:/" + path.Value).GetRawText()
+                                : ResourceExplanationDataProjection.Create(document,
+                                    static path => "inspect-resource:/" + path.Value).GetRawText());
                     return;
                 }
 
@@ -453,6 +607,64 @@ public static class ResourceExplanationCommand
                         : new MarkdownFormatter(),
                     ResourceExplanationViewContext.Default);
             });
+        return 0;
+    }
+
+    /// <summary>
+    /// The routing-table selection of a root path: one row per routing entry
+    /// the path reaches. The root reaches every entry, a collection its own,
+    /// and an entry itself, so traversal depth does not apply.
+    /// </summary>
+    private static int WriteRoutingTable(
+        ResourceExplanationCatalog catalog,
+        ResourcePath path,
+        bool depthExplicitlySet,
+        int? maximumResults,
+        OutputFormat format,
+        bool envelopeOutput,
+        bool noHeaders,
+        string? outputPath)
+    {
+        if (depthExplicitlySet || maximumResults is not null || envelopeOutput)
+        {
+            CommandError.Write(
+                "The routing table selects every entry the path reaches; "
+                + "--depth, -n, and --envelope do not apply. Add --markdown "
+                + "or --json for the Document reading.");
+            return 1;
+        }
+        if (!catalog.TryResolveExact(
+                path,
+                out ResourcePathResolution.Resolved? resolved))
+        {
+            return WriteResolutionFailure(catalog.Resolve(path.Value));
+        }
+
+        int depth = path.Value.Count(static character => character == '/')
+            switch
+            {
+                0 when path.Value == RootSegmentName => BareRootDepth,
+                0 => 1,
+                _ => 0,
+            };
+        ResourceExplanationDocument document = catalog.Explain(
+                resolved,
+                ResourceExplanationRequest.ForHost(depth))
+            .Content;
+        OutputDestination.Write(
+            outputPath,
+            rowWindow: null,
+            output => MarkoutSerializer.Serialize(
+                new ResourceExplanationRoutingTableView
+                {
+                    Routing = ResourceExplanationRoutingRow.Create(document),
+                },
+                output,
+                new TableFormatter(!noHeaders),
+                ResourceExplanationViewContext.Default,
+                OutputFormatter.CreateTableWriterOptions(
+                    tsv: format == OutputFormat.Tsv,
+                    jsonl: format == OutputFormat.Jsonl)));
         return 0;
     }
 
@@ -548,34 +760,62 @@ public static class ResourceExplanationCommand
     }
 
     /// <summary>
-    /// The structural routes whose section catalogs <c>explain</c> publishes:
-    /// library, package, the type listing, and the three member catalogs under
-    /// the names <see cref="StructuralViewRegistry.CatalogPathName"/> issues.
+    /// One view's section-selection binding over the Sections it selects on
+    /// its own and the Categories that contain one. A catalog's first view
+    /// keeps the catalog's binding identity; a later view adds its view mode,
+    /// as in <c>library-address-sections</c>.
     /// </summary>
-    private static readonly
-        (StructuralViewIdentity View, InspectionCatalogIdentity Catalog)[]
-        ExplainableStructuralRoutes =
-    [
-        (StructuralViewIdentity.DirectLibrary, InspectionCatalogIdentity.Library),
-        (StructuralViewIdentity.Package, InspectionCatalogIdentity.Package),
-        (StructuralViewIdentity.Type, InspectionCatalogIdentity.ApiType),
-        (StructuralViewIdentity.MemberType, InspectionCatalogIdentity.ApiMember),
-        (StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberOverload),
-        (StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberDetail),
-    ];
+    private static InspectionStructuralViewBinding
+        StructuralBinding(
+            InspectionStructuralCatalogRegistration catalog,
+            StructuralRoute route,
+            bool isFirst,
+            StructuralSchemaProjection projection)
+    {
+        string root = StructuralViewRegistry.CatalogPathName(route.Catalog);
+        string name = isFirst ? root : $"{root}-{route.View.ViewMode}";
+        IReadOnlySet<string> standalone =
+            StructuralViewRegistry.StandaloneSelectableSections(projection);
+        return new(
+            new InspectionConsumerDescriptor(
+                $"dotnet-inspect.cli/{name}-sections",
+                InspectionConsumerKind.Cli,
+                "dotnet-inspect CLI",
+                $"{route.View.DestinationCommand} -S"),
+            catalog,
+            catalog.Document.Resources
+                .Select(static resource => resource.Identity)
+                .Where(resource => resource.Kind switch
+                {
+                    DiscoveryResourceKind.Section =>
+                        standalone.Contains(resource.Name),
+                    DiscoveryResourceKind.Category =>
+                        projection.SectionCategories.TryGetValue(
+                            resource.Name,
+                            out string[]? sections)
+                        && sections.Any(standalone.Contains),
+                    _ => false,
+                }));
+    }
 
     /// <summary>
-    /// The routes an exact <c>explain</c> path resolves against: the
-    /// explainable routes, then the Library address route, whose coordinate
-    /// sections (the <c>Context:</c> records and <c>Metadata: Heap</c>) the
-    /// direct-Library route cannot address. The address route shares the
-    /// <c>library</c> root, so it stays out of the combined search catalog.
+    /// The structural catalogs <c>explain</c> publishes, each with the views
+    /// that select its sections: library (direct and by address), package,
+    /// the type listing, and the three member catalogs under the names
+    /// <see cref="StructuralViewRegistry.CatalogPathName"/> issues. A
+    /// catalog's first view supplies its projection's route.
     /// </summary>
     private static readonly
-        (StructuralViewIdentity View, InspectionCatalogIdentity Catalog)[]
-        ExactExplanationRoutes =
+        (InspectionCatalogIdentity Catalog, StructuralViewIdentity[] Views)[]
+        ExplainableStructuralCatalogs =
     [
-        .. ExplainableStructuralRoutes,
-        (StructuralViewIdentity.LibraryAddress, InspectionCatalogIdentity.Library),
+        (
+            InspectionCatalogIdentity.Library,
+            [StructuralViewIdentity.DirectLibrary, StructuralViewIdentity.LibraryAddress]),
+        (InspectionCatalogIdentity.Package, [StructuralViewIdentity.Package]),
+        (InspectionCatalogIdentity.ApiType, [StructuralViewIdentity.Type]),
+        (InspectionCatalogIdentity.ApiMember, [StructuralViewIdentity.MemberType]),
+        (InspectionCatalogIdentity.ApiMemberOverload, [StructuralViewIdentity.MemberTarget]),
+        (InspectionCatalogIdentity.ApiMemberDetail, [StructuralViewIdentity.MemberTarget]),
     ];
 }

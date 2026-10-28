@@ -155,9 +155,46 @@ public static class MetadataHierarchySubjectRelationsOperation
                 includeNonPublic,
                 includeHidden);
         if (continuationRejection is { } rejection
-            && request.Request.Count is null)
+            && request.Request.Count is null
+            && request.Request.Exists is null)
         {
             return RejectedContinuation(request, rejection);
+        }
+
+        MetadataHierarchyRelationAnalysisResult? existsResult = null;
+        if (request.Request.Exists is not null)
+        {
+            // Exists is the forward scan bounded to one accepted candidate:
+            // it stops at the first relation row without materializing it,
+            // and a scan that ends unstopped with no candidate is complete
+            // evidence that the population is empty.
+            MetadataHierarchyRelationAnalysisOutcome existsOutcome =
+                session.AnalyzeHierarchyRelations(
+                    new(
+                        target,
+                        policy,
+                        includeNonPublic,
+                        includeHidden,
+                        materializeRows: false,
+                        new MetadataHierarchyRelationForwardPlan(
+                            maximumCandidates: 1)),
+                    cancellationToken);
+            if (existsOutcome
+                is MetadataHierarchyRelationAnalysisOutcome.Rejected
+                    existsRejected)
+            {
+                return Rejected(
+                    request,
+                    target.Kind!.Value,
+                    existsRejected,
+                    continuationRejection);
+            }
+            existsResult =
+                ((MetadataHierarchyRelationAnalysisOutcome.Available)
+                    existsOutcome).Result;
+            MetadataRelationGraphAdapter.ValidateHierarchyAnalysis(
+                source,
+                existsResult);
         }
 
         MetadataHierarchyRelationAnalysisResult? countResult = null;
@@ -231,7 +268,7 @@ public static class MetadataHierarchySubjectRelationsOperation
         }
 
         MetadataHierarchyRelationAnalysisResult producerResult =
-            SelectProducerResult(countResult, rowsResult);
+            SelectProducerResult(countResult, rowsResult, existsResult);
         SubjectRelationProducerOutcome producer =
             MetadataRelationGraphAdapter.HierarchyProducerOutcome(
                 producerResult,
@@ -242,6 +279,8 @@ public static class MetadataHierarchySubjectRelationsOperation
                 [producer]);
         SubjectRelationPopulationCountOutcome? count =
             MapCount(countResult);
+        SubjectRelationPopulationExistsOutcome? exists =
+            MapExists(existsResult);
         SubjectRelationPopulationRowsOutcome? rows;
         MetadataHierarchySubjectRelationsContinuationAuthority?
             outputAuthority = null;
@@ -283,27 +322,36 @@ public static class MetadataHierarchySubjectRelationsOperation
                         evidence,
                         count,
                         rows,
-                        inputPopulationAuthority)
+                        inputPopulationAuthority,
+                        exists)
                 : SubjectRelationsPopulationOperation.Settle(
                     request,
                     evidence,
                     count,
                     rows,
-                    inputPopulationAuthority);
+                    inputPopulationAuthority,
+                    exists);
         return new(population, outputAuthority);
     }
 
     private static MetadataHierarchyRelationAnalysisResult
         SelectProducerResult(
             MetadataHierarchyRelationAnalysisResult? count,
-            MetadataHierarchyRelationAnalysisResult? rows)
+            MetadataHierarchyRelationAnalysisResult? rows,
+            MetadataHierarchyRelationAnalysisResult? exists)
     {
-        if (count is null)
+        // The producer outcome is read from the most expansive analysis that
+        // ran: a Count or Rows scan over the whole population reports its
+        // coverage, and a stopped Exists scan stands alone only when nothing
+        // else ran.
+        if (count is null && rows is null)
         {
-            return rows
+            return exists
                 ?? throw new InvalidOperationException(
-                    "A hierarchy population requires Count or Rows.");
+                    "A hierarchy population requires Count, Rows, or Exists.");
         }
+        if (count is null)
+            return rows!;
         if (rows is null)
             return count;
 
@@ -316,6 +364,38 @@ public static class MetadataHierarchySubjectRelationsOperation
             || !rowRelations.Diagnostics.IsEmpty
                 ? rows
                 : count;
+    }
+
+    private static SubjectRelationPopulationExistsOutcome? MapExists(
+        MetadataHierarchyRelationAnalysisResult? result)
+    {
+        if (result is null)
+            return null;
+
+        // The first accepted candidate decides true, whatever the stopped
+        // scan's disposition. Only a complete scan with no candidate decides
+        // false; a scan that could not read every candidate before finding
+        // one stays undecided.
+        if (result.CandidateCount > 0)
+            return new SubjectRelationPopulationExistsOutcome.Decided(true);
+
+        MetadataRelationFamilyDisposition disposition =
+            result.Relations.Disposition
+            ?? throw new InvalidOperationException(
+                "Requested hierarchy Exists requires a disposition.");
+        return disposition switch
+        {
+            MetadataRelationFamilyDisposition.Complete =>
+                new SubjectRelationPopulationExistsOutcome.Decided(false),
+            MetadataRelationFamilyDisposition.Partial =>
+                new SubjectRelationPopulationExistsOutcome.Incomplete(),
+            MetadataRelationFamilyDisposition.Unavailable =>
+                new SubjectRelationPopulationExistsOutcome.Unavailable(),
+            MetadataRelationFamilyDisposition.Failed =>
+                new SubjectRelationPopulationExistsOutcome.Failed(),
+            _ => throw new InvalidOperationException(
+                "Unknown hierarchy producer disposition."),
+        };
     }
 
     private static SubjectRelationPopulationCountOutcome? MapCount(
@@ -480,7 +560,11 @@ public static class MetadataHierarchySubjectRelationsOperation
                             SubjectRelationPopulationRowsOutcome.Rejected(
                                 reason)
                         : new
-                            SubjectRelationPopulationRowsOutcome.Failed());
+                            SubjectRelationPopulationRowsOutcome.Failed(),
+                continuationAuthority: null,
+                request.Request.Exists is null
+                    ? null
+                    : new SubjectRelationPopulationExistsOutcome.Failed());
         return new(population, continuationAuthority: null);
     }
 

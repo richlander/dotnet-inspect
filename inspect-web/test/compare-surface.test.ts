@@ -62,8 +62,11 @@ test("Compare modes are a closed two-value vocabulary", () => {
 });
 
 test("Diff and Clone are modes inside Compare, not separate inspectors or lenses", () => {
-  const catalogs = dataSource.match(/const lenses = \[[\s\S]*?\] as const;[\s\S]*?export const memberSectionDefinitions = \[[\s\S]*?\] as const;/)?.[0] ?? "";
-  assert.match(catalogs, /\["compare", "Compare"\]/);
+  const catalogs = dataSource.match(
+    /const typeLensRouteByFacetId = \{[\s\S]*?const memberSectionRoutes = \[[\s\S]*?\] as const;/,
+  )?.[0] ?? "";
+  assert.match(catalogs, /"type\.compare": "compare"/);
+  assert.match(catalogs, /"member\.compare": "compare"/);
   assert.doesNotMatch(catalogs, /"clone"|"diff"/);
 });
 

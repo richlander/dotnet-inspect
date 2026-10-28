@@ -1,0 +1,146 @@
+{
+  "answer": [
+    {
+      "method": "GetFromJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "Task<TValue?> GetFromJsonAsync<TValue>(this HttpClient client, string? requestUri, CancellationToken cancellationToken = default)",
+      "workflow_help": "Sends an HTTP GET request and asynchronously deserializes the JSON response body to TValue.",
+      "evidence": [
+        "response-05.out: extension row GetFromJsonAsync and receiver/declaring library",
+        "response-08.out: GetFromJsonAsync member signature and summary"
+      ]
+    },
+    {
+      "method": "PostAsJsonAsync<TValue>",
+      "receiver_type": "System.Net.Http.HttpClient",
+      "declaring_type": "System.Net.Http.Json.HttpClientJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "Task<HttpResponseMessage> PostAsJsonAsync<TValue>(this HttpClient client, string? requestUri, TValue value, JsonSerializerOptions? options = null, CancellationToken cancellationToken = default)",
+      "workflow_help": "Serializes a value as JSON in an HTTP POST request body and returns the response message.",
+      "evidence": [
+        "response-05.out: extension row PostAsJsonAsync and receiver/declaring library",
+        "response-09.out: PostAsJsonAsync member signature and summary"
+      ]
+    },
+    {
+      "method": "ReadFromJsonAsync<T>",
+      "receiver_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "library": "System.Net.Http.Json",
+      "relevant_signature": "Task<T?> ReadFromJsonAsync<T>(this HttpContent content, CancellationToken cancellationToken = default)",
+      "workflow_help": "Asynchronously reads existing HTTP content and deserializes its JSON into T.",
+      "evidence": [
+        "response-06.out: extension row ReadFromJsonAsync and receiver/declaring library",
+        "response-10.out: ReadFromJsonAsync member signature and summary"
+      ]
+    }
+  ],
+  "executed_commands": [
+    {
+      "argv": [
+        "explain",
+        "extension methods",
+        "--json"
+      ],
+      "response": "response-01.out",
+      "result": "no discovery matches"
+    },
+    {
+      "argv": [
+        "explain",
+        "installed platform",
+        "--json"
+      ],
+      "response": "response-02.out",
+      "result": "no discovery matches"
+    },
+    {
+      "argv": [
+        "explain",
+        "json",
+        "--json"
+      ],
+      "response": "response-03.out",
+      "result": "no discovery matches"
+    },
+    {
+      "argv": [
+        "extensions",
+        "--help"
+      ],
+      "response": "response-04.out"
+    },
+    {
+      "argv": [
+        "extensions",
+        "System.Net.Http.HttpClient",
+        "--platform",
+        "--tfm",
+        "net10.0",
+        "--json"
+      ],
+      "response": "response-05.out"
+    },
+    {
+      "argv": [
+        "extensions",
+        "System.Net.Http.HttpContent",
+        "--platform",
+        "--tfm",
+        "net10.0",
+        "--json"
+      ],
+      "response": "response-06.out"
+    },
+    {
+      "argv": [
+        "member",
+        "--help"
+      ],
+      "response": "response-07.out"
+    },
+    {
+      "argv": [
+        "member",
+        "System.Net.Http.Json.HttpClientJsonExtensions",
+        "GetFromJsonAsync",
+        "--platform",
+        "System.Net.Http.Json",
+        "--tfm",
+        "net10.0",
+        "--json"
+      ],
+      "response": "response-08.out"
+    },
+    {
+      "argv": [
+        "member",
+        "System.Net.Http.Json.HttpClientJsonExtensions",
+        "PostAsJsonAsync",
+        "--platform",
+        "System.Net.Http.Json",
+        "--tfm",
+        "net10.0",
+        "--json"
+      ],
+      "response": "response-09.out"
+    },
+    {
+      "argv": [
+        "member",
+        "System.Net.Http.Json.HttpContentJsonExtensions",
+        "ReadFromJsonAsync",
+        "--platform",
+        "System.Net.Http.Json",
+        "--tfm",
+        "net10.0",
+        "--json"
+      ],
+      "response": "response-10.out"
+    }
+  ],
+  "uncertainty_and_limits": "Inspected installed platform APIs in net10.0, specifically extensions on HttpClient and HttpContent in System.Net.Http.Json. This is not an exhaustive search of every possible receiver, package, or older target framework. The shown signatures combine the extension receiver marker from extensions results with nullable annotations and defaults from member results. No output was truncated.",
+  "discovery_schema_navigation_friction": "Three explain discovery phrases returned no matches, so extensions --help supplied platform and JSON syntax. extensions produced a compact array with receiver, declaring type, library, and overload signatures, while member results supplied nullable annotations, defaults, and method summaries; the two shapes had to be combined for a precise extension signature."
+}

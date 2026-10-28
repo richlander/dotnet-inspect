@@ -7,10 +7,10 @@ and views adopt to decide whether a difference is a reported change, and how
 to reason about subtle differences. It owns only the pattern. Each producer
 or view adopts it as its own focused effort and owns its adoption decisions.
 
-[Fast Diff](fast-diff.md) is the first adopter. IL diff canonicalization's
-adoption is filed as
-[#9801](https://github.com/richlander/dotnet-inspect/issues/9801); other
-owners adopt in the same way.
+[Finding Diff Any](finding-diff-any.md) is the first adopter. IL diff
+canonicalization's adoption is filed as
+[#9801](https://github.com/richlander/dotnet-inspect/issues/9801); other owners
+adopt in the same way.
 
 ## Principle
 
@@ -28,6 +28,7 @@ about it per level:
 | --- | --- | --- |
 | Semantic | Behavior and meaning: source, signatures, attributes | Source and API diff views |
 | Symbolic IL | Operations, with operands resolved to names | IL diff views |
+| Declaration | A row's decoded metadata facts: named flags, symbolic signatures, typed constants, decoded attributes, layout, `MethodImpl` rows, `beforefieldinit` | The [declaration view](declaration-view.md) |
 | Encoded | Token numbers, blob bytes, heap offsets, row order, short and long branch forms, body size | No view today |
 
 ## Rules

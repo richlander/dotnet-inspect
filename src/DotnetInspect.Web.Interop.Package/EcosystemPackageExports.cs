@@ -35,8 +35,16 @@ public static partial class PackageExports
             : null;
         BrowserEcosystemPackageClassification[] results = [.. candidates.Select(candidate =>
         {
+            var coordinate = new PackageCoordinate(candidate.Id, candidate.Version);
+            if (candidate.Version is not null
+                && PackageCoordinateResolver.Validate(coordinate) is not null)
+            {
+                // Spotlight projects the row while an explicit version is still
+                // being typed. Ownership remains answerable without version evidence.
+                coordinate = coordinate with { Version = null };
+            }
             var result = EcosystemPackCatalog.IsEcosystemPackage(
-                new(candidate.Id, candidate.Version), traversalTfm, inventory);
+                coordinate, traversalTfm, inventory);
             var ecosystem = result switch
             {
                 EcosystemPackageResult.Known known => known.Package.Ecosystem,
@@ -47,10 +55,10 @@ public static partial class PackageExports
             return new BrowserEcosystemPackageClassification(
                 candidate.Id, candidate.Version, ecosystem?.Id.Value, ecosystem?.Title,
                 platform?.LayerName, platform?.IsPruned,
-                ecosystem is not null && candidate.Version is not null && input is not null
+                ecosystem is not null && coordinate.Version is not null && input is not null
                     && string.Equals(input.Tfm, traversalTfm, StringComparison.OrdinalIgnoreCase)
                     && !string.IsNullOrWhiteSpace(input.Version)
-                    ? PackageVersionPrecedence.Compare(candidate.Version, input.Version)
+                    ? PackageVersionPrecedence.Compare(coordinate.Version, input.Version)
                     : null);
         })];
         return JsonSerializer.Serialize(

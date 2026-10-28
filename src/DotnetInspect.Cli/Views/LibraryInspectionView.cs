@@ -290,18 +290,16 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "References", EmptyText = "No references.")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
         (_data.AssemblyReferenceDisplayOrder
-            ?? _data.AssemblyReferenceInspection
-                .PayloadsForRendering()
-                .OrderBy(r => r.Name, StringComparer.Ordinal)
-                .ToArray())
-            .Select(r => new ReferenceRow(
+            ?? (_data.LibraryReferenceInspectionEnvelope?.Content
+                as LibraryReferenceInspectionOutcome.Available)?.References)
+            ?.Select(r => new ReferenceRow(
                 r.Name,
                 r.Version,
                 LibraryViewText.Field(r.PublicKeyToken ?? "-")))
             .ToList() is { Count: > 0 } list
                 ? list
-                : _data.AssemblyReferenceInspection is { } inspection
-                  && inspection.Failure() is null
+                : _data.LibraryReferenceInspectionEnvelope?.Content
+                    is LibraryReferenceInspectionOutcome.Available
                     ? []
                     : null;
 
@@ -323,12 +321,11 @@ public class LibraryInspectionView
 
     [MarkoutSection(
         Name = SectionNames.DependencyStructure,
-        EmptyText = "No internal namespace dependencies.",
         ShowWhenProperty = nameof(HasDependencyStructure))]
-    public Markout.Graph? DependencyStructureSection =>
+    public LibraryDependencyStructureSection? DependencyStructureSection =>
         _data.DependencyStructureQueryResult
             is LibraryDependencyStructureQueryResult.Available available
-                ? LibraryDependencyStructureOutputAdapter.ToGraph(available)
+                ? LibraryDependencyStructureSection.From(available)
                 : null;
 
     private EcosystemDependencyRecognitionDocument? RecognitionDocument =>
@@ -749,60 +746,29 @@ public class LibraryInspectionView
             .Select(f => new TypeForwarderRow(f.TypeName, f.TargetAssembly))
             .ToList() is { Count: > 0 } rows ? rows : null;
 
+    /// <summary>
+    /// A complete census renders its rows or the explicit empty state; an
+    /// incomplete census with no observed rows is not the empty state, and
+    /// its incompleteness is disclosed on stderr.
+    /// </summary>
     [MarkoutIgnore]
     public bool HasUnsafeMembers =>
-        (_data.UnsafeEvidenceInspection is null
-            ? _data.UnsafeMembers is { Count: > 0 }
-            : _data.UnsafeEvidenceInspection.HasFindings())
-        || _data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded;
-
-    [MarkoutSection(Name = "Unsafe Members", ShowWhenProperty = nameof(HasUnsafeMembers))]
-    public List<UnsafeMemberRow>? UnsafeMembersSection => UnsafeMemberRows()
-            .Concat(_data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded
-                ? [new UnsafeMemberRow(
-                    MarkoutInline.Code("signature scan"),
-                    "Decode degraded",
-                    MarkoutInline.Code("unsafe-code presence may be incomplete"),
-                    "Diagnostic",
-                    null,
-                    null)]
-                : [])
-            .ToList();
-
-    private IEnumerable<UnsafeMemberRow> UnsafeMemberRows()
-    {
-        if (_data.UnsafeEvidenceInspection is not null)
+        _data.UnsafeMemberInspection switch
         {
-            return _data.UnsafeEvidenceInspection.PayloadsForRendering()
-                .OrderBy(
-                    evidence => ApiOutputFormatter.FormatMethod(evidence.Member),
-                    StringComparer.OrdinalIgnoreCase)
-                .ThenBy(
-                    evidence => evidence.ILOffset is { } offset
-                        ? $"IL_{offset:X4}"
-                        : null,
-                    StringComparer.OrdinalIgnoreCase)
-                .ThenBy(evidence => evidence.Reason, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(evidence => evidence.Detail, StringComparer.OrdinalIgnoreCase)
-                .Select(evidence =>
-                    ApiOutputFormatter.ToUnsafeMemberRow(
-                        evidence,
-                        includeDeclaringType: true));
-        }
+            ILInspector.Analysis.UnsafeMemberFindingInspection.Complete => true,
+            ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete incomplete =>
+                !incomplete.Inspection.Findings.IsEmpty,
+            _ => false,
+        };
 
-        return (_data.UnsafeMembers ?? [])
-            .OrderBy(m => m.Member, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.IL, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Detail, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new UnsafeMemberRow(
-                MarkoutInline.Code(m.Member),
-                m.Reason,
-                MarkoutInline.Code(m.Detail),
-                m.Kind,
-                m.IL is null ? null : MarkoutInline.Code(m.IL),
-                m.Token is null ? null : MarkoutInline.Code(m.Token)));
-    }
+    [MarkoutSection(
+        Name = "Unsafe Members",
+        EmptyText = "No unsafe members under the updated memory-safety rules.",
+        ShowWhenProperty = nameof(HasUnsafeMembers))]
+    public List<UnsafeMemberRow>? UnsafeMembersSection =>
+        UnsafeMemberProjection.Rows(
+            _data.UnsafeMemberInspection,
+            includeDeclaringType: true);
 
     /// <summary>
     /// An incomplete search with no observed rows is not the explicit empty

@@ -47,7 +47,8 @@ internal static partial class WorkflowContract
             "dotnet run --project tests/DotnetInspect.Cli.Tests -c Release " +
             "--no-build -- --filter-class 'DotnetInspect.Cli.Tests.WorkspacePacketCommandTests' " +
             "--filter-class 'DotnetInspect.Cli.Tests.CliRowSelectionLoweringTests' " +
-            "--minimum-expected-tests 2");
+            "--filter-class 'DotnetInspect.Cli.Tests.LibraryApiDiffCommandTests' " +
+            "--filter-not-trait \"Speed=Slow\" --minimum-expected-tests 70");
         ValidateRequiredRunStep(
             jobs,
             "test",

@@ -18,12 +18,16 @@ public static class WorkspacePackageDependencyEnrichmentInspection
         InspectionEnvelope<WorkspacePackageDependencyEnrichmentOutcome>>
         ExecuteAsync(
             WorkspacePackageDependencyEnrichmentRequest request,
-            CancellationToken cancellationToken = default)
+            IPackageSourceAuthorization sourceAuthorization,
+            PackageSourceOperationLease operation,
+            Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Definitions);
         ArgumentNullException.ThrowIfNull(request.ManifestProvider);
-        ArgumentNullException.ThrowIfNull(request.CandidateSource);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        ArgumentNullException.ThrowIfNull(operation);
+        CancellationToken cancellationToken = operation.CancellationToken;
 
         WorkspaceDefinition? workspace = request.Definitions.Workspace;
         CommittedNavigationDefinition? navigation =
@@ -224,8 +228,9 @@ public static class WorkspacePackageDependencyEnrichmentInspection
                         await PackageDependencyCandidateQuery.ExecuteAsync(
                             new PackageDependencyCandidateRequest.Declared(
                                 dependency),
-                            request.CandidateSource,
-                            cancellationToken).ConfigureAwait(false);
+                            sourceAuthorization,
+                            operation,
+                            log).ConfigureAwait(false);
                     if (candidate is not PackageDependencyCandidateResult.Resolved
                         resolved)
                     {
@@ -494,7 +499,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
             workspace.Description,
             workspace.Groups,
             workspace.Registrations,
-            workspace.PackageSources);
+            workspace.PackageSources,
+            workspace.TraversalTargetPolicy);
         var rewrittenNavigation = new CommittedNavigationDefinition(
             navigation.SchemaVersion,
             navigation.Id,
@@ -703,8 +709,7 @@ public static class WorkspacePackageDependencyEnrichmentInspection
 /// <summary>Input for portable direct-Package dependency enrichment.</summary>
 public sealed record WorkspacePackageDependencyEnrichmentRequest(
     CommittedScenarioDefinitionSet Definitions,
-    IWorkspacePackageDependencyManifestProvider ManifestProvider,
-    IPackageDependencyCandidateSource CandidateSource);
+    IWorkspacePackageDependencyManifestProvider ManifestProvider);
 
 /// <summary>Supplies one bounded root nuspec for an exact package coordinate.</summary>
 public interface IWorkspacePackageDependencyManifestProvider

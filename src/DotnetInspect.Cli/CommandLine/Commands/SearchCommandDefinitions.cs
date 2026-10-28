@@ -60,6 +60,11 @@ public static class SearchCommandDefinitions
             Description = "Search in package(s) (name or name@version). Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
+        var workspaceOption = new Option<string?>("--workspace")
+        {
+            Description = "Search the declarations in a registration-only Ecosystem Workspace packet",
+            Arity = ArgumentArity.ExactlyOne,
+        };
         var assemblyOption = new Option<string[]>("--library")
         {
             Description = "Search in library file(s). Can repeat.",
@@ -113,8 +118,24 @@ public static class SearchCommandDefinitions
         {
             Description = "Filter API types by glob (for example --type *Json*)"
         };
+        var takeOption = new Option<int?>("--take")
+        {
+            Description =
+                "Maximum Ecosystem prefix package candidates to inspect "
+                + $"(default {FindOptions.DefaultMaximumEcosystemPrefixPackages}; "
+                + $"maximum {FindOptions.MaximumEcosystemPrefixPackagesLimit})"
+        };
+#if DEBUG
+        var evidenceEnvelopeOption = new Option<string?>("--evidence-envelope")
+        {
+            Description = "Write the complete enriched Ecosystem Find envelope to a JSON sidecar",
+            Arity = ArgumentArity.ExactlyOne,
+        };
+        findCommand.Options.Add(evidenceEnvelopeOption);
+#endif
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
+        findCommand.Options.Add(workspaceOption);
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
         findCommand.Options.Add(platformLibraryOption);
@@ -128,6 +149,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(membersOption);
         findCommand.Options.Add(literalOption);
         findCommand.Options.Add(typeFilterOption);
+        findCommand.Options.Add(takeOption);
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(opts.Markdown);
         findCommand.Options.Add(compactOption);
@@ -146,7 +168,8 @@ public static class SearchCommandDefinitions
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             ecosystemOption, extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption);
+            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
+            takeOption, workspaceOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -169,6 +192,34 @@ public static class SearchCommandDefinitions
                 return 1;
             }
 
+#if DEBUG
+            string? evidencePath = null;
+            if (parseResult.GetResult(evidenceEnvelopeOption) is { Implicit: false })
+            {
+                if (parseResult.GetResult(packagePrefixOption) is { Implicit: false }
+                    || !(parseResult.GetResult(ecosystemOption) is { Implicit: false }
+                        || parseResult.GetResult(workspaceOption) is { Implicit: false }))
+                {
+                    CommandError.Write(
+                        "--evidence-envelope currently requires Ecosystem Find; "
+                        + "explicit --package-prefix expansion and other Find routes are not supported.");
+                    return 1;
+                }
+                if (parseResult.GetResult(opts.Discover) is { Implicit: false })
+                {
+                    CommandError.Write("--evidence-envelope requires an inspection, not discovery.");
+                    return 1;
+                }
+                if (!EvidenceEnvelopeOutput.TryResolvePath(
+                    parseResult.GetValue(evidenceEnvelopeOption)!,
+                    out string resolvedEvidencePath, out string? evidenceError))
+                {
+                    CommandError.Write(evidenceError!);
+                    return 1;
+                }
+                evidencePath = resolvedEvidencePath;
+            }
+#endif
             var result = await FindOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)
@@ -185,8 +236,12 @@ public static class SearchCommandDefinitions
                         "package query 'Newtonsoft.*'               # discover package IDs");
 
                 case FindOptionsParser.Success success:
+                    var findOptions = success.Options;
+#if DEBUG
+                    findOptions = findOptions with { EvidenceEnvelopePath = evidencePath };
+#endif
                     var execution = await FindCommand.ExecuteWithResultAsync(
-                        success.Options,
+                        findOptions,
                         ct);
 
                     if (execution.ExitCode == 0)
