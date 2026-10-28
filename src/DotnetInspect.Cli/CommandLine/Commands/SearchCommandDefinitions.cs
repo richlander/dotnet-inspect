@@ -520,8 +520,13 @@ public static class SearchCommandDefinitions
             new Option<string?>("--platform-family")
             {
                 Description =
-                    "Asset-mode Pruning comparison family: runtime or aspnetcore (default: runtime)"
+                    "Hierarchy/Pruning family: runtime or aspnetcore (Hierarchy includes runtime; default: runtime)"
             };
+        var unprunedHierarchyOption = new Option<bool>("--unpruned")
+        {
+            Description =
+                "Show the raw package-authored Hierarchy without platform pruning",
+        };
         var previewOption = new Option<bool>("--preview")
         {
             Description =
@@ -571,6 +576,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(packagePrefixOption);
         dependsCommand.Options.Add(tfmOption);
         dependsCommand.Options.Add(pruningPlatformFamilyOption);
+        dependsCommand.Options.Add(unprunedHierarchyOption);
         dependsCommand.Options.Add(previewOption);
         dependsCommand.Options.Add(maxPackagesOption);
         dependsCommand.Options.Add(depthOption);
@@ -911,6 +917,8 @@ public static class SearchCommandDefinitions
                     Tfm = parseResult.GetValue(tfmOption),
                     PruningPlatformFamily =
                         parseResult.GetValue(pruningPlatformFamilyOption),
+                    UnprunedHierarchy =
+                        parseResult.GetValue(unprunedHierarchyOption),
                     Verbosity = opts.ParseVerbosity(parseResult),
                     ShareFormat = shareFormat,
                     PackageName = shareFormat is not null
@@ -969,6 +977,12 @@ public static class SearchCommandDefinitions
             {
                 CommandError.Write(
                     "--platform-family is supported only by asset-mode depends with the Pruning section.");
+                return 1;
+            }
+            if (parseResult.GetValue(unprunedHierarchyOption))
+            {
+                CommandError.Write(
+                    "--unpruned is supported only by asset-mode depends with the Hierarchy section.");
                 return 1;
             }
             if (!DependsCommand.ValidateTypeDepthSelectionBeforeAcquisition(

@@ -324,6 +324,24 @@ const fallbackReferences: FixtureCoordinate = {
     "net10.0",
   ),
 };
+const platformSuppliedRoot: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.PlatformSupplied",
+  version,
+  archive: manifestBackedNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.PlatformSupplied",
+    version,
+    { id: "System.Text.Json", versionRange: "[9.0.0]" },
+  ),
+};
+const platformSuppliedDependency: FixtureCoordinate = {
+  packageId: "System.Text.Json",
+  version: "9.0.0",
+  archive: emptyDependencyGroupNupkg(
+    healthyAssembly, healthyAssemblyFileName, "System.Text.Json", "9.0.0",
+  ),
+};
 const manifestOnly: FixtureCoordinate = {
   packageId: manifestOnlyPackageId,
   version,
@@ -1404,8 +1422,37 @@ test.describe("Package Query website over real Wasm", () => {
       .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
   });
 
+  test("omits a Platform-supplied Hierarchy route before manifest acquisition", async ({ page, context }) => {
+    const registry = new GalleryFixtureRegistry([platformSuppliedRoot, platformSuppliedDependency]);
+    await installGalleryRoutes(context, registry);
+    const dependencyManifestRequests: string[] = [];
+    context.on("request", request => {
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.includes("/system.text.json/")
+        && (pathname.endsWith(".nuspec") || pathname.endsWith(".nupkg"))) {
+        dependencyManifestRequests.push(pathname);
+      }
+    });
+    const packet = Buffer.from(JSON.stringify({
+      f: 1,
+      t: [[platformSuppliedRoot.packageId.toLowerCase(), version, fixtureFramework, null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-diagnostics"))
+      .toContainText("1 package routes omitted.");
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .not.toContainText("system.text.json");
+    expect(dependencyManifestRequests).toEqual([]);
+    expect(registry.downloadCount(platformSuppliedDependency)).toBe(0);
+  });
+
   test("reopens a Runtime-free Hierarchy without substituting product context", async ({ page, context }) => {
-    await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([platformSuppliedRoot, platformSuppliedDependency]));
     await page.addInitScript(() => {
       Object.defineProperty(navigator, "clipboard", { value: { write: async (items: ClipboardItem[]) => {
         (window as Window & { copiedShare?: string }).copiedShare =
@@ -1414,7 +1461,7 @@ test.describe("Package Query website over real Wasm", () => {
     });
     const packet = Buffer.from(JSON.stringify({
       f: 3,
-      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+      t: [[platformSuppliedRoot.packageId.toLowerCase(), platformSuppliedRoot.version,
         fixtureFramework, null]],
       g: [[0]], r: [], a: 0, x: 0,
       v: [
@@ -1422,7 +1469,7 @@ test.describe("Package Query website over real Wasm", () => {
         { t: 0, r: { k: "package" }, u: { k: "package" },
           f: "package.dependency-hierarchy" },
       ],
-      b: "net10.0",
+      b: fixtureFramework,
     })).toString("base64url");
 
     await page.goto(`/?w=${packet}`);
@@ -1440,6 +1487,10 @@ test.describe("Package Query website over real Wasm", () => {
       .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
     await expect(reopened.locator("#package-hierarchy-graph-diagram svg"))
       .toBeVisible({ timeout: 180_000 });
+    await expect(reopened.locator("#package-hierarchy-graph-diagram svg"))
+      .toContainText("system.text.json");
+    await expect(reopened.locator(".package-hierarchy-diagnostics"))
+      .toContainText("0 package routes omitted. Pruning disabled");
     await expect.poll(() => new URL(reopened.url()).searchParams.get("w"))
       .toBe(packet);
   });

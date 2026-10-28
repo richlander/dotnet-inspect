@@ -253,6 +253,8 @@ internal sealed record DependsAssetDocument
 
 internal sealed record DependsAssetSummaryJson
 {
+    public DependencyHierarchyPruning? HierarchyPruning { get; init; }
+
     public required DependencyInspectionRootSetCompletion RootSetCompletion { get; init; }
 
     public required int RequestedRoots { get; init; }
@@ -293,6 +295,7 @@ internal sealed record DependsAssetSummaryJson
         DependencyEvidenceSourceTokens tokens) =>
         new()
         {
+            HierarchyPruning = summary.HierarchyPruning,
             RootSetCompletion = summary.RootSetCompletion,
             RequestedRoots = summary.RequestedRoots,
             AdmittedRoots = summary.AdmittedRoots,

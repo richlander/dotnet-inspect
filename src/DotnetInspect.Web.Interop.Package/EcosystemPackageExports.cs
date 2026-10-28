@@ -22,16 +22,9 @@ public static partial class PackageExports
             ?? throw new ArgumentException("Package candidates are absent.", nameof(candidatesJson));
         var input = JsonSerializer.Deserialize(
             inventoryJson, BrowserPackageJsonContext.Default.BrowserEcosystemPackageInventory);
-        if (input?.Supplies is { } evidence && evidence.Any(supply =>
-            !supply.Family.Equals("Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
-            && !supply.Family.Equals("Microsoft.AspNetCore.App", StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException("Unsupported platform supply family.", nameof(inventoryJson));
-        PlatformPruneInventory? inventory = input?.Supplies is { } supplies
-            ? PlatformPruneInventory.Compose(new[] { "Microsoft.NETCore.App", "Microsoft.AspNetCore.App" }
-                .Select(family => PlatformPruneInventory.FromExactFamily(
-                    family, input.Tfm, input.Version,
-                    supplies.Where(supply => string.Equals(supply.Family, family, StringComparison.OrdinalIgnoreCase))
-                        .Select(supply => $"{supply.Package}|{supply.Version}"))))
+        PlatformPruneInventory[] families = PlatformSupplyInventories(input);
+        PlatformPruneInventory? inventory = families.Length > 0
+            ? PlatformPruneInventory.Compose(families)
             : null;
         BrowserEcosystemPackageClassification[] results = [.. candidates.Select(candidate =>
         {
@@ -63,5 +56,29 @@ public static partial class PackageExports
         })];
         return JsonSerializer.Serialize(
             results, BrowserPackageJsonContext.Default.BrowserEcosystemPackageClassificationArray);
+    }
+
+    private static PlatformPruneInventory[] PlatformSupplyInventories(
+        BrowserEcosystemPackageInventory? input)
+    {
+        if (input?.Supplies is not { } supplies)
+            return [];
+        if (supplies.Any(supply =>
+            !supply.Family.Equals("Microsoft.NETCore.App", StringComparison.OrdinalIgnoreCase)
+            && !supply.Family.Equals("Microsoft.AspNetCore.App", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException("Unsupported platform supply family.", nameof(input));
+        }
+        return
+        [
+            .. new[] { "Microsoft.NETCore.App", "Microsoft.AspNetCore.App" }
+                .Where(family => supplies.Any(supply =>
+                    string.Equals(supply.Family, family, StringComparison.OrdinalIgnoreCase)))
+                .Select(family => PlatformPruneInventory.FromExactFamily(
+                    family, input.Tfm, input.Version,
+                    supplies.Where(supply =>
+                        string.Equals(supply.Family, family, StringComparison.OrdinalIgnoreCase))
+                        .Select(supply => $"{supply.Package}|{supply.Version}"))),
+        ];
     }
 }

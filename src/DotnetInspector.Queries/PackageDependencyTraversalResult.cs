@@ -279,6 +279,8 @@ public sealed record PackageDependencyTraversalOutcome(
     ImmutableArray<PackageDependencyTraversalDepthBoundary> DepthBoundaries,
     PackageDependencyTraversalSummary Summary)
 {
+    public PackageDependencyTraversalPruningOutcome? PlatformPruning { get; init; }
+
     public bool IsComplete => Summary.IsComplete;
 
     public bool IsSuccessful => Summary.IsSuccessful;

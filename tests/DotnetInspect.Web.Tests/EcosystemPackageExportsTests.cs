@@ -64,6 +64,7 @@ public sealed class EcosystemPackageExportsTests
     [Theory]
     [InlineData("null")]
     [InlineData("{\"tfm\":\"net10.0\",\"version\":\"10.0.12\",\"supplies\":null}")]
+    [InlineData("{\"tfm\":\"net10.0\",\"version\":\"10.0.12\",\"supplies\":[]}")]
     [InlineData("{\"tfm\":\"net9.0\",\"version\":\"9.0.0\",\"supplies\":[]}")]
     public void UnavailableInventoryRetainsRecognizedOwnerWithoutBadge(string inventory)
     {
@@ -79,6 +80,18 @@ public sealed class EcosystemPackageExportsTests
         Assert.Null(Classify("Example.External", "1.0.0", "net10.0", "null")[0].EcosystemId);
         Assert.Throws<ArgumentException>(() => Classify("Example.External", "1.0.0", "net10.0",
             "{\"tfm\":\"net10.0\",\"version\":\"10.0.12\",\"supplies\":[{\"family\":\"Unknown\",\"package\":\"Example.External\",\"version\":\"1.0.0\"}]}"));
+    }
+
+    [Fact]
+    public void RuntimeOnlyInventoryDoesNotClaimAnAbsentAspNetFamily()
+    {
+        var result = Classify(
+            "Microsoft.Extensions.Caching.Memory", "9.0.0", "net10.0",
+            "{\"tfm\":\"net10.0\",\"version\":\"10.0.12\",\"supplies\":[{\"family\":\"Microsoft.NETCore.App\",\"package\":\"System.Text.Json\",\"version\":\"10.0.12\"}]}")[0];
+
+        Assert.NotNull(result.EcosystemId);
+        Assert.Null(result.PlatformLayer);
+        Assert.Null(result.IsPruned);
     }
 
     static BrowserEcosystemPackageClassification[] Classify(string id, string? version, string tfm, string inventory)

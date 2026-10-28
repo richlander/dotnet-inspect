@@ -21,16 +21,24 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
-        string? traversalTargetFramework)
+        string? traversalTargetFramework,
+        string? workspaceRealizationId,
+        string inventoryJson)
     {
-        TraversalTargetFrameworkPolicy traversalTargetPolicy =
-            traversalTargetFramework is null
-                ? TraversalTargetFrameworkPolicy.ProductDefault
-                : new TraversalTargetFrameworkPolicy(traversalTargetFramework);
+        BrowserEcosystemPackageInventory? inventory =
+            JsonSerializer.Deserialize(
+                inventoryJson,
+                BrowserPackageJsonContext.Default.BrowserEcosystemPackageInventory);
         BrowserPackageHierarchy hierarchy =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 async deadline =>
                 {
+                    WorkspacePlan plan = await HierarchyWorkspacePlanAsync(
+                        workspaceRealizationId,
+                        traversalTargetFramework,
+                        deadline.Token).ConfigureAwait(false);
+                    PlatformPruneInventory[] inventories =
+                        PlatformSupplyInventories(inventory);
                     BrowserPackageCoordinate coordinate =
                         await BrowserPackageWorkspace.ResolveAsync(
                             packageId,
@@ -70,13 +78,18 @@ public static partial class PackageExports
                                         .RecursiveSources,
                                     PackageDependencyTraversalRootRecurrenceAuthority
                                         .ExactCoordinate)],
-                                traversalTargetPolicy,
+                                plan.TraversalTargetPolicy,
                                 new PackageDependencyTraversalCandidateAdapter(
                                     BrowserPackageWorkspace
                                         .PackageSourceAuthorization),
                                 new AuthorizedPackageDependencyManifestSource(),
                                 new PackageDependencyTraversalWorkBudget(
-                                    1_024, 16_384)),
+                                    1_024, 16_384),
+                                platformPruning: new(
+                                    plan, inventories,
+                                    inventory?.Supplies is null
+                                        ? "The matching Platform catalog supply inventory is unavailable."
+                                        : null)),
                             traversalOperation).ConfigureAwait(false);
                     DependencyHierarchyDocument document =
                         DependencyHierarchyDocument.Create(
@@ -112,18 +125,73 @@ public static partial class PackageExports
                         coordinate.PackageId,
                         coordinate.Version,
                         coordinate.Framework,
-                        traversalTargetPolicy.TargetFramework,
+                        plan.TraversalTargetPolicy.TargetFramework,
                         traversal.IsComplete,
                         traversal.Roots[0].Completion.ToString(),
                         rows,
                         [.. traversal.Failures.Select(failure =>
-                            DescribeHierarchyFailure(traversal, failure))]);
+                            DescribeHierarchyFailure(traversal, failure))])
+                    {
+                        Pruning = DependencyHierarchyPruning.FromTraversal(traversal),
+                    };
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout)
                 .ConfigureAwait(false);
         return JsonSerializer.Serialize(
             hierarchy,
             BrowserPackageJsonContext.Default.BrowserPackageHierarchy);
+    }
+
+    private static async Task<WorkspacePlan> HierarchyWorkspacePlanAsync(
+        string? realizationId,
+        string? fallbackFramework,
+        CancellationToken cancellationToken)
+    {
+        if (realizationId is null)
+        {
+            WorkspacePlan product = BrowserPackageWorkspace.ProductWorkspacePlan;
+            return new(
+                fallbackFramework is null
+                    ? TraversalTargetFrameworkPolicy.ProductDefault
+                    : new TraversalTargetFrameworkPolicy(fallbackFramework),
+                product.Registrations,
+                product.Contexts);
+        }
+
+        BrowserRetainedWorkspaceActivationOwner owner =
+            BrowserRetainedWorkspaceActivationRegistry.Owner;
+        BrowserRetainedWorkspacePosting posting = owner.Active
+            is { } active && active.RealizationId == realizationId
+                ? active
+                : throw new InvalidOperationException(
+                    "The Hierarchy Workspace realization is no longer active.");
+        WorkspaceRealizationOperationAdmission admission =
+            await owner.EnterOperationAsync(
+                posting.RetainedDefinitionId, cancellationToken)
+                .ConfigureAwait(false);
+        if (admission is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+            throw new InvalidOperationException(
+                "The Hierarchy Workspace realization is unavailable.");
+        using WorkspaceRealizationOperationLease operation = admitted.Lease;
+        if (!ReferenceEquals(operation.Realization, posting.Realization))
+            throw new InvalidOperationException(
+                "The Hierarchy Workspace realization changed.");
+        WorkspaceRegistrationReadResult registrations =
+            operation.Workspace.GetRegistrationSnapshot();
+        if (registrations is not WorkspaceRegistrationReadResult.Available available)
+            throw new InvalidOperationException(
+                "The Hierarchy Workspace registration revision is unavailable.");
+        WorkspacePlan plan = available.Revision.Plan;
+        if (fallbackFramework is not null
+            && !string.Equals(
+                plan.TraversalTargetPolicy.TargetFramework,
+                fallbackFramework,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The Hierarchy target does not match its Workspace.");
+        }
+        return plan;
     }
 
     private static string DescribeHierarchyFailure(

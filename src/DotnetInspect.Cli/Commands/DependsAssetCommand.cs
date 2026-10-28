@@ -55,6 +55,12 @@ public partial class DependsCommand
 
         bool evidenceEnvelopeRequested =
             options.EvidenceEnvelopePath is not null;
+        if (options.UnprunedHierarchy && options.ShareFormat is not null)
+        {
+            CommandError.Write(
+                "--unpruned cannot be shared: Browser Hierarchy uses platform pruning.");
+            return 1;
+        }
         if (DependsShareProjection.ValidateOptions(options)
             is { } shareError)
         {
@@ -333,13 +339,27 @@ public partial class DependsCommand
         bool hierarchyRequested,
         bool discoveryMode)
     {
+        if (options.UnprunedHierarchy && !hierarchyRequested)
+        {
+            CommandError.Write("--unpruned requires the Hierarchy section.");
+            return false;
+        }
         if (options.PruningPlatformFamily is not null
+            && !hierarchyRequested
             && !candidateSections.Contains(
                 DependsAssetSections.Pruning,
                 StringComparer.OrdinalIgnoreCase))
         {
             CommandError.Write(
-                "--platform-family requires the Pruning section.");
+                "--platform-family requires the Hierarchy or Pruning section.");
+            return false;
+        }
+        if (options.PruningPlatformFamily is { } family
+            && !family.Equals("runtime", StringComparison.OrdinalIgnoreCase)
+            && !family.Equals("aspnetcore", StringComparison.OrdinalIgnoreCase))
+        {
+            CommandError.Write(
+                "--platform-family must be 'runtime' or 'aspnetcore'.");
             return false;
         }
 
@@ -351,18 +371,6 @@ public partial class DependsCommand
             {
                 CommandError.Write(
                     $"The {DependsAssetSections.Pruning} section requires --tfm.");
-                return false;
-            }
-            string family = options.PruningPlatformFamily ?? "runtime";
-            if (!family.Equals(
-                    "runtime",
-                    StringComparison.OrdinalIgnoreCase)
-                && !family.Equals(
-                    "aspnetcore",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                CommandError.Write(
-                    "--platform-family must be 'runtime' or 'aspnetcore'.");
                 return false;
             }
             if (!PlatformTargetFramework.TryParse(
@@ -961,6 +969,7 @@ public partial class DependsCommand
                     DependencyInspectionPruningSummary.NotRequested);
         var graphDocuments = new List<DependencyGraphDocument>();
         PackageDependencyTraversalOutcome? packageTraversal = null;
+        PackageDependencyTraversalOutcome? licenseTraversal = null;
         var packageOccurrences = new List<int>();
         var packageInputIndexes = new List<int>();
         for (int inputIndex = 0;
@@ -993,8 +1002,7 @@ public partial class DependsCommand
                 composition.IssueSettlementOperation(
                     cancellationToken,
                     PackageDependencyTraversalQuery.DefaultMaximumConcurrentSteps);
-            packageTraversal =
-                await PackageDependencyTraversalQuery.ExecuteAsync(
+            var traversalRequest =
                     new PackageDependencyTraversalRequest(
                         [
                             .. packageInputIndexes.Select(inputIndex =>
@@ -1025,8 +1033,29 @@ public partial class DependsCommand
                         new PackageDependencyTraversalWorkBudget(
                             PackageManifestTraversalBudget,
                             PackageDeclarationTraversalBudget),
-                        traversalDepth),
+                        traversalDepth,
+                        plan.Traversal && !options.UnprunedHierarchy
+                            ? CreateHierarchyPruning(
+                                options, traversalTargetPolicy, pruneSource)
+                            : null);
+            packageTraversal =
+                await PackageDependencyTraversalQuery.ExecuteAsync(
+                    traversalRequest,
                     traversalOperation).ConfigureAwait(false);
+            licenseTraversal = packageTraversal;
+            if (plan.Licenses && traversalRequest.PlatformPruning is not null)
+            {
+                licenseTraversal =
+                    await PackageDependencyTraversalQuery.ExecuteAsync(
+                        new PackageDependencyTraversalRequest(
+                            traversalRequest.Roots,
+                            traversalRequest.TraversalTargetPolicy,
+                            traversalRequest.CandidateResolver,
+                            traversalRequest.ManifestAcquirer,
+                            traversalRequest.WorkBudget,
+                            traversalRequest.MaxDepth),
+                        traversalOperation).ConfigureAwait(false);
+            }
             if (plan.Traversal)
             {
                 graphDocuments.Add(
@@ -1156,7 +1185,7 @@ public partial class DependsCommand
             await AcquireLicenseProjectionAsync(
                 options,
                 plan,
-                packageTraversal,
+                licenseTraversal,
                 liveEvidence,
                 evidenceOutcome,
                 composition,
@@ -1204,6 +1233,9 @@ public partial class DependsCommand
             pruning.Summary,
             sharePreparation?.Share)
         {
+            HierarchyPruning = plan.Traversal && packageTraversal is not null
+                ? DependencyHierarchyPruning.FromTraversal(packageTraversal)
+                : null,
             Licenses = licenses.Rows,
             LicenseSummary = licenses.Summary,
             LatestVersions = latestVersions.Rows,
@@ -2762,6 +2794,12 @@ public partial class DependsCommand
             RestoredRelationships =
                 summary.RestoredRelationshipCompletion.ToString(),
             Pruning = summary.Pruning.Completion.ToString(),
+            HierarchyPruning = summary.HierarchyPruning is { } hierarchyPruning
+                ? $"{hierarchyPruning.Availability}; "
+                    + $"{hierarchyPruning.OmittedRoutes} routes omitted; "
+                    + $"{hierarchyPruning.UnevaluatedRoutes} unevaluated; "
+                    + hierarchyPruning.TargetFramework
+                : null,
             LicenseInventory = summary.Licenses.Completion.ToString(),
             LicensePackages = summary.Licenses.Completion
                     == DependencyInspectionLicenseCompletion.NotRequested
@@ -3113,6 +3151,17 @@ public partial class DependsCommand
     internal static void WriteAssetDiagnostics(
         DependsAssetProjection projection)
     {
+        if (projection.Summary.HierarchyPruning is { } hierarchyPruning
+            && (hierarchyPruning.Availability is "Unavailable" or "Incomplete"
+                || hierarchyPruning.UnevaluatedRoutes > 0))
+        {
+            CommandError.WriteWarning(
+                $"Hierarchy platform pruning is {hierarchyPruning.Availability} "
+                + $"for {hierarchyPruning.TargetFramework}; unevaluated package routes "
+                + "were retained. "
+                + (hierarchyPruning.UnavailableDetail
+                    ?? $"Missing exact families: {string.Join(", ", hierarchyPruning.MissingFamilies)}."));
+        }
         if (!projection.Failures.IsEmpty)
         {
             CommandError.WriteWarning(
