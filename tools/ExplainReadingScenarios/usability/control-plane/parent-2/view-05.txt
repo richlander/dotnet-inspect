@@ -1,0 +1,2 @@
+Error: The Workspace packet input is invalid.
+  --packet accepts a canonical Base64URL Workspace packet string; URLs are not supported.

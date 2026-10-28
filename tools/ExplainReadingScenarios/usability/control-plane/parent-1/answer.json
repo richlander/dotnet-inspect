@@ -1,0 +1,59 @@
+{
+  "answer": {
+    "declaration": {
+      "package": "System.Text.Json",
+      "version": "10.0.0",
+      "framework": "net10.0",
+      "runtime_identifier": null,
+      "canonical_component_path": "packages/system.text.json@10.0.0/net10.0/~",
+      "contexts": ["contexts/g0"],
+      "focused": true,
+      "context_selected": true
+    },
+    "successor": {
+      "package": "System.Text.Json",
+      "version": "10.0.1",
+      "framework": "net10.0",
+      "runtime_identifier": null,
+      "context": "contexts/g0",
+      "saved_landing": "Package Libraries",
+      "packet": "eyJmIjo1LCJzIjpbWyJodHRwczovL2FwaS5udWdldC5vcmcvdjMvaW5kZXguanNvbiJdXSwidCI6W1siU3lzdGVtLlRleHQuSnNvbiIsIjEwLjAuMSIsIm5ldDEwLjAiLG51bGxdXSwiZyI6W1swXV0sInIiOltdLCJhIjowLCJ4IjowLCJ2IjpbeyJ0IjpudWxsLCJ1Ijp7ImsiOiJ3b3Jrc3BhY2UifX0seyJ0IjowLCJyIjp7ImsiOiJwYWNrYWdlIn0sInUiOnsiayI6InBhY2thZ2UifSwiZiI6InBhY2thZ2UubGlicmFyaWVzIn1dfQ"
+    },
+    "change_evidence": {
+      "succeeded": true,
+      "source_version": "10.0.0",
+      "destination_version": "10.0.1",
+      "scope_kind": "Committed",
+      "navigation_outcome": "Applied",
+      "retention_disposition": "ExactPath",
+      "retention_detail": "The retained source path contains only its Package.",
+      "active_subject": "Package",
+      "requested_facet": "package.libraries",
+      "effective_facet": "package.libraries",
+      "inspector_outcome": "Applied",
+      "diagnostics": []
+    }
+  },
+  "provenance": [
+    {
+      "operation": "input component.json",
+      "evidence": "Supplied declaration identifies System.Text.Json 10.0.0, net10.0, no RID, context g0, focused true, and the canonical component path."
+    },
+    {
+      "operation": "input parent.packet",
+      "evidence": "Supplied originating portable Workspace packet."
+    },
+    {
+      "command": "workspace component list --packet <originating packet>",
+      "response": "response-04.out",
+      "evidence": "The originating Workspace has selected context contexts/g0 containing the canonical component path; the package entry is focused."
+    },
+    {
+      "command": "workspace package update packages/system.text.json@10.0.0/net10.0/~ --packet <originating packet> --version 10.0.1 --json --envelope",
+      "response": "response-05.out",
+      "evidence": "The tool reports success, source and destination versions, ExactPath retention, Applied navigation and package.libraries inspector, no diagnostics, and the successor share.packet returned above."
+    }
+  ],
+  "uncertainty": "No material uncertainty in the tool-reported edit. A separate read of the successor packet was omitted because it would only verify the successful mutation response.",
+  "discovery_navigation_friction": "The guide suggested component list for canonical paths but did not specify that this subcommand rejects --json or that --packet requires the Base64URL packet value rather than an input file path. Two failed requests established those constraints; a third failed request was caused by an accidental space while copying the packet. The corrected command succeeded."
+}

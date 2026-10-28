@@ -1,0 +1,2 @@
+Error: workspace.package-update.DestinationAcquisitionFailed: Package 'system.text.json' version '10.0.1' was not supplied by any authorized source (https://api.nuget.org/v3/index.json).
+Error: The derived Workspace is not projectable at workspace/package-update: Package 'system.text.json' version '10.0.1' was not supplied by any authorized source (https://api.nuget.org/v3/index.json).

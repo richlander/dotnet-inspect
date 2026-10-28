@@ -1,0 +1,210 @@
+[
+  {
+    "name": "encode",
+    "argv": [
+      "workspace",
+      "packet",
+      "encode",
+      "--file",
+      "/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/inputs/parent.json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 327,
+    "stderr_bytes": 0
+  },
+  {
+    "name": "root",
+    "argv": [
+      "explain"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 2872,
+    "stderr_bytes": 0
+  },
+  {
+    "name": "component",
+    "argv": [
+      "explain",
+      "--component",
+      "/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/inputs/component.json",
+      ".hal",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 1166,
+    "stderr_bytes": 0
+  },
+  {
+    "name": "component-parent",
+    "argv": [
+      "explain",
+      "--component",
+      "/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/tools/ExplainReadingScenarios/usability/control-plane/inputs/component.json",
+      "--parent-packet",
+      "eyJmIjo1LCJzIjpbWyJodHRwczovL2FwaS5udWdldC5vcmcvdjMvaW5kZXguanNvbiJdXSwidCI6W1siU3lzdGVtLlRleHQuSnNvbiIsIjEwLjAuMCIsIm5ldDEwLjAiLG51bGxdXSwiZyI6W1swXV0sInIiOltdLCJhIjowLCJ4IjowLCJ2IjpbeyJ0IjpudWxsLCJ1Ijp7ImsiOiJ3b3Jrc3BhY2UifX0seyJ0IjowLCJyIjp7ImsiOiJwYWNrYWdlIn0sInUiOnsiayI6InBhY2thZ2UifSwiZiI6InBhY2thZ2UubGlicmFyaWVzIn1dfQ",
+      ".hal",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 1037,
+    "stderr_bytes": 0
+  },
+  {
+    "name": "update-help",
+    "argv": [
+      "workspace",
+      "package",
+      "update",
+      "packages/system.text.json@10.0.0/net10.0/~",
+      "--help"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 728,
+    "stderr_bytes": 0
+  },
+  {
+    "name": "update",
+    "argv": [
+      "workspace",
+      "package",
+      "update",
+      "packages/system.text.json@10.0.0/net10.0/~",
+      "--packet",
+      "eyJmIjo1LCJzIjpbWyJodHRwczovL2FwaS5udWdldC5vcmcvdjMvaW5kZXguanNvbiJdXSwidCI6W1siU3lzdGVtLlRleHQuSnNvbiIsIjEwLjAuMCIsIm5ldDEwLjAiLG51bGxdXSwiZyI6W1swXV0sInIiOltdLCJhIjowLCJ4IjowLCJ2IjpbeyJ0IjpudWxsLCJ1Ijp7ImsiOiJ3b3Jrc3BhY2UifX0seyJ0IjowLCJyIjp7ImsiOiJwYWNrYWdlIn0sInUiOnsiayI6InBhY2thZ2UifSwiZiI6InBhY2thZ2UubGlicmFyaWVzIn1dfQ",
+      "--version",
+      "10.0.1"
+    ],
+    "exit": 1,
+    "expected_exit": 1,
+    "stdout_bytes": 0,
+    "stderr_bytes": 389
+  },
+  {
+    "name": "extensions",
+    "argv": [
+      "extensions",
+      "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+      "--package",
+      "Microsoft.Extensions.Http@10.0.13",
+      "--tfm",
+      "net10.0",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 3,
+    "stderr_bytes": 517,
+    "note": "Before NuGet global-cache preparation: empty array with warning, despite exit 0. Not a successful task preflight."
+  },
+  {
+    "name": "update-warm",
+    "argv": [
+      "workspace",
+      "package",
+      "update",
+      "packages/system.text.json@10.0.0/net10.0/~",
+      "--packet",
+      "eyJmIjo1LCJzIjpbWyJodHRwczovL2FwaS5udWdldC5vcmcvdjMvaW5kZXguanNvbiJdXSwidCI6W1siU3lzdGVtLlRleHQuSnNvbiIsIjEwLjAuMCIsIm5ldDEwLjAiLG51bGxdXSwiZyI6W1swXV0sInIiOltdLCJhIjowLCJ4IjowLCJ2IjpbeyJ0IjpudWxsLCJ1Ijp7ImsiOiJ3b3Jrc3BhY2UifX0seyJ0IjowLCJyIjp7ImsiOiJwYWNrYWdlIn0sInUiOnsiayI6InBhY2thZ2UifSwiZiI6InBhY2thZ2UubGlicmFyaWVzIn1dfQ",
+      "--version",
+      "10.0.1"
+    ],
+    "exit": 1,
+    "expected_exit": 1,
+    "stdout_bytes": 0,
+    "stderr_bytes": 389
+  },
+  {
+    "name": "extensions-warm",
+    "argv": [
+      "extensions",
+      "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+      "--package",
+      "Microsoft.Extensions.Http@10.0.13",
+      "--tfm",
+      "net10.0",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 3,
+    "stderr_bytes": 517,
+    "note": "Before NuGet global-cache preparation: empty array with warning, despite exit 0. Not a successful task preflight."
+  },
+  {
+    "name": "update-global-warm",
+    "argv": [
+      "workspace",
+      "package",
+      "update",
+      "packages/system.text.json@10.0.0/net10.0/~",
+      "--packet",
+      "eyJmIjo1LCJzIjpbWyJodHRwczovL2FwaS5udWdldC5vcmcvdjMvaW5kZXguanNvbiJdXSwidCI6W1siU3lzdGVtLlRleHQuSnNvbiIsIjEwLjAuMCIsIm5ldDEwLjAiLG51bGxdXSwiZyI6W1swXV0sInIiOltdLCJhIjowLCJ4IjowLCJ2IjpbeyJ0IjpudWxsLCJ1Ijp7ImsiOiJ3b3Jrc3BhY2UifX0seyJ0IjowLCJyIjp7ImsiOiJwYWNrYWdlIn0sInUiOnsiayI6InBhY2thZ2UifSwiZiI6InBhY2thZ2UubGlicmFyaWVzIn1dfQ",
+      "--version",
+      "10.0.1"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 327,
+    "stderr_bytes": 0
+  },
+  {
+    "name": "extensions-global-warm",
+    "argv": [
+      "extensions",
+      "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+      "--package",
+      "Microsoft.Extensions.Http@10.0.13",
+      "--tfm",
+      "net10.0",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 6023,
+    "stderr_bytes": 0
+  },
+  {
+    "name": "member-global-warm",
+    "argv": [
+      "member",
+      "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+      "--package",
+      "Microsoft.Extensions.Http@10.0.13",
+      "--tfm",
+      "net10.0",
+      "-m",
+      "AddHttpClient",
+      "-S",
+      "Member Index",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 1333,
+    "stderr_bytes": 0
+  },
+  {
+    "name": "member-index",
+    "argv": [
+      "member",
+      "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions",
+      "--package",
+      "Microsoft.Extensions.Http@10.0.13",
+      "--tfm",
+      "net10.0",
+      "-m",
+      "AddHttpClient",
+      "-S",
+      "Member Index"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 5320,
+    "stderr_bytes": 0
+  }
+]
