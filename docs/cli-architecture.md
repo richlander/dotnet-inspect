@@ -78,6 +78,48 @@ Deterministic configured-source tests gate admitted inspection with unusable
 DLLs, unmatched frameworks, and selected versions; existing source, wrapper,
 offline, and Library tests remain neighboring controls.
 
+#### Declared Package result evidence
+
+The CLI declares known result requirements before acquisition or expensive
+preparation. Files Count and selected entry rows use the existing File List
+demand and their own QuerySpace terminal. Package children use
+compile-inventory evidence, not Library content. Children retain the
+committed content-only Root and its owner-issued
+selection, including empty and incompatible-target outcomes. Rendering format
+alone does not determine evidence strength.
+
+Rich inspection still requires its promised fields, including full JSON's
+existing facts and House measurements. Package Info retains selected Library
+content because its ecosystem recognition requires Metadata, not just
+directory measurements. Requests for body-backed facts, tool
+metadata, wrappers, and other unadopted shapes retain their complete-content
+route; a narrow inventory must not masquerade as their complete result.
+Local/offline, exact-reference, Workspace, and Library routes are unchanged.
+PackageHouse alone chooses physical transfer and fallback.
+
+The motivating pinned assets are `Newtonsoft.Json@13.0.4` and
+`Microsoft.NETCore.App.Ref@10.0.0`: ordinary children select one and 167
+compile Libraries respectively, but their identities and counts do not
+require opening those DLLs. Files lengths likewise come from admitted
+directory evidence. Durable
+configured-feed controls use unreadable DLLs and a large unrelated entry to
+distinguish directory answers from body acquisition; exact NativeAOT evidence
+compares the two real packages with equivalent outputs. This is CLI adoption
+under #10594, slice 4/5 of #10593 and overall tracker #6638, not resolution of held #10427 or
+Browser adoption #10598.
+
+Direct Package inspection in Debug still requires `--workspace` for
+`--evidence-envelope`. For #10594 the operator approved exact NativeAOT
+timing/output comparisons and existing deterministic work controls rather
+than a separate direct-Package diagnostics prerequisite. No production-network
+request or byte attribution is claimed from those timings.
+
+`PackageChildren_RangedRead_DoesNotAcquireLibraryBodies`,
+`PackageChildren_RangedRead_PreservesUnavailableAndEmptySelection`, and
+`PackageFiles_RangedRead_RequestsDirectoryOnly` gate the adopted work boundary.
+Existing typed-JSON, selected-source, tool, and file-window controls preserve
+the neighboring result contracts.
+
 ### Exact Package reference admission
 
 An owner-issued exact Package reference is accepted as positional `package`

@@ -1,9 +1,12 @@
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -36,7 +39,12 @@ public partial class PackageCommand
                 || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
                     ? PackageHouseTargetContext.OwnerDefault()
                     : PackageHouseTargetContext.Exact(options.Tfm));
-        ConfiguredPackagePayloadResult acquisition = isPinned
+        bool childrenOnly = IsPackageChildrenProjection(options);
+        ConfiguredPackagePayloadResult acquisition = childrenOnly
+            ? await AcquirePackageChildrenInventoryAsync(
+                target, options, context, composition, stores, compileTarget)
+                .ConfigureAwait(false)
+            : isPinned
             ? await composition.AcquirePinnedAsync(
                 target.PackageName,
                 pinnedVersion,
@@ -64,12 +72,35 @@ public partial class PackageCommand
             return 1;
         }
 
-        if (MayRequireLegacyToolWrapperHandling(
-                settlement.Payload.Content.EnumerateEntries()))
+        IEnumerable<string> entryPaths =
+            settlement.Result.Evidence.FileList is { } inventory
+                ? inventory.Entries.Select(static entry => entry.Path)
+                : settlement.Payload.Content.EnumerateEntries();
+        if (MayRequireLegacyToolWrapperHandling(entryPaths)
+            || childrenOnly && entryPaths.Any(
+                RequiresLegacyPackageInfoToolContent))
         {
             context.Logger.Log(
                 "Tool-wrapper inspection retains the legacy redirect path.");
             return null;
+        }
+
+        InspectionResult? childrenResult = null;
+        if (childrenOnly)
+        {
+            NuspecData? nuspec = ReadCompileInventoryNuspec(
+                settlement.Payload.Content,
+                ecosystemRecognitionRequested: false);
+            if (nuspec?.IsToolPackage == true)
+                return null;
+            childrenResult = new InspectionResult
+            {
+                PackageName = nuspec?.PackageName
+                    ?? settlement.Payload.Coordinate.PackageId,
+                Version = nuspec?.Version
+                    ?? settlement.Payload.Coordinate.Version,
+                Source = SourceKind.NuGet,
+            };
         }
 
         foreach (PackageAuthorityFailure failure in acquisition.Failures)
@@ -146,6 +177,26 @@ public partial class PackageCommand
                         async (_, token) =>
                         {
                             token.ThrowIfCancellationRequested();
+                            if (childrenResult is not null)
+                            {
+                                var subject = new PackageChildrenSubject(
+                                    childrenResult.PackageName,
+                                    childrenResult.Version,
+                                    targetFramework: null,
+                                    childrenResult.Source);
+                                PackageChildrenPlan plan =
+                                    PlanPackageCompileChildren(
+                                        subject,
+                                        binding.Root.AssetSelection
+                                            ?? throw new InvalidOperationException(
+                                                "The package Root has no compile selection."));
+                                int exitCode =
+                                    await WritePackageChildrenAsync(
+                                        plan, childrenResult, options)
+                                        .ConfigureAwait(false);
+                                return new WorkspacePackageInspectionContent(
+                                    childrenResult, exitCode);
+                            }
                             return await ExecuteAdmittedPackageAsync(
                                 options,
                                 context,
@@ -167,5 +218,57 @@ public partial class PackageCommand
                     "The package Root query was rejected: " + rejected.Failure);
                 return 1;
             }).ConfigureAwait(false);
+    }
+
+    static async Task<ConfiguredPackagePayloadResult>
+        AcquirePackageChildrenInventoryAsync(
+            PackageReferenceTarget target,
+            InspectionOptions options,
+            CommandContext context,
+            DesktopPackageSourceComposition composition,
+            SearchPackageStores stores,
+            PackageHouseTargetContext targetContext)
+    {
+        PackageHouseDemand demand;
+        if (target.Version.Length == 0)
+        {
+            PackageVersionSelectionRequest selection = options.IncludePrerelease
+                ? new PackageVersionSelectionRequest.LatestPrerelease(
+                    target.PackageName)
+                : new PackageVersionSelectionRequest.LatestStable(
+                    target.PackageName);
+            demand = new PackageHouseDemand.Selecting(selection);
+        }
+        else if (!PackageHouseDemand.TryCreate(
+                target.PackageName,
+                target.Version,
+                options.IncludePrerelease,
+                out PackageHouseDemand? requestedDemand,
+                out string? error))
+        {
+            throw new ArgumentException(error, nameof(target));
+        }
+        else
+        {
+            demand = requestedDemand;
+        }
+
+        var request = new PackageHouseRequest(
+            demand,
+            composition.CreateHouseOperation(
+                PackageHouseOperationProfile.Realize),
+            targetContext,
+            PackageHouseAssetSelectionKind.Compile,
+            contentQuery: PackageHouseContentQuery.PackageFileList());
+        using PackageSourceOperationLease operation =
+            composition.IssueSettlementOperation();
+        PackageHouseSettlement settlement =
+            await composition.CreateDependencyContentQueryHouse(
+                    stores.GetStore,
+                    options.SourceOptions,
+                    context.Logger.Log)
+                .ExecuteAsync(request, operation)
+                .ConfigureAwait(false);
+        return PackageHousePayloadResultAdapter.Create(settlement);
     }
 }

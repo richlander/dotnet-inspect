@@ -83,6 +83,146 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
     }
 
+    [Theory]
+    [InlineData(false, "net9.0", "NoApplicableTarget", 1)]
+    [InlineData(true, "net11.0", "SelectedEmpty", 0)]
+    public async Task PackageChildren_RangedRead_PreservesUnavailableAndEmptySelection(
+        bool emptyCompile,
+        string framework,
+        string expectedStatus,
+        int expectedExit)
+    {
+        string id = $"PackageChildren.Selection.{Guid.NewGuid():N}";
+        List<(string, byte[])> entries =
+        [
+            ("content/unrelated.bin",
+                RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+        ];
+        if (emptyCompile)
+            entries.Add(("ref/net11.0/_._", []));
+        byte[] package = CreatePackage(
+            id,
+            "selection outcomes do not require Library bodies",
+            library: RandomNumberGenerator.GetBytes(512 * 1024),
+            extraEntries: [.. entries]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+        [
+            "package", $"{id}@{Version}", "--source", FirstFeed,
+            "--tfm", framework, "--json",
+        ]);
+
+        Assert.Equal(expectedExit, result.Exit);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            expectedStatus,
+            document.RootElement.GetProperty("status").GetString());
+        Assert.Empty(document.RootElement.GetProperty("children").EnumerateArray());
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.True(
+            feed.PackageBytesServed < 128 * 1024,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task PackageChildren_RangedRead_DoesNotAcquireLibraryBodies(
+        string terminal)
+    {
+        string id = $"PackageChildren.Directory.{Guid.NewGuid():N}";
+        byte[] package = CreatePackage(
+            id,
+            "Library children require selection, not loadable DLLs",
+            library: RandomNumberGenerator.GetBytes(512 * 1024),
+            libraryName: "Selected.dll",
+            extraEntries:
+            [
+                ("content/unrelated.bin",
+                    RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+            ]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+        [
+            "package", $"{id}@{Version}", "--source", FirstFeed,
+            "--tfm", "net11.0", terminal, "--verbose",
+        ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Contains(
+            "Using committed content-only package Root for inspection:",
+            result.Error,
+            StringComparison.Ordinal);
+        if (terminal == "--count")
+        {
+            Assert.Equal("1", result.Output.Trim());
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(result.Output);
+            Assert.Equal(1, document.RootElement.GetProperty("total_count").GetInt32());
+            Assert.Equal(
+                "lib/net11.0/Selected.dll",
+                document.RootElement.GetProperty("children")[0]
+                    .GetProperty("asset").GetString());
+        }
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.True(
+            feed.PackageBytesServed < 128 * 1024,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--jsonl")]
+    public async Task PackageFiles_RangedRead_RequestsDirectoryOnly(
+        string terminal)
+    {
+        string id = $"PackageFiles.Directory.{Guid.NewGuid():N}";
+        byte[] package = CreatePackage(
+            id,
+            "entry facts do not require payload content",
+            library: RandomNumberGenerator.GetBytes(512 * 1024),
+            extraEntries:
+            [
+                ("content/unrelated.bin",
+                    RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+            ]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+        [
+            "package", $"{id}@{Version}", "--source", FirstFeed,
+            "-S", "Files", "--where", "Directory=content",
+            "--rows", "1..1", terminal,
+        ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        if (terminal == "--count")
+        {
+            Assert.Equal("1", result.Output.Trim());
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "content/unrelated.bin",
+                document.RootElement.GetProperty("path").GetString());
+            Assert.Equal(
+                4 * 1024 * 1024,
+                document.RootElement.GetProperty("size").GetInt64());
+        }
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.True(
+            feed.PackageBytesServed < 128 * 1024,
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
     [Fact]
     public async Task PackageInfo_RangedRead_PreservesExplicitDirectoryBuildDate()
     {
