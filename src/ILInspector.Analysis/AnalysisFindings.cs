@@ -400,6 +400,116 @@ public static class AnalysisFindings
     }
 
     /// <summary>
+    /// Compares two unsafe member censuses as an identity set of declared
+    /// members. A matched member is changed when its provenance-free
+    /// <see cref="UnsafeMemberFindingSummary"/> differs. An incomplete census
+    /// on either side is never compared as complete, so the comparison fails
+    /// and keeps both sides' observed findings; a failed census fails it too.
+    /// </summary>
+    public static FindingComparison<UnsafeMemberFinding> CompareUnsafeMembers(
+        UnsafeMemberFindingInspection oldInspection,
+        UnsafeMemberFindingInspection newInspection)
+    {
+        ArgumentNullException.ThrowIfNull(oldInspection);
+        ArgumentNullException.ThrowIfNull(newInspection);
+
+        if (oldInspection is UnsafeMemberFindingInspection.Incomplete
+            || newInspection is UnsafeMemberFindingInspection.Incomplete)
+        {
+            return FindingComparison.Failed(
+                FindingsOf(oldInspection),
+                FindingsOf(newInspection),
+                "The unsafe member census is incomplete: before "
+                    + LimitationText(oldInspection)
+                    + ", after "
+                    + LimitationText(newInspection)
+                    + ".");
+        }
+
+        return FindingComparison.Compare(
+                FindingsOf(oldInspection),
+                FindingsOf(newInspection),
+                new FindingMatchOptions { MatchMode = FindingMatchMode.IdentitySet })
+            .TransformPairs(ClassifyUnsafeMemberChanges);
+
+        static FindingInspection<UnsafeMemberFinding> FindingsOf(
+            UnsafeMemberFindingInspection inspection) =>
+            inspection switch
+            {
+                UnsafeMemberFindingInspection.Complete complete => complete.Inspection,
+                UnsafeMemberFindingInspection.Incomplete incomplete => incomplete.Inspection,
+                UnsafeMemberFindingInspection.Failed failed =>
+                    new FindingInspection<UnsafeMemberFinding>.Failed(failed.Error),
+                _ => throw new InvalidOperationException(
+                    "Unknown unsafe member inspection outcome."),
+            };
+
+        static string LimitationText(UnsafeMemberFindingInspection inspection) =>
+            inspection switch
+            {
+                UnsafeMemberFindingInspection.Incomplete { Limitations.Length: 1 } =>
+                    "has 1 limitation",
+                UnsafeMemberFindingInspection.Incomplete incomplete =>
+                    $"has {incomplete.Limitations.Length} limitations",
+                UnsafeMemberFindingInspection.Failed => "failed",
+                _ => "is complete",
+            };
+    }
+
+    static ImmutableArray<PairFinding<UnsafeMemberFinding>> ClassifyUnsafeMemberChanges(
+        ImmutableArray<PairFinding<UnsafeMemberFinding>> pairs)
+    {
+        var builder = ImmutableArray.CreateBuilder<PairFinding<UnsafeMemberFinding>>(pairs.Length);
+        foreach (var pair in pairs)
+        {
+            if (pair is PairFinding<UnsafeMemberFinding>.Present present
+                && UnsafeMemberFindingSummary.Of(present.Old.Payload)
+                    is var oldSummary
+                && UnsafeMemberFindingSummary.Of(present.New.Payload)
+                    is var newSummary
+                && oldSummary != newSummary)
+            {
+                builder.Add(new PairFinding<UnsafeMemberFinding>.Changed(
+                    present.Old,
+                    present.New,
+                    present.Difference,
+                    DescribeUnsafeMemberChanges(oldSummary, newSummary)));
+            }
+            else
+            {
+                builder.Add(pair);
+            }
+        }
+
+        return builder.MoveToImmutable();
+    }
+
+    static string DescribeUnsafeMemberChanges(
+        UnsafeMemberFindingSummary oldSummary,
+        UnsafeMemberFindingSummary newSummary)
+    {
+        var changes = new List<string>();
+        AddChange(
+            changes,
+            "exposure",
+            UnsafeMemberFindingSummary.ExposureText(oldSummary.Exposure),
+            UnsafeMemberFindingSummary.ExposureText(newSummary.Exposure));
+        AddChange(
+            changes,
+            "explicit contract",
+            oldSummary.HasExplicitUnsafeContract,
+            newSummary.HasExplicitUnsafeContract);
+        AddChange(changes, "evidence", RolesText(oldSummary), RolesText(newSummary));
+        return string.Join("; ", changes);
+
+        static string RolesText(UnsafeMemberFindingSummary summary) =>
+            string.Join(
+                ", ",
+                summary.Roles.Select(static role =>
+                    UnsafeMemberFindingSummary.RoleText(role, static callee => callee)));
+    }
+
+    /// <summary>
     /// The declared member's identity through the shared member-identity
     /// fragment. Module version, metadata token, and caller-unsafe mode are not
     /// identity.

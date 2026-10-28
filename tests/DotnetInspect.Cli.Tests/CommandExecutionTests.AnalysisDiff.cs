@@ -1742,6 +1742,79 @@ public partial class CommandExecutionTests
         Assert.Contains(newEvidence, output);
     }
 
+    // The unsafe member census compared by declared member: Removed, Added,
+    // Changed, and Present, where a renumbered closure is no change
+    // (docs/design/unsafe-members-section.md#diff).
+    [Fact]
+    public async Task Diff_UnsafeMember_LibraryTransitionsClassifyEachMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library",
+            $"{FixtureCatalog.DiffPair.OldAssemblyPath()}..{FixtureCatalog.DiffPair.NewAssemblyPath()}",
+            "--analysis", "unsafe-member");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        const string Stable = "Public: pointer dereference ×2; stack allocation";
+        Assert.Equal(
+            [
+                ("PairFinding.Added", "AddedUnsafe(int)", "absent", Stable),
+                (
+                    "PairFinding.Changed",
+                    "ChangedUnsafe(int)",
+                    "Public: pointer dereference; stack allocation",
+                    Stable),
+                ("PairFinding.Removed", "RemovedUnsafe(int)", Stable, "absent"),
+                ("PairFinding.Present", "RenumberedClosure()", Stable, Stable),
+                ("PairFinding.Present", "StableUnsafe(int)", Stable, Stable),
+            ],
+            UnsafeMemberTransitions(output, "DiffFixtureSample :: "));
+    }
+
+    // Type scope compares the selected Type's census, with the same rows
+    // the Library comparison gives that Type.
+    [Fact]
+    public async Task Diff_UnsafeMember_TypeTransitionsAgreeWithLibrary()
+    {
+        string pair =
+            $"{FixtureCatalog.DiffPair.OldAssemblyPath()}..{FixtureCatalog.DiffPair.NewAssemblyPath()}";
+        var library = await RunAppAsync(
+            "diff", "--library", pair,
+            "--analysis", "unsafe-member");
+        var type = await RunAppAsync(
+            "diff", "--library", pair,
+            "-t", "DiffFixtureSample.UnsafeMemberDiffSample",
+            "--analysis", "unsafe-member");
+
+        Assert.Equal(0, type.Exit);
+        Assert.Empty(type.Error);
+        Assert.Equal(
+            UnsafeMemberTransitions(library.Output, "DiffFixtureSample :: "),
+            UnsafeMemberTransitions(
+                type.Output,
+                "DiffFixtureSample.UnsafeMemberDiffSample :: "));
+    }
+
+    static (string Transition, string Member, string Old, string New)[]
+        UnsafeMemberTransitions(string output, string subjectPrefix)
+    {
+        string target = subjectPrefix + "DiffFixtureSample.UnsafeMemberDiffSample.";
+        return
+        [
+            .. output.Split('\n')
+                .Select(static line => line.TrimEnd('\r').Split('\t'))
+                .Where(columns => columns.Length >= 7
+                    && columns[1] == "analysis.unsafe-member"
+                    && columns[2].StartsWith(target, StringComparison.Ordinal))
+                .Select(columns => (
+                    columns[0],
+                    columns[2][target.Length..],
+                    columns[5],
+                    columns[6]))
+                .OrderBy(static row => row.Item2, StringComparer.Ordinal),
+        ];
+    }
+
     [Fact]
     public async Task Diff_StringLiterals_ContainsRetainsCompleteChangedLiteralRows()
     {
@@ -2397,7 +2470,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--analysis (api, api-attribute, allocation, call-site, unsafety, csharp, il)",
+            "--analysis (api, api-attribute, allocation, call-site, unsafety, string-literals, unsafe-member, csharp, il)",
             error,
             StringComparison.Ordinal);
     }

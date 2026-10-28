@@ -52,6 +52,30 @@ public static class UnsafeMemberCensusQuery
             UnsafeMemberCensusAnalysis.ForTypes(types));
     }
 
+    /// <summary>
+    /// The census over every method definition of an image the caller holds
+    /// open, named <paramref name="sourceName"/> in diagnostics.
+    /// </summary>
+    public static UnsafeMemberCensusQueryResult Execute(
+        AssemblyInspectionSession session,
+        string sourceName)
+        => Execute(session, sourceName, UnsafeMemberCensusAnalysis.ForLibrary());
+
+    /// <summary>
+    /// The census over the selected types of an image the caller holds open.
+    /// </summary>
+    public static UnsafeMemberCensusQueryResult ExecuteExactTypes(
+        AssemblyInspectionSession session,
+        string sourceName,
+        params TypeDefinitionHandle[] types)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+        return Execute(
+            session,
+            sourceName,
+            UnsafeMemberCensusAnalysis.ForTypes(types));
+    }
+
     static UnsafeMemberCensusQueryResult Execute(
         string path,
         PdbContext context,
@@ -64,8 +88,31 @@ public static class UnsafeMemberCensusQuery
 
         try
         {
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Borrow(context);
             return new UnsafeMemberCensusQueryResult.Inspected(
-                Run(path, context, methodSource));
+                Run(session, path, methodSource));
+        }
+        catch (Exception ex)
+        {
+            return new UnsafeMemberCensusQueryResult.Failed(ex);
+        }
+    }
+
+    static UnsafeMemberCensusQueryResult Execute(
+        AssemblyInspectionSession session,
+        string sourceName,
+        MethodDefinitionSourceRequest<UnsafeMemberCensus> methodSource)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        if (!session.HasMetadata)
+            return new UnsafeMemberCensusQueryResult.NoMetadata();
+
+        try
+        {
+            return new UnsafeMemberCensusQueryResult.Inspected(
+                Run(session, sourceName, methodSource));
         }
         catch (Exception ex)
         {
@@ -74,15 +121,13 @@ public static class UnsafeMemberCensusQuery
     }
 
     static UnsafeMemberCensusResult Run(
-        string path,
-        PdbContext context,
+        AssemblyInspectionSession session,
+        string sourceName,
         MethodDefinitionSourceRequest<UnsafeMemberCensus> methodSource)
     {
         var operation = AssemblyAnalysisOperation<UnsafeMemberCensus>.Create(
-            path,
+            sourceName,
             methodSource.AsAssemblyAnalysisSource());
-        using AssemblyInspectionSession session =
-            AssemblyInspectionSession.Borrow(context);
         return session.SnapshotOperation<
             AssemblyAnalysisOperation<UnsafeMemberCensus>,
             UnsafeMemberCensusResult>(
