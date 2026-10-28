@@ -24,6 +24,7 @@
   <ItemGroup>
     <PackageReference Include="Markout" />
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Diff" />
   </ItemGroup>
 
 </Project>
