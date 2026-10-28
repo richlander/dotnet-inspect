@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Diff;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
@@ -177,28 +178,23 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
                     currentScope.UseSurfaceParticipant(
                         currentParticipant,
                         (currentGroup, current) =>
-                            DiffAnalysisLibraryInspection.Execute(
-                                targetGroup,
-                                target,
-                                currentGroup,
-                                current,
-                                ApiSurfaceScope.ApiAxis,
-                                BrowserApiSurfacePolicy.Limits,
-                                new DiffAnalysisLibraryInspectionRequest(
+                            DiffOperation.ExecuteLibraryPair(
+                                new LibraryPairDiffRequest(
                                     PackageId,
                                     TargetVersion,
                                     CurrentVersion,
                                     catalog,
                                     selection,
                                     DiffAnalysisDocumentViews.Changes,
-                                    new HashSet<string>(),
-                                    [],
-                                    ApiMemberTargetIdentities: null,
-                                    BeforePaths: [],
-                                    AfterPaths: [],
-                                    PrepareBodySignals: null,
-                                    PrepareImplementation: null,
-                                    HostUnavailability: []))));
+                                    new DiffTargets.Library(),
+                                    ApiSurfaceScope.ApiAxis,
+                                    BrowserApiSurfacePolicy.Limits),
+                                new DiffLibraryPair(
+                                    targetGroup,
+                                    target,
+                                    currentGroup,
+                                    current),
+                                new DiffPairContent(hostUnavailability: []))));
         }
 
         public async ValueTask DisposeAsync()
