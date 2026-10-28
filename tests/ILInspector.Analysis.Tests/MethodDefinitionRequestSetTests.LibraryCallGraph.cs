@@ -117,6 +117,9 @@ public sealed partial class MethodDefinitionRequestSetTests
             Assert.Equal(expected.Methods, actual.Methods);
             Assert.Equal(expected.DirectCalls, actual.DirectCalls);
             Assert.Equal(
+                legacy.Leverage.Top(int.MaxValue),
+                actual.TopLeverage(int.MaxValue));
+            Assert.Equal(
                 legacy.Safety.Evidence,
                 produced.UnsafeEvidence);
             Assert.Equal(

@@ -90,7 +90,6 @@ public static class AssemblyContextTypeMethodLeverageQuery
                                     + "another assembly-context participant.");
                         }
                         return Analyze(
-                            group,
                             subject,
                             snapshot,
                             available.Value);
@@ -102,31 +101,22 @@ public static class AssemblyContextTypeMethodLeverageQuery
     }
 
     static AssemblyTypeMethodLeverageInspection Analyze(
-        AssemblyContextGroup group,
         AssemblyContextSubject subject,
         AssemblyImageSnapshot snapshot,
         SelectedType selected)
     {
-        var resolver = AssemblyContextAnalysisSource.Resolver(group, subject);
-        LibraryBodyAnalysisExecution analysis =
-            LibraryBodyAnalysisService.ExecuteImage(
-                AssemblyContextAnalysisSource.Name(subject),
-                snapshot.Content,
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence),
-                resolver);
+        LibraryCallGraphAnalysisResult callGraph =
+            AssemblyContextCallGraphAnalysis.Analyze(snapshot, subject);
         try
         {
-            LibraryBodyAnalysisReceipt receipt =
-                analysis.Leverage.Receipt;
-            if (!receipt.HasFullMethodEvidenceScope)
+            if (!callGraph.HasFullMethodEvidenceScope)
             {
                 throw new InspectionQueryException(
                     "Type method-leverage analysis is incomplete because "
                         + "whole-assembly method evidence was not produced.");
             }
             ImmutableArray<AnalysisDiagnostic> diagnostics =
-                receipt.Diagnostics;
+                callGraph.Diagnostics;
             if (!diagnostics.IsEmpty)
             {
                 AnalysisDiagnostic first = diagnostics[0];
@@ -138,7 +128,7 @@ public static class AssemblyContextTypeMethodLeverageQuery
                     $"{prefix}: {first.Method}: {first.Message}");
             }
             ImmutableArray<MethodLeverage> ranked =
-                analysis.Leverage.Top(
+                callGraph.TopLeverage(
                     int.MaxValue,
                     method => AnalysisApiCorrespondence.IsSameType(
                         method.DeclaringType,
@@ -158,12 +148,11 @@ public static class AssemblyContextTypeMethodLeverageQuery
                     selected.MembersByBodyToken),
                 diagnostics,
                 selected.InspectionFailures);
-            resolver.ValidateForPublication();
             return result;
         }
         finally
         {
-            analysis.CallGraph.ReleaseCaches();
+            callGraph.ReleaseCaches();
         }
     }
 

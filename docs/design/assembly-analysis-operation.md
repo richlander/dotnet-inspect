@@ -527,8 +527,11 @@ exception classification, declared-owner mappings, and diagnostics.
 `AssemblyAnalysisOperation` and consumes only the focused result. Its
 `LibraryCallGraphAnalysisResult` compatibility receipt remains transitional;
 the exact Method-source receipt and Producer Planning work receipt are the
-authoritative execution evidence. Type Method Leverage and other consumers of
-the legacy whole-library Call Graph remain separate drain slices.
+authoritative execution evidence. [#10779](https://github.com/richlander/dotnet-inspect/issues/10779)
+moves Type Method Leverage to rank that focused result through
+`AssemblyContextCallGraphAnalysis`, preserving complete-source and diagnostic
+failure semantics without opening `LibraryBodyAnalysisService`. Other
+consumers of the legacy whole-library Call Graph remain separate drain slices.
 
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
 exact method-analysis producer for safety-only IL-coordinate preparation.

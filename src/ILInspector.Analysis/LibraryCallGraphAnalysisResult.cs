@@ -6,7 +6,7 @@ namespace ILInspector.Analysis;
 
 /// <summary>
 /// Detached single-module call evidence and lazy local call-graph derivations
-/// produced by one library-body Analysis execution.
+/// produced by one Analysis execution.
 /// </summary>
 public sealed class LibraryCallGraphAnalysisResult
 {
@@ -202,6 +202,29 @@ public sealed class LibraryCallGraphAnalysisResult
     public ImmutableArray<MethodIdentity> Methods { get; }
 
     public ImmutableArray<DirectCall> DirectCalls { get; }
+
+    /// <summary>
+    /// Ranks methods by distinct direct callers and supporting graph signals.
+    /// </summary>
+    public ImmutableArray<MethodLeverage> TopLeverage(
+        int count = 25,
+        Func<MethodIdentity, bool>? scope = null)
+    {
+        if (!WasRequested)
+        {
+            throw new InvalidOperationException(
+                "Leverage analysis was not requested for this Analysis "
+                + "execution.");
+        }
+
+        return MethodLeverageRanking.Top(
+            DirectCalls,
+            Methods,
+            count,
+            scope,
+            maxDepth: 64,
+            DeclaredMethodMap);
+    }
 
     public ImmutableArray<ResourceOwnershipMethodSummary>
         ResourceOwnershipSummaries { get; }
