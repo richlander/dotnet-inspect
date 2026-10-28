@@ -1528,10 +1528,12 @@ public static partial class FindingDiffAny
                     mark = Transient.Begin();
                     Transient.Mark(FindingDiffAnyPart.ParameterFact).Key(parameterKey)
                         .Name(parameter.Name).Int((int)parameter.Attributes);
-                    Constant(defaultValue);
+                    ConstantTypeCode? defaultType = Constant(defaultValue);
                     census.Add(Transient.End(mark).Slot);
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
-                    if (apiDependencies && api == true && parameter.SequenceNumber > 0 && !defaultValue.IsNil)
+                    // Null defaults present as null/default without enum literal lookup.
+                    if (apiDependencies && api == true && parameter.SequenceNumber > 0
+                        && defaultType is not (null or ConstantTypeCode.NullReference))
                         DefaultLiteralDependencies(census, methodHandle, method, parameter.SequenceNumber, parameterKey);
                 }
                 MethodImport import = method.GetImport();
@@ -1781,16 +1783,17 @@ public static partial class FindingDiffAny
             }
         }
 
-        void Constant(ConstantHandle handle)
+        ConstantTypeCode? Constant(ConstantHandle handle)
         {
             if (handle.IsNil)
             {
                 Transient.Mark(FindingDiffAnyPart.Absent);
-                return;
+                return null;
             }
             Constant constant = Md.GetConstant(handle);
             Transient.Mark(FindingDiffAnyPart.Constant).Int((int)constant.TypeCode);
             Blob(constant.Value);
+            return constant.TypeCode;
         }
 
         void Blob(BlobHandle handle)

@@ -292,6 +292,23 @@ public sealed class ApiTypeClosureHashTests
     }
 
     [Fact]
+    public void NullDefaults_DoNotDependOnEnumLiterals()
+    {
+        byte[] oldImage = Compile("public enum E { A = 1 } public struct S { public const int A = 1; } public class C { public void M(S value = default, E? nullable = null) { } }");
+        byte[] newImage = Compile("public enum E { B = 1 } public struct S { public const int B = 1; } public class C { public void M(S value = default, E? nullable = null) { } }");
+        using var before = new PEReader(new MemoryStream(oldImage));
+        using var after = new PEReader(new MemoryStream(newImage));
+        var full = MetadataFindings.CompareApi(
+            ApiSurfaceExtractor.ExtractDeclarations(before, ApiSurfaceExtractionScope.ApiAxis),
+            ApiSurfaceExtractor.ExtractDeclarations(after, ApiSurfaceExtractionScope.ApiAxis),
+            Subject, new ApiDiffOptions(ApiDiffScope.All));
+        Assert.DoesNotContain("C", FindingDiffAnyTests.ChangedTypes(full));
+        var result = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api, TestContext.Current.CancellationToken);
+        Assert.Equal(FindingDiffAnyState.Unchanged, Assert.Single(result.Types, t => t.FullName == "C").Api);
+        Assert.Equal(0, result.Receipt.ApiSurfacesBuilt);
+    }
+
+    [Fact]
     public void EnumDefaultDependency_DoesNotWidenTheBodyAxis()
     {
         byte[] oldImage = Compile("public enum E { A = 1 } public class C { private void M(E e = E.A) { } }");
