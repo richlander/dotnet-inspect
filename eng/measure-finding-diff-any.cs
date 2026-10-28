@@ -522,12 +522,12 @@ static void ReportType(
             + $"\trepeat-walk-us={repeatWalkUs:F1}\trepeat-lockstep-us={repeatLockstepUs:F1}"
             + $"\tfirstWalkBytes={firstWalkBytes}\tfirstLockstepBytes={firstLockstepBytes}");
 
-// Complete Public API comparison, signatures and attributes.
-const ApiSurfaceExtractionScope surfaceScope = ApiSurfaceExtractionScope.Public;
+// Complete comparison of the API-axis population, signatures and attributes.
+const ApiSurfaceExtractionScope surfaceScope = ApiSurfaceExtractionScope.ApiAxis;
 ApiSurface Surface(byte[] bytes)
 {
     using var reader = new PEReader(new MemoryStream(bytes, writable: false));
-    return ApiSurfaceExtractor.Extract(reader, surfaceScope);
+    return ApiSurfaceExtractor.ExtractDeclarations(reader, surfaceScope);
 }
 ApiFindingComparison complete = MetadataFindings.CompareApi(
     Surface(beforeBytes), Surface(afterBytes), new FindingSubject("api", "API"),
