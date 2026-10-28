@@ -607,7 +607,7 @@ full:
 - both sides' extension-declaring Types, as Type selection already requires;
   and
 - every Type, at a view the [Unchanged
-  prefilter](finding-producers.md#7-compare-typed-facts-spell-at-presentation)
+  prefilter](finding-producers.md#unchanged-prefilter)
   does not define.
 
 The Unchanged prefilter skips every other Type whose closure hash is equal on
