@@ -822,8 +822,8 @@ authored operation preset.
 ### Envelope-complete adoption
 
 `InspectionEnvelope<TContent>` already exists, and
-`LibraryApiDiffInspection.Execute` already returns
-`InspectionEnvelope<LibraryApiDiffOutcome>`. Its available case carries one
+`DiffOperation.ExecuteLibraryPair` already returns a `DiffAnalysisDocument`
+whose `LibraryApi` is a `LibraryApiDiffOutcome`. Its available case carries one
 `LibraryApiDiffDocument`, retaining endpoint summaries, the existing
 `ComparisonDocument<LibraryApiTypeDiff>`, verdicts, and evidence. Unavailable
 and rejected execution retain their typed cases.

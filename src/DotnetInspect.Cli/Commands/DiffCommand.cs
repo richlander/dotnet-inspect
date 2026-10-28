@@ -996,18 +996,17 @@ public partial class DiffCommand
             InspectionEnvelopeJsonContract<LibraryApiChangesOutcome<T>> contract,
             Action<T> render)
         {
-            var envelope = inputs.From.PackageScope is { } beforeScope
+            var request = LibraryApiChangesDiffAdapter.CreateRequest(
+                inputs.Name, inputs.FromVersion, inputs.ToVersion, options.IncludeAll, typeSelection);
+            LibraryApiDiffOutcome outcome = inputs.From.PackageScope is { } beforeScope
                 && inputs.To.PackageScope is { } afterScope
-                    ? await LibraryApiDiffRunner.ExecuteAsync(
-                        beforeScope, afterScope, options.IncludeAll, Complete, typeSelection, cancellationToken)
-                    : await LibraryApiDiffRunner.ExecuteAsync(
-                        inputs.From.AssemblySet.Assemblies[0], inputs.To.AssemblySet.Assemblies[0],
-                        options.IncludeAll, Complete, typeSelection);
+                    ? await LibraryApiChangesDiffAdapter.ExecuteAsync(
+                        request, beforeScope, afterScope, cancellationToken)
+                    : await LibraryApiChangesDiffAdapter.ExecuteAsync(
+                        request, inputs.From.AssemblySet.Assemblies[0], inputs.To.AssemblySet.Assemblies[0]);
+            var envelope = project(outcome);
             int written = LibraryApiDiffOutput.Write(envelope, contract, inputs.Name, options, render);
             return PublishAcquisitionEvidence(inputs, options, envelope, contract, written);
-
-            InspectionEnvelope<LibraryApiChangesOutcome<T>> Complete(AssemblyContextApiComparisonResult result)
-                => project(LibraryApiDiffPresentationAdapter.Create(result));
         }
     }
 

@@ -2,17 +2,24 @@ using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Diff;
 
 /// <summary>
-/// An exact-pair request over the analysis catalog whose subject is one
-/// Library, or Types or Members within it: the single-Library API Diff
-/// terminal (diff-system.md#single-library-api-diff-terminal). The terminal
-/// populates <see cref="DiffAnalysisDocument.LibraryApi"/>.
+/// An exact-pair request whose subject is one Library, or Types or Members
+/// within it: the single-Library API Diff terminal
+/// (diff-system.md#single-library-api-diff-terminal). Its content is an
+/// analysis set from the catalog, the Library API presentation
+/// (<see cref="DiffAnalysisDocument.LibraryApi"/>), or both; the terminal runs
+/// only the content the request asks for.
 /// </summary>
 public sealed class LibraryPairDiffRequest : DiffRequest
 {
+    /// <summary>
+    /// Asks for the analysis set's outcomes, and for the Library API
+    /// presentation when <paramref name="libraryApi"/> is set.
+    /// </summary>
     public LibraryPairDiffRequest(
         string name,
         string beforeVersion,
@@ -20,18 +27,15 @@ public sealed class LibraryPairDiffRequest : DiffRequest
         InspectionCapabilityCatalog catalog,
         AnalysisSetValidationResult.Accepted selection,
         DiffAnalysisDocumentViews views,
+        bool libraryApi,
         DiffTargets targets,
         ApiSurfaceScope view,
         ApiSurfaceProjectionLimits bounds,
         StringLiteralComparisonQueryPlan? stringLiteralQuery = null)
+        : this(name, beforeVersion, afterVersion, targets, view, bounds)
     {
-        ArgumentNullException.ThrowIfNull(name);
-        ArgumentNullException.ThrowIfNull(beforeVersion);
-        ArgumentNullException.ThrowIfNull(afterVersion);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(targets);
-        ArgumentNullException.ThrowIfNull(bounds);
         if (targets.Surface != selection.Surface)
         {
             throw new ArgumentException(
@@ -40,16 +44,51 @@ public sealed class LibraryPairDiffRequest : DiffRequest
                 nameof(targets));
         }
 
-        Name = name;
-        BeforeVersion = beforeVersion;
-        AfterVersion = afterVersion;
         Catalog = catalog;
         Selection = selection;
         Views = views;
+        LibraryApi = libraryApi;
+        StringLiteralQuery = stringLiteralQuery;
+    }
+
+    /// <summary>
+    /// Asks for only the Library API presentation, running no analysis.
+    /// <paramref name="typeSelection"/> narrows the comparison itself, so
+    /// changed Types outside it are not extracted.
+    /// </summary>
+    public LibraryPairDiffRequest(
+        string name,
+        string beforeVersion,
+        string afterVersion,
+        DiffTargets targets,
+        ApiSurfaceScope view,
+        ApiSurfaceProjectionLimits bounds,
+        ApiTypeSelection? typeSelection)
+        : this(name, beforeVersion, afterVersion, targets, view, bounds)
+    {
+        LibraryApi = true;
+        TypeSelection = typeSelection;
+    }
+
+    private LibraryPairDiffRequest(
+        string name,
+        string beforeVersion,
+        string afterVersion,
+        DiffTargets targets,
+        ApiSurfaceScope view,
+        ApiSurfaceProjectionLimits bounds)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(beforeVersion);
+        ArgumentNullException.ThrowIfNull(afterVersion);
+        ArgumentNullException.ThrowIfNull(targets);
+        ArgumentNullException.ThrowIfNull(bounds);
+        Name = name;
+        BeforeVersion = beforeVersion;
+        AfterVersion = afterVersion;
         Targets = targets;
         View = view;
         Bounds = bounds;
-        StringLiteralQuery = stringLiteralQuery;
     }
 
     /// <summary>The Library's display name, which labels the result.</summary>
@@ -61,14 +100,25 @@ public sealed class LibraryPairDiffRequest : DiffRequest
     /// <summary>The After endpoint's version label.</summary>
     public string AfterVersion { get; }
 
-    /// <summary>The capability catalog the selection was validated against.</summary>
-    public InspectionCapabilityCatalog Catalog { get; }
+    /// <summary>
+    /// The capability catalog the selection was validated against, or null
+    /// when the request asks for no analysis.
+    /// </summary>
+    public InspectionCapabilityCatalog? Catalog { get; }
 
-    /// <summary>The validated analysis set: the request's content.</summary>
-    public AnalysisSetValidationResult.Accepted Selection { get; }
+    /// <summary>
+    /// The validated analysis set, or null when the request asks for only the
+    /// Library API presentation.
+    /// </summary>
+    public AnalysisSetValidationResult.Accepted? Selection { get; }
 
     /// <summary>The document views to project.</summary>
     public DiffAnalysisDocumentViews Views { get; }
+
+    /// <summary>
+    /// Whether the result carries <see cref="DiffAnalysisDocument.LibraryApi"/>.
+    /// </summary>
+    public bool LibraryApi { get; }
 
     /// <summary>The Library, or the Types or Members within it, to compare.</summary>
     public DiffTargets Targets { get; }
@@ -81,6 +131,12 @@ public sealed class LibraryPairDiffRequest : DiffRequest
 
     /// <summary>The owner-resolved string-literal predicate, when selected.</summary>
     public StringLiteralComparisonQueryPlan? StringLiteralQuery { get; }
+
+    /// <summary>
+    /// The Type selection that narrows a Library API-only comparison, or null
+    /// for every Type.
+    /// </summary>
+    public ApiTypeSelection? TypeSelection { get; }
 }
 
 /// <summary>
@@ -200,6 +256,8 @@ public sealed record LibraryApiComparison(
 /// <summary>
 /// A host-owned reuse hook: returns a previously completed comparison of the
 /// same endpoint pair, view, and bounds, or runs <paramref name="compute"/>.
+/// A request with a <see cref="LibraryPairDiffRequest.TypeSelection"/>
+/// compares a narrowed pair, which the hook cannot key, so it takes none.
 /// </summary>
 public delegate LibraryApiComparison DiffComparisonReuse(
     Func<LibraryApiComparison> compute);
