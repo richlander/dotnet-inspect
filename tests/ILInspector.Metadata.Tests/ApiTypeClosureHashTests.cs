@@ -245,6 +245,8 @@ public sealed class ApiTypeClosureHashTests
     [InlineData("nested-enum-default", "public class Outer { public enum E { A = 1 } } public class C { public void M(Outer.E e = Outer.E.A) { } }", "public class Outer { public enum E { B = 1 } } public class C { public void M(Outer.E e = Outer.E.B) { } }", true)]
     [InlineData("unused-enum-literal-negative", "public enum E { A = 1, B = 2 } public class C { public void M(E e = E.A) { } }", "public enum E { A = 1, Other = 2 } public class C { public void M(E e = E.A) { } }", false)]
     [InlineData("enum-value-default-negative", "public enum E { A = 1 } public class C { public void M(E e = E.A) { } }", "public enum E { A = 2 } public class C { public void M(E e = E.A) { } }", false)]
+    [InlineData("multiple-defaults-and-methods", "public enum E { A = 1 } public enum F { B = 2 } public class C { public void M(E x = E.A, int count = 7) { } public void N(F y = F.B, int count = 8) { } }", "public enum E { A = 1 } public enum F { Other = 2 } public class C { public void M(E x = E.A, int count = 7) { } public void N(F y = F.Other, int count = 8) { } }", true)]
+    [InlineData("module-multiple-types-negative", "[module: System.CLSCompliant(true)] public class A { } public class C { }", "[module: System.CLSCompliant(false)] public class A { } public class C { }", false)]
     public void CensusAndClosureHash_RespectCrossTypeDependencies(string scenario, string oldSource, string newSource, bool expectedChanged)
     {
         byte[] oldImage = Compile(oldSource);
@@ -274,6 +276,11 @@ public sealed class ApiTypeClosureHashTests
             Assert.Contains(partition.Members, member => member.Api == FindingDiffAnyState.Changed);
         else
             Assert.All(partition.Members, member => Assert.Equal(FindingDiffAnyState.Unchanged, member.Api));
+        if (scenario == "multiple-defaults-and-methods")
+        {
+            FindingDiffAnyMemberState member = Assert.Single(partition.Members, row => row.Api == FindingDiffAnyState.Changed);
+            Assert.Equal("N", before.GetMetadataReader().GetString(before.GetMetadataReader().GetMethodDefinition((MethodDefinitionHandle)member.Before).Name));
+        }
         if (scenario.Contains("enum", StringComparison.Ordinal))
         {
             using var declarations = DeclarationCensusSide.Create(before);

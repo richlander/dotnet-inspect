@@ -997,6 +997,9 @@ public static partial class FindingDiffAny
         MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef, SideRows> _speller;
         readonly HashSet<TypeDefinitionHandle> _literalDefinitions = [];
         bool _captureLiteralDefinitions;
+        MethodDefinitionHandle _literalMethod;
+        int _literalParameterCount;
+        readonly Dictionary<EntityHandle, SymbolKey<FindingDiffAnyPart>> _moduleConstructors = [];
         readonly Dictionary<TypeDefinitionHandle, Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess>> _explicitImplementations = [];
         SymbolKeyInterner<FindingDiffAnyPart>? _interner;
 
@@ -1100,6 +1103,7 @@ public static partial class FindingDiffAny
         public void EndUnit()
         {
             _unitKeys.Clear();
+            _literalMethod = default;
             Transient.Reset();
             if (Retained.Length >= RetainedChunkBytes)
                 FreezeRetained();
@@ -1366,8 +1370,10 @@ public static partial class FindingDiffAny
             census.Add(Transient.Mark(visible ? FindingDiffAnyPart.Visible : FindingDiffAnyPart.Hidden).End(mark).Slot);
             if (!visible)
                 return census;
-            census.AddRange(VisibleFacts(unit).Where(fact => !IsNonApi(fact)));
-            Attributes(census, Md.GetModuleDefinition().GetCustomAttributes(), TypeKey(unit.Owner));
+            TypeFacts(census, unit.Owner);
+            MemberFacts(census, unit.Owner, api: true, out _);
+            census.RemoveAll(IsNonApi);
+            ModuleAttributes(census, TypeKey(unit.Owner));
             Transient.Sort(census);
             return census;
         }
@@ -1515,17 +1521,18 @@ public static partial class FindingDiffAny
                 foreach (ParameterHandle parameterHandle in method.GetParameters())
                 {
                     Parameter parameter = Md.GetParameter(parameterHandle);
+                    ConstantHandle defaultValue = parameter.GetDefaultValue();
                     mark = Transient.Begin();
                     StagedSymbolKey<FindingDiffAnyPart> parameterKey = Transient.Mark(FindingDiffAnyPart.Parameter).Key(key)
                         .Int(parameter.SequenceNumber).End(mark);
                     mark = Transient.Begin();
                     Transient.Mark(FindingDiffAnyPart.ParameterFact).Key(parameterKey)
                         .Name(parameter.Name).Int((int)parameter.Attributes);
-                    Constant(parameter.GetDefaultValue());
+                    Constant(defaultValue);
                     census.Add(Transient.End(mark).Slot);
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
-                    if (apiDependencies && api == true && parameter.SequenceNumber > 0 && !parameter.GetDefaultValue().IsNil)
-                        DefaultLiteralDependencies(census, method, parameter.SequenceNumber, parameterKey);
+                    if (apiDependencies && api == true && parameter.SequenceNumber > 0 && !defaultValue.IsNil)
+                        DefaultLiteralDependencies(census, methodHandle, method, parameter.SequenceNumber, parameterKey);
                 }
                 MethodImport import = method.GetImport();
                 if (!import.Module.IsNil)
@@ -1584,30 +1591,35 @@ public static partial class FindingDiffAny
             }
         }
 
-        void DefaultLiteralDependencies(List<SymbolKeySlot> census, MethodDefinition method, int sequence,
+        void DefaultLiteralDependencies(List<SymbolKeySlot> census, MethodDefinitionHandle methodHandle, MethodDefinition method, int sequence,
             StagedSymbolKey<FindingDiffAnyPart> parameter)
         {
             // Composite signature types resolve their rows through SideRows;
             // direct rows remain deferred until the consumer embeds them. Keep
             // both, so Nullable<E> and nested enum defaults have E's literals.
-            _literalDefinitions.Clear();
-            _captureLiteralDefinitions = true;
-            bool opened = false;
-            try
+            if (_literalMethod != methodHandle)
             {
-                MethodSignature<MetadataSignatureKey> signature = _speller.DecodeMethod(method);
-                opened = true;
-                if (sequence > signature.ParameterTypes.Length)
-                    throw new BadImageFormatException("Parameter sequence exceeds signature.");
-                foreach (MetadataSignatureKey type in signature.ParameterTypes)
-                    if (type.IsRow && type.Row.Kind == HandleKind.TypeDefinition)
-                        _literalDefinitions.Add((TypeDefinitionHandle)type.Row);
+                _literalDefinitions.Clear();
+                _captureLiteralDefinitions = true;
+                bool opened = false;
+                try
+                {
+                    MethodSignature<MetadataSignatureKey> signature = _speller.DecodeMethod(method);
+                    opened = true;
+                    _literalParameterCount = signature.ParameterTypes.Length;
+                    foreach (MetadataSignatureKey type in signature.ParameterTypes)
+                        if (type.IsRow && type.Row.Kind == HandleKind.TypeDefinition)
+                            _literalDefinitions.Add((TypeDefinitionHandle)type.Row);
+                }
+                finally
+                {
+                    _captureLiteralDefinitions = false;
+                    if (opened) _speller.Discard();
+                }
+                _literalMethod = methodHandle;
             }
-            finally
-            {
-                _captureLiteralDefinitions = false;
-                if (opened) _speller.Discard();
-            }
+            if (sequence > _literalParameterCount)
+                throw new BadImageFormatException("Parameter sequence exceeds signature.");
             foreach (TypeDefinitionHandle definition in _literalDefinitions)
             {
                 foreach (FieldDefinitionHandle handle in Md.GetTypeDefinition(definition).GetFields())
@@ -1703,6 +1715,26 @@ public static partial class FindingDiffAny
                     Attributes(census, constraint.GetCustomAttributes(), fact);
                 }
                 Attributes(census, parameter.GetCustomAttributes(), key);
+            }
+        }
+
+        void ModuleAttributes(List<SymbolKeySlot> census, KeyRef owner)
+        {
+            // The module's constructor rows have the same meaning in every
+            // Type. Own their small keys once; per-Type facts keep their owner
+            // and blob exactly as in ordinary attribute facts.
+            foreach (CustomAttributeHandle handle in Md.GetModuleDefinition().GetCustomAttributes())
+            {
+                CustomAttribute attribute = Md.GetCustomAttribute(handle);
+                if (!_moduleConstructors.TryGetValue(attribute.Constructor, out var constructor))
+                {
+                    constructor = Key(attribute.Constructor).Detach();
+                    _moduleConstructors.Add(attribute.Constructor, constructor);
+                }
+                int mark = Transient.Begin();
+                Transient.Mark(FindingDiffAnyPart.Attribute).Key(owner).Key(constructor);
+                Blob(attribute.Value);
+                census.Add(Transient.End(mark).Slot);
             }
         }
 

@@ -358,6 +358,14 @@ A complete comparison is projected only for the selected Type when no
 presented difference settles the census. Equal censuses project no model.
 The receipt reports API surfaces built and the time constructing them.
 
+Module attribute constructors are decoded into owned keys once per image and
+shared across Type censuses. Defaulted parameters of one method share its
+decoded signature dependencies, and the constant handle is read once per
+parameter. API facts fill their result list directly before the non-API facts
+are removed. These work reductions preserve the fact keys and their owners;
+the multiple-Type module and multiple-default/method cases in
+`CensusAndClosureHash_RespectCrossTypeDependencies` gate the sharing boundaries.
+
 The census includes facts outside the selected Type when the API projection
 reads them: literal names and constants of local Types used by defaulted
 method signatures, implemented local interfaces' access flags, and module
