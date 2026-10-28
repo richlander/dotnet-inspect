@@ -16,7 +16,7 @@ export interface OverviewSurfaceOptions {
   escapeHtml: (value: unknown) => string;
 }
 
-interface OverviewEnablement {
+export interface OverviewEnablement {
   id: string;
   label: string;
 }
@@ -64,6 +64,7 @@ export function renderLibraryOverviewContent(
     </aside>
   </div>`;
 }
+
 
 export function renderOverviewSurface(
   options: OverviewSurfaceOptions,

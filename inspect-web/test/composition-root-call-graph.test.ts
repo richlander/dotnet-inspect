@@ -906,17 +906,17 @@ test("Type transitions load the current lens selection after rendering", () => {
     ?? "";
   assert.match(
     indexedLensSelection,
-    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
+    /workspaceScope === "type"[\s\S]*state\.lens = selected\[0\];\s*render\(\);\s*loadCurrentTypeLensData\(\)/);
 
   const horizontalLensSelection =
     appSource.match(/function stepHorizontal\([\s\S]*?\n}\n\n\/\/ Enter drills/)?.[0]
     ?? "";
   assert.match(
     horizontalLensSelection,
-    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentTypeApiData\(\)/);
+    /state\.lens = next\[0\];\s*render\(\);\s*loadCurrentTypeLensData\(\)/);
   assert.match(
     appSource,
-    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentTypeApiData\(\)/);
+    /onTypeLensSelect:[\s\S]*?state\.lens = lens;[\s\S]*?render\(\);\s*loadCurrentTypeLensData\(\)/);
   assert.match(
     appSource,
     /if \(!state\.atPackageRoot && !state\.atLibraryRoot && type\) \{\s*loadCurrentSelectionData\("Restoring a Type from navigation history"\);/);
@@ -925,7 +925,7 @@ test("Type transitions load the current lens selection after rendering", () => {
     /async function activatePlatformForwarder[\s\S]*showContentDetailAfterRender\(\);\s*render\(\);\s*loadCurrentSelectionData\("Loading the forwarded Type"\)/);
   assert.match(
     appSource,
-    /function loadCurrentTypeApiData\(\): void \{\s*if \(state\.lens === "api"\) \{\s*loadCurrentSelectionData\("Loading the selected Type"\)/);
+    /function loadCurrentTypeLensData\(\): void \{\s*loadCurrentSelectionData\("Loading the selected Type lens"\)/);
 });
 
 test("same-key Type population consumers join one current operation", () => {
@@ -1922,19 +1922,22 @@ test("Spotlight indexes the stable eager member inventory", () => {
     /memberAccessibilityFilter|memberSpelling|typeMemberPopulation/);
 });
 
-test("type metadata uses a full-area working surface without the inset type heading", () => {
+test("Type Overview adopts the full-area metadata surface", () => {
   const renderLens =
     appSource.match(/function renderLens\([\s\S]*?\n}\n\nfunction renderApiLens/)?.[0]
     ?? "";
   assert.match(
     appSource,
-    /const metadataWorkingSurface =\s*activeScope === "type" && state\.lens === "metadata"/);
+    /const overviewWorkingSurface =[\s\S]*activeScope === "type" && state\.lens === "overview"/);
+  assert.match(
+    appSource,
+    /const typeGraphWorkingSurface =[\s\S]*state\.lens === "overview" \|\| state\.lens === "metadata"[\s\S]*typeGraphWorkingSurface[\s\S]*id="type-graph-explore" data-graph-explore\$\{typeGraphAvailable\(\)/);
   assert.match(
     appSource,
     /metadataWorkingSurface \? " metadata-working-surface" : ""/);
   assert.match(
     renderLens,
-    /case "metadata":\s*return renderTypeMetadataHtml\(item\);/);
+    /case "metadata":\s*case "overview":\s*return renderTypeMetadataHtml\(item\);/);
   assert.doesNotMatch(
     renderLens,
     /case "metadata":[\s\S]*?typeHeadingHtml\(item\)/);
