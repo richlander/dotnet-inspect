@@ -9,28 +9,33 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
-    [Fact]
-    public void
-        AuthoredDocumentationAuthorizationUsesUserVerbosityBeforePromotion()
+    [Theory]
+    [InlineData(Verbosity.Quiet)]
+    [InlineData(Verbosity.Minimal)]
+    [InlineData(Verbosity.Normal)]
+    [InlineData(Verbosity.Detailed)]
+    public void AuthoredDocumentationRequiresExplicitDemand(Verbosity verbosity)
     {
-        Assert.False(
-            DocumentationEnricher.AuthorizesAuthoredDocumentation(
-                new ApiOptions
-                {
-                    ShowDocs = true,
-                    Verbosity = Verbosity.Detailed,
-                    VerbosityExplicitlySet = true,
-                    UserVerbosityOverride = Verbosity.Normal,
-                }));
-        Assert.True(
-            DocumentationEnricher.AuthorizesAuthoredDocumentation(
-                new ApiOptions
-                {
-                    ShowDocs = true,
-                    Verbosity = Verbosity.Detailed,
-                    VerbosityExplicitlySet = true,
-                    UserVerbosityOverride = Verbosity.Detailed,
-                }));
+        ApiOptions[] callers = [new ApiOptions(), new TypeOptions(), new MemberOptions()];
+        foreach (ApiOptions caller in callers)
+        {
+            var automatic = caller with
+            {
+                ShowDocs = true,
+                Verbosity = Verbosity.Detailed,
+                VerbosityExplicitlySet = true,
+                UserVerbosityOverride = verbosity,
+            };
+            Assert.False(DocumentationEnricher.AuthorizesAuthoredDocumentation(automatic));
+            Assert.False(DocumentationEnricher.AuthorizesAuthoredDocumentation(
+                automatic with { UserVerbosityOverride = null, Verbosity = verbosity }));
+            Assert.True(DocumentationEnricher.AuthorizesAuthoredDocumentation(
+                automatic with { DocsExplicitlySet = true }));
+            Assert.False(DocumentationEnricher.AuthorizesAuthoredDocumentation(
+                automatic with { DocsExplicitlySet = true, ShowDocs = false }));
+            Assert.True(DocumentationEnricher.AuthorizesAuthoredDocumentation(
+                automatic with { ShowDocs = false, ShowSamples = true }));
+        }
     }
 
     [Fact]
