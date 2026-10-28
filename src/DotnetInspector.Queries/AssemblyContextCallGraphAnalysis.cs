@@ -279,8 +279,7 @@ internal static class AssemblyContextCallGraphAnalysis
                         work,
                         producer,
                         MethodDefinitionSourceBreadth
-                            .AllDefinitions
-                            .IncludeGeneratedExecutionBodies());
+                            .AllDefinitions);
         var operation =
             AssemblyAnalysisOperation<
                 LibraryCallGraphProducerResult>.Create(

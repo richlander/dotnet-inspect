@@ -48,6 +48,51 @@ internal abstract record BrowserWorkspaceConstructionResult
 [SupportedOSPlatform("browser")]
 internal sealed partial class BrowserRetainedWorkspaceActivationOwner
 {
+    internal async ValueTask<BrowserRetainedWorkspacePosting> SelectProjectInspectorAsync(
+        string retainedDefinitionId,
+        string realizationId,
+        string actionId,
+        CancellationToken cancellationToken = default)
+    {
+        BrowserRetainedWorkspacePosting posting;
+        NavigationAction action;
+        lock (_gate)
+        {
+            posting = _active is { Origin: BrowserRetainedWorkspaceOrigin.Project } active
+                && active.RetainedDefinitionId == retainedDefinitionId
+                && active.RealizationId == realizationId
+                    ? active
+                    : throw new InvalidOperationException("The Project realization is no longer active.");
+            action = posting.Navigation.Snapshot.Lenses
+                .Select(lens => lens.Action)
+                .FirstOrDefault(candidate => candidate?.Id == actionId)
+                ?? throw new InvalidOperationException("The Project inspector action is no longer available.");
+        }
+
+        WorkspaceRealizationOperationAdmission admission =
+            await EnterOperationAsync(retainedDefinitionId, cancellationToken).ConfigureAwait(false);
+        if (admission is not WorkspaceRealizationOperationAdmission.Admitted admitted)
+            throw new InvalidOperationException("The Project realization is unavailable.");
+        using WorkspaceRealizationOperationLease operation = admitted.Lease;
+        if (!ReferenceEquals(operation.Realization, posting.Realization))
+            throw new InvalidOperationException("The Project realization changed.");
+        NavigationConsumerResult navigation = await posting.NavigationState.ExecuteAsync(
+            action,
+            (request, token) => posting.NavigationPreparation.PrepareAsync(operation, request, token),
+            cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The Project Navigation was retired.");
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_active, posting)
+                || navigation.Authority is null
+                || !posting.NavigationState.ValidateAuthority(navigation.Authority))
+            {
+                throw new InvalidOperationException("The Project inspector selection was superseded.");
+            }
+            return _active = posting with { Navigation = navigation };
+        }
+    }
+
     async Task<BrowserWorkspaceConstructionResult> PrepareActivationAsync(
         BrowserRetainedWorkspaceActivationIntent intent,
         CancellationToken cancellationToken)

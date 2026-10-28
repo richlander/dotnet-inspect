@@ -64,6 +64,21 @@ Overview may show retained direct facts and a relationship-loading state. A
 failed or unavailable projection does not become an empty base or interface
 population.
 
+### Custom attribute rows
+
+Custom attributes render as one syntax-highlighted C# attribute per list row,
+preserving the projected order and count. Long arguments wrap within the row;
+larger populations extend the ordinary Overview scroll rather than flowing
+sideways as chips. An empty population omits the section.
+
+The motivating asset is `System.Text.Json` `11.0.0-preview.7.26381.103`,
+`net11.0`, Type `System.Text.Json.Utf8JsonReader`. Its `System.Obsolete`
+attribute contains a long compiler-compatibility message and a Boolean
+argument; `System.Diagnostics.DebuggerDisplay` contains a quoted expression.
+Open that exact coordinate in Type Overview to reproduce. Focused
+`type-panel.test.ts` cases retain these spellings and gate separate rows,
+syntax tokens, order, count, larger populations, and empty-section omission.
+
 ## First-adopter evidence
 
 `System.Text.Json` 10.0.13

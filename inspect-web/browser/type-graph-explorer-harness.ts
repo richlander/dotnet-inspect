@@ -9,6 +9,7 @@ import {
 } from "../src/type-panel.ts";
 import type { InertString } from "../src/facades/inspect-web-metadata.d.ts";
 import { createWorkbenchKeybindings } from "../src/workbench-keybindings.ts";
+import { prismCSharp } from "../src/prism-csharp.ts";
 
 const app = document.querySelector<HTMLElement>("#app")!;
 app.style.height = "100dvh";
@@ -29,6 +30,7 @@ let retainedSvg: SVGSVGElement | null = null;
 let hold: Promise<void> | null = null;
 let releasePending: (() => void) | null = null;
 let pendingRender = Promise.resolve();
+let attributes = ["Example.Attribute"];
 
 function isMetadataInertString(value: unknown): value is InertString {
   return typeof value === "string";
@@ -52,6 +54,7 @@ declare global {
       rememberSvg: () => void;
       sameSvg: () => boolean;
       counts: () => { mounts: number; navigations: number };
+      setAttributes: (values: string[]) => Promise<void>;
     };
   }
 }
@@ -78,7 +81,7 @@ function metadata() {
           introducedTypeParameterCounts: [0],
           kind: item.kind,
           accessibility: "public",
-          attributes: ["Example.Attribute"],
+          attributes,
           isSealed: false,
           isAbstract: false,
           isStatic: false,
@@ -215,6 +218,8 @@ async function render() {
       },
       memberCompositionHtml: "",
       escapeHtml,
+      highlightCSharp: value => prismCSharp.highlight(
+        value, prismCSharp.languages.csharp, "csharp"),
       relatedTypeChip: name => `<span class="type-chip">${escapeHtml(name)}</span>`,
       factRows: rows => `<div class="fact-rows">${rows.map(([label, value]) =>
         `<div><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`).join("")}</div>`,
@@ -230,6 +235,7 @@ async function render() {
 }
 
 window.typeExploreProbe = {
+  setAttributes: async values => { attributes = values; await render(); },
   update: async next => { state = next; await render(); },
   startPending: () => {
     hold = new Promise<void>(resolve => { releasePending = resolve; });

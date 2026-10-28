@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -31,7 +32,8 @@ internal static class PackageInspector
         bool requireIdentifierMetadata = false,
         bool verifyRidPackageAvailability = false,
         bool scanBinarySignals = true,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        string? requestedTargetFramework = null)
     {
         string extractPath = resolution.ExtractPath;
         string packageName = resolution.PackageName ?? fallbackPackageName;
@@ -101,6 +103,22 @@ internal static class PackageInspector
                         sourceOptions);
                 }
 
+                if (!string.IsNullOrWhiteSpace(requestedTargetFramework))
+                {
+                    InspectionEnvelope<PackageDependencyInspectionOutcome>
+                        cachedDependencyInspection =
+                        await InspectPackageDependenciesAsync(
+                                resolution,
+                                packageName,
+                                version,
+                                nuspec,
+                                requestedTargetFramework)
+                            .ConfigureAwait(false);
+                    ApplyPackageManifest(
+                        cached,
+                        cachedDependencyInspection,
+                        logger.Log);
+                }
                 if (fetchMetadata)
                 {
                     var metadata = await PackageMetadataService.FetchAllMetadataAsync(
@@ -128,6 +146,15 @@ internal static class PackageInspector
             }
         }
 
+        InspectionEnvelope<PackageDependencyInspectionOutcome>
+            dependencyInspection =
+            await InspectPackageDependenciesAsync(
+                    resolution,
+                    packageName,
+                    version,
+                    nuspec,
+                    requestedTargetFramework)
+                .ConfigureAwait(false);
         var result = new InspectionResult
         {
             PackageName = packageName,
@@ -135,6 +162,10 @@ internal static class PackageInspector
         };
 
         ApplyNuspec(result, nuspec);
+        bool manifestProjectionComplete = ApplyPackageManifest(
+            result,
+            dependencyInspection,
+            logger.Log);
 
         result.PackageReadmeFile = PackageFileLister.ResolvePackageReadme(extractPath, result.ReadmeFile);
         result.HasReadme = result.PackageReadmeFile != null;
@@ -145,13 +176,7 @@ internal static class PackageInspector
         string libDir = Path.Combine(extractPath, "lib");
         bool hasToolsDir = Directory.Exists(toolsDir);
         bool hasLibDir = Directory.Exists(libDir);
-        bool productionComplete = nuspec is not null;
-        if (cacheSubject is not null && nuspec is null)
-        {
-            logger.LogWarning(
-                "Package manifest facts were unavailable; "
-                + "the package index will not be cached.");
-        }
+        bool productionComplete = manifestProjectionComplete;
 
         if (hasToolsDir)
         {
@@ -311,9 +336,13 @@ internal static class PackageInspector
 
     internal static InspectionResult InspectPackageInventory(
         PackageHouseSettlement.Acquired settlement,
-        NuspecData? nuspec)
+        InspectionEnvelope<PackageDependencyInspectionOutcome>
+            dependencyInspection,
+        Action<string> log)
     {
         ArgumentNullException.ThrowIfNull(settlement);
+        ArgumentNullException.ThrowIfNull(dependencyInspection);
+        ArgumentNullException.ThrowIfNull(log);
         PackageHouseFileList fileList =
             settlement.Result.Evidence.FileList
             ?? throw new InvalidOperationException(
@@ -323,7 +352,10 @@ internal static class PackageInspector
             PackageName = settlement.Payload.Coordinate.PackageId,
             Version = settlement.Payload.Coordinate.Version,
         };
-        ApplyNuspec(result, nuspec);
+        ApplyPackageManifest(
+            result,
+            dependencyInspection,
+            log);
 
         PackagePrimaryDocumentResolution readme =
             PackagePrimaryDocumentInspection.Execute(
@@ -383,7 +415,136 @@ internal static class PackageInspector
         result.PackageTypes = nuspec.PackageTypes;
         result.IsToolPackage = nuspec.IsToolPackage;
         result.ReadmeFile = nuspec.ReadmeFile;
-        result.DependencyGroups = nuspec.DependencyGroups;
+    }
+
+    private static async Task<
+        InspectionEnvelope<PackageDependencyInspectionOutcome>>
+        InspectPackageDependenciesAsync(
+            PackageExtractionResult resolution,
+            string packageName,
+            string version,
+            NuspecData? nuspec,
+            string? requestedTargetFramework)
+    {
+        PackageInspectionInput input =
+            resolution.AcquiredPayload is { } acquired
+                ? PackageInspectionInput.CreateFromPayload(acquired)
+                : PackageInspectionInput.CreateLocal(
+                    new FileSystemPackageContent(
+                        resolution.ExtractPath,
+                        resolution.NupkgPath,
+                        resolution.FromCache,
+                        resolution.ProducerKey ?? "local-package"),
+                    nuspec?.PackageName,
+                    nuspec?.Version);
+        return await PackageDependencyInspectionOperation.ExecuteAsync(
+                new(input, requestedTargetFramework))
+            .ConfigureAwait(false);
+    }
+
+    private static bool ApplyPackageManifest(
+        InspectionResult result,
+        InspectionEnvelope<PackageDependencyInspectionOutcome> inspection,
+        Action<string> log)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(inspection);
+        ArgumentNullException.ThrowIfNull(log);
+
+        result.PackageDependencyInspection = inspection;
+        if (inspection.Content is
+            PackageDependencyInspectionOutcome.Available available)
+        {
+            ApplyManifestFacts(result, available.Manifest);
+            result.DependencyGroups =
+            [
+                .. available.Dependencies.Groups.Select(
+                    ProjectDependencyGroup),
+            ];
+            return true;
+        }
+
+        if (inspection.Content is
+                PackageDependencyInspectionOutcome.Failed
+                {
+                    Manifest: { } manifest,
+                })
+        {
+            ApplyManifestFacts(result, manifest);
+        }
+        result.DependencyGroups = null;
+        string? summary = inspection.Content switch
+        {
+            PackageDependencyInspectionOutcome.NoManifest =>
+                "The package manifest is unavailable; dependencies were not projected.",
+            PackageDependencyInspectionOutcome.Failed =>
+                inspection.Diagnostics.IsEmpty
+                    ? "The package manifest could not be inspected; dependencies were not projected."
+                    : null,
+            _ => throw new InvalidOperationException(
+                "Unknown package dependency inspection outcome."),
+        };
+        if (summary is not null)
+            log(summary);
+        return false;
+    }
+
+    internal static DependencyGroup ProjectDependencyGroup(
+        DeclaredPackageDependencyGroup group)
+    {
+        var result = new DependencyGroup
+        {
+            TargetFramework = group.TargetFramework,
+            IsImplicitManifestGroup = group.IsImplicitManifestGroup,
+            Dependencies =
+            [
+                .. group.Dependencies.Select(dependency =>
+                    new PackageDependency
+                    {
+                        Id = dependency.Id,
+                        Version = dependency.VersionRange,
+                    }),
+            ],
+        };
+        result.Dependencies.Sort(CompareDependencies);
+        return result;
+    }
+
+    private static void ApplyManifestFacts(
+        InspectionResult result,
+        PackageManifestFacts manifest)
+    {
+        result.PackageName = manifest.DeclaredPackageId;
+        result.Version = manifest.DeclaredPackageVersion;
+        result.ManifestVersion = manifest.ManifestVersion;
+        result.Description = manifest.Description;
+        result.Authors = manifest.Authors;
+        result.Repository = manifest.Repository;
+        result.RepositoryType = manifest.RepositoryType;
+        result.RepositoryCommit = manifest.RepositoryCommit;
+        result.License = manifest.License;
+        result.LicenseUrl = manifest.LicenseUrl;
+        result.DeclaredLicenseFile = manifest.LicenseDeclaration is
+            {
+                Kind: PackageLicenseDeclarationKind.File,
+            } license
+                ? license.Value
+                : null;
+        bool hasDeclaredPackageTypes = !manifest.PackageTypes.IsEmpty;
+        result.PackageTypes = hasDeclaredPackageTypes
+            ? [.. manifest.PackageTypes]
+            : null;
+        if (hasDeclaredPackageTypes)
+        {
+            result.IsToolPackage = manifest.IsToolPackage;
+        }
+        result.ReadmeFile = manifest.ReadmeFile;
+        result.RejectedDependencyIdentifierObservations =
+            manifest.DependencyDeclarations
+                is PackageManifestDependencyFactsResult.Failed
+                && !manifest.DependencyIdentifierObservations.IsEmpty
+                    ? manifest.DependencyIdentifierObservations
+                    : null;
     }
 
     private static IReadOnlyList<string> DeriveInventoryDirectories(

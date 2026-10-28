@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
   BrowserHomeDemoResolved,
+  BrowserProjectWorkspacePreparationResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
@@ -230,6 +231,21 @@ function preparedPosting(
 }
 
 class ActivationClient implements RetainedWorkspaceActivationClient {
+  readonly projectRequests: Array<Parameters<
+    NonNullable<RetainedWorkspaceActivationClient["prepareProjectWorkspaceDefinition"]>
+  >> = [];
+
+  async prepareProjectWorkspaceDefinition(
+    ...args: Parameters<
+      NonNullable<RetainedWorkspaceActivationClient["prepareProjectWorkspaceDefinition"]>
+    >
+  ): Promise<BrowserProjectWorkspacePreparationResult> {
+    this.projectRequests.push(args);
+    return {
+      inspection: null,
+      preparation: await this.prepareRetainedWorkspaceDefinition(),
+    };
+  }
   readonly ecosystemRequests: Array<{
     retainedDefinitionId: string;
     label: string;
@@ -619,6 +635,38 @@ function createFixture(
     clears: () => clears,
   };
 }
+
+test("Project reactivation resubmits supplied evidence through the same cutover lifecycle", async () => {
+  const fixture = createFixture();
+  const source = {
+    label: "Local Project", canonicalLocation: "/",
+    project: {
+      kind: "authoredProject" as const,
+      declaredName: "Example.csproj",
+      content: [60, 80, 114, 111, 106, 101, 99, 116, 47, 62],
+    },
+  };
+  const first = fixture.controller.retain(source);
+  const second = fixture.controller.retain(source);
+  assert.notEqual(first.id, second.id);
+  const activate = async (id: string, index: number) => {
+    const operation = fixture.controller.activate(id);
+    fixture.client.activations[index - 1]!.resolve({
+      status: "activated", posting: posting(id, `realization-${index}`), failure: null,
+    });
+    await operation;
+  };
+  await activate(first.id, 1);
+  await activate(second.id, 2);
+  await activate(first.id, 3);
+  assert.deepEqual(fixture.client.projectRequests.map(request => request[0]),
+    [first.id, second.id, first.id]);
+  assert.deepEqual(fixture.client.projectRequests.map(request => request[5]),
+    [source.project.content, source.project.content, source.project.content]);
+  assert.equal(fixture.client.packetRequests.length, 0);
+  assert.equal(fixture.controller.state.activeDefinitionId, first.id);
+  assert.equal(fixture.client.activationCompletions.length, 3);
+});
 
 test("posting records and acknowledges exact authority in order", async () => {
   const fixture = createFixture();

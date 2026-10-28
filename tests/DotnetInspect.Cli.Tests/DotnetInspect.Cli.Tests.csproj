@@ -170,6 +170,8 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.OwnershipFlowFixtures\ILInspector.Analysis.OwnershipFlowFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\cli\DotnetInspector.InstallScriptFixture\DotnetInspector.InstallScriptFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\diff\UnsafeMemberDiffFixtures.V1\UnsafeMemberDiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\diff\UnsafeMemberDiffFixtures.V2\UnsafeMemberDiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.AssemblyOnlyHost.Fixture\DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <ProjectReference Include="..\DotnetInspector.RuntimeFlavorProbe\RuntimeFlavorProbe.csproj" />
     <ProjectReference Include="..\..\fixtures\shared\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
