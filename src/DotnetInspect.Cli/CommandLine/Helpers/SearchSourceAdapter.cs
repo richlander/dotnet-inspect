@@ -32,7 +32,7 @@ internal static class SearchSourceAdapter
         Option<string[]> packageOption,
         Option<string[]> libraryOption,
         Option<string[]> projectOption,
-        Option<bool> platformOption,
+        Option platformOption,
         Option<string[]> platformLibraryOption,
         Option<bool> extensionsOption,
         Option<bool> aspNetCoreOption,
@@ -69,7 +69,14 @@ internal static class SearchSourceAdapter
                         new SourceSelector.BinaryDirectory(value));
             }
 
-            if (parseResult.GetValue(platformOption))
+            if (platformOption is Option<bool> booleanPlatform
+                ? parseResult.GetValue(booleanPlatform)
+                : parseResult.GetResult(platformOption) is { Implicit: false }
+                    && (platformOption is not Option<string?> stringPlatform
+                        || !string.Equals(
+                            parseResult.GetValue(stringPlatform),
+                            "false",
+                            StringComparison.OrdinalIgnoreCase)))
                 yield return new SourceSelector.PlatformGroup();
             if (parseResult.GetValue(extensionsOption))
                 yield return PackageGroup(PackageSetIds.MicrosoftExtensions);

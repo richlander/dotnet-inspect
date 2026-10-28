@@ -524,7 +524,7 @@ consumes three independent typed facts for each participating set:
   without a row handoff.
 
 A source result may be Rows-usable while carrying evidence that the underlying
-candidate set is incomplete. `package query` stopped by its default candidate
+candidate set is incomplete. `find --packages` stopped by its default candidate
 ceiling, a page limit, or a candidate failure is the canonical case: its rows
 remain visible with their owner-issued incompleteness evidence, and Count
 reports their cardinality with the same evidence. An explicit `--take` instead

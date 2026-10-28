@@ -36,7 +36,7 @@ dnx dotnet-inspect -y -- package MyCompany.Widget --versions-with-feed \
   --nugetconfig ./NuGet.Config
 ```
 
-`package query` currently uses NuGet.org only; it rejects private-feed source
+`find --packages` currently uses NuGet.org only; it rejects private-feed source
 overrides rather than silently querying the wrong authority.
 
 Version discovery combines all eligible sources and chooses the highest

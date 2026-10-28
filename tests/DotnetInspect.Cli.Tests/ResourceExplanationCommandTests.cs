@@ -766,8 +766,8 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     public async Task PackageQueryFacetPath_CanBePassedUnchangedToExplain()
     {
         var discovery = await RunAsync(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             "--json");
@@ -1538,7 +1538,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "package-query/query/facets/library-literal",
             first.GetProperty("resource_path").GetString());
         Assert.Equal(
-            "package query",
+            "find --packages",
             first.GetProperty("production_bindings")[0]
                 .GetProperty("gesture")
                 .GetString());

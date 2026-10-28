@@ -17,7 +17,7 @@ contracts remain command-owned until their semantic adoption.
 
 The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `extensions`, `depends`, `ecosystem`,
-`diff --history`, `package query`, package activity,
+`diff --history`, `find --packages`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
 graph edges, a single package's layout lens, `Files`, or
 `SourceLink: Files` section,
