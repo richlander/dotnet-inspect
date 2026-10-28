@@ -777,6 +777,11 @@ answer the request. The
 [network policy](design/progressive-disclosure.md#network-policy) owns this
 rule and its adoption status.
 
+Detailed verbosity does not request authored-source documentation for package
+Type or Member inspection. Implicit documentation remains compiled XML. For
+an exact Member's authored XML comment, use `--print --part xml-docs`; see
+[the documentation adoption boundary](design/documentation-house.md#shared-package-adoption-boundary).
+
 For Library audit, `-v:d` alone does not request acquisition of a missing PDB.
 Select a PDB-dependent audit section, such as `-S Symbols` or `-S Signals`,
 for that request. Normal and Detailed retain embedded, adjacent, and cached
