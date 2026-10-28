@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -53,6 +54,18 @@ public static class AssemblyContextTypeMethodLeverageQuery
             AssemblyContextGroup group,
             AssemblyContextParticipant participant,
             string typeDefinitionId)
+        => ExecuteParticipant(
+            group,
+            participant,
+            typeDefinitionId,
+            parallelExecution: null);
+
+    public static AssemblyContextEntry<
+        AssemblyTypeMethodLeverageInspection> ExecuteParticipant(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            string typeDefinitionId,
+            MethodDefinitionParallelExecution? parallelExecution)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(participant);
@@ -92,7 +105,8 @@ public static class AssemblyContextTypeMethodLeverageQuery
                         return Analyze(
                             subject,
                             snapshot,
-                            available.Value);
+                            available.Value,
+                            parallelExecution);
                     }),
             _ => throw new InvalidOperationException(
                 $"Unknown Type method-leverage selection outcome "
@@ -103,12 +117,14 @@ public static class AssemblyContextTypeMethodLeverageQuery
     static AssemblyTypeMethodLeverageInspection Analyze(
         AssemblyContextSubject subject,
         AssemblyImageSnapshot snapshot,
-        SelectedType selected)
+        SelectedType selected,
+        MethodDefinitionParallelExecution? parallelExecution)
     {
         LibraryCallGraphAnalysisResult callGraph =
             AssemblyContextCallGraphAnalysis.AnalyzeLeverage(
                 snapshot,
-                subject);
+                subject,
+                parallelExecution);
         try
         {
             if (!callGraph.HasFullMethodEvidenceScope)

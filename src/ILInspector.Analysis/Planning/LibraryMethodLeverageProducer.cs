@@ -1,5 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using System.Runtime.ExceptionServices;
 
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -44,6 +47,8 @@ public sealed class LibraryMethodLeverageProducer :
         ];
 
     internal override bool SharesCalleeIdentities => true;
+
+    internal override bool SupportsPendingRelationKernel => true;
 
     internal override LibraryCallGraphBodyEvidence Visit(
         scoped MethodDefinitionView view)
@@ -132,6 +137,8 @@ public sealed class LibraryMethodLeverageProducer :
             BodySignals: null,
             InAssemblyTypeIsException: null,
             NonHeapNewObjOperandTokens: null,
+            DeclaredSource: null,
+            DeclaredSourceSuppressesOpportunities: false,
             diagnostics.ToImmutable());
     }
 
@@ -166,6 +173,230 @@ public sealed class LibraryMethodLeverageProducer :
             result.Diagnostics);
     }
 
+    internal override bool RunKernel(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        out int unitsVisited)
+    {
+        unitsVisited = 0;
+        MethodDefinitionParallelExecution? parallel =
+            state.Execution.ParallelExecution;
+        if (parallel is null
+            || parallel.MaximumConcurrency < 2
+            || state.Terminal != ProducerTerminal.Rows
+            || state.RowLimit is not null
+            || !state.Execution.HasUnboundedTerminalWork
+            || reader.MethodDefinitions.Count
+                <= LibraryMethodAnalysisRunner.ParallelMethodThreshold)
+        {
+            return false;
+        }
+
+        var workItems = new List<LeverageWorkItem>(
+            reader.MethodDefinitions.Count);
+        try
+        {
+            foreach (TypeDefinitionHandle typeHandle
+                in reader.TypeDefinitions)
+            {
+                TypeDefinition type =
+                    reader.GetTypeDefinition(typeHandle);
+                foreach (MethodDefinitionHandle methodHandle
+                    in type.GetMethods())
+                {
+                    workItems.Add(
+                        new(
+                            methodHandle,
+                            reader.GetMethodDefinition(methodHandle)));
+                }
+            }
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            MethodDefinitionExecution.FailSource(
+                state,
+                0,
+                "(method source)",
+                ex);
+            return true;
+        }
+
+        int partitionCount =
+            Math.Min(
+                parallel.MaximumConcurrency,
+                (workItems.Count
+                    + LibraryMethodAnalysisRunner.ParallelMethodThreshold
+                    - 1)
+                / LibraryMethodAnalysisRunner.ParallelMethodThreshold);
+        if (partitionCount < 2)
+            return false;
+
+        var bodies = new MethodBodyBlock?[workItems.Count];
+        var partitions =
+            new MethodDefinitionKernelPartition<
+                ImmutableArray<LibraryCallGraphBodyEvidence>.Builder>?[
+                    partitionCount];
+        var failures = new Exception?[partitionCount];
+        parallel.ExecutePartitions(
+            partitionCount,
+            partitionIndex =>
+            {
+                try
+                {
+                    int start =
+                        partitionIndex * workItems.Count
+                        / partitionCount;
+                    int end =
+                        (partitionIndex + 1) * workItems.Count
+                        / partitionCount;
+                    var methods =
+                        ImmutableArray.CreateBuilder<
+                            MethodDefinitionHandle>(end - start);
+                    for (int index = start; index < end; index++)
+                        methods.Add(workItems[index].Handle);
+
+                    int observed = start;
+                    partitions[partitionIndex] =
+                        state.Execution.ExecuteKernelPartition(
+                            this,
+                            peReader,
+                            methods.MoveToImmutable(),
+                            (
+                                MethodDefinitionHandle _,
+                                MethodDefinition __,
+                                MethodBodyBlock? body) =>
+                            {
+                                bodies[observed++] = body;
+                            });
+                    if (observed != end)
+                    {
+                        throw new ProducerContractException(
+                            "A Method Leverage kernel partition did not "
+                                + "observe every selected MethodDef.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failures[partitionIndex] = ex;
+                }
+            });
+
+        for (int partitionIndex = 0;
+            partitionIndex < partitionCount;
+            partitionIndex++)
+        {
+            if (failures[partitionIndex] is { } failure)
+            {
+                ExceptionDispatchInfo.Capture(failure).Throw();
+            }
+        }
+
+        var accumulator =
+            ImmutableArray.CreateBuilder<LibraryCallGraphBodyEvidence>(
+                workItems.Count);
+        MethodDefinitionSourceCoverageBuilder coverage =
+            state.Execution.SourceCoverageBuilder;
+        for (int partitionIndex = 0;
+            partitionIndex < partitionCount;
+            partitionIndex++)
+        {
+            MethodDefinitionKernelPartition<
+                ImmutableArray<LibraryCallGraphBodyEvidence>.Builder>
+                    partition =
+                        partitions[partitionIndex]
+                        ?? throw new ProducerContractException(
+                            "A Method Leverage kernel partition did not "
+                                + "publish its ordered result.");
+            accumulator.AddRange(partition.Accumulator);
+            coverage.MergePartitionSupports(partition.Coverage);
+            Absorb(state, partition.State);
+        }
+
+        int coveragePartition = 0;
+        for (int index = 0; index < workItems.Count; index++)
+        {
+            LeverageWorkItem item = workItems[index];
+            while (index
+                >= (coveragePartition + 1) * workItems.Count
+                    / partitionCount)
+            {
+                coveragePartition++;
+            }
+            MethodDefinitionSourceCoverage partitionCoverage =
+                partitions[coveragePartition]!.Value.Coverage;
+            coverage.RecordDefinitionExamined(item.Handle);
+            coverage.RecordMethodSelected(item.Handle);
+            if (partitionCoverage.BodiesAttempted.Contains(item.Handle))
+            {
+                coverage.RecordTerminalBodyAttempted(item.Handle);
+                coverage.RecordBodyAttempted(item.Handle);
+            }
+            if (bodies[index] is { } body)
+            {
+                coverage.RecordTerminalBodyAcquired(
+                    item.Handle,
+                    body);
+                coverage.RecordBodyAcquired(item.Handle);
+            }
+            state.Execution.RecordKernelRelationReference(
+                peReader,
+                item.Handle,
+                item.Definition,
+                bodies[index]);
+        }
+
+        ((MethodDefinitionProducer<
+            LibraryCallGraphBodyEvidence,
+            ImmutableArray<LibraryCallGraphBodyEvidence>.Builder,
+            LibraryMethodLeverageProducerResult>.State)state)
+            .SetAccumulator(accumulator);
+        unitsVisited = workItems.Count;
+        return true;
+    }
+
+    static void Absorb(
+        MethodDefinitionExecution.ProducerState target,
+        MethodDefinitionExecution.ProducerState source)
+    {
+        target.SettlingFacts =
+            checked(target.SettlingFacts + source.SettlingFacts);
+        target.UnitsAttempted =
+            checked(target.UnitsAttempted + source.UnitsAttempted);
+        target.UnitsCompleted =
+            checked(target.UnitsCompleted + source.UnitsCompleted);
+        target.UnitsFailed =
+            checked(target.UnitsFailed + source.UnitsFailed);
+        target.BodyAcquisitions =
+            checked(target.BodyAcquisitions + source.BodyAcquisitions);
+        target.MemorySafetyUses =
+            checked(target.MemorySafetyUses + source.MemorySafetyUses);
+        target.SemanticIdentityUses =
+            checked(
+                target.SemanticIdentityUses
+                + source.SemanticIdentityUses);
+        target.CallOperandUses =
+            checked(target.CallOperandUses + source.CallOperandUses);
+        if (target.SourceFailure is null)
+            target.SourceFailure = source.SourceFailure;
+        if (target.Failure is null)
+            target.Failure = source.Failure;
+        if (target.Outcome is null
+            || (target.Outcome == ProducerOutcome.Complete
+                && source.Outcome != ProducerOutcome.Complete))
+        {
+            target.Outcome = source.Outcome;
+        }
+    }
+
+    readonly record struct LeverageWorkItem(
+        MethodDefinitionHandle Handle,
+        MethodDefinition Definition);
+
     static LibraryCallGraphBodyEvidence Empty(
         MethodIdentity? method,
         bool hasManagedBody,
@@ -178,5 +409,7 @@ public sealed class LibraryMethodLeverageProducer :
             BodySignals: null,
             InAssemblyTypeIsException: null,
             NonHeapNewObjOperandTokens: null,
+            DeclaredSource: null,
+            DeclaredSourceSuppressesOpportunities: false,
             diagnostics.ToImmutable());
 }

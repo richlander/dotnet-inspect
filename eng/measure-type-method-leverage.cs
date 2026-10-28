@@ -1,4 +1,5 @@
 #:project ../src/DotnetInspector.Sections/DotnetInspector.Sections.csproj
+#:project ../src/DotnetInspector.Sections.Local/DotnetInspector.Sections.Local.csproj
 #:property IsPublishable=true
 #:property PublishAot=true
 #:property OptimizationPreference=Speed
@@ -10,7 +11,7 @@
 // Type selection, whole-assembly call analysis, ranking, and attribution.
 //
 //   measure-type-method-leverage <assembly> <type-definition-id>
-//     [--samples N] [--warmup N]
+//     [--samples N] [--warmup N] [--serial]
 
 using System.Diagnostics;
 using System.Globalization;
@@ -18,13 +19,15 @@ using System.Runtime.CompilerServices;
 
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Sections.Local;
 using ILInspector.Metadata;
 
 if (args.Length < 2)
 {
     Console.Error.WriteLine(
         "Usage: measure-type-method-leverage <assembly> "
-            + "<type-definition-id> [--samples N] [--warmup N]");
+            + "<type-definition-id> [--samples N] [--warmup N] "
+            + "[--serial]");
     return 2;
 }
 
@@ -32,6 +35,7 @@ string assemblyPath = Path.GetFullPath(args[0]);
 string typeDefinitionId = args[1];
 int samples = 20;
 int warmup = 3;
+bool serial = false;
 for (int index = 2; index < args.Length; index++)
 {
     switch (args[index])
@@ -54,10 +58,14 @@ for (int index = 2; index < args.Length; index++)
             && parsedWarmup >= 0:
             warmup = parsedWarmup;
             break;
+        case "--serial":
+            serial = true;
+            break;
         default:
             Console.Error.WriteLine(
                 "Usage: measure-type-method-leverage <assembly> "
-                    + "<type-definition-id> [--samples N] [--warmup N]");
+                    + "<type-definition-id> [--samples N] [--warmup N] "
+                    + "[--serial]");
             return 2;
     }
 }
@@ -80,18 +88,24 @@ await using var workspace = new InspectionWorkspace();
 using AssemblyContextGroup group =
     workspace.CreateAssemblyContextGroup([participant]);
 
-string expected = Fingerprint(Execute(group, participant, typeDefinitionId));
+string expected =
+    Fingerprint(Execute(group, participant, typeDefinitionId, serial));
 Console.Error.WriteLine(
     string.Join(
         '\t',
         "identity",
+        serial ? "serial" : "bounded-parallel",
         RuntimeFeature.IsDynamicCodeSupported
             ? "dynamic-code"
             : "static-code",
         expected));
 
 for (int iteration = 0; iteration < warmup; iteration++)
-    RequireExpected(expected, Execute(group, participant, typeDefinitionId));
+{
+    RequireExpected(
+        expected,
+        Execute(group, participant, typeDefinitionId, serial));
+}
 
 var timings = new List<double>(samples);
 var allocations = new List<long>(samples);
@@ -100,7 +114,7 @@ for (int sample = 0; sample < samples; sample++)
     long before = GC.GetTotalAllocatedBytes(precise: true);
     long start = Stopwatch.GetTimestamp();
     AssemblyTypeMethodLeverageInspection result =
-        Execute(group, participant, typeDefinitionId);
+        Execute(group, participant, typeDefinitionId, serial);
     double elapsed = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
     long allocated =
         GC.GetTotalAllocatedBytes(precise: true) - before;
@@ -133,14 +147,20 @@ return 0;
 static AssemblyTypeMethodLeverageInspection Execute(
     AssemblyContextGroup group,
     AssemblyContextParticipant participant,
-    string typeDefinitionId)
+    string typeDefinitionId,
+    bool serial)
 {
     InspectionEnvelope<
         AssemblyContextEntry<AssemblyTypeMethodLeverageInspection>> envelope =
-            TypeMethodLeverageInspectionOperation.Execute(
-                group,
-                participant,
-                typeDefinitionId);
+            serial
+                ? TypeMethodLeverageInspectionOperation.Execute(
+                    group,
+                    participant,
+                    typeDefinitionId)
+                : LocalTypeMethodLeverageInspectionOperation.Execute(
+                    group,
+                    participant,
+                    typeDefinitionId);
     return envelope.Content switch
     {
         AssemblyContextEntry<

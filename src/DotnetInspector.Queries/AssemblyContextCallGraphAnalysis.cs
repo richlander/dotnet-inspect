@@ -204,7 +204,8 @@ internal static class AssemblyContextCallGraphAnalysis
 
     internal static Analysis.LibraryCallGraphAnalysisResult AnalyzeLeverage(
         AssemblyImageSnapshot snapshot,
-        AssemblyContextSubject subject)
+        AssemblyContextSubject subject,
+        MethodDefinitionParallelExecution? parallelExecution = null)
     {
         MethodDefinitionSourceRequest<
             LibraryMethodLeverageProducerResult> request =
@@ -229,7 +230,8 @@ internal static class AssemblyContextCallGraphAnalysis
                     access =>
                         AssemblyAnalysisService.Instance.Execute(
                             operation,
-                            access));
+                            access,
+                            parallelExecution));
         if (serviceResult
             is AssemblyAnalysisServiceResult<
                 LibraryMethodLeverageProducerResult>.Rejected rejected)

@@ -2,6 +2,7 @@ using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Analysis.Planning;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -533,6 +534,226 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.False(receipt.Coverage.CallTargets.Constructed);
         Assert.True(actual.HasFullMethodEvidenceScope);
     }
+
+    [Fact]
+    public void LibraryMethodLeverageProducer_ParallelMatchesSerial()
+    {
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        LeverageExecution serial =
+            ExecuteLibraryMethodLeverage(
+                path,
+                parallelExecution: null);
+        var parallelExecution = new TestParallelExecution(4);
+        LeverageExecution parallel =
+            ExecuteLibraryMethodLeverage(
+                path,
+                parallelExecution);
+
+        Assert.Equal(
+            serial.Result.DeclaredMethods,
+            parallel.Result.DeclaredMethods);
+        Assert.Equal(serial.Result.Methods, parallel.Result.Methods);
+        Assert.Equal(
+            serial.Result.DirectCalls,
+            parallel.Result.DirectCalls);
+        Assert.Equal(
+            serial.Result.DeclaredSources.OrderBy(
+                static pair => pair.Key),
+            parallel.Result.DeclaredSources.OrderBy(
+                static pair => pair.Key));
+        Assert.Equal(
+            serial.Result.DeclaredSourceSuppressedMethodTokens
+                .Order(),
+            parallel.Result.DeclaredSourceSuppressedMethodTokens
+                .Order());
+        Assert.Equal(
+            serial.Result.Diagnostics,
+            parallel.Result.Diagnostics);
+        Assert.True(parallelExecution.PartitionCount >= 2);
+
+        Assert.Equal(
+            serial.SourceReceipt.Completion,
+            parallel.SourceReceipt.Completion);
+        Assert.Equal(
+            serial.SourceReceipt.Breadth.Kind,
+            parallel.SourceReceipt.Breadth.Kind);
+        Assert.Equal(
+            serial.SourceReceipt.Coverage.DefinitionsExamined.Ranges,
+            parallel.SourceReceipt.Coverage.DefinitionsExamined.Ranges);
+        Assert.Equal(
+            serial.SourceReceipt.Coverage.MethodsSelected.Ranges,
+            parallel.SourceReceipt.Coverage.MethodsSelected.Ranges);
+        Assert.Equal(
+            serial.SourceReceipt.Coverage.BodiesAttempted.Ranges,
+            parallel.SourceReceipt.Coverage.BodiesAttempted.Ranges);
+        Assert.Equal(
+            serial.SourceReceipt.Coverage.BodiesAcquired.Ranges,
+            parallel.SourceReceipt.Coverage.BodiesAcquired.Ranges);
+        AssertGeneratedExpansionEqual(
+            serial.SourceReceipt.Coverage.GeneratedExpansion,
+            parallel.SourceReceipt.Coverage.GeneratedExpansion);
+
+        ProducerParticipation serialWork =
+            serial.WorkReceipt.For(
+                LibraryMethodLeverageProducer.Instance);
+        ProducerParticipation parallelWork =
+            parallel.WorkReceipt.For(
+                LibraryMethodLeverageProducer.Instance);
+        Assert.Equal(serialWork.Outcome, parallelWork.Outcome);
+        Assert.Equal(
+            serialWork.UnitsAttempted,
+            parallelWork.UnitsAttempted);
+        Assert.Equal(
+            serialWork.UnitsCompleted,
+            parallelWork.UnitsCompleted);
+        Assert.Equal(serialWork.UnitsFailed, parallelWork.UnitsFailed);
+        Assert.Equal(serialWork.Layers, parallelWork.Layers);
+    }
+
+    [Fact]
+    public void LibraryMethodLeverageProducer_LimitedAndExactStaySerial()
+    {
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        var headExecution = new TestParallelExecution(4);
+        ExecuteLibraryMethodLeverage(
+            path,
+            headExecution,
+            ProducerRequest.Head(
+                LibraryMethodLeverageProducer.Instance,
+                2));
+        Assert.Equal(0, headExecution.PartitionCount);
+
+        var exactExecution = new TestParallelExecution(4);
+        ExecuteLibraryMethodLeverage(
+            path,
+            exactExecution,
+            producerRequest: null,
+            breadth: MethodDefinitionSourceBreadth.ExactMethods(
+                MetadataTokens.MethodDefinitionHandle(1)));
+        Assert.Equal(0, exactExecution.PartitionCount);
+    }
+
+    static void AssertGeneratedExpansionEqual(
+        MethodDefinitionGeneratedExpansionCoverage expected,
+        MethodDefinitionGeneratedExpansionCoverage actual)
+    {
+        Assert.Equal(
+            expected.CandidateDefinitionsExamined.Ranges,
+            actual.CandidateDefinitionsExamined.Ranges);
+        Assert.Equal(
+            expected.ProbeBodiesAttempted.Ranges,
+            actual.ProbeBodiesAttempted.Ranges);
+        Assert.Equal(
+            expected.ProbeEncodedIlBytes,
+            actual.ProbeEncodedIlBytes);
+        Assert.Equal(expected.RelationshipNodes, actual.RelationshipNodes);
+        Assert.Equal(expected.Origins, actual.Origins);
+        Assert.Equal(
+            expected.AttributedOutsideRoles,
+            actual.AttributedOutsideRoles);
+        Assert.Equal(
+            expected.UnauthenticatedCandidates,
+            actual.UnauthenticatedCandidates);
+        Assert.Equal(expected.ReachedLimit, actual.ReachedLimit);
+        Assert.Equal(expected.ReachedAtToken, actual.ReachedAtToken);
+        Assert.Equal(
+            expected.TraversalReferenceBodies,
+            actual.TraversalReferenceBodies);
+        Assert.Equal(
+            expected.TraversalReferenceBodiesAcquired,
+            actual.TraversalReferenceBodiesAcquired);
+        Assert.Equal(
+            expected.TraversalReferenceEncodedIlBytes,
+            actual.TraversalReferenceEncodedIlBytes);
+    }
+
+    static LeverageExecution ExecuteLibraryMethodLeverage(
+        string path,
+        MethodDefinitionParallelExecution? parallelExecution,
+        ProducerRequest? producerRequest = null,
+        MethodDefinitionSourceBreadth? breadth = null)
+    {
+        WorkDescription work =
+            Assert.IsType<ProducerPlanResult.Accepted>(
+                    ProducerPlanner.Plan(
+                        [
+                            producerRequest
+                                ?? new ProducerRequest(
+                                    LibraryMethodLeverageProducer.Instance,
+                                    ProducerTerminal.Rows),
+                        ]))
+                .Description;
+        MethodDefinitionSourceRequest<
+            LibraryMethodLeverageProducerResult> request =
+                MethodDefinitionSourceRequest<
+                    LibraryMethodLeverageProducerResult>.Create(
+                        work,
+                        LibraryMethodLeverageProducer.Instance,
+                        breadth
+                            ?? MethodDefinitionSourceBreadth
+                                .AllDefinitions
+                                .IncludeGeneratedExecutionBodies());
+        AssemblyAnalysisOperation<
+            LibraryMethodLeverageProducerResult> operation =
+                AssemblyAnalysisOperation<
+                    LibraryMethodLeverageProducerResult>.Create(
+                        path,
+                        request.AsAssemblyAnalysisSource());
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(path);
+        AssemblyAnalysisExecution<
+            LibraryMethodLeverageProducerResult> execution =
+                Assert.IsType<
+                    AssemblyAnalysisServiceResult<
+                        LibraryMethodLeverageProducerResult>.Completed>(
+                            session.SnapshotOperation(
+                                operation,
+                                access =>
+                                    AssemblyAnalysisService.Instance.Execute(
+                                        operation,
+                                        access,
+                                        parallelExecution)))
+                    .Execution;
+        ProducerResult<
+            LibraryMethodLeverageProducerResult> result =
+                execution.ResultOf(
+                    LibraryMethodLeverageProducer.Instance);
+        Assert.True(
+            result.HasValue,
+            result.Failure?.Message
+                ?? result.Critical?.Message
+                ?? result.Outcome.ToString());
+        return new(
+            result.Value!,
+            execution.MethodDefinitionReceipt(),
+            execution.WorkReceipt);
+    }
+
+    sealed class TestParallelExecution(int maximumConcurrency)
+        : MethodDefinitionParallelExecution(maximumConcurrency)
+    {
+        public int PartitionCount { get; private set; }
+
+        public override void ExecutePartitions(
+            int partitionCount,
+            Action<int> executePartition)
+        {
+            PartitionCount = partitionCount;
+            Parallel.For(
+                0,
+                partitionCount,
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = MaximumConcurrency,
+                },
+                executePartition);
+        }
+    }
+
+    sealed record LeverageExecution(
+        LibraryMethodLeverageProducerResult Result,
+        MethodDefinitionSourceReceipt SourceReceipt,
+        WorkReceipt WorkReceipt);
 
     static TResult ExecuteLibraryCallGraph<TResult>(
         string path,

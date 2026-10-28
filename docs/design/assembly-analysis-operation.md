@@ -539,6 +539,19 @@ result while preserving complete-source and diagnostic failure semantics
 without opening `LibraryBodyAnalysisService`. Other consumers of the legacy
 whole-library Call Graph remain separate drain slices.
 
+The host-neutral Type Method Leverage operation remains serial by default.
+Local desktop hosts may supply `MethodDefinitionParallelExecution` through
+`DotnetInspector.Sections.Local`. Only an exhaustive, unbounded
+all-MethodDef `Rows` request can adopt that capability. The producer divides
+the metadata-ordered method sequence into a bounded number of contiguous exact
+MethodDef partitions, gives each partition independent execution state, and
+folds the detached body evidence in partition and metadata order. The
+all-definition generated-body relation still records the bodies acquired by
+the producer and settles once after the ordered fold. Row-limited and exact
+breadths retain interpreted serial execution. The Browser/Wasm operation uses
+the default overload; its project closure does not reference
+`DotnetInspector.Sections.Local` or the local `Parallel.For` adapter.
+
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
 exact method-analysis producer for safety-only IL-coordinate preparation.
 Direct CLI and host-neutral Library Address execution borrow the already-open
