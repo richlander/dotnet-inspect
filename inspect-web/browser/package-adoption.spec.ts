@@ -1230,6 +1230,37 @@ test.describe("Capability Spotlight search over real Wasm", () => {
     expect(archives).toBe(0);
   });
 
+  test("opens the existing Type Compare inspector through an analysis binding", async ({ page, context }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await page.goto(
+      `/index.html?package=${libraryDiffV2.packageId}&version=${libraryDiffV2.version}`
+        + `&framework=${fixtureFramework}#pkg`);
+    await expect(page.locator('[data-subject-tab][data-scope="library"]'))
+      .toBeVisible({ timeout: 180_000 });
+    await selectFirstExactLibrary(page);
+    await chooseInspector(page, "data-library-lens", "compare");
+    const panel = page.locator("#inspector-panel");
+    await panel.locator('[data-compare-type-id="LibraryApiDiffFixture.AddedType"]')
+      .click({ timeout: 60_000 });
+    await expect(panel.locator(".compare-surface"))
+      .toHaveClass(/compare-surface-type/);
+    await expect(panel.locator(".library-api-diff-member"))
+      .toHaveCount(3, { timeout: 60_000 });
+    await page.getByRole("button", {
+      name: "Search types, members, packages", exact: true,
+    }).click();
+    await expect(page.locator("#spotlight-input")).toBeVisible({ timeout: 10_000 });
+    await page.locator("#spotlight-input").fill("api-attribute");
+    await page.locator('[data-sl-capability="analyses/api-attribute"]').click();
+    await expect(panel.locator(".compare-surface"))
+      .toHaveClass(/compare-surface-type/);
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType");
+    await expect(panel.locator(".compare-target-value"))
+      .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
+  });
+
   test("discovers library literal and opens its Package Query facet", async ({
     page,
   }) => {
@@ -3484,18 +3515,6 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       .toHaveText("LibraryApiDiffFixture.AddedType");
     await expect(panel.locator('[data-compare-mode="diff"]'))
       .toHaveAttribute("aria-selected", "true");
-    await expect(panel.locator(".compare-target-value"))
-      .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
-    // A discovered analysis follows its installed Browser binding to this
-    // existing Compare surface, retaining the exact Type and version pair.
-    await page.getByRole("button", {
-      name: "Search types, members, packages", exact: true,
-    }).click();
-    await page.locator("#spotlight-input").fill("api-attribute");
-    await page.locator('[data-sl-capability="analyses/api-attribute"]').click();
-    await expect(frame).toHaveClass(/compare-surface-type/);
-    await expect(panel.locator("#compare-title"))
-      .toHaveText("LibraryApiDiffFixture.AddedType");
     await expect(panel.locator(".compare-target-value"))
       .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
     // The added Type carries its implicit constructor plus First and Second.
