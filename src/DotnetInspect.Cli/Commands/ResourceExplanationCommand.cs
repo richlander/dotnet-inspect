@@ -99,7 +99,7 @@ public static partial class ResourceExplanationCommand
                          StructuralViewIdentity[] views)
                      in ExplainableStructuralCatalogs)
             {
-                if (StructuralViewRegistry.CatalogPathName(identity) != root)
+                if (StructuralCatalogPaths.Name(identity) != root)
                     continue;
 
                 ResourceExplanationCatalog? structuralCatalog =
@@ -262,7 +262,7 @@ public static partial class ResourceExplanationCommand
         CreateDiscoveryProjection(StructuralSchemaProjection projection)
     {
         string catalog =
-            StructuralViewRegistry.CatalogPathName(projection.Route.Catalog);
+            StructuralCatalogPaths.Name(projection.Route.Catalog);
         return DiscoveryDocumentFactory.CreateProjection(
             catalog,
             discover: null,
@@ -302,7 +302,7 @@ public static partial class ResourceExplanationCommand
         {
             StructuralDiscoveryProjection structural = CreateStructuralProjection(identity, views)
                 ?? throw new InvalidOperationException("The structural catalog could not be built.");
-            string root = StructuralViewRegistry.CatalogPathName(identity);
+            string root = StructuralCatalogPaths.Name(identity);
             InspectionCapabilityModule product = StructuralCatalogCapability.CreateModule(structural);
             InspectionStructuralCatalogRegistration registration = product.StructuralCatalogs.Single();
             var bindings = new List<InspectionStructuralViewBinding>();
@@ -363,6 +363,9 @@ public static partial class ResourceExplanationCommand
                     DiffAnalysisCatalog.ProductModule,
                     DiffAnalysisCommandCapability.Module,
                     .. CreateStructuralCapabilityModules(),
+                    StructuralRoutingDeclarations.Module,
+                    VocabularyRoutingDeclarations.Module,
+                    ResourceExplanationCatalog.ComponentContractsRoutingModule,
                 ]);
         ResourceExplanationCatalog explanation =
             ResourceExplanationCatalog.CreateCapabilities(
@@ -402,18 +405,15 @@ public static partial class ResourceExplanationCommand
     /// collections and entries are top-level paths. The CLI withholds the
     /// root while any resource is unreachable from it.
     /// </summary>
-    internal static ResourceExplanationRootComposition? CreateRootComposition() =>
-        CreateCompleteCatalog() is { } complete
-            ? ResourceExplanationCatalog.ComposeRoot(
-                complete,
-                new ResourcePath(RootSegmentName),
-                [
-                    .. StructuralRoutingDeclarations.Create(),
-                    .. CapabilityRoutingDeclarations.Create(),
-                    .. VocabularyRoutingDeclarations.Create(),
-                    ResourceExplanationCatalog.ComponentContractsRoutingDeclaration,
-                ])
-            : null;
+    internal static ResourceExplanationRootComposition? CreateRootComposition()
+    {
+        var (catalog, explanation) =
+            CreateCapabilityExplanation(includeStructuralExplanation: true);
+        return ResourceExplanationCatalog.ComposeRoot(
+            CreateCompleteCatalog(explanation),
+            new ResourcePath(RootSegmentName),
+            catalog.RoutingDeclarations);
+    }
 
     /// <summary>The explanation root's path, which bare <c>explain</c> reads.</summary>
     internal const string RootSegmentName = "root";
@@ -458,14 +458,18 @@ public static partial class ResourceExplanationCommand
             _,
             ResourceExplanationCatalog capabilities) =
                 CreateCapabilityExplanation(includeStructuralExplanation: true);
-        return ResourceExplanationCatalog.Combine(
+        return CreateCompleteCatalog(capabilities);
+    }
+
+    private static ResourceExplanationCatalog CreateCompleteCatalog(
+        ResourceExplanationCatalog capabilities) =>
+        ResourceExplanationCatalog.Combine(
             [
                 capabilities,
                 ResourceExplanationCatalog.CreateVocabularies(
                     CliVocabularyComposition.Snapshot),
                 ResourceExplanationCatalog.CreateWorkspaceComponents(),
             ]);
-    }
 
     private static int ExplainFromCatalog(
         ResourceExplanationCatalog catalog,
@@ -772,7 +776,7 @@ public static partial class ResourceExplanationCommand
             bool isFirst,
             StructuralSchemaProjection projection)
     {
-        string root = StructuralViewRegistry.CatalogPathName(route.Catalog);
+        string root = StructuralCatalogPaths.Name(route.Catalog);
         string name = isFirst ? root : $"{root}-{route.View.ViewMode}";
         IReadOnlySet<string> standalone =
             StructuralViewRegistry.StandaloneSelectableSections(projection);
@@ -802,7 +806,7 @@ public static partial class ResourceExplanationCommand
     /// The structural catalogs <c>explain</c> publishes, each with the views
     /// that select its sections: library (direct and by address), package,
     /// the type listing, and the three member catalogs under the names
-    /// <see cref="StructuralViewRegistry.CatalogPathName"/> issues. A
+    /// <see cref="StructuralCatalogPaths.Name"/> issues. A
     /// catalog's first view supplies its projection's route.
     /// </summary>
     private static readonly

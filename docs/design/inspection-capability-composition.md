@@ -789,13 +789,33 @@ The Diff operation derives its accepted subject kinds from the registered
 participation surfaces. In product order these are Library, Type, and
 Member; Root and Workspace surfaces have no subject-kind declaration. Each
 declaration also carries an owner-written purpose, representative questions,
-grain, and scope, in `CapabilityRoutingDeclarations`.
+grain, and scope, supplied by its producer module in `DotnetInspector.Sections`
+(Package Query and Package Files) or `DotnetInspector.ResearchSections` (Diff).
 
 Every host that composes a declaration's owner modules projects the same
 declaration. A host that doesn't compose them admits no declaration for them,
 under the [Resource Explanation root composition](resource-explanation.md#root-composition)
-rule. Moving the declarations from `CapabilityRoutingDeclarations` in CLI code
-into a host-neutral module is adoption step 4 below.
+rule. `InspectionCapabilityModule.RoutingDeclarations` carries each owner
+contribution; the composed catalog collects only the selected modules, in
+registration order, preserving each role collection's owner-issued order.
+The graph's public module inventory retains its identity ordering.
+Schema Query and Product Vocabulary supply separate metadata modules. The CLI
+selects these modules and assigns the root path; it authors no routing hints.
+
+The step 4 source witness is this repository at
+[`c9e8df668`](https://github.com/richlander/dotnet-inspect/tree/c9e8df66853813bd0d397694a5af10e3a7e07daf),
+under `src/DotnetInspect.Cli`: `Commands/CapabilityRoutingDeclarations.cs`,
+`Planning/StructuralRoutingDeclarations.cs`, and
+`Commands/VocabularyRoutingDeclarations.cs`. At that commit, these owner-issued
+declarations required a CLI assembly and a second host-maintained operation list.
+[#10771](https://github.com/richlander/dotnet-inspect/issues/10771) moves their
+unchanged content into shared modules. Each producer carries its operation;
+Schema Query and Product Vocabulary supply their own metadata modules.
+Module providers materialize cached declarations only when a root requests
+them; constructing a capability graph or searching it must not evaluate them.
+Resource Explanation retains validation and closure. Durable evidence combines
+shared module-selection and cold-materialization gates with the existing CLI
+root reachability test and exact-base/head NativeAOT output comparisons.
 
 Every operation accepts Schema Query subject kinds. A host therefore admits
 these declarations only together with
@@ -1039,7 +1059,8 @@ numbered as in that issue:
    direct-versus-coordinate Library binding scope; shared composition tests
    enforce path and binding validation and omission of unbound resources.
 4. Move the root's routing declarations from CLI code into a host-neutral
-   module.
+   module. **Complete.** Tracked by
+   [#10771](https://github.com/richlander/dotnet-inspect/issues/10771).
 5. Let the Browser admit every resource its bindings select. Sections and
    analyses join Browser search when Browser binds them.
 

@@ -23,17 +23,6 @@ public enum InspectionSourceKind
     Project,
 }
 
-public enum InspectionCatalogIdentity
-{
-    Package,
-    Library,
-    LibraryAggregate,
-    ApiType,
-    ApiMember,
-    ApiMemberOverload,
-    ApiMemberDetail,
-}
-
 public enum InspectionTargetRequirement
 {
     Type,
