@@ -26,6 +26,11 @@ public sealed record LibraryApiTypeChangeRow(
     ImmutableArray<LibraryApiCompatibilityChange> Changes,
     ImmutableArray<LibraryApiUnclassifiedEvidence> Unclassified);
 
+public sealed record LibraryApiTypeInventoryRow(
+    LibraryApiTypeChangeRow Type,
+    bool? TypeDefinitionChanged,
+    ImmutableArray<LibraryApiMemberDiff> Members);
+
 public sealed record LibraryApiChangedType(
     string Identifier,
     string Display,
@@ -71,6 +76,50 @@ public abstract record LibraryApiChangesOutcome<T>
 
 public static class LibraryApiChangesInspection
 {
+    public static InspectionEnvelope<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>>
+        TypeInventoryDocument(LibraryApiDiffOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        var diagnostics = ImmutableArray.CreateBuilder<InspectionDiagnostic>();
+        LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>> content = outcome switch
+        {
+            LibraryApiDiffOutcome.Available available =>
+                new LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Available(
+                    CreateDocument(available.Document)),
+            LibraryApiDiffOutcome.Unavailable unavailable =>
+                new LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Unavailable(unavailable),
+            LibraryApiDiffOutcome.Rejected rejected =>
+                new LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Rejected(rejected),
+            _ => throw new InvalidOperationException("Unknown Library API diff outcome."),
+        };
+        return Envelope(content, diagnostics);
+
+        LibraryApiChangesDocument<LibraryApiTypeInventoryRow> CreateDocument(LibraryApiDiffDocument document)
+        {
+            ImmutableArray<LibraryApiDiffTypeEvidence> evidence =
+            [
+                .. document.Comparison.Subjects.Select(subject =>
+                    new LibraryApiDiffTypeEvidence(subject.Identifier, subject.Display, subject.Comparison)),
+            ];
+            bool ordinaryOnly = Ordinary(document.Before, document.After);
+            var (types, outside) = Select(evidence, ordinaryOnly, new(), diagnostics);
+            var comparisons = evidence.ToDictionary(type => type.Identifier, type => type.Comparison, StringComparer.Ordinal);
+            ImmutableArray<LibraryApiTypeInventoryRow> rows =
+            [
+                .. types.Select(type =>
+                {
+                    LibraryApiTypeDiff comparison = comparisons[type.Identifier];
+                    return new LibraryApiTypeInventoryRow(
+                        type, comparison.TypeDefinitionChanged,
+                        [.. comparison.Members.Where(member => !ordinaryOnly || member.Relation.IsOrdinary)]);
+                }),
+            ];
+            return new(
+                document.Before, document.After, Summarize(types, evidence, ordinaryOnly),
+                rows, outside);
+        }
+    }
+
     public static InspectionEnvelope<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiTypeChangeRow>>>
         TypeTable(AssemblyContextApiComparisonResult result, LibraryApiChangesSelection selection)
         => Execute(result, selection, static (_, _, _, rows, _, _) =>
@@ -125,12 +174,16 @@ public static class LibraryApiChangesInspection
             },
             static unavailable => new LibraryApiChangesOutcome<T>.Unavailable(unavailable),
             static rejected => new LibraryApiChangesOutcome<T>.Rejected(rejected));
-        return new(content,
+        return Envelope(content, diagnostics);
+    }
+
+    private static InspectionEnvelope<T> Envelope<T>(
+        T content, ImmutableArray<InspectionDiagnostic>.Builder diagnostics)
+        => new(content,
             new InspectionShare.NonProjectable(
                 "comparison/endpoints",
                 "Workspace Share does not yet represent a selected-Library comparison's ordered endpoints and API scope."),
             diagnostics.ToImmutable());
-    }
 
     private static bool Ordinary(
         LibraryApiDiffEndpointSummary before, LibraryApiDiffEndpointSummary after)

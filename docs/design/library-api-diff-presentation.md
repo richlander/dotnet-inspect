@@ -765,12 +765,44 @@ Available. `--compact` only changes whitespace. Existing envelope admission
 restrictions remain. Column/field projections and rendered-line clipping are
 not structured JSON projections and are rejected.
 
-Browser transport and its schema are unchanged in this slice. It continues to
-consume the complete legacy Document until #10548 adopts this owner's selected
-population and summary. #10545 owns this shared/CLI adoption; #10385 tracks
-the overall migration.
+#### Type/member inventory demand
 
-This changes three observable outcomes on the adopted route:
+A consumer needing Type-local Member drill-down explicitly requests
+`TypeInventoryDocument` from an already-completed `LibraryApiDiffOutcome`.
+This returns an `InspectionEnvelope` containing the typed outcome of a
+`LibraryApiChangesDocument<LibraryApiTypeInventoryRow>`. It applies the same
+whole-Library Type selection, ordinary exclusions, ordering and summary as
+the default Type Document, without another comparison or endpoint acquisition.
+Each selected Type additionally retains its nullable Type-definition-change
+fact and owner-issued changed-Member inventory, including global relation
+identity, nullable Before/After identities and Type-local Before/After/Both
+role. API-axis demand excludes non-ordinary Member relations; other scopes
+retain their admitted relations. Cross-Type relations still count once in
+the aggregate summary.
+
+This is explicit richer Document demand at the existing Type grain, not a
+Hierarchy offering or a change to CLI preference. Existing Table, Type
+Document and detailed-change Document types do not acquire these Member
+fields. Typed Unavailable/Rejected outcomes retain the original endpoint
+evidence; unchanged Libraries remain successful empty inventories.
+The inventory has its own source-generated JSON context; ordinary CLI
+representation serialization does not initialize its richer serializer.
+
+The motivating real asset is the same pinned `System.Text.Json@9.0.0..10.0.0`,
+`net8.0`, `JsonSerializerOptions` pair: its added `Strict` and
+`AllowDuplicateProperties` properties need exact Type-local Member identity
+for Browser drill-down, not identity reconstructed from display text.
+Focused presentation fixtures establish selection/summary parity and exact
+Member-role retention; the real-package Browser envelope gate remains the
+production-adoption evidence for #10548.
+
+Browser transport and its schema remain unchanged until #10548 consumes this
+inventory and retires its equivalent population/summary projection. The
+operator approved shared-owner prerequisite #10780 precedes that Browser
+slice. #10545 owns the original shared/CLI adoption; #10385 tracks the revised
+five-slice migration.
+
+The original shared/CLI adoption changes three observable outcomes on the adopted route:
 
 - Different logical Libraries are rejected rather than compared by name.
 - Type-definition and member evidence without a compatibility row remains
