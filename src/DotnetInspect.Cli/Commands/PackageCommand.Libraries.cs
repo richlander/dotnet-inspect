@@ -1120,7 +1120,7 @@ public partial class PackageCommand
             UserVerbosityOverride = options.Verbosity
         };
 
-    private static PackageLibrarySelection? ResolvePackageLibrary(
+    internal static PackageLibrarySelection? ResolvePackageLibrary(
         string extractPath,
         string packageName,
         string version,
@@ -1753,7 +1753,7 @@ public partial class PackageCommand
         return true;
     }
 
-    private sealed record PackageLibrarySelection(
+    internal sealed record PackageLibrarySelection(
         string Path,
         string? TargetFramework,
         string? RuntimeIdentifier);

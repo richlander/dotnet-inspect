@@ -211,6 +211,7 @@ public sealed class MethodDefinitionExecution
         bool memorySafetyDeclared = false;
         bool callTargetsDeclared = false;
         bool methodCallsDeclared = false;
+        bool calleeIdentitiesShared = false;
         bool semanticIdentityDeclared = false;
         bool methodAnalysisDeclared = false;
         foreach (ProducerState state in execution._states)
@@ -223,6 +224,7 @@ public sealed class MethodDefinitionExecution
                 state.HasCallsLayer
                 || state.HasCallOperandsLayer
                 || state.HasLocalSignatureLayer;
+            calleeIdentitiesShared |= state.SharesCalleeIdentities;
             semanticIdentityDeclared |= state.HasSemanticIdentityLayer;
             methodAnalysisDeclared |= state.HasMethodAnalysisLayer;
         }
@@ -236,7 +238,7 @@ public sealed class MethodDefinitionExecution
                 : null;
         execution._methodCalls =
             methodCallsDeclared
-                ? new MethodCallMetadataSupport(reader)
+                ? new MethodCallMetadataSupport(reader, calleeIdentitiesShared)
                 : null;
         execution._semanticIdentity =
             semanticIdentityDeclared
@@ -612,7 +614,10 @@ public sealed class MethodDefinitionExecution
                     state.HasCallsLayer
                     || state.HasCallOperandsLayer
                     || state.HasLocalSignatureLayer))
-                ? new MethodCallMetadataSupport(reader)
+                ? new MethodCallMetadataSupport(
+                    reader,
+                    lanes.Any(static lane => lane._states.Any(
+                        static state => state.SharesCalleeIdentities)))
                 : null;
         MethodSemanticIdentitySupport? semanticIdentity =
             lanes.Any(static lane => lane._states.Any(
@@ -2624,6 +2629,9 @@ public sealed class MethodDefinitionExecution
 
         public bool HasLocalSignatureLayer { get; } =
             (layers & MethodDefinitionLayers.LocalSignature) != 0;
+
+        public bool SharesCalleeIdentities =>
+            ((IMethodDefinitionProducer)producer).SharesCalleeIdentities;
 
         public bool HasMethodAnalysisLayer { get; } =
             (layers & MethodDefinitionLayers.MethodAnalysis) != 0;

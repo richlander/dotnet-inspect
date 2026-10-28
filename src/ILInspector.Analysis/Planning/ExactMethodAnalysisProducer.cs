@@ -163,6 +163,10 @@ internal sealed class PhysicalMethodAnalysisProducer :
             MethodBodyAnalyzerDeclarations.ResolvedCalls,
         ];
 
+    // Every body's direct calls stay in the result, so one identity per
+    // callee replaces a MemberRef graph per call site.
+    internal override bool SharesCalleeIdentities => true;
+
     internal override ExactMethodAnalysisBody Visit(
         scoped MethodDefinitionView view)
     {

@@ -74,7 +74,8 @@ public static partial class MemberCommand
         PackageHouse? packageHouse = null,
         Func<CancellationToken, PackageSourceOperationLease>?
             issuePackageOperation = null,
-        bool allowImplicitDocumentation = true)
+        bool allowImplicitDocumentation = true,
+        ApiType? preselectedType = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
             throw new ArgumentException(
@@ -290,7 +291,10 @@ public static partial class MemberCommand
             var api = loaded.Api;
             var apiDllPath = loaded.ApiDllPath;
             var pdbLookupPath = loaded.PdbLookupPath;
-            var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
+            var lookupResult = preselectedType is null
+                ? ApiTypeLookupService.LookupType(api, typeName!)
+                : new ApiTypeLookupResult(typeName!, new LookupResult(preselectedType.FullName, []),
+                    preselectedType);
             if (!lookupResult.Found)
             {
                 if (options.RouterDeferredTypeOrMember
@@ -1648,12 +1652,12 @@ public static partial class MemberCommand
                 api,
                 apiType,
                 effectiveOptions.MemberFilter);
-            var bodyShapeCompletion = new BodyShapeCompletion();
+            var inspectionCompletion = new TypeInspectionCompletion();
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                 apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                 acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions,
                 memberCodeSourceAssembly: sourceAssembly,
-                bodyShapeCompletion: bodyShapeCompletion);
+                inspectionCompletion: inspectionCompletion);
             if (writeExitCode != 0)
                 return writeExitCode;
 
@@ -1670,7 +1674,7 @@ public static partial class MemberCommand
                 contextualExplanationSelector,
                 packageName,
                 packageVersion);
-            return companionExitCode == 0 && bodyShapeCompletion.Incomplete
+            return companionExitCode == 0 && inspectionCompletion.Incomplete
                 ? 1
                 : companionExitCode;
         }

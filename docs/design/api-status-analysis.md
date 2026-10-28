@@ -37,6 +37,15 @@ API status analysis owns:
   comparison admits obsolete Members and compares no status, so it reports
   nothing. Compared with `--all`, it is one `MemberObsoleteChanged` row.
 
+The .NET runtime pack, `Microsoft.NETCore.App.Runtime.osx-arm64` on nuget.org,
+`System.Security.Cryptography`, `AsnEncodedData.RawData`
+([#10775](https://github.com/richlander/dotnet-inspect/issues/10775)):
+
+- 10.0.12 to 11.0.0-rc.1.26425.128: the property's setter alone gains
+  `[Obsolete]` (SYSLIB0065); the property and its getter do not. Every
+  comparison reported no change, as the property's own facts are unchanged.
+  It is one `MemberObsoleteChanged` row naming the setter.
+
 Hosts compare the API axis by default
 ([Library API diff presentation](library-api-diff-presentation.md#ordinary-presentation)),
 where both transitions would be silent without these rows. The 4.7.2 to 5.0.0
@@ -53,7 +62,10 @@ population and unprojected `--json` reports it. The fixture cases under
   An explicit interface implementation records no hidden fact, as the
   extractor's admission rules exempt it, so it has no hidden row.
 - **Obsolete**: `IsObsolete`, `ObsoleteMessage`, and `ObsoleteIsError` on
-  `ApiType` and `ApiMember`. The Type facts are not serialized, as
+  `ApiType` and `ApiMember`. A property or event accessor records its own
+  `[Obsolete]`, with its message and error flag (`GetterObsolete`,
+  `SetterObsolete`, `AdderObsolete`, `RemoverObsolete`), not serialized. The
+  Type facts are not serialized, as
   `ApiType.IsHidden` is not, so existing Type JSON is unchanged. `[Obsolete]`'s
   `DiagnosticId` and `UrlFormat` are not recorded. The compiler's
   compatibility marker is Roslyn's `[Obsolete(message, true)]` with its exact
@@ -101,6 +113,20 @@ C# spelling of the attribute, such as `[Obsolete("m")]`,
 `[Obsolete("m", true)]`, or `[Obsolete]`, or `not obsolete`. A subject whose
 hidden and obsolete facts both change has one row of each kind.
 
+An accessor's own obsolete fact is a status fact of that accessor. When the
+accessor is present on both sides and that fact changes, its property or event
+has one `MemberObsoleteChanged` row whose description names the accessor, such
+as `Member 'RawData' setter was made obsolete`, with the accessor's values and
+the Member's classification. A caller of that accessor sees the warning or
+error just as a caller of an obsolete Member does. An accessor is judged by its
+own external reach, as [accessor spelling
+changes](api-population-scope.md#the-diffs-api-axis-population) are: an
+accessor no other assembly can reach on either side, such as a private setter
+of a public property, has no external caller, so the API axis reports no row
+for it, as Finding Diff Any's census does, and a comparison that also
+classifies outside the API axis (`--all`) reports it as NonBreaking. An accessor added or
+removed is a change to the composed property signature, not a status row.
+
 An accessor's hidden fact is not a row of its own and does not make a
 `MemberHiddenChanged` row on its property or event. That follows how the
 comparison treats an accessor's accessibility, which it reports only through
@@ -137,7 +163,8 @@ Finding Diff Any's API census records each admitted subject's custom attributes
 as API facts, `EditorBrowsable` and `Obsolete` among them, so a status-only
 change makes the Type API `Changed` with Body `Unchanged`. For a change to a
 recorded status fact (a Type's or Member's hidden fact, or `[Obsolete]`'s
-presence, message, or error flag), the API axis comparison now reports a row,
+presence, message, or error flag on a Type, a Member, or an accessor within
+external reach), the API axis comparison now reports a row,
 which keeps the [Finding Diff Any](finding-diff-any.md#contract) Exists
 contract: `Changed` opens a non-empty complete diff. A change only to an
 unrecorded part of a status attribute, such as `[Obsolete]`'s `DiagnosticId` or
@@ -160,10 +187,14 @@ owns that presentation and the obsolete marker.
 - The Finding Diff Any fixture pair has one Type per transition: a Member made
   hidden, a Member made visible, a Type made hidden, a Member made obsolete,
   a Member's obsolete warning made an error, a Type made obsolete, a Member's
-  obsolete message changed, and a Member made obsolete as an error.
+  obsolete message changed, a Member made obsolete as an error, and a
+  property's setter alone made obsolete.
 - Each case is Finding Diff Any API `Changed` and Body `Unchanged`, and the
   API axis and include-all comparisons each report exactly one row of its kind,
   category, classification, and values.
+- A private setter made obsolete is Finding Diff Any API `Unchanged`; the API
+  axis comparison reports no row for it, and the include-all comparison
+  reports one NonBreaking row.
 - The Public comparison reports the hidden and obsolete-Type cases as a
   removal or an addition and reports no status row.
 - `ApiDiffAnalyzerTests` classify every transition in the table above through

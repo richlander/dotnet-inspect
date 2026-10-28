@@ -428,6 +428,57 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void MethodQuerySource_ResolvesEachCalleeWhenNoProducerSharesIdentities()
+    {
+        string path = typeof(MethodDefinitionRequestSetTests).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle first =
+            FindMethod(
+                reader,
+                nameof(MethodCallMetadataProbeTarget),
+                nameof(MethodCallMetadataProbeTarget.AbsoluteFirst));
+        MethodDefinitionHandle second =
+            FindMethod(
+                reader,
+                nameof(MethodCallMetadataProbeTarget),
+                nameof(MethodCallMetadataProbeTarget.AbsoluteSecond));
+        MethodDefinitionSourceAssociation exact =
+            Association(
+                MethodCallsProbe.Unshared,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    first,
+                    second));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([exact]), path);
+        MethodCallSite[] absoluteCalls =
+        [
+            .. CompletedValue<
+                    ImmutableDictionary<CallSiteKey, MethodCallSite>>(
+                    execution,
+                    exact)
+                .Values
+                .Where(
+                    static site =>
+                        site.Callee.DeclaringType.Namespace
+                            == "System"
+                        && site.Callee.DeclaringType.Name == "Math"
+                        && site.Callee.Name == "Abs"),
+        ];
+
+        Assert.Equal(2, absoluteCalls.Length);
+        Assert.NotSame(
+            absoluteCalls[0].Callee,
+            absoluteCalls[1].Callee);
+        Assert.Equal(
+            absoluteCalls[0].Callee.ToString(),
+            absoluteCalls[1].Callee.ToString());
+    }
+
+    [Fact]
     public void MethodQuerySource_ClosedGenericFieldTypeIsInstantiated()
     {
         string path = typeof(MethodDefinitionRequestSetTests).Assembly.Location;

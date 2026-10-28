@@ -8,7 +8,7 @@ namespace DotnetInspect.Cli.Planning;
 
 internal static class MemberInspectionPlanBuilder
 {
-    private static readonly ViewFacetId MemberDefaultFacet =
+    internal static readonly ViewFacetId MemberDefaultFacet =
         InspectionViewFacetCatalog.Registry
             .GetRequiredDescriptor(
                 StructuralSubjectKind.Member,

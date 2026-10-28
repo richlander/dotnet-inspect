@@ -364,16 +364,22 @@ reusable owners produce the facts.
 ### Planned Workspace packet activation
 
 Root activation admits Workspace inventory and query-free saved Package
-`package.libraries` and Type `type.api` views. These consume the exact
+`package.libraries`, Type `type.api`, and Member `member.overview` views. These
+consume the exact
 selected-subject handoff implemented under
 [#10408](https://github.com/richlander/dotnet-inspect/issues/10408) and invoke
 the ordinary inspection over the admitted Root and Navigation registration.
 Type projection uses its structured definition identity within that exact
 Library; it does not search declaration contexts again. Both raw and `-w`
-entrances preserve ordinary output formats, row controls and Count.
-Other saved facets and attached queries are refused before acquisition.
+entrances preserve ordinary output formats, row controls and admitted Count
+semantics.
+Member projection additionally supplies the saved owner-issued digest selector
+to ordinary Member inspection. A saved Member overview has no Count terminal:
+ordinary Member Count requires section selection, so activation retains that
+diagnostic before restoration. Other saved facets and attached queries are
+refused before acquisition.
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647) continues with
-Member and saved-query bindings. The full target contract follows.
+other saved-facet and query bindings. The full target contract follows.
 
 This is the target CLI contract for [#4647](https://github.com/richlander/dotnet-inspect/issues/4647),
 partially implemented as described above. The CLI owns command admission,
@@ -382,6 +388,14 @@ the one-shot landing choice, terminal output, and exit behavior. It consumes
 complete-restoration contracts; inspection operations retain their existing
 selection, query, execution and result contracts. Browser activation remains
 an existing consumer of those shared owners.
+
+Member replay uses `System.Text.Json@10.0.0/net10.0` as its real input:
+`JsonSerializer.Serialize` has multiple overloads, while
+`IsReflectionEnabledByDefault` supplies a property control. The binding must
+retain the saved Member anchor within the exact Navigation Library and
+structured declaring Type, including when the source query changes the input
+packet's focused tab. Save/replay format, Count and Browser activation gates
+use the pinned archive and actual emitted packet.
 
 The user-requested entrances are:
 
@@ -547,7 +561,11 @@ its exact JsonSerializer subject and `type.api` facet through Browser
 activation. CLI Type cases compare ordinary rendering and Count across
 formats, two contexts and small Type populations. Plain text includes a
 per-invocation temporary assembly path, normalized only in parity assertions.
-Member and attached-query execution remain staged.
+The recorded [Member replay packet](examples/workspace-member-replay.json)
+likewise reopens through production Browser activation. Member CLI gates compare
+ordinary overload/property output across formats, preserve the exact anchor and
+reject unsupported Count before acquisition. Other facets and attached-query
+execution remain staged.
 
 [#10132](https://github.com/richlander/dotnet-inspect/issues/10132) tracks the
 production path: this focused CLI contract, owner-issued packet recognition,

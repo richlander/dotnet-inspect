@@ -1,4 +1,4 @@
-namespace DotnetInspect.Cli.Sections;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Well-known section category names used by <c>-S</c> and <c>-D</c>.

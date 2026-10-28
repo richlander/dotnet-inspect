@@ -96,13 +96,16 @@ internal sealed class MethodCallsProbe
         ImmutableDictionary<CallSiteKey, MethodCallSite>.Builder,
         ImmutableDictionary<CallSiteKey, MethodCallSite>>
 {
-    MethodCallsProbe(string identity)
+    readonly bool _sharesCalleeIdentities;
+
+    MethodCallsProbe(string identity, bool sharesCalleeIdentities = true)
         : base(
             identity,
             version: 1,
             tier: 0,
             MethodDefinitionLayers.Calls)
     {
+        _sharesCalleeIdentities = sharesCalleeIdentities;
     }
 
     public static MethodCallsProbe Instance { get; } =
@@ -110,6 +113,11 @@ internal sealed class MethodCallsProbe
 
     public static MethodCallsProbe Second { get; } =
         new("SecondMethodCallsProbe");
+
+    public static MethodCallsProbe Unshared { get; } =
+        new("UnsharedMethodCallsProbe", sharesCalleeIdentities: false);
+
+    internal override bool SharesCalleeIdentities => _sharesCalleeIdentities;
 
     internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
         InstructionAnalyzers =>

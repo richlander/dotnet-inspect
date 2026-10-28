@@ -538,7 +538,7 @@ The broad and shared descriptors have these measured and structural bounds:
 | Sections | Evidence and producer shape | Classification |
 | --- | --- | --- |
 | Member Index | 252 `System.String` rows; one row per selected member | `Verbose` |
-| Unsafe Members | 192 `System.String` rows; one row per unsafe finding or visible decode diagnostic | `Verbose` |
+| Unsafe Members | 68 `System.String` rows; one row per declared member with an unsafe member finding | `Verbose` |
 | Called Types | 51 `System.String` rows; one row per distinct called type | `Verbose` |
 | Allocation Facts, Safety Facts, Cost Facts | 26, 75, and 205 `System.String` rows respectively in the production host; one row per projected semantic fact | `Verbose` |
 | Top Leverage | 301 `System.String` rows; the producer requests the complete scoped ranking | `Verbose` |
@@ -957,9 +957,9 @@ The library command's current authored ownership is:
 
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains. `Unsafe Members` is a standalone section with no category membership;
-target-aware discovery advertises it when a bounded early-exit probe finds
-evidence or metadata scanning yields a renderable incomplete-decode diagnostic,
-and `-S "Unsafe Members"` renders its full census. The explicit-only `Body
+target-aware discovery advertises it when an early-exit probe finds a method
+with an unsafe member census role, and `-S "Unsafe Members"` renders the
+census, as the [Unsafe Members section](unsafe-members-section.md) defines. The explicit-only `Body
 Shapes` section is also uncategorized because its required `Kind=...` predicate,
 rather than a category, supplies its scope.
 

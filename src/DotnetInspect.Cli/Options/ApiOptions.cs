@@ -397,6 +397,7 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    public bool NamesakeLibrary { get; init; }
     internal bool MermaidExplicitlySet { get; init; }
     internal bool NonHierarchyFormatExplicitlySet { get; init; }
     internal bool LineWindowExplicitlySet { get; init; }

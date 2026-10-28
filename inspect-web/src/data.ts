@@ -15,6 +15,7 @@ export function assertNever(value: never, vocabulary: string): never {
 }
 
 const typeLensRouteByFacetId = {
+  "type.overview": "overview",
   "type.api": "api",
   "type.metadata": "metadata",
   "type.source": "source",
@@ -67,10 +68,9 @@ const memberSectionRoutes = [
 ] as const;
 
 export type TypeLens =
-  (typeof typeLensRouteByFacetId)[keyof typeof typeLensRouteByFacetId]
-  | "overview";
+  (typeof typeLensRouteByFacetId)[keyof typeof typeLensRouteByFacetId];
 
-type RegisteredTypeLens = Exclude<TypeLens, "overview">;
+type RegisteredTypeLens = TypeLens;
 export type MemberSection = (typeof memberSectionRoutes)[number];
 
 function isTypeViewFacetId(
@@ -137,10 +137,12 @@ export function setTypeViewFacetCatalog(
     }
     seen.add(descriptor.id);
     previousOrder = descriptor.order;
-    projected.push([
-      typeLensRouteByFacetId[descriptor.id],
-      descriptor.title,
-    ]);
+    if (descriptor.id !== "type.metadata") {
+      projected.push([
+        typeLensRouteByFacetId[descriptor.id],
+        descriptor.title,
+      ]);
+    }
   }
   for (const id of Object.keys(typeLensRouteByFacetId)) {
     if (!seen.has(id)) {
@@ -154,8 +156,11 @@ export function isTypeLens(
   value: string | null | undefined,
 ): value is TypeLens {
   return typeof value === "string"
-    && (value === "overview"
-      || Object.values(typeLensRouteByFacetId).some(id => id === value));
+    && Object.values(typeLensRouteByFacetId).some(id => id === value);
+}
+
+export function canonicalTypeLens(value: TypeLens): TypeLens {
+  return value === "metadata" ? "overview" : value;
 }
 
 export const packageLenses = [
@@ -2016,9 +2021,10 @@ export function typeLensesFor(
     throw new Error("The product Type view-facet catalog is unavailable.");
   }
   if (pkg?.source?.kind === "file")
-    return typeLenses.filter(([id]) => id === "api");
+    return typeLenses.filter(([id]) => id === "overview" || id === "api");
   if (pkg?.isRuntimePack)
-    return typeLenses.filter(([id]) => id === "api" || id === "source");
+    return typeLenses.filter(
+      ([id]) => id === "overview" || id === "api" || id === "source");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
   return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
