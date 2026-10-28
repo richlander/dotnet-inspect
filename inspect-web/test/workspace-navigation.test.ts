@@ -572,6 +572,29 @@ test("canonical forwarded-Type Overview is distinct from Package Overview", () =
   assert.equal(parsed.library, "System.Xml");
 });
 
+test("canonical Type Metadata links restore as Overview", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view,
+      lens: "metadata",
+      type: "System.Text.Json:System.Text.Json.JsonDocument",
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+    },
+  });
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?w=canonical"),
+    () => decoded(state));
+
+  assert.equal(parsed.lens, "overview");
+  assert.equal(
+    parsed.type,
+    "System.Text.Json:System.Text.Json.JsonDocument");
+});
+
 test("canonical Type Compare restores the reported Type and exact compile asset", () => {
   const initial = workspaceState();
   const state = workspaceState({

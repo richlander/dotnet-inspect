@@ -1,5 +1,6 @@
 import type { PlatformNavigationState } from "./platform-subject.ts";
 import {
+  canonicalTypeLens,
   graphMemberShareTarget,
   isLibraryLens,
   isMemberSection,
@@ -901,7 +902,7 @@ function resolveView(token: string): {
   const packageLensToken = atPackageRoot ? token.split(":")[1] : undefined;
   const libraryLensToken = atLibraryRoot ? token.split(":")[1] : undefined;
   return {
-    lens: isTypeLens(token) ? token : null,
+    lens: isTypeLens(token) ? canonicalTypeLens(token) : null,
     workspaceSubjectOpen,
     atPackageRoot,
     atLibraryRoot,

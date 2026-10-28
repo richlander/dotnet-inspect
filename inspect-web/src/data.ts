@@ -137,10 +137,12 @@ export function setTypeViewFacetCatalog(
     }
     seen.add(descriptor.id);
     previousOrder = descriptor.order;
-    projected.push([
-      typeLensRouteByFacetId[descriptor.id],
-      descriptor.title,
-    ]);
+    if (descriptor.id !== "type.metadata") {
+      projected.push([
+        typeLensRouteByFacetId[descriptor.id],
+        descriptor.title,
+      ]);
+    }
   }
   for (const id of Object.keys(typeLensRouteByFacetId)) {
     if (!seen.has(id)) {
@@ -155,6 +157,10 @@ export function isTypeLens(
 ): value is TypeLens {
   return typeof value === "string"
     && Object.values(typeLensRouteByFacetId).some(id => id === value);
+}
+
+export function canonicalTypeLens(value: TypeLens): TypeLens {
+  return value === "metadata" ? "overview" : value;
 }
 
 export const packageLenses = [

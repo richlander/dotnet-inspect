@@ -400,7 +400,6 @@ import {
   renderLibraryOverviewContent,
   renderOverviewSurface,
   renderPackageOverviewContent,
-  renderTypeOverview,
 } from "./overview-surface.ts";
 import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
@@ -10912,7 +10911,7 @@ function maybeAutoLoadVisibleSource() {
 }
 
 function maybeAutoLoadTypeMetadata() {
-  if (state.lens !== "metadata") return;
+  if (state.lens !== "overview" && state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
   const signature = currentTypeMetadataSignature(
@@ -13924,6 +13923,7 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
   return renderTypeMetadata({
     item,
     packageContext: currentPackage(),
+    metadataAvailable: currentPackage().source.kind !== "file",
     libraryIdentity: selectedTypeMetadataLibraryIdentity(),
     workspaceIdentity: typeMetadataWorkspaceIdentity(),
     metadataState: state,
@@ -14028,72 +14028,15 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     case "source":
       return renderTypeSourceHtml(item);
     case "metadata":
+    case "overview":
       return renderTypeMetadataHtml(item);
     case "compare":
       return renderCompareSurface();
     case "api":
       return renderApiLens(item);
-    case "overview":
-      return renderTypeOverviewHtml(item);
     default:
       return assertNever(state.lens, "type lens");
   }
-}
-
-function renderTypeOverviewHtml(item: AppTypeSurface) {
-  const pkg = currentPackage();
-  const signature = currentTypeMetadataSignature(
-    item,
-    pkg,
-    selectedTypeMetadataLibraryIdentity());
-  const fresh = state.typeMetadataKey === signature;
-  const metadata = fresh ? state.typeMetadata : null;
-  const envelope = metadata?.exactTypeInspection;
-  const exact = envelope?.content.type ?? null;
-  const projection = pkg.source.kind === "file"
-    ? {
-        status: "unavailable" as const,
-        exact: null,
-        complete: false,
-      }
-    : fresh && state.typeMetadataError
-      ? {
-          status: "failed" as const,
-          exact: null,
-          complete: false,
-          detail: state.typeMetadataError,
-        }
-      : fresh && envelope && envelope.content.isAvailable && exact
-        ? {
-            status: "available" as const,
-            exact,
-            complete: envelope.content.isComplete,
-          }
-        : fresh && envelope
-          ? {
-              status: "unavailable" as const,
-              exact: null,
-              complete: false,
-            }
-          : {
-              status: "loading" as const,
-              exact: null,
-              complete: false,
-            };
-  return renderTypeOverview({
-    subject: {
-      displayName: typeDisplayName(item),
-      fullName: item.metadataId,
-      namespace: item.namespace,
-      kind: item.kind,
-      accessibility: item.accessibility,
-      assembly: item.assembly,
-      members: item.members,
-    },
-    projection,
-    relatedTypeHtml: relatedTypeChip,
-    escapeHtml,
-  });
 }
 
 function renderApiLens(item: AppTypeSurface) {
@@ -25097,7 +25040,9 @@ function graphExplorerKey(): string | null {
     return JSON.stringify(["hierarchy", packageHierarchySignature()]);
   }
   const type = selectedType();
-  if (scope() === "type" && state.lens === "metadata" && type && state.package) {
+  if (scope() === "type"
+    && (state.lens === "overview" || state.lens === "metadata")
+    && type && state.package) {
     const signature = currentTypeMetadataSignature(
       type,
       state.package,
@@ -25195,7 +25140,9 @@ function restoreGraphExplorerNavigationFocus() {
     return;
   }
   if (state.loading || state.graphMemberNavigationTitle || state.platformDrillLoading) return;
-  if (scope() === "type" && state.lens === "metadata" && state.typeMetadataLoading) return;
+  if (scope() === "type"
+    && (state.lens === "overview" || state.lens === "metadata")
+    && state.typeMetadataLoading) return;
   graphExplorerNavigationFocusPending = false;
   const explore = document.querySelector<HTMLButtonElement>("[data-graph-explore]");
   if (graphExplorerKey() === graphExplorerOriginKey && explore && !explore.disabled) {

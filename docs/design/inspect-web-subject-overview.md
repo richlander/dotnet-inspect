@@ -8,10 +8,11 @@ summary keeps direct subject metadata, owner-issued subject rollups, and
 non-overlapping numeric navigation distinct. Bounded structural relationships
 and ordinary metadata follow as rows.
 
-Type is the first adopter. Its Overview and Members are separate
-product-issued working surfaces. Opening Type Overview may request the existing
-exact-Type metadata projection over the retained inspection scope, but performs
-no source, method-body, network, or relation analysis.
+Type is the first adopter. Its Overview adopts the existing exact-Type metadata
+surface and prepends the reusable summary; Members remains a separate
+product-issued working surface. Opening Type Overview may request the existing
+metadata and relationship projections over the retained inspection scope, but
+performs no source, method-body, or network analysis.
 
 ## Inputs and boundaries
 
@@ -44,9 +45,14 @@ return-Type spelling, or other display content.
 Type Overview uses this order:
 
 1. direct metadata, rollups when available, and numeric navigation;
-2. base Type first, when present;
-3. implemented interfaces in owner-issued order; and
-4. straightforward identity and declaration metadata.
+2. the headerless Type Shape key/value rows;
+3. member composition;
+4. implemented interfaces and hierarchy evidence;
+5. custom attributes; and
+6. the existing Type relationship graph when available.
+
+The former `type.metadata` Browser route is a compatibility alias for Overview
+and does not appear as a separate navigation item.
 
 The member count opens Type Members without changing the selected Type.
 Members retains the existing member filters, rows, exact-member transitions,

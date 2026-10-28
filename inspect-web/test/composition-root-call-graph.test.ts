@@ -1922,19 +1922,19 @@ test("Spotlight indexes the stable eager member inventory", () => {
     /memberAccessibilityFilter|memberSpelling|typeMemberPopulation/);
 });
 
-test("type metadata uses a full-area working surface without the inset type heading", () => {
+test("Type Overview adopts the full-area metadata surface", () => {
   const renderLens =
     appSource.match(/function renderLens\([\s\S]*?\n}\n\nfunction renderApiLens/)?.[0]
     ?? "";
   assert.match(
     appSource,
-    /const metadataWorkingSurface =\s*activeScope === "type" && state\.lens === "metadata"/);
+    /const overviewWorkingSurface =[\s\S]*activeScope === "type" && state\.lens === "overview"/);
   assert.match(
     appSource,
     /metadataWorkingSurface \? " metadata-working-surface" : ""/);
   assert.match(
     renderLens,
-    /case "metadata":\s*return renderTypeMetadataHtml\(item\);/);
+    /case "metadata":\s*case "overview":\s*return renderTypeMetadataHtml\(item\);/);
   assert.doesNotMatch(
     renderLens,
     /case "metadata":[\s\S]*?typeHeadingHtml\(item\)/);

@@ -269,10 +269,10 @@ public static class InspectionViewFacetCatalog
                 "type.overview",
                 StructuralSubjectKind.Type,
                 "Overview",
-                "Declaration summary and structural relationships for the active Type.",
+                "Declaration summary, metadata shape, and structural relationships for the active Type.",
                 100,
                 ViewFacetRole.TypeOverview),
-            "Declaration summary and structural relationships for the active Type.",
+            "Declaration summary, metadata shape, and structural relationships for the active Type.",
             AppliesToType),
         Active(
             Descriptor(
@@ -289,9 +289,9 @@ public static class InspectionViewFacetCatalog
                 "type.metadata",
                 StructuralSubjectKind.Type,
                 "Metadata",
-                "Metadata records and attributes for the active Type.",
+                "Legacy compatibility alias for the active Type Overview.",
                 300),
-            "Metadata records and attributes for the active Type.",
+            "Legacy compatibility alias for the active Type Overview.",
             AppliesToType),
         Active(
             Descriptor(

@@ -92,7 +92,7 @@
   {
     "id": "type.overview",
     "kind": "Type",
-    "purpose": "Declaration summary and structural relationships for the active Type."
+    "purpose": "Declaration summary, metadata shape, and structural relationships for the active Type."
   },
   {
     "id": "type.api",
@@ -102,7 +102,7 @@
   {
     "id": "type.metadata",
     "kind": "Type",
-    "purpose": "Metadata records and attributes for the active Type."
+    "purpose": "Legacy compatibility alias for the active Type Overview."
   },
   {
     "id": "type.source",

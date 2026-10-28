@@ -4406,9 +4406,13 @@ test.describe("bounded network-backed Worker smoke", () => {
 
     const overview = page.locator(".type-overview-surface");
     await expect(overview).toBeVisible({ timeout: 180_000 });
-    await expect(overview.locator('[data-type-relationship="base"]'))
-      .toContainText("Object", { timeout: 180_000 });
-    await expect(overview.locator('[data-type-relationship="interface"]'))
+    await expect(overview.getByRole("heading", { name: "Type shape" }))
+      .toBeVisible({ timeout: 180_000 });
+    await expect(overview.locator(".fact-rows"))
+      .toContainText("System.Object");
+    await expect(overview.getByRole("heading", { name: "Implements" }))
+      .toBeVisible();
+    await expect(overview.locator(".type-chip-list"))
       .toContainText("IDisposable");
     await expect(overview.locator('[data-overview-badge="class"]'))
       .toHaveText("class");
@@ -4416,17 +4420,22 @@ test.describe("bounded network-backed Worker smoke", () => {
       .toHaveText("sealed");
     await expect(overview.locator('[data-overview-badge="public"]'))
       .toHaveText("public");
-    await expect(overview.locator(".type-overview-rollups")).toHaveCount(0);
+    await expect(overview.getByText("Type rollup", { exact: true }))
+      .toHaveCount(0);
     await expect(overview.locator("[data-type-members]"))
       .toContainText("members");
 
-    const relationshipKinds = await overview
-      .locator("[data-type-relationship]")
-      .evaluateAll(rows => rows.map(row =>
-        row.getAttribute("data-type-relationship")));
-    expect(relationshipKinds[0]).toBe("base");
-    expect(relationshipKinds.slice(1).every(kind => kind === "interface"))
-      .toBe(true);
+    const shapeIndex = await overview.getByRole("heading", {
+      name: "Type shape",
+    }).evaluate(element => Array.from(
+      element.closest(".metadata-surface-scroll")?.children ?? [],
+    ).indexOf(element.closest("section")!));
+    const implementsIndex = await overview.getByRole("heading", {
+      name: "Implements",
+    }).evaluate(element => Array.from(
+      element.closest(".metadata-surface-scroll")?.children ?? [],
+    ).indexOf(element.closest("section")!));
+    expect(shapeIndex).toBeLessThan(implementsIndex);
 
     await page.locator("#subject-panel").screenshot({
       path: testInfo.outputPath("type-overview-json-document.png"),
