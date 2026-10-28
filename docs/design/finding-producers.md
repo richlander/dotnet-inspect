@@ -336,6 +336,138 @@ Demand-shaped Metadata performance
 ([#9257](https://github.com/richlander/dotnet-inspect/issues/9257)) tracks the
 cost side of this rule.
 
+### Unchanged prefilter
+
+The unchanged prefilter is a provision of the production API comparer, not a
+second comparison. A Type may skip extraction and comparison only when its
+*closure hash* is identical on both sides and the two images' context hashes
+are identical. The prefilter only ever skips; it never decides a row. A false
+changed costs time, while a false unchanged is a defect, so every unreadable
+case falls to changed.
+
+The closure hash (`ApiTypeClosureHash` in Metadata) is a 128-bit SHA-256
+prefix over a canonical encoding of the Type's metadata closure. Tokens
+canonicalize to resolved identities:
+
+- a Type definition becomes its escaped definition name;
+- a Type reference becomes its resolution scope's assembly name, never its
+  version, and its escaped nested name;
+- a Type specification or signature becomes a lossless decode that keeps
+  `modreq`, `modopt`, and `pinned`.
+
+Every variable-length string is length-prefixed. Member, attribute, interface,
+constraint, MethodImpl, and literal sets are sorted, so row numbering and row
+order do not enter. The encoding applies no semantic rule, so it is at least as
+strict as the comparer. Under the rule above, that makes it a lossless
+canonical encoding: equal encodings mean equal closure facts, and the
+comparer's equivalence is coarser than those facts. The hash compares raw
+facts and never interprets them, so checking every fact does not become
+spelling drift; the agreement gate catches a missing fact.
+
+The closure matches the comparer's view of the Type:
+
+- **The Type row.** Its flags, name, base Type, interfaces with their
+  attributes, generic parameters with constraints and attributes, attributes,
+  and class layout.
+- **Enclosing Types.** Each enclosing Type's flags and attributes. These decide
+  admission and carry inherited nullability context.
+- **Members.** For the API-axis default, the members the extractor's API-axis
+  admission admits (`AdmitsMethodAccess` over `MethodEffectiveAccess`,
+  `AdmitsFieldAccess`, `PropertyAccess`, and `EventAccess`), plus every
+  explicit-interface MethodImpl body. For `IncludeAll`, every member.
+- **Member facts.** Each member's flags, implementation flags, name, and
+  canonical signature. For each parameter: its name, flags, constant,
+  attributes, and marshalling. The member's generic parameters, attributes,
+  P/Invoke import, and implemented declarations, each with its declaring
+  Type's flags when that Type is local, because a private MethodImpl body takes
+  the implemented interface's access. For a property or event, its accessor
+  identities and their methods. For a field, its constant, marshalling, and
+  offset.
+- **Enum default literals.** When a parameter has a constant, the closure also
+  holds the literal fields of each Type definition the member's signature
+  names. The extractor spells an enum default by the name of the enum member
+  that holds the value, which is a row of another Type.
+
+Extension methods that the extractor attaches to a receiver Type are outside
+that Type's closure. The comparer compares only declared members, so an
+attached member never gives the receiver a row.
+`AttachedExtensionChange_IsOutsideTheReceiverClosure` fails if that stops
+holding.
+
+The context hash covers a narrow, owned set of facts outside the Type:
+
+- the assembly's name, culture, and public key, without its version;
+- every module-level attribute. This is the compiler's module context:
+  `NullablePublicOnly`, `RefSafetyRules`, `MemorySafetyRules`,
+  `SkipLocalsInit`, and `UnverifiableCode`.
+
+C# emits no assembly-level nullability attribute, and the extractor reads no
+assembly-level attribute for a Type's rows. So assembly-level attributes,
+including the version stamps that always change, are excluded. Other assembly
+identities count only as they reach signatures, through canonical Type
+reference resolution scopes. If the context differs, nothing is skipped.
+
+The hash is SHA-256 rather than XxHash128. `System.IO.Hashing` is not a
+Metadata dependency, while Metadata already hashes with SHA-256
+(`MetadataReceiptEvidence`).
+
+**Real asset.** `Microsoft.NETCore.App.Runtime.osx-arm64` and
+`Microsoft.AspNetCore.App.Runtime.osx-arm64` from 10.0.12 to
+11.0.0-rc.1.26425.128 give 304 same-named assembly pairs. A read-only probe
+found an identical closure for 18,967 of 20,432 Types, and for 2,431 of 2,641
+in `System.Private.CoreLib`. It had no miss against the production comparer at
+either view. Removing any single fact produced misses: the member set,
+attributes, member flags, base Type, parameter names, constraints, generic
+parameters, constants, or enclosing flags.
+
+**Gate.** `ApiTypeClosureHashTests` holds the agreement gate: no Type with an
+equal hash has a row in `MetadataFindings.CompareApi` with the
+`ApiComparisonQuery` arguments, at either view. It runs in PR-fast tests over
+the `finding-diff-any`, `diff`, `library-api-diff`, and
+`metadata.api-correspondence` fixture pairs. The same check runs as a Slow
+sweep over any pair list named by `API_CLOSURE_HASH_PAIRS`. Unit tests pin the
+canonicalization:
+
+- Type reference row numbers and row order do not enter the hash.
+- A changed `modreq` does enter it.
+- The two cross-Type boundaries hold: enum default literals are inside the
+  closure, and attached extensions are outside it.
+
+Over the 304 runtime-pack pairs, slice 1 measured the following. Four
+ASP.NET Core pairs differ in context: `NullablePublicOnly` or
+`UnverifiableCode` changed.
+
+| View | Types | Equal hash | Misses | False changes |
+| --- | ---: | ---: | ---: | ---: |
+| API axis (default) | 6,925 | 6,439 | 0 | 253 |
+| Include all (`--all`) | 17,151 | 14,857 | 0 | 1,044 |
+
+`System.Private.CoreLib` alone gives 1,276 of 1,379 at the API axis and 2,071
+of 2,434 with `--all`, with no misses.
+
+The *read-set guard* is slice 2's obligation. It records that every metadata
+row the extractor reads for Type T lies inside T's closure. The two cross-Type
+reads above were found by reading the extractor; the guard makes that check
+mechanical.
+
+**Known false changes.** These cost time but not correctness:
+
+- .NET 11 runtime-async method flags and attributes;
+- attribute `Version=` strings;
+- debugger, platform, and `Experimental` attributes;
+- module-attribute context changes.
+
+**Slices.** Each slice adopts the prefilter further. The production consumers
+are `diff --library` in the CLI and Inspect Web, which share
+`ApiComparisonQuery`.
+
+1. Hash and gate, test-only, with no behavior change.
+2. Skip identical-hash Types in the production comparer, with the read-set
+   guard, measured on NativeAOT.
+3. A canonical byte encoding instead of strings, through
+   `MetadataSymbolSpeller` under `MetadataSymbolScope.Declared` with the
+   assembly name substituted for the full reference identity.
+
 ## 8. Keep higher rungs separate
 
 Some useful product concepts are intentionally not one raw Finding stream:
