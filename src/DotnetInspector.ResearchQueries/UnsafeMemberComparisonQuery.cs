@@ -11,45 +11,56 @@ namespace DotnetInspector.Queries;
 /// One Library assembly an endpoint compares: an extracted file, or an
 /// implementation participant read in the group that holds it.
 /// </summary>
-public sealed record UnsafeMemberComparisonAssembly
+public abstract record UnsafeMemberComparisonAssembly
 {
-    private UnsafeMemberComparisonAssembly(
-        string assemblyName,
-        string? path,
-        AssemblyContextGroup? group,
-        AssemblyContextParticipant? participant)
+    private UnsafeMemberComparisonAssembly(string assemblyName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
         AssemblyName = assemblyName;
-        Path = path;
-        Group = group;
-        Participant = participant;
     }
 
     public string AssemblyName { get; }
 
-    internal string? Path { get; }
-
-    internal AssemblyContextGroup? Group { get; }
-
-    internal AssemblyContextParticipant? Participant { get; }
-
     public static UnsafeMemberComparisonAssembly FromPath(
         string assemblyName,
         string path)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return new(assemblyName, path, group: null, participant: null);
-    }
+        => new File(assemblyName, path);
 
     public static UnsafeMemberComparisonAssembly FromParticipant(
         string assemblyName,
         AssemblyContextGroup group,
         AssemblyContextParticipant participant)
+        => new GroupParticipant(assemblyName, group, participant);
+
+    internal sealed record File : UnsafeMemberComparisonAssembly
     {
-        ArgumentNullException.ThrowIfNull(group);
-        ArgumentNullException.ThrowIfNull(participant);
-        return new(assemblyName, path: null, group, participant);
+        public File(string assemblyName, string path)
+            : base(assemblyName)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(path);
+            Path = path;
+        }
+
+        public string Path { get; }
+    }
+
+    internal sealed record GroupParticipant : UnsafeMemberComparisonAssembly
+    {
+        public GroupParticipant(
+            string assemblyName,
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant)
+            : base(assemblyName)
+        {
+            ArgumentNullException.ThrowIfNull(group);
+            ArgumentNullException.ThrowIfNull(participant);
+            Group = group;
+            Participant = participant;
+        }
+
+        public AssemblyContextGroup Group { get; }
+
+        public AssemblyContextParticipant Participant { get; }
     }
 }
 
@@ -214,7 +225,7 @@ public static class UnsafeMemberComparisonQuery
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (assembly.Path is { } path)
+        if (assembly is UnsafeMemberComparisonAssembly.File { Path: var path })
         {
             try
             {
@@ -242,9 +253,10 @@ public static class UnsafeMemberComparisonQuery
             }
         }
 
+        var held = (UnsafeMemberComparisonAssembly.GroupParticipant)assembly;
         AssemblyImageAccessResult<UnsafeMemberFindingInspection?> access =
-            assembly.Group!.UseSnapshot(
-                assembly.Participant!,
+            held.Group.UseSnapshot(
+                held.Participant,
                 cancellationToken,
                 snapshot =>
                 {

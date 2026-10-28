@@ -502,11 +502,14 @@ public static class AnalysisFindings
         AddChange(changes, "evidence", RolesText(oldSummary), RolesText(newSummary));
         return string.Join("; ", changes);
 
+        // Bracketed, so a role's callee list cannot be read as another facet.
         static string RolesText(UnsafeMemberFindingSummary summary) =>
-            string.Join(
-                ", ",
+            "["
+            + string.Join(
+                "; ",
                 summary.Roles.Select(static role =>
-                    UnsafeMemberFindingSummary.RoleText(role, static callee => callee)));
+                    UnsafeMemberFindingSummary.RoleText(role, static callee => callee)))
+            + "]";
     }
 
     /// <summary>

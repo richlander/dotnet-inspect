@@ -76,7 +76,7 @@ public sealed partial class UnsafeMemberFindingsTests
             var change = Assert.IsType<PairFinding<UnsafeMemberFinding>.Changed>(
                 PairFor(pairs, "Changed").Value);
             Assert.Equal(
-                "evidence: stack allocation -> pointer dereference, stack allocation",
+                "evidence: [stack allocation] -> [pointer dereference; stack allocation]",
                 change.Detail);
             Assert.Equal(PairKind.Removed, PairFor(pairs, "Removed").Kind);
             Assert.Equal(PairKind.Added, PairFor(pairs, "Added").Kind);
