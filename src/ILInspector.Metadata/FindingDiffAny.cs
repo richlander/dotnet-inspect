@@ -1336,9 +1336,16 @@ public static partial class FindingDiffAny
                 && MetadataVisibility.AreEnclosingTypesExternallyReachable(Md, handle);
 
         bool IsVisible(MethodDefinitionHandle handle, MethodDefinition method)
-            => ApiSurfaceExtractor.AdmitsMethodAccess(
-                ApiSurfaceExtractor.MethodEffectiveAccess(method.Attributes & MethodAttributes.MemberAccessMask,
+        {
+            MethodAttributes access = method.Attributes & MethodAttributes.MemberAccessMask;
+            if (IsVisibleAccess((int)access))
+                return true;
+            if (access != MethodAttributes.Private)
+                return false;
+            return ApiSurfaceExtractor.AdmitsMethodAccess(
+                ApiSurfaceExtractor.MethodEffectiveAccess(access,
                     handle, ExplicitImplementations(method.GetDeclaringType())), includeAll: false, apiAxis: true);
+        }
 
         bool IsVisible(FieldDefinition field)
             => IsVisibleAccess((int)(field.Attributes & FieldAttributes.FieldAccessMask));

@@ -839,7 +839,10 @@ Types present on one side only are not paired; their one-sided form is this
 level's. The paired-Type `Members` fold implements step 7 slice 1 under the
 ownership rules above, reading each fact's owner from its key parts. Members
 are identified by their expanded census keys; generated code remains residual
-until slice 2, which also adds anchors.
+until slice 2, which also adds anchors. This slice settles the aggregate API
+state and clears every owner's API cue when the Type is API `Unchanged`.
+When the Type is API `Changed`, an owner's one-sided uncertain facts remain
+candidate cues; the Type-query adoption still owns their per-Member settlement.
 `FindingDiffAnyTypeMemberTests` checks the paired fixture partition through
 both body readers, the raising and residual scenarios, and the pinned JSON
 property. The inventory is the
