@@ -140,7 +140,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "runtimes/linux-x64/lib/net11.0/Rid.Specific.dll",
             implementation.Asset.Path);
-        Assert.Contains(
+        Assert.DoesNotContain(
             scope.ImplementationParticipants,
             candidate =>
                 candidate.Asset.Path

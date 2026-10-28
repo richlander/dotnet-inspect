@@ -2090,6 +2090,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 selectionRuntimeIdentifier: null,
                 hasSelectedImplementationUniverse: true,
                 usesCompatibleImplementationSelection: false,
-                allowsCompatibleTargetSelection: false));
+                allowsCompatibleTargetSelection: false,
+                runtimePopulationTargetFramework: "net10.0"));
     }
 }

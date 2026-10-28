@@ -1922,6 +1922,16 @@ kbd {
 .overview-scroll .doc-chip,
 .overview-scroll .type-chip { max-width: 100%; white-space: normal; text-align: left; }
 .overview-scroll .doc-name { min-width: 0; }
+.subject-overview-summary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 18px 28px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.metadata-surface-scroll > .subject-overview-summary { padding-inline: 16px; }
+.subject-overview-summary-group { display: grid; gap: 7px; }
+.subject-overview-summary-label { color: var(--dim); font: 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.subject-overview-summary-group ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.subject-overview-summary-group li,
+.type-overview-navigation button { min-height: 28px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--chrome); color: var(--text); font: 600 11px/1.4 var(--mono); }
+.type-overview-navigation button { cursor: pointer; }
+.type-overview-navigation button:hover { border-color: var(--accent); color: var(--accent); }
+.type-overview-navigation button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .package-overview-content {
   min-width: 0;
   display: grid;

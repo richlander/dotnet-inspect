@@ -159,7 +159,8 @@ public sealed class ArtifactRootCorrespondenceTests
                 selectionRuntimeIdentifier: null,
                 hasSelectedImplementationUniverse: true,
                 usesCompatibleImplementationSelection: false,
-                allowsCompatibleTargetSelection: false);
+                allowsCompatibleTargetSelection: false,
+                runtimePopulationTargetFramework: Framework);
         PackageArtifactRootRequest extendedRequest =
             PackageArtifactRootRequest.Create(
                 new RealizedMemberCoordinate.Package(
@@ -174,7 +175,9 @@ public sealed class ArtifactRootCorrespondenceTests
                 selectionRuntimeIdentifier: null,
                 hasSelectedImplementationUniverse: true,
                 usesCompatibleImplementationSelection: false,
-                allowsCompatibleTargetSelection: false);
+                allowsCompatibleTargetSelection: false,
+                runtimePopulationTargetFramework:
+                    ExtendedFramework);
         var content = new CountingPackageContent(
             new InMemoryPackageContent(
                 Archive(
@@ -216,6 +219,12 @@ public sealed class ArtifactRootCorrespondenceTests
             workspace.CreatePackageArtifactRootCorrespondence(
                 extendedBinding);
 
+        Assert.Equal(
+            omittedRequest,
+            PackageArtifactRootRequest.From(omittedBinding));
+        Assert.Equal(
+            extendedRequest,
+            PackageArtifactRootRequest.From(extendedBinding));
         Assert.True(omitted.Matches(omittedRequest));
         Assert.True(extended.Matches(extendedRequest));
         AssertResourceFree(typeof(PackageArtifactRootRequest));
@@ -239,7 +248,8 @@ public sealed class ArtifactRootCorrespondenceTests
                 selectionRuntimeIdentifier: null,
                 hasSelectedImplementationUniverse: true,
                 usesCompatibleImplementationSelection: false,
-                allowsCompatibleTargetSelection: false);
+                allowsCompatibleTargetSelection: false,
+                runtimePopulationTargetFramework: "net10.0");
         PackageArtifactRootRequest absent =
             PackageArtifactRootRequest.Create(
                 selected.Coordinate,
@@ -249,7 +259,8 @@ public sealed class ArtifactRootCorrespondenceTests
                 selectionRuntimeIdentifier: null,
                 hasSelectedImplementationUniverse: false,
                 usesCompatibleImplementationSelection: false,
-                allowsCompatibleTargetSelection: false);
+                allowsCompatibleTargetSelection: false,
+                runtimePopulationTargetFramework: "net10.0");
 
         Assert.Equal("net10.0", selected.CompileTargetFramework);
         Assert.Equal("net8.0", selected.SelectionTargetFramework);

@@ -449,9 +449,9 @@ public sealed partial class WorkspaceContextLoaderTests
             participant.Assembly.Provenance);
         Assert.Equal("browser-wasm", provenance.Rid);
 
-        // The runtime-specific asset replaced the runtime-neutral one at the
-        // same relative path. The fixtures share an assembly name and differ
-        // only by version, so the identity says which folder was used.
+        // The runtime-specific population replaced the neutral implementation
+        // population. The fixtures share an assembly name and differ only by
+        // version, so the identity says which folder was used.
         Assert.NotEqual(
             IdentityVersion(TargetPath),
             IdentityVersion(TargetV2Path));

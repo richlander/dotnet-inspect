@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
-using DotnetInspector.Sections;
 
-namespace DotnetInspect.Cli.Output;
+namespace DotnetInspector.Sections;
 
 public sealed record SectionOutputCapabilities(
     ImmutableArray<DiscoveryOutputMode> Formats,
@@ -18,7 +17,7 @@ public sealed record SectionOutputCapabilities(
 
 public sealed class OutputCapabilityCatalog
 {
-    internal static ImmutableArray<DiscoveryOutputMode>
+    public static ImmutableArray<DiscoveryOutputMode>
         StandardSectionFormats { get; } =
     [
         DiscoveryOutputMode.Markdown,
@@ -29,7 +28,7 @@ public sealed class OutputCapabilityCatalog
         DiscoveryOutputMode.Jsonl,
     ];
 
-    internal static ImmutableArray<DiscoveryOutputMode> FormatOrder { get; } =
+    public static ImmutableArray<DiscoveryOutputMode> FormatOrder { get; } =
     [
         .. StandardSectionFormats,
         DiscoveryOutputMode.Tree,
@@ -141,20 +140,4 @@ public sealed class OutputCapabilityCatalog
         };
     }
 
-    public static string CliOption(DiscoveryOutputMode format) =>
-        format switch
-        {
-            DiscoveryOutputMode.Markdown => "--markdown",
-            DiscoveryOutputMode.PlainText => "--plaintext",
-            DiscoveryOutputMode.Json => "--json",
-            DiscoveryOutputMode.Table => "--table",
-            DiscoveryOutputMode.Tsv => "--tsv",
-            DiscoveryOutputMode.Jsonl => "--jsonl",
-            DiscoveryOutputMode.Tree => "--tree",
-            DiscoveryOutputMode.Mermaid => "--mermaid",
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(format),
-                format,
-                "Unknown output mode."),
-        };
 }

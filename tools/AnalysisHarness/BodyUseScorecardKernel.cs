@@ -799,7 +799,7 @@ public static class BodyUseScorecardKernel
 
         static bool IsManaged(MethodDefinition method) =>
             method.RelativeVirtualAddress != 0
-            && LibraryMethodAnalysisRunner.HasManagedIlBody(
+            && MethodDefinitionShapes.HasManagedIlBody(
                 method.ImplAttributes);
 
         readonly struct SelectManaged(CancellationToken cancellationToken)

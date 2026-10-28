@@ -128,6 +128,13 @@ public enum MethodDefinitionLayers
     /// does not decode calls or imply <see cref="CallTargets"/>.
     /// </summary>
     LocalSignature = 131072,
+
+    /// <summary>
+    /// Per-method resolved call operands in IL order. It implies
+    /// <see cref="Body"/> but does not resolve same-module targets, local
+    /// signatures, or field operands.
+    /// </summary>
+    CallOperands = 262144,
 }
 
 /// <summary>
@@ -155,8 +162,8 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
                     | MethodDefinitionLayers.Declaration
                     | MethodDefinitionLayers.Body
                     | MethodDefinitionLayers.CallTargets
-                : layers.HasFlag(
-                    MethodDefinitionLayers.LocalSignature)
+                : layers.HasFlag(MethodDefinitionLayers.LocalSignature)
+                    || layers.HasFlag(MethodDefinitionLayers.CallOperands)
                     ? layers
                         | MethodDefinitionLayers.Declaration
                         | MethodDefinitionLayers.Body
@@ -236,7 +243,17 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// <summary>The unit's class, 0 to 63, derived from its fact; used only when <see cref="ClassifiesUnits"/>.</summary>
     internal virtual int UnitClass(TFact fact) => 0;
 
+    /// <summary>
+    /// Whether this producer's result retains resolved callee identities
+    /// across bodies, so the execution's call lookup shares one identity per
+    /// callee instead of resolving each call site afresh.
+    /// </summary>
+    internal virtual bool SharesCalleeIdentities => false;
+
     SourceGateGuard? IMethodDefinitionProducer.SourceGate => SourceGate;
+
+    bool IMethodDefinitionProducer.SharesCalleeIdentities =>
+        SharesCalleeIdentities;
 
     ImmutableArray<MethodBodyAnalyzerDeclaration>
         IMethodDefinitionProducer.InstructionAnalyzers =>
@@ -421,6 +438,8 @@ internal interface IMethodDefinitionProducer
     }
 
     SourceGateGuard? SourceGate { get; }
+
+    bool SharesCalleeIdentities { get; }
 
     MethodDefinitionExecution.ProducerState CreateState(
         MethodDefinitionExecution execution,
@@ -937,6 +956,29 @@ public readonly ref struct MethodDefinitionView
         return _unit.GetCalls(instructions);
     }
 
+    /// <summary>
+    /// The unit's IL-ordered call operands with resolved member identity,
+    /// without same-module target resolution.
+    /// </summary>
+    internal MethodCallOperandSites GetCallOperands(
+        MethodInstructions instructions)
+    {
+        ArgumentNullException.ThrowIfNull(instructions);
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallOperandsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare Method call-operand "
+                + "support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallOperandsUnit,
+            Token,
+            ref producer.CallOperandUses);
+        return _unit.GetCallOperands(instructions);
+    }
+
     /// <summary>The unit's decoded local-signature facts.</summary>
     internal MethodLocalSignature GetLocalSignature()
     {
@@ -1006,13 +1048,47 @@ public readonly ref struct MethodDefinitionView
     /// <summary>Whether the unit has a managed IL body to acquire.</summary>
     internal bool HasManagedBody =>
         _unit.MethodDefinition.RelativeVirtualAddress != 0
-        && LibraryMethodAnalysisRunner.HasManagedIlBody(
+        && MethodDefinitionShapes.HasManagedIlBody(
             _unit.MethodDefinition.ImplAttributes);
 
     /// <summary>
     /// Acquires the body layer on demand. A producer that did not declare the
     /// body layer cannot obtain it.
     /// </summary>
+    /// <summary>
+    /// The unit's Metadata-issued body evidence, read once per physical
+    /// MethodDef and shared with instruction materialization.
+    /// </summary>
+    internal MethodBodyData GetBodyData()
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasBodyLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not "
+                + "declare the body layer.");
+        }
+
+        return _unit.GetBodyData();
+    }
+
+    /// <summary>
+    /// The unsafe member role scan's call-operand facts for this execution,
+    /// through the declared memory-safety contract and Calls support.
+    /// </summary>
+    internal UnsafeMemberRoleScanFacts GetUnsafeMemberRoleScanFacts()
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasMemorySafetyLayer || !producer.HasCallsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "memory-safety contract and Calls support.");
+        }
+
+        return _unit.GetUnsafeMemberRoleScanFacts();
+    }
+
     internal MethodBodyBlock GetBody()
     {
         MethodDefinitionExecution.ProducerState producer = Producer;
@@ -1409,9 +1485,14 @@ internal struct MethodDefinitionUnit(
     MethodCallMetadataSupport? _methodCalls;
     MethodSemanticIdentitySupport? _semanticIdentity;
     MethodAnalysisSupport? _methodAnalysis;
+    MethodBodySource? _bodySource;
     MethodSemanticIdentityResult? _semanticIdentityResult;
     MethodSemanticIdentityWork _semanticIdentityWork;
     MethodDefinitionSourceCoverageBuilder? _semanticIdentityReadBy;
+    MethodCallOperandSites? _callOperands;
+    MethodCallMetadataWork _callOperandsWork =
+        MethodCallMetadataWork.Empty;
+    MethodDefinitionSourceCoverageBuilder? _callOperandsReadBy;
     MethodCallSites? _calls;
     MethodCallMetadataWork _callsWork =
         MethodCallMetadataWork.Empty;
@@ -1539,6 +1620,9 @@ internal struct MethodDefinitionUnit(
         _semanticIdentityResult = null;
         _semanticIdentityWork = MethodSemanticIdentityWork.Empty;
         _semanticIdentityReadBy = null;
+        _callOperands = null;
+        _callOperandsWork = MethodCallMetadataWork.Empty;
+        _callOperandsReadBy = null;
         _calls = null;
         _callsWork = MethodCallMetadataWork.Empty;
         _callTargetWork = default;
@@ -1645,23 +1729,24 @@ internal struct MethodDefinitionUnit(
         return _semanticIdentityResult;
     }
 
-    public MethodCallSites GetCalls(MethodInstructions instructions)
+    public MethodCallOperandSites GetCallOperands(
+        MethodInstructions instructions)
     {
-        if (_calls is null)
+        if (_callOperands is null)
         {
             MethodCallMetadataLookup calls =
                 BeginMethodCallQuery(out MethodCallMetadataWork before);
-            MethodCallOperandSites operandResult;
             try
             {
-                operandResult = calls.ReadCalls(
+                _callOperands = calls.ReadCalls(
                     TypeDefinition,
                     MethodDefinition,
                     instructions);
             }
             finally
             {
-                _callsWork = calls.RecordedWork.Since(before);
+                _callOperandsWork =
+                    calls.RecordedWork.Since(before);
                 EndMethodCallQuery(
                     calls,
                     before,
@@ -1669,6 +1754,42 @@ internal struct MethodDefinitionUnit(
                     localSignatureReads: 0,
                     fieldOperandReads: 0);
             }
+        }
+        else
+        {
+            _physicalSourceCoverage.RecordMethodCallQuery(
+                MethodHandle,
+                MethodCallMetadataWork.Empty,
+                callReads: 1,
+                localSignatureReads: 0,
+                fieldOperandReads: 0);
+            if (_requestSourceCoverage is { } request
+                && !ReferenceEquals(request, _physicalSourceCoverage))
+            {
+                request.RecordMethodCallQuery(
+                    MethodHandle,
+                    ReferenceEquals(
+                        request,
+                        _callOperandsReadBy)
+                        ? MethodCallMetadataWork.Empty
+                        : _callOperandsWork,
+                    callReads: 1,
+                    localSignatureReads: 0,
+                    fieldOperandReads: 0);
+            }
+        }
+
+        _callOperandsReadBy = _requestSourceCoverage;
+        return _callOperands.Value;
+    }
+
+    public MethodCallSites GetCalls(MethodInstructions instructions)
+    {
+        if (_calls is null)
+        {
+            MethodCallOperandSites operandResult =
+                GetCallOperands(instructions);
+            _callsWork = _callOperandsWork;
 
             var targetWork =
                 ImmutableArray.CreateBuilder<SameModuleCallTargetWork>(
@@ -1908,7 +2029,8 @@ internal struct MethodDefinitionUnit(
             return _bodyData;
 
         int token = MetadataTokens.GetToken(MethodHandle);
-        _bodyData = MethodBodySource.Read(_peReader, token) switch
+        _bodySource ??= MethodBodySource.ForCallerOwnedReader(_peReader);
+        _bodyData = _bodySource.Read(token) switch
         {
             MethodBodyReadResult.Available available =>
                 available.Body,
@@ -1924,6 +2046,13 @@ internal struct MethodDefinitionUnit(
         };
         return _bodyData;
     }
+
+    /// <summary>The declared contract support's role scan facts.</summary>
+    public readonly UnsafeMemberRoleScanFacts GetUnsafeMemberRoleScanFacts() =>
+        (_memorySafety ?? throw new InvalidOperationException(
+            "Memory-safety contract support was not declared by any "
+            + "planned producer."))
+            .RoleScanFacts;
 
     /// <summary>
     /// Acquires the declared contract support, recording construction for the

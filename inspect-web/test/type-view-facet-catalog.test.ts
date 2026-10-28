@@ -1,26 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  canonicalTypeLens,
   setTypeViewFacetCatalog,
   typeLensesFor,
 } from "../src/data.ts";
 
 const descriptors = [
-  { id: "type.api", kind: "Type", title: "Public API", order: 100 },
-  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
-  { id: "type.source", kind: "Type", title: "Source", order: 300 },
-  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+  { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
+  { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
+  { id: "type.source", kind: "Type", title: "Source", order: 400 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
 ] as const;
 
-test("Type inspectors preserve product identity labels and order", () => {
+test("Type inspectors hide the legacy Metadata alias", () => {
   setTypeViewFacetCatalog(descriptors);
 
   assert.deepEqual(typeLensesFor({ source: { kind: "nuget.org" } }), [
-    ["api", "Public API"],
-    ["metadata", "Metadata"],
+    ["overview", "Overview"],
+    ["api", "Members"],
     ["source", "Source"],
     ["compare", "Compare"],
   ]);
+  assert.equal(canonicalTypeLens("metadata"), "overview");
+  assert.equal(canonicalTypeLens("source"), "source");
 });
 
 test("Type inspector bindings reject product drift instead of hiding it", () => {

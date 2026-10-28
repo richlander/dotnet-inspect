@@ -454,7 +454,40 @@ public partial class SectionPipelineTests
             SwitchInspection = MetadataFindings.InspectSwitches(
                 [new SwitchInfo("Feature Switch", "Switch", "Api")],
                 FindingTestData.Subject),
-            UnsafeMembers = [new UnsafeMemberSummary { Member = "T.M()", Reason = "Unsafe signature", Detail = "int*", Kind = "signature" }],
+            UnsafeMemberInspection = Analysis.AnalysisFindings.InspectUnsafeMembers(
+                new Analysis.UnsafeMemberCensus(
+                    [
+                        new Analysis.UnsafeMemberFinding(
+                            new Analysis.MethodIdentity(
+                                "Test",
+                                Guid.Empty,
+                                Analysis.TypeRef.Definition("Test", "", "T"),
+                                "M",
+                                [],
+                                Analysis.TypeRef.CoreLib("System", "Void"),
+                                0x06000001,
+                                IsStatic: true),
+                            HasExplicitUnsafeContract: false,
+                            [
+                                new Analysis.UnsafeMemberFindingEvidence(
+                                    Analysis.UnsafeMemberUseKind.PointerDereference,
+                                    new Analysis.MethodIdentity(
+                                        "Test",
+                                        Guid.Empty,
+                                        Analysis.TypeRef.Definition("Test", "", "T"),
+                                        "M",
+                                        [],
+                                        Analysis.TypeRef.CoreLib("System", "Void"),
+                                        0x06000001,
+                                        IsStatic: true),
+                                    ILOffset: 0,
+                                    "ldind.i4"),
+                            ],
+                            [],
+                            Analysis.UnsafeMemberExposure.Public),
+                    ],
+                    []),
+                FindingTestData.Subject),
             TopLeverageQueryResult = new TopLeverageResult.Available(
                 [
                     new Analysis.MethodLeverage(

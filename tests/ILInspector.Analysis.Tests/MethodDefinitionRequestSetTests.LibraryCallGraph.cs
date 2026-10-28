@@ -6,6 +6,66 @@ namespace ILInspector.Analysis.Tests;
 public sealed partial class MethodDefinitionRequestSetTests
 {
     [Fact]
+    public void LibraryRootPathCallGraphProducer_MatchesFullCallEvidence()
+    {
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        LibraryCallGraphProducerResult expected =
+            ExecuteLibraryCallGraph(
+                path,
+                LibraryCallGraphProducer.Instance,
+                out _);
+        LibraryRootPathCallGraphProducerResult actual =
+            ExecuteLibraryCallGraph(
+                path,
+                LibraryCallGraphProducer
+                    .LibraryRootPathCallGraphProducer.Instance,
+                out MethodDefinitionSourceRequestResult sourceResult);
+
+        Assert.Equal(expected.DeclaredMethods, actual.DeclaredMethods);
+        Assert.Equal(expected.Methods, actual.Methods);
+        Assert.Equal(
+            expected.DirectCalls.Length,
+            actual.DirectCalls.Length);
+        for (int i = 0; i < expected.DirectCalls.Length; i++)
+        {
+            DirectCall expectedCall = expected.DirectCalls[i];
+            DirectCall actualCall = actual.DirectCalls[i];
+            Assert.Equal(expectedCall.Caller, actualCall.Caller);
+            Assert.Equal(
+                expectedCall.EvidenceMethod,
+                actualCall.EvidenceMethod);
+            Assert.Equal(expectedCall.Callee, actualCall.Callee);
+            Assert.Equal(expectedCall.ILOffset, actualCall.ILOffset);
+            Assert.Equal(
+                expectedCall.OperandToken,
+                actualCall.OperandToken);
+            Assert.Equal(
+                expectedCall.CalleeDefinitionToken,
+                actualCall.CalleeDefinitionToken);
+            Assert.Equal(expectedCall.Kind, actualCall.Kind);
+            Assert.Equal(expectedCall.Opcode, actualCall.Opcode);
+            Assert.Equal(
+                expectedCall.ReturnAddress,
+                actualCall.ReturnAddress);
+        }
+        Assert.Equal(expected.DeclaredSources, actual.DeclaredSources);
+        Assert.Equal(
+            expected.DeclaredSourceSuppressedMethodTokens,
+            actual.DeclaredSourceSuppressedMethodTokens);
+        Assert.Equal(expected.Diagnostics, actual.Diagnostics);
+        MethodDefinitionSourceReceipt receipt =
+            sourceResult.SourceReceipt;
+        Assert.Equal(
+            0,
+            receipt.Coverage.Calls.LocalSignatureReads);
+        Assert.Equal(
+            0,
+            receipt.Coverage.Calls.FieldOperandReads);
+        Assert.False(receipt.Coverage.CallTargets.Constructed);
+        Assert.False(receipt.Coverage.MethodAnalysis.Constructed);
+    }
+
+    [Fact]
     public void LibraryCallGraphProducer_MatchesLegacyMethodEvidence()
     {
         string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
@@ -270,6 +330,34 @@ public sealed partial class MethodDefinitionRequestSetTests
         {
             graph.ReleaseCaches();
         }
+    }
+
+    static TResult ExecuteLibraryCallGraph<TResult>(
+        string path,
+        ProducerDeclaration<TResult> producer,
+        out MethodDefinitionSourceRequestResult sourceResult)
+    {
+        MethodDefinitionSourceAssociation association =
+            Association(
+                producer,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth
+                    .AllDefinitions
+                    .IncludeGeneratedExecutionBodies());
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+        sourceResult = execution.ResultOf(association);
+        ProducerResult<TResult> producerResult =
+            ResultOf<TResult>(
+                execution,
+                association);
+        Assert.True(
+            producerResult.HasValue,
+            producerResult.Failure?.Message
+                ?? producerResult.Critical?.Message
+                ?? $"{producerResult.Outcome}: "
+                    + producerResult.FailedPrerequisite);
+        return Assert.IsType<TResult>(producerResult.Value);
     }
 }
 

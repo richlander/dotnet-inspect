@@ -73,6 +73,11 @@ const string Usage =
           distributions: allocation, path, path confidence, post dominance, escape, shape, and
           cross-tabs. Text output prints the top-N buckets per dimension; JSON emits every bucket.
 
+      --unsafe-role-scan-agreement <file>
+          Check the unsafe member census role scan against the full rule over a corpus list:
+          every body the scan decides is run through the full rule, which must complete with
+          the same evidence. Reports bodies, decided bodies, and disagreements; exits 1 on any.
+
       --caller-loop-census <file> [--max-depth N] [--top N] [--json]
           Measurement-only census of Performance Triage rows reachable downstream from a caller's
           loop invocation. Reports direct/transitive/none/beyond-bound populations, nearest depth,
@@ -163,6 +168,7 @@ bool cloneMaximumComparisonsSpecified = false;
 int cloneMaximumMethods = 50_000;
 int cloneMaximumComparisons = 100_000;
 string? allocationReadoutList = null;
+string? unsafeRoleScanAgreementList = null;
 string? callerLoopCensusList = null;
 string? deferredCallbackCensusList = null;
 string? recursiveTraversalCensusList = null;
@@ -371,6 +377,14 @@ for (int i = 0; i < args.Length; i++)
                 args,
                 ref i,
                 "--allocation-readout",
+                missingValueOptions);
+            break;
+        case "--unsafe-role-scan-agreement":
+            selectedModes.Add("--unsafe-role-scan-agreement");
+            unsafeRoleScanAgreementList = NextRequiredValue(
+                args,
+                ref i,
+                "--unsafe-role-scan-agreement",
                 missingValueOptions);
             break;
         case "--caller-loop-census":
@@ -715,6 +729,8 @@ if (cloneWorksheetAssembly is not null)
         json);
 }
 
+if (unsafeRoleScanAgreementList is not null)
+    return UnsafeRoleScanAgreement.Run(unsafeRoleScanAgreementList);
 if (allocationReadoutList is not null)
     return RunAllocationReadout(allocationReadoutList, top, json);
 
