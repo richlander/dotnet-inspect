@@ -412,7 +412,10 @@ Spotlight is a fused presentation over owner-issued Workspace Find and package
 discovery results. It does not own another Type matcher, Member matcher,
 Ecosystem classifier, package query, or cross-source relevance score.
 
-Ordinary `All`, `Types`, and `Members` scopes use this phase order:
+When an ordinary `All` or `Types` request admits Type results, Spotlight first
+consumes the bounded checked-in index for active package-prefix
+registrations. After that indexed phase settles, the remaining work in those
+scopes, and ordinary `Members` work, uses this phase order:
 
 1. exact Libraries already admitted to the active Workspace;
 2. registered Ecosystem populations, in the Find owner's dependency-aware
