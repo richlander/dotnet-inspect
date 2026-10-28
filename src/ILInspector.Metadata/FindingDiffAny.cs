@@ -1371,7 +1371,7 @@ public static partial class FindingDiffAny
             if (!visible)
                 return census;
             TypeFacts(census, unit.Owner);
-            MemberFacts(census, unit.Owner, api: true, out _);
+            MemberFacts(census, unit.Owner, api: true, out _, collectMethods: false);
             census.RemoveAll(IsNonApi);
             ModuleAttributes(census, TypeKey(unit.Owner));
             Transient.Sort(census);
@@ -1489,7 +1489,8 @@ public static partial class FindingDiffAny
             TypeDefinitionHandle handle,
             bool? api,
             out List<(KeyRef Key, MethodDefinitionHandle Method)> methods,
-            bool apiDependencies = true)
+            bool apiDependencies = true,
+            bool collectMethods = true)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
             KeyRef name = TypeKey(handle);
@@ -1509,9 +1510,13 @@ public static partial class FindingDiffAny
             foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
             {
                 MethodDefinition method = Md.GetMethodDefinition(methodHandle);
+                bool admitted = api is not { } wanted || IsVisible(methodHandle, method) == wanted;
+                if (!collectMethods && !admitted)
+                    continue;
                 KeyRef key = Key(methodHandle);
-                methods.Add((key, methodHandle));
-                if (api is { } wanted && IsVisible(methodHandle, method) != wanted)
+                if (collectMethods)
+                    methods.Add((key, methodHandle));
+                if (!admitted)
                     continue;
                 int mark = Transient.Begin();
                 census.Add(Transient.Mark(FindingDiffAnyPart.MethodFact).Key(key)
