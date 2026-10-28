@@ -372,6 +372,7 @@ export interface TypePanelBindingActions {
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
   onTypeLeverageRetry: () => void;
+  onTypeCallsOpen: () => void;
   onTypeMembersOpen: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
@@ -431,6 +432,9 @@ export function bindTypePanel(
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
+  root.querySelector("[data-type-calls]")?.addEventListener(
+    "click",
+    actions.onTypeCallsOpen);
   root.querySelector("[data-type-members]")?.addEventListener(
     "click",
     actions.onTypeMembersOpen);
@@ -1016,8 +1020,7 @@ export interface RenderTypeMetadataOptions {
   metadataAvailable?: boolean;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
-  relationsSummaryHtml?: string;
-  relationsHtml?: string;
+  callsSummaryHtml?: string;
   escapeHtml: EscapeHtml;
   highlightCSharp: (value: string) => string;
   relatedTypeChip: (
@@ -1032,8 +1035,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     item, packageContext, libraryIdentity, workspaceIdentity,
     metadataAvailable = true, metadataState,
     memberCompositionHtml,
-    relationsSummaryHtml = "",
-    relationsHtml = "",
+    callsSummaryHtml = "",
     escapeHtml, highlightCSharp, relatedTypeChip, factRows,
   } = options;
   const current = typeMetadataSignature(
@@ -1088,7 +1090,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
               <span class="subject-overview-summary-label">Navigate</span>
               <div>
                 <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
-                ${relationsSummaryHtml}
+                ${callsSummaryHtml}
               </div>
             </div>
           </section>
@@ -1252,7 +1254,6 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       ${factRows(shape)}
     </section>
     ${exactDiagnostics}
-    ${relationsHtml}
     ${composition}
     ${interfaces}
     ${hierarchySection}

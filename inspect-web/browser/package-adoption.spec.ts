@@ -4529,20 +4529,30 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(graphExplorer).toBeHidden();
     await expect(explore).toBeFocused();
 
-    const inspectCallGraph =
-      overview.locator("[data-inspect-type-relations]");
-    await expect(inspectCallGraph).toHaveText("Inspect call graph");
-    await inspectCallGraph.click();
-    const typeCallGraph = overview.getByRole("heading", {
+    await page.locator("[data-type]").filter({
+      hasText: "ObjectEnumerator",
+    }).first().click();
+    const nestedOverview = page.locator(".type-overview-surface");
+    await expect(nestedOverview).toBeVisible({ timeout: 180_000 });
+    const callsLink = nestedOverview.locator("[data-type-calls]");
+    await expect(callsLink).toHaveText("Calls");
+    await callsLink.click();
+
+    const callsPage = page.locator(".type-calls-surface");
+    await expect(callsPage.getByRole("heading", { name: "Calls" }))
+      .toBeVisible();
+    const typeCallGraph = callsPage.getByRole("heading", {
       name: "Type call graph",
     });
     await expect(typeCallGraph).toBeVisible({ timeout: 180_000 });
-    const calledTypes = overview.locator("[data-type-call-graph]");
-    await expect(calledTypes).toContainText("called type");
-    await calledTypes.click();
-    await expect(typeCallGraph).toBeFocused();
-    const typeEdges = overview.locator(".type-call-edge");
-    expect(await typeEdges.count()).toBeGreaterThan(0);
+    await expect(callsPage.locator(".section-title"))
+      .toContainText("3 called types · 4 member edges");
+    await expect(callsPage.getByText("Partial call evidence"))
+      .toHaveCount(0);
+    await expect(callsPage.getByText("Partial compatibility evidence"))
+      .toHaveCount(0);
+    const typeEdges = callsPage.locator(".type-call-edge");
+    await expect(typeEdges).toHaveCount(3);
     await typeEdges.first().locator("summary").click();
     await expect(typeEdges.first()).toHaveAttribute("open", "");
     await expect(typeEdges.first().locator(".type-call-member-group").first())
@@ -4551,10 +4561,13 @@ test.describe("bounded network-backed Worker smoke", () => {
       .first()).toBeVisible();
 
     await page.locator("#subject-panel").screenshot({
-      path: testInfo.outputPath("type-call-graph-json-document.png"),
+      path: testInfo.outputPath("type-calls-object-enumerator.png"),
     });
-    await overview.locator("[data-type-members]").click();
-    await expect(page.locator(".api-row[data-member]")).not.toHaveCount(0);
+    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    await expect(page.locator(".type-overview-surface"))
+      .toBeVisible();
+    await expect(page.locator("[data-type-calls]"))
+      .toHaveText("3 called types");
   });
 
   test("projects exact all-access Type method leverage into the UI", async ({

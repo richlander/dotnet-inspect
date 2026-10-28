@@ -51,6 +51,11 @@ Type Overview uses this order:
 5. custom attributes; and
 6. the existing Type relationship graph when available.
 
+Calls is a navigation item, not Overview content. It opens the dedicated Type
+Calls facet; any cached called-Type count may refine the label without moving
+the behavioral graph, its completion warnings, or member/site evidence into
+Overview.
+
 The former `type.metadata` Browser route is a compatibility alias for Overview
 and does not appear as a separate navigation item.
 

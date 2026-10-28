@@ -15,10 +15,10 @@ projection.
 
 Its exact claim is:
 
-> For one retained package-backed exact Type, one explicit **Inspect call
-> graph** gesture lowers to the existing all-applicable outgoing Rows request
-> with selected compatibility colors, executes the shared focused operation in
-> the retained implementation workspace, and projects the canonical member
+> For one retained package-backed exact Type, opening its dedicated **Calls**
+> facet lowers to the existing all-applicable outgoing Rows request with
+> selected compatibility colors, executes the shared focused operation in the
+> retained implementation workspace, and projects the canonical member
 > relations as Type-to-Type edges weighted by distinct member-identity pairs;
 > ordinary Type Overview viewing performs no call-relation work.
 
@@ -41,11 +41,13 @@ relationship catalog, color join, terminal, or document.
 
 ## Gesture and request
 
-Type Overview initially shows one **Inspect call graph** numeric-navigation
-gesture. Merely opening a Type, restoring a Workspace, or rendering structural
-Type relationships executes no Annotated Type Relations request.
+Type Overview shows one **Calls** navigation item beside Members. It reports a
+cached called-Type count only after the dedicated Calls facet has completed;
+ordinary Overview rendering never starts the request. Merely opening a Type,
+restoring its Overview, or rendering structural Type relationships executes no
+Annotated Type Relations request.
 
-Activating the button requests:
+Opening Calls requests:
 
 - `AllApplicable`;
 - outgoing Type incidence;
@@ -105,9 +107,9 @@ reshape, filter, order, limit, or count semantic rows.
 
 ## Presentation
 
-The result extends Type Overview's main vertical narrative. Its navigation
-summary reports the number of called Types and moves to one outgoing
-Type-to-Type graph. Each edge:
+The result owns a dedicated Type Calls page. Type Overview retains only its
+small navigation item and its existing inheritance-style structural graph. The
+Calls page presents one outgoing Type-to-Type graph. Each edge:
 
 - groups target members by the typed declaring-Type resolution projected by
   their canonical subjects, never by display text;
@@ -129,7 +131,7 @@ or failure. It does not automatically retry during render.
 ## Gates
 
 - **Explicit work:** ordinary Type and Metadata rendering invokes no relations
-  operation.
+  operation; selecting Calls is the explicit gesture.
 - **Shared request:** the gesture constructs the exact all-applicable outgoing
   Rows request with the three selected compatibility colors.
 - **Implementation evidence:** the operation uses the selected Type's exact
@@ -145,6 +147,10 @@ or failure. It does not automatically retry during render.
   and repeated physical sites do not inflate them.
 - **Progressive detail:** selecting one Type edge reveals grouped member pairs
   before physical-site evidence.
+- **Complete primary witness:** `System.Text.Json.JsonElement.ObjectEnumerator`
+  in `System.Text.Json` 10.0.13 projects three called Types and four member
+  edges with complete topology and compatibility evidence, so the production
+  screenshot contains no partiality warning.
 - **Real assets:** `System.Text.Json` 10.0.13 and `Newtonsoft.Json` 13.0.4
   exercise the production Browser path.
 

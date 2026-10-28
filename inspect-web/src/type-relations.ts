@@ -120,13 +120,6 @@ export function bindTypeRelations(
   root.querySelectorAll<HTMLButtonElement>(
     "[data-inspect-type-relations]",
   ).forEach(button => button.addEventListener("click", inspect));
-  root.querySelector<HTMLButtonElement>(
-    "[data-type-call-graph]",
-  )?.addEventListener("click", () => {
-    const heading = root.querySelector<HTMLElement>("#type-call-graph-title");
-    heading?.scrollIntoView({ block: "start" });
-    heading?.focus({ preventScroll: true });
-  });
 }
 
 export function createTypeRelationsCoordinator(
@@ -526,21 +519,36 @@ export function renderTypeRelationsSummary(
 ): string {
   const { signature, state } = options;
   const fresh = state.signature === signature;
-  if (!fresh) {
-    return "<button type=\"button\" data-inspect-type-relations>Inspect call graph</button>";
-  }
-  if (state.loading) {
-    return '<button type="button" disabled><span class="loader"></span> Inspecting calls…</button>';
-  }
+  if (!fresh || state.loading)
+    return "<button type=\"button\" data-type-calls>Calls</button>";
   const projection = currentProjection(options);
   if (!projection)
-    return "<button type=\"button\" data-inspect-type-relations>Retry call graph</button>";
+    return "<button type=\"button\" data-type-calls>Calls</button>";
   const count = projection.edges.length;
-  return `<button type="button" data-type-call-graph>${
+  return `<button type="button" data-type-calls>${
     count.toLocaleString()
   }${projection.relationshipIsPartial ? "+" : ""} called type${
     count === 1 ? "" : "s"
   }</button>`;
+}
+
+export function renderTypeCallsPage(
+  options: RenderTypeRelationsOptions,
+): string {
+  const content = renderTypeRelations(options)
+    || section(`
+      <div class="source-progress">
+        <span class="loader"></span>
+        <p>Preparing focused binary call evidence…</p>
+      </div>`);
+  return `
+    <section class="metadata-surface type-calls-surface" aria-labelledby="type-calls-title">
+      <header class="metadata-surface-head">
+        <h1 id="type-calls-title">Calls</h1>
+        <p>${options.escapeHtml(options.focusTypeName)}</p>
+      </header>
+      <div class="metadata-surface-scroll">${content}</div>
+    </section>`;
 }
 
 export function renderTypeRelations(

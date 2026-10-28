@@ -365,7 +365,7 @@ import {
 import {
   bindTypeRelations,
   createTypeRelationsCoordinator,
-  renderTypeRelations,
+  renderTypeCallsPage,
   renderTypeRelationsSummary,
 } from "./type-relations.ts";
 import {
@@ -10148,7 +10148,8 @@ function renderCore(options: RenderOptions) {
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
-    activeScope === "type" && state.lens === "metadata";
+    activeScope === "type"
+    && (state.lens === "metadata" || state.lens === "calls");
   const typeGraphWorkingSurface =
     activeScope === "type"
     && (state.lens === "overview" || state.lens === "metadata");
@@ -14004,16 +14005,8 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
     workspaceIdentity: typeMetadataWorkspaceIdentity(),
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
-    relationsSummaryHtml: !pkg.isRuntimePack && state.rootKind !== "library"
+    callsSummaryHtml: !pkg.isRuntimePack && state.rootKind !== "library"
       ? renderTypeRelationsSummary({
-          signature,
-          state: state.typeRelations,
-          focusTypeName: typeDisplayName(item),
-          escapeHtml,
-        })
-      : "",
-    relationsHtml: !pkg.isRuntimePack && state.rootKind !== "library"
-      ? renderTypeRelations({
           signature,
           state: state.typeRelations,
           focusTypeName: typeDisplayName(item),
@@ -14024,6 +14017,19 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
     highlightCSharp,
     relatedTypeChip,
     factRows,
+  });
+}
+
+function renderTypeCallsHtml(item: AppTypeSurface) {
+  const pkg = currentPackage();
+  return renderTypeCallsPage({
+    signature: currentTypeMetadataSignature(
+      item,
+      pkg,
+      selectedTypeMetadataLibraryIdentity()),
+    state: state.typeRelations,
+    focusTypeName: typeDisplayName(item),
+    escapeHtml,
   });
 }
 
@@ -14118,6 +14124,8 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     escapeHtml);
   if (!item) return "";
   switch (state.lens) {
+    case "calls":
+      return renderTypeCallsHtml(item);
     case "source":
       return renderTypeSourceHtml(item);
     case "metadata":
@@ -15133,6 +15141,11 @@ function bindTypePanelEvents() {
       loadCurrentSelectionData("Loading the selected Type");
     },
     onTypeLeverageRetry: () => loadTypeLeverage(true),
+    onTypeCallsOpen: () => {
+      state.lens = "calls";
+      render();
+      loadCurrentTypeLensData();
+    },
     onTypeMembersOpen: () => {
       state.lens = "api";
       render();
@@ -19363,6 +19376,7 @@ function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
           "Loading Type Overview metadata");
       }
       return undefined;
+    case "calls": return loadSelectedTypeCalls();
     case "source": return loadSelectedTypeSource();
     case "metadata": return loadSelectedTypeMetadata();
     // Compare work is reconciled by render() from the retained Package mode.
@@ -23947,7 +23961,7 @@ async function inspectSelectedTypeRelations() {
     workspaceJson,
     isVisible: () => {
       const currentType = selectedType();
-      return (state.lens === "overview" || state.lens === "metadata")
+      return state.lens === "calls"
         && currentType != null
         && currentTypeMetadataSignature(
           currentType,
@@ -23955,6 +23969,21 @@ async function inspectSelectedTypeRelations() {
           selectedTypeMetadataLibraryIdentity()) === signature;
     },
   });
+}
+
+function loadSelectedTypeCalls(): Promise<void> | undefined {
+  const type = selectedType();
+  if (!type) return undefined;
+  const signature = currentTypeMetadataSignature(
+    type,
+    currentPackage(),
+    selectedTypeMetadataLibraryIdentity());
+  const relations = state.typeRelations;
+  if (relations.signature === signature
+    && (relations.loading || relations.result !== null || relations.error)) {
+    return undefined;
+  }
+  return inspectSelectedTypeRelations();
 }
 
 async function renderMermaidDefinition(

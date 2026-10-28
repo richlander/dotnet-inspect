@@ -63,6 +63,9 @@ public static class InspectionViewFacetCatalog
             "type.api",
             InspectionViewFacetExecution.TypeApi),
         Binding(
+            "type.calls",
+            InspectionViewFacetExecution.TypeCalls),
+        Binding(
             "type.metadata",
             InspectionViewFacetExecution.TypeMetadata),
         Binding(
@@ -286,6 +289,15 @@ public static class InspectionViewFacetCatalog
             AppliesToType),
         Active(
             Descriptor(
+                "type.calls",
+                StructuralSubjectKind.Type,
+                "Calls",
+                "Outgoing Type and member calls for the active Type.",
+                250),
+            "Outgoing Type and member calls for the active Type.",
+            AppliesToType),
+        Active(
+            Descriptor(
                 "type.metadata",
                 StructuralSubjectKind.Type,
                 "Metadata",
@@ -441,6 +453,7 @@ internal enum InspectionViewFacetExecution
     LibraryCompare,
     TypeOverview,
     TypeApi,
+    TypeCalls,
     TypeMetadata,
     TypeSource,
     TypeCompare,

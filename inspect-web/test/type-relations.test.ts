@@ -6,6 +6,7 @@ import type {
 } from "../src/facades/inspect-web-metadata.d.ts";
 import {
   createTypeRelationsCoordinator,
+  renderTypeCallsPage,
   renderTypeRelations,
   renderTypeRelationsSummary,
   type TypeRelationsRequest,
@@ -229,8 +230,22 @@ test("ordinary rendering offers explicit inspection without querying", () => {
   });
 
   assert.equal(html, "");
-  assert.match(summary, /Inspect call graph/);
+  assert.match(summary, /data-type-calls>Calls/);
   assert.equal(queries, 0);
+});
+
+test("the dedicated Calls page owns acquisition and graph presentation", () => {
+  const html = renderTypeCallsPage({
+    signature: "package/type",
+    state: state(),
+    focusTypeName: "Example.Entry",
+    escapeHtml: String,
+  });
+
+  assert.match(html, /class="metadata-surface type-calls-surface"/);
+  assert.match(html, /<h1 id="type-calls-title">Calls<\/h1>/);
+  assert.match(html, /Preparing focused binary call evidence/);
+  assert.doesNotMatch(html, /Type call graph/);
 });
 
 test("duplicate activation shares one in-flight request", async () => {
