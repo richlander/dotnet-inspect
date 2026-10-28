@@ -20,6 +20,16 @@ public sealed partial class ResourceExplanationCatalog
         type == WorkspacePackageComponentExplanation.Schema.ResourceTypes.Single().Identity
             ? new(WorkspacePackageComponentExplanation.Contract) : null;
 
+    public static InspectionCapabilityModule ComponentContractsRoutingModule { get; } = new(
+        "resource-explanation.component-contracts.routing",
+        routingDeclarations: static () => ComponentRoutingCache.Declarations);
+
+    private static class ComponentRoutingCache
+    {
+        internal static readonly ImmutableArray<ResourceExplanationRoutingDeclaration>
+            Declarations = [ComponentContractsRoutingDeclaration];
+    }
+
     public static ResourceExplanationRoutingDeclaration ComponentContractsRoutingDeclaration =>
         new(ResourceExplanationRoutingRole.Reference, ComponentContractsCollectionSegment,
             "Component contracts", "Resource Explanation",

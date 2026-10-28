@@ -992,7 +992,7 @@ test("home demos execute typed results and commit canonical navigation", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.rootKind = loc\.rootKind;\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*if \(loc\.hasWorkspaceState\s*&& state\.atPackageRoot\s*&& loc\.packageLens === "dependencies"\) \{\s*state\.dependenciesGroupIndex = null;\s*\}\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.rootKind = loc\.rootKind;\s*state\.lens = loc\.lens \|\| "overview";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*if \(loc\.hasWorkspaceState\s*&& state\.atPackageRoot\s*&& loc\.packageLens === "dependencies"\) \{\s*state\.dependenciesGroupIndex = null;\s*\}\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;[\s\S]*?state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
   const engineDemo =
     appSource.match(/async function runEngineHomeDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";

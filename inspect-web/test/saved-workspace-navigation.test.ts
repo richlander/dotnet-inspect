@@ -998,10 +998,11 @@ function harness() {
 }
 
 setTypeViewFacetCatalog([
-  { id: "type.api", kind: "Type", title: "API", order: 100 },
-  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
-  { id: "type.source", kind: "Type", title: "Source", order: 300 },
-  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+  { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
+  { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
+  { id: "type.source", kind: "Type", title: "Source", order: 400 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
 ]);
 
 test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {
