@@ -31,7 +31,7 @@ public sealed class LibraryMethodLeverageProducer :
             tier: 0,
             MethodDefinitionLayers.SemanticIdentity
                 | MethodDefinitionLayers.MemorySafetyContracts
-                | MethodDefinitionLayers.Calls)
+                | MethodDefinitionLayers.CallOperands)
     {
     }
 
@@ -87,8 +87,8 @@ public sealed class LibraryMethodLeverageProducer :
             MethodInstructions instructions =
                 view.MaterializeInstructions(
                     out MethodBodyData body);
-            MethodCallSites callSites =
-                view.GetCallsRetainingPrefix(instructions);
+            MethodCallOperandSites callSites =
+                view.GetCallOperands(instructions);
             if (callSites.Failure is { } callFailure)
             {
                 diagnostics.Add(

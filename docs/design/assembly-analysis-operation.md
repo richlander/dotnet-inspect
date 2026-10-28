@@ -530,7 +530,9 @@ the exact Method-source receipt and Producer Planning work receipt are the
 authoritative execution evidence. [#10779](https://github.com/richlander/dotnet-inspect/issues/10779)
 moves Type Method Leverage to `LibraryMethodLeverageProducer`, an
 all-definition Rows producer that retains semantic identities, complete
-resolved calls, loop classification, and generated-owner attribution without
+resolved call operands, loop classification, and generated-owner attribution.
+Its declared-method map resolves current-module targets for ranking, so the
+producer does not duplicate same-module call-target construction or acquire
 the general Call Graph producer's safety, body-signal, exception, and
 allocation-adjacent work. `AssemblyContextCallGraphAnalysis` binds its focused
 result while preserving complete-source and diagnostic failure semantics

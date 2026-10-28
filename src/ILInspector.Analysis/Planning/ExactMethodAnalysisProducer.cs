@@ -138,6 +138,41 @@ public sealed class ExactMethodAnalysisProducer :
         PhysicalMethodAnalysisProducer.CollectDirectCalls(
             context,
             callSites);
+
+    internal static ImmutableArray<DirectCall> CollectDirectCalls(
+        MethodBodyAnalysisContext context,
+        MethodCallOperandSites callSites)
+    {
+        var calls =
+            ImmutableArray.CreateBuilder<DirectCall>(
+                callSites.Sites.Length);
+        foreach (MethodCallOperandSite site in callSites.Sites)
+        {
+            calls.Add(
+                new(
+                    context.Method,
+                    site.Callee,
+                    site.ILOffset,
+                    site.OperandToken,
+                    site.DefinitionToken,
+                    site.Kind,
+                    context.IsInLoopRegion(site.ILOffset))
+                {
+                    Opcode = site.Kind switch
+                    {
+                        CallKind.CallVirtual => "callvirt",
+                        CallKind.NewObject => "newobj",
+                        CallKind.LoadFunction => "ldftn",
+                        CallKind.LoadVirtualFunction =>
+                            "ldvirtftn",
+                        CallKind.CallIndirect => "calli",
+                        _ => "call",
+                    },
+                    ReturnAddress = site.ReturnAddress,
+                });
+        }
+        return calls.MoveToImmutable();
+    }
 }
 
 /// <summary>

@@ -383,7 +383,7 @@ public sealed partial class MethodDefinitionRequestSetTests
             receipt.Completion);
         Assert.Equal(0, receipt.Coverage.Calls.LocalSignatureReads);
         Assert.False(receipt.Coverage.MethodAnalysis.Constructed);
-        Assert.True(receipt.Coverage.CallTargets.Constructed);
+        Assert.False(receipt.Coverage.CallTargets.Constructed);
         Assert.True(actual.HasFullMethodEvidenceScope);
     }
 
