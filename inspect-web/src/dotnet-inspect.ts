@@ -17529,6 +17529,7 @@ function openSpotlightCapability(result: SpotlightCapabilityResult): void {
       showToast("Select a Type to compare API attributes.");
       return;
     }
+    spotlight.reset();
     packageComparisonTargets.selectMode(pkg, "diff");
     if (analysis === "string-literals") {
       packageComparisonTargets.selectDiffContent(

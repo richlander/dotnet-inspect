@@ -1360,6 +1360,7 @@ test.describe("Capability Spotlight search over real Wasm", () => {
       await page.locator('[data-sl-capability="analyses/string-literals"]').click();
     };
     await activate();
+    await expect(page.locator("#spotlight-input")).not.toBeVisible();
     await expect(page.locator("#compare-diff-content")).toHaveValue("string-literals");
     await expect(page.locator("#compare-string-literal-value")).toHaveValue("https://");
     await expect(panel.locator(".compare-target-value"))
