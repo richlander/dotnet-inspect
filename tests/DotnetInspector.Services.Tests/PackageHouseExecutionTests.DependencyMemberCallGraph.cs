@@ -222,6 +222,70 @@ public sealed partial class PackageHouseExecutionTests
 
     [Fact]
     public async Task
+        DependencyMemberCallGraphUsesImplementationBehindEmptyCompileGroup()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        ("ref/net11.0/_._", []),
+                        (
+                            "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ]));
+        PackageHouseOperation realizationOperation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+            await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+                CallGraphInspectionRequest(
+                    realizationOperation,
+                    "RunAcrossBoundary",
+                    dependencies:
+                    [(CallGraphTargetPackage, RouteVersion)]),
+                CreateCallGraphSource(environment),
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome.Available>(
+                envelope.Content);
+        var destination =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionDestination.Package>(
+                Assert.Single(available.Document.Routes).Destination);
+        Assert.Equal(
+            CallGraphTargetPackage,
+            destination.Descriptor.PackageId);
+        InspectionGraphEdge edge =
+            Assert.Single(available.Document.Graph.Edges);
+        Assert.Equal(
+            ("RunAcrossBoundary", "Forward"),
+            (
+                GraphMember(
+                    available.Document.Graph.Nodes[edge.FromNodeId]).Name,
+                GraphMember(
+                    available.Document.Graph.Nodes[edge.ToNodeId]).Name));
+        Assert.Equal(
+            "exit",
+            ExternalFocusRole(available.Document.Graph, edge));
+        Assert.Contains(
+            available.Document.NodeClassifications.OfType<
+                DotnetInspector.Sections
+                    .PackageDependencyMemberCallGraphNodeClassification
+                    .Package>(),
+            subject =>
+                subject.NodeId == edge.ToNodeId
+                && subject.PackageId == CallGraphTargetPackage);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
         DependencyMemberCallGraphContinuationPreservesInitialWorkspaceFailure()
     {
         await using HouseEnvironment environment =

@@ -69,11 +69,20 @@ failed while preparing its dependency assembly context: a routed Package
 binding without selected compile assemblies reached the selected-only
 package-role boundary. The package is pinned in the Services test population.
 
-The regression uses the existing compiled caller and target fixtures alongside
-a dependency with an explicit `ref/net11.0/_._` group or no compile assets. It
-must retain that dependency's Package route without admitting it to the assembly
-context, while preserving the caller-to-target graph edge. Before this fix, the
-exact package scenario reproduced the selected-binding exception with:
+The regressions use the existing compiled caller and target fixtures. A
+dependency with only an explicit `ref/net11.0/_._` group or no assembly assets
+retains its Package route without adding an assembly participant. A dependency
+with that empty compile group and a selected implementation must still resolve
+the caller-to-target graph edge and its Package ownership.
+
+The published `runtime.unix.System.Private.Uri@4.3.0` layout supplies a real
+neighboring case: an explicit empty compile group alongside an implementation
+under `runtimes/unix/lib/netstandard1.0`, as recorded by
+[package asset-selection correspondence](package-asset-selection-correspondence.md#authority-and-exact-claim).
+The deterministic regressions preserve that empty-surface/implementation shape
+using compiled fixture assemblies rather than retaining package binaries.
+Before this fix, the exact package scenario reproduced the selected-binding
+exception with:
 
 ```bash
 dotnet-inspect graph calls \
@@ -83,7 +92,7 @@ dotnet-inspect graph calls \
   --tfm net11.0 --baseline nothing --depth 2 --max-nodes 30 --json
 ```
 
-With selected-only graph bindings, this command returns the graph successfully.
+With role-aware graph bindings, this command returns the graph successfully.
 Existing traversal, correspondence, and external-boundary incompleteness remain
 visible as warnings; this fix does not claim complete dependency resolution.
 
@@ -203,14 +212,17 @@ already present in the Scope do not enter this demand.
 
 The operation prepares one
 `PackageAssemblyContextCompletion` and one demand-local projection from those
-exact bindings with selected compile assemblies. A Package without selected
-compile assemblies remains in the Workspace and detached route evidence but
-contributes no assembly-context participant. This does not select a different
-package version or fall back to another compile group. The implementation role
-is the call-graph analysis universe when it exists. Packages whose selected
-`lib/` assets serve both roles use the shared surface role. Reference-only
-assets remain visible in detached route
-evidence but cannot manufacture implementation bodies.
+exact bindings with authorized surface or implementation assets. Compile and
+implementation selection remain independent: an explicit empty compile group
+supplies no surface participant but does not exclude selected implementation
+assets. Packages with neither authorized surface nor implementation assets
+remain in the Workspace and detached route evidence without adding an
+assembly-context participant. This does not select a different package version,
+fall back to another compile group, or widen a surface-only acquisition demand.
+The implementation role is the call-graph analysis universe when it exists.
+Packages whose selected `lib/` assets serve both roles use the shared surface
+role. Reference-only assets remain visible in detached route evidence but
+cannot manufacture implementation bodies.
 
 The exact focus must identify one implementation participant belonging to the
 declared root occurrence. Missing, duplicate, cross-root, bodyless, or invalid
