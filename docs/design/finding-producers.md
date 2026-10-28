@@ -413,9 +413,10 @@ Metadata dependency, while Metadata already hashes with SHA-256
 
 **Real asset.** `Microsoft.NETCore.App.Runtime.osx-arm64` and
 `Microsoft.AspNetCore.App.Runtime.osx-arm64` from 10.0.12 to
-11.0.0-rc.1.26425.128 give 304 same-named assembly pairs. A read-only probe
-found an identical closure for 18,967 of 20,432 Types, and for 2,431 of 2,641
-in `System.Private.CoreLib`. It had no miss against the production comparer at
+11.0.0-rc.1.26425.128 give 304 same-named assembly pairs. A read-only probe,
+counting every Type present on both sides with a public-member closure, found
+an identical closure for 18,967 of 20,432 Types, and for 2,431 of 2,641 in
+`System.Private.CoreLib`. The gate table below counts per view instead. It had no miss against the production comparer at
 either view. Removing any single fact produced misses: the member set,
 attributes, member flags, base Type, parameter names, constraints, generic
 parameters, constants, or enclosing flags.
@@ -446,9 +447,11 @@ ASP.NET Core pairs differ in context: `NullablePublicOnly` or
 of 2,434 with `--all`, with no misses.
 
 The *read-set guard* is slice 2's obligation. It records that every metadata
-row the extractor reads for Type T lies inside T's closure. The two cross-Type
-reads above were found by reading the extractor; the guard makes that check
-mechanical.
+row the extractor reads to produce a fact the comparer compares for Type T
+lies inside T's closure. The two cross-Type reads above were found by reading
+the extractor; the guard makes that check mechanical. Reads that feed no
+compared fact are named exceptions, not closure members: the whole-table enum
+and type-definition indexes and the finalizer base-chain walk.
 
 **Known false changes.** These cost time but not correctness:
 
@@ -463,7 +466,11 @@ are `diff --library` in the CLI and Inspect Web, which share
 
 1. Hash and gate, test-only, with no behavior change.
 2. Skip identical-hash Types in the production comparer, with the read-set
-   guard, measured on NativeAOT.
+   guard, measured on NativeAOT. The gate then runs through the production
+   path itself, `AssemblyContextApiComparisonQuery`'s bounded and
+   constraint-resolved projection, not only through `ApiSurfaceExtractor.Extract`.
+   A comparison at a view the hash does not define, such as the Public scope
+   the Browser's member-body diff uses, skips nothing.
 3. A canonical byte encoding instead of strings, through
    `MetadataSymbolSpeller` under `MetadataSymbolScope.Declared` with the
    assembly name substituted for the full reference identity.
