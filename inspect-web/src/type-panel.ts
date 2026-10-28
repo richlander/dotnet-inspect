@@ -1017,6 +1017,7 @@ export interface RenderTypeMetadataOptions {
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
+  highlightCSharp: (value: string) => string;
   relatedTypeChip: (
     name: string,
     occurrence?: BrowserTypeHierarchyRow,
@@ -1029,7 +1030,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     item, packageContext, libraryIdentity, workspaceIdentity,
     metadataAvailable = true, metadataState,
     memberCompositionHtml,
-    escapeHtml, relatedTypeChip, factRows,
+    escapeHtml, highlightCSharp, relatedTypeChip, factRows,
   } = options;
   const current = typeMetadataSignature(
     item,
@@ -1200,7 +1201,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const attributes = exact.attributes.length
     ? `<section class="document-section">
         <div class="section-title"><h2>Custom attributes</h2><span>${exact.attributes.length}</span></div>
-        <div class="type-chip-list">${exact.attributes.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
+        <ul class="custom-attribute-list" aria-label="Custom attributes">${exact.attributes.map(attribute => `<li><code class="language-csharp">${highlightCSharp(`[${attribute}]`)}</code></li>`).join("")}</ul>
       </section>`
     : "";
 

@@ -72,64 +72,77 @@ public abstract record LibraryApiChangesOutcome<T>
 public static class LibraryApiChangesInspection
 {
     public static InspectionEnvelope<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiTypeChangeRow>>>
-        TypeTable(AssemblyContextApiComparisonResult result, LibraryApiChangesSelection selection)
-        => Execute(result, selection, static (_, _, _, rows, _, _) =>
+        TypeTable(LibraryApiDiffOutcome outcome, LibraryApiChangesSelection selection)
+        => Execute(outcome, selection, static (_, _, _, rows, _, _) =>
             new LibraryApiChangesTable<LibraryApiTypeChangeRow>(rows));
 
     public static InspectionEnvelope<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiChangeRow>>>
-        ChangesTable(AssemblyContextApiComparisonResult result, LibraryApiChangesSelection selection)
-        => Execute(result, selection, static (_, _, _, rows, _, _) =>
+        ChangesTable(LibraryApiDiffOutcome outcome, LibraryApiChangesSelection selection)
+        => Execute(outcome, selection, static (_, _, _, rows, _, _) =>
             new LibraryApiChangesTable<LibraryApiChangeRow>(rows), DetailedRows);
 
     public static InspectionEnvelope<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeChangeRow>>>
-        TypeDocument(AssemblyContextApiComparisonResult result, LibraryApiChangesSelection selection)
-        => Execute(result, selection, static (before, after, types, rows, all, outside) =>
+        TypeDocument(LibraryApiDiffOutcome outcome, LibraryApiChangesSelection selection)
+        => Execute(outcome, selection, static (before, after, types, rows, all, outside) =>
             new LibraryApiChangesDocument<LibraryApiTypeChangeRow>(
                 before, after, Summarize(all, types, Ordinary(before, after)), rows, outside));
 
     public static InspectionEnvelope<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiChangeRow>>>
-        ChangesDocument(AssemblyContextApiComparisonResult result, LibraryApiChangesSelection selection)
-        => Execute(result, selection, static (before, after, types, rows, all, outside) =>
+        ChangesDocument(LibraryApiDiffOutcome outcome, LibraryApiChangesSelection selection)
+        => Execute(outcome, selection, static (before, after, types, rows, all, outside) =>
             new LibraryApiChangesDocument<LibraryApiChangeRow>(
                 before, after, Summarize(all, types, Ordinary(before, after)), rows, outside), DetailedRows);
 
     private static InspectionEnvelope<LibraryApiChangesOutcome<T>> Execute<T>(
-        AssemblyContextApiComparisonResult result,
+        LibraryApiDiffOutcome outcome,
         LibraryApiChangesSelection selection,
         Func<LibraryApiDiffEndpointSummary, LibraryApiDiffEndpointSummary,
             ImmutableArray<LibraryApiDiffTypeEvidence>, ImmutableArray<LibraryApiTypeChangeRow>,
             ImmutableArray<LibraryApiTypeChangeRow>, int, T> create)
-        => Execute(result, selection, create, static rows => rows);
+        => Execute(outcome, selection, create, static rows => rows);
 
     private static InspectionEnvelope<LibraryApiChangesOutcome<T>> Execute<T, TRow>(
-        AssemblyContextApiComparisonResult result,
+        LibraryApiDiffOutcome outcome,
         LibraryApiChangesSelection selection,
         Func<LibraryApiDiffEndpointSummary, LibraryApiDiffEndpointSummary,
             ImmutableArray<LibraryApiDiffTypeEvidence>, ImmutableArray<TRow>,
             ImmutableArray<LibraryApiTypeChangeRow>, int, T> create,
         Func<ImmutableArray<LibraryApiTypeChangeRow>, ImmutableArray<TRow>> project)
     {
+        ArgumentNullException.ThrowIfNull(outcome);
         ArgumentNullException.ThrowIfNull(selection);
         var diagnostics = ImmutableArray.CreateBuilder<InspectionDiagnostic>();
-        LibraryApiChangesOutcome<T> content = LibraryApiDiffPresentationAdapter.Create<LibraryApiChangesOutcome<T>>(
-            result,
-            (before, after, evidence) =>
-            {
-                var (types, outside) = Select(
-                    evidence, Ordinary(before, after), selection, diagnostics);
-                ImmutableArray<TRow> rows = project(types);
-                var (start, end) = selection.Rows?.Resolve(rows.Length) ?? (0, rows.Length);
-                return new LibraryApiChangesOutcome<T>.Available(create(
-                    before, after, evidence,
-                    rows[start..end], types, outside));
-            },
-            static unavailable => new LibraryApiChangesOutcome<T>.Unavailable(unavailable),
-            static rejected => new LibraryApiChangesOutcome<T>.Rejected(rejected));
+        LibraryApiChangesOutcome<T> content = outcome switch
+        {
+            LibraryApiDiffOutcome.Available { Document: var document } =>
+                new LibraryApiChangesOutcome<T>.Available(Project(document)),
+            LibraryApiDiffOutcome.Unavailable unavailable =>
+                new LibraryApiChangesOutcome<T>.Unavailable(unavailable),
+            LibraryApiDiffOutcome.Rejected rejected =>
+                new LibraryApiChangesOutcome<T>.Rejected(rejected),
+            _ => throw new InvalidOperationException("The Library API diff outcome is unknown."),
+        };
         return new(content,
             new InspectionShare.NonProjectable(
                 "comparison/endpoints",
                 "Workspace Share does not yet represent a selected-Library comparison's ordered endpoints and API scope."),
             diagnostics.ToImmutable());
+
+        T Project(LibraryApiDiffDocument document)
+        {
+            ImmutableArray<LibraryApiDiffTypeEvidence> evidence =
+            [
+                .. document.Comparison.Subjects.Select(subject =>
+                    new LibraryApiDiffTypeEvidence(subject.Identifier, subject.Display, subject.Comparison)),
+            ];
+            var (types, outside) = Select(
+                evidence, Ordinary(document.Before, document.After), selection, diagnostics);
+            ImmutableArray<TRow> rows = project(types);
+            var (start, end) = selection.Rows?.Resolve(rows.Length) ?? (0, rows.Length);
+            return create(
+                document.Before, document.After, evidence,
+                rows[start..end], types, outside);
+        }
     }
 
     private static bool Ordinary(

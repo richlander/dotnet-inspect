@@ -1106,8 +1106,8 @@ async function installFacades(
             diagnostics: [],
           },
           documents: surface.documents,
-          implementationComparisonRuntimeIdentifier: "browser-wasm",
           defaultLibraryId: surface.defaultAssemblyId,
+          implementationComparisonRuntimeIdentifier: "linux-x64",
           runtimePopulation: null,
           surface: {
           ...surfaceFor(id, version, framework),

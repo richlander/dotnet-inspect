@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using Catalog = DotnetInspect.Web.Interop.Catalog;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -7,6 +9,142 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
+    [Theory]
+    [InlineData("authored", "Available", null)]
+    [InlineData("central", "Incomplete", null)]
+    [InlineData("restored", "Available", "Complete")]
+    [InlineData("target-unavailable", "Unavailable", null)]
+    [InlineData("partial-graph", "Available", "Partial")]
+    [InlineData("failed-graph", "Failed", null)]
+    public void ProjectWirePreservesProviderOutcomesAndOriginalDeclarations(
+        string scenario, string outcome, string? completion)
+    {
+        InspectionEnvelope<ProjectInputDocument> original = ProjectInput(scenario).Inspection;
+        var inspection = new InspectionEnvelope<ProjectInputDocument>(
+            original.Content, original.Share,
+            [new InspectionDiagnostic(
+                "project.evidence", InspectionDiagnosticSeverity.Warning,
+                "An inspection diagnostic.", "project/input")]);
+        Catalog.BrowserProjectInputInspection projection =
+            Catalog.BrowserProjectInputProjection.Project(inspection);
+        string json = JsonSerializer.Serialize(
+            projection, Catalog.BrowserCatalogJsonContext.Default.BrowserProjectInputInspection);
+        Catalog.BrowserProjectInputInspection wire = Assert.IsType<Catalog.BrowserProjectInputInspection>(
+            JsonSerializer.Deserialize(
+                json, Catalog.BrowserCatalogJsonContext.Default.BrowserProjectInputInspection));
+
+        Assert.Equal(outcome, wire.Content.ProviderOutcome);
+        Assert.Equal(completion, wire.Content.TraversalCompletion);
+        Assert.Equal(original.Content.DeclaredName.ToString(), wire.Content.DeclaredName);
+        Assert.Equal("nonProjectable", wire.Share.Kind);
+        Assert.Null(wire.Share.FullUrl);
+        Assert.Null(wire.Share.Packet);
+        Assert.Equal(Assert.IsType<InspectionShare.NonProjectable>(original.Share).Reason.ToString(),
+            wire.Share.Reason);
+        Catalog.BrowserProjectInputDiagnostic diagnostic = Assert.Single(wire.Diagnostics);
+        Assert.Equal("Warning", diagnostic.Severity);
+        Assert.Equal("project/input", diagnostic.Correspondence);
+        Assert.Equal(original.Content.Evidence.Failures.Length, wire.Content.Failures.Length);
+        if (scenario == "central")
+        {
+            Catalog.BrowserProjectInputDeclaration declaration = Assert.Single(wire.Content.Declarations);
+            Assert.Equal("markout", declaration.PackageId);
+            Assert.Null(declaration.VersionConstraint);
+            Assert.Null(declaration.SourceVersionConstraint);
+            Assert.Contains(wire.Content.Metadata, field => field.Name == "MissingVersionConstraint");
+        }
+        if (scenario == "restored")
+        {
+            Catalog.BrowserProjectInputPackage package = Assert.Single(wire.Content.Packages);
+            Assert.Equal("newtonsoft.json", package.PackageId);
+            Assert.Equal("13.0.3", package.Version);
+        }
+    }
+
+    [Theory]
+    [InlineData("authoredProject", true)]
+    [InlineData("restoredProject", true)]
+    [InlineData("authoredProject", false)]
+    [InlineData("restoredProject", false)]
+    public async Task ProjectFacadeUsesTheExistingPreparationAndCutover(
+        string kind, bool valid)
+    {
+        _ = await OptionsAsync();
+        Catalog.BrowserProductWorkspacePlans.ConfigurePlatform();
+        await Catalog.BrowserRetainedWorkspaceActivationService.ResetForTestsAsync();
+        try
+        {
+            byte[] bytes = !valid ? "invalid Project"u8.ToArray()
+                : kind == "authoredProject"
+                    ? "<Project><ItemGroup><PackageReference Include=\"Markout\" /></ItemGroup></Project>"u8.ToArray()
+                    : Encoding.UTF8.GetBytes(ProjectAssets);
+            string json = await Catalog.CatalogExports.PrepareProjectWorkspaceDefinition(
+                "project-file", "Local Project", "/", kind,
+                kind == "authoredProject" ? "Example.csproj" : "project.assets.json", bytes, "");
+            Catalog.BrowserProjectWorkspacePreparationResult result =
+                Assert.IsType<Catalog.BrowserProjectWorkspacePreparationResult>(
+                    JsonSerializer.Deserialize(json,
+                        Catalog.BrowserCatalogJsonContext.Default.BrowserProjectWorkspacePreparationResult));
+            Assert.NotNull(result.Inspection);
+            if (!valid)
+            {
+                Assert.Equal("failed", result.Preparation.Status);
+                Assert.Equal("Failed", result.Inspection.Content.ProviderOutcome);
+                Assert.NotEmpty(result.Inspection.Content.Failures);
+                Assert.Null(result.Preparation.Receipt);
+                return;
+            }
+            Assert.Equal("prepared", result.Preparation.Status);
+            Catalog.BrowserRetainedWorkspacePreparedPosting prepared = Assert.IsType<
+                Catalog.BrowserRetainedWorkspacePreparedPosting>(result.Preparation.Preparation);
+            Assert.Equal("Project", prepared.Navigation.Snapshot.ActiveSubject.Kind);
+            Assert.Empty(prepared.Definition.Tabs);
+            Assert.Null(prepared.CanonicalPacket);
+            Assert.Empty(prepared.Packages);
+            Assert.Empty(prepared.Platforms);
+            string receipt = Assert.IsType<string>(result.Preparation.Receipt);
+            string committedJson = await Catalog.CatalogExports.CommitRetainedWorkspaceActivation(receipt);
+            var committed = JsonSerializer.Deserialize(committedJson,
+                Catalog.BrowserCatalogJsonContext.Default.BrowserRetainedWorkspaceActivationResult)!;
+            Assert.Equal("activated", committed.Status);
+            Assert.Equal("Project", committed.Posting!.Navigation.Snapshot.ActiveSubject.Kind);
+            Catalog.CatalogExports.CompleteRetainedWorkspaceActivation(receipt, true, null);
+            AcknowledgeProjectNavigation(committed.Posting);
+            string action = committed.Posting.Navigation.Snapshot.Lenses
+                .Single(lens => lens.Facet.Id == "project.dependencies").Action!.Id;
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                Catalog.CatalogExports.SelectProjectInspector(
+                    "project-file", "retired-realization", action));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                Catalog.CatalogExports.SelectProjectInspector(
+                    "project-file", committed.Posting.RealizationId, "unpublished-action"));
+            string selectedJson = await Catalog.CatalogExports.SelectProjectInspector(
+                "project-file", committed.Posting.RealizationId, action);
+            var selected = JsonSerializer.Deserialize(selectedJson,
+                Catalog.BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePosting)!;
+            Assert.Equal("project.dependencies", selected.Navigation.Snapshot.LensOutcome.EffectiveLens!.Facet);
+            Assert.Equal(committed.Posting.RealizationId, selected.RealizationId);
+            Assert.Equal(committed.Posting.Navigation.Snapshot.ActiveSubject.Id,
+                selected.Navigation.Snapshot.ActiveSubject.Id);
+            AcknowledgeProjectNavigation(selected);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService.ResetForTestsAsync();
+        }
+    }
+
+    static void AcknowledgeProjectNavigation(Catalog.BrowserRetainedWorkspacePosting posting)
+    {
+        Catalog.BrowserRetainedNavigationAuthority authority = posting.Navigation.Authority!;
+        Assert.Equal("accepted", Catalog.CatalogExports.RecordRetainedWorkspaceNavigationPosting(
+            posting.RealizationId, posting.PublicationOrdinal,
+            authority.Session, authority.Revision, authority.Intent, authority.Epoch));
+        Assert.Equal("accepted", Catalog.CatalogExports.AcknowledgeRetainedWorkspaceNavigation(
+            posting.RealizationId, posting.PublicationOrdinal,
+            authority.Session, authority.Revision, authority.Intent, authority.Epoch));
+    }
+
     [Theory]
     [InlineData("authored")]
     [InlineData("central")]

@@ -37,6 +37,39 @@ public sealed record DeclaredPackageDependencyGroup(
     bool IsImplicitManifestGroup = false);
 
 /// <summary>
+/// One bounded dependency identifier occurrence retained independently from
+/// semantic dependency projection.
+/// </summary>
+public sealed record PackageManifestDependencyIdentifierObservation(
+    string Id,
+    int GroupIndex,
+    int DependencyIndex);
+
+/// <summary>
+/// Complete ordered dependency groups from one package manifest.
+/// </summary>
+public sealed record PackageManifestDependencyFacts(
+    ImmutableArray<DeclaredPackageDependencyGroup> Groups);
+
+/// <summary>
+/// The typed outcome of projecting one manifest's dependency section.
+/// </summary>
+public abstract record PackageManifestDependencyFactsResult
+{
+    private PackageManifestDependencyFactsResult()
+    {
+    }
+
+    public sealed record Available(
+        PackageManifestDependencyFacts Value) :
+        PackageManifestDependencyFactsResult;
+
+    public sealed record Failed(
+        PackageManifestFailure Failure) :
+        PackageManifestDependencyFactsResult;
+}
+
+/// <summary>
 /// One framework-reference identity using NuGet's ordinal-ignore-case
 /// semantics.
 /// </summary>
@@ -148,6 +181,24 @@ public sealed record PackageManifestFacts(
     string? ReadmeFile,
     ImmutableArray<DeclaredPackageDependencyGroup> DependencyGroups)
 {
+    public string DeclaredPackageId { get; init; } = Coordinate.PackageId;
+
+    public string DeclaredPackageVersion { get; init; } = Coordinate.Version;
+
+    public PackageManifestDependencyFactsResult DependencyDeclarations
+    {
+        get;
+        init;
+    } = new PackageManifestDependencyFactsResult.Available(
+        new PackageManifestDependencyFacts(DependencyGroups));
+
+    /// <summary>
+    /// Bounded source identifier occurrences retained for identity-oriented
+    /// consumers when semantic dependency projection is rejected.
+    /// </summary>
+    public ImmutableArray<PackageManifestDependencyIdentifierObservation>
+        DependencyIdentifierObservations { get; init; } = [];
+
     public PackageLicenseDeclaration? LicenseDeclaration { get; init; }
 
     public string? IconFile { get; init; }

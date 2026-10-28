@@ -184,12 +184,14 @@ type CatalogOperationName =
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
+  | "prepareProjectWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionFromRecords"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
   | "recordRetainedWorkspaceNavigationPosting"
   | "resolveHomeDemo"
   | "runHomeDemo"
+  | "selectProjectInspector"
   | "validateRetainedWorkspaceNavigationAuthority";
 
 type AsyncMethod<TMethod> =
@@ -616,27 +618,28 @@ type UploadedLibraryArguments =
 
 function validateUploadedLibraryArguments(
   value: unknown,
+  description = "Uploaded Library",
 ): UploadedLibraryArguments {
   if (!Array.isArray(value) || value.length !== 2) {
     throw new OrdinaryPayloadError(
-      "Uploaded Library input must be a two-element array.",
+      `${description} input must be a two-element array.`,
     );
   }
   const declaredName: unknown = value[0];
   const content: unknown = value[1];
   if (typeof declaredName !== "string") {
     throw new OrdinaryPayloadError(
-      "Uploaded Library declared name must be a string.",
+      `${description} declared name must be a string.`,
     );
   }
   if (!Array.isArray(content)) {
     throw new OrdinaryPayloadError(
-      "Uploaded Library content must be a byte array.",
+      `${description} content must be a byte array.`,
     );
   }
   if (content.length > engineWorkerUploadedLibraryMaximumBytes) {
     throw new OrdinaryPayloadError(
-      `Uploaded Library content exceeds ${
+      `${description} content exceeds ${
         engineWorkerUploadedLibraryMaximumBytes
       } bytes.`,
       "oversized",
@@ -645,7 +648,7 @@ function validateUploadedLibraryArguments(
   for (const byte of content) {
     if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
       throw new OrdinaryPayloadError(
-        "Uploaded Library content contains a value outside the byte range.",
+        `${description} content contains a value outside the byte range.`,
       );
     }
   }
@@ -654,14 +657,16 @@ function validateUploadedLibraryArguments(
   return value as UploadedLibraryArguments;
 }
 
-const uploadedLibraryInputTransport:
-  OrdinaryInputTransport<UploadedLibraryArguments> = {
+function uploadedInputTransport<TArgs extends readonly unknown[]>(
+  validate: (value: unknown) => TArgs,
+): OrdinaryInputTransport<TArgs> {
+  return {
     input: {
       decode(value) {
         try {
           return {
             kind: "decoded",
-            value: validateUploadedLibraryArguments(value),
+            value: validate(value),
           };
         } catch (error: unknown) {
           if (!(error instanceof OrdinaryPayloadError)) throw error;
@@ -673,7 +678,7 @@ const uploadedLibraryInputTransport:
       try {
         return {
           kind: "decoded",
-          value: validateUploadedLibraryArguments(input),
+          value: validate(input),
         };
       } catch (error: unknown) {
         if (!(error instanceof OrdinaryPayloadError)) throw error;
@@ -681,6 +686,30 @@ const uploadedLibraryInputTransport:
       }
     },
   };
+}
+
+const uploadedLibraryInputTransport =
+  uploadedInputTransport(validateUploadedLibraryArguments);
+
+const uploadedProjectInputTransport = uploadedInputTransport<
+  Parameters<CatalogFacade["prepareProjectWorkspaceDefinition"]>
+>(value => {
+  if (!Array.isArray(value) || value.length !== 7
+    || typeof value[0] !== "string"
+    || typeof value[1] !== "string"
+    || typeof value[2] !== "string"
+    || typeof value[3] !== "string"
+    || typeof value[6] !== "string") {
+    throw new OrdinaryPayloadError(
+      "Uploaded Project input requires its seven facade arguments.",
+    );
+  }
+  const [declaredName, content] = validateUploadedLibraryArguments(
+    [value[4], value[5]], "Uploaded Project",
+  );
+  return [value[0], value[1], value[2], value[3],
+    declaredName, content, value[6]];
+});
 
 function encodeInputTuple(
   input: readonly unknown[],
@@ -2050,6 +2079,24 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   catalog: {
+    selectProjectInspector: valueOperation(
+      "ordinary-catalog-select-project-inspector",
+      3,
+      (facades, ...args: Parameters<CatalogFacade["selectProjectInspector"]>) =>
+        facades.catalog.selectProjectInspector(...args),
+      (facades, posting) => {
+        const authority = posting.navigation.authority;
+        if (authority === null) {
+          throw new Error("The rejected Project posting omitted Navigation authority.");
+        }
+        const result = facades.catalog.abandonRetainedWorkspaceNavigation(
+          posting.realizationId, posting.publicationOrdinal,
+          authority.session, authority.revision, authority.intent, authority.epoch);
+        if (result !== "accepted" && result !== "invalidAuthority") {
+          throw new Error(`Project Navigation abandonment returned '${result}'.`);
+        }
+      },
+    ),
     findIndexedTypes: valueOperation(
       "ordinary-catalog-find-indexed-types",
       5,
@@ -2302,6 +2349,31 @@ export const engineWorkerOrdinaryOperations = {
           );
         }
       },
+    ),
+    prepareProjectWorkspaceDefinition: createOrdinaryOperation(
+      "ordinary-catalog-prepare-project-workspace-definition",
+      7,
+      "value",
+      createValueDecoder<
+        Awaited<ReturnType<CatalogFacade["prepareProjectWorkspaceDefinition"]>>
+      >(),
+      (
+        facades,
+        ...args: Parameters<CatalogFacade["prepareProjectWorkspaceDefinition"]>
+      ) => facades.catalog.prepareProjectWorkspaceDefinition(...args),
+      async (facades, result) => {
+        const preparation = result.preparation;
+        if (preparation.status !== "prepared" || preparation.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(preparation.receipt);
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected Project preparation could not be cleaned up.",
+          );
+        }
+      },
+      uploadedProjectInputTransport,
     ),
     preparePackageQueryWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-package-query-workspace-definition",
@@ -2882,6 +2954,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     catalog: {
+      selectProjectInspector: bind(
+        engineWorkerOrdinaryOperations.catalog.selectProjectInspector,
+      ),
       findIndexedTypes: bind(
         engineWorkerOrdinaryOperations.catalog.findIndexedTypes,
       ),
@@ -2979,6 +3054,9 @@ export function bindEngineWorkerOrdinaryClient(
       prepareEcosystemWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .prepareEcosystemWorkspaceDefinition,
+      ),
+      prepareProjectWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog.prepareProjectWorkspaceDefinition,
       ),
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
