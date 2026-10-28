@@ -130,6 +130,45 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Theory]
     [InlineData("--count")]
     [InlineData("--json")]
+    public async Task PackageChildren_RangedRead_PreservesUndeclaredToolFailure(
+        string terminal)
+    {
+        string id = $"PackageChildren.InferredTool.{Guid.NewGuid():N}";
+        byte[] package = CreateToolPackage(
+            id,
+            packageType: null,
+            ("tools/net10.0/any/Shape.dll", new byte[11]));
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+        [
+            "package", $"{id}@{Version}", "--source", FirstFeed,
+            terminal,
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        if (terminal == "--count")
+        {
+            Assert.Empty(result.Output);
+            Assert.Contains("DotnetToolSettings.xml", result.Error);
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                "Unavailable",
+                document.RootElement.GetProperty("status").GetString());
+            Assert.False(
+                document.RootElement.GetProperty("is_complete").GetBoolean());
+            Assert.Empty(
+                document.RootElement.GetProperty("children").EnumerateArray());
+        }
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--json")]
     public async Task PackageChildren_RangedRead_DoesNotAcquireLibraryBodies(
         string terminal)
     {
@@ -143,6 +182,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             [
                 ("content/unrelated.bin",
                     RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+                ("tools/net11.0/any/Helper.dll",
+                    RandomNumberGenerator.GetBytes(512 * 1024)),
             ]);
         var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
         UseFeed(feed);

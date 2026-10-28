@@ -108,7 +108,15 @@ public partial class PackageCommand
                 _ => throw new InvalidOperationException(
                     "Unknown package manifest inspection result."),
             };
-            if (facts?.IsToolPackage == true)
+            bool mayBeInferredTool =
+                (facts is null || facts.PackageTypes.IsEmpty)
+                && entryPaths.Any(static path => path.StartsWith(
+                    "tools/",
+                    StringComparison.OrdinalIgnoreCase))
+                && !entryPaths.Any(static path => path.StartsWith(
+                    "lib/",
+                    StringComparison.Ordinal));
+            if (facts?.IsToolPackage == true || mayBeInferredTool)
                 return null;
             childrenResult = new InspectionResult
             {

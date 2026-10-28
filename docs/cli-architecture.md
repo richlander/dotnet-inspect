@@ -90,6 +90,9 @@ alone does not determine evidence strength.
 Children obtain declared identity and tool classification through the shared
 manifest-facts query without requesting dependency-group selection or Library
 inspection. A rejected or unreadable manifest is a visible failure.
+Undeclared packages with tool-directory content and no known `lib/` directory
+retain legacy classification, including unavailable children when tool settings
+are missing. Directory evidence is sufficient to choose that fallback.
 
 Rich inspection still requires its promised fields, including full JSON's
 existing facts and House measurements. Package Info retains selected Library
