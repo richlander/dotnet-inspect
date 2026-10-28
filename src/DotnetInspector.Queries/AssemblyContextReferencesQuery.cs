@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -37,6 +38,8 @@ public sealed record AssemblyContextReferenceBindingEvidence
 }
 
 /// <summary>Why one participant could not issue detached assembly-reference rows.</summary>
+[JsonConverter(
+    typeof(JsonStringEnumConverter<AssemblyReferenceRowsRejectionKind>))]
 public enum AssemblyReferenceRowsRejectionKind
 {
     Unreadable,

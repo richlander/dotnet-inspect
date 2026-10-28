@@ -284,7 +284,7 @@ test("Library inspectors preserve the default exact selection and resolve aggreg
     `.library-subject-list [data-library-subject="${core.id}"]`))
     .toHaveAttribute("aria-selected", "true");
 
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(page.locator(
     `.library-subject-list [data-library-subject="${core.id}"]`))
     .toHaveAttribute("aria-selected", "true");
@@ -382,7 +382,7 @@ for (const [width, activation] of [[900, "click"], [480, "keyboard"]] as const) 
     await installFacades(page);
     await page.goto(root);
     await selectLibrary(page, other.id);
-    await chooseInspector(page, "data-library-lens", "references", "References");
+    await chooseInspector(page, "data-library-lens", "references", "Uses");
     await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
     const libraryLocation = page.url();
     await chooseSubject(page, "type", "Type");
@@ -1097,7 +1097,7 @@ test("production navigation separates Package, Library, Type and Member", async 
   await selectLibrary(page, other.id);
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
   await expect(page.locator("html")).toHaveAttribute("data-reference-request", "asset:other");
 
@@ -1413,7 +1413,7 @@ for (const width of [900, 390]) {
 test("exact Library selection resolves an aggregate References refusal", async ({ page }) => {
   await installFacades(page);
   await page.goto(root.replace("#pkg", "#library"));
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await page.locator(
     '.library-subject-list [data-library-subject="all"]').click();
   await expect(page.getByRole("heading", {
@@ -1440,7 +1440,7 @@ test("returning to Library retains its inspector and selected Type context", asy
   });
   await page.goto(root);
   await selectLibrary(page, core.id);
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
   await chooseSubject(page, "type", "Type");
   await page.locator('#type-list [data-type="asset:core:Example.SecondWidget"]').click();

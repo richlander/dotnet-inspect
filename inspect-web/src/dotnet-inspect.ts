@@ -202,6 +202,8 @@ import {
   resolvePackagePerformanceType,
   workspaceDependencyKey,
   type PackageDependenciesState,
+  type LibraryReferenceInspectionEnvelope,
+  type LibraryReferenceInspectionState,
   type PackagePerformance,
   type PackageResourceTriage,
   type PackageIntegrationsState,
@@ -975,6 +977,8 @@ let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
+let inspectLibraryReferences:
+  EngineClient["package"]["queryLibraryReferences"];
 let inspectReferencePackageSuppliers:
   EngineClient["package"]["queryReferencePackageSuppliers"];
 let inspectPackageHierarchy:
@@ -1216,6 +1220,7 @@ async function loadEngineModule() {
       queryPackageRoot: inspectPackageRoot,
       queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
+      queryLibraryReferences: inspectLibraryReferences,
       queryReferencePackageSuppliers: inspectReferencePackageSuppliers,
       queryPackageHierarchy: inspectPackageHierarchy,
       queryPackageIcon: inspectPackageIcon,
@@ -1617,6 +1622,7 @@ const initialState = {
   libraryEnablements: new Map<string, BrowserLibraryEnablements | null>(),
   libraryEnablementLoads: new Set<string>(),
   packageDependencies: { status: "idle" as const },
+  libraryReferences: { status: "idle" as const },
   packageHierarchy: null,
   packageHierarchyLoading: false,
   packageHierarchyError: "",
@@ -1799,6 +1805,7 @@ interface StateOverrides {
   libraryEnablements: Map<string, BrowserLibraryEnablements | null>;
   libraryEnablementLoads: Set<string>;
   packageDependencies: PackageDependenciesState;
+  libraryReferences: LibraryReferenceInspectionState;
   packageHierarchy: BrowserPackageHierarchy | null;
   packageVulnerabilities: PackageVulnerabilityState;
   dependenciesGroupIndex: number | null;
@@ -2103,6 +2110,8 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.typeMetadataLoading = false;
   snapshotState.packageDependencies =
     normalizePackageInspectionRequestSnapshot(snapshotState.packageDependencies);
+  snapshotState.libraryReferences =
+    normalizePackageInspectionRequestSnapshot(snapshotState.libraryReferences);
   snapshotState.packageVulnerabilities =
     normalizePackageInspectionRequestSnapshot(
       snapshotState.packageVulnerabilities);
@@ -11605,6 +11614,40 @@ function packageDependenciesData(): BrowserPackageDependencies | null {
     : null;
 }
 
+function libraryReferenceInspectionSignature() {
+  const pkg = currentPackage();
+  const library = selectedLibraryShareKey();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}/${pkg.runtimeIdentifier ?? ""}#${library || pkg.assemblyId}`;
+}
+
+function libraryReferenceInspectionData():
+  LibraryReferenceInspectionEnvelope | null {
+  const signature = libraryReferenceInspectionSignature();
+  return state.libraryReferences.status === "ready"
+    && state.libraryReferences.key === signature
+    ? state.libraryReferences.result
+    : null;
+}
+
+function availableLibraryReferences() {
+  const content = libraryReferenceInspectionData()?.content;
+  return content?.outcome === "available" ? content.references : null;
+}
+
+function libraryReferenceInspectionLoading() {
+  const signature = libraryReferenceInspectionSignature();
+  return state.libraryReferences.status === "loading"
+    && state.libraryReferences.request.key === signature;
+}
+
+function libraryReferenceInspectionError() {
+  const signature = libraryReferenceInspectionSignature();
+  return state.libraryReferences.status === "failed"
+    && state.libraryReferences.key === signature
+    ? state.libraryReferences.error
+    : "";
+}
+
 function renderPackageDependenciesSurface(content: string, status: string) {
   const mode = state.packageLens === "hierarchy" ? "hierarchy" : "dependencies";
   const tabs = ([
@@ -11851,19 +11894,10 @@ function libraryReferencePackageIcon(pkg: AppPackage | null | undefined): string
 }
 
 function renderLibraryReferences() {
-  const current = packageDependenciesSignature();
-  const dependenciesState = state.packageDependencies;
-  const fresh = packageInspectionRequestStateKey(dependenciesState) === current;
-  const data = fresh && dependenciesState.status === "ready"
-    ? dependenciesState.result
-    : null;
+  const data = libraryReferenceInspectionData();
   const library = selectedLibrary();
   const pkg = currentPackage();
-  const references =
-    data?.assemblyReferences
-      && typeof data.assemblyReferences !== "string"
-      ? data.assemblyReferences.references
-      : [];
+  const references = availableLibraryReferences() ?? [];
   const candidates = state.packages.flatMap(candidatePackage =>
     createWorkspaceLibraryReferenceCandidates(
       packageIdentityKey(candidatePackage),
@@ -11878,10 +11912,8 @@ function renderLibraryReferences() {
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
     coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
-    loading: dependenciesState.status === "loading" && fresh,
-    error: dependenciesState.status === "failed" && fresh
-      ? dependenciesState.error
-      : "",
+    loading: libraryReferenceInspectionLoading(),
+    error: libraryReferenceInspectionError(),
     data,
     referenceDestinations,
     referenceIcons: referenceDestinations.map(destination => {
@@ -11895,30 +11927,30 @@ function renderLibraryReferences() {
 }
 
 const referenceSupplierRequests = new WeakMap<
-  BrowserPackageDependencies,
+  LibraryReferenceInspectionEnvelope,
   Promise<ReadonlyArray<BrowserReferencePackageSupplier>>>();
 
 async function renderLibraryReferenceIcons() {
   const container = document.querySelector<HTMLElement>(
     ".library-references-surface .reference-list-section");
-  const data = packageDependenciesData();
-  const references = data?.assemblyReferences;
-  if (!container || !data || !references || typeof references === "string") return;
+  const data = libraryReferenceInspectionData();
+  const references = availableLibraryReferences();
+  if (!container || !data || !references) return;
   const candidates = state.packages.flatMap(candidatePackage =>
     createWorkspaceLibraryReferenceCandidates(
       packageIdentityKey(candidatePackage),
       packageLibrariesForModel(candidatePackage),
       candidatePackage.assemblies));
   const destinations = resolveLibraryReferenceDestinations(
-    references.references, candidates);
+    references, candidates);
   const packagesByKey = new Map(state.packages.map(candidatePackage =>
     [packageIdentityKey(candidatePackage), candidatePackage]));
   const requests = new Map<string, Promise<BrowserPackageIconInspection>>();
-  const signature = packageDependenciesSignature();
+  const signature = libraryReferenceInspectionSignature();
   const isCurrent = () =>
     document.querySelector(".library-references-surface .reference-list-section") === container
-    && packageDependenciesData() === data
-    && packageDependenciesSignature() === signature;
+    && libraryReferenceInspectionData() === data
+    && libraryReferenceInspectionSignature() === signature;
   let next = 0;
   const loadNext = async () => {
     while (true) {
@@ -11981,7 +12013,7 @@ async function renderLibraryReferenceIcons() {
     }
     const suppliers = await request;
     if (!isCurrent()
-      || suppliers.length !== references.references.length) return;
+      || suppliers.length !== references.length) return;
     const rows = [...container.querySelectorAll<HTMLLIElement>(
       ".dep-list > li")];
     const exact = (value: string | null | undefined) =>
@@ -11991,7 +12023,7 @@ async function renderLibraryReferenceIcons() {
       return normalized === "neutral" ? "" : normalized;
     };
     const external = suppliers.flatMap((supplier, index) => {
-      const reference = references.references[index];
+      const reference = references[index];
       const row = rows[index];
       if (!supplier.packageId || !supplier.packageVersion
         || !reference || !row || destinations[index]
@@ -12247,6 +12279,12 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.activeFramework,
     packageQueryAssemblyId(packageModel),
     packageModel.runtimeIdentifier ?? null),
+  queryLibraryReferences: packageModel => inspectLibraryReferences(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework,
+    packageQueryAssemblyId(packageModel),
+    packageModel.runtimeIdentifier ?? null),
   queryVulnerabilities: packageModel => inspectPackageVulnerabilities(
     packageModel.id,
     packageModel.version),
@@ -12389,6 +12427,17 @@ async function loadPackageDependencies() {
     packageDependenciesSignature());
 }
 
+async function loadLibraryReferences() {
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  return packageInspection.loadLibraryReferences(
+    {
+      ...pkg,
+      assemblyId: library?.id ?? pkg.assemblyId,
+    },
+    libraryReferenceInspectionSignature());
+}
+
 function maybeAutoLoadPackageDependencies() {
   const packageDependencies =
     state.atPackageRoot && state.packageLens === "dependencies";
@@ -12396,6 +12445,23 @@ function maybeAutoLoadPackageDependencies() {
     state.atLibraryRoot && state.libraryLens === "references";
   if (!packageDependencies && !libraryReferences) return;
   if (libraryReferences && aggregateLibrarySubjectIsActive()) return;
+  if (libraryReferences) {
+    const referencesState = state.libraryReferences;
+    if (packageInspectionRequestStateKey(referencesState)
+      === libraryReferenceInspectionSignature()) {
+      if (referencesState.status === "ready") {
+        observeAsync(
+          renderLibraryReferenceGraph(),
+          "Rendering the assembly-reference graph");
+        observeAsync(
+          renderLibraryReferenceIcons(),
+          "Loading reference package icons");
+      }
+      return;
+    }
+    observeAsync(loadLibraryReferences(), "Loading library references");
+    return;
+  }
   const dependenciesState = state.packageDependencies;
   if (packageInspectionRequestStateKey(dependenciesState)
     === packageDependenciesSignature()) {
@@ -12403,11 +12469,6 @@ function maybeAutoLoadPackageDependencies() {
       observeAsync(renderPackageDependencyList(), "Matching dependency packages");
       observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
       observeAsync(ensureWorkspaceDependencies(), "Loading workspace dependencies");
-    } else if (libraryReferences && dependenciesState.status === "ready") {
-      observeAsync(
-        renderLibraryReferenceGraph(),
-        "Rendering the assembly-reference graph");
-      observeAsync(renderLibraryReferenceIcons(), "Loading reference package icons");
     }
     return;
   }
@@ -24397,15 +24458,15 @@ async function renderLibraryReferenceGraph() {
   const container =
     document.querySelector<HTMLElement>("#library-reference-graph-diagram");
   if (!container) return;
-  const assemblyReferences = packageDependenciesData()?.assemblyReferences;
-  if (!assemblyReferences || typeof assemblyReferences === "string") {
+  const inspection = libraryReferenceInspectionData()?.content;
+  if (!inspection || inspection.outcome !== "available") {
     libraryReferenceGraphRenderSequence.invalidate();
     return;
   }
   const assemblyName = selectedLibrary()?.name ?? "Selected assembly";
   const built = buildAssemblyReferenceGraphMermaid(
     assemblyName,
-    assemblyReferences);
+    inspection);
   if (!built) {
     libraryReferenceGraphRenderSequence.invalidate();
     return;

@@ -1555,6 +1555,23 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<LibraryReferenceInspectionOutcome>))]
+[JsonSerializable(
+    typeof(LibraryReferenceInspectionOutcome.Available),
+    TypeInfoPropertyName = "LibraryReferenceInspectionAvailable")]
+[JsonSerializable(
+    typeof(LibraryReferenceInspectionOutcome.Rejected),
+    TypeInfoPropertyName = "LibraryReferenceInspectionRejected")]
+[JsonSerializable(
+    typeof(LibraryReferenceInspectionOutcome.Failed),
+    TypeInfoPropertyName = "LibraryReferenceInspectionFailed")]
+[JsonSerializable(typeof(AssemblyReferenceRow))]
+[JsonSerializable(typeof(LibraryReferenceInspectionRejection))]
+[JsonSerializable(typeof(LibraryReferenceInspectionFailure))]
+[JsonSerializable(
+    typeof(InspectionShare.NonProjectable),
+    TypeInfoPropertyName = "InspectionShareNonProjectable")]
 [JsonSerializable(typeof(BrowserReferencePackageSupplier[]))]
 [JsonSerializable(typeof(BrowserPackageHierarchy))]
 [JsonSerializable(typeof(BrowserLibraryQueryInspection))]
