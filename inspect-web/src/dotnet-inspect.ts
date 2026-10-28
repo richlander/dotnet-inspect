@@ -691,6 +691,7 @@ import {
   isCompareMode,
   renderPackageComparisonTargets,
   resolveEffectiveDiffTarget,
+  stringLiteralDiffContent,
   type CompareMode,
   type DiffContent,
 } from "./package-comparison-targets.ts";
@@ -17531,7 +17532,7 @@ function openSpotlightCapability(result: SpotlightCapabilityResult): void {
     packageComparisonTargets.selectMode(pkg, "diff");
     if (analysis === "string-literals") {
       packageComparisonTargets.selectDiffContent(
-        pkg, { kind: "string-literals", operator: "contains", value: "" });
+        pkg, stringLiteralDiffContent(packageComparisonTargets.get(pkg).diffContent));
       if (selectLibrarySubject(library.id)) selectLibraryLens("compare");
     } else {
       packageComparisonTargets.selectDiffContent(pkg, { kind: "api" });

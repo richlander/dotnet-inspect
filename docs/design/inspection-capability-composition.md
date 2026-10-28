@@ -503,7 +503,9 @@ searches. Reconfiguration replaces that metadata snapshot. The snapshot owns
 only resource-free declarations, never inspection content or borrowed state. This is host configuration,
 not mutable per-resource registration or cross-facade dependency. Search projects the shared Analysis identities,
 paths, and bindings; Spotlight selects the existing Compare surface. This
-adds no inspector layout or analysis support. Body-signal and retained
+uses Compare's existing initial literal predicate for string-literal analysis,
+preserving the selected predicate when one already exists. This adds no
+inspector layout or analysis support. Body-signal and retained
 Research producers remain explicitly unavailable, and structural resources
 remain excluded until Browser installs actual structural view bindings.
 

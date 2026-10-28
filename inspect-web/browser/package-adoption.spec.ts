@@ -1343,6 +1343,35 @@ test.describe("Capability Spotlight search over real Wasm", () => {
       .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
   });
 
+  test("opens string literal Compare with a valid retained predicate", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry(allFixtures));
+    await page.goto(
+      `/index.html?package=${libraryDiffV2.packageId}&version=${libraryDiffV2.version}`
+        + `&framework=${fixtureFramework}#pkg`);
+    await expect(page.locator('[data-subject-tab][data-scope="library"]'))
+      .toBeVisible({ timeout: 180_000 });
+    await selectFirstExactLibrary(page);
+    const panel = page.locator("#inspector-panel");
+    const activate = async () => {
+      await page.getByRole("button", {
+        name: "Search types, members, packages", exact: true,
+      }).click();
+      await page.locator("#spotlight-input").fill("string-literals");
+      await page.locator('[data-sl-capability="analyses/string-literals"]').click();
+    };
+    await activate();
+    await expect(panel.locator("#compare-diff-content")).toHaveValue("string-literals");
+    await expect(panel.locator("#compare-string-literal-value")).toHaveValue("https://");
+    await expect(panel.locator(".compare-target-value"))
+      .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
+    await panel.locator("#compare-string-literal-operator").selectOption("starts-with");
+    await panel.locator("#compare-string-literal-value").fill("http://");
+    await panel.locator("#compare-string-literal-value").press("Tab");
+    await activate();
+    await expect(panel.locator("#compare-string-literal-operator")).toHaveValue("starts-with");
+    await expect(panel.locator("#compare-string-literal-value")).toHaveValue("http://");
+  });
+
   test("discovers library literal and opens its Package Query facet", async ({
     page,
   }) => {
