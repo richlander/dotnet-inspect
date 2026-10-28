@@ -276,11 +276,12 @@ public sealed class LibraryApiDiffCommandTests
         // method added without a body adds one additive row. The Member-fold cases
         // add two breaking rows (enum storage and marker interface) and one
         // additive property row and one non-breaking row. Moving an explicit
-        // implementation between interfaces adds one breaking and one additive row.
+        // implementation between interfaces adds one breaking and one additive row. A
+        // private setter becoming obsolete adds one non-breaking row: outside the API axis.
         Assert.Equal(39, summary.GetProperty("breakingCount").GetInt32());
         Assert.Equal(21, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
-        Assert.Equal(18, summary.GetProperty("nonBreakingCount").GetInt32());
+        Assert.Equal(19, summary.GetProperty("nonBreakingCount").GetInt32());
     }
 
     [Theory]

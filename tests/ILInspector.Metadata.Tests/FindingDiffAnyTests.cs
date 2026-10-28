@@ -996,6 +996,28 @@ public sealed class FindingDiffAnyTests
         Assert.Equal("Value", change.Subject?.MemberName);
     }
 
+    [Fact]
+    public void AccessorObsolete_OutsideExternalReach_IsNotAnApiAxisChange()
+    {
+        // A private setter has no caller in another assembly: the API axis reports nothing,
+        // as Finding Diff Any's census does, and --all reports it NonBreaking.
+        const string typeName = "FindingDiffAnyFixture.PrivateSetterBecomesObsolete";
+        Assert.DoesNotContain(
+            typeName,
+            ChangedTypes(CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis)));
+
+        TypeDiff type = Assert.Single(
+            CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.IncludeAll).ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        ApiChange change = Assert.Single(
+            type.Changes,
+            change => change.Kind == ChangeKind.MemberObsoleteChanged);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+        Assert.Equal(
+            "Member 'Value' setter was made obsolete, from 'not obsolete' to '[Obsolete(\"msg\")]'",
+            change.Message);
+    }
+
     [Theory]
     [MemberData(nameof(StatusTransitions))]
     public void ApiAxis_ReportsEachStatusTransitionAsOneRow(

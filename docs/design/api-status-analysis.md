@@ -118,7 +118,13 @@ accessor is present on both sides and that fact changes, its property or event
 has one `MemberObsoleteChanged` row whose description names the accessor, such
 as `Member 'RawData' setter was made obsolete`, with the accessor's values and
 the Member's classification. A caller of that accessor sees the warning or
-error just as a caller of an obsolete Member does. An accessor added or
+error just as a caller of an obsolete Member does. An accessor is judged by its
+own external reach, as [accessor spelling
+changes](api-population-scope.md#the-diffs-api-axis-population) are: an
+accessor no other assembly can reach on either side, such as a private setter
+of a public property, has no external caller, so the API axis reports no row
+for it, as Finding Diff Any's census does, and a comparison that also
+classifies outside the API axis (`--all`) reports it as NonBreaking. An accessor added or
 removed is a change to the composed property signature, not a status row.
 
 An accessor's hidden fact is not a row of its own and does not make a

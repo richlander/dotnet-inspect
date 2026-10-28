@@ -1,3 +1,4 @@
+using System.Reflection;
 using CSharpText;
 using ILInspector.MetadataPrimitives;
 using InertText;
@@ -789,7 +790,7 @@ public static class ApiDiffAnalyzer
         }
     }
 
-    internal static void CompareMemberModifiers(ApiMemberHandle oldHandle, ApiMemberHandle newHandle, List<ApiChange> changes, bool compareTransitions)
+    internal static void CompareMemberModifiers(ApiMemberHandle oldHandle, ApiMemberHandle newHandle, List<ApiChange> changes, bool compareTransitions, bool classifyByApiAxis = false)
     {
         ApiMember oldMember = oldHandle.Member;
         ApiMember newMember = newHandle.Member;
@@ -819,10 +820,10 @@ public static class ApiDiffAnalyzer
                 $"Member '{oldMember.Name}'",
                 subject,
                 changes);
-            CompareAccessorObsolete(oldMember.GetterToken, oldMember.GetterObsolete, newMember.GetterToken, newMember.GetterObsolete, "getter", oldMember, subject, changes);
-            CompareAccessorObsolete(oldMember.SetterToken, oldMember.SetterObsolete, newMember.SetterToken, newMember.SetterObsolete, "setter", oldMember, subject, changes);
-            CompareAccessorObsolete(oldMember.AdderToken, oldMember.AdderObsolete, newMember.AdderToken, newMember.AdderObsolete, "adder", oldMember, subject, changes);
-            CompareAccessorObsolete(oldMember.RemoverToken, oldMember.RemoverObsolete, newMember.RemoverToken, newMember.RemoverObsolete, "remover", oldMember, subject, changes);
+            CompareAccessorObsolete(oldMember.GetterToken, oldMember.GetterObsolete, oldMember.GetterPhysicalMethodAccess, newMember.GetterToken, newMember.GetterObsolete, newMember.GetterPhysicalMethodAccess, "getter", oldHandle, newHandle, classifyByApiAxis, subject, changes);
+            CompareAccessorObsolete(oldMember.SetterToken, oldMember.SetterObsolete, oldMember.SetterPhysicalMethodAccess, newMember.SetterToken, newMember.SetterObsolete, newMember.SetterPhysicalMethodAccess, "setter", oldHandle, newHandle, classifyByApiAxis, subject, changes);
+            CompareAccessorObsolete(oldMember.AdderToken, oldMember.AdderObsolete, oldMember.AdderPhysicalMethodAccess, newMember.AdderToken, newMember.AdderObsolete, newMember.AdderPhysicalMethodAccess, "adder", oldHandle, newHandle, classifyByApiAxis, subject, changes);
+            CompareAccessorObsolete(oldMember.RemoverToken, oldMember.RemoverObsolete, oldMember.RemoverPhysicalMethodAccess, newMember.RemoverToken, newMember.RemoverObsolete, newMember.RemoverPhysicalMethodAccess, "remover", oldHandle, newHandle, classifyByApiAxis, subject, changes);
         }
 
         // Virtual removed
@@ -1071,20 +1072,35 @@ public static class ApiDiffAnalyzer
     /// (docs/design/api-status-analysis.md#transition-rows) as a
     /// <see cref="ChangeKind.MemberObsoleteChanged"/> row on its Member that names the
     /// accessor, classified as a Member's. The accessor must be present on both sides; an
-    /// accessor added or removed is a signature change.
+    /// accessor added or removed is a signature change. An accessor is judged by its own
+    /// external reach: one that no other assembly can reach on either side is not part of
+    /// the API axis, so its fact is compared only when the comparison also classifies
+    /// outside the API axis (<see cref="ClassifiesByApiAxis"/>), and its row is then
+    /// <see cref="ChangeClassification.NonBreaking"/>.
     /// </summary>
     static void CompareAccessorObsolete(
         int? oldToken,
         ApiObsoleteStatus? oldObsolete,
+        MethodAttributes? oldAccess,
         int? newToken,
         ApiObsoleteStatus? newObsolete,
+        MethodAttributes? newAccess,
         string accessorName,
-        ApiMember oldMember,
+        ApiMemberHandle oldHandle,
+        ApiMemberHandle newHandle,
+        bool classifyByApiAxis,
         ApiChangeSubjectSource subject,
         List<ApiChange> changes)
     {
         if (oldToken is null || newToken is null)
             return;
+        bool outsideApiAxis =
+            AccessorReach(oldHandle, oldAccess) == 0
+            && AccessorReach(newHandle, newAccess) == 0;
+        if (outsideApiAxis && !classifyByApiAxis)
+            return;
+        ApiMember oldMember = oldHandle.Member;
+        int start = changes.Count;
         CompareObsolete(
             new ApiStatus(false, oldObsolete is not null, oldObsolete?.Message, oldObsolete?.IsError == true),
             new ApiStatus(false, newObsolete is not null, newObsolete?.Message, newObsolete?.IsError == true),
@@ -1092,6 +1108,31 @@ public static class ApiDiffAnalyzer
             $"Member '{oldMember.Name}' {accessorName}",
             subject,
             changes);
+        if (outsideApiAxis)
+        {
+            for (int index = start; index < changes.Count; index++)
+                changes[index] = changes[index] with { Classification = ChangeClassification.NonBreaking };
+        }
+    }
+
+    /// <summary>
+    /// An accessor's external reach, from its typed physical access within its Member's
+    /// effective reach. An explicit interface implementation's accessor is physically
+    /// private but reachable through its interface, so it takes the Member's reach, as does
+    /// an accessor whose access was not recorded.
+    /// </summary>
+    static int AccessorReach(ApiMemberHandle member, MethodAttributes? access)
+    {
+        int memberReach = EffectiveReach(member);
+        if (memberReach == 0 || access is null || member.Member.IsExplicitInterfaceImplementation)
+            return memberReach;
+        int accessorReach = access.Value switch
+        {
+            MethodAttributes.Public => 2,
+            MethodAttributes.Family or MethodAttributes.FamORAssem => 1,
+            _ => 0,
+        };
+        return Math.Min(memberReach, accessorReach);
     }
 
     static void CompareObsolete(
