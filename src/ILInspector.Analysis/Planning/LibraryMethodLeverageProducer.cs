@@ -27,6 +27,8 @@ public sealed class LibraryMethodLeverageProducer :
         ImmutableArray<LibraryCallGraphBodyEvidence>.Builder,
         LibraryMethodLeverageProducerResult>
 {
+    const int PartitionsPerWorker = 2;
+
     LibraryMethodLeverageProducer()
         : base(
             "Library Method Leverage",
@@ -228,7 +230,9 @@ public sealed class LibraryMethodLeverageProducer :
 
         int partitionCount =
             Math.Min(
-                parallel.MaximumConcurrency,
+                checked(
+                    parallel.MaximumConcurrency
+                    * PartitionsPerWorker),
                 (workItems.Count
                     + LibraryMethodAnalysisRunner.ParallelMethodThreshold
                     - 1)
