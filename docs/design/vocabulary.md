@@ -228,7 +228,8 @@ it is a reference entry rather than a subject kind or operation.
 
 The declaration carries an owner-written purpose and representative questions,
 such as "Which values may I pass to this option?", in
-`VocabularyRoutingDeclarations`. It routes to the collection, not to each
+the shared `DotnetInspector.Sections.VocabularyRoutingDeclarations.Module`.
+It routes to the collection, not to each
 vocabulary. The collection's ordered membership already reaches every composed
 vocabulary and value, so a vocabulary added to the composition needs no new
 declaration.

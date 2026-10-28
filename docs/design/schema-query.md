@@ -410,7 +410,9 @@ a structural catalog root:
 | `member` | `member-overload`, `member-detail` | One member, or one overload of it |
 
 Each declaration also carries an owner-written purpose, representative
-questions, and scope, in `StructuralRoutingDeclarations`. The
+questions, and scope, in the shared `DotnetInspector.Sections` module
+`StructuralRoutingDeclarations.Module`. `StructuralCatalogPaths` supplies the
+same typed catalog-to-path mapping used by CLI execution and explanation. The
 `workspace` and `ecosystem` subject kinds have no installed catalog, so
 Schema Query issues no declaration for them yet. This adds no command, path,
 or section; the declarations only route to the catalogs above.

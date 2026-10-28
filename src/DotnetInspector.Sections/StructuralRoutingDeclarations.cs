@@ -1,21 +1,29 @@
 using System.Collections.Immutable;
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 
-namespace DotnetInspect.Cli.Planning;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// Schema Query's routing declarations: one per structural subject kind a
 /// reader can choose from the explanation root, each routing to the
 /// structural catalogs that describe that subject. Identities are the
 /// <see cref="StructuralSubjectKind"/> names; destinations are the catalog
-/// roots <see cref="StructuralViewRegistry.CatalogPathName"/> issues.
+/// roots <see cref="StructuralCatalogPaths.Name"/> issues.
 /// </summary>
-internal static class StructuralRoutingDeclarations
+public static class StructuralRoutingDeclarations
 {
     private const string Issuer = "Schema Query";
 
-    public static ImmutableArray<ResourceExplanationRoutingDeclaration>
+    public static InspectionCapabilityModule Module { get; } = new(
+        "schema-query.routing", routingDeclarations: static () => Cache.Declarations);
+
+    private static class Cache
+    {
+        internal static readonly ImmutableArray<ResourceExplanationRoutingDeclaration>
+            Declarations = Create();
+    }
+
+    private static ImmutableArray<ResourceExplanationRoutingDeclaration>
         Create() =>
     [
         SubjectKind(
@@ -94,7 +102,7 @@ internal static class StructuralRoutingDeclarations
             questions,
             destinations.Select(static destination =>
                 ResourceExplanationCatalog.StructuralCatalogKey(
-                    StructuralViewRegistry.CatalogPathName(destination))),
+                    StructuralCatalogPaths.Name(destination))),
             grain: grain,
             scope: scope);
 
