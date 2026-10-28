@@ -1360,16 +1360,16 @@ test.describe("Capability Spotlight search over real Wasm", () => {
       await page.locator('[data-sl-capability="analyses/string-literals"]').click();
     };
     await activate();
-    await expect(panel.locator("#compare-diff-content")).toHaveValue("string-literals");
-    await expect(panel.locator("#compare-string-literal-value")).toHaveValue("https://");
+    await expect(page.locator("#compare-diff-content")).toHaveValue("string-literals");
+    await expect(page.locator("#compare-string-literal-value")).toHaveValue("https://");
     await expect(panel.locator(".compare-target-value"))
       .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
-    await panel.locator("#compare-string-literal-operator").selectOption("starts-with");
-    await panel.locator("#compare-string-literal-value").fill("http://");
-    await panel.locator("#compare-string-literal-value").press("Tab");
+    await page.locator("#compare-string-literal-operator").selectOption("starts-with");
+    await page.locator("#compare-string-literal-value").fill("http://");
+    await page.locator("#compare-string-literal-value").press("Tab");
     await activate();
-    await expect(panel.locator("#compare-string-literal-operator")).toHaveValue("starts-with");
-    await expect(panel.locator("#compare-string-literal-value")).toHaveValue("http://");
+    await expect(page.locator("#compare-string-literal-operator")).toHaveValue("starts-with");
+    await expect(page.locator("#compare-string-literal-value")).toHaveValue("http://");
   });
 
   test("discovers library literal and opens its Package Query facet", async ({

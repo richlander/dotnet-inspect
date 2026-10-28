@@ -17523,7 +17523,7 @@ function openSpotlightCapability(result: SpotlightCapabilityResult): void {
     }
     const type = selectedType();
     const analysis = capability.resourceKind === "Analysis"
-      ? capability.canonicalKeys[0] : null;
+      ? capability.resourceIdentity.identity : null;
     if (analysis === "api-attribute"
       && (state.atLibraryRoot || !type)) {
       showToast("Select a Type to compare API attributes.");
