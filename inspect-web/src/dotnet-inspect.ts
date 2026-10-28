@@ -17577,8 +17577,7 @@ function openSpotlightCapability(result: SpotlightCapabilityResult): void {
     const pkg = state.package;
     const library = selectedLibrary();
     if (!pkg || !library || !compareAvailableFor(pkg)
-      || state.home || state.atPackageRoot || state.packageQueryOpen
-      || aggregateLibrarySubjectIsActive()) {
+      || state.home || state.atPackageRoot || state.packageQueryOpen) {
       showToast("Select an exact package Library, Type, or Member to open Compare.");
       return;
     }

@@ -1366,6 +1366,36 @@ test.describe("Capability Spotlight search over real Wasm", () => {
       .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
   });
 
+  test("opens Type Compare from All libraries through an analysis binding", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry(allFixtures));
+    await page.goto(
+      `/index.html?package=${libraryDiffV2.packageId}&version=${libraryDiffV2.version}`
+        + `&framework=${fixtureFramework}#pkg`);
+    await expect(page.locator('[data-subject-tab][data-scope="library"]'))
+      .toBeVisible({ timeout: 180_000 });
+    await chooseSubject(page, "library");
+    await expect(page.locator('[data-library-subject="all"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await chooseSubject(page, "type");
+    await page.locator('[data-type="LibraryApiDiffFixture.AddedType"]')
+      .click({ timeout: 60_000 });
+    await chooseInspector(page, "data-lens", "compare");
+    const panel = page.locator("#inspector-panel");
+    await expect(panel.locator(".library-api-diff-member"))
+      .toHaveCount(3, { timeout: 60_000 });
+    await page.getByRole("button", {
+      name: "Search types, members, packages", exact: true,
+    }).click();
+    await page.locator("#spotlight-input").fill("api-attribute");
+    await page.locator('[data-sl-capability="analyses/api-attribute"]').click();
+    await expect(page.locator("#spotlight-input")).not.toBeVisible();
+    await expect(panel.locator(".compare-surface")).toHaveClass(/compare-surface-type/);
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType");
+    await expect(panel.locator(".compare-target-value"))
+      .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
+  });
+
   test("opens string literal Compare with a valid retained predicate", async ({ page, context }) => {
     await installGalleryRoutes(context, new GalleryFixtureRegistry(allFixtures));
     await page.goto(
