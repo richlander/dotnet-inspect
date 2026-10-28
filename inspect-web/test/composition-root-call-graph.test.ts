@@ -1931,6 +1931,9 @@ test("Type Overview adopts the full-area metadata surface", () => {
     /const overviewWorkingSurface =[\s\S]*activeScope === "type" && state\.lens === "overview"/);
   assert.match(
     appSource,
+    /const typeGraphWorkingSurface =[\s\S]*state\.lens === "overview" \|\| state\.lens === "metadata"[\s\S]*typeGraphWorkingSurface[\s\S]*id="type-graph-explore" data-graph-explore\$\{typeGraphAvailable\(\)/);
+  assert.match(
+    appSource,
     /metadataWorkingSurface \? " metadata-working-surface" : ""/);
   assert.match(
     renderLens,

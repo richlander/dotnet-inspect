@@ -4437,6 +4437,16 @@ test.describe("bounded network-backed Worker smoke", () => {
     ).indexOf(element.closest("section")!));
     expect(shapeIndex).toBeLessThan(implementsIndex);
 
+    const explore = page.locator("#type-graph-explore");
+    await expect(explore).toBeEnabled();
+    await explore.click();
+    const graphExplorer =
+      page.getByRole("dialog", { name: "Type relationships" });
+    await expect(graphExplorer).toBeVisible();
+    await graphExplorer.getByRole("button", { name: "Close" }).click();
+    await expect(graphExplorer).toBeHidden();
+    await expect(explore).toBeFocused();
+
     await page.locator("#subject-panel").screenshot({
       path: testInfo.outputPath("type-overview-json-document.png"),
     });

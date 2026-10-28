@@ -10112,6 +10112,9 @@ function renderCore(options: RenderOptions) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
+  const typeGraphWorkingSurface =
+    activeScope === "type"
+    && (state.lens === "overview" || state.lens === "metadata");
   const overviewWorkingSurface =
     (activeScope === "package" && state.packageLens === "overview")
     || (activeScope === "package" && state.packageLens === "compare")
@@ -10181,15 +10184,15 @@ function renderCore(options: RenderOptions) {
   replaceChildrenPreservingRenderedInteractions(app, `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
-        contextualActionsHtml: !loadingPackageContent && (compareWorkingSurface || memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || metadataWorkingSurface || memberAnalysisWorkingSurface)
-          ? `<div class="working-surface-actions" role="group" aria-label="${compareWorkingSurface ? "Compare actions" : memberDiffExploreTarget ? "Member Diff actions" : metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
+        contextualActionsHtml: !loadingPackageContent && (compareWorkingSurface || memberDiffExploreTarget || sourcePageKind || packageDependenciesWorkingSurface || typeGraphWorkingSurface || memberAnalysisWorkingSurface)
+          ? `<div class="working-surface-actions" role="group" aria-label="${compareWorkingSurface ? "Compare actions" : memberDiffExploreTarget ? "Member Diff actions" : typeGraphWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${compareSubject !== null && currentCompareMode() === "diff"
                 ? `<div class="compare-page-actions">${renderLibraryDiffTools(compareSubject)}${memberBodyWorkingSurface
                   ? memberBodyDiff.renderActions() : ""}</div>` : ""}
               ${memberDiffExploreTarget
                 ? '<button type="button" id="member-diff-explore" data-member-diff-explore>Explore</button>'
                 : ""}
-              ${metadataWorkingSurface
+              ${typeGraphWorkingSurface
                 ? `<button type="button" id="type-graph-explore" data-graph-explore${typeGraphAvailable() ? "" : " disabled"}>Explore</button>`
                 : ""}
               ${packageDependenciesWorkingSurface
