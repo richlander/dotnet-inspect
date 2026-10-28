@@ -447,6 +447,10 @@ public static partial class TypeCommand
         {
             PackagePath = source.ResolvedPackagePath,
             PackageRangeAddress = null,
+            AssemblyPath = options.NamesakeLibrary
+                ? source.SearchPath
+                : options.AssemblyPath,
+            NamesakeLibrary = false,
             ProjectAssetsPath = projectAssetsPath,
         };
         bool inspectionIncomplete = false;
@@ -1111,6 +1115,7 @@ public static partial class TypeCommand
             || options.PackagePath.Contains("::", StringComparison.Ordinal)
             || options.PackageRangeAddress is not null
             || options.AssemblyPath is not null
+            || options.NamesakeLibrary
             || options.PlatformAssembly is not null
             || options.PlatformFramework is not null
             || options.ProjectPath is not null
