@@ -20,6 +20,7 @@ class FakeElement {
   hidden = false;
   rendered = true;
   tabIndex = 0;
+  disabled = false;
   onclick: (() => void) | null = null;
   onfocus: ((event: Event) => void) | null = null;
   onkeydown: ((event: KeyboardEvent) => void) | null = null;
@@ -438,6 +439,31 @@ test("preserved navigation controls keep one action binding", () => {
   source.dispatch("keydown", { key: "Enter" });
 
   assert.deepEqual(calls, ["type:source"]);
+});
+
+test("product Navigation binds opaque actions once and preserves current and disabled items", () => {
+  const root = new FakeRoot();
+  const current = new FakeElement({
+    productNavigationAction: "current-token",
+    navigationCurrent: "true",
+  });
+  const disabled = new FakeElement({ productNavigationAction: "disabled-token" });
+  disabled.disabled = true;
+  const dependencies = new FakeElement({ productNavigationAction: "opaque-token" });
+  root.add("[data-subject-tab]");
+  root.add("[data-inspector-tab]", dependencies);
+  root.add("[data-product-navigation-action]", current, disabled, dependencies);
+  const calls: string[] = [];
+  const actions: ScopeBarBindingActions = {
+    ...recordingActions(calls),
+    onProductNavigationAction: token => calls.push(token),
+  };
+  bindScopeBar(fakeDom.parentNode(root), actions);
+  bindScopeBar(fakeDom.parentNode(root), actions);
+  current.click();
+  disabled.click();
+  dependencies.dispatch("keydown", { key: "Enter" });
+  assert.deepEqual(calls, ["opaque-token"]);
 });
 
 test("typed focus records its presentation and restores the visible replacement", () => {

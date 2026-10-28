@@ -74,7 +74,8 @@ public static partial class MemberCommand
         PackageHouse? packageHouse = null,
         Func<CancellationToken, PackageSourceOperationLease>?
             issuePackageOperation = null,
-        bool allowImplicitDocumentation = true)
+        bool allowImplicitDocumentation = true,
+        ApiType? preselectedType = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
             throw new ArgumentException(
@@ -290,7 +291,10 @@ public static partial class MemberCommand
             var api = loaded.Api;
             var apiDllPath = loaded.ApiDllPath;
             var pdbLookupPath = loaded.PdbLookupPath;
-            var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
+            var lookupResult = preselectedType is null
+                ? ApiTypeLookupService.LookupType(api, typeName!)
+                : new ApiTypeLookupResult(typeName!, new LookupResult(preselectedType.FullName, []),
+                    preselectedType);
             if (!lookupResult.Found)
             {
                 if (options.RouterDeferredTypeOrMember
