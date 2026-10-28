@@ -250,7 +250,22 @@ without a suggestion.
 Sectioned views such as `-S "Library Info"` keep the multi-Library aggregate.
 Package-scoped Type lookup is also aggregate by default: it searches every
 Library in the selected Package population. Its supported exact `--library`
-source narrows that lookup to one Library. Inspect Web's First Library entry
+source narrows that lookup to one Library. On `type`, `--namesake-library`
+also narrows lookup to the unique Library whose assembly name matches the
+Package ID:
+
+```bash
+dotnet-inspect type Microsoft.Azure.SignalR.ServiceRouteBuilder \
+  --package Microsoft.Azure.SignalR@1.33.1 --namesake-library
+```
+
+This requires an explicit `--package` name/version or local package file and
+one target framework, not `--tfm all`. It cannot be combined with `--library`,
+another source, `--workspace`, or `--match`. Exact Package references retain
+their explicit `--library <dll>` narrowing. A missing or ambiguous namesake
+fails without searching sibling Libraries.
+
+Inspect Web's First Library entry
 recommendation is a browser navigation default and does not change this CLI
 scope.
 Any other option, including `-S`, `-v:n`, `-v:d`, and every format option,
@@ -1413,6 +1428,15 @@ and Find does not modify the packet. General Workspace content search remains
 staged under [Find Workspace scope](design/find-workspace-scope.md#workspace-packet-admission).
 The same Ecosystem output, row limits, Count and prefix-search rules below apply.
 
+Debug builds expose `--evidence-envelope <path>` for `--ecosystem` and these
+registration-only Workspaces. The sidecar contains the completed inspection
+envelope plus the normalized question, resolved scope, admitted indexes,
+phase work, live candidate allowance and consumption, stop reason, and remaining
+coverage. Ordinary output is unchanged. Legacy acquisition-receipt
+unavailability is explicit, not zero network activity. Discovery and other
+Find routes refuse the gesture; explicit `--package-prefix` refuses it before
+its parse-time package expansion. Release builds do not expose this option.
+
 TSV and JSONL search admitted Ecosystem indexes first. When indexed rows fill
 the window, they do not realize bounded platform/core sources or start live
 prefix work. After index exhaustion, they search named populations and then
@@ -2315,11 +2339,21 @@ libraries, and local DLL pairs. `--type` narrows the complete comparison;
 `--all` widens its API scope. The endpoints must be versions of the same
 logical Library (assembly name, culture, and public-key token).
 
-On this route, unprojected `--json` serializes the complete
-`LibraryApiDiffOutcome`, replacing the former `{changes: ...}` presentation
-view. Use `--envelope` for that same Content plus Share and diagnostics;
-`--compact` controls whitespace for either complete JSON boundary, not projected
-or other Diff operations. For example:
+On this route the default is row-only TSV with one row per changed Type.
+Explicit `-S Changes` selects detailed change rows instead. TSV, table, JSONL,
+and name-only output demand typed Table content without Document summaries or
+context rows. Explicit Markdown retains the contextual Document.
+
+Every `--json` request now serializes a typed Document outcome, including
+filtered requests and `-S Changes --json`; the old display-oriented
+`{changes: ...}` projection is retired on this route. `document.rows` contains
+the selected ordered rows, `document.summary` contains native numeric counts
+for the selected population before `--rows`, and endpoint context identifies
+the comparison. Documents do not repeat the complete comparison tree or a
+second unselected population. Use `--all` to include protected and hidden
+changes in either Table or Document output. Use `--envelope` for that same Content plus
+Share and diagnostics (CLI envelope schema 2). `--compact` controls JSON
+whitespace. For example:
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --envelope --compact
@@ -2327,8 +2361,8 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --enve
 
 Envelope output accepts `--all`, but rejects Type/classification filters,
 section selection, explicit verbosity, row/line windows, and non-API modes.
-Explicitly projected JSON, such as `-S Changes --json`, retains its existing
-presentation schema. Share is explicitly non-projectable for comparison
+Tree is unsupported; structured JSON rejects column/field projections and
+rendered-line clipping. Share is explicitly non-projectable for comparison
 endpoints; it is not a replay URL.
 
 The exact local-Library Implementation Diff route also exposes complete typed

@@ -91,10 +91,8 @@ static class DefiniteAssignment
                     return;
                 case Conditional conditional:
                 {
-                    CheckReads(conditional.Condition, assigned);
-                    var trueSet = new HashSet<int>(assigned);
+                    var (trueSet, falseSet) = CheckCondition(conditional.Condition, assigned);
                     CheckReads(conditional.WhenTrue, trueSet);
-                    var falseSet = new HashSet<int>(assigned);
                     CheckReads(conditional.WhenFalse, falseSet);
                     trueSet.IntersectWith(falseSet);
                     assigned.Clear();
@@ -103,9 +101,9 @@ static class DefiniteAssignment
                 }
                 case LogicalBinary logical:
                 {
-                    CheckReads(logical.Left, assigned);
-                    var rightSet = new HashSet<int>(assigned);
-                    CheckReads(logical.Right, rightSet);
+                    var (trueSet, falseSet) = CheckCondition(logical, assigned);
+                    trueSet.IntersectWith(falseSet);
+                    assigned.UnionWith(trueSet);
                     return;
                 }
                 case Coalesce coalesce:
@@ -214,6 +212,63 @@ static class DefiniteAssignment
 
             foreach (var child in node.Children)
                 CheckReads(child, assigned);
+        }
+
+        // These sets describe the paths that actually yield each boolean
+        // outcome. The right operand sees only the outcome that evaluates it;
+        // the skipped path participates in the other outcome's intersection.
+        (HashSet<int> WhenTrue, HashSet<int> WhenFalse) CheckCondition(
+            IrExpression condition, HashSet<int> entry)
+        {
+            if (condition is LogicalNot not)
+            {
+                var (whenTrue, whenFalse) = CheckCondition(not.Operand, entry);
+                return (whenFalse, whenTrue);
+            }
+            if (condition is LogicalBinary logical)
+            {
+                // Condition spelling can expose a user-typed operand by stripping
+                // op_True/op_False. Its overloaded &&/|| does not establish C#'s
+                // primitive-boolean outcome facts, even though this IR result is
+                // bool. Keep the unconditional, pre-existing short-circuit proof.
+                if (ContainsUserDefinedTruthiness(logical))
+                {
+                    var unconditional = new HashSet<int>(entry);
+                    CheckReads(logical.Left, unconditional);
+                    CheckReads(logical.Right, new HashSet<int>(unconditional));
+                    return (unconditional, new HashSet<int>(unconditional));
+                }
+                var (leftTrue, leftFalse) = CheckCondition(logical.Left, entry);
+                if (logical.Kind == LogicalKind.And)
+                {
+                    var (rightTrue, rightFalse) = CheckCondition(logical.Right, leftTrue);
+                    leftFalse.IntersectWith(rightFalse);
+                    return (rightTrue, leftFalse);
+                }
+                else
+                {
+                    var (rightTrue, rightFalse) = CheckCondition(logical.Right, leftFalse);
+                    leftTrue.IntersectWith(rightTrue);
+                    return (leftTrue, rightFalse);
+                }
+            }
+
+            var assigned = new HashSet<int>(entry);
+            CheckReads(condition, assigned);
+            return (assigned, new HashSet<int>(assigned));
+        }
+
+        static bool ContainsUserDefinedTruthiness(IrNode node)
+        {
+            if (node is Lambda or LocalFunctionStatement)
+                return false;
+            if (node is IrExpression expression
+                && ShortCircuitFidelity.IsUserDefinedTruthiness(expression))
+                return true;
+            foreach (var child in node.Children)
+                if (ContainsUserDefinedTruthiness(child))
+                    return true;
+            return false;
         }
 
         void CheckCall(MethodRef callee, IReadOnlyList<IrExpression> arguments, int parameterStart, HashSet<int> assigned)
@@ -726,13 +781,11 @@ static class DefiniteAssignment
 
         DefiniteFlow If(IfStatement branch, HashSet<int> assigned)
         {
-            CheckReads(branch.Condition, assigned);
-            var thenSet = new HashSet<int>(assigned);
+            var (thenSet, elseSet) = CheckCondition(branch.Condition, assigned);
             var thenFlow = Statement(branch.Then, thenSet);
-            if (!branch.HasElse)
-                return DefiniteFlow.FallThrough;   // the then-arm may be skipped
-            var elseSet = new HashSet<int>(assigned);
-            var elseFlow = Statement(branch.Else!, elseSet);
+            var elseFlow = branch.HasElse
+                ? Statement(branch.Else!, elseSet)
+                : DefiniteFlow.FallThrough;
             var reaching = new List<HashSet<int>>();
             if (thenFlow == DefiniteFlow.FallThrough)
                 reaching.Add(thenSet);

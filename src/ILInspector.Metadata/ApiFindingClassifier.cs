@@ -216,7 +216,7 @@ public static class ApiFindingClassifier
                             ChangeKind.MemberAdded,
                             MemberAddedClassification(added.New.Payload),
                             $"Member '{added.New.Payload.MemberName}' was added",
-                            Subject: ApiChangeSubject.Member(null, null, added.New.Payload.Type, added.New.Payload.Member)));
+                            Subject: ApiChangeSubject.Member(null, added.New.Payload)));
                     }
                     break;
 
@@ -230,7 +230,7 @@ public static class ApiFindingClassifier
                             ChangeKind.MemberRemoved,
                             ChangeClassification.Breaking,
                             $"Member '{removed.Old.Payload.MemberName}' was removed",
-                            Subject: ApiChangeSubject.Member(removed.Old.Payload.Type, removed.Old.Payload.Member, null, null)));
+                            Subject: ApiChangeSubject.Member(removed.Old.Payload, null)));
                     }
                     break;
 
@@ -269,7 +269,7 @@ public static class ApiFindingClassifier
                                     ChangeKind.MemberRemoved,
                                     ChangeClassification.Breaking,
                                     $"Member '{changed.Old.Payload.MemberName}' was removed",
-                                    Subject: ApiChangeSubject.Member(changed.Old.Payload.Type, changed.Old.Payload.Member, null, null)));
+                                    Subject: ApiChangeSubject.Member(changed.Old.Payload, null)));
                             }
                             if (!wholeTypeTransition.Added.Contains(changed.New.Payload.TypeFullName))
                             {
@@ -277,7 +277,7 @@ public static class ApiFindingClassifier
                                     ChangeKind.MemberAdded,
                                     MemberAddedClassification(changed.New.Payload),
                                     $"Member '{changed.New.Payload.MemberName}' was added",
-                                    Subject: ApiChangeSubject.Member(null, null, changed.New.Payload.Type, changed.New.Payload.Member)));
+                                    Subject: ApiChangeSubject.Member(null, changed.New.Payload)));
                             }
                         }
                     }
@@ -322,13 +322,8 @@ public static class ApiFindingClassifier
             // `void Changed()` -> `int Changed()`) -- a real signature change the identity key
             // itself can't see.
             AddSignatureChangeIfDifferent(oldHandle, newHandle, changes);
-            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes, compareTransitions);
-            ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(
-                oldHandle.Type,
-                newHandle.Type,
-                oldHandle.Member,
-                newHandle.Member,
-                changes);
+            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle, newHandle, changes, compareTransitions);
+            ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(oldHandle, newHandle, changes);
         }
         if (ApiDiffAnalyzer.IncludesAttributes(options))
         {
@@ -339,7 +334,7 @@ public static class ApiFindingClassifier
                 ChangeKind.MemberAttributeAdded,
                 ChangeKind.MemberAttributeRemoved,
                 $"Member '{oldHandle.MemberName}'",
-                ApiChangeSubject.Member(oldHandle.Type, oldHandle.Member, newHandle.Type, newHandle.Member));
+                new ApiDiffAnalyzer.ApiChangeSubjectSource(oldHandle, newHandle));
         }
     }
 
@@ -361,13 +356,8 @@ public static class ApiFindingClassifier
         if (ApiDiffAnalyzer.IncludesSignature(options))
         {
             AddSignatureChangeIfDifferent(oldHandle, newHandle, changes);
-            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes, compareTransitions);
-            ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(
-                oldHandle.Type,
-                newHandle.Type,
-                oldHandle.Member,
-                newHandle.Member,
-                changes);
+            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle, newHandle, changes, compareTransitions);
+            ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(oldHandle, newHandle, changes);
         }
         if (ApiDiffAnalyzer.IncludesAttributes(options))
         {
@@ -378,7 +368,7 @@ public static class ApiFindingClassifier
                 ChangeKind.MemberAttributeAdded,
                 ChangeKind.MemberAttributeRemoved,
                 $"Member '{oldHandle.MemberName}'",
-                ApiChangeSubject.Member(oldHandle.Type, oldHandle.Member, newHandle.Type, newHandle.Member));
+                new ApiDiffAnalyzer.ApiChangeSubjectSource(oldHandle, newHandle));
         }
     }
 
@@ -398,7 +388,7 @@ public static class ApiFindingClassifier
             $"Member '{oldHandle.MemberName}' signature changed from '{oldHandle.Member.Signature}' to '{newHandle.Member.Signature}'",
             oldHandle.Member.Signature,
             newHandle.Member.Signature,
-            Subject: ApiChangeSubject.Member(oldHandle.Type, oldHandle.Member, newHandle.Type, newHandle.Member)));
+            Subject: ApiChangeSubject.Member(oldHandle, newHandle)));
     }
 
     static List<ApiChange> Bucket(Dictionary<string, List<ApiChange>> changesByType, string typeFullName)

@@ -125,10 +125,11 @@ The stack answers each question in stages, and each stage has one owner:
 For example, "Does type `T` have unsafe members?" runs as follows:
 
 1. The type Unsafe Members check
-   (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the
-   unsafe-evidence producer, closed with `Exists`, over `T`'s TypeDef.
+   (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the unsafe
+   member presence producer, closed with `Exists`, over `T`'s TypeDef.
 2. Producer Planning closes that producer's description: it reads
-   declarations, and a body and module lookup only on demand.
+   declarations, semantic identity, and memory-safety contracts, and a body
+   and its calls only on demand.
 3. Query Space resolves the `Exists` request into the work the closed
    description carries. The request is direct, so it enters no request set
    and needs no grouping.
@@ -139,8 +140,10 @@ For example, "Does type `T` have unsafe members?" runs as follows:
    local functions
    ([Declared expansion](method-query-source.md#declared-expansion)), under
    finite bounds. It then visits that population in metadata order. Each visit
-   reads a body only when the declaration does not settle the answer, and
-   visits stop at the first evidence.
+   applies the
+   [unsafe member census rule](unsafe-member-findings.md#role-scan), which
+   materializes a body only when its role scan cannot decide it, and visits
+   stop at the first method with a census role.
 6. The execution publishes the answer with source and producer receipts that
    show the work stayed within `T` and its generated bodies, with the
    expansion work receipted separately.

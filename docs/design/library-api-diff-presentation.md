@@ -520,14 +520,14 @@ scope said `was removed`.
 ### CLI
 
 The Markout views, Type summaries, detailed rows, name-only output, and
-explicitly projected JSON show the rows with an ordinary side; a Type appears
+structured JSON show the rows with an ordinary side; a Type appears
 when at least one of its rows does. Summary counts and the `--breaking` and
 `--additive` filters apply to those rows. When rows are left out, stderr
 carries one note: how many rows the type and classification selections keep
-outside the ordinary population, pointing to unprojected `--json`. A row is
-counted once for each changed Type that holds it. Unprojected `--json` and
-`--envelope` serialize the complete document, with status and state. There is
-no new option.
+outside the ordinary population. A row is counted once for each changed Type
+that holds it. The Document's `rows` retain the selected evidence, including
+status and state, without a duplicate complete comparison. The existing
+`--all` option includes changes outside the ordinary population.
 
 An obsolete Type is marked by `[Obsolete]` after its name in a Type column,
 heading, or summary row. A row about an obsolete Member, other than its own
@@ -705,15 +705,70 @@ C# override rendering consumes that classification. The supplied binding
 policy, not the CLI or this presentation adapter, continues to decide the
 dependency universe for operations that require resolution.
 
-The CLI adopts this terminal for ordinary API diffs with exactly one acquired
+The CLI adopts the shared presentation for ordinary API diffs with exactly one acquired
 Library per endpoint, optionally narrowed by Type or compatibility
 classification. It delays legacy surface extraction so the adopted route does
 not build and compare a second surface. One command-scoped Workspace owns the
-two groups. Markout renders host views derived from the complete document;
-explicitly projected JSON, detailed rows, Type-summary tables, and name-only
-output remain CLI projections. Unprojected `--json` now serializes the
-complete Outcome; `--envelope` serializes the service baseline through the
-[common envelope transport](output-shapes.md#envelope-transport).
+two groups. Its representation demand follows the contract below.
+
+### Section representations
+
+This owner adopts [section representations](section-shapes.md#section-representations).
+The motivating real asset remains `System.Text.Json@9.0.0..10.0.0`,
+`net8.0`, narrowed to `JsonSerializerOptions`: its added properties must be
+available as typed rows without materializing Document context.
+
+Two semantic grains remain distinct: the default has one selected changed-Type
+row, while explicit `-S Changes` has one classified or unclassified evidence
+row. Neither is a lossy substitute for the other. Each offers typed Table and
+Document terminals. Selection, ordinary-population exclusions, classification
+filters, and ordering belong here, not in either host. Rows are ordered by
+full Type display, then exact Type identifier; detailed rows retain classified
+then unclassified evidence order within each Type.
+
+The representation is selected before presentation execution. Table returns
+only the ordered typed rows and never constructs the Library API Document,
+comparison-document context, or aggregate summary. Shared exact per-Type and
+member comparison facts remain the evidence substrate. Document retains the same
+selected rows, endpoint context, and structured
+summary. Summary scope is the selected Types and their retained compatibility
+facts **before the presentation row window**. Compatibility facts and member
+relations held by multiple Type subjects count once by occurrence identity;
+member counts cover ordinary changed members on selected Types, not just
+compatibility-classified rows. Document does not repeat the complete comparison
+tree or retain a second unselected population. Type rows carry Before/After
+identity and status, pair kind, and their selected classified/unclassified
+evidence, not a second copy of the complete per-Type comparison. Detailed rows
+carry the same selected evidence at their own grain. Document also exposes the typed
+`outsideOrdinaryRowCount` after Type/classification selection and before the
+row window; both representations disclose the same exclusion diagnostic.
+Use `--all` to include protected and hidden changes in both representations;
+JSON does not silently broaden the selected population.
+Aggregate counts use the portable/Browser
+occurrence semantics rather than counting a cross-Type fact twice merely
+because it appears under both Type subjects.
+
+Default selected-Library output is row-only TSV. Explicit TSV, table, JSONL,
+and name-only requests select Table; Markdown and JSON select Document. Tree
+is unsupported and fails visibly. The CLI is only a containment/formatting
+sink: it does not select a second population or aggregate a second summary.
+Before/after framework labels, obsolete markers, and unclassified wording
+remain display concerns.
+
+CLI `library-api-diff` envelope schema **2** intentionally replaces projected
+display JSON with the typed outcome in every JSON request. Available Content
+uses `document` with typed `rows`, native numeric counts, and retained exact
+evidence. Table evidence envelopes use `table` with rows and no Document
+context. Unavailable and Rejected preserve the existing reason and endpoint
+evidence shapes and nonzero exits; successful empty populations remain
+Available. `--compact` only changes whitespace. Existing envelope admission
+restrictions remain. Column/field projections and rendered-line clipping are
+not structured JSON projections and are rejected.
+
+Browser transport and its schema are unchanged in this slice. It continues to
+consume the complete legacy Document until #10548 adopts this owner's selected
+population and summary. #10545 owns this shared/CLI adoption; #10385 tracks
+the overall migration.
 
 This changes three observable outcomes on the adopted route:
 
@@ -757,14 +812,15 @@ Available shape have no compatibility alias or second implementation.
 That content-kind rename left comparison algorithms, evidence, ordinary CLI
 JSON, and the Browser facade schema unchanged.
 
-The subsequent #6719 CLI transport adoption registers `library-api-diff`
+The historical #6719 CLI transport adoption registered `library-api-diff`
 using `LibraryApiDiffJsonContext`. Unprojected JSON and envelope Content use
 that same complete serializer, including all Outcome and endpoint-issue
 cases. Available empty comparisons remain successful; Unavailable and Rejected
 are serialized before the command returns failure. `--compact` changes only
 whitespace. API scope (`--all`) remains admitted; post-service filters,
 presentation controls, and non-API or multi-Library operations are not admitted
-with `--envelope`. Explicitly projected JSON preserves its prior view.
+with `--envelope`. The section-representation adoption above supersedes its
+projected-JSON compatibility and schema version, not the Browser baseline.
 
 The [Browser owner](inspect-web-library-api-diff.md#managed-composition)
 delivers the same complete baseline beside its existing selected-inventory

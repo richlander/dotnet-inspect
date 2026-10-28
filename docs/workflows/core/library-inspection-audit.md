@@ -298,7 +298,7 @@ Tips:
 
 ## 12. View unsafe members
 
-> Goal: See members with unsafe signatures or unsafe calls for security and interop review.
+> Goal: See the members that use unsafe code under the updated memory-safety rules, for security and interop review.
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S 'Unsafe Members' --rows 3 --markdown
@@ -306,8 +306,8 @@ dotnet-inspect library System.Private.CoreLib -S 'Unsafe Members' --rows 3 --mar
 
 ```expect
 ## Unsafe Members
-| Member | Reason | Detail | Kind | IL | Token |
-Unsafe call
+| Member | Exposure | Contract | Evidence | Partial |
+stack allocation
 ```
 
 ## 13. View P/Invoke methods
