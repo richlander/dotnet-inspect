@@ -439,6 +439,22 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         }
     }
 
+    /// <summary>A guarded method signature; the consumer calls Discard after reading it.</summary>
+    public MethodSignature<MetadataSignatureKey> DecodeMethod(MethodDefinition method)
+    {
+        Enter();
+        try
+        {
+            Guard(method.Signature, SignatureBlobGuard.Kind.Method);
+            return method.DecodeSignature(_provider, null);
+        }
+        catch
+        {
+            Exit();
+            throw;
+        }
+    }
+
     /// <summary>
     /// Writes a decoded signature's parameter types, the Vararg marker at the
     /// sentinel, and the Return marker and type, into the open key.

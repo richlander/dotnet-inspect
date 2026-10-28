@@ -237,9 +237,11 @@ public sealed class ApiTypeClosureHashTests
     }
 
     [Theory]
-    [InlineData("enum-default", "public enum E { A = 1 } public class C { public void M(E e = E.A) { } }", "public enum E { B = 1 } public class C { public void M(E e = E.B) { } }")]
-    [InlineData("interface-admission", "internal interface I { void M(); } public class C : I { void I.M() { } }", "public interface I { void M(); } public class C : I { void I.M() { } }")]
-    public void StrategyComparison_CrossTypeDependencies(string scenario, string oldSource, string newSource)
+    [InlineData("enum-default", "public enum E { A = 1 } public class C { public void M(E e = E.A) { } }", "public enum E { B = 1 } public class C { public void M(E e = E.B) { } }", true)]
+    [InlineData("interface-admission", "internal interface I { void M(); } public class C : I { void I.M() { } }", "public interface I { void M(); } public class C : I { void I.M() { } }", true)]
+    [InlineData("internal-interface-negative", "internal interface I { void M(); } public class C : I { void I.M() { } }", "internal interface I { void N(); } public class C : I { void I.N() { } }", false)]
+    [InlineData("module-negative", "[module: System.CLSCompliant(true)] public class C { }", "[module: System.CLSCompliant(false)] public class C { }", false)]
+    public void StrategyComparison_CrossTypeDependencies(string scenario, string oldSource, string newSource, bool expectedChanged)
     {
         byte[] oldImage = Compile(oldSource);
         byte[] newImage = Compile(newSource);
@@ -257,9 +259,9 @@ public sealed class ApiTypeClosureHashTests
             && oldHash.Type(Definition(before.GetMetadataReader(), "C"), ApiSurfaceExtractionScope.ApiAxis)
                 == newHash.Type(Definition(after.GetMetadataReader(), "C"), ApiSurfaceExtractionScope.ApiAxis);
         TestContext.Current.TestOutputHelper!.WriteLine($"{scenario}: completeChanged={oracle}, census={census}, hashEqual={hashEqual}");
-        Assert.True(oracle);
+        Assert.Equal(expectedChanged, oracle);
         Assert.False(hashEqual);
-        Assert.Equal(FindingDiffAnyState.Unchanged, census); // Diagnostic: records the existing census miss.
+        Assert.Equal(expectedChanged ? FindingDiffAnyState.Changed : FindingDiffAnyState.Unchanged, census);
     }
 
     static readonly ApiSurfaceExtractionScope[] Views =
