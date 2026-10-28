@@ -31,16 +31,18 @@ public static class AssemblyContextLibraryDependencyStructureQuery
             cancellationToken,
             (subject, snapshot) =>
             {
-                AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
-                    AssemblyContextAnalysisSource.Resolver(group, subject);
-                LibraryBodyAnalysisExecution execution =
-                    LibraryBodyAnalysisService.ExecuteImage(
-                        AssemblyContextAnalysisSource.Name(subject),
-                        snapshot.Content,
-                        LibraryBodyAnalysisRequest.Create(
-                            LibraryBodyAnalysisFeatures.MethodEvidence),
-                        resolver);
-                return LibraryDependencyStructure.Execute(execution);
+                LibraryCallGraphAnalysisResult callGraph =
+                    AssemblyContextCallGraphAnalysis.Analyze(
+                        snapshot,
+                        subject);
+                try
+                {
+                    return LibraryDependencyStructure.Execute(callGraph);
+                }
+                finally
+                {
+                    callGraph.ReleaseCaches();
+                }
             });
     }
 }

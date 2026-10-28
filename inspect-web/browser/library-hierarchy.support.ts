@@ -1107,6 +1107,7 @@ async function installFacades(
           },
           documents: surface.documents,
           defaultLibraryId: surface.defaultAssemblyId,
+          implementationComparisonRuntimeIdentifier: "linux-x64",
           surface: {
           ...surfaceFor(id, version, framework),
           package: id,

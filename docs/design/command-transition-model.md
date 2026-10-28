@@ -942,6 +942,7 @@ produces:
 | `call-site` | Member | `analysis.call-site` | `AnalysisFindings.CompareCallSites` |
 | `unsafety` | Member | `analysis.unsafety` | `AnalysisFindings.CompareUnsafety` |
 | `string-literals` | Library | `analysis.string-literal-use` | Shared path- or AssemblyContext-backed string-literal comparison query |
+| `unsafe-member` | Library, Type | `analysis.unsafe-member` | `UnsafeMemberComparisonQuery` producing `AnalysisFindings.CompareUnsafeMembers` ([Unsafe Members section](unsafe-members-section.md#diff)) |
 | `csharp` | Member | `csharp.line` | `CSharpFindings.Compare` |
 | `il` | Member | `il.op` | `IlFindings.Compare` |
 
@@ -985,9 +986,9 @@ Diff offers these views over the result:
 A view is admitted only when the selected set contains an analysis it
 projects. `Changes` requires `api`. `Transitions` requires a selected
 participation that declares it at the requested surface. Type and Member
-participations continue to support it. At Library, `string-literals` is the
-first declaration; Library `api` and Member-only analyses do not gain Library
-Transition support. Otherwise the request is rejected before execution,
+participations continue to support it. At Library, `string-literals` and
+`unsafe-member` declare it; Library `api` and Member-only analyses do not gain
+Library Transition support. Otherwise the request is rejected before execution,
 naming the view and the missing analysis. A view never adds an analysis and
 never renders an empty success.
 
