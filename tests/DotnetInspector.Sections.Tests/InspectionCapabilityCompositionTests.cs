@@ -8,6 +8,78 @@ namespace DotnetInspector.Sections.Tests;
 public sealed class InspectionCapabilityCompositionTests
 {
     [Fact]
+    public void RoutingProvidersStayColdThroughCapabilityExplanationAndSearch()
+    {
+        int evaluations = 0;
+        var metadata = new InspectionCapabilityModule(
+            "test.routing",
+            routingDeclarations: () =>
+            {
+                evaluations++;
+                return [];
+            });
+        InspectionCapabilityCatalog catalog = InspectionCapabilityCatalog.Create(
+            [PackageQueryCapability.ProductModule, metadata]);
+        ResourceExplanationCatalog explanation = ResourceExplanationCatalog.CreateCapabilities(
+            catalog, PackageQueryCapabilityResourcePaths.Create(catalog));
+        CapabilityCatalogSearch.Search(catalog, explanation, new("literal"));
+
+        Assert.Equal(0, evaluations);
+        Assert.Single(catalog.RoutingDeclarations);
+        Assert.Equal(1, evaluations);
+    }
+
+    [Fact]
+    public void RoutingOperationsFollowSelectedProducerModules()
+    {
+        Assert.Empty(InspectionCapabilityCatalog.Create([]).RoutingDeclarations);
+        var query = InspectionCapabilityCatalog.Create([PackageQueryCapability.ProductModule]);
+        var files = InspectionCapabilityCatalog.Create([PackageFileInventoryCapability.ProductModule]);
+        var diff = InspectionCapabilityCatalog.Create([DiffAnalysisCatalog.ProductModule]);
+
+        Assert.Equal("package-query", Assert.Single(query.RoutingDeclarations).Identity);
+        Assert.Equal("package-files", Assert.Single(files.RoutingDeclarations).Identity);
+        ResourceExplanationRoutingDeclaration declaration = Assert.Single(diff.RoutingDeclarations);
+        Assert.Equal("diff-analysis", declaration.Identity);
+        Assert.Equal(["library", "type", "member"], declaration.AcceptedSubjectKinds);
+        Assert.Equal(
+            [ResourceExplanationCatalog.CapabilityDocumentKey(DiffAnalysisCatalog.DocumentIdentity),
+                ResourceExplanationCatalog.AnalysesCollectionKey],
+            declaration.Destinations);
+        Assert.Same(query.RoutingDeclarations[0], query.RoutingDeclarations[0]);
+    }
+
+    [Fact]
+    public void RoutingPreservesRegistrationOrderWhileGraphModulesStaySorted()
+    {
+        InspectionCapabilityModule[] modules =
+            [PackageQueryCapability.ProductModule, PackageFileInventoryCapability.ProductModule,
+                DiffAnalysisCatalog.ProductModule];
+        InspectionCapabilityCatalog catalog = InspectionCapabilityCatalog.Create(modules);
+        Assert.Equal(["package-query", "package-files", "diff-analysis"],
+            catalog.RoutingDeclarations.Select(declaration => declaration.Identity));
+        Assert.Equal(modules.Select(module => module.Identity).Order(StringComparer.Ordinal),
+            catalog.Modules.Select(module => module.Identity));
+    }
+
+    [Fact]
+    public void SharedRoutingModulesSupplySubjectsAndReferencesWithoutCli()
+    {
+        InspectionCapabilityCatalog catalog = InspectionCapabilityCatalog.Create(
+            [StructuralRoutingDeclarations.Module, VocabularyRoutingDeclarations.Module,
+                ResourceExplanationCatalog.ComponentContractsRoutingModule]);
+        Assert.Equal(["package", "library", "type", "member"],
+            catalog.RoutingDeclarations.Where(declaration =>
+                declaration.Role == ResourceExplanationRoutingRole.SubjectKind)
+                .Select(declaration => declaration.Identity));
+        Assert.Equal(["component-contracts", "vocabularies"],
+            catalog.RoutingDeclarations.Where(declaration =>
+                declaration.Role == ResourceExplanationRoutingRole.Reference)
+                .Select(declaration => declaration.Identity).Order());
+        Assert.Empty(catalog.Routes);
+    }
+
+    [Fact]
     public void PackageQueryProductModuleComposesWithoutExecutingRoute()
     {
         int executions = 0;
