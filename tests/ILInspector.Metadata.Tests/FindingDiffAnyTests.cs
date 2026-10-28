@@ -258,7 +258,7 @@ public sealed class FindingDiffAnyTests
         return string.Join('.', segments[..declared]);
     }
 
-    static HashSet<string> ChangedTypes(ApiFindingComparison comparison)
+    internal static HashSet<string> ChangedTypes(ApiFindingComparison comparison)
     {
         var changed = new HashSet<string>(StringComparer.Ordinal);
         foreach (TypeDiff type in comparison.ApiDiff.TypeDiffs)
