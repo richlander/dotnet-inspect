@@ -42,7 +42,7 @@ public sealed partial class CompleteRestorationExecutionTests
         {
             "package" => "package.libraries",
             "all-libraries" or "library" => "library.types",
-            "type" => "type.api",
+            "type" => "type.overview",
             _ => "member.overview",
         };
         PackageFixture fixture = await SystemTextJsonPackageAsync();
@@ -102,6 +102,11 @@ public sealed partial class CompleteRestorationExecutionTests
                                 break;
                             case CompleteRestorationSelectedSubject.Member one:
                                 Assert.Equal("member", kind);
+                                Assert.Contains(one.DefiningLibrary.Library.Participant,
+                                    roles.SurfaceGroup.Participants);
+                                Assert.DoesNotContain(restored.Workspace.SelectedContext!.Group!.Participants,
+                                    candidate => ReferenceEquals(candidate.Assembly.Registration,
+                                        one.DefiningLibrary.Library.Participant.Assembly.Registration));
                                 Assert.Equal("1dc14dd1fb", one.Subject.Identity.Member.Fingerprint);
                                 Assert.Same(one.Subject.Identity.Registration,
                                     NavigationRegistrationIdentity.From(

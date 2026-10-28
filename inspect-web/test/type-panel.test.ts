@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import Prism from "prismjs";
+import "prismjs/components/prism-clike.js";
+import "prismjs/components/prism-csharp.js";
 import {
   bindTypePanel,
   createMemberSourcePartSelector,
@@ -148,6 +151,10 @@ function escapeHtml(value: unknown) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function prismHighlightCSharp(value: string) {
+  return Prism.highlight(value, Prism.languages.csharp!, "csharp");
 }
 
 function availableExactTypeInspection(
@@ -325,6 +332,7 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`type-access:${value}`),
     onTypeTraitSelect: value => calls.push(`type-trait:${value}`),
     onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
+    onTypeMembersOpen: () => calls.push("type-members"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
       calls.push(`list:${event.key}`);
@@ -398,6 +406,17 @@ test("type panel binds the qualified Type leverage retry", () => {
   retry.dispatch("click");
 
   assert.deepEqual(calls, ["type-leverage-retry"]);
+});
+
+test("type panel binds Type Overview member navigation", () => {
+  const root = new FakeRoot();
+  const members = root.add("[data-type-members]", new FakeElement());
+  const calls: string[] = [];
+
+  bindPanel(root, recordingActions(calls));
+  members.dispatch("click");
+
+  assert.deepEqual(calls, ["type-members"]);
 });
 
 test("type panel bindings dispatch member filters and leverage retry", () => {
@@ -1579,6 +1598,7 @@ test("type metadata renders a loading state while the projection is in flight", 
     },
     memberCompositionHtml: "",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
     factRows,
   });
@@ -1586,7 +1606,7 @@ test("type metadata renders a loading state while the projection is in flight", 
   assert.match(html, /Projecting type metadata…/);
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…/);
+    /class="metadata-surface type-overview-surface"[\s\S]*?<h1 id="type-overview-title">Overview<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…/);
   assert.doesNotMatch(html, /class="type-heading"/);
 });
 
@@ -1641,6 +1661,7 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
         <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
       </div>`,
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: (name, occurrence) =>
       `<button data-graph-type="${escapeHtml(name)}"${
         occurrence
@@ -1656,6 +1677,14 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
   assert.match(
     html,
     /class="metadata-surface-scroll"[\s\S]*?class="document-section metadata-shape-section"[\s\S]*?Type shape/);
+  assert.match(
+    html,
+    /<h1 id="type-overview-title">Overview<\/h1>[\s\S]*Type metadata[\s\S]*data-overview-badge="class"[\s\S]*data-overview-badge="public"/);
+  assert.match(html, /data-type-members>12 members<\/button>/);
+  assert.match(
+    html,
+    /Type shape[\s\S]*<dl><div><dt>Kind<\/dt><dd>class<\/dd>/);
+  assert.doesNotMatch(html, /<h1[^>]*>Metadata<\/h1>|fact-grid/);
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
   assert.match(html, /Derived types/);
@@ -1668,7 +1697,60 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
     /data-graph-asset="lib\/net9\.0\/System\.Text\.Json\.dll"/);
   assert.match(html, /Members/);
   assert.match(html, /data-member-jump-kind="method"/);
+  assert.doesNotMatch(html, /Custom attributes|custom-attribute-list/);
 });
+
+for (const count of [2, 40]) {
+  test(`type metadata renders ${count} attributes as ordered C# syntax rows`, () => {
+    const packageContext = {
+      id: "System.Text.Json",
+      version: "11.0.0-preview.7.26381.103",
+      activeFramework: "net11.0",
+    };
+    const attributes = [
+      'System.Obsolete("Types with embedded references are not supported in this version of your compiler.", true)',
+      'System.Diagnostics.DebuggerDisplay("{DebuggerDisplay,nq}")',
+      ...Array.from({ length: count - 2 }, (_, index) =>
+        `Example.Label("Attribute ${index} <value> & detail")`),
+    ];
+    const html = renderTypeMetadata({
+      item: jsonSerializer,
+      packageContext,
+      metadataState: {
+        typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+        typeMetadataLoading: false,
+        typeMetadataError: null,
+        typeMetadata: {
+          exactTypeInspection: availableExactTypeInspection({
+            fullName: "System.Text.Json.Utf8JsonReader",
+            attributes,
+          }),
+        },
+      },
+      memberCompositionHtml: "",
+      escapeHtml,
+      highlightCSharp: prismHighlightCSharp,
+      relatedTypeChip: escapeHtml,
+      factRows,
+    });
+
+    assert.match(html, new RegExp(`<h2>Custom attributes</h2><span>${count}</span>`));
+    const list = /<ul class="custom-attribute-list"[^>]*>([\s\S]*?)<\/ul>/.exec(html)?.[1];
+    assert.ok(list);
+    const rows = [...list.matchAll(/<li><code class="language-csharp">([\s\S]*?)<\/code><\/li>/g)];
+    assert.equal(rows.length, count);
+    rows.forEach((row, index) => {
+      const expected = prismHighlightCSharp(`[${attributes[index]}]`);
+      assert.equal(row[1], expected);
+    });
+    assert.match(rows[0]![1]!, /class="token string"/);
+    assert.match(rows[0]![1]!, /class="token boolean">true/);
+    assert.doesNotMatch(list, /attr-chip|<value>/);
+    if (count > 2) {
+      assert.match(list, /&lt;value> &amp; detail/);
+    }
+  });
+}
 
 test("type metadata keeps projection failures inside the full-area surface", () => {
   const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
@@ -1684,13 +1766,14 @@ test("type metadata keeps projection failures inside the full-area surface", () 
     },
     memberCompositionHtml: "",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
     factRows,
   });
 
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable/);
+    /class="metadata-surface type-overview-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable/);
   assert.match(html, /data-type-graph-surface/);
 });
 
@@ -1715,6 +1798,7 @@ test("type metadata renders exact ambiguity instead of a legacy Type surface", (
     },
     memberCompositionHtml: "<div>legacy members</div>",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: escapeHtml,
     factRows,
   });
@@ -1749,6 +1833,7 @@ test("type metadata renders exact diagnostics for incomplete available content",
     },
     memberCompositionHtml: "",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: escapeHtml,
     factRows,
   });
@@ -1783,6 +1868,7 @@ test("type metadata renders nonfatal exact constraint diagnostics", () => {
     },
     memberCompositionHtml: "",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: escapeHtml,
     factRows,
   });
@@ -1811,6 +1897,7 @@ for (const nodeCount of [0, 1, 2]) {
       },
       memberCompositionHtml: "",
       escapeHtml,
+      highlightCSharp,
       relatedTypeChip: escapeHtml,
       factRows,
     });

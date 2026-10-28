@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -36,6 +38,8 @@ public readonly record struct LibraryCallGraphBodyEvidence(
     IReadOnlyDictionary<(string Namespace, string Name), bool>?
         InAssemblyTypeIsException,
     IReadOnlySet<int>? NonHeapNewObjOperandTokens,
+    MethodIdentity? DeclaredSource,
+    bool DeclaredSourceSuppressesOpportunities,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
 public sealed class LibraryCallGraphProducer :
@@ -49,15 +53,20 @@ public sealed class LibraryCallGraphProducer :
             "Library Call Graph",
             version: 1,
             tier: 0,
-            MethodDefinitionLayers.MethodAnalysis,
-            dependencies: static () =>
-            [
-                new(
-                    PhysicalMethodAnalysisProducer.Instance,
-                    ProducerDependencyKind.VisitNeedsVisit),
-            ])
+            MethodDefinitionLayers.ModuleLookup
+                | MethodDefinitionLayers.SemanticIdentity
+                | MethodDefinitionLayers.MemorySafetyContracts
+                | MethodDefinitionLayers.Calls
+                | MethodDefinitionLayers.LocalSignature
+                | MethodDefinitionLayers.MethodAnalysis)
     {
     }
+
+    static LibraryBodyAnalysisPlan MethodEvidencePlan { get; } =
+        LibraryBodyAnalysisPlan.Create(
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            methodScope: null,
+            typeScope: null);
 
     /// <summary>
     /// Produces the complete local-call evidence required by bounded root-path
@@ -113,6 +122,8 @@ public sealed class LibraryCallGraphProducer :
                     null,
                     null,
                     null,
+                    null,
+                    false,
                     diagnostics.ToImmutable());
             }
 
@@ -132,6 +143,8 @@ public sealed class LibraryCallGraphProducer :
                     null,
                     null,
                     null,
+                    null,
+                    false,
                     diagnostics.ToImmutable());
             }
 
@@ -207,6 +220,8 @@ public sealed class LibraryCallGraphProducer :
                 null,
                 null,
                 null,
+                null,
+                false,
                 diagnostics.ToImmutable());
         }
 
@@ -244,18 +259,39 @@ public sealed class LibraryCallGraphProducer :
 
     public static LibraryCallGraphProducer Instance { get; } = new();
 
+    internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+        InstructionAnalyzers =>
+        [
+            MethodBodyAnalyzerDeclarations.ResolvedCalls,
+        ];
+
     internal override LibraryCallGraphBodyEvidence Visit(
         scoped MethodDefinitionView view)
     {
         ExactMethodAnalysisBody method =
-            view.FactOf(PhysicalMethodAnalysisProducer.Instance);
+            PhysicalMethodAnalysisProducer.Instance.Visit(view);
         ImmutableArray<DirectCall> directCalls = [];
         BodySignals? bodySignals = null;
         Dictionary<(string Namespace, string Name), bool>?
             exceptionTypes = null;
         HashSet<int>? nonHeapNewObjectTokens = null;
+        MethodIdentity? declaredSource = null;
+        bool declaredSourceSuppressesOpportunities = false;
 
-        if (method.Method is { } identity
+        if (!view.HasDeclaredSourceRelation
+            && method.Method is { } identity)
+        {
+            ExactMethodDeclaredSource source =
+                view.ResolveDeclaredSource(identity);
+            if (source.IsAuthenticated)
+            {
+                declaredSource = source.Owner;
+                declaredSourceSuppressesOpportunities =
+                    source.SuppressesOpportunities;
+            }
+        }
+
+        if (method.Method is { } analyzedMethod
             && method.Context is { } context)
         {
             MethodAllocationFacts facts =
@@ -267,7 +303,7 @@ public sealed class LibraryCallGraphProducer :
                     out _);
             using MethodAnalysisQuery query =
                 view.BeginMethodAnalysis(
-                    identity,
+                    analyzedMethod,
                     context.Instructions);
             IMethodAllocationResolver resolver = query.Resolver;
             bodySignals = BodySignalAnalysis.Collect(
@@ -316,7 +352,212 @@ public sealed class LibraryCallGraphProducer :
                 : null,
             exceptionTypes,
             nonHeapNewObjectTokens,
+            declaredSource,
+            declaredSourceSuppressesOpportunities,
             method.Diagnostics);
+    }
+
+    internal override bool RunKernel(
+        MethodDefinitionExecution.ProducerState state,
+        MetadataReader reader,
+        PEReader peReader,
+        LibraryMethodAnalysisRunner? lookup,
+        MethodRowGate gate,
+        out int unitsVisited)
+    {
+        unitsVisited = 0;
+        if (state.Terminal != ProducerTerminal.Rows
+            || state.RowLimit is not null
+            || !state.Execution.HasUnboundedTerminalWork
+            || reader.MethodDefinitions.Count
+                < LibraryMethodAnalysisRunner.ParallelMethodThreshold
+            || lookup is null)
+        {
+            return false;
+        }
+
+        var workItems = new List<MethodEvidenceWorkItem>(
+            reader.MethodDefinitions.Count);
+        try
+        {
+            foreach (TypeDefinitionHandle typeHandle
+                in reader.TypeDefinitions)
+            {
+                TypeDefinition typeDefinition =
+                    reader.GetTypeDefinition(typeHandle);
+                bool typeSourceGenerated =
+                    lookup.IsSourceGeneratedTypeOrEnclosing(
+                        typeHandle);
+                foreach (MethodDefinitionHandle methodHandle
+                    in typeDefinition.GetMethods())
+                {
+                    workItems.Add(
+                        new(
+                            typeHandle,
+                            typeDefinition,
+                            typeSourceGenerated,
+                            methodHandle));
+                }
+            }
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            MethodDefinitionExecution.FailSource(
+                state,
+                0,
+                "(method source)",
+                ex);
+            return true;
+        }
+
+        lookup.PrepareParallelMethodEvidence();
+        var results =
+            new LibraryMethodAnalysisResult[workItems.Count];
+        Parallel.For(
+            0,
+            workItems.Count,
+            index =>
+            {
+                MethodEvidenceWorkItem item = workItems[index];
+                results[index] =
+                    lookup.Analyze(
+                        item.TypeHandle,
+                        item.TypeDefinition,
+                        item.TypeSourceGenerated,
+                        item.MethodHandle,
+                        MethodEvidencePlan);
+            });
+
+        var accumulator =
+            ImmutableArray.CreateBuilder<LibraryCallGraphBodyEvidence>(
+                results.Length);
+        MethodDefinitionSourceCoverageBuilder coverage =
+            state.Execution.SourceCoverageBuilder;
+        int bodyAcquisitions = 0;
+        for (int index = 0; index < results.Length; index++)
+        {
+            MethodEvidenceWorkItem item = workItems[index];
+            LibraryMethodAnalysisResult result = results[index];
+            coverage.RecordDefinitionExamined(item.MethodHandle);
+            coverage.RecordMethodSelected(item.MethodHandle);
+            coverage.RecordModuleLookupUsed(item.MethodHandle);
+            if (result.BodyAttempted)
+            {
+                coverage.RecordTerminalBodyAttempted(
+                    item.MethodHandle);
+                coverage.RecordBodyAttempted(item.MethodHandle);
+            }
+            if (result.BodyAcquired)
+            {
+                bodyAcquisitions++;
+                coverage.RecordBodyAcquired(item.MethodHandle);
+                coverage.RecordTerminalBodyAcquired(
+                    item.MethodHandle,
+                    result.EncodedIlBytes);
+            }
+            accumulator.Add(Project(
+                result,
+                lookup,
+                reader,
+                item.TypeHandle,
+                item.MethodHandle));
+        }
+
+        state.UnitsAttempted += results.Length;
+        state.UnitsCompleted += results.Length;
+        state.BodyAcquisitions += bodyAcquisitions;
+        state.LookupUses += results.Length;
+        ((MethodDefinitionProducer<
+            LibraryCallGraphBodyEvidence,
+            ImmutableArray<LibraryCallGraphBodyEvidence>.Builder,
+            LibraryCallGraphProducerResult>.State)state)
+            .SetAccumulator(accumulator);
+        unitsVisited = results.Length;
+        return true;
+    }
+
+    static LibraryCallGraphBodyEvidence Project(
+        LibraryMethodAnalysisResult result,
+        LibraryMethodAnalysisRunner lookup,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle)
+    {
+        ImmutableArray<DirectCall> directCalls =
+            result.Calls.IsDefault ? [] : result.Calls;
+        BodySignals? bodySignals =
+            result.HasSignals ? result.Signals : null;
+        Dictionary<(string Namespace, string Name), bool>?
+            exceptionTypes = null;
+        HashSet<int>? nonHeapNewObjectTokens = null;
+
+        var diagnostics =
+            ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
+        if (result.Diagnostic is not null)
+            diagnostics.Add(result.Diagnostic);
+        try
+        {
+            foreach (DirectCall call in directCalls)
+            {
+                if (call.Kind != CallKind.NewObject)
+                    continue;
+                if (lookup.IsNonHeapNewObj(
+                        call.OperandToken,
+                        call.Callee.DeclaringType))
+                {
+                    (nonHeapNewObjectTokens ??= []).Add(
+                        call.OperandToken);
+                }
+                if (lookup.IsInAssemblyExceptionType(
+                        call.OperandToken,
+                        call.Callee.DeclaringType)
+                    is bool isException)
+                {
+                    TypeRef definition =
+                        call.Callee.DeclaringType.Kind
+                            == TypeRefKind.GenericInstance
+                        ? call.Callee.DeclaringType.ElementType
+                            ?? call.Callee.DeclaringType
+                        : call.Callee.DeclaringType;
+                    (exceptionTypes ??= []).TryAdd(
+                        (definition.Namespace, definition.Name),
+                        isException);
+                }
+            }
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            diagnostics.Add(new AnalysisDiagnostic(
+                MetadataTokens.GetToken(methodHandle),
+                LibraryMethodAnalysisRunner.MethodLabel(
+                    reader,
+                    typeHandle,
+                    methodHandle),
+                $"{ex.GetType().Name}: {ex.Message}",
+                SourceMethodToken:
+                    result.DeclaredSource?.MetadataToken,
+                DeclaringType: result.Caller?.DeclaringType,
+                SourceDeclaringType:
+                    result.DeclaredSource?.DeclaringType));
+        }
+
+        return new(
+            result.Caller,
+            result.HasBody,
+            directCalls,
+            result.UnsafeEvidence.IsDefault
+                ? []
+                : result.UnsafeEvidence,
+            bodySignals,
+            exceptionTypes,
+            nonHeapNewObjectTokens,
+            result.DeclaredSource,
+            result.DeclaredSourceSuppressesOpportunities,
+            diagnostics.ToImmutable());
     }
 
     internal override ImmutableArray<LibraryCallGraphBodyEvidence>.Builder
@@ -331,6 +572,9 @@ public sealed class LibraryCallGraphProducer :
         accumulator.Add(fact);
         return accumulator;
     }
+
+    internal override bool Settles(LibraryCallGraphBodyEvidence fact) =>
+        fact.Method is not null;
 
     internal override LibraryCallGraphProducerResult Complete(
         ImmutableArray<LibraryCallGraphBodyEvidence>.Builder accumulator,
@@ -363,6 +607,9 @@ public sealed class LibraryCallGraphProducer :
             if (accumulator[index].Method is { } method)
                 methodsByToken.Add(method.MetadataToken, method);
         }
+        MethodDefinitionMap methodMap =
+            MethodDefinitionMap.Create(
+                [.. methodsByToken.Values]);
 
         for (int index = 0; index < accumulator.Count; index++)
         {
@@ -395,10 +642,11 @@ public sealed class LibraryCallGraphProducer :
                 nonHeapNewObjectTokens.UnionWith(bodyNonHeapTokens);
             MethodIdentity? owner = null;
             bool ownerSuppressesOpportunities = false;
-            if (completion.DeclaredSourceOf(
-                    MetadataTokens.MethodDefinitionHandle(
-                        method.MetadataToken))
-                    is MethodDefinitionDeclaredSource.Generated generated
+            if (completion.HasDeclaredSources
+                && completion.DeclaredSourceOf(
+                         MetadataTokens.MethodDefinitionHandle(
+                             method.MetadataToken))
+                     is MethodDefinitionDeclaredSource.Generated generated
                 && methodsByToken.TryGetValue(
                     MetadataTokens.GetToken(
                         generated.Origin.DeclaredOwner),
@@ -413,7 +661,21 @@ public sealed class LibraryCallGraphProducer :
                     generated.Origin
                         .DeclaredOwnerSuppressesOpportunities;
             }
-            foreach (DirectCall call in body.DirectCalls)
+            else if (body.DeclaredSource is { } recordedOwner)
+            {
+                owner = recordedOwner;
+                ownerSuppressesOpportunities =
+                    body.DeclaredSourceSuppressesOpportunities;
+            }
+            ImmutableArray<DirectCall> normalizedCalls =
+            [
+                .. body.DirectCalls.Select(call =>
+                    NormalizeSameImageCallContract(
+                        call,
+                        methodMap,
+                        methodsByToken)),
+            ];
+            foreach (DirectCall call in normalizedCalls)
             {
                 calls.Add(
                     owner is null
@@ -428,7 +690,7 @@ public sealed class LibraryCallGraphProducer :
                 unsafeEvidence.AddRange(
                     ReconcileCallSafetyEvidence(
                         body.UnsafeEvidence,
-                        body.DirectCalls));
+                        normalizedCalls));
             }
             if (owner is not null)
             {
@@ -512,4 +774,40 @@ public sealed class LibraryCallGraphProducer :
                     item.ILOffset ?? int.MinValue),
         ];
     }
+
+    static DirectCall NormalizeSameImageCallContract(
+        DirectCall call,
+        MethodDefinitionMap methodMap,
+        IReadOnlyDictionary<int, MethodIdentity> methodsByToken)
+    {
+        if (call.Kind is not (
+                CallKind.Call
+                or CallKind.CallVirtual
+                or CallKind.NewObject))
+        {
+            return call;
+        }
+
+        int targetToken = methodMap.Resolve(call);
+        if (targetToken == 0
+            || !methodsByToken.TryGetValue(
+                targetToken,
+                out MethodIdentity? target))
+        {
+            return call;
+        }
+
+        return call with
+        {
+            TargetCallerUnsafeMode =
+                target.CallerUnsafeMode,
+        };
+    }
+
+    readonly record struct MethodEvidenceWorkItem(
+        TypeDefinitionHandle TypeHandle,
+        TypeDefinition TypeDefinition,
+        bool TypeSourceGenerated,
+        MethodDefinitionHandle MethodHandle);
+
 }

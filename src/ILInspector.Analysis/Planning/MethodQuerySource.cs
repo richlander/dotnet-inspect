@@ -1871,6 +1871,13 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     public void RecordTerminalBodyAcquired(
         MethodDefinitionHandle handle,
         MethodBodyBlock body)
+        => RecordTerminalBodyAcquired(
+            handle,
+            body.GetILReader().Length);
+
+    public void RecordTerminalBodyAcquired(
+        MethodDefinitionHandle handle,
+        int encodedIlBytes)
     {
         if (!_enabled)
             return;
@@ -1878,7 +1885,7 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
         _bodiesAcquired.Add(handle);
         TerminalWork.Admit(
             handle,
-            body.GetILReader().Length);
+            encodedIlBytes);
     }
 
     public void RecordModuleLookupUsed(MethodDefinitionHandle handle)

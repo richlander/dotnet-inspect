@@ -489,7 +489,8 @@ public static partial class MetadataExports
                 analysis.ParticipationFor(AnalysisOperationKind.Compare)
                     ?.For(selection.Surface)?.ProducerRoute is { } route
                 && (route == DiffAnalysisCatalog.BodySignalRoute
-                    || route == DiffAnalysisCatalog.RetainedResearchRoute))
+                    || route == DiffAnalysisCatalog.RetainedResearchRoute
+                    || route == DiffAnalysisCatalog.UnsafeMemberRoute))
             .Select(analysis => new DiffAnalysisHostUnavailability(
                 analysis.Id,
                 BrowserBodyAnalysisUnavailable)),

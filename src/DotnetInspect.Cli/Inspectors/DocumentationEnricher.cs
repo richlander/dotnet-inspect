@@ -737,9 +737,7 @@ internal static class DocumentationEnricher
     internal static bool AuthorizesAuthoredDocumentation(
         ApiOptions options) =>
         options.ShowSamples
-        || options.DocsExplicitlySet && options.ShowDocs
-        || options.VerbosityExplicitlySet
-            && options.UserVerbosity == Verbosity.Detailed;
+        || options.DocsExplicitlySet && options.ShowDocs;
 
     private static async ValueTask<
         IReadOnlyDictionary<string, CompiledDocumentationOutcome>>

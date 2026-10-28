@@ -6,6 +6,47 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#type-graph-diagram svg")).toBeVisible();
 });
 
+for (const theme of ["dark", "light"]) {
+  test(`custom attribute rows wrap and scroll in ${theme} theme`, async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 700 });
+    await page.evaluate(async selectedTheme => {
+      document.documentElement.dataset.theme = selectedTheme;
+      await window.typeExploreProbe.setAttributes([
+        'System.Obsolete("Types with embedded references are not supported in this version of your compiler.", true)',
+        'System.Diagnostics.DebuggerDisplay("{DebuggerDisplay,nq}")',
+        ...Array.from({ length: 38 }, (_, index) =>
+          `Example.Label("${index}: ${"long-unbroken-value".repeat(12)}")`),
+      ]);
+    }, theme);
+    const list = page.getByRole("list", { name: "Custom attributes" });
+    const rows = list.locator(":scope > li");
+    await expect(rows).toHaveCount(40);
+    await expect(rows.first().locator(".token.boolean")).toHaveText("true");
+    await expect(rows.first().locator(".token.string")).toContainText("Types with embedded references");
+    const layout = await list.evaluate(element => ({
+      width: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      rows: [...element.children].map(row => {
+        const bounds = row.getBoundingClientRect();
+        return { top: bounds.top, bottom: bounds.bottom };
+      }),
+    }));
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.width);
+    layout.rows.slice(1).forEach((row, index) => {
+      expect(row.top).toBeGreaterThanOrEqual(layout.rows[index]!.bottom - 0.5);
+    });
+    await rows.last().scrollIntoViewIfNeeded();
+    await expect(rows.last()).toBeInViewport();
+    const colors = await rows.first().evaluate(element => ({
+      code: getComputedStyle(element.querySelector("code")!).color,
+      literal: getComputedStyle(element.querySelector(".token.string")!).color,
+      boolean: getComputedStyle(element.querySelector(".token.boolean")!).color,
+    }));
+    expect(colors.literal).not.toBe(colors.code);
+    expect(colors.boolean).not.toBe(colors.literal);
+  });
+}
+
 test("Type relationships relocates the live graph and warnings, not Metadata facts", async ({ page }) => {
   await page.evaluate(() => window.typeExploreProbe.update("partial"));
   await page.getByRole("button", { name: "Zoom in", exact: true }).click();

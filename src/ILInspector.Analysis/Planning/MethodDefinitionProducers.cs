@@ -724,6 +724,7 @@ public readonly ref struct MethodDefinitionView
                     + "during a visit, but over all-definition breadth it "
                     + "settles at source completion.");
             }
+
             MethodDefinitionDeclaredSources sources =
                 execution.DeclaredSources
                 ?? throw new ProducerContractException(
@@ -733,6 +734,10 @@ public readonly ref struct MethodDefinitionView
             return sources.Of(_unit.MethodHandle);
         }
     }
+
+    internal bool HasDeclaredSourceRelation =>
+        Producer.Execution.DeclaredSources is not null
+        || Producer.Execution.DeclaredSourcesPending;
 
     /// <summary>The subject's metadata, for a domain-layer producer's own probes.</summary>
     internal MetadataReader Reader
@@ -1325,6 +1330,9 @@ public readonly ref struct MethodDefinitionCompletionView
     /// no source work.
     /// </summary>
     internal bool IsSourceBounded => _producer.SourceBounded;
+
+    internal bool HasDeclaredSources =>
+        _producer.Execution.DeclaredSources is not null;
 
     /// <summary>
     /// A visited unit's outcome in the settled declared-source relation.

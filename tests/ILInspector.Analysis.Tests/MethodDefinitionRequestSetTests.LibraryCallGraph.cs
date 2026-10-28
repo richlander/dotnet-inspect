@@ -1,3 +1,5 @@
+using System.Reflection.Metadata.Ecma335;
+
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Analysis.Planning;
 
@@ -66,6 +68,140 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void LibraryCallGraphProducer_HeadUsesInterpretedSource()
+    {
+        const int limit = 2;
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        ProducerRequest head =
+            ProducerRequest.Head(
+                LibraryCallGraphProducer.Instance,
+                limit);
+        WorkDescription work =
+            Assert.IsType<ProducerPlanResult.Accepted>(
+                    ProducerPlanner.Plan([head]))
+                .Description;
+        MethodDefinitionSourceRequest<LibraryCallGraphProducerResult>
+            request =
+                MethodDefinitionSourceRequest<
+                    LibraryCallGraphProducerResult>.Create(
+                    QueryRequest(ProducerTerminal.Rows),
+                    work,
+                    LibraryCallGraphProducer.Instance,
+                    MethodDefinitionSourceBreadth.AllDefinitions);
+        MethodDefinitionSourceAssociation association =
+            MethodDefinitionSourceAssociation.Create(request);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+        ProducerResult<LibraryCallGraphProducerResult> producerResult =
+            ResultOf<LibraryCallGraphProducerResult>(
+                execution,
+                association);
+        Assert.True(
+            producerResult.HasValue,
+            producerResult.Failure?.Message
+                ?? producerResult.Critical?.Message
+                ?? producerResult.FailedPrerequisite
+                ?? producerResult.Outcome.ToString());
+        Assert.Equal(ProducerOutcome.Stopped, producerResult.Outcome);
+        LibraryCallGraphProducerResult produced =
+            Assert.IsType<LibraryCallGraphProducerResult>(
+                producerResult.Value);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+
+        Assert.Equal(
+            [
+                MetadataTokens.GetToken(
+                    MetadataTokens.MethodDefinitionHandle(1)),
+                MetadataTokens.GetToken(
+                    MetadataTokens.MethodDefinitionHandle(2)),
+            ],
+            produced.DeclaredMethods.Select(
+                static method => method.MetadataToken));
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Satisfied,
+            receipt.Completion);
+        Assert.Equal(limit, receipt.DefinitionsVisited);
+        Assert.True(receipt.Coverage.MethodAnalysis.Constructed);
+    }
+
+    [Fact]
+    public void
+        LibraryCallGraphProducer_FiniteTerminalLimitUsesInterpretedSource()
+    {
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: long.MaxValue);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                LibraryCallGraphProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.AllDefinitions,
+                limits);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+
+        Assert.Equal(
+            ProducerOutcome.Failed,
+            ResultOf<LibraryCallGraphProducerResult>(
+                execution,
+                association).Outcome);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.SourceIncomplete,
+            receipt.Completion);
+        Assert.Contains(
+            "terminal physical-body limit",
+            Assert.IsType<MethodDefinitionSourceFailure>(
+                    receipt.SourceFailure)
+                .Message,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            receipt.Coverage.TerminalWork.BodiesAdmitted);
+        Assert.Equal(
+            MethodDefinitionTerminalWorkLimitKind.Bodies,
+            receipt.Coverage.TerminalWork.ReachedLimit);
+        Assert.True(receipt.Coverage.MethodAnalysis.Constructed);
+    }
+
+    [Fact]
+    public void LibraryCallGraphProducer_ExactMethodUsesInterpretedSource()
+    {
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        int token = typeof(ExactMethodAnalysisFixture)
+            .GetMethod(nameof(ExactMethodAnalysisFixture.Target))!
+            .MetadataToken;
+        MethodDefinitionSourceAssociation association =
+            Association(
+                LibraryCallGraphProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MetadataTokens.MethodDefinitionHandle(
+                        token & 0x00FF_FFFF)));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+        LibraryCallGraphProducerResult produced =
+            Assert.IsType<LibraryCallGraphProducerResult>(
+                ResultOf<LibraryCallGraphProducerResult>(
+                    execution,
+                    association).Value);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+
+        Assert.Equal(
+            token,
+            Assert.Single(produced.DeclaredMethods).MetadataToken);
+        Assert.Equal(1, receipt.DefinitionsVisited);
+        Assert.True(receipt.Coverage.MethodAnalysis.Constructed);
+    }
+
+    [Fact]
     public void LibraryCallGraphProducer_MatchesLegacyMethodEvidence()
     {
         string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
@@ -74,8 +210,7 @@ public sealed partial class MethodDefinitionRequestSetTests
                 LibraryCallGraphProducer.Instance,
                 ProducerTerminal.Rows,
                 MethodDefinitionSourceBreadth
-                    .AllDefinitions
-                    .IncludeGeneratedExecutionBodies());
+                    .AllDefinitions);
         MethodDefinitionSourceRequestSetExecution sourceExecution =
             ExecuteAt(AcceptedPlan([association]), path);
         ProducerResult<LibraryCallGraphProducerResult> producerResult =
@@ -204,20 +339,33 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Equal(
             receipt.BodiesAcquired,
             actual.Methods.Length);
-        Assert.Equal(
-            0,
-            receipt.Coverage.MethodAnalysis.DeclaredSource.Queries);
-        ProducerLayerParticipation methodAnalysis =
+        Assert.True(
+            receipt.DefinitionsVisited
+                >= LibraryMethodAnalysisRunner.ParallelMethodThreshold);
+        Assert.False(
+            receipt.Coverage.MethodAnalysis.Constructed);
+        ProducerLayerParticipation moduleLookup =
             Assert.Single(
                 sourceResult.WorkReceipt
                     .For(LibraryCallGraphProducer.Instance)
                     .Layers,
                 layer => layer.Layer
                     == nameof(
-                        MethodDefinitionLayers.MethodAnalysis));
+                        MethodDefinitionLayers.ModuleLookup));
+        Assert.Equal(
+            receipt.DefinitionsVisited,
+            moduleLookup.Acquired);
+        ProducerLayerParticipation bodies =
+            Assert.Single(
+                sourceResult.WorkReceipt
+                    .For(LibraryCallGraphProducer.Instance)
+                    .Layers,
+                layer => layer.Layer
+                    == nameof(
+                        MethodDefinitionLayers.Body));
         Assert.Equal(
             receipt.BodiesAcquired,
-            methodAnalysis.Acquired);
+            bodies.Acquired);
         Assert.True(actual.HasFullMethodEvidenceScope);
 
         static string DescribeSignals(
@@ -243,8 +391,7 @@ public sealed partial class MethodDefinitionRequestSetTests
                 LibraryCallGraphProducer.Instance,
                 ProducerTerminal.Rows,
                 MethodDefinitionSourceBreadth
-                    .AllDefinitions
-                    .IncludeGeneratedExecutionBodies());
+                    .AllDefinitions);
         MethodDefinitionSourceRequestSetExecution execution =
             ExecuteAt(AcceptedPlan([association]), path);
         LibraryCallGraphProducerResult produced =

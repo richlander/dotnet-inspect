@@ -1180,6 +1180,88 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve: complete };
 }
 
+test("local Project uploads use real Wasm, preserve declarations, and return from explicit Package inspection", async ({
+  page, context,
+}) => {
+  const registry = new GalleryFixtureRegistry([healthy]);
+  let dependencyTransfers = 0;
+  await installGalleryRoutes(context, registry, async () => {
+    dependencyTransfers++;
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.locator(".home-search")).not.toHaveClass(/engine-pending/, {
+    timeout: 120_000,
+  });
+  const openFile = async (name: string, buffer: Buffer) => {
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-action="open-library"]').click();
+    await page.locator("#library-open-input").setInputFiles({
+      name, mimeType: "application/octet-stream", buffer,
+    });
+  };
+  const chooseProjectDependencies = async () => {
+    const tab = page.locator("[data-inspector-tab]").filter({ hasText: "Dependencies" });
+    if (await tab.isVisible()) {
+      await tab.click();
+      return;
+    }
+    const trigger = page.locator("[data-navigation-trigger='inspector']");
+    await trigger.click();
+    await page.locator("#inspector-navigation-menu")
+      .getByRole("menuitemradio", { name: /^Dependencies:/ }).click({ timeout: 10_000 });
+  };
+  await openFile("DotnetInspect.Cli.csproj",
+    readFileSync(resolve("../src/DotnetInspect.Cli/DotnetInspect.Cli.csproj")));
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("DotnetInspect.Cli.csproj", { timeout: 30_000 });
+  await chooseProjectDependencies();
+  await expect(page.locator("#inspector-panel")).toContainText("Unresolved declaration");
+  await expect(page.locator("[data-inspector-tab]:visible").filter({ hasText: "Dependencies" })
+    .or(page.locator("[data-navigation-trigger='inspector']:visible"))).toBeFocused();
+  await expect(page.locator("#inspector-panel")).toContainText("MSBuild was not evaluated");
+  const authoredIdentity = await currentHistoryWorkspaceId(page);
+  expect(authoredIdentity).not.toBeNull();
+
+  await openFile("project.assets.json", Buffer.from(JSON.stringify({
+    version: 3,
+    targets: { "net11.0": {
+      [`${healthy.packageId}/${healthy.version}`]: { type: "package" },
+    } },
+    projectFileDependencyGroups: { "net11.0": [`${healthy.packageId} >= ${healthy.version}`] },
+    project: { frameworks: { "net11.0": { dependencies: {
+      [healthy.packageId]: { target: "Package", version: `[${healthy.version}, )` },
+    } } } },
+  })));
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("project.assets.json", { timeout: 30_000 });
+  const restoredIdentity = await currentHistoryWorkspaceId(page);
+  expect(restoredIdentity).not.toBe(authoredIdentity);
+  expect(new URL(page.url()).search).toBe("");
+  expect(new URL(page.url()).hash).toBe("");
+  await chooseProjectDependencies();
+  await expect(page.locator("#inspector-panel")).toContainText(healthy.packageId.toLowerCase());
+  expect(dependencyTransfers).toBe(0);
+  await page.getByRole("button", { name: "Inspect Package", exact: true }).click();
+  await expect(page.locator("#inspector-panel h1"))
+    .toHaveText(new RegExp(`^${healthy.packageId.replaceAll(".", "\\.")}$`, "i"),
+      { timeout: 60_000 });
+  expect(dependencyTransfers).toBeGreaterThan(0);
+  await page.goBack();
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("project.assets.json", { timeout: 30_000 });
+  expect(await currentHistoryWorkspaceId(page)).toBe(restoredIdentity);
+  await expect(page.locator("#inspector-panel")).toContainText("No restore or dependency acquisition");
+  await openFile("broken.csproj", Buffer.from("<Project>"));
+  await expect(page.locator("#library-open-error")).toContainText("well-formed XML");
+  await page.locator("#library-open-close").click();
+  await expect(page.locator("#inspector-panel h1")).toContainText("project.assets.json");
+  await openFile("DiffAsmLibA.dll", healthyAssembly);
+  await expect(page.locator("#inspector-panel h1")).toContainText("DiffAsmLibA", { timeout: 30_000 });
+  expect(new URL(page.url()).search).toBe("");
+  expect(new URL(page.url()).hash).toBe("");
+});
+
 test("product navigation discloses startup-dependent destinations", async ({
   context,
   page,
@@ -4388,6 +4470,72 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(flattened).toContain("AddHttpClient");
   });
 
+  test("renders the Type Overview grammar over real Wasm", async ({
+    page,
+  }, testInfo) => {
+    await page.goto(
+      "/?package=System.Text.Json&version=10.0.13&framework=net10.0",
+      { waitUntil: "domcontentloaded" },
+    );
+    await page.locator(".workbench").waitFor({ timeout: 180_000 });
+    await page.locator("[data-package-child-library]").filter({
+      hasText: "System.Text.Json",
+    }).click();
+    await page.getByRole("tab", { name: "Type", exact: true }).click();
+    await page.locator("[data-type]").filter({
+      hasText: "JsonDocument",
+    }).first().click();
+
+    const overview = page.locator(".type-overview-surface");
+    await expect(overview).toBeVisible({ timeout: 180_000 });
+    await expect(overview.getByRole("heading", { name: "Type shape" }))
+      .toBeVisible({ timeout: 180_000 });
+    await expect(overview.locator(".fact-rows"))
+      .toContainText("System.Object");
+    await expect(overview.getByRole("heading", { name: "Implements" }))
+      .toBeVisible();
+    await expect(overview.locator(".type-chip-list"))
+      .toContainText("IDisposable");
+    await expect(overview.locator('[data-overview-badge="class"]'))
+      .toHaveText("class");
+    await expect(overview.locator('[data-overview-badge="sealed"]'))
+      .toHaveText("sealed");
+    await expect(overview.locator('[data-overview-badge="public"]'))
+      .toHaveText("public");
+    await expect(overview.getByText("Type rollup", { exact: true }))
+      .toHaveCount(0);
+    await expect(overview.locator("[data-type-members]"))
+      .toContainText("members");
+
+    const shapeIndex = await overview.getByRole("heading", {
+      name: "Type shape",
+    }).evaluate(element => Array.from(
+      element.closest(".metadata-surface-scroll")?.children ?? [],
+    ).indexOf(element.closest("section")!));
+    const implementsIndex = await overview.getByRole("heading", {
+      name: "Implements",
+    }).evaluate(element => Array.from(
+      element.closest(".metadata-surface-scroll")?.children ?? [],
+    ).indexOf(element.closest("section")!));
+    expect(shapeIndex).toBeLessThan(implementsIndex);
+
+    const explore = page.locator("#type-graph-explore");
+    await expect(explore).toBeEnabled();
+    await explore.click();
+    const graphExplorer =
+      page.getByRole("dialog", { name: "Type relationships" });
+    await expect(graphExplorer).toBeVisible();
+    await graphExplorer.getByRole("button", { name: "Close" }).click();
+    await expect(graphExplorer).toBeHidden();
+    await expect(explore).toBeFocused();
+
+    await page.locator("#subject-panel").screenshot({
+      path: testInfo.outputPath("type-overview-json-document.png"),
+    });
+    await overview.locator("[data-type-members]").click();
+    await expect(page.locator(".api-row[data-member]")).not.toHaveCount(0);
+  });
+
   test("projects exact all-access Type method leverage into the UI", async ({
     page,
   }, testInfo) => {
@@ -4405,6 +4553,7 @@ test.describe("bounded network-backed Worker smoke", () => {
     await page.locator("[data-type]").filter({
       hasText: "JsonSerializerOptions",
     }).first().click();
+    await chooseInspector(page, "data-lens", "api");
     await expect(page.getByRole("button", {
       name: "Show Top Leverage",
       exact: true,
