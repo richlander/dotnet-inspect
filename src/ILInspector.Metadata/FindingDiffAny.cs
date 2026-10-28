@@ -62,7 +62,11 @@ public sealed record FindingDiffAnyTypeState(
 public sealed record FindingDiffAnyReceipt(
     int Types,
     int BodiesCompared,
-    long IlBytesCompared);
+    long IlBytesCompared)
+{
+    public int ApiSurfacesBuilt { get; init; }
+    public TimeSpan ApiSurfaceBuildTime { get; init; }
+}
 
 /// <summary>
 /// A provision for the Body decision of one paired method, the seam at which
@@ -89,7 +93,7 @@ public sealed record FindingDiffAnyResult(
 
 /// <summary>
 /// Decides, for every Type of one Library image pair, whether its API and its
-/// implementation differ, without building either complete diff.
+/// implementation differ, without building a Library-wide complete diff.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -119,7 +123,7 @@ public sealed record FindingDiffAnyResult(
 /// of its Type <c>Indeterminate</c>.
 /// </para>
 /// </remarks>
-public static class FindingDiffAny
+public static partial class FindingDiffAny
 {
     public static FindingDiffAnyResult Compare(
         PEReader before,
@@ -174,7 +178,11 @@ public static class FindingDiffAny
         if (unitA is null || unitB is null)
             return ("one-sided", "one-sided");
 
-        string? api = FirstDifference(a, a.ApiCensus(unitA), b, b.ApiCensus(unitB));
+        var work = new Work();
+        List<SymbolKeySlot> apiBefore = a.ApiCensus(unitA);
+        List<SymbolKeySlot> apiAfter = b.ApiCensus(unitB);
+        string? api = ApiState(a, unitA, apiBefore, b, unitB, apiAfter, work) == FindingDiffAnyState.Unchanged
+            ? null : FirstDifference(a, apiBefore, b, apiAfter);
         bool ownerVisible = a.IsVisible(unitA.Owner) || b.IsVisible(unitB.Owner);
         string? body = FirstDifference(
             a,
@@ -187,7 +195,6 @@ public static class FindingDiffAny
             body = "+ body " + Describe(afterOnly);
         if (body is null)
         {
-            var work = new Work();
             foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
             {
                 if (methodsB.TryGetValue(key, out MethodDefinitionHandle methodB)
@@ -267,9 +274,7 @@ public static class FindingDiffAny
             return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
         try
         {
-            api = CensusesEqual(a, a.ApiCensus(unitA), b, b.ApiCensus(unitB))
-                ? FindingDiffAnyState.Unchanged
-                : FindingDiffAnyState.Changed;
+            api = ApiState(a, unitA, a.ApiCensus(unitA), b, unitB, b.ApiCensus(unitB), work);
             if (axes is FindingDiffAnyAxes.Api)
                 return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
             body = BodiesEqual(a, unitA, b, unitB, work)
@@ -937,6 +942,8 @@ public static class FindingDiffAny
     {
         public int Bodies;
         public long IlBytes;
+        public int ApiSurfacesBuilt;
+        public long ApiSurfaceTicks;
 
         public BodyWalk Walk { get; } = new();
 
@@ -2195,7 +2202,11 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
         _interner = null;
         Result = new FindingDiffAnyResult(
             _states.ToImmutable(),
-            new FindingDiffAnyReceipt(_states.Count, _work.Bodies, _work.IlBytes));
+            new FindingDiffAnyReceipt(_states.Count, _work.Bodies, _work.IlBytes)
+            {
+                ApiSurfacesBuilt = _work.ApiSurfacesBuilt,
+                ApiSurfaceBuildTime = TimeSpan.FromSeconds((double)_work.ApiSurfaceTicks / Stopwatch.Frequency),
+            });
         return true;
     }
 }

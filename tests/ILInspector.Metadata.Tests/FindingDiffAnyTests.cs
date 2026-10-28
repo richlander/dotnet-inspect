@@ -37,7 +37,7 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.SetterBecomesInit", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.MethodConstraint", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ConstraintType", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
-    [InlineData("FindingDiffAnyFixture.ConstantValue", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ConstantValue", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.DefaultParameter", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ParameterName", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.PublicAttribute", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
@@ -151,24 +151,11 @@ public sealed class FindingDiffAnyTests
                 $"{typeName} changes in the complete API comparison but Finding Diff Any reports {state?.Api}.");
         });
         Assert.All(
-            result.Types.Where(type => type.Api == FindingDiffAnyState.Changed
-                && !KnownApiOverReports.Contains((pairName, type.FullName))),
+            result.Types.Where(type => type.Api == FindingDiffAnyState.Changed),
             type => Assert.True(
                 changed.Contains(type.FullName),
                 $"Finding Diff Any reports {type.FullName} API Changed but the complete API comparison does not."));
     }
-
-    /// <summary>
-    /// Types Finding Diff Any reports API <c>Changed</c> that the complete API axis comparison
-    /// does not, each a known pre-existing divergence filed for follow-up rather than an
-    /// accepted difference.
-    /// </summary>
-    static readonly HashSet<(string Pair, string Type)> KnownApiOverReports =
-    [
-        // A non-enum constant's value: Finding Diff Any compares the Constant row, while the
-        // complete comparison does not compare ApiMember.ConstantValueLiteral.
-        ("finding-diff-any", "FindingDiffAnyFixture.ConstantValue"),
-    ];
 
     [Theory]
     [InlineData("finding-diff-any")]
@@ -1115,7 +1102,9 @@ public sealed class FindingDiffAnyTests
 
         Assert.True(steps > whole.Types.Length);
         Assert.Equal(whole.Types, comparison.Result!.Types);
-        Assert.Equal(whole.Receipt, comparison.Result.Receipt);
+        Assert.Equal(
+            (whole.Receipt.Types, whole.Receipt.BodiesCompared, whole.Receipt.IlBytesCompared, whole.Receipt.ApiSurfacesBuilt),
+            (comparison.Result.Receipt.Types, comparison.Result.Receipt.BodiesCompared, comparison.Result.Receipt.IlBytesCompared, comparison.Result.Receipt.ApiSurfacesBuilt));
     }
 
     [Fact]

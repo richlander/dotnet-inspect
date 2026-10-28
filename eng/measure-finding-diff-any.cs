@@ -116,7 +116,8 @@ FindingDiffAnyResult RunLockstep()
     int p95Index = Math.Max(0, (int)Math.Ceiling(lockstepSamples.Count * 0.95) - 1);
     Console.WriteLine(
         $"lockstep\tmedian={lockstepSamples[lockstepSamples.Count / 2]:F2}\tp95={lockstepSamples[p95Index]:F2}"
-            + $"\tmin={lockstepSamples[0]:F2}\tmedianBytes={lockstepAllocations[lockstepAllocations.Count / 2]}\tagree={agree}");
+            + $"\tmin={lockstepSamples[0]:F2}\tmedianBytes={lockstepAllocations[lockstepAllocations.Count / 2]}\tagree={agree}"
+            + $"\tapiSurfaces={lockstepResult.Receipt.ApiSurfacesBuilt}\tapiSurfaceBuild-ms={lockstepResult.Receipt.ApiSurfaceBuildTime.TotalMilliseconds:F2}");
     Console.WriteLine($"  samples-ms\tlockstep\t{string.Join(",", lockstepSamples.Select(t => t.ToString("F2")))}");
 }
 
@@ -150,7 +151,10 @@ FindingDiffAnyResult RunLockstep()
                 pairs++;
                 if (walk.TryGetValue(oldType.Identifier, out FindingDiffAnyTypeState? state))
                 {
-                    agree &= (state.Api == FindingDiffAnyState.Changed) == (api.Decision == FindingExistsDecision.Changed);
+                    // Declaration Exists compares the raw census; uncertain API
+                    // differences can settle Unchanged in the Type's model.
+                    agree &= api.Decision != FindingExistsDecision.Unchanged || state.Api == FindingDiffAnyState.Unchanged;
+                    agree &= state.Api != FindingDiffAnyState.Changed || api.Decision == FindingExistsDecision.Changed;
                     agree &= state.Body != FindingDiffAnyState.Unchanged || body.Decision == FindingExistsDecision.Unchanged;
                     agree &= body.Decision != FindingExistsDecision.Changed || state.Body == FindingDiffAnyState.Changed;
                 }
@@ -241,8 +245,10 @@ double Timed(Action action)
 using (var before = new PEReader(new MemoryStream(beforeBytes, writable: false)))
 using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
 {
-    double apiOnly = Median(() => Timed(() => FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api)));
-    Console.WriteLine($"api-only\tmedian={apiOnly:F2}");
+    FindingDiffAnyResult apiResult = null!;
+    double apiOnly = Median(() => Timed(() => apiResult = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api)));
+    Console.WriteLine($"api-only\tmedian={apiOnly:F2}\tapiSurfaces={apiResult.Receipt.ApiSurfacesBuilt}"
+        + $"\tapiSurfaceBuild-ms={apiResult.Receipt.ApiSurfaceBuildTime.TotalMilliseconds:F2}");
     foreach (double budgetMs in new[] { 0.5, 1.0 })
     {
         int steps = 0;
@@ -575,7 +581,8 @@ Console.WriteLine(
         + $"\tbodyChanged={result.Types.Count(s => s.Body == FindingDiffAnyState.Changed)}"
         + $"\tanyChanged={result.Types.Count(s => s.Api == FindingDiffAnyState.Changed || s.Body == FindingDiffAnyState.Changed)}"
         + $"\tindeterminate={result.Types.Count(s => s.Api == FindingDiffAnyState.Indeterminate || s.Body == FindingDiffAnyState.Indeterminate)}");
-Console.WriteLine($"work\tbodies={result.Receipt.BodiesCompared}\tilBytes={result.Receipt.IlBytesCompared}");
+Console.WriteLine($"work\tbodies={result.Receipt.BodiesCompared}\tilBytes={result.Receipt.IlBytesCompared}"
+    + $"\tapiSurfaces={result.Receipt.ApiSurfacesBuilt}\tapiSurfaceBuild-ms={result.Receipt.ApiSurfaceBuildTime.TotalMilliseconds:F2}");
 Console.WriteLine(
     $"ms\tmedian={samples[samples.Count / 2]:F2}\tp95={samples[(int)(samples.Count * 0.95)]:F2}"
         + $"\tmin={samples[0]:F2}\tsamples={samples.Count}");
