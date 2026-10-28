@@ -2,7 +2,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 
-namespace DotnetInspect.Web;
+namespace DotnetInspect.Web.Interop.Metadata;
 
 /// <summary>The existing Browser Compare surface's executable analysis subset.</summary>
 internal static class BrowserCompareCapabilityBinding
@@ -38,4 +38,7 @@ internal static class BrowserCompareCapabilityBinding
 
     internal static InspectionCapabilityModule Module { get; } = new(
         "dotnet-inspect.web/diff-analysis-capability", bindings: [Binding]);
+
+    internal static InspectionCapabilityCatalog Catalog { get; } =
+        InspectionCapabilityCatalog.Create([DiffAnalysisCatalog.ProductModule, Module]);
 }

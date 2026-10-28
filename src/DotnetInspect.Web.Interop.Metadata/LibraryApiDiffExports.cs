@@ -22,7 +22,7 @@ public static partial class MetadataExports
     static readonly BrowserManagedOperationBridge LibraryApiDiffOperations =
         new();
     static readonly InspectionCapabilityCatalog DiffAnalysisCapabilities =
-        BrowserCapabilityComposition.CreateCompareCatalog();
+        BrowserCompareCapabilityBinding.Catalog;
 
     [JSExport]
     public static string CancelLibraryApiDiff(

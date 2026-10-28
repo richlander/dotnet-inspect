@@ -73,8 +73,10 @@ generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_OwnsSharedWorkspaceState`, and
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
 
-Web Core also owns the Browser's capability composition. Package Query and
-Compare provide bindings to shared registered resources; Spotlight search
+Web Core also owns the Browser's capability composition. Host configuration
+selects lazy contribution providers from the facades; Compare registration
+stays with Metadata and its existing dependencies. Package Query and Compare
+provide bindings to shared registered resources; Spotlight search
 reads their combined graph and follows the binding to the existing inspector.
 Compare exposes API, API-attribute, and string-literal analyses; its existing
 body-based unavailability remains visible. Package Query preparation and

@@ -13,9 +13,7 @@ internal static class BrowserCapabilityCatalogSearch
         string text,
         int maximumResults)
     {
-        InspectionCapabilityCatalog catalog = BrowserCapabilityComposition.CreateCatalog();
-        ResourceExplanationCatalog explanation =
-            BrowserCapabilityComposition.CreateExplanation(catalog);
+        var (catalog, explanation) = BrowserCapabilityComposition.CreateSearchComposition();
         return CapabilityCatalogSearch.Search(
             catalog,
             explanation,

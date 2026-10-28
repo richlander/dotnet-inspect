@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 using System.Text.Json;
 using DotnetInspect.Web.Interop.Package;
+using DotnetInspect.Web.Interop.Metadata;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -14,8 +15,12 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
 {
     private int _requests;
 
-    public BrowserCapabilityAdmissionTests() => CoreHttpClientFactory.SetAuthenticationDecorator(
-        inner => new RejectNetworkHandler(inner, () => _requests++));
+    public BrowserCapabilityAdmissionTests()
+    {
+        InspectionEngine.InitializeCapabilityComposition();
+        CoreHttpClientFactory.SetAuthenticationDecorator(
+            inner => new RejectNetworkHandler(inner, () => _requests++));
+    }
 
     public void Dispose() => CoreHttpClientFactory.SetAuthenticationDecorator(null);
 
@@ -30,9 +35,31 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
     }
 
     [Fact]
+    public void HostConfigurationDefersContributionProvidersUntilSearch()
+    {
+        int evaluations = 0;
+        try
+        {
+            BrowserCapabilityComposition.Configure([() =>
+            {
+                evaluations++;
+                return BrowserCapabilityComposition.CreatePackageQueryContribution();
+            }]);
+            Assert.Equal(0, evaluations);
+            PackageExports.SearchCapabilities("literal", 1);
+            Assert.Equal(1, evaluations);
+            Assert.Equal(0, _requests);
+        }
+        finally
+        {
+            InspectionEngine.InitializeCapabilityComposition();
+        }
+    }
+
+    [Fact]
     public void BrowserCompareBindingExposesOnlyInstalledExecutableProducers()
     {
-        InspectionCapabilityCatalog catalog = BrowserCapabilityComposition.CreateCatalog();
+        InspectionCapabilityCatalog catalog = BrowserCapabilityComposition.CreateSearchComposition().Catalog;
         Assert.Same(DiffAnalysisCatalog.Route, BrowserCompareCapabilityBinding.Binding.Route);
         Assert.Contains(BrowserCompareCapabilityBinding.Binding, catalog.Bindings);
         Assert.Contains(PackageQueryCapabilityBinding.Binding, catalog.Bindings);
@@ -66,8 +93,7 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
     [Fact]
     public void SearchAdmitsNoUnavailableBodyAnalysesOrUnboundStructuralViews()
     {
-        InspectionCapabilityCatalog catalog = BrowserCapabilityComposition.CreateCatalog();
-        var explanation = BrowserCapabilityComposition.CreateExplanation(catalog);
+        var (catalog, explanation) = BrowserCapabilityComposition.CreateSearchComposition();
         foreach (string text in new[] { "allocation", "unsafety", "retained", "library sections" })
         {
             var result = CapabilityCatalogSearch.Search(catalog, explanation, new(text, 100));
@@ -84,7 +110,7 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
     [Fact]
     public void CompareCatalogDoesNotInitializePackageQueryResources()
     {
-        var catalog = BrowserCapabilityComposition.CreateCompareCatalog();
+        var catalog = BrowserCompareCapabilityBinding.Catalog;
         Assert.Same(DiffAnalysisCatalog.Document, Assert.Single(catalog.Documents));
         Assert.Same(BrowserCompareCapabilityBinding.Binding, Assert.Single(catalog.Bindings));
         Assert.Empty(catalog.Routes.Where(route => route.QuerySpace is not null));

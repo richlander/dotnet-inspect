@@ -491,10 +491,13 @@ composes only Package Query, while
 `src/DotnetInspect.Web.Interop.Metadata/LibraryApiDiffExports.cs` executes
 registered Compare analyses without declaring its Browser binding.
 
-Web Core supplies the existing Package Query binding and a Compare binding
-whose exposed analyses follow the Browser's existing producer availability.
-Package search and Metadata Compare consume those same declarations without
-cross-facade dependencies. Search projects the shared Analysis identities,
+Web Core composes opaque contribution providers selected by the host's
+existing configuration path. Metadata owns the Compare binding and its
+producer availability; Core's existing dependency ceiling excludes Research
+Sections. The host installs one immutable provider list before readiness,
+without evaluating the providers. Search evaluates that list explicitly;
+ordinary requests retain their bounded catalogs. This is host configuration,
+not mutable per-resource registration or cross-facade dependency. Search projects the shared Analysis identities,
 paths, and bindings; Spotlight selects the existing Compare surface. This
 adds no inspector layout or analysis support. Body-signal and retained
 Research producers remain explicitly unavailable, and structural resources
