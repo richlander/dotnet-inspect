@@ -33,6 +33,18 @@ public static partial class TypeCommand
 {
     public const string Name = "type";
 
+    internal enum SharedExactTypePackageDemand
+    {
+        Surface,
+        DefiningImplementation,
+    }
+
+    static readonly HashSet<string> DefiningImplementationTypeSections =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.ExceptionRegions,
+        };
+
     static readonly ViewFacetId ExactTypeDefaultFacet =
         InspectionViewFacetCatalog.Registry
             .GetRequiredDescriptor(
@@ -342,24 +354,27 @@ public static partial class TypeCommand
             && loadedSurface is null
             && TryCreateSharedExactTypeRequest(
                 options,
-                out ExactTypeInspectionRequest? exactTypeRequest))
+                plan,
+                out ExactTypeInspectionRequest? exactTypeRequest,
+                out SharedExactTypePackageDemand exactTypeDemand))
         {
             return await (packageHouse is null
                 ? ExecuteSharedExactTypeAsync(
                     options,
                     plan,
                     exactTypeRequest,
+                    exactTypeDemand,
                     cancellationToken)
                 : ExecuteSharedExactTypeAsync(
                     options,
                     plan,
                     exactTypeRequest,
+                    exactTypeDemand,
                     packageHouse,
                     (issuePackageOperation
                         ?? throw new InvalidOperationException(
                             "An injected exact-Type PackageHouse requires "
-                                + "a source-operation issuer."))(
-                        cancellationToken),
+                                + "a source-operation issuer.")),
                     cancellationToken)).ConfigureAwait(false);
         }
 
@@ -928,7 +943,7 @@ public static partial class TypeCommand
                         api,
                         apiType,
                         effectiveOptions.MemberFilter);
-                    var bodyShapeCompletion = new BodyShapeCompletion();
+                    var inspectionCompletion = new TypeInspectionCompletion();
                     if (tabularProjection)
                     {
                         // Hold the rendered artifact until typed projection diagnostics confirm
@@ -938,7 +953,7 @@ public static partial class TypeCommand
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly,
                             sourceClient: context.HttpClient,
-                            bodyShapeCompletion: bodyShapeCompletion);
+                            inspectionCompletion: inspectionCompletion);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
@@ -950,11 +965,11 @@ public static partial class TypeCommand
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sourceAssembly: sourceAssembly,
                             sourceClient: context.HttpClient,
-                            bodyShapeCompletion: bodyShapeCompletion);
+                            inspectionCompletion: inspectionCompletion);
                         if (writeExitCode != 0)
                             return writeExitCode;
                     }
-                    inspectionIncomplete |= bodyShapeCompletion.Incomplete;
+                    inspectionIncomplete |= inspectionCompletion.Incomplete;
 
                     // Notify when a requested section matched but has no data for this type.
                     // JSON and markdown both honor -S; explicit tabular output falls back to
@@ -1078,8 +1093,23 @@ public static partial class TypeCommand
         TypeOptions options,
         [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
         out ExactTypeInspectionRequest? request)
+        => TryCreateSharedExactTypeRequest(
+            options,
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
+            out request,
+            out _);
+
+    internal static bool TryCreateSharedExactTypeRequest(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out ExactTypeInspectionRequest? request,
+        out SharedExactTypePackageDemand demand)
     {
         request = null;
+        demand = default;
+        bool automaticNativeTable =
+            IsAutomaticNativeSectionTable(options);
         if (string.IsNullOrWhiteSpace(options.PackagePath)
             || File.Exists(options.PackagePath)
             || options.PackagePath.Contains("::", StringComparison.Ordinal)
@@ -1099,11 +1129,11 @@ public static partial class TypeCommand
             || new TypeGestureIntent(options.TypeFilter)
                 .SelectsListingCatalog(options.TypeName)
             || options.EffectiveDiscovery
-            || options.Verbosity is not (
-                Verbosity.Quiet or Verbosity.Minimal)
-            || !IsCompleteInspectionOutput(options)
-            || options.HasSectionQuery
-            || options.IncludeSections is { Count: > 0 }
+            || (options.Verbosity is not (
+                    Verbosity.Quiet or Verbosity.Minimal)
+                && !automaticNativeTable)
+            || (!IsCompleteInspectionOutput(options)
+                && !automaticNativeTable)
             || options.IncludeAll
             || options.ShowDocs
             || options.DocsExplicitlySet
@@ -1126,6 +1156,25 @@ public static partial class TypeCommand
             return false;
         }
 
+        bool surfaceOnly =
+            !options.HasSectionQuery
+            && options.IncludeSections is not { Count: > 0 };
+        IReadOnlyCollection<string> resolvedSections =
+            options.IncludeSections is { } includeSections
+                ? includeSections
+                : plan.Selection.ResolvedSections;
+        bool definingImplementation =
+            options.SelectionIsExplicit
+            && (!options.HasExplicitOutputIntent
+                || automaticNativeTable)
+            && (options.IncludeSections is not null
+                || plan.Selection.UnresolvedSelectors.IsEmpty)
+            && resolvedSections.Count == 1
+            && DefiningImplementationTypeSections.Contains(
+                resolvedSections.First());
+        if (!surfaceOnly && !definingImplementation)
+            return false;
+
         (string packageId, string? version) =
             PackageExtractor.ParsePackageReference(options.PackagePath!);
         if (string.IsNullOrWhiteSpace(packageId)
@@ -1141,6 +1190,9 @@ public static partial class TypeCommand
                 version,
                 options.Tfm!,
                 options.TypeName!);
+            demand = definingImplementation
+                ? SharedExactTypePackageDemand.DefiningImplementation
+                : SharedExactTypePackageDemand.Surface;
             return true;
         }
         catch (ArgumentException)
@@ -1224,6 +1276,14 @@ public static partial class TypeCommand
             return false;
         }
     }
+
+    static bool IsAutomaticNativeSectionTable(TypeOptions options) =>
+        options.Tabular
+        && options.Tsv
+        && options.Format == OutputFormat.Tsv
+        && !options.TabularExplicitlySet
+        && !options.FormatExplicitlySet
+        && !options.Jsonl;
 
     static bool IsCompleteInspectionOutput(TypeOptions options)
     {
@@ -1479,6 +1539,7 @@ public static partial class TypeCommand
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
         ExactTypeInspectionRequest request,
+        SharedExactTypePackageDemand demand,
         CancellationToken cancellationToken)
     {
         var logger = new VerboseLogger(options.Verbose);
@@ -1497,10 +1558,83 @@ public static partial class TypeCommand
                 options,
                 plan,
                 request,
+                demand,
                 house,
-                composition.IssueSettlementOperation(cancellationToken),
+                composition.IssueSettlementOperation,
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    internal static async Task<int> ExecuteSharedExactTypeAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        ExactTypeInspectionRequest request,
+        SharedExactTypePackageDemand demand,
+        PackageHouse house,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issueSourceOperation,
+        CancellationToken cancellationToken = default)
+    {
+        if (demand == SharedExactTypePackageDemand.Surface)
+        {
+            return await ExecuteSharedExactTypeAsync(
+                    options,
+                    plan,
+                    request,
+                    house,
+                    issueSourceOperation(cancellationToken),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        async ValueTask<int> UseTargetAsync(
+            InspectionEnvelope<ExactTypeInspectionResult> envelope,
+            SelectedContextExactTypeLiveTarget? target,
+            CancellationToken _)
+        {
+            if (!envelope.Content.IsAvailable
+                || target is null)
+            {
+                WriteExactTypeNonSuccess(envelope);
+                return 1;
+            }
+
+            TypeOptions effectiveOptions = options with
+            {
+                ShowDocs = false,
+                DocsExplicitlySet = true,
+            };
+            return await ExecuteWorkspaceExactTypeResultAsync(
+                    effectiveOptions,
+                    plan,
+                    envelope.Content,
+                    envelope.Diagnostics,
+                    ExactTypeRenderSource.From(request) with
+                    {
+                        SelectedLibraryPath = target.PackageAssetPath,
+                    },
+                    target,
+                    requiresLocalAssemblyPath: false)
+                .ConfigureAwait(false);
+        }
+
+        try
+        {
+            return await ExactTypeInspectionOperation
+                .ExecuteFirstAvailableWithDefiningImplementationTargetAsync(
+                    [request],
+                    house,
+                    issueSourceOperation,
+                    ApiSurfaceScope.Public,
+                    UseTargetAsync,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
     }
 
     internal static async Task<int> ExecuteSharedExactTypeAsync(
@@ -1717,7 +1851,8 @@ public static partial class TypeCommand
         IEnumerable<InspectionDiagnostic> diagnostics,
         ExactTypeRenderSource renderSource,
         SelectedContextExactTypeLiveTarget target,
-        string? packageExtractPathOverride = null)
+        string? packageExtractPathOverride = null,
+        bool requiresLocalAssemblyPath = true)
     {
         WriteInspectionDiagnostics(diagnostics);
 
@@ -1727,7 +1862,8 @@ public static partial class TypeCommand
             target,
             (source, loaded) => ExecuteCoreAsync(
                 options, plan, source, loaded, preselectedType: target.Type),
-            packageExtractPathOverride).ConfigureAwait(false);
+            packageExtractPathOverride,
+            requiresLocalAssemblyPath).ConfigureAwait(false);
         return exitCode != 0 || !result.IsComplete ? 1 : 0;
     }
 

@@ -603,6 +603,49 @@ public sealed class PackageRootAcquisitionTests
     }
 
     [Fact]
+    public async Task
+        ExactRuntimeOnlyRequest_ReacquiresNullPopulationTargetThroughToken()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store =
+            await CachedStoreAsync(RuntimeOnlyPackage());
+        PackageRootHouseExecution options = Options(http, store);
+        PackageRootReacquisitionRequest request = Request(
+            "net10.0",
+            "linux-x64",
+            "net10.0",
+            "linux-x64",
+            compileTargetFramework: "net10.0",
+            ownerDefaultTarget: true,
+            retainsUnboundedRuntimePopulation: true);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var acquired =
+            Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+                await PackageRootAcquisition.AcquireAsync(
+                    decoded,
+                    options,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(decoded, acquired.Request);
+        Assert.Null(acquired.Request.RequestedTargetFramework);
+        Assert.Equal(
+            "net10.0",
+            acquired.Request.CompileTargetFramework);
+        Assert.Equal(
+            "net10.0",
+            acquired.Request.SelectionTargetFramework);
+        Assert.Null(
+            acquired.Request.RuntimePopulationTargetFramework);
+        Assert.Equal(
+            decoded.Encode(),
+            acquired.Request.Encode());
+    }
+
+    [Fact]
     public async Task PortableConfiguredProducer_ReacquiresWithoutChangingContentKey()
     {
         using IPackageSourceClient source =
@@ -1039,6 +1082,13 @@ public sealed class PackageRootAcquisitionTests
                     Framework,
                     null,
                     ownerDefaultTarget: true),
+                Request(
+                    null,
+                    null,
+                    Framework,
+                    null,
+                    ownerDefaultTarget: true,
+                    retainsUnboundedRuntimePopulation: true),
                 Request(null, null, null, null),
             })
         {
@@ -1157,6 +1207,34 @@ public sealed class PackageRootAcquisitionTests
             currentPrevious.Encode(),
             StringComparison.Ordinal);
 
+        string precedingToken = VersionedToken(
+            "pkgroot6",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            null,
+            Framework,
+            Framework,
+            null,
+            "exact",
+            "exact",
+            "selected");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                precedingToken,
+                out PackageRootReacquisitionRequest? preceding));
+        Assert.Null(preceding.RequestedTargetFramework);
+        Assert.Equal(Framework, preceding.CompileTargetFramework);
+        Assert.Equal(
+            Framework,
+            preceding.RuntimePopulationTargetFramework);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            preceding.Encode(),
+            StringComparison.Ordinal);
+
         string previousToken = VersionedToken(
             "pkgroot4",
             PackageId,
@@ -1186,6 +1264,20 @@ public sealed class PackageRootAcquisitionTests
         Assert.NotEqual(
             Request(Framework, null, Framework, null).Encode(),
             Request(Framework, "win-x64", Framework, "win-x64").Encode());
+        Assert.NotEqual(
+            Request(
+                null,
+                null,
+                Framework,
+                null,
+                ownerDefaultTarget: true).Encode(),
+            Request(
+                null,
+                null,
+                Framework,
+                null,
+                ownerDefaultTarget: true,
+                retainsUnboundedRuntimePopulation: true).Encode());
     }
 
     [Fact]
@@ -1365,6 +1457,20 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     Framework,
                     Framework,
+                    Framework,
+                    null,
+                    "exact",
+                    "exact",
+                    "selected",
+                    " net11.0"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    Framework,
                     null,
                     "other",
                     "exact"),
@@ -1506,7 +1612,8 @@ public sealed class PackageRootAcquisitionTests
         bool usesCompatibleImplementationSelection = false,
         bool allowsCompatibleTargetSelection = false,
         bool? hasSelectedImplementationUniverse = null,
-        bool ownerDefaultTarget = false)
+        bool ownerDefaultTarget = false,
+        bool retainsUnboundedRuntimePopulation = false)
         => RequestForProducer(
             NuGetCache.GetSourceKey(NuGetOrg.Url),
             acquisitionFramework,
@@ -1517,7 +1624,8 @@ public sealed class PackageRootAcquisitionTests
             usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection,
             hasSelectedImplementationUniverse,
-            ownerDefaultTarget);
+            ownerDefaultTarget,
+            retainsUnboundedRuntimePopulation);
 
     static PackageRootReacquisitionRequest RequestForProducer(
         string producer,
@@ -1529,7 +1637,8 @@ public sealed class PackageRootAcquisitionTests
         bool usesCompatibleImplementationSelection = false,
         bool allowsCompatibleTargetSelection = false,
         bool? hasSelectedImplementationUniverse = null,
-        bool ownerDefaultTarget = false)
+        bool ownerDefaultTarget = false,
+        bool retainsUnboundedRuntimePopulation = false)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
@@ -1554,7 +1663,11 @@ public sealed class PackageRootAcquisitionTests
                 hasSelectedImplementationUniverse
                     ?? selectionTargetFramework is not null,
                 usesCompatibleImplementationSelection,
-                allowsCompatibleTargetSelection));
+                allowsCompatibleTargetSelection,
+                retainsUnboundedRuntimePopulation
+                    ? null
+                    : compileTargetFramework
+                        ?? selectionTargetFramework));
     }
 
     static string Token(params string?[] fields)
@@ -1570,6 +1683,14 @@ public sealed class PackageRootAcquisitionTests
                 .. fields[..5],
                 fields[5],
                 .. fields[5..],
+            ];
+        }
+        if (fields.Length == 12)
+        {
+            fields =
+            [
+                .. fields,
+                fields[5] ?? fields[6],
             ];
         }
 
@@ -1666,6 +1787,34 @@ public sealed class PackageRootAcquisitionTests
                 .CreateEntry($"lib/{framework}/{AssemblyName}.dll")
                 .Open();
             stream.Write(image, 0, image.Length);
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] RuntimeOnlyPackage()
+    {
+        byte[] image = IntegrationAssembly();
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream linux = archive
+                .CreateEntry(
+                    $"runtimes/linux-x64/lib/net10.0/{AssemblyName}.dll")
+                .Open())
+            {
+                linux.Write(image);
+            }
+            using (Stream windows = archive
+                .CreateEntry(
+                    $"runtimes/win-x64/lib/net11.0/{AssemblyName}.dll")
+                .Open())
+            {
+                windows.Write(image);
+            }
         }
 
         return buffer.ToArray();

@@ -1574,7 +1574,7 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 MethodClassificationDemand.PInvokeMethods,
-                UnsafeEvidenceQuery.Definition,
+                UnsafeMemberCensusQuery.Definition,
             ],
             pipeline.GetRequiredQueries(Verbosity.Minimal, include));
     }
@@ -1945,7 +1945,7 @@ public partial class SectionPipelineTests
                 TopLeverageQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
-                UnsafeEvidenceQuery.Definition,
+                UnsafeMemberCensusQuery.Definition,
             ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
         Assert.Equal(

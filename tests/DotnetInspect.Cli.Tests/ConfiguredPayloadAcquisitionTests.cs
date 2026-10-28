@@ -443,7 +443,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 binding.Root.RequestedRuntimeIdentifier,
                 binding.HasSelectedImplementationUniverse,
                 binding.UsesCompatibleImplementationSelection,
-                binding.AllowsCompatibleTargetSelection));
+                binding.AllowsCompatibleTargetSelection,
+                binding.RuntimePopulationTargetFramework));
         PackageRootBinding legacyRebound =
             Assert.IsType<PackageRootRebindingOutcome.Bound>(
                 PackageRootAcquisition.BindReacquired(
