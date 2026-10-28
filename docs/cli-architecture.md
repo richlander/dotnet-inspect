@@ -87,6 +87,9 @@ compile-inventory evidence, not Library content. Children retain the
 committed content-only Root and its owner-issued
 selection, including empty and incompatible-target outcomes. Rendering format
 alone does not determine evidence strength.
+Children obtain declared identity and tool classification through the shared
+manifest-facts query without requesting dependency-group selection or Library
+inspection. A rejected or unreadable manifest is a visible failure.
 
 Rich inspection still requires its promised fields, including full JSON's
 existing facts and House measurements. Package Info retains selected Library

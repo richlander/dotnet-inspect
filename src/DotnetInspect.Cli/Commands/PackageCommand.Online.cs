@@ -88,16 +88,33 @@ public partial class PackageCommand
         InspectionResult? childrenResult = null;
         if (childrenOnly)
         {
-            NuspecData? nuspec = ReadCompileInventoryNuspec(
-                settlement.Payload.Content,
-                ecosystemRecognitionRequested: false);
-            if (nuspec?.IsToolPackage == true)
+            PackageManifestInspectionResult manifest =
+                await PackageManifestFactsQuery.ExecuteInspectionAsync(
+                        PackageInspectionInput.CreateFromPayload(
+                            settlement.Payload))
+                    .ConfigureAwait(false);
+            if (manifest is PackageManifestInspectionResult.Failed failed)
+            {
+                CommandError.Write(
+                    "Could not inspect the package manifest.",
+                    failed.Error.Message);
+                return 1;
+            }
+            PackageManifestFacts? facts = manifest switch
+            {
+                PackageManifestInspectionResult.Available available =>
+                    available.Value,
+                PackageManifestInspectionResult.NoManifest => null,
+                _ => throw new InvalidOperationException(
+                    "Unknown package manifest inspection result."),
+            };
+            if (facts?.IsToolPackage == true)
                 return null;
             childrenResult = new InspectionResult
             {
-                PackageName = nuspec?.PackageName
+                PackageName = facts?.DeclaredPackageId
                     ?? settlement.Payload.Coordinate.PackageId,
-                Version = nuspec?.Version
+                Version = facts?.DeclaredPackageVersion
                     ?? settlement.Payload.Coordinate.Version,
                 Source = SourceKind.NuGet,
             };

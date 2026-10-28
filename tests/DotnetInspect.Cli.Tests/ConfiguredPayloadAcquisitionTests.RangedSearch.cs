@@ -116,6 +116,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.Equal(expectedExit, result.Exit);
         using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(id, document.RootElement.GetProperty("package_id").GetString());
         Assert.Equal(
             expectedStatus,
             document.RootElement.GetProperty("status").GetString());
@@ -164,6 +165,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         else
         {
             using JsonDocument document = JsonDocument.Parse(result.Output);
+            Assert.Equal(id, document.RootElement.GetProperty("package_id").GetString());
             Assert.Equal(1, document.RootElement.GetProperty("total_count").GetInt32());
             Assert.Equal(
                 "lib/net11.0/Selected.dll",
