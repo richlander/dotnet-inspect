@@ -373,6 +373,79 @@ public sealed class MetadataTypeDeclarationEvidenceTests
     }
 
     [Fact]
+    public void DirectBaseTypeNameKeepsLiteralBacktickBytes()
+    {
+        using Fixture fixture =
+            Fixture.CreateLiteralBacktickTypeNames();
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Derived"]));
+        Assert.NotNull(posted.Evidence.BaseType);
+        var named = Assert.IsType<
+            MetadataTypeSignatureType.Named>(
+                posted.Evidence.BaseType.Type);
+
+        Assert.True(
+            Assert.Single(named.Name.Segments)
+                .ValueTextEquals("Base`Literal"u8));
+        Assert.Equal(
+            [0],
+            named.Name.IntroducedGenericParameterCounts);
+    }
+
+    [Fact]
+    public void DirectConstraintTypeNameKeepsLiteralBacktickBytes()
+    {
+        using Fixture fixture =
+            Fixture.CreateLiteralBacktickTypeNames();
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Generic"]));
+        MetadataTypeSignatureConstraintEvidence constraint =
+            Assert.Single(
+                Assert.Single(posted.Evidence.GenericParameters)
+                    .TypeConstraints);
+        var named = Assert.IsType<
+            MetadataTypeSignatureType.Named>(
+                constraint.Type);
+
+        Assert.True(
+            Assert.Single(named.Name.Segments)
+                .ValueTextEquals("Constraint`Literal"u8));
+        Assert.Equal(
+            [0],
+            named.Name.IntroducedGenericParameterCounts);
+    }
+
+    [Fact]
+    public void CanonicalTypeDefArityMustMatchGenericParameters()
+    {
+        using Fixture fixture =
+            Fixture.CreateContradictoryTypeNameArity();
+
+        var rejected = Assert.IsType<
+            MetadataTypeSignatureResult.Rejected>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Derived"]));
+
+        Assert.Equal(
+            MetadataTypeDeclarationFailureReason
+                .MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataTypeDeclarationStage
+                .SignatureBaseProjection,
+            rejected.Failure.Stage);
+    }
+
+    [Fact]
     public void CompleteSignaturePostsNoBaseForSystemObject()
     {
         string path = typeof(object).Assembly.Location;
@@ -2963,6 +3036,88 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 new Dictionary<string, TypeDefinitionHandle>
                 {
                     ["Generic"] = type,
+                });
+        }
+
+        internal static Fixture
+            CreateLiteralBacktickTypeNames()
+        {
+            var metadata = CreateBuilder(
+                "literal-backtick-type-names.dll",
+                "LiteralBacktickTypeNames");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            AddModuleType(metadata);
+            TypeDefinitionHandle baseType = AddType(
+                metadata,
+                "Base`Literal",
+                TypeAttributes.Public,
+                @object);
+            TypeDefinitionHandle derived = AddType(
+                metadata,
+                "Derived",
+                TypeAttributes.Public,
+                baseType);
+            TypeDefinitionHandle constraint = AddType(
+                metadata,
+                "Constraint`Literal",
+                TypeAttributes.Public,
+                @object);
+            TypeDefinitionHandle generic = AddType(
+                metadata,
+                "Generic`1",
+                TypeAttributes.Public,
+                @object);
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    generic,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                constraint);
+            return Write(
+                metadata,
+                new Dictionary<string, TypeDefinitionHandle>
+                {
+                    ["Derived"] = derived,
+                    ["Generic"] = generic,
+                });
+        }
+
+        internal static Fixture
+            CreateContradictoryTypeNameArity()
+        {
+            var metadata = CreateBuilder(
+                "contradictory-type-name-arity.dll",
+                "ContradictoryTypeNameArity");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            AddModuleType(metadata);
+            TypeDefinitionHandle baseType = AddType(
+                metadata,
+                "Base`1",
+                TypeAttributes.Public,
+                @object);
+            TypeDefinitionHandle derived = AddType(
+                metadata,
+                "Derived",
+                TypeAttributes.Public,
+                baseType);
+            return Write(
+                metadata,
+                new Dictionary<string, TypeDefinitionHandle>
+                {
+                    ["Derived"] = derived,
                 });
         }
 

@@ -909,10 +909,8 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
             for (int i = 0; i < introduced.Count; i++)
             {
                 NameArity nameArity = nameArities[i];
-                if (nameArity.ContainsBacktick
-                    && (!nameArity.IsCanonical
-                        || nameArity.Arity
-                            != introduced[i]))
+                if (nameArity.IsCanonical
+                    && nameArity.Arity != introduced[i])
                 {
                     throw _owner.Refuse(
                         _site with { Handle = chain[i] },
@@ -1200,22 +1198,21 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
             ReadOnlySpan<byte> name =
                 MetadataUtf8Name.ReadExactBytes(reader);
             int tick = name.LastIndexOf((byte)'`');
-            bool containsBacktick = tick >= 0;
             if (tick < 1 || tick == name.Length - 1)
-                return new(containsBacktick, false, 0);
+                return default;
             ReadOnlySpan<byte> digits = name[(tick + 1)..];
             if (digits.Length > 5 || digits[0] == (byte)'0')
-                return new(true, false, 0);
+                return default;
             int value = 0;
             foreach (byte digit in digits)
             {
                 if (digit is < (byte)'0' or > (byte)'9')
-                    return new(true, false, 0);
+                    return default;
                 value = (value * 10) + digit - (byte)'0';
             }
             return value <= MetadataNameArity.MaxArity
-                ? new(true, true, value)
-                : new(true, false, 0);
+                ? new(true, value)
+                : default;
         }
 
         static MetadataTypeSignatureNamedKind NamedKind(
@@ -1369,7 +1366,6 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
     }
 
     readonly record struct NameArity(
-        bool ContainsBacktick,
         bool IsCanonical,
         int Arity);
 }
