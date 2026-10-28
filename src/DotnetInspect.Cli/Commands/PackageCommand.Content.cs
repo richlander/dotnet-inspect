@@ -1372,27 +1372,33 @@ public partial class PackageCommand
         await using DesktopPackageSourceComposition composition =
             context.CreatePackageSourceComposition();
         using var stores = new SearchPackageStores();
-        ConfiguredPackagePayloadResult acquisition =
+        PackageHouseContentQuery contentQuery =
+            PackageHouseContentQuery.PackageFileList();
+        PackageHouseSettlement contentSettlement =
             PackageExtractor.TryNormalizePackageVersion(
                 target.Version,
                 out string pinnedVersion)
-                ? await composition.AcquirePinnedAsync(
-                        target.PackageName,
-                        pinnedVersion,
+                ? await composition.AcquireContentAsync(
+                        PackageSourceCoordinate.Create(
+                            target.PackageName, pinnedVersion),
+                        contentQuery,
                         stores.GetStore,
                         options.SourceOptions,
                         context.Logger.Log)
                     .ConfigureAwait(false)
-                : await composition.AcquireSelectedAsync(
+                : await composition.AcquireSelectedContentAsync(
                         target.PackageName,
                         target.Version.Length > 0
                             ? target.Version
                             : null,
+                        contentQuery,
                         stores.GetStore,
                         options.SourceOptions,
                         context.Logger.Log,
                         options.IncludePrerelease)
                     .ConfigureAwait(false);
+        ConfiguredPackagePayloadResult acquisition =
+            PackageHousePayloadResultAdapter.Create(contentSettlement);
         if (acquisition.HouseSettlement
                 is not PackageHouseSettlement.Acquired settlement)
         {
@@ -1403,8 +1409,18 @@ public partial class PackageCommand
             return 1;
         }
 
+        if (settlement.Result.Evidence.FileList is not { } fileList)
+        {
+            WritePackageFileAcquisitionFailure(
+                target.PackageName,
+                target.Version,
+                acquisition);
+            return 1;
+        }
+
         if (MayRequireLegacyToolWrapperHandling(
-                settlement.Payload.Content.EnumerateEntries()))
+                fileList.Entries.Select(
+                    static entry => entry.Path)))
         {
             context.Logger.Log(
                 $"{target.PackageName}@{settlement.Payload.Coordinate.Version} "

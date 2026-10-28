@@ -465,7 +465,7 @@ diff routes, such as the aggregate package, member-filter, Analysis Diff
 scope. A public to protected move is therefore an accessibility row on the
 selected-Library route and a removal on those routes. In Inspect Web, the
 other Diff analyses that share the Library comparison
-(`DiffAnalysisLibraryInspection.Execute`) receive the same API axis surfaces
+(`DiffOperation.ExecuteLibraryPair`) receive the same API axis surfaces
 ([Inspect Web Library API Diff](inspect-web-library-api-diff.md#managed-composition)).
 
 ### Per-side facts

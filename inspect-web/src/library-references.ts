@@ -1,5 +1,7 @@
-import type { BrowserPackageDependencies } from "./facades/inspect-web-package.d.ts";
 import { assemblyReferenceGraphLegendHtml } from "./graph-legends.ts";
+import type {
+  LibraryReferenceInspectionEnvelope,
+} from "./package-inspection.ts";
 
 export interface AssemblyReferenceIdentity {
   readonly name: string;
@@ -34,7 +36,7 @@ export interface LibraryReferencesOptions {
   coordinate: string;
   loading: boolean;
   error: string;
-  data: BrowserPackageDependencies | null;
+  data: LibraryReferenceInspectionEnvelope | null;
   referenceDestinations: readonly (LibraryReferenceDestination | null)[];
   referenceIcons: readonly (string | null)[];
   escapeHtml: (value: unknown) => string;
@@ -121,15 +123,24 @@ export function renderLibraryReferencesSurface(options: LibraryReferencesOptions
   } else if (!data) {
     status = "Loading\u2026";
     content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
-  } else if (data.assemblyReferences === null
-    || typeof data.assemblyReferences === "string") {
-    const message = data.assemblyReferences === null
-      ? "The engine returned no assembly-reference result."
-      : data.assemblyReferences || "No failure details were provided.";
+  } else if (data.content === null) {
+    const message = "The engine returned no assembly-reference result.";
+    status = "Inspection failed";
+    content = `<section class="document-section empty-document"><h2>Reference inspection failed</h2><p>${escapeHtml(message)}</p></section>`;
+  } else if (data.content.outcome === "rejected") {
+    const detail = data.content.reason.detail;
+    const message = `${String(data.content.reason.kind)}${detail
+      ? ` (${detail})`
+      : ""}`;
+    status = "Inspection failed";
+    content = `<section class="document-section empty-document"><h2>Reference inspection failed</h2><p>${escapeHtml(message)}</p></section>`;
+  } else if (data.content.outcome === "failed") {
+    const message = data.content.reason.detail
+      || "No failure details were provided.";
     status = "Inspection failed";
     content = `<section class="document-section empty-document"><h2>Reference inspection failed</h2><p>${escapeHtml(message)}</p></section>`;
   } else {
-    const references = data.assemblyReferences.references;
+    const references = data.content.references;
     status = `${references.length.toLocaleString()} direct reference${references.length === 1 ? "" : "s"}`;
     content = references.length
       ? `<section class="document-section reference-graph-section">
