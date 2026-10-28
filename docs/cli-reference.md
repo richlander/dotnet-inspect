@@ -1428,6 +1428,15 @@ and Find does not modify the packet. General Workspace content search remains
 staged under [Find Workspace scope](design/find-workspace-scope.md#workspace-packet-admission).
 The same Ecosystem output, row limits, Count and prefix-search rules below apply.
 
+Debug builds expose `--evidence-envelope <path>` for `--ecosystem` and these
+registration-only Workspaces. The sidecar contains the completed inspection
+envelope plus the normalized question, resolved scope, admitted indexes,
+phase work, live candidate allowance and consumption, stop reason, and remaining
+coverage. Ordinary output is unchanged. Legacy acquisition-receipt
+unavailability is explicit, not zero network activity. Discovery and other
+Find routes refuse the gesture; explicit `--package-prefix` refuses it before
+its parse-time package expansion. Release builds do not expose this option.
+
 TSV and JSONL search admitted Ecosystem indexes first. When indexed rows fill
 the window, they do not realize bounded platform/core sources or start live
 prefix work. After index exhaustion, they search named populations and then

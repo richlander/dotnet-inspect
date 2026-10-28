@@ -305,6 +305,12 @@ internal partial class MemberFindResultJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<MemberFindResult>))]
 internal partial class MemberFindResultCompactJsonContext : JsonSerializerContext { }
 
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(DotnetInspector.Queries.EcosystemFindSearchSummary<FindCommand.LayeredSearchBlock>))]
+internal partial class EcosystemFindResultJsonContext : JsonSerializerContext { }
+
 static class JsonOutputHelper
 {
     public static void Write<T>(T data, JsonTypeInfo<T> indented, JsonTypeInfo<T> compact, bool useCompact)
