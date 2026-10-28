@@ -969,42 +969,45 @@ public partial class DiffCommand
         {
             if (detailed)
                 return await Complete(
-                    result => LibraryApiChangesInspection.ChangesTable(result, selection),
+                    outcome => LibraryApiChangesInspection.ChangesTable(outcome, selection),
                     LibraryApiDiffOutput.ChangesTableContract,
                     table => LibraryApiDiffOutput.WriteChangesRows(table, options));
             return await Complete(
-                result => LibraryApiChangesInspection.TypeTable(result, selection),
+                outcome => LibraryApiChangesInspection.TypeTable(outcome, selection),
                 LibraryApiDiffOutput.TypeTableContract,
                 table => LibraryApiDiffOutput.WriteTypeRows(table, options));
         }
         if (detailed)
             return await Complete(
-                result => LibraryApiChangesInspection.ChangesDocument(result, selection),
+                outcome => LibraryApiChangesInspection.ChangesDocument(outcome, selection),
                 LibraryApiDiffOutput.ChangesDocumentContract,
                 document => LibraryApiDiffOutput.WriteChangesDocument(
                     document, inputs.Name, inputs.FromVersion, inputs.ToVersion, options,
                     hasPackage ? inputs.From.Framework : null, hasPackage ? inputs.To.Framework : null));
         return await Complete(
-            result => LibraryApiChangesInspection.TypeDocument(result, selection),
+            outcome => LibraryApiChangesInspection.TypeDocument(outcome, selection),
             LibraryApiDiffOutput.TypeDocumentContract,
             document => LibraryApiDiffOutput.WriteTypeDocument(
                 document, inputs.Name, inputs.FromVersion, inputs.ToVersion, options,
                 hasPackage ? inputs.From.Framework : null, hasPackage ? inputs.To.Framework : null));
 
         async Task<int> Complete<T>(
-            Func<AssemblyContextApiComparisonResult, InspectionEnvelope<LibraryApiChangesOutcome<T>>> complete,
+            Func<LibraryApiDiffOutcome, InspectionEnvelope<LibraryApiChangesOutcome<T>>> project,
             InspectionEnvelopeJsonContract<LibraryApiChangesOutcome<T>> contract,
             Action<T> render)
         {
             var envelope = inputs.From.PackageScope is { } beforeScope
                 && inputs.To.PackageScope is { } afterScope
                     ? await LibraryApiDiffRunner.ExecuteAsync(
-                        beforeScope, afterScope, options.IncludeAll, complete, typeSelection, cancellationToken)
+                        beforeScope, afterScope, options.IncludeAll, Complete, typeSelection, cancellationToken)
                     : await LibraryApiDiffRunner.ExecuteAsync(
                         inputs.From.AssemblySet.Assemblies[0], inputs.To.AssemblySet.Assemblies[0],
-                        options.IncludeAll, complete, typeSelection);
+                        options.IncludeAll, Complete, typeSelection);
             int written = LibraryApiDiffOutput.Write(envelope, contract, inputs.Name, options, render);
             return PublishAcquisitionEvidence(inputs, options, envelope, contract, written);
+
+            InspectionEnvelope<LibraryApiChangesOutcome<T>> Complete(AssemblyContextApiComparisonResult result)
+                => project(LibraryApiDiffPresentationAdapter.Create(result));
         }
     }
 
