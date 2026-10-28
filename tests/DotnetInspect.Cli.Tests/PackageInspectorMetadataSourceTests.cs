@@ -54,7 +54,11 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 root, TempDir: null, packageId, version, ProducerKey: producer)
             {
                 Authority = authority,
-                AcquiredPayload = Payload(packageId, version, producer),
+                AcquiredPayload = Payload(
+                    packageId,
+                    version,
+                    producer,
+                    name),
             };
             PackageIndexCacheSubject? subject =
                 PackageIndexCacheSubject.TryCreate(
@@ -83,6 +87,91 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.NotEqual(
             PackageIndexCache.CacheKey(subjects[0]),
             PackageIndexCache.CacheKey(subjects[1]));
+    }
+
+    [Fact]
+    public async Task InspectAsync_CacheHitRefreshesTargetWithoutErasingToolClassification()
+    {
+        PersistentCache.Initialize(
+            "dotnet-inspect-test",
+            Path.Combine(_root, "selection-cache"));
+        const string PackageId = "Selection.Cache";
+        const string Version = "1.0.0";
+        const string Producer = "selection-cache-producer";
+        Directory.CreateDirectory(
+            Path.Combine(_root, "tools", "net8.0", "any"));
+        var authority = new ConfiguredPackageAuthority(
+            new NuGetFetch.PackageSource(
+                "selection-cache",
+                "https://selection.example/v3/index.json"));
+        var payload = new AcquiredPackageSourcePayload(
+            NuGetFetch.PackageSourceCoordinate.Create(PackageId, Version),
+            new InMemoryPackageContent(
+                CreatePackage(
+                    PackageId,
+                    Version,
+                    "Selection cache",
+                    dependencyId: "Example.Dependency",
+                    dependencyTargetFramework: ".NETStandard2.0"),
+                fromCache: true,
+                producerKey: Producer),
+            Producer,
+            PackagePayloadOrigin.Cache);
+        var resolution = new PackageExtractionResult(
+            _root,
+            null,
+            PackageId,
+            Version,
+            Producer)
+        {
+            Authority = authority,
+            AcquiredPayload = payload,
+        };
+        NuspecData nuspec = NuspecParser.ParseContent(
+            $"""
+             <package><metadata><id>{PackageId}</id><version>{Version}</version>
+             <description>Selection cache</description></metadata></package>
+             """)!;
+        using var client = new HttpClient(new RoutingHandler(_ =>
+            throw new InvalidOperationException(
+                "This inspection does not request remote metadata.")));
+
+        InspectionResult cold = await PackageInspector.InspectAsync(
+            resolution,
+            PackageId,
+            Version,
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec,
+            client,
+            new VerboseLogger(enabled: false));
+        Assert.True(cold.IsToolPackage);
+        Assert.NotNull(PackageIndexCache.TryGet(Subject(resolution)));
+
+        InspectionResult cached = await PackageInspector.InspectAsync(
+            resolution,
+            PackageId,
+            Version,
+            isLocalFile: false,
+            localFilePath: null,
+            nuspec,
+            client,
+            new VerboseLogger(enabled: false),
+            requestedTargetFramework: "netstandard2.0");
+
+        var available =
+            Assert.IsType<PackageDependencyInspectionOutcome.Available>(
+                cached.PackageDependencyInspection?.Content);
+        Assert.Equal(
+            ".NETStandard2.0",
+            available.Dependencies.SelectedTargetFramework);
+        Assert.Equal(
+            "Example.Dependency",
+            Assert.Single(
+                Assert.IsType<DeclaredPackageDependencyGroup>(
+                    available.Dependencies.SelectedGroup)
+                    .Dependencies).Id);
+        Assert.Equal(cold.IsToolPackage, cached.IsToolPackage);
     }
 
     [Fact]
@@ -1766,11 +1855,15 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     private static AcquiredPackageSourcePayload Payload(
         string packageId,
         string version,
-        string producerKey)
+        string producerKey,
+        string? description = null)
         => new(
             NuGetFetch.PackageSourceCoordinate.Create(packageId, version),
             new InMemoryPackageContent(
-                [1, 2, 3],
+                CreatePackage(
+                    packageId,
+                    version: version,
+                    description: description),
                 fromCache: true,
                 producerKey),
             producerKey,
@@ -1833,9 +1926,31 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         string packageId,
         string? dependencyId = null,
         string? assemblyPath = null)
+        => CreatePackage(
+            packageId,
+            "1.0.0",
+            "Test package",
+            dependencyId,
+            assemblyPath);
+
+    private static byte[] CreatePackage(
+        string packageId,
+        string version,
+        string? description,
+        string? dependencyId = null,
+        string? assemblyPath = null,
+        string? dependencyTargetFramework = null)
     {
         string dependencies = dependencyId is null
             ? ""
+            : dependencyTargetFramework is not null
+                ? $"""
+                      <dependencies>
+                        <group targetFramework="{dependencyTargetFramework}">
+                          <dependency id="{dependencyId}" version="1.0.0" />
+                        </group>
+                      </dependencies>
+                    """
             : $"""
                   <dependencies>
                     <dependency id="{dependencyId}" version="1.0.0" />
@@ -1859,9 +1974,9 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     <package>
                       <metadata>
                         <id>{{packageId}}</id>
-                        <version>1.0.0</version>
+                        <version>{{version}}</version>
                         <authors>Test</authors>
-                        <description>Test package</description>
+                        <description>{{description}}</description>
                     {{dependencies}}
                       </metadata>
                     </package>

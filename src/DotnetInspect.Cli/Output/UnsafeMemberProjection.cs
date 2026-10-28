@@ -123,7 +123,7 @@ internal static class UnsafeMemberProjection
                             .. finding.Evidence.Select(evidence =>
                                 new UnsafeMemberEvidenceJson
                                 {
-                                    Role = RoleText(evidence.Kind),
+                                    Role = UnsafeMemberFindingSummary.RoleText(evidence.Kind),
                                     Body = ApiOutputFormatter.FormatMethod(evidence.Body),
                                     IL = evidence.ILOffset is { } offset
                                         ? $"IL_{offset:X4}"
@@ -156,48 +156,16 @@ internal static class UnsafeMemberProjection
             : ApiOutputFormatter.FormatMember(null, member.Name, member.ParameterTypes, []);
 
     static string ExposureText(UnsafeMemberExposure exposure) =>
-        exposure switch
-        {
-            UnsafeMemberExposure.Public => "Public",
-            UnsafeMemberExposure.NonPublic => "Non-public",
-            UnsafeMemberExposure.Unknown => "Unknown",
-            _ => throw new InvalidOperationException(
-                $"Unknown unsafe member exposure '{exposure}'."),
-        };
-
-    static string RoleText(UnsafeMemberUseKind kind) =>
-        kind switch
-        {
-            UnsafeMemberUseKind.ExplicitContract => "explicit contract",
-            UnsafeMemberUseKind.PointerDereference => "pointer dereference",
-            UnsafeMemberUseKind.IndirectCall => "indirect call",
-            UnsafeMemberUseKind.StackAllocation => "stack allocation",
-            UnsafeMemberUseKind.ExplicitContractCall => "explicit-contract call",
-            _ => throw new InvalidOperationException(
-                $"Unknown unsafe member role '{kind}'."),
-        };
+        UnsafeMemberFindingSummary.ExposureText(exposure);
 
     // Roles in inventory order, a count suffix for a repeated role, and the
-    // distinct callees of an explicit-contract call role.
+    // distinct callees of an explicit-contract call role, from the same
+    // provenance-free summary that Diff compares.
     static string EvidenceText(ImmutableArray<UnsafeMemberFindingEvidence> evidence) =>
         string.Join(
             "; ",
-            evidence
-                .GroupBy(static item => item.Kind)
-                .OrderBy(static group => group.Key)
-                .Select(static group =>
-                {
-                    string role = RoleText(group.Key);
-                    int count = group.Count();
-                    string text = count > 1 ? $"{role} ×{count}" : role;
-                    if (group.Key != UnsafeMemberUseKind.ExplicitContractCall)
-                        return text;
-                    return text + ": " + string.Join(
-                        ", ",
-                        group
-                            .Select(static item => item.Detail)
-                            .Distinct(StringComparer.Ordinal)
-                            .Order(StringComparer.Ordinal)
-                            .Select(MarkoutInline.Code));
-                }));
+            UnsafeMemberFindingSummary.RolesOf(evidence)
+                .Select(static role => UnsafeMemberFindingSummary.RoleText(
+                    role,
+                    MarkoutInline.Code)));
 }

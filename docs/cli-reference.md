@@ -777,6 +777,11 @@ answer the request. The
 [network policy](design/progressive-disclosure.md#network-policy) owns this
 rule and its adoption status.
 
+Detailed verbosity does not request authored-source documentation for package
+Type or Member inspection. Implicit documentation remains compiled XML. For
+an exact Member's authored XML comment, use `--print --part xml-docs`; see
+[the documentation adoption boundary](design/documentation-house.md#shared-package-adoption-boundary).
+
 For Library audit, `-v:d` alone does not request acquisition of a missing PDB.
 Select a PDB-dependent audit section, such as `-S Symbols` or `-S Signals`,
 for that request. Normal and Detailed retain embedded, adjacent, and cached
@@ -1616,6 +1621,25 @@ in this format-5 example also supports Browser activation. Row controls retain
 ordinary Type semantics, including the JSON-document refusal for rendered-line
 limits. Count is a replay presentation choice; save the unfiltered Type view
 before requesting it.
+
+Query-free saved Member Overview (`member.overview`) views also replay:
+
+```bash
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize:1 \
+  --workspace "$environment" --share packet \
+  > member-content.md 2> member-share.txt
+saved_member=$(tail -n 1 member-share.txt)
+dotnet-inspect "$saved_member"               # Ordinary exact Member document
+dotnet-inspect -w "$saved_member" --json      # Ordinary Member JSON
+```
+
+The readable [Member packet](examples/workspace-member-replay.json) retains the
+exact Library, declaring Type and overload digest. Its default and explicit
+formats reuse ordinary Member output, including local XML documentation. Row
+and header controls retain ordinary Member semantics. `--count` requires a
+section selection on an ordinary Member command; saved Member overview
+activation reports the same diagnostic before restoration. Additional section
+selection cannot be supplied to root activation.
 
 Other saved inspection facets and attached queries fail explicitly before
 acquisition; their individual CLI bindings remain tracked in #4647.
