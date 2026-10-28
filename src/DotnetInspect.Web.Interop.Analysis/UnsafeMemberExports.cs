@@ -11,11 +11,12 @@ namespace DotnetInspect.Web.Interop.Analysis;
 
 /// <summary>
 /// The unsafe member census of one Library, one row per declared member with a
-/// finding, as docs/design/inspect-web-surface-composition.md#library-analysis
+/// finding, as docs/design/inspect-web-surface-composition.md#unsafe
 /// defines for the Unsafe tab.
 /// </summary>
 public sealed record BrowserUnsafeMembers(
     string Outcome,
+    string Assembly,
     BrowserUnsafeMember[] Members,
     string[] Limitations,
     string? InspectionError);
@@ -71,6 +72,12 @@ public static partial class AnalysisExports
                     participant, AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant))
                 : UnsafeMembersUnavailable(
                     "unavailable", "The selected library has no managed implementation assembly.");
+            // Rows navigate into the Library's API surface, which names the assembly.
+            result = result with
+            {
+                Assembly = scope.TryGetSurfaceParticipant(participant)?.Asset.AssemblyName
+                    ?? participant.Asset.AssemblyName,
+            };
         }
         return JsonSerializer.Serialize(result, BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers);
     }
@@ -87,7 +94,8 @@ public static partial class AnalysisExports
             result = ProjectUnsafeMembers(resolution.Scope.UseParticipant(
                 resolution.Participant,
                 static (group, participant) =>
-                    AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant(group, participant)));
+                    AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant(group, participant)))
+                with { Assembly = assemblyFileName };
         }
         return JsonSerializer.Serialize(result, BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers);
     }
@@ -130,9 +138,9 @@ public static partial class AnalysisExports
         return inspection switch
         {
             UnsafeMemberFindingInspection.Complete complete =>
-                new("available", Rows(complete.Inspection, content), [], null),
+                new("available", "", Rows(complete.Inspection, content), [], null),
             UnsafeMemberFindingInspection.Incomplete incomplete =>
-                new("incomplete", Rows(incomplete.Inspection, content),
+                new("incomplete", "", Rows(incomplete.Inspection, content),
                     [.. incomplete.Limitations.Select(static limitation =>
                         limitation.Describe(UnsafeMemberMethodLabel))],
                     null),
@@ -180,5 +188,5 @@ public static partial class AnalysisExports
         $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(static parameter => parameter.ToQualifiedDisplayString()))})";
 
     static BrowserUnsafeMembers UnsafeMembersUnavailable(string outcome, string error) =>
-        new(outcome, [], [], error);
+        new(outcome, "", [], [], error);
 }

@@ -204,6 +204,7 @@ import {
   type PackageDependenciesState,
   type PackagePerformance,
   type PackageResourceTriage,
+  type PackageUnsafeMembers,
   type PackageIntegrationsState,
   type PackageMetadataState,
   type PackageOpportunitiesState,
@@ -424,6 +425,7 @@ import {
 } from "./analysis-inspector.ts";
 import { bindTriageCode, singlePerformanceBodyTarget, triageIssuePreview } from "./triage-code.ts";
 import { renderLibraryResourceTriageSurface, renderMemberResourceTriageSurface } from "./library-resource-triage.ts";
+import { renderLibraryUnsafeMembersSurface } from "./library-unsafe-members.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
@@ -1056,6 +1058,8 @@ let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
 let inspectPackageResourceTriage:
   EngineClient["analysis"]["queryPackageResourceTriage"];
+let inspectPackageUnsafeMembers:
+  EngineClient["analysis"]["queryPackageUnsafeMembers"];
 let inspectPackageLibraryDependencyStructure:
   EngineClient["analysis"]["queryPackageLibraryDependencyStructure"];
 let inspectPackageLibraryMetrics:
@@ -1084,6 +1088,8 @@ let inspectPlatformPerformance:
   EngineClient["analysis"]["queryPlatformPerformance"];
 let inspectPlatformResourceTriage:
   EngineClient["analysis"]["queryPlatformResourceTriage"];
+let inspectPlatformUnsafeMembers:
+  EngineClient["analysis"]["queryPlatformUnsafeMembers"];
 let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
 let cancelTypeSourceInspection:
   EngineClient["source"]["cancelTypeSourceQuery"];
@@ -1279,6 +1285,7 @@ async function loadEngineModule() {
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageResourceTriage: inspectPackageResourceTriage,
+      queryPackageUnsafeMembers: inspectPackageUnsafeMembers,
       queryPackageLibraryDependencyStructure:
         inspectPackageLibraryDependencyStructure,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
@@ -1301,6 +1308,7 @@ async function loadEngineModule() {
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
       queryPlatformResourceTriage: inspectPlatformResourceTriage,
+      queryPlatformUnsafeMembers: inspectPlatformUnsafeMembers,
     } = engineClient.analysis);
     ({
       cancelSourceQuery: cancelSourceInspection,
@@ -1634,6 +1642,10 @@ const initialState = {
   packageResourceTriageLoading: false,
   packageResourceTriageError: "",
   packageResourceTriageKey: "",
+  packageUnsafeMembers: null,
+  packageUnsafeMembersLoading: false,
+  packageUnsafeMembersError: "",
+  packageUnsafeMembersKey: "",
   packageLibraryMetrics: null,
   packageLibraryMetricsLoading: false,
   packageLibraryMetricsError: "",
@@ -1807,6 +1819,7 @@ interface StateOverrides {
   packageOpportunities: PackageOpportunitiesState;
   packagePerformance: PackagePerformance | null;
   packageResourceTriage: PackageResourceTriage | null;
+  packageUnsafeMembers: PackageUnsafeMembers | null;
   packageMetadata: PackageMetadataState;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
@@ -2088,6 +2101,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
   const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
+  const packageUnsafeMembersLoading = snapshotState.packageUnsafeMembersLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
@@ -2110,6 +2124,7 @@ function normalizeWorkspaceAsyncSnapshotState(
     normalizePackageInspectionRequestSnapshot(snapshotState.packageOpportunities);
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
+  snapshotState.packageUnsafeMembersLoading = false;
   snapshotState.packageMetadata =
     normalizePackageInspectionRequestSnapshot(snapshotState.packageMetadata);
   snapshotState.memberCallGraphLoading = false;
@@ -2156,6 +2171,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
   if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
+  if (packageUnsafeMembersLoading) snapshotState.packageUnsafeMembersKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
   }
@@ -10371,6 +10387,7 @@ function renderCore(options: RenderOptions) {
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackagePerformance();
     maybeAutoLoadPackageResourceTriage();
+    maybeAutoLoadPackageUnsafeMembers();
     maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadPackageLibraryDependencyStructure();
     maybeAutoLoadTypeLeverage();
@@ -11583,6 +11600,7 @@ function libraryLensBody() {
           return renderPackageLibraryDependencyStructure();
         case "performance": return renderPackagePerformance();
         case "resource-triage": return renderPackageResourceTriage();
+        case "unsafe": return renderPackageUnsafeMembers();
         case "integrations": return renderPackageIntegrations();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
@@ -12290,6 +12308,11 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageUnsafeMembers: (packageModel, library) => inspectPackageUnsafeMembers(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework,
+    library),
   queryPackageLibraryDependencyStructure: (packageModel, library) =>
     inspectPackageLibraryDependencyStructure(
       packageModel.id,
@@ -12327,6 +12350,17 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack),
+  queryPlatformUnsafeMembers: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+  ) =>
+    inspectPlatformUnsafeMembers(
+      framework,
+      platformVersion,
+      assemblyFileName,
+      pack),
   queryPlatformLibraryDependencyStructure: (
     framework,
     platformVersion,
@@ -12619,6 +12653,30 @@ function renderPackageResourceTriage() {
   });
 }
 
+function renderPackageUnsafeMembers() {
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
+  const current = packageScopeSignature();
+  return renderLibraryUnsafeMembersSurface({
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({
+          dataAttr: "data-platform-analysis-library",
+          selected: scopedLib || "",
+        })
+      : "",
+    fresh: state.packageUnsafeMembersKey === current,
+    loading: state.packageUnsafeMembersLoading,
+    error: state.packageUnsafeMembersError,
+    data: state.packageUnsafeMembers,
+    escapeHtml,
+  });
+}
+
 function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
   const pkg = currentPackage();
   const library = selectedLibrary();
@@ -12710,6 +12768,24 @@ async function loadPackageResourceTriage() {
     pkg,
     packageScopeSignature(),
     scopedLib);
+}
+
+async function loadPackageUnsafeMembers() {
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadUnsafeMembers(
+    pkg,
+    packageScopeSignature(),
+    scopedLib);
+}
+
+function maybeAutoLoadPackageUnsafeMembers() {
+  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
+  if (aggregateLibrarySubjectIsActive()) return;
+  if (state.analysisMode !== "unsafe") return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  if (state.packageUnsafeMembersKey === packageScopeSignature()) return;
+  observeAsync(loadPackageUnsafeMembers(), "Loading unsafe members");
 }
 
 function maybeAutoLoadPackageResourceTriage() {
@@ -13279,7 +13355,44 @@ function drillToPerfMember(
     showToast("That ranked Member is no longer available.");
     return;
   }
-  const targetType = retainPerformanceNavigationType(pkg, ranked);
+  drillToAnalysisMember(
+    retainPerformanceNavigationType(pkg, ranked),
+    stableSelector,
+    resourceMethodToken === undefined ? "facts" : "resource-triage",
+    resourceMethodToken);
+}
+
+// An Unsafe Members row names its declared member by the Library's complete
+// API surface, so it opens without any ranked Performance evidence. A
+// non-public member widens the member accessibility filter to show it.
+function drillToUnsafeMember(
+  stableSelector: string,
+  assembly: string,
+  typeId: string,
+  accessibility: string,
+) {
+  performanceMemberBrowseContext = null;
+  const pkg = currentPackage();
+  const targetType = resolvePackagePerformanceType(pkg, { assembly, typeId });
+  if (!targetType) {
+    showToast("That unsafe member's Type is not in this Library's surface.");
+    return;
+  }
+  drillToAnalysisMember(
+    targetType,
+    stableSelector,
+    pkg.isRuntimePack ? "overview" : "facts",
+    undefined,
+    accessibility && accessibility !== "public" ? "all" : undefined);
+}
+
+function drillToAnalysisMember(
+  targetType: AppTypeSurface,
+  stableSelector: string,
+  section: MemberSection,
+  resourceMethodToken?: number,
+  memberAccessibility?: MemberAccessibility,
+) {
   const publication = ++performanceMemberNavigationSequence;
 
   state.atPackageRoot = false;
@@ -13290,6 +13403,7 @@ function drillToPerfMember(
   state.memberBrowseTypeId = "";
   state.namespaceFilter = "";
   resetMemberFilters();
+  if (memberAccessibility) state.memberAccessibilityFilter = memberAccessibility;
   setTypeMemberPopulationIntent("all", "csharp", "performance");
   state.lens = "api";
   state.selectedMemberKey = "";
@@ -13311,6 +13425,7 @@ function drillToPerfMember(
       expectedPopulationKey,
       expectedPopulationIntent,
       publication,
+      section,
       resourceMethodToken),
     "Loading the ranked Member");
 }
@@ -13321,6 +13436,7 @@ async function selectPerformanceMember(
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
   publication: number,
+  section: MemberSection,
   resourceMethodToken?: number,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation(true);
@@ -13358,7 +13474,7 @@ async function selectPerformanceMember(
       const selector = group.overloads[overloadIndex]?.bodySelectors.find(candidateBody => candidateBody.token === resourceMethodToken);
       if (selector) state.selectedBodyTarget = { memberName: selector.memberName, selectorKey: selector.selectorKey, metadataToken: selector.token };
     }
-    state.memberSection = resourceMethodToken === undefined ? "facts" : "resource-triage";
+    state.memberSection = section;
     completePerformanceMemberNavigationPublication(publication);
     render();
     await loadSelectedMemberAnalysisSurface();
@@ -14737,6 +14853,13 @@ const packageViewActions: PackageViewBindingActions = {
       target.assembly,
       target.typeId, target.resourceMethodToken);
   },
+  onUnsafeMemberSelect: target => {
+    drillToUnsafeMember(
+      target.stableSelector,
+      target.assembly,
+      target.typeId,
+      target.accessibility);
+  },
 };
 
 interface NoticeRetryState {
@@ -14881,6 +15004,7 @@ async function openPlatformLensLibrary(
   normalizeLibrarySelection();
   if (lens === "analysis") {
     if (state.analysisMode === "resource-triage") await loadPackageResourceTriage();
+    else if (state.analysisMode === "unsafe") await loadPackageUnsafeMembers();
     else if (state.analysisMode === "performance") await loadPackagePerformance();
     else if (state.analysisMode === "integrations")
       await loadPackageIntegrations();

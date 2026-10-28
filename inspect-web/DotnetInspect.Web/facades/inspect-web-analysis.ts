@@ -1007,6 +1007,7 @@ export interface BrowserUnsafeMemberEvidence {
 
 export interface BrowserUnsafeMembers {
   readonly outcome: string;
+  readonly assembly: string;
   readonly members: ReadonlyArray<BrowserUnsafeMember>;
   readonly limitations: ReadonlyArray<string>;
   readonly inspectionError: string | null;

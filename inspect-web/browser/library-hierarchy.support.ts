@@ -2212,6 +2212,11 @@ async function installFacades(
         document.documentElement.dataset.memberFactsRequest = JSON.stringify(args);
         return ${JSON.stringify(memberFactsFixture())};
       }
+      export async function queryPackageUnsafeMembers(id, version, framework, asset) {
+        const selected = surfaceFor(id).assemblies.find(item => item.id === asset);
+        const type = surfaceFor(id).types.find(item => item.assemblyId === selected.id);
+        return { outcome: "available", assembly: selected.name + ".dll", members: [{ member: type.definitionId + ".Run()", metadataToken: 100663297, exposure: "Public", explicitContract: false, evidence: "pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add", partial: false, typeId: type.definitionId, stableSelector: "Run", accessibility: "public", items: [{ role: "pointer dereference", body: type.definitionId + ".<Run>b__0_0()", ilOffset: 7, detail: "ldind.i4" }] }], limitations: [], inspectionError: null };
+      }
       export async function queryPackageResourceTriage(id, version, framework, asset) {
         const selected = surfaceFor(id).assemblies.find(item => item.id === asset);
         const type = surfaceFor(id).types.find(item => item.assemblyId === selected.id);

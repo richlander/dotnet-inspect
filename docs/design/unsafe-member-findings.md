@@ -493,8 +493,10 @@ This slice is step 2 of 5 for #5254's Unsafe view:
    evidence change; pairing generated bodies across versions belongs to
    [#9861](https://github.com/richlander/dotnet-inspect/issues/9861) and
    [#9870](https://github.com/richlander/dotnet-inspect/issues/9870).
-4. Inspect Web Library Analysis Unsafe tab, reworking #9366 onto this census
-   and replacing its public-member-only attribution.
+4. Inspect Web Library Analysis Unsafe tab over this census, replacing
+   #9366's public-member-only attribution. It's implemented: the
+   [Unsafe tab](inspect-web-surface-composition.md#unsafe) owns its
+   presentation.
 5. Unsafe guidance findings: a focused checker family with its own design.
 
 Steps 3 through 5 are separate focused efforts, each naming its own owner.

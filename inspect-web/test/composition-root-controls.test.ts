@@ -859,8 +859,17 @@ test("typed package view owns package navigation bindings", () => {
     binding,
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId, target\.resourceMethodToken\)/);
   assert.match(
+    binding,
+    /onUnsafeMemberSelect: target => \{[\s\S]*drillToUnsafeMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId,\s*target\.accessibility\)/);
+  assert.match(
     functionSource("drillToPerfMember"),
-    /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*resourceMethodToken\)/);
+    /drillToAnalysisMember\(\s*retainPerformanceNavigationType\(pkg, ranked\),\s*stableSelector,\s*resourceMethodToken === undefined \? "facts" : "resource-triage",\s*resourceMethodToken\)/);
+  assert.match(
+    functionSource("drillToUnsafeMember"),
+    /resolvePackagePerformanceType\(pkg, \{ assembly, typeId \}\)[\s\S]*drillToAnalysisMember\(/);
+  assert.match(
+    functionSource("drillToAnalysisMember"),
+    /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*section,\s*resourceMethodToken\)/);
   assert.match(
     appSource,
     /implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\)/);
@@ -874,7 +883,7 @@ test("typed package view owns package navigation bindings", () => {
     ?? "";
   assert.match(
     selectPerformanceMember,
-    /const populationReceipt = await loadSelectedTypeMemberPopulation\(true\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*performanceMemberBrowseContext = \{[\s\S]*populationReceipt,[\s\S]*state\.memberSection = resourceMethodToken === undefined \? "facts" : "resource-triage"[\s\S]*await loadSelectedMemberAnalysisSurface\(\)/);
+    /const populationReceipt = await loadSelectedTypeMemberPopulation\(true\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*performanceMemberBrowseContext = \{[\s\S]*populationReceipt,[\s\S]*state\.memberSection = section;[\s\S]*await loadSelectedMemberAnalysisSurface\(\)/);
   assert.match(
     appSource,
     /const receipt: TypeMemberPopulationReceipt = \{[\s\S]*generation: \+\+typeMemberPopulationGeneration,[\s\S]*typeMemberPopulationReceipt = receipt;[\s\S]*return receipt;/);
@@ -1274,7 +1283,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 10);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 11);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {

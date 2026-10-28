@@ -4,6 +4,7 @@ export type AnalysisMode =
   | "relationships"
   | "performance"
   | "resource-triage"
+  | "unsafe"
   | "integrations";
 
 export const defaultAnalysisMode: AnalysisMode = "relationships";
@@ -16,6 +17,7 @@ export function isAnalysisMode(
     || value === "relationships"
     || value === "performance"
     || value === "resource-triage"
+    || value === "unsafe"
     || value === "integrations";
 }
 
@@ -34,6 +36,7 @@ const modes = [
   ["integrations", "Integrations"],
   ["performance", "Performance Triage"],
   ["resource-triage", "Resource Triage"],
+  ["unsafe", "Unsafe"],
 ] as const satisfies readonly (readonly [AnalysisMode, string])[];
 
 export function renderAnalysisInspector(

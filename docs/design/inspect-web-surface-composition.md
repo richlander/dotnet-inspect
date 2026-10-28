@@ -1207,9 +1207,9 @@ separate work.
 
 The Library inspector order is **Overview**, **References**, **Compare**,
 **Analysis**, and **Metadata**. Analysis contains direct **Relationships**,
-**Complexity**, **Performance**, and **Integrations** tabs, following
-Compare's single-inspector mode composition. These modes are not separate
-persistent inspectors.
+**Dependencies**, **Complexity**, **Integrations**, **Performance Triage**,
+**Resource Triage**, and **Unsafe** tabs, following Compare's single-inspector
+mode composition. These modes are not separate persistent inspectors.
 
 Relationships is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
@@ -1265,7 +1265,7 @@ one fixed-height header row. At narrow widths the existing Types control
 occupies the title's place; status elides and tabs scroll locally.
 
 ```text
-Analysis  count/state   [Relationships]  Complexity  Performance  Integrations
+Analysis  count/state   [Relationships]  Dependencies  Complexity  …  Unsafe
 optional platform Library selector
 mode-owned content
 ```
@@ -1283,14 +1283,62 @@ in these modes; its Browser presentation belongs to the ordinary Type inventory
 defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
+#### Unsafe
+
+Unsafe renders the
+[unsafe member census](unsafe-member-findings.md) for the selected package or
+Platform Library, as step 4 of its
+[adoption](unsafe-member-findings.md#adoption-and-gates). The census owns
+admission, attribution, identity, exposure, and completeness. This tab owns
+only how it presents them.
+
+- **Population.** The census covers members of every accessibility. Exposure
+  is a row attribute, not a public-only filter.
+- **Rows.** There's one row per declared member with a finding, in the
+  [Unsafe Members section](unsafe-members-section.md#rows) order. Each row
+  shows the member, its exposure, an explicit-contract badge, the shared
+  evidence summary text, and a partial badge.
+  - Each row's contributing evidence items expand under it, with role,
+    physical body, IL offset, and detail. A lambda, local-function, or
+    state-machine body appears only as evidence of its declared member.
+  - The tab is ungraded: there's no severity, risk, or recommendation.
+- **Navigation.** A row whose member the Library's all-accessibility API
+  surface resolves links to that exact member.
+  - A non-public member widens the member accessibility filter so it's listed.
+  - Packages open Member Safety Facts. Platform Libraries open the member
+    overview, because Platform Member Facts isn't available.
+  - A row the surface can't resolve renders without a link and keeps its
+    finding.
+- **State.** Unsafe uses the same closed request state as Resource Triage: one
+  exact Library/coordinate request. Only the current request may publish;
+  replacement and package invalidation retire it. Workspace snapshots
+  normalize an interrupted load to idle.
+- **Outcomes.** Each outcome renders distinctly:
+  - loading;
+  - failed or rejected, with its diagnostic;
+  - unavailable, such as a reference-only Library;
+  - incomplete, as a warning that lists every census limitation above the
+    observed rows. An incomplete census with no rows says absence can't be
+    established, never "no unsafe members".
+  - complete with no findings, which is the empty state "No unsafe members
+    under the updated memory-safety rules";
+  - the rows.
+- **Bounds.** There's no row bound. The census is one bounded Library
+  operation.
+
+The managed export runs `AssemblyContextUnsafeMemberCensusQuery` over the
+Library's admitted implementation participant. That query runs the census
+through its shared session entry, and adds navigation identities from the
+complete API surface.
+
 The platform selector stays above scrolling results and keeps its existing
 acquisition behavior. Analysis has no bottom context row. Browser HTML lowering
-consumes the
-existing typed mode results; no producer, query, acquisition, CLI section, or
-result contract changes.
+consumes the existing typed mode results. Apart from the Unsafe tab's census
+query and export, no producer, query, acquisition, CLI section, or result
+contract changes.
 
-Focused renderer and production-composition browser gates cover all four
-direct tabs, lazy loading, focus retention across asynchronous completion,
+Focused renderer and production-composition browser gates cover the direct
+tabs, lazy loading, focus retention across asynchronous completion,
 wide/narrow layout, Library switching, row actions, and platform controls.
 
 ### Package Metadata

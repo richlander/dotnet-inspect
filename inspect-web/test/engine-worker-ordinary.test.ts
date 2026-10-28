@@ -232,6 +232,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     renderTriageCaret: () => unexpected("renderTriageCaret"),
     queryPackageResourceTriage: () =>
       unexpected("queryPackageResourceTriage"),
+    queryPackageUnsafeMembers: () =>
+      unexpected("queryPackageUnsafeMembers"),
     queryPackageLibraryDependencyStructure: () =>
       unexpected("queryPackageLibraryDependencyStructure"),
     queryPackageLibraryMetrics: () =>
@@ -248,6 +250,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformPerformance"),
     queryPlatformResourceTriage: () =>
       unexpected("queryPlatformResourceTriage"),
+    queryPlatformUnsafeMembers: () =>
+      unexpected("queryPlatformUnsafeMembers"),
   },
   source: {
     queryMemberBodyDiff: () => { throw new Error("unused"); },
@@ -2792,6 +2796,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageResourceTriage",
       "queryPackageTypeImplementationHeat",
       "queryPackageTypeMethodLeverage",
+      "queryPackageUnsafeMembers",
       "queryPlatformIntegrations",
       "queryPlatformLibraryDependencyStructure",
       "queryPlatformLibraryMetrics",
@@ -2801,6 +2806,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformResourceTriage",
       "queryPlatformTypeImplementationHeat",
       "queryPlatformTypeMethodLeverage",
+      "queryPlatformUnsafeMembers",
       "renderTriageCaret",
     ],
     source: [
@@ -2876,7 +2882,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 140);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 142);
 
   const state = fixture();
   const groups = [

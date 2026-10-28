@@ -1513,6 +1513,23 @@ test("triage rows have no collapsed code control and preserve Library Analysis",
 });
 
 
+test("Unsafe rows show census evidence and open the declared member's Safety Facts", async ({ page }) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.getByRole("tab", { name: "Unsafe", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Unsafe", exact: true })).toHaveAttribute("aria-selected", "true");
+  const member = page.locator(".unsafe-member");
+  await expect(member).toHaveCount(1);
+  await expect(member.locator(".unsafe-member-evidence")).toHaveText("pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add");
+  await expect(member).not.toContainText("IL_0007");
+  await member.locator("summary").click();
+  await expect(member).toContainText("IL_0007");
+  await expect(member).toContainText("<Run>b__0_0()");
+  await member.locator("button.unsafe-member-name").click();
+  await expect(inspectorTab(page, "data-member-section", "facts")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#member-surface-title")).toHaveText("Run");
+});
+
 test("Resource rows open member Resource Triage with detailed evidence and Explore", async ({ page }) => {
   const stop = { ...run, name: "Stop", stableSelector: "Stop", graphSelectorKey: "Stop", signature: "void Stop()", documentationId: "M:Example.Widget.Stop" };
   await installFacades(page, { ...surface, types: surface.types.map(candidate => candidate.definitionId === "Example.Widget" ? { ...candidate, queryId: "Example.Widget.QuerySpelling", members: 2, api: [run, stop] } : candidate) });

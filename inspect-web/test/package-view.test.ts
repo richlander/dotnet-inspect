@@ -72,6 +72,9 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onPerformanceMemberSelect: (target: PackagePerformanceTarget) =>
       calls.push(
         `performance:${target.stableSelector}:${target.assembly}:${target.typeId}`),
+    onUnsafeMemberSelect: target =>
+      calls.push(
+        `unsafe:${target.stableSelector}:${target.assembly}:${target.typeId}:${target.accessibility}`),
   };
 }
 

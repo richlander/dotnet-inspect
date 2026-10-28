@@ -25,7 +25,7 @@ public sealed record AssemblyUnsafeMemberCensusResult(
 
 /// <summary>
 /// Runs the unsafe member census over one admitted implementation participant,
-/// as docs/design/inspect-web-surface-composition.md#library-analysis defines
+/// as docs/design/inspect-web-surface-composition.md#unsafe defines
 /// for the Unsafe tab. The census owns admission and attribution; this query
 /// only adds the navigation identities the Browser rows link through.
 /// </summary>

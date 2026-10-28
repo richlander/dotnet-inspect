@@ -157,6 +157,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageResourceTriage",
             "QueryPackageTypeImplementationHeat",
             "QueryPackageTypeMethodLeverage",
+            "QueryPackageUnsafeMembers",
             "QueryPlatformImplementationProfiles",
             "QueryPlatformIntegrations",
             "QueryPlatformLibraryDependencyStructure",
@@ -167,6 +168,7 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformResourceTriage",
             "QueryPlatformTypeImplementationHeat",
             "QueryPlatformTypeMethodLeverage",
+            "QueryPlatformUnsafeMembers",
             "RenderTriageCaret",
         ],
         [SourceAssembly] =

@@ -17,6 +17,13 @@ export interface PackagePerformanceTarget {
   typeId: string;
 }
 
+export interface UnsafeMemberTarget {
+  stableSelector: string;
+  assembly: string;
+  typeId: string;
+  accessibility: string;
+}
+
 export interface RelatedTypeNavigationTarget {
   typeId: string;
   packageId?: string;
@@ -45,6 +52,7 @@ export interface PackageViewBindingActions
   ) => void;
   onNamespaceJump: (namespace: string) => void;
   onPerformanceMemberSelect: (target: PackagePerformanceTarget) => void;
+  onUnsafeMemberSelect: (target: UnsafeMemberTarget) => void;
 }
 
 export function packageNavigationVersions(activeVersion: string, entry: PackageVersionState): string[] {
@@ -209,5 +217,12 @@ export function bindPackageView(
       assembly: button.dataset.perfAssembly ?? "",
       typeId: button.dataset.perfType ?? "",
       ...(button.dataset.resourceToken ? { resourceMethodToken: Number(button.dataset.resourceToken) } : {}),
+    })));
+  root.querySelectorAll<HTMLElement>("[data-unsafe-selector]").forEach(button =>
+    button.addEventListener("click", () => actions.onUnsafeMemberSelect({
+      stableSelector: button.dataset.unsafeSelector ?? "",
+      assembly: button.dataset.unsafeAssembly ?? "",
+      typeId: button.dataset.unsafeType ?? "",
+      accessibility: button.dataset.unsafeAccessibility ?? "",
     })));
 }

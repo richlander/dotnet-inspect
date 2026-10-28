@@ -6769,5 +6769,17 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .triage-code { margin: 0 16px 12px 60px; padding: 10px 12px; overflow-x: auto; font-size: 12px; background: var(--panel); white-space: pre; }
 .resource-triage-member { color: var(--accent); background: transparent; border: 0; padding: 0; text-align: left; font: inherit; cursor: pointer; }
 .resource-triage-member:hover { text-decoration: underline; }
+.unsafe-member-list { display: grid; gap: 0.5rem; }
+.unsafe-member { border-bottom: 1px solid var(--border); padding: 0.4rem 0; }
+.unsafe-member-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+.unsafe-member-name { color: var(--accent); background: transparent; border: 0; padding: 0; text-align: left; font: inherit; overflow-wrap: anywhere; }
+button.unsafe-member-name { cursor: pointer; }
+button.unsafe-member-name:hover { text-decoration: underline; }
+span.unsafe-member-name { color: inherit; }
+.unsafe-member-badges { display: inline-flex; gap: 0.25rem; }
+.unsafe-member-badge { font-size: 0.8em; border: 1px solid var(--border); border-radius: 0.25rem; padding: 0 0.3rem; }
+.unsafe-member-evidence { overflow-wrap: anywhere; }
+.unsafe-member-items summary { cursor: pointer; font-size: 0.85em; }
+.unsafe-member-items ul { margin: 0.25rem 0 0; padding-left: 1.25rem; }
 
 .triage-code .triage-caret .token.comment { color: var(--accent); }

@@ -15,6 +15,7 @@ import {
   type PackageOpportunitiesState,
   type PackagePerformance,
   type PackageResourceTriage,
+  type PackageUnsafeMembers,
   type PackageVulnerabilityState,
 } from "../src/package-inspection.ts";
 import {
@@ -95,6 +96,10 @@ function inspectionState(
     packageResourceTriageLoading: false,
     packageResourceTriageError: "",
     packageResourceTriageKey: "",
+    packageUnsafeMembers: null,
+    packageUnsafeMembersLoading: false,
+    packageUnsafeMembersError: "",
+    packageUnsafeMembersKey: "",
     packageLibraryMetrics: null,
     packageLibraryMetricsLoading: false,
     packageLibraryMetricsError: "",
@@ -476,6 +481,8 @@ function inspectionDependencies(
     queryPackagePerformance: async () => performanceResult(),
     queryPackageResourceTriage: async () => resourceTriageResult(),
     queryPlatformResourceTriage: async () => resourceTriageResult(),
+    queryPackageUnsafeMembers: async () => unsafeMembersResult(),
+    queryPlatformUnsafeMembers: async () => unsafeMembersResult(),
     queryPlatformPerformance: async () => performanceResult(),
     queryPackageLibraryDependencyStructure: async () =>
       libraryDependencyStructureResult(),
@@ -1218,6 +1225,23 @@ test("scalar-field package lenses preserve lifecycle and ownership across invali
     readError: state => state.packageResourceTriageError,
     setKey: (state, key) => { state.packageResourceTriageKey = key; },
     setError: (state, error) => { state.packageResourceTriageError = error; },
+  });
+  await verifyPackageLensLifecycle({
+    name: "unsafe members",
+    result: unsafeMembersResult(),
+    createCoordinator: (state, query, render = () => {}) =>
+      createPackageInspectionCoordinator(
+        inspectionDependencies(state, {
+          queryPackageUnsafeMembers: async () => query(),
+          render,
+        })),
+    load: (coordinator, signature) =>
+      coordinator.loadUnsafeMembers(packageItem, signature, null),
+    readResult: state => state.packageUnsafeMembers,
+    readLoading: state => state.packageUnsafeMembersLoading,
+    readError: state => state.packageUnsafeMembersError,
+    setKey: (state, key) => { state.packageUnsafeMembersKey = key; },
+    setError: (state, error) => { state.packageUnsafeMembersError = error; },
   });
 });
 
@@ -2524,6 +2548,25 @@ test("runtime package lenses wait for an explicit library scope", async () => {
   assert.deepEqual(state.packageOpportunities, { status: "idle" });
   assert.equal(state.packagePerformanceKey, "");
   assert.deepEqual(state.packageMetadata, { status: "idle" });
+});
+
+function unsafeMembersResult(): PackageUnsafeMembers {
+  return { outcome: "available", assembly: "Selected.dll", members: [], limitations: [], inspectionError: null };
+}
+
+test("unsafe members route the exact platform library and wait for selection", async () => {
+  const runtime = packageModel({ id: "Microsoft.NETCore.App", isRuntimePack: true, source: { kind: "platform" } });
+  const state = inspectionState();
+  const calls: string[][] = [];
+  const coordinator = createPackageInspectionCoordinator(inspectionDependencies(state, {
+    queryPlatformUnsafeMembers: async (...args) => { calls.push(args); return unsafeMembersResult(); },
+    queryPackageUnsafeMembers: async () => { throw new Error("Platform selection must use the platform query"); },
+  }));
+  await coordinator.loadUnsafeMembers(runtime, "none", null);
+  assert.equal(calls.length, 0);
+  await coordinator.loadUnsafeMembers(runtime, "selected", "System.Text.Json");
+  assert.deepEqual(calls, [["net10.0", "1.2.3", "System.Text.Json.dll", "pack:System.Text.Json"]]);
+  assert.equal(state.packageUnsafeMembers?.outcome, "available");
 });
 
 function resourceTriageResult(): PackageResourceTriage {
