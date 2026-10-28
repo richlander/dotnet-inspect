@@ -987,6 +987,10 @@ public static class DiffAnalysisInspection
                     emitEmptyComparison: false,
                     ToStringLiteralTransitionRow,
                     pair => pair.Kind != PairKind.Present),
+            var id when id == AnalysisFindings.UnsafeMemberDescriptor.Id =>
+                Rows<UnsafeMemberFinding>(
+                    emitEmptyComparison: false,
+                    ToUnsafeMemberTransitionRow),
             var id when id == CSharpFindings.LineDescriptor.Id =>
                 Rows<CSharpCanonicalLine>(
                     emitEmptyComparison: true,
@@ -1243,6 +1247,33 @@ public static class DiffAnalysisInspection
             oldFinding is null ? "absent" : "present",
             newFinding is null ? "absent" : "present",
             pair.Detail ?? newFinding?.Detail ?? oldFinding?.Detail);
+    }
+
+    // Old and New are the member's provenance-free value, so a changed row
+    // shows what differs and a renumbered generated body is no change.
+    private static DiffAnalysisTransitionRow ToUnsafeMemberTransitionRow(
+        ResearchSubjectKey subject,
+        PairFinding<UnsafeMemberFinding> pair,
+        string beforeVersion,
+        string afterVersion)
+    {
+        var oldFinding = OldSide(pair);
+        var newFinding = NewSide(pair);
+        return new(
+            $"PairFinding.{pair.Kind}",
+            pair.Descriptor.Id,
+            FindingTargetFormatter.Format(
+                subject.Display,
+                newFinding ?? oldFinding!),
+            beforeVersion,
+            afterVersion,
+            oldFinding is null
+                ? "absent"
+                : UnsafeMemberFindingSummary.Of(oldFinding.Payload).ToString(),
+            newFinding is null
+                ? "absent"
+                : UnsafeMemberFindingSummary.Of(newFinding.Payload).ToString(),
+            pair.Detail);
     }
 
     private static DiffAnalysisTransitionRow
