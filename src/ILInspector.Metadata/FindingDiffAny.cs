@@ -999,7 +999,7 @@ public static partial class FindingDiffAny
         bool _captureLiteralDefinitions;
         MethodDefinitionHandle _literalMethod;
         int _literalParameterCount;
-        readonly Dictionary<EntityHandle, SymbolKey<FindingDiffAnyPart>> _moduleConstructors = [];
+        (SymbolKey<FindingDiffAnyPart> Constructor, BlobHandle Value)[]? _moduleAttributes;
         readonly Dictionary<TypeDefinitionHandle, Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess>> _explicitImplementations = [];
         SymbolKeyInterner<FindingDiffAnyPart>? _interner;
 
@@ -1720,19 +1720,30 @@ public static partial class FindingDiffAny
 
         void ModuleAttributes(List<SymbolKeySlot> census, KeyRef owner)
         {
-            // The module's constructor rows have the same meaning in every
-            // Type. Own their small keys once; per-Type facts keep their owner
-            // and blob exactly as in ordinary attribute facts.
-            foreach (CustomAttributeHandle handle in Md.GetModuleDefinition().GetCustomAttributes())
+            // These rows are image-scoped. Keep owned constructor keys and
+            // blob handles, so a rebound reader supplies each blob's bytes.
+            if (_moduleAttributes is null)
             {
-                CustomAttribute attribute = Md.GetCustomAttribute(handle);
-                if (!_moduleConstructors.TryGetValue(attribute.Constructor, out var constructor))
+                CustomAttributeHandleCollection attributes = Md.GetModuleDefinition().GetCustomAttributes();
+                var entries = new (SymbolKey<FindingDiffAnyPart> Constructor, BlobHandle Value)[attributes.Count];
+                var constructors = new Dictionary<EntityHandle, SymbolKey<FindingDiffAnyPart>>();
+                int index = 0;
+                foreach (CustomAttributeHandle handle in attributes)
                 {
-                    constructor = Key(attribute.Constructor).Detach();
-                    _moduleConstructors.Add(attribute.Constructor, constructor);
+                    CustomAttribute attribute = Md.GetCustomAttribute(handle);
+                    if (!constructors.TryGetValue(attribute.Constructor, out var constructor))
+                    {
+                        constructor = Key(attribute.Constructor).Detach();
+                        constructors.Add(attribute.Constructor, constructor);
+                    }
+                    entries[index++] = (constructor, attribute.Value);
                 }
+                _moduleAttributes = entries;
+            }
+            foreach (var attribute in _moduleAttributes)
+            {
                 int mark = Transient.Begin();
-                Transient.Mark(FindingDiffAnyPart.Attribute).Key(owner).Key(constructor);
+                Transient.Mark(FindingDiffAnyPart.Attribute).Key(owner).Key(attribute.Constructor);
                 Blob(attribute.Value);
                 census.Add(Transient.End(mark).Slot);
             }

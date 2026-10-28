@@ -358,8 +358,8 @@ A complete comparison is projected only for the selected Type when no
 presented difference settles the census. Equal censuses project no model.
 The receipt reports API surfaces built and the time constructing them.
 
-Module attribute constructors are decoded into owned keys once per image and
-shared across Type censuses. Defaulted parameters of one method share its
+Module attribute descriptors are read once per image; owned constructor keys
+and blob handles are shared across Type censuses. Defaulted parameters of one method share its
 decoded signature dependencies, and the constant handle is read once per
 parameter. API facts fill their result list directly before the non-API facts
 are removed. These work reductions preserve the fact keys and their owners;
