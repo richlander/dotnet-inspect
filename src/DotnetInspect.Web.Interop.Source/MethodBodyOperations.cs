@@ -126,27 +126,10 @@ internal static class MethodBodyOperations
                         + "ambiguous in the admitted Workspace Package row.");
         }
 
-        WorkspaceDeclarationContext[] contexts =
-        [
-            .. operation.Workspace.GetDeclarationContextsSnapshot().Where(
-                candidate =>
-                    ReferenceEquals(
-                        candidate.Receipt.Workspace,
-                        operation.Realization)
-                    && candidate.Receipt.Order
-                        == presentation.ContextIndex),
-        ];
-        if (contexts.Length != 1 || contexts[0].Group is not { } group)
-        {
-            throw new MethodBodyUnavailableException(
-                "ContextUnavailable: the admitted Workspace Package context "
-                    + "is unavailable.");
-        }
-
         CompleteRestorationPackageLibrary library = libraries[0];
         AssemblyContextParticipant[] participants =
         [
-            .. group.Participants.Where(
+            .. admitted.Group.Participants.Where(
                 candidate =>
                     AssemblyReferenceIdentity.EquivalentComparer.Equals(
                         candidate.Assembly.Identity,
@@ -162,7 +145,7 @@ internal static class MethodBodyOperations
                         + "implementation participant is ambiguous.");
         }
 
-        return query(group, participants[0]);
+        return query(admitted.Group, participants[0]);
     }
 
     internal static ProjectedMethodAddress RequireDesignation(

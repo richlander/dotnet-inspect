@@ -2535,15 +2535,20 @@ test("successful ordinary navigation excludes a late source rollback", async () 
 
 test("mixed source publication keeps its inactive Platform visible", () => {
   const h = harness();
+  const authorityAssociation = app.program.body.find(node =>
+    node.type === "FunctionDeclaration"
+    && node.id?.name === "associateRetainedPackageCallGraphAuthority");
   const declaration = app.program.body.find(node =>
     node.type === "FunctionDeclaration"
     && node.id?.name === "publishSourceBearingWorkspace");
   const installer = app.program.body.find(node =>
     node.type === "FunctionDeclaration"
     && node.id?.name === "installRetainedWorkspaceModels");
+  assert.ok(authorityAssociation);
   assert.ok(declaration);
   assert.ok(installer);
   Object.assign(h.context, {
+    retainedPackageCallGraphAuthorities: new WeakMap<object, object>(),
     createNavigationDescriptorPresentation: () => ({
       packages: [],
       platforms: [{
@@ -2571,6 +2576,9 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   runInNewContext(
     stripTypeScriptTypes(
       [
+        appSource.slice(
+          authorityAssociation.start,
+          authorityAssociation.end),
         appSource.slice(declaration.start, declaration.end),
         appSource.slice(installer.start, installer.end),
       ].join("\n")),
@@ -2590,6 +2598,7 @@ test("mixed source publication keeps its inactive Platform visible", () => {
     retainedDefinitionId: "workspace-definition-1",
     realizationId: "realization-1",
     canonicalLocation: "https://inspect.test/?w=source-mixed",
+    packages: [{ navigationId: "package-tab" }],
     definition: {
       activeTabId: "package-tab",
       tabs: [

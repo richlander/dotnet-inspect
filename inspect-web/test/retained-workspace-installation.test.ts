@@ -174,6 +174,7 @@ function retainedWorkspaceInstallationHarness(options: {
       presentationCurrent: boolean;
     } | null,
     retainedWorkspacePostings: new Map<string, typeof posting>(),
+    retainedPackageCallGraphAuthorities: new WeakMap<object, object>(),
     state,
     navigationSequence,
     documentFocusGeneration: 0,
@@ -277,6 +278,7 @@ function retainedWorkspaceInstallationHarness(options: {
     "retainedLocationPresentationCurrent",
     "supersedeRetainedLocationIntentForRoutedNavigation",
     "retainedPackageRootLens",
+    "associateRetainedPackageCallGraphAuthority",
     "installRetainedWorkspacePosting",
     "publishRetainedLocationAssociation",
     "completeRetainedActivationPresentation",

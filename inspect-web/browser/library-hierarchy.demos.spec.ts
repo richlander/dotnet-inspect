@@ -1019,6 +1019,38 @@ test("package Methods demo retains all resolved coordinates and restores its exa
     .toBeVisible();
 });
 
+test("retained Package Call Graph enters the active realization", async ({
+  page,
+}) => {
+  await openHomeDemo(page, "Methods", "package");
+  await chooseSubject(page, "member", "Member");
+  await chooseInspector(
+    page,
+    "data-member-section",
+    "call-graph",
+    "Call graph",
+  );
+  await expect(page.locator("#call-graph-diagram svg")).toBeVisible();
+  const serialized = await page.locator("html")
+    .getAttribute("data-retained-call-graph-request");
+  expect(serialized).not.toBeNull();
+  if (serialized === null)
+    throw new Error("The retained Call Graph request was not observed.");
+  const request: unknown = JSON.parse(serialized);
+  expect(request).toMatchObject([
+    expect.any(String),
+    expect.any(String),
+    expect.any(String),
+    {
+      packageId: surface.package,
+      version: surface.version,
+      targetFramework: surface.activeFramework,
+    },
+  ]);
+  expect(await page.locator("html")
+    .getAttribute("data-compatibility-call-graph")).toBeNull();
+});
+
 test("Methods demo Forward reactivates an inactive retained definition", async ({
   page,
 }) => {

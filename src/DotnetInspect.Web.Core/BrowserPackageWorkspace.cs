@@ -1702,141 +1702,187 @@ internal static class BrowserPackageWorkspace
                             resolved.Member.BodyToken);
                 }
 
-                IPackageSourceClient source = Gallery;
-                IPackageSourceAuthorization authorization =
-                    SourceAuthorizationFor(source);
-                await using PackageSourceSettlementLease sourceLease =
-                    PackageSourceSettlementService.IssueLease(
-                        authority =>
-                            ReferenceEquals(
-                                authority.Association,
-                                source.Source.Association)
-                                ? source
-                                : throw new InvalidOperationException(
-                                    "The dependency call graph requested another configured package source."));
-                TimeSpan sourceOperationTimeout =
-                    SourceSettlementOperationTimeout(
-                        deadline.Remaining);
-                PackageHouseOperation operation =
-                    PackageHouseOperation.Create(
-                        PackageHouseOperationProfile.Realize,
-                        requestTimeout: sourceOperationTimeout,
-                        operationTimeout: sourceOperationTimeout);
-                BrowserSessionPackageStore store =
-                    StoreFor(source);
-                var house = new PackageHouse(
-                    authorization,
-                    new PackagePayloadAcquisitionPlan(
-                        (authority, _) =>
-                            ReferenceEquals(
-                                authority.Association,
-                                source.Source.Association)
-                                ? store
-                                : throw new InvalidOperationException(
-                                    "The dependency call graph requested another configured package source."),
-                        PayloadLimits,
-                        new BrowserPackageOperationTransferPolicy(
-                            store,
-                            deadline)));
-                var inspectionSource =
-                    new PackageDependencyMemberCallGraphInspectionSource(
-                        new PackageDependencyTraversalCandidateAdapter(
-                            authorization),
-                        new AuthorizedPackageDependencyManifestSource(),
-                        house,
-                        (requestedOperation, token) =>
-                            sourceLease.IssueOperationLease(
-                                token,
-                                requestedOperation.RequestTimeout,
-                                requestedOperation.OperationTimeout));
-                var platform = new PackagePlatformHouseAdapter(
-                    new PackagePlatformSource(
-                        authorization,
-                        new PackagePayloadAcquisitionPlan(
-                            (authority, _) =>
-                                ReferenceEquals(
-                                    authority.Association,
-                                    source.Source.Association)
-                                    ? store
-                                    : throw new InvalidOperationException(
-                                        "The dependency call graph requested another configured Platform package source."),
-                            PayloadLimits,
-                            new BrowserPackageOperationTransferPolicy(
-                                store,
-                                deadline),
-                            access: PackagePayloadAccess.Ranged)),
-                    "browser-call-graph-platform-package");
-                var continuationSource =
-                    new BrowserPackageDependencyMemberCallGraphContinuationSource(
-                        inspectionSource,
-                        operation,
-                        platform,
-                        (request, _) =>
-                        {
-                            TimeSpan sourceTimeout =
-                                SourceSettlementOperationTimeout(
-                                    deadline.Remaining);
-                            return sourceLease.IssueOperationLease(
-                                request.CancellationToken,
-                                sourceTimeout,
-                                sourceTimeout);
-                        },
-                        sourceOperationTimeout);
-                var continuation =
-                    new PackageDependencyMemberCallGraphContinuation(
-                        continuationSource,
-                        new AssemblyReferenceResolutionWorkBudget(
-                            maxPackageRouteOccurrences: 4_096,
-                            maxPackageCandidateOperations: 4_096,
-                            maxSourceOperations: 64,
-                            maxAcquisitions: 32,
-                            maxRealizedAssemblies:
-                                BrowserInspectionScope
-                                    .MaxAssembliesPerRole,
-                            maxTransferBytes:
-                                MaxCachedPackageBytes,
-                            maxRetainedAssemblyBytes:
-                                BrowserInspectionScope
-                                    .MaxRetainedImageBytes,
-                            maxWorkspaceReplacements: 16,
-                            deadline:
-                                DateTimeOffset.UtcNow
-                                    .Add(deadline.Remaining)));
-                return await PackageDependencyMemberCallGraphInspection
-                    .ExecuteAsync(
-                        new PackageDependencyMemberCallGraphInspectionRequest(
-                            coordinate.Binding
-                            ?? throw new InvalidOperationException(
-                                "The selected Browser package has no acquisition-issued root binding."),
-                            focus,
-                            string.IsNullOrWhiteSpace(
-                                traversalTargetFramework)
-                                ? TraversalTargetFrameworkPolicy
-                                    .ProductDefault
-                                : new TraversalTargetFrameworkPolicy(
-                                    traversalTargetFramework),
-                            new MemberCallGraphCalleeNeighborhoodRequest(
-                                maxDepth: 3,
-                                maxNodes: 50),
-                            operation,
-                            DateTimeOffset.UtcNow
-                                .Add(deadline.Remaining),
-                            maximumDependencyDepth: 4,
-                            realizationOptions:
-                                DependencyCallGraphRealizationPolicy,
-                            supplyChainBaseline:
-                                supplyChainBaseline,
-                            workspacePlan:
-                                workspacePlan,
-                            platformPruning:
-                                platformPruning),
-                        inspectionSource,
-                        continuation,
-                        deadline.Token)
+                PackageRootBinding binding =
+                    coordinate.Binding
+                    ?? throw new InvalidOperationException(
+                        "The selected Browser package has no "
+                            + "acquisition-issued root binding.");
+                return await ExecuteDependencyMemberCallGraphAsync(
+                        binding,
+                        focus,
+                        traversalTargetFramework,
+                        workspacePlan,
+                        supplyChainBaseline,
+                        platformPruning,
+                        deadline)
                     .ConfigureAwait(false);
             },
             PackageChangesOperationTimeout,
             cancellationToken);
+
+    internal static Task<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        QueryDependencyMemberCallGraphAsync(
+            PackageRootBinding binding,
+            PackageDependencyMemberCallGraphInspectionFocus focus,
+            string? traversalTargetFramework,
+            WorkspacePlan workspacePlan,
+            PackageSupplyChainBaseline supplyChainBaseline,
+            PackageDependencyMemberCallGraphPlatformPruning?
+                platformPruning = null,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(focus);
+        ArgumentNullException.ThrowIfNull(workspacePlan);
+        return RunPackageOperationAsync(
+            deadline => ExecuteDependencyMemberCallGraphAsync(
+                binding,
+                focus,
+                traversalTargetFramework,
+                workspacePlan,
+                supplyChainBaseline,
+                platformPruning,
+                deadline),
+            PackageChangesOperationTimeout,
+            cancellationToken);
+    }
+
+    static async Task<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        ExecuteDependencyMemberCallGraphAsync(
+            PackageRootBinding binding,
+            PackageDependencyMemberCallGraphInspectionFocus focus,
+            string? traversalTargetFramework,
+            WorkspacePlan workspacePlan,
+            PackageSupplyChainBaseline supplyChainBaseline,
+            PackageDependencyMemberCallGraphPlatformPruning?
+                platformPruning,
+            BrowserPackageOperationDeadline deadline)
+    {
+        IPackageSourceClient source = Gallery;
+        IPackageSourceAuthorization authorization =
+            SourceAuthorizationFor(source);
+        await using PackageSourceSettlementLease sourceLease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? source
+                        : throw new InvalidOperationException(
+                            "The dependency call graph requested another "
+                                + "configured package source."));
+        TimeSpan sourceOperationTimeout =
+            SourceSettlementOperationTimeout(deadline.Remaining);
+        PackageHouseOperation operation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize,
+                requestTimeout: sourceOperationTimeout,
+                operationTimeout: sourceOperationTimeout);
+        BrowserSessionPackageStore store = StoreFor(source);
+        var house = new PackageHouse(
+            authorization,
+            new PackagePayloadAcquisitionPlan(
+                (authority, _) =>
+                    ReferenceEquals(
+                        authority.Association,
+                        source.Source.Association)
+                        ? store
+                        : throw new InvalidOperationException(
+                            "The dependency call graph requested another "
+                                + "configured package source."),
+                PayloadLimits,
+                new BrowserPackageOperationTransferPolicy(
+                    store,
+                    deadline)));
+        var inspectionSource =
+            new PackageDependencyMemberCallGraphInspectionSource(
+                new PackageDependencyTraversalCandidateAdapter(
+                    authorization),
+                new AuthorizedPackageDependencyManifestSource(),
+                house,
+                (requestedOperation, token) =>
+                    sourceLease.IssueOperationLease(
+                        token,
+                        requestedOperation.RequestTimeout,
+                        requestedOperation.OperationTimeout));
+        var platform = new PackagePlatformHouseAdapter(
+            new PackagePlatformSource(
+                authorization,
+                new PackagePayloadAcquisitionPlan(
+                    (authority, _) =>
+                        ReferenceEquals(
+                            authority.Association,
+                            source.Source.Association)
+                            ? store
+                            : throw new InvalidOperationException(
+                                "The dependency call graph requested another "
+                                    + "configured Platform package source."),
+                    PayloadLimits,
+                    new BrowserPackageOperationTransferPolicy(
+                        store,
+                        deadline),
+                    access: PackagePayloadAccess.Ranged)),
+            "browser-call-graph-platform-package");
+        var continuationSource =
+            new BrowserPackageDependencyMemberCallGraphContinuationSource(
+                inspectionSource,
+                operation,
+                platform,
+                (request, _) =>
+                {
+                    TimeSpan sourceTimeout =
+                        SourceSettlementOperationTimeout(deadline.Remaining);
+                    return sourceLease.IssueOperationLease(
+                        request.CancellationToken,
+                        sourceTimeout,
+                        sourceTimeout);
+                },
+                sourceOperationTimeout);
+        var continuation =
+            new PackageDependencyMemberCallGraphContinuation(
+                continuationSource,
+                new AssemblyReferenceResolutionWorkBudget(
+                    maxPackageRouteOccurrences: 4_096,
+                    maxPackageCandidateOperations: 4_096,
+                    maxSourceOperations: 64,
+                    maxAcquisitions: 32,
+                    maxRealizedAssemblies:
+                        BrowserInspectionScope.MaxAssembliesPerRole,
+                    maxTransferBytes: MaxCachedPackageBytes,
+                    maxRetainedAssemblyBytes:
+                        BrowserInspectionScope.MaxRetainedImageBytes,
+                    maxWorkspaceReplacements: 16,
+                    deadline:
+                        DateTimeOffset.UtcNow.Add(deadline.Remaining)));
+        return await PackageDependencyMemberCallGraphInspection
+            .ExecuteAsync(
+                new PackageDependencyMemberCallGraphInspectionRequest(
+                    binding,
+                    focus,
+                    string.IsNullOrWhiteSpace(traversalTargetFramework)
+                        ? TraversalTargetFrameworkPolicy.ProductDefault
+                        : new TraversalTargetFrameworkPolicy(
+                            traversalTargetFramework),
+                    new MemberCallGraphCalleeNeighborhoodRequest(
+                        maxDepth: 3,
+                        maxNodes: 50),
+                    operation,
+                    DateTimeOffset.UtcNow.Add(deadline.Remaining),
+                    maximumDependencyDepth: 4,
+                    realizationOptions:
+                        DependencyCallGraphRealizationPolicy,
+                    supplyChainBaseline: supplyChainBaseline,
+                    workspacePlan: workspacePlan,
+                    platformPruning: platformPruning),
+                inspectionSource,
+                continuation,
+                deadline.Token)
+            .ConfigureAwait(false);
+    }
 
     internal static Task<DocumentationQueryOutcome>
         QueryMemberDocumentationAsync(

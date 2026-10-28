@@ -3293,6 +3293,22 @@ async function installFacades(
     "call-graph": `
       const callGraph = ${JSON.stringify(fixtureCallGraph)};
       export async function queryMemberCallGraph() {
+        document.documentElement.dataset.compatibilityCallGraph = "true";
+        return callGraph;
+      }
+      export async function queryRetainedMemberCallGraph(
+        retainedDefinitionId,
+        realizationId,
+        navigationId,
+        request,
+      ) {
+        document.documentElement.dataset.retainedCallGraphRequest =
+          JSON.stringify([
+            retainedDefinitionId,
+            realizationId,
+            navigationId,
+            request,
+          ]);
         return callGraph;
       }
       export async function expandPlatformCallGraph() {

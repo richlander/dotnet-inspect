@@ -160,8 +160,22 @@ public sealed record BrowserCallGraphPruningInventory(
     string? Version,
     BrowserCallGraphPruningSupply[]? Supplies);
 
+public sealed record BrowserRetainedMemberCallGraphRequest(
+    string PackageId,
+    string Version,
+    string TargetFramework,
+    string AssemblyName,
+    string TypeIdentity,
+    string MemberName,
+    string SelectorKey,
+    int MetadataToken,
+    string TraversalTargetFramework,
+    BrowserCallGraphPruningInventory? PruningInventory,
+    string? RuntimeIdentifier);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserDirectUseClusterInspection))]
 [JsonSerializable(typeof(BrowserCallGraphPruningInventory))]
+[JsonSerializable(typeof(BrowserRetainedMemberCallGraphRequest))]
 internal sealed partial class BrowserCallGraphJsonContext : JsonSerializerContext;
