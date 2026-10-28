@@ -68,6 +68,65 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void LibraryCallGraphProducer_HeadUsesInterpretedSource()
+    {
+        const int limit = 2;
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        ProducerRequest head =
+            ProducerRequest.Head(
+                LibraryCallGraphProducer.Instance,
+                limit);
+        WorkDescription work =
+            Assert.IsType<ProducerPlanResult.Accepted>(
+                    ProducerPlanner.Plan([head]))
+                .Description;
+        MethodDefinitionSourceRequest<LibraryCallGraphProducerResult>
+            request =
+                MethodDefinitionSourceRequest<
+                    LibraryCallGraphProducerResult>.Create(
+                    QueryRequest(ProducerTerminal.Rows),
+                    work,
+                    LibraryCallGraphProducer.Instance,
+                    MethodDefinitionSourceBreadth.AllDefinitions);
+        MethodDefinitionSourceAssociation association =
+            MethodDefinitionSourceAssociation.Create(request);
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+        ProducerResult<LibraryCallGraphProducerResult> producerResult =
+            ResultOf<LibraryCallGraphProducerResult>(
+                execution,
+                association);
+        Assert.True(
+            producerResult.HasValue,
+            producerResult.Failure?.Message
+                ?? producerResult.Critical?.Message
+                ?? producerResult.FailedPrerequisite
+                ?? producerResult.Outcome.ToString());
+        Assert.Equal(ProducerOutcome.Stopped, producerResult.Outcome);
+        LibraryCallGraphProducerResult produced =
+            Assert.IsType<LibraryCallGraphProducerResult>(
+                producerResult.Value);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+
+        Assert.Equal(
+            [
+                MetadataTokens.GetToken(
+                    MetadataTokens.MethodDefinitionHandle(1)),
+                MetadataTokens.GetToken(
+                    MetadataTokens.MethodDefinitionHandle(2)),
+            ],
+            produced.DeclaredMethods.Select(
+                static method => method.MetadataToken));
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Satisfied,
+            receipt.Completion);
+        Assert.Equal(limit, receipt.DefinitionsVisited);
+        Assert.True(receipt.Coverage.MethodAnalysis.Constructed);
+    }
+
+    [Fact]
     public void
         LibraryCallGraphProducer_FiniteTerminalLimitUsesInterpretedSource()
     {

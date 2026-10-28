@@ -367,6 +367,7 @@ public sealed class LibraryCallGraphProducer :
     {
         unitsVisited = 0;
         if (state.Terminal != ProducerTerminal.Rows
+            || state.RowLimit is not null
             || !state.Execution.HasUnboundedTerminalWork
             || reader.MethodDefinitions.Count
                 < LibraryMethodAnalysisRunner.ParallelMethodThreshold
@@ -538,6 +539,9 @@ public sealed class LibraryCallGraphProducer :
         accumulator.Add(fact);
         return accumulator;
     }
+
+    internal override bool Settles(LibraryCallGraphBodyEvidence fact) =>
+        fact.Method is not null;
 
     internal override LibraryCallGraphProducerResult Complete(
         ImmutableArray<LibraryCallGraphBodyEvidence>.Builder accumulator,
