@@ -341,6 +341,14 @@ Research document, and releases call-graph caches. It no longer opens
 published target origins and same-module resolution already contain every
 fact the document consumes.
 
+For complete `Rows` over all Method definitions, the call-graph producer owns
+a closed-query execution kernel. Assemblies with at least 200 methods run the
+existing per-method Method Evidence plan in parallel, then project and fold
+the results in metadata order. Smaller or scoped requests stay on the
+interpreted Method Query Source path. The kernel carries declared-source
+ownership and exact source receipts, and does not reconstruct a
+library-wide analysis result or reopen `LibraryBodyAnalysisService`.
+
 `LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
 publishes Analysis's declared-source association for any method, including
 call targets and methods that make no calls. Focused consumers call it directly.

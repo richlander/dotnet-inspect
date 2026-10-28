@@ -1,3 +1,5 @@
+using System.Reflection.Metadata.Ecma335;
+
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Analysis.Planning;
 
@@ -66,6 +68,38 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void LibraryCallGraphProducer_ExactMethodUsesInterpretedSource()
+    {
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        int token = typeof(ExactMethodAnalysisFixture)
+            .GetMethod(nameof(ExactMethodAnalysisFixture.Target))!
+            .MetadataToken;
+        MethodDefinitionSourceAssociation association =
+            Association(
+                LibraryCallGraphProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(
+                    MetadataTokens.MethodDefinitionHandle(
+                        token & 0x00FF_FFFF)));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+        LibraryCallGraphProducerResult produced =
+            Assert.IsType<LibraryCallGraphProducerResult>(
+                ResultOf<LibraryCallGraphProducerResult>(
+                    execution,
+                    association).Value);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+
+        Assert.Equal(
+            token,
+            Assert.Single(produced.DeclaredMethods).MetadataToken);
+        Assert.Equal(1, receipt.DefinitionsVisited);
+        Assert.True(receipt.Coverage.MethodAnalysis.Constructed);
+    }
+
+    [Fact]
     public void LibraryCallGraphProducer_MatchesLegacyMethodEvidence()
     {
         string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
@@ -74,8 +108,7 @@ public sealed partial class MethodDefinitionRequestSetTests
                 LibraryCallGraphProducer.Instance,
                 ProducerTerminal.Rows,
                 MethodDefinitionSourceBreadth
-                    .AllDefinitions
-                    .IncludeGeneratedExecutionBodies());
+                    .AllDefinitions);
         MethodDefinitionSourceRequestSetExecution sourceExecution =
             ExecuteAt(AcceptedPlan([association]), path);
         ProducerResult<LibraryCallGraphProducerResult> producerResult =
@@ -204,20 +237,33 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Equal(
             receipt.BodiesAcquired,
             actual.Methods.Length);
-        Assert.Equal(
-            0,
-            receipt.Coverage.MethodAnalysis.DeclaredSource.Queries);
-        ProducerLayerParticipation methodAnalysis =
+        Assert.True(
+            receipt.DefinitionsVisited
+                >= LibraryMethodAnalysisRunner.ParallelMethodThreshold);
+        Assert.False(
+            receipt.Coverage.MethodAnalysis.Constructed);
+        ProducerLayerParticipation moduleLookup =
             Assert.Single(
                 sourceResult.WorkReceipt
                     .For(LibraryCallGraphProducer.Instance)
                     .Layers,
                 layer => layer.Layer
                     == nameof(
-                        MethodDefinitionLayers.MethodAnalysis));
+                        MethodDefinitionLayers.ModuleLookup));
+        Assert.Equal(
+            receipt.DefinitionsVisited,
+            moduleLookup.Acquired);
+        ProducerLayerParticipation bodies =
+            Assert.Single(
+                sourceResult.WorkReceipt
+                    .For(LibraryCallGraphProducer.Instance)
+                    .Layers,
+                layer => layer.Layer
+                    == nameof(
+                        MethodDefinitionLayers.Body));
         Assert.Equal(
             receipt.BodiesAcquired,
-            methodAnalysis.Acquired);
+            bodies.Acquired);
         Assert.True(actual.HasFullMethodEvidenceScope);
 
         static string DescribeSignals(
@@ -243,8 +289,7 @@ public sealed partial class MethodDefinitionRequestSetTests
                 LibraryCallGraphProducer.Instance,
                 ProducerTerminal.Rows,
                 MethodDefinitionSourceBreadth
-                    .AllDefinitions
-                    .IncludeGeneratedExecutionBodies());
+                    .AllDefinitions);
         MethodDefinitionSourceRequestSetExecution execution =
             ExecuteAt(AcceptedPlan([association]), path);
         LibraryCallGraphProducerResult produced =

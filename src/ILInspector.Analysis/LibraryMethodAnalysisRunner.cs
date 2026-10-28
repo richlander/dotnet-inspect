@@ -167,6 +167,16 @@ internal interface ILibraryMethodAnalysisInfrastructure
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method);
+
+    void PrepareParallelMethodEvidence();
+
+    bool IsNonHeapNewObj(
+        int operandToken,
+        TypeRef declaringType);
+
+    bool? IsInAssemblyExceptionType(
+        int operandToken,
+        TypeRef allocatedType);
 }
 
 internal enum ExtensionDeclarationShape
@@ -202,6 +212,8 @@ internal sealed class LibraryMethodAnalysisResult
     public CallerUnsafeMode Mode;
     public bool IsLeverage;
     public bool HasBody;
+    public bool BodyAcquired;
+    public int EncodedIlBytes;
     // Owner-issued body availability from declaration flags; see
     // docs/design/unsafe-member-findings.md#body-availability.
     public MethodBodyAvailability BodyAvailability;
@@ -306,10 +318,33 @@ internal sealed partial class LibraryMethodAnalysisRunner(
     LibraryBodyAnalysisStageRecorder?
         stageRecorder = null)
 {
+    internal const int ParallelMethodThreshold = 200;
+
     readonly ILibraryMethodAnalysisInfrastructure _infrastructure =
         infrastructure;
     readonly UnsafeSignatureMarkerCache _unsafeSignatureMarkers =
         new(infrastructure.Reader);
+
+    internal bool IsSourceGeneratedTypeOrEnclosing(
+        TypeDefinitionHandle handle) =>
+        _infrastructure.IsSourceGeneratedTypeOrEnclosing(handle);
+
+    internal void PrepareParallelMethodEvidence() =>
+        _infrastructure.PrepareParallelMethodEvidence();
+
+    internal bool IsNonHeapNewObj(
+        int operandToken,
+        TypeRef declaringType) =>
+        _infrastructure.IsNonHeapNewObj(
+            operandToken,
+            declaringType);
+
+    internal bool? IsInAssemblyExceptionType(
+        int operandToken,
+        TypeRef allocatedType) =>
+        _infrastructure.IsInAssemblyExceptionType(
+            operandToken,
+            allocatedType);
     readonly UnsafePresenceWorkBudget _unsafePresenceWork =
         new();
     readonly ImplementationMetricWorkBudget?
@@ -1025,8 +1060,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             MethodBodyData metadataBody = RequireMethodBody(
                 _infrastructure.PeReader,
                 caller.MetadataToken);
+            result.EncodedIlBytes = metadataBody.IL.Length;
             var body = _infrastructure.PeReader.GetMethodBody(
                 methodDefinition.RelativeVirtualAddress);
+            result.BodyAcquired = true;
             bodyAcquisition?.Complete();
             bodyAcquisitionStage?.Complete();
             bool metricBodyAdmitted = true;
