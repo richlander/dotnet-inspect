@@ -42,7 +42,7 @@ public sealed partial class CompleteRestorationExecutionTests
         {
             "package" => "package.libraries",
             "all-libraries" or "library" => "library.types",
-            "type" => "type.api",
+            "type" => "type.overview",
             _ => "member.overview",
         };
         PackageFixture fixture = await SystemTextJsonPackageAsync();
