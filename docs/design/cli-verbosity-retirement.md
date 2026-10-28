@@ -259,6 +259,99 @@ If a former detailed view contained semantically different evidence rather
 than additional cells of the same result, that evidence becomes another facet.
 It must not be preserved as a hidden expanded projection.
 
+### Content-defined sections
+
+The operator's 2026-10-28 direction is to establish useful sections and their
+Content first, apply that approach across subjects where it fits, and assess
+CLI shortcuts afterward. This refines the selection-to-Content composition;
+it does not add another detail scale, section descriptor type, or registry.
+Existing section selection and future exact facet binding refer to the same
+owner-defined semantic question.
+
+A selected section has a stable subject, population, and offered facts.
+Progressive disclosure selects a different useful question rather than
+mutating those facts through verbosity, output format, a rendering Boolean,
+or the accidental availability of richer evidence. Related sections may share
+a population and its producer without becoming modes of one implicit view.
+
+For Type members, the motivating progression is:
+
+| Content | Population | Required facts |
+| --- | --- | --- |
+| Logical member summary | One owner-issued MemberGroup per logical name/category/role | Group identity and Name-level facts |
+| Member list | Exact admitted Members, including each overload | Exact Member identities and complete signatures |
+| Documented member list | The same exact Member population | Those identities/signatures plus requested documentation |
+
+These are semantic descriptions, not newly registered section names, facet
+IDs, or command aliases. The focused adopting owner chooses those bindings.
+The existing Type default remains the cheap MemberGroup question; it does not
+select a representative overload signature, count exact overloads, or obtain
+documentation merely to emit a group row. Group identity comes from the
+[Type/Member population owner](type-member-inspection-documents.md#population-bindings-and-counts),
+not grouping rendered signatures or names in the CLI.
+
+The motivating real package is `System.Text.Json` 10.0.0, its `net9.0` Library,
+and `System.Text.Json.JsonSerializer.Serialize`. The existing package canary
+observed 15 exact overloads. It demonstrates why a logical group and its exact
+Members answer different questions, while documented rows should retain the
+same exact Member population. Its compiled XML supplies the documentation
+neighbor. This is retained motivating evidence, not a new measurement or a
+claim that these sections have already shipped.
+
+Plain and documented Member lists preserve exact identities, membership,
+ordering, and Count for predicates and orders admitted by both. Documentation
+availability does not remove a Member or silently switch the selected schema
+to its undocumented neighbor. Missing, unavailable, or failed documentation
+retains the declaration and the documentation owner's outcome/diagnostics.
+A documentation predicate is admitted only by a Content/query contract that
+offers those facts; it cannot silently widen a plain-list request.
+
+The selected Content supplies documentation demand to its existing shared
+operation. `ShowDocs`, `DocsExplicitlySet`, implicit level promotion, and a
+projected `Description` column do not become alternative planning authority.
+Projection can select facts the chosen Content offers; it cannot turn a plain
+list into a documented list. Count and Exists over common metadata predicates
+must not construct documented Rows merely because the Rows form offers them.
+QuerySpace continues to own semantic stage order, terminal specialization,
+and bounds; documentation/source owners retain channel selection, independent
+capability requirements, acquisition, settlement, and failure semantics.
+
+### Apply the question, not a ladder
+
+The survey identifies existing subject questions to reconcile during focused
+adoption. It does not require three sections for every command or issue new
+producer contracts for the surveyed domains.
+
+| Family | Useful distinction | Existing owner and boundary |
+| --- | --- | --- |
+| Type members | Logical groups, exact Members, documented exact Members | [Type/Member documents](type-member-inspection-documents.md); keep the [cheap Type default](primary-subject-views.md#adoption) |
+| Library Types | Type declarations and documented Type declarations over the same population | [Library document](library-inspection-document.md); definitions and forwarders remain distinct declarations, without binding forwarding targets to show docs |
+| MemberGroup/exact Member | Overload signatures or an exact signature, with independently requested documentation | [Type/Member documents](type-member-inspection-documents.md#member-documentation-attachment-composition); preserve declaration identity and attachment outcomes |
+| Package Libraries | Library identity rows versus separately selected Library facts | [Primary subject views](primary-subject-views.md); Package default does not open every Library to enrich its children |
+| References | Direct reference evidence versus resolved transitive hierarchy | [Reference selection](progressive-disclosure.md#section-selection); traversal is another operation, not a richer presentation of direct rows |
+| Findings | Census, finding rows, and selected finding evidence | [Finding producers](finding-producers.md); keep producer populations and completion semantics |
+| Source | Locations/inventory versus a selected authored payload | [SourceHouse](source-house.md); preserve explicit content demand and existing provenance/failure contracts |
+| Subject facts | Compact surrounding identity versus explicitly requested Info Content | [Subject facts](#subject-facts); context is not an implicit facts producer |
+
+A summary may have a different population from the list it summarizes. Their
+Counts must name that population: MemberGroup Count is not overload Count.
+By contrast, adding documentation to an exact list does not define a new
+population. Row windows and complete structured representations retain the
+selected population under their existing owners.
+
+Shared semantic questions use the same host-neutral operation and envelope
+in CLI and Browser. Each host chooses its presentation and navigation without
+reimplementing membership, documentation settlement, or source acquisition.
+A domain with only one useful question keeps one section. Do not manufacture
+empty variants or `summary`, `normal`, and `detailed` tiers to mimic `-v`.
+
+Shortcuts are evaluated only after semantic adoption produces concrete use.
+A proposed shortcut must name one useful question, lower to the same exact
+selection/operation, and preserve Content, population, terminal, work demand,
+capabilities, diagnostics, and explicit format intent. No shortcut is a valid
+outcome. This decision does not add `--docs`, restore another generic detail
+flag, or prejudge aliases for the conceptual member views above.
+
 ### Presentation
 
 Semantic result shape selects the omitted-format presentation under the
@@ -556,6 +649,54 @@ Browser/Wasm reaches production through shared steps 1 through 7 and focused
 step 11: eight slices. Steps may be stacked where one owner consumes a
 preceding contract; no implementation PR sweeps every command merely to begin
 the migration.
+
+### Documentation-demand adoption subplan
+
+[#10802](https://github.com/richlander/dotnet-inspect/issues/10802) records this
+composition clarification under overall tracker
+[#9547](https://github.com/richlander/dotnet-inspect/issues/9547). Its ten
+currently planned slices include observable CLI and Browser adoption and
+retirement, followed by the shortcut assessment. These are sub-slices of the
+existing twelve CLI/eight Browser design-step plan, not ten additional
+architecture steps.
+
+| Slice | Focused work | Owning contract | Tracking |
+| --- | --- | --- | --- |
+| 1 | Lock Content-defined section composition and this surveyed adoption map | This document | #10802 |
+| 2 | Shared documented exact-Member rows over existing populations | Type/Member documents | #10803 |
+| 3 | CLI Type member sections consume the shared populations and documentation request | Primary subject views | #10804 |
+| 4 | Ordinary, exact, and saved CLI Member routes consume section-owned documentation | Type/Member documents | #10805 |
+| 5 | Shared documented Type rows in the Library document | Library document | #10806 |
+| 6 | CLI Library-subject Type lists consume those shared rows | Library document | #10807 |
+| 7 | Browser Type/Member views consume the same documented-Member operation | Browser subject overview | #10808 |
+| 8 | Browser Library Type lists consume the same documented-Type operation | Browser subject overview | #10809 |
+| 9 | Remove `ShowDocs`/`DocsExplicitlySet` and their remaining adapters/format branches | This document's retirement composition | #10810 |
+| 10 | Assess evidence for any CLI shortcuts; no shortcut is acceptable | This document's selection boundary | #10811 |
+
+Dependencies are explicit: 2 precedes 3, 4, and 7; 5 precedes 6 and 8;
+1 precedes the owner adoptions; 9 follows the shared and CLI adoptions and
+must inventory every remaining caller; 10 follows semantic adoption and
+retirement. CLI reaches the replacement through 1, 2, 3, 4, 5, 6, and 9
+(seven slices); Browser through 1, 2, 5, 7, and 8 (five slices). Shared work
+2 and 5 must not finish without their named production consumers. Any required
+new prerequisite becomes a separately owned issue and updates the counted plan
+before its scope is implemented.
+
+Each successor owns its adoption-specific request/result decisions and gates;
+this map does not redefine participating producers. Broader section families
+in the survey continue under the existing migration steps and their focused
+owners. No new flag or public section is shipped by this design clarification.
+
+Required adoption evidence includes the real overload family and neighboring
+single-overload and missing-documentation cases; group rows without exact
+signature/count/doc work; identical plain/documented Member populations and
+common-predicate Counts; documentation-driven filtering only where admitted;
+visible documentation failures without disappearing declarations; complete
+Markdown and structured Content; Count/Exists demand specialization; shared
+CLI/Browser execution; and removal of the named transitional Boolean paths.
+Runtime adoptions require their exact-head NativeAOT comparison under the
+[evidence owner](../evidence-and-validation.md). This design-only clarification
+requires Markdown validation and review, without a product-performance claim.
 
 ## Pathological cases
 
