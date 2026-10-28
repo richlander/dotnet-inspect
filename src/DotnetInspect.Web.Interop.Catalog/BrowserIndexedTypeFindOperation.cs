@@ -5,7 +5,6 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using DotnetInspect.Web;
-using ILInspector.Metadata;
 
 namespace DotnetInspect.Web.Interop.Catalog;
 
@@ -291,21 +290,17 @@ internal sealed class BrowserIndexedTypeFindOperation
         {
             TypeFindSemanticMatch match = find.Matches[index];
             int ordinal = index + 1;
-            string? identity = BrowserSpotlightTypeIdentity.TryCreate(
-                match.Declaration.Source.Coordinate,
-                match.Declaration.Name,
-                match.Declaration.ModuleVersionId);
-            if (match.DeclarationKind
-                    is not AssemblyTypeDeclarationKind.Definition
-                || match.Declaration.Source.Coordinate
-                    is not ExactLibrarySourceCoordinate.Package library)
+            var projectedActivation =
+                BrowserIndexedPackageTypeProjection.Project(match);
+            string? identity = projectedActivation.Identity;
+            if (projectedActivation.Intent is not { } intent)
             {
                 activations.Add(new(
                     ordinal,
                     identity,
                     BrowserTypeFindActivationStatus.Refused,
                     Action: null,
-                    "Only exact package Type definitions can be activated."));
+                    projectedActivation.RefusalReason));
                 continue;
             }
 
@@ -349,11 +344,8 @@ internal sealed class BrowserIndexedTypeFindOperation
 
             var request = new BrowserSpotlightPackageRequest<
                 BrowserIndexedTypeFindPackageRequest>(
-                    library.PackageCoordinate,
+                    intent.Package,
                     new());
-            var intent = new BrowserSpotlightPackageTypeIntent(
-                library,
-                match.Declaration.Name);
             BrowserSpotlightDestinationProjectionResult<
                 BrowserIndexedTypeFindPackageRequest,
                 NavigationAction,

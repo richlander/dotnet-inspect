@@ -6,6 +6,41 @@ using ILInspector.Metadata;
 
 namespace DotnetInspect.Web;
 
+internal static class BrowserIndexedPackageTypeProjection
+{
+    internal static BrowserIndexedPackageTypeProjectionResult Project(
+        TypeFindSemanticMatch match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        string? identity = BrowserSpotlightTypeIdentity.TryCreate(
+            match.Declaration.Source.Coordinate,
+            match.Declaration.Name,
+            match.Declaration.ModuleVersionId);
+        if (match.DeclarationKind
+                is not AssemblyTypeDeclarationKind.Definition
+            || match.Declaration.Source.Coordinate
+                is not ExactLibrarySourceCoordinate.Package library)
+        {
+            return new(
+                identity,
+                Intent: null,
+                "Only exact package Type definitions can be activated.");
+        }
+
+        return new(
+            identity,
+            new BrowserSpotlightPackageTypeIntent(
+                library,
+                match.Declaration.Name),
+            RefusalReason: null);
+    }
+}
+
+internal sealed record BrowserIndexedPackageTypeProjectionResult(
+    string? Identity,
+    BrowserSpotlightPackageTypeIntent? Intent,
+    string? RefusalReason);
+
 [SupportedOSPlatform("browser")]
 internal sealed partial class BrowserRetainedWorkspaceActivationOwner
 {
