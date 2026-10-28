@@ -329,8 +329,21 @@ public static class EcosystemFindIndexedIntegration
                     pattern.Ordinal,
                     evaluation.EvaluatedDeclarationOrders,
                     evaluation.Completion);
+                if (evaluation.Completion
+                    is FindCandidateEvaluationCompletion.Canceled)
+                {
+                    completion =
+                        EcosystemFindIndexedIntegrationCompletion.Canceled;
+                    goto Complete;
+                }
                 foreach (TypeFindSemanticMatch match in evaluation.Matches)
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        completion =
+                            EcosystemFindIndexedIntegrationCompletion.Canceled;
+                        goto Complete;
+                    }
                     FindSemanticFindingPublication publication =
                         resultSession?.Publish(match)
                             ?? FindSemanticFindingPublication.Published;
@@ -358,13 +371,6 @@ public static class EcosystemFindIndexedIntegration
                     }
                 }
 
-                if (evaluation.Completion
-                    is FindCandidateEvaluationCompletion.Canceled)
-                {
-                    completion =
-                        EcosystemFindIndexedIntegrationCompletion.Canceled;
-                    goto Complete;
-                }
                 if (evaluation.Completion
                     is FindCandidateEvaluationCompletion.MatchLimitReached
                     || maximum is int cap && matches.Count >= cap)
@@ -536,8 +542,21 @@ public static class EcosystemFindIndexedIntegration
                     pattern.Ordinal,
                     evaluation.EvaluatedDeclarationOrders,
                     evaluation.Completion);
+                if (evaluation.Completion
+                    is FindCandidateEvaluationCompletion.Canceled)
+                {
+                    completion =
+                        EcosystemFindIndexedIntegrationCompletion.Canceled;
+                    goto Complete;
+                }
                 foreach (MemberFindSemanticMatch match in evaluation.Matches)
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        completion =
+                            EcosystemFindIndexedIntegrationCompletion.Canceled;
+                        goto Complete;
+                    }
                     if (!AddMatch(match))
                     {
                         completion =
@@ -547,13 +566,6 @@ public static class EcosystemFindIndexedIntegration
                     }
                 }
 
-                if (evaluation.Completion
-                    is FindCandidateEvaluationCompletion.Canceled)
-                {
-                    completion =
-                        EcosystemFindIndexedIntegrationCompletion.Canceled;
-                    goto Complete;
-                }
                 if (evaluation.Completion
                     is FindCandidateEvaluationCompletion.MatchLimitReached
                     || maximum is int cap && matches.Count >= cap)

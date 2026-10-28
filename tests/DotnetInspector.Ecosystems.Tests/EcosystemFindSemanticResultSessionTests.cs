@@ -113,6 +113,91 @@ public partial class EcosystemFindIndexTests
     }
 
     [Fact]
+    public void IndexedTypeFind_StopsPublishingWhenSinkCancels()
+    {
+        EcosystemFindIndexArtifact artifact = Artifact(
+            EcosystemPackIds.Aspire,
+            [
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 0,
+                    packageId: "Fixture.Core",
+                    assetPath: "lib/net10.0/Fixture.Core.dll",
+                    assemblyName: "Fixture.Core",
+                    ScanFixture()),
+            ]);
+        using var cancellation = new CancellationTokenSource();
+        var session = new FindSemanticResultSession(
+            sink: new ActionSink(_ => cancellation.Cancel()));
+
+        var result =
+            Assert.IsType<EcosystemFindIndexedIntegrationResult.Type>(
+                EcosystemFindIndexedIntegration.Evaluate(
+                    Request(
+                        [artifact],
+                        [Demand(artifact, prefixOrdinal: 0)],
+                        TypeFindQuestion.Create(
+                            [
+                                "IServiceCollection",
+                                "Microsoft.Extensions.DependencyInjection."
+                                    + "IService*",
+                            ],
+                            FindVisibility.Public)),
+                    session,
+                    cancellation.Token));
+        FindSemanticResult completed = session.Complete(
+            FindSemanticResultCompletion.Canceled);
+
+        Assert.Equal(
+            EcosystemFindIndexedIntegrationCompletion.Canceled,
+            result.Completion);
+        Assert.Single(result.Matches);
+        Assert.Single(completed.Findings);
+    }
+
+    [Fact]
+    public void IndexedMemberFind_StopsPublishingWhenSinkCancels()
+    {
+        EcosystemFindIndexArtifact artifact = Artifact(
+            EcosystemPackIds.Aspire,
+            [
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 0,
+                    packageId: "Fixture.Core",
+                    assetPath: "lib/net10.0/Fixture.Core.dll",
+                    assemblyName: "Fixture.Core",
+                    ScanFixture()),
+            ]);
+        using var cancellation = new CancellationTokenSource();
+        var session = new FindSemanticResultSession(
+            sink: new ActionSink(_ => cancellation.Cancel()));
+
+        var result =
+            Assert.IsType<EcosystemFindIndexedIntegrationResult.Member>(
+                EcosystemFindIndexedIntegration.Evaluate(
+                    Request(
+                        [artifact],
+                        [Demand(artifact, prefixOrdinal: 0)],
+                        MemberFindQuestion.Create(
+                            ["AddIndexedThing", "AddIndexed*"],
+                            FindVisibility.All,
+                            declaringTypeFilter:
+                                "Microsoft.Extensions.DependencyInjection."
+                                    + "TestServiceCollectionExtensions")),
+                    session,
+                    cancellation.Token));
+        FindSemanticResult completed = session.Complete(
+            FindSemanticResultCompletion.Canceled);
+
+        Assert.Equal(
+            EcosystemFindIndexedIntegrationCompletion.Canceled,
+            result.Completion);
+        Assert.Single(result.Matches);
+        Assert.Single(completed.Findings);
+    }
+
+    [Fact]
     public void ResultSession_SuppressesOnlyExactRepeatedFindingIdentity()
     {
         EcosystemFindIndexArtifact artifact = Artifact(
