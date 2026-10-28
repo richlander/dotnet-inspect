@@ -18,6 +18,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
 using ILInspector.Analysis;
@@ -3324,6 +3325,68 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task LibraryReferences_ReturnsSharedAvailableEnvelope()
+    {
+        const string packageId = "Browser.Reference.Root";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net11.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        string json = await PackageExports.QueryLibraryReferences(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            $"{packageId}.dll");
+
+        InspectionEnvelope<LibraryReferenceInspectionOutcome> envelope =
+            Assert.IsType<InspectionEnvelope<LibraryReferenceInspectionOutcome>>(
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserPackageJsonContext.Default
+                        .InspectionEnvelopeLibraryReferenceInspectionOutcome));
+        LibraryReferenceInspectionOutcome.Available available =
+            Assert.IsType<LibraryReferenceInspectionOutcome.Available>(
+                envelope.Content);
+        Assert.NotEmpty(available.References);
+        Assert.Equal(
+            available.References
+                .OrderBy(
+                    static reference => reference.Name,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(
+                    static reference => reference.Name,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    static reference => reference.Version,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    static reference => reference.Culture,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    static reference => reference.PublicKeyToken,
+                    StringComparer.Ordinal),
+            available.References);
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
     public async Task PackageDependencies_RetainsExactRuntimeIdentifier()
     {
         string packageId = $"Browser.Dependency.Runtime.{Guid.NewGuid():N}";
@@ -3623,6 +3686,60 @@ public sealed partial class BrowserEngineBoundaryTests
             "InvalidImage (",
             references.GetString(),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryReferences_ReturnsSharedRejectedEnvelope()
+    {
+        const string packageId = "Browser.Reference.Invalid";
+        byte[] nupkg = PackageWithManifest(
+            [0x00, 0x01, 0x02, 0x03],
+            $"lib/net11.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        string json = await PackageExports.QueryLibraryReferences(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            $"{packageId}.dll");
+
+        InspectionEnvelope<LibraryReferenceInspectionOutcome> envelope =
+            Assert.IsType<InspectionEnvelope<LibraryReferenceInspectionOutcome>>(
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserPackageJsonContext.Default
+                        .InspectionEnvelopeLibraryReferenceInspectionOutcome));
+        LibraryReferenceInspectionOutcome.Rejected rejected =
+            Assert.IsType<LibraryReferenceInspectionOutcome.Rejected>(
+                envelope.Content);
+        Assert.Equal(
+            AssemblyReferenceRowsRejectionKind.InvalidImage,
+            rejected.Reason.Kind);
+        Assert.NotEmpty(rejected.Reason.Detail.ToString());
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Empty(envelope.Diagnostics);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.Equal(
+            nameof(AssemblyReferenceRowsRejectionKind.InvalidImage),
+            document.RootElement
+                .GetProperty("content")
+                .GetProperty("reason")
+                .GetProperty("kind")
+                .GetString());
     }
 
     [Fact]

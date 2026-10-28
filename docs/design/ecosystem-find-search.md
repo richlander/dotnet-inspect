@@ -216,6 +216,44 @@ phase. It runs indexed and bounded work and immediately resumes any continuation
 with its maximum remaining window. It does not implement a second scheduler or
 result contract.
 
+### Completed inspection and Debug evidence
+
+`EcosystemFindInspection` adopts the baseline inspection envelope over the
+session's completed summary. Ordinary and evidence-enabled execution run the
+same session exactly once and preserve its blocks, failures, and completion.
+Share is explicitly nonprojectable until a canonical projection exists.
+
+Debug CLI `find --ecosystem ... --evidence-envelope <path>` and the
+registration-only `--workspace` equivalent publish that complete envelope with
+typed execution evidence, while preserving ordinary output. Capture is chosen
+before execution. Invalid destinations, discovery invocations, and unsupported
+routes are refused before source work. Publication failure is visible and
+nonzero, including when useful rows have already streamed.
+
+Evidence retains the normalized session question, resolved registration and
+prefix demand, row and candidate allowances, evaluator invocations by phase,
+discovery pages, and the number of admitted live candidates evaluated.
+Zero-row candidate evaluations consume the same allowance and remain visible.
+Shared bounded-source reuse is not another evaluator invocation. The summary
+supplies the stop reason, remaining work, prefix coverage, and scoped failures.
+Adapter target-framework and type-filter inputs accompany the session evidence.
+These observations describe scheduling, not HTTP requests or transferred bytes.
+
+The motivating real asset remains `Aspire.Hosting.Redis` **13.6.3**: an indexed
+`.AddRedis -n 1` can fill its window without bounded acquisition or live
+discovery. Index-miss and partial-hit cases with underfilled windows instead
+expose the same independent candidate allowance, including work yielding no
+rows. Focused shared-inspection tests compare ordinary and enriched execution;
+CLI gates cover real indexed output, early refusal, and sidecar failure.
+
+The legacy CLI evaluator does not issue House acquisition receipts. Evidence
+states that unavailability explicitly; absence is not zero network activity.
+This adoption does not migrate acquisition, add a deadline or byte budget,
+or claim NuGet/index equivalence. Explicit `--package-prefix` expansion is a
+separate parse-time route: it refuses this gesture before binding, and remains
+a follow-up alongside other non-Ecosystem Find routes. Debug execution is
+diagnostic evidence, never a production performance measurement.
+
 The request is rejected before source work when:
 
 - its Find question is invalid;

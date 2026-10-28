@@ -887,7 +887,7 @@ public static class MemberBodySizeScorecard
                 model.Reader.GetMethodDefinition(
                     (MethodDefinitionHandle)entity);
             if (method.RelativeVirtualAddress == 0
-                || !LibraryMethodAnalysisRunner
+                || !MethodDefinitionShapes
                     .HasManagedIlBody(method.ImplAttributes))
             {
                 continue;

@@ -164,16 +164,10 @@ public static class AssemblyPairClusterRootPathQuery
                 PublicMethodRootInventoryReader.Read(
                     reader,
                     limits.PublicRoots);
-            Analysis.LibraryBodyAnalysisRequest request =
-                Analysis.LibraryBodyAnalysisRequest.Create(
-                    Analysis.LibraryBodyAnalysisFeatures
-                        .MethodEvidence);
             Analysis.LibraryCallGraphAnalysisResult callGraph =
-                Analysis.LibraryBodyAnalysisService.ExecuteImage(
-                    cluster.Identity.Source.Identity.Name,
-                    snapshot.Content,
-                    request)
-                .CallGraph;
+                AssemblyContextCallGraphAnalysis.AnalyzeRootPaths(
+                    snapshot,
+                    cluster.Identity.Source);
             if (roots.ModuleVersionId
                     != cluster.Identity.SourceModuleVersionId
                 || callGraph.ModuleIdentity.ModuleVersionId

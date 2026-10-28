@@ -256,15 +256,19 @@ ordinary body copy; the current leaf also receives the shared accent. Segment
 copy controls preserve this typography without button chrome and gain an
 underline on hover plus an explicit keyboard focus outline.
 
-### API, Source, Metadata, and Package Dependencies lenses
+### Overview, Members, API, Source, Metadata, and Package Dependencies lenses
 
-API renders a compact local heading followed by its primary content. Type API
-uses `Members` with the live visible/total count of actual members (exact
-declarations, so each overload counts). The visible count totals the visible
-rows' overload counts; the total is the selected bucket's Composition Count. Member API uses
-the exact local member name with its kind and overload count or ordinal. These
-headings use the same quiet label hierarchy as the navigation pane rather than
-competing with the subject path. Source is the full-area exception governed by
+Type Overview follows
+[Inspect Web Subject Overview](inspect-web-subject-overview.md) and keeps
+direct metadata, owner-issued rollups, and numeric navigation visually
+distinct. Type Members and Member API render a compact local heading followed
+by their primary content. Type Members uses `Members` with the live
+visible/total count of actual members (exact declarations, so each overload
+counts). The visible count totals the visible rows' overload counts; the total
+is the selected bucket's Composition Count. Member API uses the exact local
+member name with its kind and overload count or ordinal. These headings use the
+same quiet label hierarchy as the navigation pane rather than competing with
+the subject path. Source is the full-area exception governed by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source):
 it adds no local heading, so the subject zone remains the visible owner of the
 complete hierarchy while the active Source inspector labels the lens panel.
@@ -309,8 +313,8 @@ The compact API heading and full-area Source working surface do not repeat:
 - the library; or
 - the package and version.
 
-Surface-local status is not repeated subject metadata. Type API may report the
-live visible/total count of actual members; Member API may report
+Surface-local status is not repeated subject metadata. Type Members may report
+the live visible/total count of actual members; Member API may report
 the selected member kind and overload count or ordinal.
 
 The removed fields do not leave placeholders or reserved vertical space, and

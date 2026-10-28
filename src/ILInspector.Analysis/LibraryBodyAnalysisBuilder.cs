@@ -454,6 +454,25 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             declaringType,
             method);
 
+    void ILibraryMethodAnalysisInfrastructure
+        .PrepareParallelMethodEvidence() =>
+        _ = _primaryMetadataResolver.AsyncStateMachineTypes();
+
+    bool ILibraryMethodAnalysisInfrastructure.IsNonHeapNewObj(
+        int operandToken,
+        TypeRef declaringType) =>
+        _primaryMetadataResolver.IsNonHeapNewObj(
+            operandToken,
+            declaringType);
+
+    bool? ILibraryMethodAnalysisInfrastructure
+        .IsInAssemblyExceptionType(
+            int operandToken,
+            TypeRef allocatedType) =>
+        _primaryMetadataResolver.IsExactInAssemblyExceptionType(
+            operandToken,
+            allocatedType);
+
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
         TypeDefinitionHandle> LocalTypeDefinitions() =>
@@ -560,7 +579,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         // Only full builds are worth parallelizing: scoped (member/type) builds decode a handful
         // of bodies, where thread overhead would dominate. The threshold also keeps trivial
         // assemblies sequential.
-        bool parallel = bodyScope is null && bodyTypeScope is null && workItems.Count >= ParallelBuildMethodThreshold;
+        bool parallel =
+            bodyScope is null
+            && bodyTypeScope is null
+            && workItems.Count
+                >= LibraryMethodAnalysisRunner.ParallelMethodThreshold;
         if (parallel)
         {
             // Prewarm the reader-bound lookup maps so the parallel pass only
@@ -627,10 +650,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _implementationMetricRecorder?.Snapshot(),
         };
     }
-
-    // Assemblies with at least this many methods use the parallel per-method analysis path.
-    // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
-    const int ParallelBuildMethodThreshold = 200;
 
     TypeRef TypeFromEntity(EntityHandle handle) =>
         _attribution.TypeFromEntity(handle);

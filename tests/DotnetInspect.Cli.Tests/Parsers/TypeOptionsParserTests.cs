@@ -21,6 +21,7 @@ public class TypeOptionsParserTests
         var packageOption = new Option<string?>("--package");
         var atOption = new Option<string?>("--at");
         var assemblyOption = new Option<string?>("--library");
+        var namesakeLibraryOption = new Option<bool>("--namesake-library");
         var platformOption = new Option<string?>("--platform");
         var projectOption = new Option<string?>("--project");
         var frameworkOption = new Option<string?>("--framework");
@@ -58,6 +59,7 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
         typeCommand.Options.Add(assemblyOption);
+        typeCommand.Options.Add(namesakeLibraryOption);
         typeCommand.Options.Add(platformOption);
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
@@ -96,9 +98,102 @@ public class TypeOptionsParserTests
             unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption,
             relationsOption, relationColorOption, requireRelationColorOption,
-            suppressRuntimeTypeFallbackOption);
+            suppressRuntimeTypeFallbackOption, namesakeLibraryOption);
 
         return (root, opts, args);
+    }
+
+    [Fact]
+    public async Task NamesakeLibrary_PreservesPackageAndTypeSelector()
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out var args);
+        ParseResult parsed = command.Parse(
+        [
+            "Microsoft.Azure.SignalR.ServiceRouteBuilder",
+            "--package", "Microsoft.Azure.SignalR@1.33.1",
+            "--namesake-library",
+        ]);
+
+        Assert.Empty(parsed.Errors);
+        var result = Assert.IsType<TypeOptionsParser.Success>(
+            await TypeOptionsParser.ParseAsync(parsed, opts, args));
+        Assert.True(result.Options.NamesakeLibrary);
+        Assert.Equal(
+            "Microsoft.Azure.SignalR@1.33.1",
+            result.Options.PackagePath);
+        Assert.Equal(
+            "Microsoft.Azure.SignalR.ServiceRouteBuilder",
+            result.Options.TypeName);
+        Assert.Null(result.Options.AssemblyPath);
+        Assert.False(
+            Commands.TypeCommand.TryCreateSharedExactTypeRequest(
+                result.Options with { Tfm = "net8.0" },
+                out _));
+    }
+
+    [Theory]
+    [InlineData("--library", "Other.dll")]
+    [InlineData("--platform", "System.Runtime")]
+    [InlineData("--project", "project.assets.json")]
+    [InlineData("--workspace", "packet")]
+    public void NamesakeLibrary_RejectsCompetingSources(
+        string option,
+        string value)
+    {
+        Command command = ApiCommandDefinitions.CreateTypeCommand(
+            new SharedOptions(),
+            out _);
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--package", "Some.Package",
+            "--namesake-library",
+            option, value,
+        ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--namesake-library cannot be combined",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NamesakeLibrary_RequiresExplicitPackage()
+    {
+        Command command = ApiCommandDefinitions.CreateTypeCommand(
+            new SharedOptions(),
+            out _);
+        ParseResult result = command.Parse(
+            ["Some.Package", "Some.Type", "--namesake-library"]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message ==
+                "--namesake-library requires --package.");
+    }
+
+    [Fact]
+    public void NamesakeLibrary_RejectsAllFrameworks()
+    {
+        Command command = ApiCommandDefinitions.CreateTypeCommand(
+            new SharedOptions(),
+            out _);
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--package", "Some.Package",
+            "--namesake-library",
+            "--tfm", "all",
+        ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--namesake-library requires one target framework",
+                StringComparison.Ordinal));
     }
 
     [Fact]

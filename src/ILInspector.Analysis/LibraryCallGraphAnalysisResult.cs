@@ -134,6 +134,36 @@ public sealed class LibraryCallGraphAnalysisResult
     }
 
     /// <summary>
+    /// Publishes the complete local-call evidence required by bounded
+    /// root-path search with its exact Method source and producer receipts.
+    /// </summary>
+    public static LibraryCallGraphAnalysisResult FromRootPathProducer(
+        string sourceName,
+        LibraryRootPathCallGraphProducerResult analysis,
+        MethodDefinitionSourceReceipt sourceReceipt,
+        WorkReceipt producerReceipt)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        return FromProducer(
+            sourceName,
+            new(
+                analysis.DeclaredMethods,
+                analysis.Methods,
+                analysis.DirectCalls,
+                [],
+                new Dictionary<int, BodySignals>(),
+                new Dictionary<
+                    (string Namespace, string Name),
+                    bool>(),
+                new HashSet<int>(),
+                analysis.DeclaredSources,
+                analysis.DeclaredSourceSuppressedMethodTokens,
+                analysis.Diagnostics),
+            sourceReceipt,
+            producerReceipt);
+    }
+
+    /// <summary>
     /// Common identity, coverage, and diagnostics for the producing execution.
     /// </summary>
     public LibraryBodyAnalysisReceipt Receipt { get; }

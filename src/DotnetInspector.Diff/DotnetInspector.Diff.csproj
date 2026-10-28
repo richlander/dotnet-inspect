@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\DotnetInspector.ResearchSections\DotnetInspector.ResearchSections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
   </ItemGroup>
 

@@ -593,6 +593,10 @@ producers that will extend that space.
 - `src/DotnetInspector.Sections/` also owns the cross-host completed-inspection
   envelope, portable-share outcome, and contained supplemental diagnostics.
   CLI and Inspect Web consume the same contract without either host owning it.
+  Its
+  [Library Reference Inspection](design/library-reference-inspection.md)
+  owns the detached, canonically ordered available, rejected, or failed answer
+  for one exact managed Library's direct metadata references.
   The sibling
   [host-observable content-kinds](design/host-observable-content-kinds.md)
   owner classifies the envelope's serialized content as a Result, Document, or
