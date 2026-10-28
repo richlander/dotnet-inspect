@@ -348,8 +348,8 @@ empty variants or `summary`, `normal`, and `detailed` tiers to mimic `-v`.
 Shortcuts are evaluated only after semantic adoption produces concrete use.
 A proposed shortcut must name one useful question, lower to the same exact
 selection/operation, and preserve Content, population, terminal, work demand,
-capabilities, diagnostics, and explicit format intent. No shortcut is a valid
-outcome. This decision does not add `--docs`, restore another generic detail
+capabilities, diagnostics, and explicit format intent. Concluding that no CLI
+shortcut is needed is a valid outcome. This decision does not add `--docs`, restore another generic detail
 flag, or prejudge aliases for the conceptual member views above.
 
 ### Presentation
