@@ -191,7 +191,10 @@ owns, the identity has no aliases.
 - **Incomplete or failed side.**
   - An incomplete census on either side is never compared as complete. The
     comparison fails with both sides' limitation counts and keeps both sides'
-    observed findings, so Diff discloses it and exits 1.
+    observed findings, so Diff discloses it and exits 1. The failure detail
+    names the incomplete side. The row's `old_inspection` and
+    `new_inspection` keep Diff's existing inspection states, which have no
+    incomplete state, so they read `complete` for the observed findings.
   - A failed census fails the comparison the same way.
   - A partial finding always carries a census limitation, so this rule covers
     it too.
@@ -244,10 +247,22 @@ Focused Release gates in `UnsafeMembersSectionTests` cover the following:
   - an incomplete or failed side that fails the comparison;
   - the summary text.
 
-  `Diff_UnsafeMember_LibraryTransitionsClassifyEachMember` and
-  `Diff_UnsafeMember_TypeTransitionsAgreeWithLibrary` cover the same
-  transitions end to end over the `DiffPair` fixture's
-  `UnsafeMemberDiffSample`, at Library and Type scope.
+  End-to-end gates run over the dedicated `UnsafeMemberDiffPair` fixture,
+  which is kept apart from the shared `DiffPair` so that pair's tokens and
+  member populations stay stable:
+  - `Diff_UnsafeMember_LibraryTransitionsClassifyEachMember` and
+    `Diff_UnsafeMember_TypeTransitionsAgreeWithLibrary` cover the same
+    transitions at Library and Type scope.
+  - `Diff_UnsafeMember_OneSidedTypeIsAllAddedOrRemoved` covers a Type present
+    at one endpoint only.
+  - `Diff_UnsafeMember_PackageAssemblyRenameReportsBothSides` covers a package
+    whose Library assembly is renamed: two subjects, all Removed and all
+    Added.
+  - `UnsafeMemberComparisonQueryTests` covers case-insensitive assembly
+    pairing, a one-sided assembly whose members are all Added, and agreement
+    between participant and path endpoints.
+  - `LibraryUnsafeMemberAnalysisIsHostUnavailable` covers the Browser's
+    host-resolved `Unavailable` outcome.
 - **Library empty state.** A complete Library census with no findings renders
   the empty state in table output. In JSON it gives empty `unsafeMembers` and
   `unsafeMembersComplete: true`.
