@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata.Ecma335;
 
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Planning;
@@ -14,6 +15,14 @@ public sealed record LibraryCallGraphProducerResult(
     IReadOnlyDictionary<(string Namespace, string Name), bool>
         InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
+    IReadOnlyDictionary<int, MethodIdentity> DeclaredSources,
+    IReadOnlySet<int> DeclaredSourceSuppressedMethodTokens,
+    ImmutableArray<AnalysisDiagnostic> Diagnostics);
+
+public sealed record LibraryRootPathCallGraphProducerResult(
+    ImmutableArray<MethodIdentity> DeclaredMethods,
+    ImmutableArray<MethodIdentity> Methods,
+    ImmutableArray<DirectCall> DirectCalls,
     IReadOnlyDictionary<int, MethodIdentity> DeclaredSources,
     IReadOnlySet<int> DeclaredSourceSuppressedMethodTokens,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
@@ -48,6 +57,189 @@ public sealed class LibraryCallGraphProducer :
                     ProducerDependencyKind.VisitNeedsVisit),
             ])
     {
+    }
+
+    /// <summary>
+    /// Produces the complete local-call evidence required by bounded root-path
+    /// search without acquiring unrelated call-graph analysis families.
+    /// </summary>
+    public sealed class LibraryRootPathCallGraphProducer :
+        MethodDefinitionProducer<
+            LibraryCallGraphBodyEvidence,
+            ImmutableArray<LibraryCallGraphBodyEvidence>.Builder,
+            LibraryRootPathCallGraphProducerResult>
+    {
+        LibraryRootPathCallGraphProducer()
+            : base(
+                "Library Root Path Call Graph",
+                version: 1,
+                tier: 0,
+                MethodDefinitionLayers.SemanticIdentity
+                    | MethodDefinitionLayers.MemorySafetyContracts
+                    | MethodDefinitionLayers.CallOperands)
+        {
+        }
+
+        public static LibraryRootPathCallGraphProducer Instance { get; } =
+            new();
+
+        internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+            InstructionAnalyzers =>
+            [
+                MethodBodyAnalyzerDeclarations.ResolvedCalls,
+            ];
+
+        internal override LibraryCallGraphBodyEvidence Visit(
+            scoped MethodDefinitionView view)
+        {
+            int token = view.Token;
+            var diagnostics =
+                ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
+            MethodSemanticIdentityResult semanticIdentity =
+                view.SemanticIdentity;
+            if (semanticIdentity
+                is MethodSemanticIdentityResult.Malformed malformed)
+            {
+                diagnostics.Add(
+                    new(
+                        token,
+                        $"0x{token:x8}",
+                        malformed.Reason));
+                return new(
+                    null,
+                    view.HasManagedBody,
+                    [],
+                    [],
+                    null,
+                    null,
+                    null,
+                    diagnostics.ToImmutable());
+            }
+
+            MethodIdentity method =
+                ExactMethodAnalysisProducer.ToMethodIdentity(
+                    semanticIdentity,
+                    ExactMethodAnalysisProducer.ToCallerUnsafeMode(
+                        view.GetMemorySafetyMethodContract(
+                            MetadataTokens.MethodDefinitionHandle(token))));
+            if (!view.HasManagedBody)
+            {
+                return new(
+                    method,
+                    false,
+                    [],
+                    [],
+                    null,
+                    null,
+                    null,
+                    diagnostics.ToImmutable());
+            }
+
+            ImmutableArray<DirectCall> directCalls = [];
+            try
+            {
+                MethodInstructions instructions =
+                    view.MaterializeInstructions(
+                        out _);
+                MethodCallOperandSites operands =
+                    view.GetCallOperands(instructions);
+                if (operands.Failure is { } operandFailure)
+                {
+                    diagnostics.Add(
+                        new(
+                            token,
+                            ExactMethodAnalysisProducer.MethodLabel(method),
+                            "Call analysis stopped at "
+                                + $"IL_{operandFailure.ILOffset:x4}: "
+                                + operandFailure.Message));
+                }
+
+                var calls =
+                    ImmutableArray.CreateBuilder<DirectCall>(
+                        operands.Sites.Length);
+                foreach (MethodCallOperandSite operand in operands.Sites)
+                {
+                    calls.Add(
+                        new(
+                            method,
+                            operand.Callee,
+                            operand.ILOffset,
+                            operand.OperandToken,
+                            operand.DefinitionToken,
+                            operand.Kind,
+                            InLoop: false)
+                        {
+                            EvidenceMethod = method,
+                            Opcode = operand.Kind switch
+                            {
+                                CallKind.CallVirtual => "callvirt",
+                                CallKind.NewObject => "newobj",
+                                CallKind.LoadFunction => "ldftn",
+                                CallKind.LoadVirtualFunction =>
+                                    "ldvirtftn",
+                                CallKind.CallIndirect => "calli",
+                                _ => "call",
+                            },
+                            ReturnAddress = operand.ReturnAddress,
+                        });
+                }
+                directCalls = calls.MoveToImmutable();
+            }
+            catch (Exception ex)
+                when (ex
+                        is not
+                            MethodDefinitionTerminalWorkLimitExceededException
+                    && LibraryMethodAnalysisRunner
+                        .IsRecoverableMethodFailure(ex))
+            {
+                diagnostics.Add(
+                    new(
+                        token,
+                        ExactMethodAnalysisProducer.MethodLabel(method),
+                        ex.Message));
+            }
+
+            return new(
+                method,
+                true,
+                directCalls,
+                [],
+                null,
+                null,
+                null,
+                diagnostics.ToImmutable());
+        }
+
+        internal override ImmutableArray<LibraryCallGraphBodyEvidence>.Builder
+            Seed() =>
+            ImmutableArray.CreateBuilder<LibraryCallGraphBodyEvidence>();
+
+        internal override ImmutableArray<LibraryCallGraphBodyEvidence>.Builder
+            Accumulate(
+                ImmutableArray<LibraryCallGraphBodyEvidence>.Builder accumulator,
+                LibraryCallGraphBodyEvidence fact)
+        {
+            accumulator.Add(fact);
+            return accumulator;
+        }
+
+        internal override LibraryRootPathCallGraphProducerResult Complete(
+            ImmutableArray<LibraryCallGraphBodyEvidence>.Builder accumulator,
+            MethodDefinitionCompletionView completion)
+        {
+            LibraryCallGraphProducerResult result =
+                LibraryCallGraphProducer.CompleteEvidence(
+                accumulator,
+                completion,
+                includeSupplementalEvidence: false);
+            return new(
+                result.DeclaredMethods,
+                result.Methods,
+                result.DirectCalls,
+                result.DeclaredSources,
+                result.DeclaredSourceSuppressedMethodTokens,
+                result.Diagnostics);
+        }
     }
 
     public static LibraryCallGraphProducer Instance { get; } = new();
@@ -142,7 +334,13 @@ public sealed class LibraryCallGraphProducer :
 
     internal override LibraryCallGraphProducerResult Complete(
         ImmutableArray<LibraryCallGraphBodyEvidence>.Builder accumulator,
-        MethodDefinitionCompletionView completion)
+        MethodDefinitionCompletionView completion) =>
+        CompleteEvidence(accumulator, completion);
+
+    internal static LibraryCallGraphProducerResult CompleteEvidence(
+        ImmutableArray<LibraryCallGraphBodyEvidence>.Builder accumulator,
+        MethodDefinitionCompletionView completion,
+        bool includeSupplementalEvidence = true)
     {
         var bodySignals = new Dictionary<int, BodySignals>();
         var exceptionTypes =
@@ -176,9 +374,11 @@ public sealed class LibraryCallGraphProducer :
             declaredMethods.Add(method);
             if (body.HasManagedBody)
                 methods.Add(method);
-            if (body.BodySignals is { } signals)
+            if (includeSupplementalEvidence
+                && body.BodySignals is { } signals)
                 bodySignals.Add(method.MetadataToken, signals);
-            if (body.InAssemblyTypeIsException is { } bodyExceptionTypes)
+            if (includeSupplementalEvidence
+                && body.InAssemblyTypeIsException is { } bodyExceptionTypes)
             {
                 foreach (KeyValuePair<
                     (string Namespace, string Name),
@@ -189,7 +389,9 @@ public sealed class LibraryCallGraphProducer :
                         classification.Value);
                 }
             }
-            if (body.NonHeapNewObjOperandTokens is { } bodyNonHeapTokens)
+
+            if (includeSupplementalEvidence
+                && body.NonHeapNewObjOperandTokens is { } bodyNonHeapTokens)
                 nonHeapNewObjectTokens.UnionWith(bodyNonHeapTokens);
             MethodIdentity? owner = null;
             bool ownerSuppressesOpportunities = false;
@@ -221,10 +423,13 @@ public sealed class LibraryCallGraphProducer :
                             Caller = owner,
                         });
             }
-            unsafeEvidence.AddRange(
-                ReconcileCallSafetyEvidence(
-                    body.UnsafeEvidence,
-                    body.DirectCalls));
+            if (includeSupplementalEvidence)
+            {
+                unsafeEvidence.AddRange(
+                    ReconcileCallSafetyEvidence(
+                        body.UnsafeEvidence,
+                        body.DirectCalls));
+            }
             if (owner is not null)
             {
                 declaredSources.Add(
