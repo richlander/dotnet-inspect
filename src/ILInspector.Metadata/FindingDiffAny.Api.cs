@@ -156,12 +156,9 @@ public static partial class FindingDiffAny
                 y.Read();
                 if (((x.Int ^ y.Int) & (int)ParameterAttributes.Out) != 0)
                     return true;
-                while (x.Read())
-                {
-                    if (!y.Read() || !x.SamePart(y))
-                        return true;
-                }
-                return y.Read();
+                // Defaults are uncertain: a changed enum value can still
+                // present the same symbolic default (E.A) on both sides.
+                return false;
             case FindingDiffAnyPart.GenericParameterFact:
                 x.Read();
                 y.Read();

@@ -358,6 +358,27 @@ A complete comparison is projected only for the selected Type when no
 presented difference settles the census. Equal censuses project no model.
 The receipt reports API surfaces built and the time constructing them.
 
+The census includes facts outside the selected Type when the API projection
+reads them: literal names and constants of local Types used by defaulted
+method signatures, implemented local interfaces' access flags, and module
+attributes. Signature dependencies use the shared guarded symbol speller,
+including composite signatures such as `Nullable<E>`. Explicit implementation
+admission uses the API extractor's effective-access rule. A dependency fact
+belongs to its parameter's declaring Member; its referenced field is payload,
+not the owner. The declaration cursor exposes it as `ApiDependency`. These
+dependency facts belong only to API; a private default does not widen the
+Body declaration population.
+
+Defaults and these context facts are uncertain. For example, changing the
+numeric value behind `E.A` can leave the presented default `E.A` unchanged.
+`CensusAndClosureHash_RespectCrossTypeDependencies` gates plain and nested enum
+renames, nullable enum defaults, local-interface admission, and close negative
+cases, against the complete comparison, Library state, Type inventory, Member
+partition, and the dependency's presence in the declaration cursor. The closure
+hash added by [#10785](https://github.com/richlander/dotnet-inspect/pull/10785)
+is an independent conservative oracle in these gates; Any Diff does not run a
+second hash scan.
+
 The motivating real population is the six pinned pairs in the
 [measurement record](#gates): their earlier census over-reports
 Newtonsoft.Json, CoreLib, and System.Private.Xml where uncertain raw facts
@@ -478,21 +499,32 @@ none of them. The remaining cost is the Public API surface built for Types
 whose census differs only in uncertain facts, about 50 ms on CoreLib, and the
 spike's fact classification, which allocates where the census need not.
 
-The earlier census is therefore a low-fidelity baseline, not a target: where
-it is faster, it is faster by leaving uncertain differences unverified, which
-over-reports. The operator accepted the cost of exactness on these pairs. Its
-budget, checked by every NativeAOT measurement of these pairs:
+These timings are historical prototype measurements, not a ceiling for the
+current contract. The spike's timed `Shared.Library` call passes
+`bodyPlus: false`, omitting the non-public declaration census and the header
+check that option controls. It reports Body `Unchanged` for compiled private
+field and public method additions that the current contract reports `Changed`.
+Rebuilding the preserved spike at `87f53a7cd` reproduced Aspire's 53 ms result
+at 54.97 ms, but that is a narrower question. Its Body oracle checks canonical
+IL output, not the omitted declaration facts.
 
-- **Exists** is no slower than the earlier census on a pair for which it builds
-  no Public API surface;
-- on every pair, **Exists** is no slower than its time in the table above,
-  which is the ceiling a later slice must meet, and each measurement reports
-  the surfaces built and the time spent building them beside the total; and
-- the remaining cost of fact classification, about 27 ms on CoreLib, is
-  overhead to remove, and each uncertain fact kind that a gate shows
-  presented, such as attribute arguments compared by symbolic name
-  ([#9802](https://github.com/richlander/dotnet-inspect/issues/9802)), removes
-  surface builds rather than exactness.
+The current cost gate compares exact base and candidate NativeAOT binaries on
+the same pinned inputs, machine, axes, and complete Body contract. Report API
+and Body together and API-only separately, with surface count and construction
+time beside each total. On pairs that build no API surface, avoid a regression
+against that same-work base. On uncertain-only differences, the operator
+accepted the cost of exactness: report the selected-Type model cost separately
+from census/classification work. The complete API comparison is the correctness
+oracle; the earlier raw census can over-report and is only a cost baseline.
+The comparison must not regain the prototype's time by dropping declaration
+facts or other owned work. New measurements record their base and head rather
+than inheriting the prototype's absolute numbers across contracts or machines.
+
+The prototype's allocating fact classification remains historical optimization
+evidence. Staged classification reads typed key parts without detaching or
+spelling them. Further fact promotion, such as symbolic attribute arguments
+([#9802](https://github.com/richlander/dotnet-inspect/issues/9802)), needs its own
+presented-kind gates and reduces model builds rather than exactness.
 
 Canonical IL comparison's failure count for CoreLib (5,454) counts methods or
 bodies present on one side only, not bodies it could not decode; neither

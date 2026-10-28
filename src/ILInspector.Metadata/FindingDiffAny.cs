@@ -995,7 +995,9 @@ public static partial class FindingDiffAny
         readonly HashSet<SymbolKey<FindingDiffAnyPart>> _duplicateTypeKeys =
             new(SymbolKeyComparer<FindingDiffAnyPart>.Instance);
         MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef, SideRows> _speller;
-        readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
+        readonly HashSet<TypeDefinitionHandle> _literalDefinitions = [];
+        bool _captureLiteralDefinitions;
+        readonly Dictionary<TypeDefinitionHandle, Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess>> _explicitImplementations = [];
         SymbolKeyInterner<FindingDiffAnyPart>? _interner;
 
         const MetadataReaderOptions StoredMetadata = MetadataReaderOptions.None;
@@ -1050,7 +1052,11 @@ public static partial class FindingDiffAny
         internal readonly struct SideRows(Side side) : IMetadataRowKeys<FindingDiffAnyPart, KeyRef>
         {
             public KeyRef Resolve(EntityHandle row, MetadataRowRole role)
-                => role == MetadataRowRole.Declaring ? side.TypeKey((TypeDefinitionHandle)row) : side.ReferenceKey(row);
+            {
+                if (side._captureLiteralDefinitions && row.Kind == HandleKind.TypeDefinition)
+                    side._literalDefinitions.Add((TypeDefinitionHandle)row);
+                return role == MetadataRowRole.Declaring ? side.TypeKey((TypeDefinitionHandle)row) : side.ReferenceKey(row);
+            }
 
             public void Embed(SymbolKeyBuilder<FindingDiffAnyPart> into, KeyRef row) => into.Key(row);
 
@@ -1185,20 +1191,13 @@ public static partial class FindingDiffAny
         static bool IsTypeLevel(HandleKind kind)
             => kind is HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification;
 
-        HashSet<MethodDefinitionHandle> ExplicitImplementations(TypeDefinitionHandle type)
+        Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess> ExplicitImplementations(TypeDefinitionHandle type)
         {
-            if (_explicitImplementations.TryGetValue(type, out var methods))
-                return methods;
-            methods = [];
-            foreach (MethodImplementationHandle handle in Md.GetTypeDefinition(type).GetMethodImplementations())
+            if (!_explicitImplementations.TryGetValue(type, out var methods))
             {
-                if (Md.GetMethodImplementation(handle).MethodBody is
-                    { Kind: HandleKind.MethodDefinition } body)
-                {
-                    methods.Add((MethodDefinitionHandle)body);
-                }
+                methods = ApiSurfaceExtractor.GetInterfaceImplementations(Md, Md.GetTypeDefinition(type));
+                _explicitImplementations[type] = methods;
             }
-            _explicitImplementations[type] = methods;
             return methods;
         }
 
@@ -1337,8 +1336,9 @@ public static partial class FindingDiffAny
                 && MetadataVisibility.AreEnclosingTypesExternallyReachable(Md, handle);
 
         bool IsVisible(MethodDefinitionHandle handle, MethodDefinition method)
-            => IsVisibleAccess((int)(method.Attributes & MethodAttributes.MemberAccessMask))
-                || ExplicitImplementations(method.GetDeclaringType()).Contains(handle);
+            => ApiSurfaceExtractor.AdmitsMethodAccess(
+                ApiSurfaceExtractor.MethodEffectiveAccess(method.Attributes & MethodAttributes.MemberAccessMask,
+                    handle, ExplicitImplementations(method.GetDeclaringType())), includeAll: false, apiAxis: true);
 
         bool IsVisible(FieldDefinition field)
             => IsVisibleAccess((int)(field.Attributes & FieldAttributes.FieldAccessMask));
@@ -1360,15 +1360,16 @@ public static partial class FindingDiffAny
             if (!visible)
                 return census;
             census.AddRange(VisibleFacts(unit).Where(fact => !IsNonApi(fact)));
+            Attributes(census, Md.GetModuleDefinition().GetCustomAttributes(), TypeKey(unit.Owner));
             Transient.Sort(census);
             return census;
         }
 
-        List<SymbolKeySlot> VisibleFacts(Unit unit)
+        List<SymbolKeySlot> VisibleFacts(Unit unit, bool apiDependencies = true)
         {
             var facts = new List<SymbolKeySlot>();
-            TypeFacts(facts, unit.Owner);
-            MemberFacts(facts, unit.Owner, api: true, out _);
+            TypeFacts(facts, unit.Owner, apiDependencies);
+            MemberFacts(facts, unit.Owner, api: true, out _, apiDependencies);
             return facts;
         }
 
@@ -1380,15 +1381,15 @@ public static partial class FindingDiffAny
             var census = new List<SymbolKeySlot>();
             methods = [];
             if (!visible)
-                TypeFacts(census, unit.Owner);
+                TypeFacts(census, unit.Owner, apiDependencies: false);
             else
-                census.AddRange(VisibleFacts(unit).Where(IsNonApi));
+                census.AddRange(VisibleFacts(unit, apiDependencies: false).Where(IsNonApi));
             MemberFacts(census, unit.Owner, api: !visible ? null : false, out var ownerMethods);
             foreach ((KeyRef key, MethodDefinitionHandle method) in ownerMethods)
                 AddMethod(methods, key, method);
             foreach (TypeDefinitionHandle generated in unit.Generated)
             {
-                TypeFacts(census, generated);
+                TypeFacts(census, generated, apiDependencies: false);
                 MemberFacts(census, generated, api: null, out var generatedMethods);
                 foreach ((KeyRef key, MethodDefinitionHandle method) in generatedMethods)
                     AddMethod(methods, key, method);
@@ -1408,7 +1409,7 @@ public static partial class FindingDiffAny
                 throw new BadImageFormatException($"Two methods share the compared key {Describe(key)}.");
         }
 
-        void TypeFacts(List<SymbolKeySlot> census, TypeDefinitionHandle handle)
+        void TypeFacts(List<SymbolKeySlot> census, TypeDefinitionHandle handle, bool apiDependencies = true)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
             KeyRef name = TypeKey(handle);
@@ -1454,8 +1455,19 @@ public static partial class FindingDiffAny
                 KeyRef body = Key(value.MethodBody);
                 KeyRef declaration = Key(value.MethodDeclaration);
                 mark = Transient.Begin();
-                census.Add(Transient.Mark(FindingDiffAnyPart.MethodImplementation).Key(name)
-                    .Key(body).Key(declaration).End(mark).Slot);
+                Transient.Mark(FindingDiffAnyPart.MethodImplementation).Key(name).Key(body).Key(declaration);
+                if (apiDependencies)
+                {
+                    TypeDefinitionHandle? local = value.MethodDeclaration.Kind switch
+                    {
+                        HandleKind.MethodDefinition => Md.GetMethodDefinition((MethodDefinitionHandle)value.MethodDeclaration).GetDeclaringType(),
+                        HandleKind.MemberReference => ApiSurfaceExtractor.DeclaringTypeDefinition(Md, Md.GetMemberReference((MemberReferenceHandle)value.MethodDeclaration).Parent),
+                        _ => null,
+                    };
+                    if (local is { } declaring)
+                        Transient.Int((int)Md.GetTypeDefinition(declaring).Attributes);
+                }
+                census.Add(Transient.End(mark).Slot);
             }
         }
 
@@ -1463,7 +1475,8 @@ public static partial class FindingDiffAny
             List<SymbolKeySlot> census,
             TypeDefinitionHandle handle,
             bool? api,
-            out List<(KeyRef Key, MethodDefinitionHandle Method)> methods)
+            out List<(KeyRef Key, MethodDefinitionHandle Method)> methods,
+            bool apiDependencies = true)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
             KeyRef name = TypeKey(handle);
@@ -1504,6 +1517,8 @@ public static partial class FindingDiffAny
                     Constant(parameter.GetDefaultValue());
                     census.Add(Transient.End(mark).Slot);
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
+                    if (apiDependencies && api == true && parameter.SequenceNumber > 0 && !parameter.GetDefaultValue().IsNil)
+                        DefaultLiteralDependencies(census, method, parameter.SequenceNumber, parameterKey);
                 }
                 MethodImport import = method.GetImport();
                 if (!import.Module.IsNil)
@@ -1559,6 +1574,45 @@ public static partial class FindingDiffAny
                 Optional(raiser);
                 census.Add(Transient.End(mark).Slot);
                 Attributes(census, value.GetCustomAttributes(), key);
+            }
+        }
+
+        void DefaultLiteralDependencies(List<SymbolKeySlot> census, MethodDefinition method, int sequence,
+            StagedSymbolKey<FindingDiffAnyPart> parameter)
+        {
+            // Composite signature types resolve their rows through SideRows;
+            // direct rows remain deferred until the consumer embeds them. Keep
+            // both, so Nullable<E> and nested enum defaults have E's literals.
+            _literalDefinitions.Clear();
+            _captureLiteralDefinitions = true;
+            bool opened = false;
+            try
+            {
+                MethodSignature<MetadataSignatureKey> signature = _speller.DecodeMethod(method);
+                opened = true;
+                if (sequence > signature.ParameterTypes.Length)
+                    throw new BadImageFormatException("Parameter sequence exceeds signature.");
+                foreach (MetadataSignatureKey type in signature.ParameterTypes)
+                    if (type.IsRow && type.Row.Kind == HandleKind.TypeDefinition)
+                        _literalDefinitions.Add((TypeDefinitionHandle)type.Row);
+            }
+            finally
+            {
+                _captureLiteralDefinitions = false;
+                if (opened) _speller.Discard();
+            }
+            foreach (TypeDefinitionHandle definition in _literalDefinitions)
+            {
+                foreach (FieldDefinitionHandle handle in Md.GetTypeDefinition(definition).GetFields())
+                {
+                    FieldDefinition field = Md.GetFieldDefinition(handle);
+                    if ((field.Attributes & FieldAttributes.Literal) == 0) continue;
+                    KeyRef key = Key(handle);
+                    int mark = Transient.Begin();
+                    Transient.Mark(FindingDiffAnyPart.ApiDependency).Key(parameter).Key(key).Int((int)field.Attributes);
+                    Constant(field.GetDefaultValue());
+                    census.Add(Transient.End(mark).Slot);
+                }
             }
         }
 
@@ -1961,6 +2015,7 @@ internal enum FindingDiffAnyPart : byte
     Constraint,
     Attribute,
     Constant,
+    ApiDependency,
 }
 
 /// <summary>
