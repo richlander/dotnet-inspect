@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Versioned unsafe member Diff fixture (#10770). V1 and V2 share AssemblyName
+    UnsafeMemberDiffSample and public signatures; only unsafe roles and closure
+    numbering differ. Kept apart from DiffFixtures so the shared Diff pair's
+    tokens and member populations stay stable. Loaded by path; never
+    referenced for compilation.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>UnsafeMemberDiffSample</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

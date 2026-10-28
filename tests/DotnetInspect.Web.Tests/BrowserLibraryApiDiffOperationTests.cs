@@ -390,6 +390,40 @@ public sealed class BrowserLibraryApiDiffOperationTests
             content.GetProperty("changes").GetProperty("types").EnumerateArray());
     }
 
+    // The unsafe member census reads method bodies, so Browser/Wasm resolves
+    // it as host-unavailable without preparing a comparison.
+    [Fact]
+    public async Task LibraryUnsafeMemberAnalysisIsHostUnavailable()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserLibraryApiDiffRequest request = fixture.Request() with
+        {
+            Surface = BrowserDiffAnalysisSurface.Library,
+            Analyses = ["api", "unsafe-member"],
+            Views = BrowserDiffAnalysisViews.Summary,
+        };
+
+        BrowserLibraryApiDiffResult result = await fixture.Query(request);
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Succeeded,
+            result.Kind);
+        JsonElement content = Assert.IsType<
+            InspectionEnvelope<JsonElement>>(result.Inspection).Content;
+        JsonElement unsafeMember = Assert.Single(
+            content.GetProperty("outcomes").EnumerateArray(),
+            static outcome => outcome.GetProperty("analysis").GetString()
+                == "unsafe-member");
+        Assert.Equal("Unavailable", unsafeMember.GetProperty("kind").GetString());
+        Assert.Contains(
+            "Browser/Wasm",
+            unsafeMember.GetProperty("detail").GetString(),
+            StringComparison.Ordinal);
+        Assert.Single(
+            result.Inspection!.Diagnostics,
+            static diagnostic => diagnostic.Code == "diff-analysis.unavailable");
+    }
+
     [Theory]
     [InlineData("Ns.Outer.Inner", "Ns.Outer+Inner")]
     [InlineData("Ns.Gen`1", "Ns.Gen<T>")]
