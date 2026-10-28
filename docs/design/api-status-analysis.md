@@ -163,7 +163,8 @@ Finding Diff Any's API census records each admitted subject's custom attributes
 as API facts, `EditorBrowsable` and `Obsolete` among them, so a status-only
 change makes the Type API `Changed` with Body `Unchanged`. For a change to a
 recorded status fact (a Type's or Member's hidden fact, or `[Obsolete]`'s
-presence, message, or error flag on a Type, a Member, or an accessor), the API axis comparison now reports a row,
+presence, message, or error flag on a Type, a Member, or an accessor within
+external reach), the API axis comparison now reports a row,
 which keeps the [Finding Diff Any](finding-diff-any.md#contract) Exists
 contract: `Changed` opens a non-empty complete diff. A change only to an
 unrecorded part of a status attribute, such as `[Obsolete]`'s `DiagnosticId` or
@@ -191,6 +192,9 @@ owns that presentation and the obsolete marker.
 - Each case is Finding Diff Any API `Changed` and Body `Unchanged`, and the
   API axis and include-all comparisons each report exactly one row of its kind,
   category, classification, and values.
+- A private setter made obsolete is Finding Diff Any API `Unchanged`; the API
+  axis comparison reports no row for it, and the include-all comparison
+  reports one NonBreaking row.
 - The Public comparison reports the hidden and obsolete-Type cases as a
   removal or an addition and reports no status row.
 - `ApiDiffAnalyzerTests` classify every transition in the table above through

@@ -1092,7 +1092,7 @@ public static class ApiDiffAnalyzer
         ApiChangeSubjectSource subject,
         List<ApiChange> changes)
     {
-        if (oldToken is null || newToken is null)
+        if (oldToken is null || newToken is null || oldObsolete == newObsolete)
             return;
         bool outsideApiAxis =
             AccessorReach(oldHandle, oldAccess) == 0
