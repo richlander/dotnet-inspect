@@ -71,6 +71,26 @@ public sealed record UnsafeMemberLimitation(
         init => _evidence = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(Evidence));
     }
 
+    /// <summary>
+    /// The limitation as one line: its reason, then "in" and the affected body
+    /// when it has one, "for" and the declared member when the body's owner
+    /// was authenticated, and a colon and the detail when there is one.
+    /// </summary>
+    public string Describe(Func<MethodIdentity, string> formatMethod)
+    {
+        ArgumentNullException.ThrowIfNull(formatMethod);
+        var text = new System.Text.StringBuilder(Reason.ToString());
+        if (Body is { } body)
+            text.Append(" in ").Append(formatMethod(body));
+        else if (BodyToken is { } token)
+            text.Append($" in 0x{token:X8}");
+        if (DeclaredMember is { } member)
+            text.Append(" for ").Append(formatMethod(member));
+        if (Detail is { Length: > 0 } detail)
+            text.Append(": ").Append(detail);
+        return text.ToString();
+    }
+
     public bool Equals(UnsafeMemberLimitation? other)
         => other is not null
             && Reason == other.Reason
