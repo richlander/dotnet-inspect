@@ -587,10 +587,13 @@ one.
 
 ### Single-Library API Diff terminal
 
-A pair request over the analysis catalog whose subject is one Library is the
-single-Library API Diff terminal for both hosts. It returns
-`InspectionEnvelope<DiffAnalysisDocument>` with `LibraryApi` populated, the
-shape Inspect Web already consumes. The CLI's Library API Changes output is a
+A pair request over the analysis catalog whose subject is one Library, or a
+Type or Member within one Library, is the single-Library API Diff terminal for
+both hosts. A Type or Member subject is the request's target within its
+Library. The terminal returns `InspectionEnvelope<DiffAnalysisDocument>`, the
+shape Inspect Web already consumes, and populates `LibraryApi` when the request
+asks for it: the browser asks, and CLI `diff --analysis` does not, so its JSON
+keeps omitting `libraryApi`. The CLI's Library API Changes output is a
 projection of that result. `LibraryApiDiffDocument`, which [Library API diff
 presentation](library-api-diff-presentation.md) owns, and the analysis set's
 `api` outcome, which the [command transition
@@ -598,8 +601,11 @@ model](command-transition-model.md#content-and-failure) owns, stay two
 projections of one comparison; neither becomes the other.
 
 The request states its **targets**: the Library, named Types, or named
-Members. From them the operation, not the host, derives the Types it reads in
-full:
+Members. CLI patterns such as `-t` and `--member` resolve against both sides'
+Type names into targets before anything is extracted, and a Type selection that
+narrows Library API Changes stays part of the request, so changed Types outside
+it are not extracted. From the targets the operation, not the host, derives the
+Types it reads in full:
 
 - every targeted Type, for a Type or Member target;
 - every Type, when a requested outcome counts unchanged subjects across the
@@ -615,14 +621,22 @@ both sides. Skipping is therefore a property of the one request, never of a
 host, and a host that needs an unchanged Type's rows asks for it as a target.
 For the facts a comparison states about the whole Library:
 
-- **Bounds** count only the Types the comparison extracts. A skipped Type is
-  proven unchanged, so a comparison that a bound truncates today may
-  complete.
-- **Failures** stay conservative. A Type whose closure could not be hashed
-  is not skipped, and when either side's context hash cannot be computed,
-  nothing is skipped. The prefilter's read-set guard keeps the extractor's
-  reads inside the closure, so a skipped Type cannot hide an extraction
-  failure.
+- **Count bounds**, the Type and member limits, count only the Types the
+  comparison extracts. A skipped Type is proven unchanged, so a comparison
+  that a count bound truncates today may complete. That is the prefilter's one
+  intentional output change.
+- **Work bounds**, such as the browser's metadata-row and retained-text
+  limits, also charge the hashing pass, which reads every Type's closure. A
+  package load stays bounded work.
+- **Failures** stay conservative. A Type whose closure could not be hashed,
+  or whose extraction would record an inspection failure, a degraded
+  signature, or a resolution failure outside the image, is not skipped, and
+  when either side's context hash cannot be computed, nothing is skipped.
+  Endpoint completeness and the degraded-signature count are therefore
+  unchanged. The prefilter's read-set guard keeps the extractor's reads inside
+  the closure. The prefilter slice is
+  [finding producers' slice 2](finding-producers.md#unchanged-prefilter), and
+  that guard and this failure rule gate it.
 
 Until adoption steps 3 and 5 land, the operation takes a Library pair the
 host has already opened: the host keeps its acquisition and its Library
@@ -631,10 +645,15 @@ pairing, the CLI's single-asset pairing and the browser's
 the operation. A host-owned comparison cache stays with the host, as layer 5
 places it, but the operation issues its key: the endpoint identities, the
 framework, the view, and the bounds. Targets are not in the key; a later
-request whose target the prefilter skipped compares that Type on demand.
+request whose target the prefilter skipped compares that Type on demand. The
+key slice lands before the prefilter slice, and the prefilter slice brings the
+on-demand comparison, so cached reuse never serves a comparison missing its
+target.
 
-The CLI's `diff --analysis api` compares the API axis through this terminal,
-as `diff` does, closing
+The CLI's `diff --analysis api` compares the API axis, as `diff` does, for
+every subject the one input builder serves: single-Library through this
+terminal, and multi-Library Package and Platform assembly sets through the same
+builder, closing
 [#10391](https://github.com/richlander/dotnet-inspect/issues/10391). That is an
 intentional output change for that route, matching how Library API Changes
 already reports accessibility moves.
@@ -666,10 +685,10 @@ first, so later steps retire duplicates rather than add adapters.
 | 1 | This design | None |
 | 2 | Create `DotnetInspector.Diff` with `DiffRequest` and `DiffOperation`. Move Diff History's orchestration into it as the per-point mode, returning `DiffHistoryOutcome` unchanged. `diff --history` calls it. Done: `DiffOperation.ExecuteAsync` and `ExecuteWithEvidenceAsync` take a `DiffHistoryRequest` and a `DiffAcquisition`, and the engines are internal to the diff system. Per-version cell evaluators stay in `PackageQueries` until step 3. | `DiffHistoryInspector`, `DiffHistoryMethodology` and History request types in `PackageQueries`; `DiffHistoryInspection` in `DotnetInspector.Sections` |
 | 2b | History's lowering moves from the CLI host into Presentation, after `FindingTargetFormatter` moves below Presentation; next-action command text stays in the CLI. Done: `DiffHistoryPresentation.Project` builds the Markout view and takes the host's `DiffHistoryNextActionFormatter`; `DiffHistoryJsonOutput` and its context serialize the outcome; Presentation admits `NuGet.Versioning`, which package-version contracts expose. | `DiffHistoryJsonOutput`, the view models and the projection in the CLI; the CLI keeps writing, section selection, row selection and command text |
-| 3 | Every point opens through its kind's seam, in both hosts, finishing [package endpoint scope](package-endpoint-scope.md#adoption) adoption. The browser gains the endpoint scope and a population cell executor; both hosts share one Root and Workspace composition behind the two seams. Prerequisites: the [package cache policy](package-cache-policy.md) decision that endpoint scope adoption names, and Platform endpoints from Platform realization. | `ApiSurfaceEndpointResolver` diff routes; `PackageEndpointDiffSession`; the browser's per-export `OpenScopeAsync` pairs; the duplicate Root and Workspace composition in the CLI's cell executor |
+| 3 | Every point opens through its kind's seam, in both hosts, finishing [package endpoint scope](package-endpoint-scope.md#adoption) adoption. The browser gains the endpoint scope and a population cell executor; both hosts share one Root and Workspace composition behind the two seams. Prerequisites: the [package cache policy](package-cache-policy.md) decision that endpoint scope adoption names, and Platform endpoints from Platform realization. | `ApiSurfaceEndpointResolver` diff routes; `PackageEndpointDiffSession`; the hosts' acquisition ahead of step 6's host-opened Library pair input; the browser's per-export `OpenScopeAsync` pairs; the duplicate Root and Workspace composition in the CLI's cell executor |
 | 4 | Add the paired-steps mode, version-window requests and the request-set entry. Run Finding Diff Any as a paired producer, with its slicing driven by the operation. Rename Finding Diff Any steps to slices. | The browser's own Finding Diff Any slice loop in `LibraryFindingDiffAnyExports` |
-| 5 | One Library correspondence query for paired-mode steps, owned by [compile-asset correspondence](package-asset-selection-correspondence.md#comparison-counterparts). Per-point focus resolution stays History's rule. | `LibraryApiDiffRunner`'s `.Single()` pairing; per-export `FindComparisonAsset` calls |
-| 6 | Move the analysis-set runner and its single input builder into the operation. Single-Library API Diff has one terminal, as [Single-Library API Diff terminal](#single-library-api-diff-terminal) states. It may land before steps 3 to 5 on host-opened Library pairs. Its slices, in order: the CLI's projections read the completed outcome; the terminal moves into the operation and the browser calls it; CLI `diff` calls it; one input builder serves single-Library `diff --analysis`; `diff --analysis api` compares the API axis; the Unchanged prefilter skips by request targets; the operation issues the cache key. Every slice but the API-axis move is byte-identical. | The CLI's analysis-set input builder (`CreateAnalysisSetRequest` and `ExecuteAnalysisSetAsync`); `LibraryApiDiffRunner`, and `LibraryApiDiffInspection` with its tests; the browser's own input builder in `DiffAnalysisLibraryInspection` |
+| 5 | One Library correspondence query for paired-mode steps, owned by [compile-asset correspondence](package-asset-selection-correspondence.md#comparison-counterparts). Per-point focus resolution stays History's rule. | The hosts' Library pairing ahead of step 6's host-opened Library pair input: the CLI's single-asset pairing, formerly `LibraryApiDiffRunner`'s `.Single()`, and per-export `FindComparisonAsset` calls; that transitional input itself |
+| 6 | Move the analysis-set runner and its single input builder into the operation. Single-Library API Diff has one terminal, as [Single-Library API Diff terminal](#single-library-api-diff-terminal) states. It may land before steps 3 to 5 on host-opened Library pairs. Its slices, in order: the CLI's projections read the completed outcome; the terminal moves into the operation and the browser calls it; CLI `diff` calls it; one input builder in the operation serves every `diff --analysis` subject, single-Library, multi-Library Package and Platform assembly sets; `diff --analysis api` compares the API axis; the operation issues the cache key; the Unchanged prefilter skips by request targets and compares skipped targets on demand. Every slice is byte-identical except two named intentional changes: the API-axis move, and the prefilter's count bounds. The slice that retires `LibraryApiDiffInspection` moves its tests to the terminal and amends the owners that name them: [Library API diff presentation](library-api-diff-presentation.md), the [adoption census](diff-command-adoption-census.md), [package endpoint scope](package-endpoint-scope.md), and the [command transition model](command-transition-model.md). | The CLI's analysis-set input builder (`CreateAnalysisSetRequest` and `ExecuteAnalysisSetAsync`); `LibraryApiDiffRunner`, and `LibraryApiDiffInspection`, its tests moving to the terminal; the browser's own input builder in `DiffAnalysisLibraryInspection` |
 | 7 | Member body content uses one selected-population request | `MemberBodyDiffInspection` as a browser-only path; CLI Implementation Diff's separate population |
 | 8 | Browser exports become thin adapters over the operation; the background cue requests window policies | TypeScript version choice (`resolveEffectiveDiffTarget` choosing versions); per-export pairing and aggregation code; the whole-Library API Diff behind the one-Type cue once Finding Diff Any's Type level lands |
 | 9 | CLI `diff` routes, including Platform and local-file diff, collapse onto the operation; the three command-owned routes are owned here | Command-owned routes in the [adoption census](diff-command-adoption-census.md) |
