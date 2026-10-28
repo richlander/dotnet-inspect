@@ -1348,6 +1348,31 @@ internal sealed class LiftedSourceOwnerResolver
                 ? EmptyMethodBodyReferences()
                 : ReadMethodBodyReferences(methodHandle, method, body),
             LazyThreadSafetyMode.ExecutionAndPublication);
+        RecordTraversedReferences(methodHandle, references);
+    }
+
+    /// <summary>
+    /// Records complete call and function-pointer evidence without decoding
+    /// the traversed body a second time.
+    /// </summary>
+    internal void RecordTraversedCallReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        ImmutableArray<DirectCall> calls)
+    {
+        var references = new Lazy<MethodBodyReferenceEvidence>(
+            () => ReadDirectCallReferences(
+                methodHandle,
+                method,
+                calls),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        RecordTraversedReferences(methodHandle, references);
+    }
+
+    void RecordTraversedReferences(
+        MethodDefinitionHandle methodHandle,
+        Lazy<MethodBodyReferenceEvidence> references)
+    {
         if (!_methodBodyReferences.TryAdd(methodHandle, references))
             return;
         try
@@ -1359,6 +1384,67 @@ internal sealed class LiftedSourceOwnerResolver
         {
             // The cached failure replays when the relation reads this body.
         }
+    }
+
+    MethodBodyReferenceEvidence ReadDirectCallReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        ImmutableArray<DirectCall> calls)
+    {
+        var calledDefinitions = new HashSet<int>();
+        var referencedDefinitions = new HashSet<int>();
+        var referencedMembers = new HashSet<MethodReferenceKey>(
+            MethodReferenceKeyComparer.Instance);
+        ExceptionDispatchInfo? referenceFailure = null;
+        TypeDefinition ownerType = _reader.GetTypeDefinition(
+            method.GetDeclaringType());
+        GenericScope scope =
+            _primaryMetadataResolver.CreateScope(ownerType, method);
+        foreach (DirectCall call in calls)
+        {
+            bool called = call.Kind
+                is CallKind.Call or CallKind.CallVirtual;
+            if (!called
+                && call.Kind is not (
+                    CallKind.LoadFunction
+                    or CallKind.LoadVirtualFunction))
+            {
+                continue;
+            }
+
+            referencedDefinitions.Add(call.CalleeDefinitionToken);
+            if (called)
+                calledDefinitions.Add(call.CalleeDefinitionToken);
+            try
+            {
+                EntityHandle handle =
+                    MetadataTokens.EntityHandle(call.OperandToken);
+                if (handle.Kind == HandleKind.MethodSpecification)
+                {
+                    handle = _reader.GetMethodSpecification(
+                        (MethodSpecificationHandle)handle).Method;
+                }
+                if (handle.Kind != HandleKind.MemberReference)
+                    continue;
+
+                referencedMembers.Add(
+                    _methodReferenceResolver.ResolveIdentity(
+                        (MemberReferenceHandle)handle,
+                        scope,
+                        methodHandle));
+            }
+            catch (Exception ex)
+                when (AnalysisMethodFailures.IsRecoverable(ex))
+            {
+                referenceFailure ??= ExceptionDispatchInfo.Capture(ex);
+            }
+        }
+        return new(
+            calledDefinitions,
+            referencedDefinitions,
+            referencedMembers,
+            CallFailure: null,
+            ReferenceFailure: referenceFailure);
     }
 
     MethodBodyReferenceEvidence BuildMethodBodyReferences(

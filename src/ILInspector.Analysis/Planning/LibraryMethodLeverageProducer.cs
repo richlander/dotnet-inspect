@@ -347,11 +347,23 @@ public sealed class LibraryMethodLeverageProducer :
                     body);
                 coverage.RecordBodyAcquired(item.Handle);
             }
-            state.Execution.RecordKernelRelationReference(
-                peReader,
-                item.Handle,
-                item.Definition,
-                bodies[index]);
+            LibraryCallGraphBodyEvidence evidence = accumulator[index];
+            if (evidence.Diagnostics.IsEmpty)
+            {
+                state.Execution.RecordKernelRelationReferences(
+                    item.Handle,
+                    item.Definition,
+                    bodies[index],
+                    evidence.DirectCalls);
+            }
+            else
+            {
+                state.Execution.RecordKernelRelationReference(
+                    peReader,
+                    item.Handle,
+                    item.Definition,
+                    bodies[index]);
+            }
         }
 
         ((MethodDefinitionProducer<

@@ -550,7 +550,9 @@ partitions share one immutable memory-safety metadata projection but retain
 independent query-work receipts, so projection construction is charged once
 without merging concurrent counters. The local adapter starts its bounded
 workers immediately rather than relying on pool growth for the few coarse
-partitions. The
+partitions. During the ordered fold, complete resolved call evidence is also
+shared with the declared-source relation; incomplete or malformed evidence
+retains the relation's body-scan fallback. The
 all-definition generated-body relation still records the bodies acquired by
 the producer and settles once after the ordered fold. Row-limited and exact
 breadths retain interpreted serial execution. The Browser/Wasm operation uses

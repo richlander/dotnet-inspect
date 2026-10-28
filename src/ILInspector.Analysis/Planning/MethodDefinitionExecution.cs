@@ -219,6 +219,32 @@ public sealed class MethodDefinitionExecution
         }
     }
 
+    internal void RecordKernelRelationReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock? body,
+        ImmutableArray<DirectCall> calls)
+    {
+        if (_pendingRelation is null)
+            return;
+
+        try
+        {
+            _pendingRelation.RecordTraversedCallReferences(
+                methodHandle,
+                method,
+                body,
+                calls);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            // The complete call evidence already resolved every operand. A
+            // later relation read replays any reference-identity failure.
+        }
+    }
+
     internal ImmutableArray<MemorySafetyContractSupport>
         CreateKernelMemorySafetyPartitions(int partitionCount)
     {
