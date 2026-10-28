@@ -53,6 +53,55 @@ public sealed partial class WorkspacePacketActivationTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("--plaintext")]
+    [InlineData("--markdown")]
+    public async Task SavedMemberEnvironmentFormatMatchesOrdinary(string terminal)
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var load = LoadOptions(client, await RealPackageStoreAsync());
+        MemberOptions producer = await ParseMemberReplayOptionsAsync(
+            MemberWorkspaceRouteTests.Packet(5), "Serialize:1", []);
+        var saved = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            producer with { ShareFormat = WorkspaceShareFormat.Packet }, load));
+        Assert.True(saved.ExitCode == 0, saved.Error);
+        string packet = saved.Error.Trim();
+        string[] flags = terminal.Length == 0 ? [] : [terminal];
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "plaintext");
+            MemberOptions ordinaryOptions = await ParseMemberReplayOptionsAsync(
+                packet, "Serialize:1", flags);
+            var ordinary = await ConsoleCapture.RunAsync(() =>
+                MemberCommand.ExecuteAsync(ordinaryOptions, load));
+            Assert.True(ordinary.ExitCode == 0, ordinary.Error);
+
+            var opts = new SharedOptions();
+            var root = new RootCommand { WorkspaceActivationCommandDefinitions.Create(opts) };
+            var parsed = root.Parse(
+                [WorkspaceActivationCommandDefinitions.CommandName, packet, .. flags]);
+            Assert.Empty(parsed.Errors);
+            var actual = await ConsoleCapture.RunAsync(() => WorkspacePacketActivation.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = packet,
+                    Format = opts.ResolveFormat(parsed),
+                    FormatExplicitlySet = opts.IsFormatExplicitlySet(parsed),
+                    FormatFlagExplicitlySet = opts.IsFormatFlagExplicitlySet(parsed),
+                    MarkdownExplicitlySet = parsed.GetResult(opts.Markdown) is { Implicit: false },
+                }, TestContext.Current.CancellationToken, load));
+            Assert.True(actual.ExitCode == 0, actual.Error);
+            Assert.Equal(NormalizeTypePaths(ordinary.Output), NormalizeTypePaths(actual.Output));
+            Assert.Empty(actual.Error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Theory]
     [InlineData("Serialize:2")]
     [InlineData("IsReflectionEnabledByDefault:1")]
     public async Task MemberReplayKeepsExactOverloadOrProperty(string member)

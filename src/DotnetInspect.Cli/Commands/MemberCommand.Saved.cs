@@ -38,7 +38,8 @@ public static partial class MemberCommand
             TabularExplicitlySet = presentation.TabularExplicitlySet,
             MarkdownExplicitlySet = presentation.MarkdownExplicitlySet,
             JsonOutput = presentation.Format == OutputFormat.Json,
-            PlainText = presentation.Format == OutputFormat.PlainText,
+            PlainText = presentation.Format == OutputFormat.PlainText
+                && presentation.FormatFlagExplicitlySet,
             Tabular = presentation.Format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl,
             Tsv = presentation.Format == OutputFormat.Tsv,
             Jsonl = presentation.Format == OutputFormat.Jsonl,
