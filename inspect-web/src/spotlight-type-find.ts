@@ -76,7 +76,7 @@ interface TypeFindRejectedResult {
 
 type TypeFindResult = TypeFindEvaluatedResult | TypeFindRejectedResult;
 
-interface ManagedSpotlightTypeCandidate {
+export interface ManagedSpotlightTypeCandidate {
   readonly identity: string;
   readonly action: string | null;
   readonly reason: string | null;
@@ -277,7 +277,7 @@ export function projectSpotlightTypeFindResult(
       }
       const name = candidate.name.segments.join(".");
       projected.push({
-        identity: candidateIdentity(candidate),
+        identity: activation.identity ?? candidateIdentity(candidate),
         action: activation.status === "Available"
           ? activation.action
           : null,
@@ -572,8 +572,8 @@ function coverageNotice(
   return messages.join(" ");
 }
 
-function diagnosticsNotice(
-  diagnostics: readonly InspectionDiagnostic[],
+export function diagnosticsNotice(
+  diagnostics: readonly { readonly summary: unknown }[],
 ): string {
   return diagnostics
     .map(diagnostic => String(diagnostic.summary).trim())

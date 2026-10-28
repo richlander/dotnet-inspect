@@ -1,12 +1,8 @@
 import { dotnet } from "./runtime-loader.js";
 
-declare const inertStringBrand: unique symbol;
-
-export type InertString = string & {
-  readonly [inertStringBrand]: "InertString";
-};
-
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
+
+export type BrowserIndexedTypeFindActivationStatus = "Available" | "Unavailable" | "Stale" | "Ambiguous" | "Refused" | "Failed" | number;
 
 export type BrowserIndexedTypeFindResultStatus = "Completed" | "Rejected" | "Unavailable" | "Stale" | number;
 
@@ -21,8 +17,6 @@ export type BrowserVocabularyMapCoverage = "Complete" | "Partial" | number;
 export type BrowserVocabularyScalarKind = "Text" | "Integer" | "Boolean" | number;
 
 export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
-
-export type InspectionDiagnosticSeverity = number;
 
 export type JsonValueKind = number;
 
@@ -245,8 +239,23 @@ export interface BrowserHomeDemoView {
   readonly section: string | null;
 }
 
+export interface BrowserIndexedTypeFindCandidateActivation {
+  readonly matchOrdinal: number;
+  readonly identity: string | null;
+  readonly status: BrowserIndexedTypeFindActivationStatus;
+  readonly action: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserIndexedTypeFindInspectionEnvelope {
+  readonly content: unknown;
+  readonly share: BrowserVocabularyInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserVocabularyInspectionDiagnostic>;
+}
+
 export interface BrowserIndexedTypeFindOperationResult {
-  readonly find: InspectionEnvelope<unknown>;
+  readonly find: BrowserIndexedTypeFindInspectionEnvelope;
+  readonly activations: ReadonlyArray<BrowserIndexedTypeFindCandidateActivation>;
 }
 
 export interface BrowserIndexedTypeFindResult {
@@ -960,19 +969,6 @@ export interface BrowserWorkspaceShareView {
   readonly comparison: BrowserWorkspaceDiffShare | null;
 }
 
-export interface InspectionDiagnostic {
-  readonly code: string;
-  readonly severity: InspectionDiagnosticSeverity;
-  readonly summary: InertString;
-  readonly correspondence: InertString | null;
-}
-
-export interface InspectionEnvelope<T0> {
-  readonly content: T0;
-  readonly share: InspectionShare;
-  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
-}
-
 export interface BrowserVocabularyAvailableShare {
   readonly kind: "available";
   readonly fullUrl: string;
@@ -1033,22 +1029,6 @@ export interface BrowserVocabularyLocalTermSetReference {
 }
 
 export type BrowserVocabularyTermSetReference = BrowserVocabularyLocalTermSetReference | BrowserVocabularyExternalTermSetReference;
-
-export interface Available {
-  readonly kind: "available";
-  readonly fullUrl: string;
-  readonly packet: string;
-}
-
-export interface NonProjectable {
-  readonly kind: "nonProjectable";
-  readonly fullUrl: string | null;
-  readonly packet: string | null;
-  readonly path: string;
-  readonly reason: InertString;
-}
-
-export type InspectionShare = Available | NonProjectable;
 
 type $ManagedExports = {
   readonly "DotnetInspect": {

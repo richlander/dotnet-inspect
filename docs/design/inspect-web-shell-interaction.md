@@ -525,9 +525,13 @@ their own owners instead of being hidden inside a global symbol rank.
 focused adoption sequence. The shared Find result and Ecosystem-block owners
 land before Browser operation adoption, including the staged continuation in
 [#9172](https://github.com/richlander/dotnet-inspect/pull/9172); Spotlight then
-adopts their typed blocks and the Ecosystem control; Home receives the
-configured search authority; and duplicate local matching, static framework
-search, and Spotlight-owned ranking retire after parity.
+adopts their typed blocks and the Ecosystem control. The indexed Type phase in
+[#10778](https://github.com/richlander/dotnet-inspect/issues/10778) is the
+first implemented phase composition: it precedes resident Workspace Type
+Find, uses one managed stable identity across both phases, and retains the
+selected logical result as resident rows arrive. Home receives the configured
+search authority; duplicate local matching, static framework search, and
+Spotlight-owned ranking retire after parity.
 
 Spotlight reacts to every supported way its input value changes, including
 typing, paste, drag and drop of text, autofill where applicable, and input

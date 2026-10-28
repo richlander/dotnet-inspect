@@ -31,6 +31,7 @@ internal sealed record BrowserTypeFindCandidateReference(
 
 internal sealed record BrowserTypeFindCandidateActivation(
     BrowserTypeFindCandidateReference Candidate,
+    string? Identity,
     BrowserTypeFindActivationSource Source,
     BrowserTypeFindActivationStatus Status,
     string? Action,
@@ -295,6 +296,10 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                 var reference = new BrowserTypeFindCandidateReference(
                     answer.Identity.Ordinal,
                     candidateIndex + 1);
+                string? identity = BrowserSpotlightTypeIdentity.TryCreate(
+                    rawCandidate.Coordinate,
+                    candidate.Name,
+                    candidate.ModuleVersionId);
 
                 if (rawCandidate.Observation.Origin
                         is WorkspaceDeclarationOrigin.PackageScope
@@ -313,6 +318,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     {
                         activations.Add(new(
                             reference,
+                            identity,
                             BrowserTypeFindActivationSource.Package,
                             binding.Status,
                             Action: null,
@@ -328,6 +334,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     {
                         activations.Add(new(
                             reference,
+                            identity,
                             BrowserTypeFindActivationSource.Package,
                             FromNavigation(action.Kind),
                             Action: null,
@@ -359,6 +366,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                         navigation.RetireRetainedTypeActions([action.Action]);
                         activations.Add(new(
                             reference,
+                            identity,
                             BrowserTypeFindActivationSource.Package,
                             BrowserTypeFindActivationStatus.Stale,
                             Action: null,
@@ -373,6 +381,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                         navigation.RetireRetainedTypeActions([action.Action]);
                         activations.Add(new(
                             reference,
+                            identity,
                             BrowserTypeFindActivationSource.Package,
                             BrowserTypeFindActivationStatus.Stale,
                             Action: null,
@@ -392,6 +401,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                                 candidate.Observation.AssemblyIdentity.Name))));
                     activations.Add(new(
                         reference,
+                        identity,
                         BrowserTypeFindActivationSource.Package,
                         BrowserTypeFindActivationStatus.Available,
                         actionId,
@@ -410,6 +420,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     int activationIndex = activations.Count;
                     activations.Add(new(
                         reference,
+                        identity,
                         BrowserTypeFindActivationSource.Framework,
                         BrowserTypeFindActivationStatus.Unavailable,
                         Action: null,
@@ -424,6 +435,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
 
                 activations.Add(new(
                     reference,
+                    identity,
                     BrowserTypeFindActivationSource.Unsupported,
                     BrowserTypeFindActivationStatus.Unavailable,
                     Action: null,
@@ -454,6 +466,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                 {
                     activations[pending.ActivationIndex] = new(
                         pending.Reference,
+                        activations[pending.ActivationIndex].Identity,
                         BrowserTypeFindActivationSource.Framework,
                         FromFramework(blocked.Block),
                         Action: null,
@@ -488,6 +501,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                 {
                     activations[pending.ActivationIndex] = new(
                         pending.Reference,
+                        activations[pending.ActivationIndex].Identity,
                         BrowserTypeFindActivationSource.Framework,
                         BrowserTypeFindActivationStatus.Stale,
                         Action: null,
@@ -504,6 +518,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                         selected.Descriptor)));
                 activations[pending.ActivationIndex] = new(
                     pending.Reference,
+                    activations[pending.ActivationIndex].Identity,
                     BrowserTypeFindActivationSource.Framework,
                     BrowserTypeFindActivationStatus.Available,
                     actionId,
@@ -983,16 +998,29 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     source.Occurrence.Occurrence,
                     origin.Occurrence.Occurrence)),
         ];
+        if (sources.Length == 0)
+        {
+            RealizedMemberCoordinate.Package coordinate =
+                origin.Occurrence.Occurrence.Package.Coordinate;
+            return CreatePackageBinding(
+                operation.Realization,
+                candidate,
+                origin.Occurrence.Occurrence,
+                new WorkspaceContextMember(
+                    WorkspaceMemberCoordinate.Package(
+                        coordinate.PackageId,
+                        coordinate.Version,
+                        coordinate.Framework,
+                        coordinate.RuntimeIdentifier),
+                    coordinate,
+                    participant));
+        }
         if (sources.Length != 1)
         {
             return new(
                 null,
-                sources.Length == 0
-                    ? BrowserTypeFindActivationStatus.Unavailable
-                    : BrowserTypeFindActivationStatus.Ambiguous,
-                sources.Length == 0
-                    ? "The original Package declaration source is unavailable."
-                    : "The original Package declaration source is ambiguous.");
+                BrowserTypeFindActivationStatus.Ambiguous,
+                "The original Package declaration source is ambiguous.");
         }
 
         SourcePackageBinding source = sources[0];

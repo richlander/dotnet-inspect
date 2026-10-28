@@ -66,7 +66,7 @@
     <Content Include="..\DotnetInspector.Ecosystems\FindIndexes\aspire.json" Link="wwwroot\assets\ecosystem-find\aspire.json" CopyToOutputDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
     <Content Include="..\DotnetInspector.Ecosystems\FindIndexes\microsoft-extensions.json" Link="wwwroot\assets\ecosystem-find\microsoft-extensions.json" CopyToOutputDirectory="PreserveNewest" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
     <Content Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\runtime-loader.js" Link="wwwroot\runtime-loader.js" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
-    <Content Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\ecosystem-find-index-assets.js" Link="wwwroot\ecosystem-find-index-assets.js" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
+    <Content Include="..\..\inspect-web\dist\ecosystem-find-index-assets.js" Link="wwwroot\ecosystem-find-index-assets.js" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
     <Content Include="..\..\inspect-web\dist\browser-package-entry-cache.js" Link="wwwroot\browser-package-entry-cache.js" Condition="'$(InspectWebIncludeFrontend)' == 'true'" />
     <Content Remove="wwwroot\inspect-web-*.js" />
     <_InspectWebGeneratedFacadeModule Include="..\..\inspect-web\DotnetInspect.Web\wwwroot\inspect-web-host.js" />

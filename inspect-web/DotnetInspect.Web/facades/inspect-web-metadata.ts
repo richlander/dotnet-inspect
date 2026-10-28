@@ -663,6 +663,7 @@ export interface BrowserReadyToRunSection {
 
 export interface BrowserTypeFindCandidateActivation {
   readonly candidate: BrowserTypeFindCandidateReference;
+  readonly identity: string | null;
   readonly source: BrowserTypeFindActivationSource;
   readonly status: BrowserTypeFindActivationStatus;
   readonly action: string | null;

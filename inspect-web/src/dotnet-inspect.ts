@@ -650,7 +650,12 @@ import {
   commitManagedSpotlightSelection,
   createSpotlightTypeFind,
   spotlightTypeCandidatesForScope,
+  type ManagedSpotlightTypeCandidate,
 } from "./spotlight-type-find.ts";
+import {
+  composeSpotlightTypeCandidates,
+  createSpotlightIndexedTypeFind,
+} from "./spotlight-indexed-type-find.ts";
 import {
   createSpotlightCapabilitySearch,
   normalizeSpotlightCapabilitySearchSnapshot,
@@ -5408,6 +5413,24 @@ const spotlightTypeFind = createSpotlightTypeFind({
   cancelScheduled: handle => clearTimeout(handle),
   updateResults: () => spotlight.updateResults(),
 });
+const spotlightIndexedTypeFind = createSpotlightIndexedTypeFind({
+  findTypes: (
+    retainedDefinitionId,
+    realizationId,
+    resultGeneration,
+    text,
+    maximumRows,
+  ) => engineClient.catalog.findIndexedTypes(
+    retainedDefinitionId,
+    realizationId,
+    resultGeneration,
+    text,
+    maximumRows,
+  ),
+  schedule: (callback, delay) => setTimeout(callback, delay),
+  cancelScheduled: handle => clearTimeout(handle),
+  updateResults: () => spotlight.updateResults(),
+});
 const spotlightCapabilitySearch = createSpotlightCapabilitySearch({
   state,
   searchCapabilities: (query, maximumResults) =>
@@ -5574,7 +5597,10 @@ const spotlight = createSpotlight({
   prepareResults: prepareSpotlightResults,
   schedulePackageFetch: () => spotlightPackageSearch.schedule(),
   resetPackageSearch: () => spotlightPackageSearch.reset(),
-  resetTypeSearch: () => spotlightTypeFind.reset(),
+  resetTypeSearch: () => {
+    spotlightIndexedTypeFind.reset();
+    spotlightTypeFind.reset();
+  },
   packageSearchLoading: () =>
     spotlightPackageSearchIsLoading(state.spotlightPackageSearch),
   packageSearchError: () =>
@@ -5582,9 +5608,16 @@ const spotlight = createSpotlight({
   openPackageQuery: query => { openPackageQueryRoute(query); },
   packageSearchNotice: () => state.spotlightQuery.includes("*")
     ? `Package prefix search · up to ${SPOTLIGHT_PACKAGE_PREFIX_LIMIT} matches` : "",
-  typeSearchLoading: () => spotlightTypeFind.loading(),
-  typeSearchError: () => spotlightTypeFind.error(),
-  typeSearchNotice: () => spotlightTypeFind.notice(),
+  typeSearchLoading: () =>
+    spotlightIndexedTypeFind.loading() || spotlightTypeFind.loading(),
+  typeSearchError: () => [
+    spotlightIndexedTypeFind.error(),
+    spotlightTypeFind.error(),
+  ].filter(Boolean).join(" "),
+  typeSearchNotice: () => [
+    spotlightIndexedTypeFind.notice(),
+    spotlightTypeFind.notice(),
+  ].filter(Boolean).join(" "),
   scheduleCapabilitySearch: () => state.spotlightQuery.includes("*")
     ? spotlightCapabilitySearch.reset() : spotlightCapabilitySearch.schedule(),
   resetCapabilitySearch: () => spotlightCapabilitySearch.reset(),
@@ -16918,10 +16951,17 @@ function spotlightResults(): SpotlightResult[] {
     spotlightAllScopeLimit(initialLimit, spotlight.allScopeResultPage());
   const prefixQuery = (all || spotlightScope === "packages") && query.includes("*");
   const requestsTypes = (all && !prefixQuery) || spotlightScope === "types";
-  spotlightTypeFind.schedule(
+  spotlightIndexedTypeFind.schedule(
     activeRetainedWorkspacePosting,
     query,
     state.spotlightOpen && requestsTypes,
+  );
+  spotlightTypeFind.schedule(
+    activeRetainedWorkspacePosting,
+    query,
+    state.spotlightOpen
+      && requestsTypes
+      && spotlightIndexedTypeFind.complete(),
   );
   const results: SpotlightResult[] = [];
 
@@ -17002,8 +17042,13 @@ function spotlightResults(): SpotlightResult[] {
     }
   }
   if (requestsTypes && activeRetainedWorkspacePosting !== null) {
+    const typeCandidates: readonly ManagedSpotlightTypeCandidate[] =
+      composeSpotlightTypeCandidates(
+        spotlightIndexedTypeFind.results(),
+        spotlightTypeFind.results(),
+      );
     for (const candidate of spotlightTypeCandidatesForScope(
-      spotlightTypeFind.results(),
+      typeCandidates,
       all,
       allLimit(6),
     )) {

@@ -29,7 +29,6 @@ import {
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 import {
-  catalogInertStringFixture,
   inertStringFixture,
   packageInertStringFixture,
 } from "./inert-string-fixture.ts";
@@ -1040,15 +1039,12 @@ test("retained Catalog transport preserves compact posting and bounded Package a
         },
         share: {
           kind: "nonProjectable",
-          fullUrl: null,
-          packet: null,
           path: "indexed-type-find",
-          reason: catalogInertStringFixture(
-            "Indexed Type Find is not projectable.",
-          ),
+          reason: "Indexed Type Find is not projectable.",
         },
         diagnostics: [],
       },
+      activations: [],
     },
     reason: null,
   } satisfies BrowserIndexedTypeFindResult;

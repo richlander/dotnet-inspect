@@ -1,18 +1,20 @@
-const assetUrls = Object.freeze({
+const assetUrls = {
   aspire: "/assets/ecosystem-find/aspire.json",
   microsoftExtensions:
     "/assets/ecosystem-find/microsoft-extensions.json",
-});
+} as const;
 
-const assets = new Map();
+type AssetName = keyof typeof assetUrls;
 
-async function loadAsset(name) {
+const assets = new Map<AssetName, Promise<string>>();
+
+async function loadAsset(name: AssetName): Promise<string> {
   let pending = assets.get(name);
-  if (!pending) {
+  if (pending === undefined) {
     pending = fetch(assetUrls[name]).then(async response => {
       if (!response.ok) {
         throw new Error(
-          `Indexed Find asset '${name}' returned HTTP ${response.status}.`,
+          `Indexed Find asset '${name}' returned HTTP ${String(response.status)}.`,
         );
       }
 
@@ -31,10 +33,10 @@ async function loadAsset(name) {
   return await pending;
 }
 
-export async function loadAspire() {
+export async function loadAspire(): Promise<string> {
   return await loadAsset("aspire");
 }
 
-export async function loadMicrosoftExtensions() {
+export async function loadMicrosoftExtensions(): Promise<string> {
   return await loadAsset("microsoftExtensions");
 }

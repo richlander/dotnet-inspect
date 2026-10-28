@@ -887,6 +887,49 @@ test("Spotlight keeps the selected result when async rows are inserted before it
     /id="spotlight-result-2" class="spotlight-item selected"[^>]*data-sl-type="Example\.Selected"/);
 });
 
+test("indexed Type selection stays logical when resident Types arrive", () => {
+  const managed = (
+    identity: string,
+    name: string,
+    action: string,
+  ): SpotlightResult => ({
+    kind: "managed-type",
+    identity,
+    action,
+    reason: null,
+    name,
+    namespace: "Example",
+    library: "Example.Library",
+    source: "example.package@1.0.0",
+    typeKind: "Definition",
+    ranges: [],
+  });
+  const first = managed("indexed-first", "First", "indexed-first-action");
+  const selected =
+    managed("indexed-selected", "Selected", "indexed-selected-action");
+  let results = [first, selected];
+  const { spotlight, state } = createHarness({
+    query: "Example",
+    searchResults: () => results,
+  });
+  state.spotlightIndex = 1;
+  spotlight.modalHtml();
+
+  results = [
+    first,
+    selected,
+    managed("resident-later", "Later", "resident-later-action"),
+  ];
+  const html = spotlight.modalHtml();
+
+  assert.equal(state.spotlightIndex, 1);
+  assert.match(html, /aria-activedescendant="spotlight-result-1"/);
+  assert.match(
+    html,
+    /id="spotlight-result-1" class="spotlight-item selected"[^>]*data-sl-managed-type="[^"]*indexed-selected/,
+  );
+});
+
 test("modal arrow navigation reveals the next known All-scope result page at the boundary", () => {
   const pkg = { id: "Example.Package", version: "1.0.0" };
   const expansionPackageRows: SpotlightResult[] = ["First", "Second", "Third"].map(name => ({

@@ -86,6 +86,7 @@ function result(
           answerOrdinal: 1,
           candidateOrdinal: 1,
         },
+        identity: "exact-package-type",
         source: "Package",
         status: "Available",
         action,
@@ -98,12 +99,11 @@ function result(
 
 test("projects candidates with their exact opaque actions", () => {
   const wire = result();
-  const wireCandidate = candidate();
   const projection = projectSpotlightTypeFindResult(wire);
   const [projected] = projection.candidates;
 
   assert.deepEqual(projected, {
-    identity: JSON.stringify(wireCandidate),
+    identity: "exact-package-type",
     action: "type-action",
     reason: null,
     name: "JsonSerializer",
