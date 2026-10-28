@@ -1,4 +1,7 @@
+using System.Buffers;
 using System.Globalization;
+using System.Collections.Immutable;
+using System.Text;
 using System.Reflection.Metadata;
 
 using InertText;
@@ -94,7 +97,7 @@ public readonly struct MetadataUtf8Name : IEquatable<MetadataUtf8Name>
     /// <see cref="MetadataNameArity"/> rules for a canonical suffix. The result is a subrange
     /// of the same backing.
     /// </remarks>
-    internal bool TryRemoveAritySuffix(
+    public bool TryRemoveAritySuffix(
         int arity,
         out MetadataUtf8Name withoutArity)
     {
@@ -124,6 +127,168 @@ public readonly struct MetadataUtf8Name : IEquatable<MetadataUtf8Name>
 
         withoutArity = new(_range.Slice(0, prefixLength));
         return true;
+    }
+
+    /// <summary>
+    /// Splits an exact namespace Name into dot-separated components without
+    /// decoding or copying them.
+    /// </summary>
+    public ImmutableArray<MetadataUtf8Name> SplitNamespaceComponents()
+    {
+        if (_range.IsEmpty)
+            return [];
+
+        Span<byte> storage = _range.Length <= 256
+            ? stackalloc byte[_range.Length]
+            : new byte[_range.Length];
+        OpaqueByteRangeEncoder.Encode(_range, storage);
+        ReadOnlySpan<byte> bytes = storage;
+        var components =
+            ImmutableArray.CreateBuilder<MetadataUtf8Name>();
+        int start = 0;
+        for (int index = 0; index < bytes.Length; index++)
+        {
+            if (bytes[index] != (byte)'.')
+                continue;
+            components.Add(
+                new(_range.Slice(start, index - start)));
+            start = index + 1;
+        }
+        components.Add(
+            new(_range.Slice(start, bytes.Length - start)));
+        return components.ToImmutable();
+    }
+
+    /// <summary>
+    /// Writes the contained composed-name spelling used by C# Type presentation,
+    /// preserving ordinary UTF-8 bytes while folding line terminators and making
+    /// terminal and bidi controls visible.
+    /// </summary>
+    public void WriteCSharpComposedTo(
+        IBufferWriter<byte> destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        Span<byte> storage = _range.Length <= 256
+            ? stackalloc byte[_range.Length]
+            : new byte[_range.Length];
+        OpaqueByteRangeEncoder.Encode(_range, storage);
+        ReadOnlySpan<byte> bytes = storage;
+        if (!IsWellFormedUtf8(bytes))
+        {
+            Contain(TextPolicy.Field).WriteTo(destination);
+            return;
+        }
+
+        int offset = 0;
+        while (offset < bytes.Length)
+        {
+            OperationStatus status = Rune.DecodeFromUtf8(
+                bytes[offset..],
+                out Rune rune,
+                out int consumed);
+            if (status is not OperationStatus.Done)
+            {
+                throw new InvalidOperationException(
+                    "A prevalidated UTF-8 Name did not decode.");
+            }
+
+            if (rune.Value == '\r'
+                && offset + consumed < bytes.Length
+                && bytes[offset + consumed] == (byte)'\n')
+            {
+                WriteByte(destination, (byte)' ');
+                offset += consumed + 1;
+                continue;
+            }
+            if (IsLineTerminator(rune.Value))
+            {
+                WriteByte(destination, (byte)' ');
+            }
+            else if (IsRenderingHazard(rune))
+            {
+                WriteBmpEscape(destination, rune.Value);
+            }
+            else
+            {
+                WriteBytes(
+                    destination,
+                    bytes.Slice(offset, consumed));
+            }
+            offset += consumed;
+        }
+    }
+
+    static bool IsWellFormedUtf8(ReadOnlySpan<byte> bytes)
+    {
+        while (!bytes.IsEmpty)
+        {
+            if (Rune.DecodeFromUtf8(
+                    bytes,
+                    out _,
+                    out int consumed)
+                is not OperationStatus.Done)
+            {
+                return false;
+            }
+            bytes = bytes[consumed..];
+        }
+        return true;
+    }
+
+    static bool IsLineTerminator(int scalar) =>
+        scalar
+            is '\r'
+                or '\n'
+                or '\f'
+                or 0x0085
+                or 0x2028
+                or 0x2029;
+
+    static bool IsRenderingHazard(Rune rune) =>
+        rune.Value != '\t'
+        && (Rune.GetUnicodeCategory(rune)
+                is UnicodeCategory.Control
+            || rune.Value
+                is 0x061C
+                    or 0x200E
+                    or 0x200F
+                    or >= 0x202A and <= 0x202E
+                    or >= 0x2066 and <= 0x2069);
+
+    static void WriteBmpEscape(
+        IBufferWriter<byte> destination,
+        int scalar)
+    {
+        Span<byte> text = stackalloc byte[6];
+        text[0] = (byte)'\\';
+        text[1] = (byte)'u';
+        for (int index = 5; index >= 2; index--)
+        {
+            int digit = scalar & 0xF;
+            text[index] = (byte)(
+                digit < 10
+                    ? '0' + digit
+                    : 'A' + digit - 10);
+            scalar >>= 4;
+        }
+        WriteBytes(destination, text);
+    }
+
+    static void WriteByte(
+        IBufferWriter<byte> destination,
+        byte value)
+    {
+        Span<byte> target = destination.GetSpan(1);
+        target[0] = value;
+        destination.Advance(1);
+    }
+
+    static void WriteBytes(
+        IBufferWriter<byte> destination,
+        ReadOnlySpan<byte> value)
+    {
+        value.CopyTo(destination.GetSpan(value.Length));
+        destination.Advance(value.Length);
     }
 
     static int MeasureContainedLength(OpaqueByteRange range) =>

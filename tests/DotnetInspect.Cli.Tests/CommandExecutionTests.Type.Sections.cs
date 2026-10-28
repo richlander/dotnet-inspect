@@ -873,7 +873,7 @@ public partial class CommandExecutionTests
         // property silently - including an unbounded one. Pinning the count makes any addition fail
         // here, so whoever adds a property has to state that it is a fixed fact about the type and
         // not a per-member row. Bump this only alongside that judgement.
-        Assert.Equal(11, vocabulary.Count);
+        Assert.Equal(12, vocabulary.Count);
 
         Assert.All(large, label => Assert.Contains(label, vocabulary));
         Assert.All(small, label => Assert.Contains(label, vocabulary));
@@ -1071,6 +1071,7 @@ public partial class CommandExecutionTests
             Kind	class
             Modifiers	sealed
             Interfaces	9
+            Nested Types	1
             Library	{assemblyPath}
             Source	Library
 
@@ -1261,7 +1262,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Type_DirectLibraryContainedExactType_UsesRichFallback()
+        Type_DirectLibraryContainedExactType_WritesContainedUtf8()
     {
         const string typeName = "Example.Bad\vName";
         string assemblyPath = WriteTypeInfoFixture(typeName);
@@ -1292,11 +1293,11 @@ public partial class CommandExecutionTests
                 });
 
             Assert.Equal(0, exit);
+            Assert.Empty(output);
             Assert.Empty(error);
-            Assert.Equal(0, bytes.WrittenCount);
             Assert.Contains(
                 "Type\tExample.Bad\\u000BName",
-                output,
+                Encoding.UTF8.GetString(bytes.WrittenSpan),
                 StringComparison.Ordinal);
         }
         finally
@@ -1428,12 +1429,19 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("System.Nullable`1")]
-    [InlineData("System.Collections.Generic.Dictionary`2+Enumerator")]
-    [InlineData("System.MulticastDelegate")]
+    [InlineData(
+        "System.Nullable`1",
+        "Type Parameters\tT : struct")]
+    [InlineData(
+        "System.Collections.Generic.Dictionary`2+Enumerator",
+        "Type\tSystem.Collections.Generic.Dictionary<TKey, TValue>.Enumerator")]
+    [InlineData(
+        "System.MulticastDelegate",
+        "Base\tSystem.Delegate")]
     public async Task
-        Type_DirectLibraryIneligibleTypeInfoUsesRichFallback(
-            string typeName)
+        Type_DirectLibraryCompleteTypeInfoUsesUtf8Sink(
+            string typeName,
+            string expected)
     {
         string assemblyPath =
             typeof(System.Text.StringBuilder).Assembly.Location;
@@ -1462,9 +1470,181 @@ public partial class CommandExecutionTests
             });
 
         Assert.Equal(0, exit);
+        Assert.Empty(output);
         Assert.Empty(error);
-        Assert.Equal(0, bytes.WrittenCount);
-        Assert.Contains("Type\t", output, StringComparison.Ordinal);
+        Assert.Contains(
+            expected,
+            Encoding.UTF8.GetString(bytes.WrittenSpan),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryCompleteTypeInfoSpellsBaseConstraintAndNestedCount()
+    {
+        string assemblyPath =
+            typeof(CommandExecutionTests).Assembly.Location;
+        var bytes = new ArrayBufferWriter<byte>();
+
+        var (exit, output, error) =
+            await ConsoleCapture.RunAsync(async () =>
+            {
+                using IDisposable redirect =
+                    Utf8StandardOutput.Redirect(payload =>
+                    {
+                        payload.Span.CopyTo(
+                            bytes.GetSpan(payload.Length));
+                        bytes.Advance(payload.Length);
+                    });
+                return await InvokeAppAsync(
+                    [
+                        "type",
+                        "DotnetInspect.Cli.Tests.CommandExecutionTests+CompleteTypeInfoFixture`3",
+                        "--library",
+                        assemblyPath,
+                        "--all",
+                        "-S",
+                        SectionNames.TypeInfo,
+                        "--tsv",
+                    ]);
+            });
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Empty(error);
+        string written =
+            Encoding.UTF8.GetString(bytes.WrittenSpan);
+        Assert.Contains(
+            "Base\tSystem.Collections.Generic.Dictionary<dynamic, T>",
+            written,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Type Parameters\tT : System.IO.Stream, new(), U : unmanaged, V : System.IDisposable?",
+            written,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Nested Types\t2",
+            written,
+            StringComparison.Ordinal);
+    }
+
+    private class CompleteTypeInfoFixture<T, U, V>
+        : Dictionary<dynamic, T>
+        where T : Stream, new()
+        where U : unmanaged
+        where V : IDisposable?
+    {
+        private sealed class Hidden;
+        private sealed class Branch
+        {
+            private sealed class Grandchild;
+        }
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryCompleteTypeInfoRejectsPublicTypeInPrivateOwner()
+    {
+        var (exit, output, error) =
+            await RunAppAsync(
+                "type",
+                "DotnetInspect.Cli.Tests.CommandExecutionTests+InaccessibleTypeInfoOwner+PublicNestedType",
+                "--library",
+                typeof(CommandExecutionTests).Assembly.Location,
+                "-S",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "outside the selected API scope",
+            error,
+            StringComparison.Ordinal);
+
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(
+                "type",
+                "DotnetInspect.Cli.Tests.CommandExecutionTests+InaccessibleTypeInfoOwner+PublicNestedType",
+                "--library",
+                typeof(CommandExecutionTests).Assembly.Location,
+                "--all",
+                "-S",
+                SectionNames.TypeInfo,
+                "--tsv");
+
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        Assert.Contains(
+            "PublicNestedType",
+            allOutput,
+            StringComparison.Ordinal);
+    }
+
+    private sealed class InaccessibleTypeInfoOwner
+    {
+        public sealed class PublicNestedType;
+    }
+
+    [Fact]
+    public async Task
+        Type_DirectLibraryCompleteTypeInfoRetainsSameSpelledUserConstraint()
+    {
+        string assemblyPath =
+            WriteSameSpelledObjectConstraintFixture();
+        try
+        {
+            var (exit, output, error) =
+                await RunAppAsync(
+                    "type",
+                    "Fixture`1",
+                    "--library",
+                    assemblyPath,
+                    "-S",
+                    SectionNames.TypeInfo,
+                    "--tsv");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "Type Parameters\tT : System.Object",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(assemblyPath);
+        }
+    }
+
+    private static string
+        WriteSameSpelledObjectConstraintFixture()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"TypeInfoPseudoConstraint_{Guid.NewGuid():N}.dll");
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(
+                $"TypeInfoPseudoConstraint_{Guid.NewGuid():N}"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(
+                "TypeInfoPseudoConstraint");
+        Type fakeObject = module.DefineType(
+                "System.Object",
+                TypeAttributes.Public | TypeAttributes.Class,
+                typeof(object))
+            .CreateType();
+        TypeBuilder fixture = module.DefineType(
+            "Fixture`1",
+            TypeAttributes.Public | TypeAttributes.Class,
+            typeof(object));
+        GenericTypeParameterBuilder parameter =
+            fixture.DefineGenericParameters("T")[0];
+        parameter.SetBaseTypeConstraint(fakeObject);
+        fixture.CreateType();
+        assembly.Save(path);
+        return path;
     }
 
     private static string WriteTypeInfoFixture(string typeName)
