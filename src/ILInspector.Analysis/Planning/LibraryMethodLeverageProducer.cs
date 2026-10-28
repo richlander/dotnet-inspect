@@ -27,8 +27,6 @@ public sealed class LibraryMethodLeverageProducer :
         ImmutableArray<LibraryCallGraphBodyEvidence>.Builder,
         LibraryMethodLeverageProducerResult>
 {
-    const int PartitionsPerWorker = 2;
-
     LibraryMethodLeverageProducer()
         : base(
             "Library Method Leverage",
@@ -230,9 +228,7 @@ public sealed class LibraryMethodLeverageProducer :
 
         int partitionCount =
             Math.Min(
-                checked(
-                    parallel.MaximumConcurrency
-                    * PartitionsPerWorker),
+                parallel.MaximumConcurrency,
                 (workItems.Count
                     + LibraryMethodAnalysisRunner.ParallelMethodThreshold
                     - 1)
@@ -246,6 +242,9 @@ public sealed class LibraryMethodLeverageProducer :
                 ImmutableArray<LibraryCallGraphBodyEvidence>.Builder>?[
                     partitionCount];
         var failures = new Exception?[partitionCount];
+        ImmutableArray<MemorySafetyContractSupport> memorySafety =
+            state.Execution.CreateKernelMemorySafetyPartitions(
+                partitionCount);
         parallel.ExecutePartitions(
             partitionCount,
             partitionIndex =>
@@ -276,7 +275,8 @@ public sealed class LibraryMethodLeverageProducer :
                                 MethodBodyBlock? body) =>
                             {
                                 bodies[observed++] = body;
-                            });
+                            },
+                            memorySafety[partitionIndex]);
                     if (observed != end)
                     {
                         throw new ProducerContractException(

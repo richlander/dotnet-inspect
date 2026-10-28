@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+
 using DotnetInspector.Queries;
 using ILInspector.Analysis.Planning;
 
@@ -48,14 +50,50 @@ public static class LocalTypeMethodLeverageInspectionOperation
                 partitionCount,
                 1);
             ArgumentNullException.ThrowIfNull(executePartition);
-            Parallel.For(
-                0,
-                partitionCount,
-                new ParallelOptions
+            int workerCount =
+                Math.Min(MaximumConcurrency, partitionCount);
+            int nextPartition = -1;
+            ExceptionDispatchInfo? failure = null;
+
+            // The operation owns only a few coarse partitions, so start its
+            // bounded workers immediately instead of waiting for pool growth.
+            void ExecuteAvailablePartitions()
+            {
+                while (Volatile.Read(ref failure) is null)
                 {
-                    MaxDegreeOfParallelism = MaximumConcurrency,
-                },
-                executePartition);
+                    int partition =
+                        Interlocked.Increment(ref nextPartition);
+                    if (partition >= partitionCount)
+                        return;
+                    try
+                    {
+                        executePartition(partition);
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.CompareExchange(
+                            ref failure,
+                            ExceptionDispatchInfo.Capture(ex),
+                            null);
+                        return;
+                    }
+                }
+            }
+
+            var workers = new Thread[workerCount - 1];
+            for (int index = 0; index < workers.Length; index++)
+            {
+                workers[index] = new(ExecuteAvailablePartitions)
+                {
+                    IsBackground = true,
+                    Name = "Method definition analysis",
+                };
+                workers[index].Start();
+            }
+            ExecuteAvailablePartitions();
+            foreach (Thread worker in workers)
+                worker.Join();
+            failure?.Throw();
         }
     }
 }

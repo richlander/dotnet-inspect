@@ -140,7 +140,8 @@ public sealed class MethodDefinitionExecution
             Action<
                 MethodDefinitionHandle,
                 MethodDefinition,
-                MethodBodyBlock?> bodyObserver)
+                MethodBodyBlock?> bodyObserver,
+            MemorySafetyContractSupport? memorySafety)
     {
         ArgumentNullException.ThrowIfNull(producer);
         ArgumentNullException.ThrowIfNull(peReader);
@@ -163,7 +164,8 @@ public sealed class MethodDefinitionExecution
             referenceBinding: null,
             parallelExecution: null,
             deferCompletion: true,
-            bodyObserver);
+            bodyObserver,
+            memorySafety);
         if (partition.Receipt.Critical is { } critical)
             throw new ProducerAbortException(critical);
         if (partition._states.Length != 1
@@ -215,6 +217,31 @@ public sealed class MethodDefinitionExecution
             // Settling probes the same unreadable body and owns the visible
             // relation failure, matching interpreted execution.
         }
+    }
+
+    internal ImmutableArray<MemorySafetyContractSupport>
+        CreateKernelMemorySafetyPartitions(int partitionCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            partitionCount,
+            1);
+        MemorySafetyContractSupport support =
+            _memorySafety ?? throw new ProducerContractException(
+                "A Method-definition kernel requested memory-safety "
+                    + "partitions without declaring that support.");
+        MemorySafetyContractLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _sourceCoverage.RecordMemorySafetyConstruction(
+                lookup.ConstructionWork);
+        }
+        var partitions =
+            ImmutableArray.CreateBuilder<MemorySafetyContractSupport>(
+                partitionCount);
+        for (int index = 0; index < partitionCount; index++)
+            partitions.Add(support.CreateReceiptedQueryView());
+        return partitions.MoveToImmutable();
     }
 
     /// <summary>
@@ -290,7 +317,8 @@ public sealed class MethodDefinitionExecution
         Action<
             MethodDefinitionHandle,
             MethodDefinition,
-            MethodBodyBlock?>? bodyObserver = null)
+            MethodBodyBlock?>? bodyObserver = null,
+        MemorySafetyContractSupport? memorySafety = null)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
@@ -363,7 +391,8 @@ public sealed class MethodDefinitionExecution
         }
         execution._memorySafety =
             memorySafetyDeclared
-                ? new MemorySafetyContractSupport(reader)
+                ? memorySafety
+                    ?? new MemorySafetyContractSupport(reader)
                 : null;
         execution._callTargets =
             callTargetsDeclared
