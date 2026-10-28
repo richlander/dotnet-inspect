@@ -384,7 +384,7 @@ public sealed class PackageIndexCacheTests
         PackageIndexCacheSubject predecessorSubject = Subject(
             $"{packageId}.predecessor");
         PersistentCache.SetBytes(
-            "pkg-index-v19",
+            "pkg-index-v20",
             PackageIndexCache.CacheKey(predecessorSubject),
             bytes,
             extension: "bin");
@@ -435,10 +435,21 @@ public sealed class PackageIndexCacheTests
                 nupkg,
                 new DateTimeOffset(2024, 1, 2, 3, 4, 0, TimeSpan.Zero));
 
-            var content = new InMemoryPackageContent(
-                [1, 2, 3, 4],
-                fromCache: true,
-                producerKey: "projection-producer");
+            string nuspecXml = $"""
+                <package>
+                  <metadata>
+                    <id>{packageId}</id>
+                    <version>{version}</version>
+                    <description>projection agreement</description>
+                    <dependencies>
+                      <dependency id="B" version="2.0.0" />
+                      <dependency id="A" version="1.0.0" />
+                    </dependencies>
+                  </metadata>
+                </package>
+                """;
+            InMemoryPackageContent content =
+                PackageContent(nuspecXml, "projection-producer");
             var resolution = new PackageExtractionResult(
                 root,
                 TempDir: null,
@@ -459,19 +470,21 @@ public sealed class PackageIndexCacheTests
                     "projection-producer",
                     PackagePayloadOrigin.Cache),
             };
-            NuspecData nuspec = NuspecParser.ParseContent($"""
-                <package>
-                  <metadata>
-                    <id>{packageId}</id>
-                    <version>{version}</version>
-                    <description>projection agreement</description>
-                    <dependencies>
-                      <dependency id="B" version="2.0.0" />
-                      <dependency id="A" version="1.0.0" />
-                    </dependencies>
-                  </metadata>
-                </package>
-                """);
+            NuspecData nuspec = NuspecParser.ParseContent(
+                nuspecXml
+                    .Replace(
+                        "<description>projection agreement</description>",
+                        "<description>legacy compatibility</description>",
+                        StringComparison.Ordinal)
+                    .Replace(
+                        """
+                          <dependency id="B" version="2.0.0" />
+                          <dependency id="A" version="1.0.0" />
+                        """,
+                        """
+                          <dependency id="Legacy.Compatibility" version="9.0.0" />
+                        """,
+                        StringComparison.Ordinal));
             using var client = new HttpClient();
 
             InspectionResult cold = await PackageInspector.InspectAsync(
@@ -483,7 +496,6 @@ public sealed class PackageIndexCacheTests
                 nuspec,
                 client,
                 new VerboseLogger(enabled: false));
-            Directory.Delete(root, recursive: true);
             WriteBuildDateArchive(
                 nupkg,
                 new DateTimeOffset(2025, 2, 3, 4, 6, 0, TimeSpan.Zero));
@@ -499,6 +511,7 @@ public sealed class PackageIndexCacheTests
 
             Assert.Equal(cold.PackageName, warm.PackageName);
             Assert.Equal(cold.Version, warm.Version);
+            Assert.Equal("projection agreement", cold.Description?.ToString());
             Assert.Equal(cold.Description, warm.Description);
             Assert.Equal(cold.PackageReadmeFile, warm.PackageReadmeFile);
             Assert.Equal(cold.HasReadme, warm.HasReadme);
@@ -507,6 +520,10 @@ public sealed class PackageIndexCacheTests
             Assert.Equal(cold.LibraryFiles, warm.LibraryFiles);
             Assert.Equal(2024, cold.BuiltDate?.Year);
             Assert.Equal(2025, warm.BuiltDate?.Year);
+            Assert.Equal(
+                ["A", "B"],
+                cold.DependencyGroups!.SelectMany(g => g.Dependencies)
+                    .Select(d => d.Id));
             Assert.Equal(
                 cold.DependencyGroups!.SelectMany(g => g.Dependencies)
                     .Select(d => (d.Id, d.Version)),
@@ -532,10 +549,16 @@ public sealed class PackageIndexCacheTests
                 """{"runtimeTarget":{"name":".NETCoreApp,Version=v8.0/win-x64"}}""",
                 TestContext.Current.CancellationToken);
             string partialPackage = $"{packageId}.partial";
-            var partialContent = new InMemoryPackageContent(
-                [5, 6, 7, 8],
-                fromCache: true,
-                producerKey: "projection-producer");
+            string partialNuspec = $"""
+                <package>
+                  <metadata>
+                    <id>{partialPackage}</id>
+                    <version>{version}</version>
+                  </metadata>
+                </package>
+                """;
+            InMemoryPackageContent partialContent =
+                PackageContent(partialNuspec, "projection-producer");
             var partialResolution = new PackageExtractionResult(
                 partialRoot,
                 TempDir: null,
@@ -560,14 +583,7 @@ public sealed class PackageIndexCacheTests
                 version,
                 isLocalFile: false,
                 localFilePath: null,
-                NuspecParser.ParseContent($"""
-                    <package>
-                      <metadata>
-                        <id>{partialPackage}</id>
-                        <version>{version}</version>
-                      </metadata>
-                    </package>
-                    """),
+                NuspecParser.ParseContent(partialNuspec),
                 client,
                 new VerboseLogger(enabled: false));
             PackageIndexCacheSubject partialSubject =
@@ -609,10 +625,16 @@ public sealed class PackageIndexCacheTests
                 Path.Combine(tools, "wrong.deps.json"),
                 depsJson,
                 TestContext.Current.CancellationToken);
-            var content = new InMemoryPackageContent(
-                [9, 10, 11, 12],
-                fromCache: true,
-                producerKey: "wrong-deps-producer");
+            string nuspecXml = $"""
+                <package>
+                  <metadata>
+                    <id>{packageId}</id>
+                    <version>{version}</version>
+                  </metadata>
+                </package>
+                """;
+            InMemoryPackageContent content =
+                PackageContent(nuspecXml, "wrong-deps-producer");
             var resolution = new PackageExtractionResult(
                 root,
                 TempDir: null,
@@ -638,14 +660,7 @@ public sealed class PackageIndexCacheTests
                 version,
                 isLocalFile: false,
                 localFilePath: null,
-                NuspecParser.ParseContent($"""
-                    <package>
-                      <metadata>
-                        <id>{packageId}</id>
-                        <version>{version}</version>
-                      </metadata>
-                    </package>
-                    """),
+                NuspecParser.ParseContent(nuspecXml),
                 client,
                 new VerboseLogger(enabled: false));
 
@@ -692,6 +707,26 @@ public sealed class PackageIndexCacheTests
                 subject.Generation,
                 value,
                 isComplete: true));
+
+    private static InMemoryPackageContent PackageContent(
+        string manifest,
+        string producerKey)
+    {
+        using var package = new MemoryStream();
+        using (var archive = new ZipArchive(
+            package,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry =
+                archive.CreateEntry("package.nuspec").Open();
+            entry.Write(System.Text.Encoding.UTF8.GetBytes(manifest));
+        }
+        return new InMemoryPackageContent(
+            package.ToArray(),
+            fromCache: true,
+            producerKey);
+    }
 
     private static InspectionResult Result(
         string packageId,

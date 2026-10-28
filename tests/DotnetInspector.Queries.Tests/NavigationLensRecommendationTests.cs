@@ -41,7 +41,7 @@ public sealed class NavigationLensRecommendationTests
                 "type.api",
                 StructuralSubjectKind.Type,
                 100,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 ViewFacetAvailability.Available.Instance),
             Option(
                 "type.metadata",
@@ -60,7 +60,7 @@ public sealed class NavigationLensRecommendationTests
         var equalRecommendation =
             new NavigationLensEvaluationBasis.Recommendation(
                 subject,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 [.. options]);
         Assert.Equal(recommendation, equalRecommendation);
         Assert.Equal(
@@ -70,27 +70,27 @@ public sealed class NavigationLensRecommendationTests
             recommendation,
             new NavigationLensEvaluationBasis.Recommendation(
                 subject,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 [options[0]]));
         Assert.NotEqual(
             recommendation,
             new NavigationLensEvaluationBasis.Recommendation(
                 subject,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 [options[1], options[0]]));
         var hashProbe = new HashProbeEvidence();
         var hashRecommendation =
             new NavigationLensEvaluationBasis.Recommendation(
                 subject,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 [
                     Option(
                         "type.api",
                         StructuralSubjectKind.Type,
                         100,
-                        ViewFacetRole.TypeApi,
+                        ViewFacetRole.TypeOverview,
                         new ViewFacetAvailability.Failed(
-                            "The API view failed.",
+                            "The Overview failed.",
                             hashProbe)),
                 ]);
         _ = hashRecommendation.GetHashCode();
@@ -115,13 +115,13 @@ public sealed class NavigationLensRecommendationTests
             var nonAvailableRecommendation =
                 new NavigationLensEvaluationBasis.Recommendation(
                     subject,
-                    ViewFacetRole.TypeApi,
+                    ViewFacetRole.TypeOverview,
                     [
                         Option(
                             "type.api",
                             StructuralSubjectKind.Type,
                             100,
-                            ViewFacetRole.TypeApi,
+                            ViewFacetRole.TypeOverview,
                             availability),
                     ]);
             Assert.Throws<ArgumentException>(
@@ -312,7 +312,7 @@ public sealed class NavigationLensRecommendationTests
                     "type.api",
                     StructuralSubjectKind.Type,
                     200,
-                    ViewFacetRole.TypeApi,
+                    ViewFacetRole.TypeOverview,
                     preferredAvailability),
                 Option(
                     "type.source",
@@ -348,7 +348,7 @@ public sealed class NavigationLensRecommendationTests
                 "type.api",
                 StructuralSubjectKind.Type,
                 500,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 new ViewFacetAvailability.Unavailable(
                     ViewFacetUnavailableReason.CapabilityAbsent(
                         "The API view is unavailable."))),
@@ -381,7 +381,7 @@ public sealed class NavigationLensRecommendationTests
                 "type.api",
                 StructuralSubjectKind.Type,
                 100,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 new ViewFacetAvailability.Unavailable(unavailable)),
             Option(
                 "type.metadata",
@@ -473,7 +473,7 @@ public sealed class NavigationLensRecommendationTests
                 "type.api",
                 StructuralSubjectKind.Type,
                 100,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 new ViewFacetAvailability.Unavailable(
                     ViewFacetUnavailableReason.CapabilityAbsent(
                         "The API view is unavailable."))),
@@ -507,7 +507,7 @@ public sealed class NavigationLensRecommendationTests
                 "type.api",
                 StructuralSubjectKind.Type,
                 100,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 new ViewFacetAvailability.Failed(
                     "API preparation failed.",
                     preferredDiagnostic)),
@@ -545,7 +545,7 @@ public sealed class NavigationLensRecommendationTests
                 "type.api",
                 StructuralSubjectKind.Type,
                 100,
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
                 new ViewFacetAvailability.Unavailable(
                     ViewFacetUnavailableReason.CapabilityAbsent(
                         "The API view is unavailable."))),
@@ -631,7 +631,7 @@ public sealed class NavigationLensRecommendationTests
                 context.Subject,
                 Library(context.Subject.Coordinate)),
             ViewFacetRole.LibraryTypes);
-        yield return (TypeSubject("Widget"), ViewFacetRole.TypeApi);
+        yield return (TypeSubject("Widget"), ViewFacetRole.TypeOverview);
         yield return (MemberSubject(), ViewFacetRole.MemberOverview);
     }
 

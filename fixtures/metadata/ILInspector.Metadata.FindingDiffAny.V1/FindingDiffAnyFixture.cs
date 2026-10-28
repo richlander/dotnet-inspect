@@ -391,6 +391,18 @@ public class MemberBecomesObsoleteError
     public int Value() => 1;
 }
 
+public class SetterBecomesObsolete
+{
+    public int Value { get; set; }
+}
+
+// A setter no other assembly can reach gains [Obsolete]: outside the API axis
+// (docs/design/api-status-analysis.md), so no row there and NonBreaking under --all.
+public class PrivateSetterBecomesObsolete
+{
+    public int Value { get; private set; }
+}
+
 // A body present on one side only: an abstract method made virtual.
 public abstract class AbstractToVirtual
 {

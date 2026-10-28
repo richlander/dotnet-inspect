@@ -816,22 +816,38 @@ internal static class ExactTypeInspectionQuery
         InspectionWorkspace workspace,
         CompleteRestorationSelectedSubject.Type selected,
         PackageAssemblyContextRealization roles)
+        => ExecuteSelectedSubject(workspace, selected.Root, selected.DefiningLibrary,
+            selected.Subject.Identity.Type, roles);
+
+    internal static ExactTypeInspectionExecution ExecuteSelectedSubject(
+        InspectionWorkspace workspace,
+        CompleteRestorationSelectedSubject.Member selected,
+        PackageAssemblyContextRealization roles)
+        => ExecuteSelectedSubject(workspace, selected.Root, selected.DefiningLibrary,
+            selected.Subject.Identity.DeclaringType, roles);
+
+    static ExactTypeInspectionExecution ExecuteSelectedSubject(
+        InspectionWorkspace workspace,
+        PackageRootBinding root,
+        NavigationLibraryEvaluation library,
+        MetadataTypeDefinitionName definition,
+        PackageAssemblyContextRealization roles)
     {
-        WorkspaceContextMember member = selected.DefiningLibrary.Library;
+        WorkspaceContextMember member = library.Library;
         if (!roles.SurfaceGroup.Participants.Contains(member.Participant))
             throw new ArgumentException("The saved Type does not belong to the borrowed Root roles.",
-                nameof(selected));
+                nameof(library));
         var loaded = new WorkspaceContextLoadOutcome.Loaded(
-            workspace.Identity, roles.SurfaceGroup, [member], [selected.Root], [],
-            selected.Root.Coordinate.Framework, selected.Root.Coordinate.RuntimeIdentifier);
+            workspace.Identity, roles.SurfaceGroup, [member], [root], [],
+            root.Coordinate.Framework, root.Coordinate.RuntimeIdentifier);
         ExactTypeInspectionTarget? target = null;
         ExactTypeInspectionResult result = ExecuteCore(
             workspace.Identity, new ExactTypeInspectionContext(loaded),
-            selected.Subject.Identity.Type.ToEscapedFullName(),
+            definition.ToEscapedFullName(),
             ExactTypeSelectionKind.DefinitionIdentity, [member.Participant],
             definingSource: null, definingSources: null, value => target = value,
             ApiSurfaceScope.PublicWithNonPublicTypes, projectionLimits: null,
-            selected.Subject.Identity.Type);
+            definition);
         return new(result, [], target);
     }
 

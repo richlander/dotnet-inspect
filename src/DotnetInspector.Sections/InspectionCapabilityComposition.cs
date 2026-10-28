@@ -764,7 +764,8 @@ public sealed record InspectionCapabilityModule
             adoptionRequirements = null,
         IEnumerable<InspectionAnalysisRegistration>? analyses = null,
         IEnumerable<InspectionStructuralCatalogRegistration>? structuralCatalogs = null,
-        IEnumerable<InspectionStructuralViewBinding>? structuralBindings = null)
+        IEnumerable<InspectionStructuralViewBinding>? structuralBindings = null,
+        Func<ImmutableArray<ResourceExplanationRoutingDeclaration>>? routingDeclarations = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
         Identity = identity;
@@ -775,7 +776,15 @@ public sealed record InspectionCapabilityModule
         Analyses = [.. analyses ?? []];
         StructuralCatalogs = [.. structuralCatalogs ?? []];
         StructuralBindings = [.. structuralBindings ?? []];
+        _routingDeclarations = routingDeclarations;
     }
+
+    private readonly Func<ImmutableArray<ResourceExplanationRoutingDeclaration>>?
+        _routingDeclarations;
+
+    /// <summary>Owner-issued root metadata, materialized only on explicit access.</summary>
+    public ImmutableArray<ResourceExplanationRoutingDeclaration> RoutingDeclarations =>
+        _routingDeclarations?.Invoke() ?? [];
 
     public string Identity { get; }
 
@@ -804,6 +813,7 @@ public sealed class InspectionCapabilityCatalog
 {
     private InspectionCapabilityCatalog(
         ImmutableArray<InspectionCapabilityModule> modules,
+        ImmutableArray<InspectionCapabilityModule> registrationOrder,
         ImmutableArray<InspectionDocumentRegistration> documents,
         ImmutableArray<InspectionRouteRegistration> routes,
         ImmutableArray<InspectionConsumerBinding> bindings,
@@ -814,6 +824,7 @@ public sealed class InspectionCapabilityCatalog
         ImmutableArray<InspectionStructuralViewBinding> structuralBindings)
     {
         Modules = modules;
+        _registrationOrder = registrationOrder;
         Documents = documents;
         Routes = routes;
         Bindings = bindings;
@@ -827,6 +838,15 @@ public sealed class InspectionCapabilityCatalog
     public ImmutableArray<InspectionStructuralCatalogRegistration> StructuralCatalogs { get; }
 
     public ImmutableArray<InspectionStructuralViewBinding> StructuralBindings { get; }
+
+    /// <summary>
+    /// Routing metadata in module registration order. Graph construction and search
+    /// do not evaluate these providers; root composition validates their registry.
+    /// </summary>
+    public ImmutableArray<ResourceExplanationRoutingDeclaration> RoutingDeclarations =>
+        [.. _registrationOrder.SelectMany(static module => module.RoutingDeclarations)];
+
+    private readonly ImmutableArray<InspectionCapabilityModule> _registrationOrder;
 
     public ImmutableArray<InspectionCapabilityModule> Modules { get; }
 
@@ -878,9 +898,10 @@ public sealed class InspectionCapabilityCatalog
         IEnumerable<InspectionCapabilityModule> modules)
     {
         ArgumentNullException.ThrowIfNull(modules);
+        ImmutableArray<InspectionCapabilityModule> registrationOrder = [.. modules];
         ImmutableArray<InspectionCapabilityModule> moduleArray =
         [
-            .. modules.OrderBy(
+            .. registrationOrder.OrderBy(
                 static module => module.Identity,
                 StringComparer.Ordinal),
         ];
@@ -1138,6 +1159,7 @@ public sealed class InspectionCapabilityCatalog
 
         return new(
             moduleArray,
+            registrationOrder,
             documents,
             routes,
             bindings,
