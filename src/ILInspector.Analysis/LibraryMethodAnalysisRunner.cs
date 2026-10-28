@@ -212,6 +212,7 @@ internal sealed class LibraryMethodAnalysisResult
     public CallerUnsafeMode Mode;
     public bool IsLeverage;
     public bool HasBody;
+    public bool BodyAttempted;
     public bool BodyAcquired;
     public int EncodedIlBytes;
     // Owner-issued body availability from declaration flags; see
@@ -1057,6 +1058,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     plan,
                     ImplementationMetricWorkStage
                         .ManagedBodyAcquisition);
+            result.BodyAttempted = true;
             MethodBodyData metadataBody = RequireMethodBody(
                 _infrastructure.PeReader,
                 caller.MetadataToken);

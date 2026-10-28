@@ -443,12 +443,15 @@ public sealed class LibraryCallGraphProducer :
             coverage.RecordDefinitionExamined(item.MethodHandle);
             coverage.RecordMethodSelected(item.MethodHandle);
             coverage.RecordModuleLookupUsed(item.MethodHandle);
-            if (result.BodyAcquired)
+            if (result.BodyAttempted)
             {
-                bodyAcquisitions++;
                 coverage.RecordTerminalBodyAttempted(
                     item.MethodHandle);
                 coverage.RecordBodyAttempted(item.MethodHandle);
+            }
+            if (result.BodyAcquired)
+            {
+                bodyAcquisitions++;
                 coverage.RecordBodyAcquired(item.MethodHandle);
                 coverage.RecordTerminalBodyAcquired(
                     item.MethodHandle,
