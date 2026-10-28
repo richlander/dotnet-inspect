@@ -158,7 +158,9 @@ internal readonly record struct MethodCallOperandSites(
 /// Execution-scoped operand and signature resolution for Method call
 /// producers. The lookup owns metadata decoding; callers own interpretation.
 /// </summary>
-internal sealed class MethodCallMetadataLookup(MetadataReader reader)
+internal sealed class MethodCallMetadataLookup(
+    MetadataReader reader,
+    bool shareCalleeIdentities)
 {
     readonly Dictionary<MethodDefinitionHandle, MemberRef>
         _methodDefinitions = [];
@@ -316,6 +318,11 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
         EntityHandle handle,
         GenericScope scope)
     {
+        // Shared identities outlive their bodies; only a producer that
+        // retains callees across bodies is worth that retained heap.
+        if (!shareCalleeIdentities)
+            return MemberResolver.ResolveMethod(reader, handle, scope);
+
         if (handle.Kind == HandleKind.MethodDefinition)
         {
             MethodDefinitionHandle method =
@@ -653,14 +660,18 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
     };
 }
 
-internal sealed class MethodCallMetadataSupport(MetadataReader reader)
+internal sealed class MethodCallMetadataSupport(
+    MetadataReader reader,
+    bool shareCalleeIdentities)
 {
     MethodCallMetadataLookup? _lookup;
 
     public MethodCallMetadataLookup Acquire(out bool constructed)
     {
         constructed = _lookup is null;
-        return _lookup ??= new MethodCallMetadataLookup(reader);
+        return _lookup ??= new MethodCallMetadataLookup(
+            reader,
+            shareCalleeIdentities);
     }
 }
 

@@ -650,6 +650,16 @@ request receipt records construction only for the lane whose access created
 the lookup, and only that lane's queries. Construction is absent when no
 producer declares the support or no declaring producer queries it.
 
+The support also owns the
+[unsafe member role scan](unsafe-member-findings.md#role-scan)'s
+call-operand facts for the execution. They are constructed at first use by a
+producer that declares this support and `Calls`. The facts hold the scan's
+memoized per-operand verdicts and whether the image names a
+`RequiresUnsafeAttribute` type. They read contracts only through this
+support's lookup and operands only through the declared Calls and
+call-target support, so their work appears in those receipts. The type-name
+scan over the TypeDef and TypeRef tables is not separately receipted.
+
 ### Same-module call-target support
 
 `CallTargets` is declared shared lookup support for producers that need the
@@ -764,11 +774,19 @@ The same declared support exposes two facts only when the producer asks:
 
 One execution-scoped lookup owns signature decoding. The packet caches Calls,
 the local signature, and each distinct field token for one physical MethodDef.
-The lookup also shares resolved MethodDef identities and MemberRef identities
-whose parent is not a caller-scoped TypeSpec across physical bodies; TypeSpec
-parents and MethodSpecs share identity only when the operand handle and
-structural caller scope both match. Lanes in one shared execution group reuse
-those packet facts. The physical receipt charges each decode once; each request
+When a planned producer declares that its result retains resolved callees
+across bodies, as Physical Method Analysis does, the lookup also shares callee
+identities across physical bodies:
+
+- resolved MethodDef identities are shared, as are MemberRef identities whose
+  parent is not a caller-scoped TypeSpec;
+- TypeSpec parents and MethodSpecs share identity only when the operand handle
+  and the structural caller scope both match.
+
+Otherwise each call site resolves its callee afresh, and no identity outlives
+the body that read it. A whole-library pass that retains no callee therefore
+doesn't hold one `MemberRef` graph per distinct callee for the execution's
+lifetime. Lanes in one shared execution group reuse those packet facts. The physical receipt charges each decode once; each request
 receipt receives the shared decode work once and retains its own logical read
 counts. Work records call sites, method and field operands, local signatures,
 generic-parameter rows, and signature bytes. `CallTargets` separately receipts

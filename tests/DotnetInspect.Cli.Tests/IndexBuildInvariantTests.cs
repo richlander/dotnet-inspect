@@ -468,7 +468,7 @@ public class IndexBuildInvariantTests
         ILInspector.Analysis.Planning.ProducerParticipation participation =
             available.Receipt.For(
                 ILInspector.Analysis.Planning
-                    .UnsafeEvidencePresenceProducer.Instance);
+                    .UnsafeMemberPresenceProducer.Instance);
         Assert.Equal(
             ILInspector.Analysis.Planning.ProducerOutcome.Stopped,
             participation.Outcome);

@@ -514,7 +514,9 @@ public partial class ApiCommand
                 ApiOutputFormatter.PopulateUnsafeMembers(
                     view,
                     type,
-                    TypeAnalysis().Safety);
+                    renderOptions.DllPath,
+                    acquisition?.SourceAssembly,
+                    renderOptions.Verbose);
             }
 
             if (renderOptions.DllPath is { } exceptionRegionsDllPath

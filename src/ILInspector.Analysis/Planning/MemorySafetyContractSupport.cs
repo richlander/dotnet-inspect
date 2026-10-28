@@ -73,6 +73,14 @@ internal sealed class MemorySafetyContractLookup
 internal sealed class MemorySafetyContractSupport(MetadataReader reader)
 {
     MemorySafetyContractLookup? _lookup;
+    UnsafeMemberRoleScanFacts? _roleScan;
+
+    /// <summary>
+    /// The unsafe member role scan's call-operand facts for this execution,
+    /// constructed at first use.
+    /// </summary>
+    public UnsafeMemberRoleScanFacts RoleScanFacts =>
+        _roleScan ??= new UnsafeMemberRoleScanFacts(reader);
 
     /// <summary>
     /// The lookup, constructed by this call when <paramref name="constructed"/>
