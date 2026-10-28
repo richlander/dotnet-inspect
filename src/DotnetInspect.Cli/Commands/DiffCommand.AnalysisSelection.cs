@@ -171,8 +171,12 @@ public partial class DiffCommand
                 .TransitionsRequireSupportedSurface:
                 CommandError.Write(
                     "The Transitions view is not declared at this report surface "
-                    + "by any selected analysis; select string-literals at "
-                    + "Library, add --type or --member, or select -S Summary.");
+                    + "by any selected analysis; select "
+                    + string.Join(
+                        " or ",
+                        DiffAnalysisCatalog.TransitionAnalysesAt(
+                            AnalysisReportSurfaceKind.Library))
+                    + " at Library, add --type or --member, or select -S Summary.");
                 return false;
         }
         if ((views.Contains(DiffSections.Transitions.Name)
@@ -577,6 +581,30 @@ public partial class DiffCommand
         // or extracted files.
         DiffBodyPopulation literalPopulation = bodies
             ?? DiffBodyPopulation.FromPaths(fromPaths, toPaths, "string-literals");
+        // The unsafe member census reads the same assemblies at both scopes.
+        bool comparesUnsafeMembers =
+            DiffAnalysisCatalog.RequiresUnsafeMemberComparison(selection);
+        DiffBodyPopulation unsafeMemberPopulation = bodies
+            ?? DiffBodyPopulation.FromPaths(fromPaths, toPaths, "unsafe-member");
+        List<DiffAnalysisHostUnavailability> hostUnavailability = [];
+        if (plan.StringLiteralQuery is not null
+            && (literalPopulation.From.Count == 0
+                || literalPopulation.To.Count == 0))
+        {
+            hostUnavailability.Add(new DiffAnalysisHostUnavailability(
+                new AnalysisDeclarationId("string-literals"),
+                "String-literal Diff requires Library assemblies "
+                    + "at both endpoints."));
+        }
+        if (comparesUnsafeMembers
+            && (unsafeMemberPopulation.From.Count == 0
+                || unsafeMemberPopulation.To.Count == 0))
+        {
+            hostUnavailability.Add(new DiffAnalysisHostUnavailability(
+                new AnalysisDeclarationId("unsafe-member"),
+                "Unsafe member Diff requires Library assemblies "
+                    + "at both endpoints."));
+        }
         var input = new DiffAnalysisInput(
             fromSurface,
             toSurface,
@@ -607,17 +635,7 @@ public partial class DiffCommand
             implementation is null
                 ? null
                 : () => implementation,
-            hostUnavailability:
-                plan.StringLiteralQuery is not null
-                    && (literalPopulation.From.Count == 0
-                        || literalPopulation.To.Count == 0)
-                ? [
-                    new DiffAnalysisHostUnavailability(
-                        new AnalysisDeclarationId("string-literals"),
-                        "String-literal Diff requires Library assemblies "
-                            + "at both endpoints."),
-                ]
-                : null,
+            hostUnavailability: hostUnavailability,
             stringLiteralQuery: plan.StringLiteralQuery,
             prepareStringLiterals: plan.StringLiteralQuery is { } literal
                 ? () => CompareStringLiterals(
@@ -625,6 +643,16 @@ public partial class DiffCommand
                     literalPopulation,
                     options,
                     literal)
+                : null,
+            prepareUnsafeMembers: comparesUnsafeMembers
+                ? () => CompareUnsafeMembers(
+                    name,
+                    unsafeMemberPopulation,
+                    options,
+                    surface,
+                    typeNames,
+                    fromSurface,
+                    toSurface)
                 : null);
         return new DiffAnalysisInspectionRequest(
             name,
@@ -634,6 +662,71 @@ public partial class DiffCommand
             selection,
             input,
             DocumentViews(plan.Views));
+    }
+
+    /// <summary>
+    /// Compares the unsafe member census over each endpoint's Library
+    /// assemblies, pairing them as string literals do, or over the selected
+    /// Types at Type surface (docs/design/unsafe-members-section.md#diff).
+    /// </summary>
+    static RetainedFindingComparisonSet CompareUnsafeMembers(
+        string name,
+        DiffBodyPopulation population,
+        DiffOptions options,
+        AnalysisReportSurfaceKind surface,
+        IReadOnlyList<string> typeNames,
+        ApiSurface fromSurface,
+        ApiSurface toSurface)
+    {
+        UnsafeMemberComparisonAssembly[] from = [.. population.From.Select(ToAssembly)];
+        UnsafeMemberComparisonAssembly[] to = [.. population.To.Select(ToAssembly)];
+        if (surface == AnalysisReportSurfaceKind.Type)
+        {
+            return UnsafeMemberComparisonQuery.ExecuteTypes(
+                from,
+                to,
+                [.. typeNames.Select(typeName => new UnsafeMemberComparisonType(
+                    typeName,
+                    DefinitionName(typeName)))]);
+        }
+
+        if (from.Length == 1 && to.Length == 1
+            && (options.PackageVersionRange is null
+                || string.Equals(
+                    from[0].AssemblyName,
+                    to[0].AssemblyName,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return UnsafeMemberComparisonQuery.ExecuteLibrary(
+                from[0],
+                to[0],
+                $"library:{name}",
+                name);
+        }
+        return UnsafeMemberComparisonQuery.ExecuteLibrarySets(
+            from,
+            to,
+            $"library:{name}");
+
+        MetadataTypeDefinitionName DefinitionName(string typeName) =>
+            fromSurface.Types.Concat(toSurface.Types)
+                .FirstOrDefault(type => string.Equals(
+                    type.FullName,
+                    typeName,
+                    StringComparison.Ordinal))
+                ?.DefinitionName
+            ?? throw new InvalidOperationException(
+                $"The type '{typeName}' has no exact definition name at either endpoint.");
+
+        static UnsafeMemberComparisonAssembly ToAssembly(DiffBodyAssembly body) =>
+            body.Group is { } group && body.GroupParticipant is { } participant
+                ? UnsafeMemberComparisonAssembly.FromParticipant(
+                    Path.GetFileName(body.SourcePath),
+                    group,
+                    participant)
+                : UnsafeMemberComparisonAssembly.FromPath(
+                    Path.GetFileName(body.SourcePath),
+                    body.SourcePath);
     }
 
     /// <summary>

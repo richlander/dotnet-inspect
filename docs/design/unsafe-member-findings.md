@@ -471,12 +471,14 @@ This slice is step 2 of 5 for #5254's Unsafe view:
 
 1. Inventory: the merged updated-semantics unsafe-member inventory.
 2. This producer and its focused Analysis gates.
-3. CLI Library Analysis section over this census, with selection aliases and
-   `diff --analysis` participation through the shared descriptor-keyed
-   comparison, replacing the legacy `Unsafe Members` evidence rows after
-   parity. The [Unsafe Members section](unsafe-members-section.md) owns this
-   step; the section at Library and Type scope is implemented, and
-   `diff --analysis` participation is its follow-up slice. Under an incomplete census the section is expected to render the
+3. CLI Library Analysis section over this census, with `diff --analysis`
+   participation through the shared descriptor-keyed comparison, replacing
+   the legacy `Unsafe Members` evidence rows after parity. The
+   [Unsafe Members section](unsafe-members-section.md) owns this step. Both
+   the section, at Library and Type scope, and
+   [`diff --analysis unsafe-member`](unsafe-members-section.md#diff) are
+   implemented. Selection has no aliases, as the
+   [selection grammar](command-transition-model.md#selection-grammar) owns. Under an incomplete census the section is expected to render the
    observed findings, report a `--count` equal to those rows, disclose the
    limitations on stderr, and exit nonzero, under the Count-terminal owner's
    [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation),

@@ -1555,10 +1555,7 @@ internal static partial class BrowserRetainedWorkspaceActivationService
             posting.Label,
             posting.CanonicalLocation,
             canonicalPacket,
-            Definition(
-                posting.RestorationRequest,
-                canonicalPacket,
-                posting.Definition),
+            Definition(posting.Origin, canonicalPacket),
             BrowserCatalogWireProjection.Project(
                 posting.Navigation.Result.Consumer),
             [
@@ -1594,10 +1591,7 @@ internal static partial class BrowserRetainedWorkspaceActivationService
             posting.CanonicalPacket,
             posting.RealizationId,
             posting.PublicationOrdinal,
-            Definition(
-                posting.RestorationRequest,
-                posting.CanonicalPacket,
-                posting.Definition),
+            Definition(posting.Origin, posting.CanonicalPacket),
             BrowserCatalogWireProjection.Project(posting.Navigation),
             [
                 .. posting.Packages.Select(
@@ -1696,6 +1690,18 @@ internal static partial class BrowserRetainedWorkspaceActivationService
         projection is CompleteRestorationProjection.Projectable projectable
             ? projectable.CanonicalPacket
             : null;
+
+    static BrowserRetainedWorkspaceDefinitionState Definition(
+        BrowserRetainedWorkspaceOrigin origin,
+        string? canonicalPacket) =>
+        origin switch
+        {
+            BrowserRetainedWorkspaceOrigin.Restored restored =>
+                Definition(restored.Request, canonicalPacket, restored.Definition),
+            BrowserRetainedWorkspaceOrigin.Project project =>
+                new([], [], [], null, null, project.Input.TraversalTargetPolicy.TargetFramework),
+            _ => throw new InvalidOperationException("Unknown retained Workspace origin."),
+        };
 
     static BrowserRetainedWorkspaceDefinitionState Definition(
         CompleteRestorationRequestBasis? restorationRequest,

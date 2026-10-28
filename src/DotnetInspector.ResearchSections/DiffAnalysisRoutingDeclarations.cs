@@ -31,6 +31,7 @@ internal static class DiffAnalysisRoutingDeclarations
                 "Did this method's allocations or IL change between "
                 + "versions?",
                 "Which string literals did this library add or remove?",
+                "Which members gained or lost unsafe code between versions?",
             ],
             [
                 ResourceExplanationCatalog.CapabilityDocumentKey(

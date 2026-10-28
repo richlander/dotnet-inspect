@@ -1,5 +1,7 @@
 import type {
   BrowserHomeDemoResolved,
+  BrowserProjectInputInspection,
+  BrowserProjectWorkspacePreparationResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceConsumerCompletionResult,
   BrowserRetainedWorkspaceDeactivationResult,
@@ -24,6 +26,7 @@ interface PacketRetainedWorkspaceDefinitionInput
   readonly packageQuery?: never;
   readonly homeDemo?: never;
   readonly ecosystem?: never;
+  readonly project?: never;
 }
 
 interface PackageQueryRetainedWorkspaceDefinitionInput
@@ -35,6 +38,7 @@ interface PackageQueryRetainedWorkspaceDefinitionInput
   };
   readonly homeDemo?: never;
   readonly ecosystem?: never;
+  readonly project?: never;
 }
 
 interface EcosystemRetainedWorkspaceDefinitionInput
@@ -45,6 +49,7 @@ interface EcosystemRetainedWorkspaceDefinitionInput
   readonly ecosystem: {
     readonly id: string;
   };
+  readonly project?: never;
 }
 
 interface HomeDemoRetainedWorkspaceDefinitionInput
@@ -53,16 +58,33 @@ interface HomeDemoRetainedWorkspaceDefinitionInput
   readonly packageQuery?: never;
   readonly homeDemo: BrowserHomeDemoResolved;
   readonly ecosystem?: never;
+  readonly project?: never;
+}
+
+interface ProjectRetainedWorkspaceDefinitionInput
+  extends RetainedWorkspaceDefinitionIdentity {
+  readonly canonicalPacket?: never;
+  readonly packageQuery?: never;
+  readonly homeDemo?: never;
+  readonly ecosystem?: never;
+  readonly project: {
+    readonly kind: "authoredProject" | "restoredProject";
+    readonly declaredName: string;
+    readonly content: ReadonlyArray<number>;
+    readonly targetFramework?: string;
+  };
 }
 
 type RetainedWorkspaceDefinitionInput =
   | PacketRetainedWorkspaceDefinitionInput
   | PackageQueryRetainedWorkspaceDefinitionInput
   | EcosystemRetainedWorkspaceDefinitionInput
-  | HomeDemoRetainedWorkspaceDefinitionInput;
+  | HomeDemoRetainedWorkspaceDefinitionInput
+  | ProjectRetainedWorkspaceDefinitionInput;
 
 type RetainedWorkspaceDefinition = RetainedWorkspaceDefinitionInput & {
   readonly id: string;
+  readonly projectInspection?: BrowserProjectInputInspection;
 };
 
 interface RetainedWorkspaceActivationState {
@@ -80,6 +102,15 @@ interface SoleDeactivationIntent {
 }
 
 export interface RetainedWorkspaceActivationClient {
+  prepareProjectWorkspaceDefinition?(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    kind: string,
+    declaredName: string,
+    content: ReadonlyArray<number>,
+    targetFramework: string,
+  ): Promise<BrowserProjectWorkspacePreparationResult>;
   describeWorkspacePackageSources?(
     canonicalPacket: string,
   ): BrowserWorkspacePackageSourceRequirementsResult
@@ -309,6 +340,7 @@ export function createRetainedWorkspaceActivationController(
       );
     }
     if ("ecosystem" in definition
+      || definition.project !== undefined
       || definition.packageQuery !== undefined
       || definition.homeDemo !== undefined) {
       throw new Error(
@@ -555,7 +587,9 @@ export function createRetainedWorkspaceActivationController(
     }
     if (input.label.trim().length === 0
       || input.canonicalLocation.trim().length === 0
-      || ("ecosystem" in input
+      || (input.project !== undefined
+        ? input.project.declaredName.trim().length === 0
+        : "ecosystem" in input
         ? input.ecosystem.id.trim().length === 0
         : input.homeDemo !== undefined
           ? input.homeDemo.id.trim().length === 0
@@ -627,7 +661,39 @@ export function createRetainedWorkspaceActivationController(
       try {
         const credentialEndpoints = Object.keys(packageSourceCredentials);
         let preparation: BrowserRetainedWorkspacePreparationResult;
-        if ("ecosystem" in definition) {
+        if (definition.project !== undefined) {
+          if (credentialEndpoints.length !== 0) {
+            throw new Error(
+              "Local Project definitions do not accept credential bindings.",
+            );
+          }
+          if (client.prepareProjectWorkspaceDefinition === undefined) {
+            throw new Error(
+              "This engine does not support local Project definitions.",
+            );
+          }
+          const project = await client.prepareProjectWorkspaceDefinition(
+            definition.id,
+            definition.label,
+            definition.canonicalLocation,
+            definition.project.kind,
+            definition.project.declaredName,
+            definition.project.content,
+            definition.project.targetFramework ?? "",
+          );
+          const inspection = project.inspection;
+          if (inspection !== null) {
+            definitions = definitions.map(candidate =>
+              candidate.id === definition.id
+                ? {
+                  ...candidate,
+                  label: inspection.content.declaredName,
+                  projectInspection: inspection,
+                }
+                : candidate);
+          }
+          preparation = project.preparation;
+        } else if ("ecosystem" in definition) {
           if (credentialEndpoints.length !== 0) {
             throw new Error(
               "Ecosystem Workspace definitions do not accept credential bindings.",

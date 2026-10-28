@@ -282,6 +282,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    selectProjectInspector: () => unexpected("selectProjectInspector"),
     findIndexedTypes: () => unexpected("findIndexedTypes"),
     abandonRetainedWorkspaceNavigation: () =>
       unexpected("abandonRetainedWorkspaceNavigation"),
@@ -328,6 +329,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("observeRetainedWorkspaceSettlement"),
     prepareEcosystemWorkspaceDefinition: () =>
       unexpected("prepareEcosystemWorkspaceDefinition"),
+    prepareProjectWorkspaceDefinition: () =>
+      unexpected("prepareProjectWorkspaceDefinition"),
     preparePackageQueryWorkspaceDefinition: () =>
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
@@ -567,6 +570,28 @@ test("uploaded Library input uses a bounded structured-clone byte tuple", () => 
     assert.equal(oversizedInput.reason, "oversized");
     assert.match(oversizedInput.message, /exceeds 33554432 bytes/);
   }
+});
+
+test("uploaded Project input admits supplied bytes without the ordinary text budget", () => {
+  const operation =
+    engineWorkerOrdinaryOperations.catalog.prepareProjectWorkspaceDefinition;
+  const input: Parameters<typeof operation.encodeInput>[0] = [
+    "project-1", "Local Project", "/", "authoredProject", "Example.csproj",
+    Array.from({ length: 1024 * 1024 }, () => 32), "",
+  ];
+  assert.equal(operation.encodeInput(input).kind, "decoded");
+  assert.equal(operation.input.decode(input).kind, "decoded");
+  assert.equal(operation.input.decode([...input, "extra"]).kind, "rejected");
+  assert.equal(operation.input.decode([
+    ...input.slice(0, 5), [256], "",
+  ]).kind, "rejected");
+  const oversized: number[] = [];
+  oversized.length = engineWorkerUploadedLibraryMaximumBytes + 1;
+  const rejected = operation.input.decode([
+    ...input.slice(0, 5), oversized, "",
+  ]);
+  assert.equal(rejected.kind, "rejected");
+  if (rejected.kind === "rejected") assert.equal(rejected.reason, "oversized");
 });
 
 test("uploaded Library Member document queries use the retained exact image", async () => {
@@ -2229,6 +2254,59 @@ test("oversized prepared activation is cancelled before rejection", async () => 
   state.host.dispose();
 });
 
+test("oversized Project preparation cancels its nested activation receipt", async () => {
+  const cancellations: string[] = [];
+  const state = fixture({
+    catalog: {
+      prepareProjectWorkspaceDefinition: async () => contractViolation({
+        inspection: { content: { declaredName: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters) } },
+        preparation: { status: "prepared", receipt: "project-receipt" },
+      }),
+      cancelRetainedWorkspaceActivation: async receipt => {
+        cancellations.push(receipt);
+        return { status: "superseded", posting: null, failure: null };
+      },
+    },
+  });
+  const pending = state.client.catalog.prepareProjectWorkspaceDefinition(
+    "project", "Project", "/", "authoredProject", "Example.csproj", [60], "");
+  await state.environment.flushAsync();
+  await assert.rejects(pending, /exceeds .* characters/);
+  assert.deepEqual(cancellations, ["project-receipt"]);
+  state.host.dispose();
+});
+
+test("rejected Project inspector postings settle authority and report failed cleanup", async () => {
+  for (const status of ["accepted", "failed"]) {
+    const abandonments: unknown[][] = [];
+    const state = fixture({
+      catalog: {
+        selectProjectInspector: async () => contractViolation({
+          label: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+          realizationId: "realization", publicationOrdinal: 3,
+          navigation: { authority: {
+            session: "session", revision: "revision", intent: "intent", epoch: "epoch",
+          } },
+        }),
+        abandonRetainedWorkspaceNavigation: (...args) => {
+          abandonments.push(args);
+          return status;
+        },
+      },
+    });
+    const pending = state.client.catalog.selectProjectInspector(
+      "project", "realization", "dependencies-action");
+    await state.environment.flushAsync();
+    await assert.rejects(pending, status === "accepted"
+      ? /exceeds .* characters/
+      : /Recovery failed:.*abandonment returned 'failed'/);
+    assert.deepEqual(abandonments, [[
+      "realization", 3, "session", "revision", "intent", "epoch",
+    ]]);
+    state.host.dispose();
+  }
+});
+
 test("serialized definition records cross ordinary transport", async () => {
   const requests: unknown[][] = [];
   const state = fixture({
@@ -2770,12 +2848,14 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "observeRetainedWorkspaceSettlement",
       "prepareEcosystemWorkspaceDefinition",
       "preparePackageQueryWorkspaceDefinition",
+      "prepareProjectWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionFromRecords",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
       "recordRetainedWorkspaceNavigationPosting",
       "resolveHomeDemo",
       "runHomeDemo",
+      "selectProjectInspector",
       "validateRetainedWorkspaceNavigationAuthority",
     ],
   } as const;
@@ -2792,7 +2872,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 138);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 140);
 
   const state = fixture();
   const groups = [
