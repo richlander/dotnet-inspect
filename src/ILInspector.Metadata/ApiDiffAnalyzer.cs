@@ -819,6 +819,10 @@ public static class ApiDiffAnalyzer
                 $"Member '{oldMember.Name}'",
                 subject,
                 changes);
+            CompareAccessorObsolete(oldMember.GetterToken, oldMember.GetterObsolete, newMember.GetterToken, newMember.GetterObsolete, "getter", oldMember, subject, changes);
+            CompareAccessorObsolete(oldMember.SetterToken, oldMember.SetterObsolete, newMember.SetterToken, newMember.SetterObsolete, "setter", oldMember, subject, changes);
+            CompareAccessorObsolete(oldMember.AdderToken, oldMember.AdderObsolete, newMember.AdderToken, newMember.AdderObsolete, "adder", oldMember, subject, changes);
+            CompareAccessorObsolete(oldMember.RemoverToken, oldMember.RemoverObsolete, newMember.RemoverToken, newMember.RemoverObsolete, "remover", oldMember, subject, changes);
         }
 
         // Virtual removed
@@ -1059,6 +1063,45 @@ public static class ApiDiffAnalyzer
                 subject.Create()));
         }
 
+        CompareObsolete(oldStatus, newStatus, obsoleteKind, subjectText, subject, changes);
+    }
+
+    /// <summary>
+    /// Reports a property or event accessor's own obsolete transition
+    /// (docs/design/api-status-analysis.md#transition-rows) as a
+    /// <see cref="ChangeKind.MemberObsoleteChanged"/> row on its Member that names the
+    /// accessor, classified as a Member's. The accessor must be present on both sides; an
+    /// accessor added or removed is a signature change.
+    /// </summary>
+    static void CompareAccessorObsolete(
+        int? oldToken,
+        ApiObsoleteStatus? oldObsolete,
+        int? newToken,
+        ApiObsoleteStatus? newObsolete,
+        string accessorName,
+        ApiMember oldMember,
+        ApiChangeSubjectSource subject,
+        List<ApiChange> changes)
+    {
+        if (oldToken is null || newToken is null)
+            return;
+        CompareObsolete(
+            new ApiStatus(false, oldObsolete is not null, oldObsolete?.Message, oldObsolete?.IsError == true),
+            new ApiStatus(false, newObsolete is not null, newObsolete?.Message, newObsolete?.IsError == true),
+            ChangeKind.MemberObsoleteChanged,
+            $"Member '{oldMember.Name}' {accessorName}",
+            subject,
+            changes);
+    }
+
+    static void CompareObsolete(
+        ApiStatus oldStatus,
+        ApiStatus newStatus,
+        ChangeKind obsoleteKind,
+        string subjectText,
+        ApiChangeSubjectSource subject,
+        List<ApiChange> changes)
+    {
         string? oldMessage = oldStatus.IsObsolete ? oldStatus.ObsoleteMessage : null;
         string? newMessage = newStatus.IsObsolete ? newStatus.ObsoleteMessage : null;
         bool oldIsError = oldStatus.IsObsolete && oldStatus.ObsoleteIsError;

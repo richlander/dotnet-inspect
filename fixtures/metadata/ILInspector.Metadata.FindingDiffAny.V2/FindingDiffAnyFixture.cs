@@ -403,6 +403,13 @@ public class MemberBecomesObsoleteError
     public int Value() => 1;
 }
 
+// An accessor's own status: the setter alone gains [Obsolete], as
+// AsnEncodedData.RawData's does from .NET 10 to 11 (#10775).
+public class SetterBecomesObsolete
+{
+    public int Value { get; [Obsolete("msg", DiagnosticId = "X0001")] set; }
+}
+
 // A body present on one side only: an abstract method made virtual.
 public abstract class AbstractToVirtual
 {

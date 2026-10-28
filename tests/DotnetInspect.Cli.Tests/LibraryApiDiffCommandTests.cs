@@ -262,8 +262,9 @@ public sealed class LibraryApiDiffCommandTests
         JsonElement summary = document.RootElement
             .GetProperty("document")
             .GetProperty("summary");
-        // The API status fixture cases add four breaking rows (obsolete added to a Member and
-        // a Type, an obsolete error added, a warning made an error) and six non-breaking ones,
+        // The API status fixture cases add five breaking rows (obsolete added to a Member, a
+        // Type, and a property's setter, an obsolete error added, a warning made an error)
+        // and six non-breaking ones,
         // PublicAttribute's obsolete message change among them
         // (docs/design/api-status-analysis.md). The ordinary presentation cases add two
         // breaking signature changes, one under a hidden Type and one on an obsolete Member.
@@ -276,7 +277,7 @@ public sealed class LibraryApiDiffCommandTests
         // add two breaking rows (enum storage and marker interface) and one
         // additive property row and one non-breaking row. Moving an explicit
         // implementation between interfaces adds one breaking and one additive row.
-        Assert.Equal(38, summary.GetProperty("breakingCount").GetInt32());
+        Assert.Equal(39, summary.GetProperty("breakingCount").GetInt32());
         Assert.Equal(21, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
         Assert.Equal(18, summary.GetProperty("nonBreakingCount").GetInt32());
@@ -287,6 +288,7 @@ public sealed class LibraryApiDiffCommandTests
     [InlineData("FindingDiffAnyFixture.TypeBecomesHidden", ChangeKind.TypeHiddenChanged, ChangeClassification.NonBreaking, "visible", "hidden")]
     [InlineData("FindingDiffAnyFixture.TypeBecomesObsolete", ChangeKind.TypeObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]")]
     [InlineData("FindingDiffAnyFixture.ObsoleteWarningToError", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "[Obsolete(\"m\")]", "[Obsolete(\"m\", true)]")]
+    [InlineData("FindingDiffAnyFixture.SetterBecomesObsolete", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"msg\")]")]
     public async Task IncludeAll_ReportsApiStatusTransitionsAsStatusRows(
         string type,
         ChangeKind kind,
@@ -428,7 +430,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(OutsideNote, namesError.Trim());
         Assert.Equal(OutsideNote, tableError.Trim());
         // Summary counts describe the displayed rows.
-        Assert.Contains("33 breaking, 21 additive, 6 non-breaking across 47 types", output);
+        Assert.Contains("34 breaking, 21 additive, 6 non-breaking across 48 types", output);
 
         // JSON preserves the selected population; --all explicitly widens it.
         using JsonDocument document = await FindingDiffAnyJson();
@@ -462,8 +464,8 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(
             (int)DotnetInspector.Queries.ApiSurfaceScope.ApiAxis,
             root.GetProperty("after").GetProperty("scope").GetInt32());
-        Assert.Equal(47, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
-        Assert.Equal(47, root.GetProperty("rows").GetArrayLength());
+        Assert.Equal(48, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
+        Assert.Equal(48, root.GetProperty("rows").GetArrayLength());
         Assert.False(root.TryGetProperty("comparison", out _));
         Assert.All(root.GetProperty("rows").EnumerateArray(),
             row => Assert.False(row.TryGetProperty("comparison", out _)));

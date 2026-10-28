@@ -391,6 +391,11 @@ public class MemberBecomesObsoleteError
     public int Value() => 1;
 }
 
+public class SetterBecomesObsolete
+{
+    public int Value { get; set; }
+}
+
 // A body present on one side only: an abstract method made virtual.
 public abstract class AbstractToVirtual
 {
