@@ -349,8 +349,8 @@ Shortcuts are evaluated only after semantic adoption produces concrete use.
 A proposed shortcut must name one useful question, lower to the same exact
 selection/operation, and preserve Content, population, terminal, work demand,
 capabilities, diagnostics, and explicit format intent. Concluding that no CLI
-shortcut is needed is a valid outcome. This decision does not add `--docs`, restore another generic detail
-flag, or prejudge aliases for the conceptual member views above.
+shortcut is needed is a valid outcome. This decision does not add `--docs`,
+restore another generic detail flag, or prejudge aliases for the conceptual member views above.
 
 ### Presentation
 
@@ -671,7 +671,7 @@ architecture steps.
 | 7 | Browser Type/Member views consume the same documented-Member operation | Browser subject overview | #10808 |
 | 8 | Browser Library Type lists consume the same documented-Type operation | Browser subject overview | #10809 |
 | 9 | Remove `ShowDocs`/`DocsExplicitlySet` and their remaining adapters/format branches | This document's retirement composition | #10810 |
-| 10 | Assess evidence for any CLI shortcuts; no shortcut is acceptable | This document's selection boundary | #10811 |
+| 10 | Assess shortcut value; retain existing syntax if no benefit is demonstrated | This document's selection boundary | #10811 |
 
 Dependencies are explicit: 2 precedes 3, 4, and 7; 5 precedes 6 and 8;
 1 precedes the owner adoptions; 9 follows the shared and CLI adoptions and
