@@ -90,8 +90,9 @@ A **family** is the unit a producer contributes. There are three kinds:
   [Admitted findings](annotated-type-map.md#admitted-findings).
 
 The shape-fact families and the fact stream are the **map-carried
-contributions**: the map holds them whatever analyses a request names. The map
-owns which families exist and which are admitted. This document adds none. A fact the map does not carry, such as a Member's memory-safety
+contributions**: the map holds them whatever analyses a request names, where
+the map's result reads them. The map owns which families exist and which are
+admitted. This document adds none. A fact the map does not carry, such as a Member's memory-safety
 contract or JSExport evidence, is not a family here; a producer that computes
 it does so outside any plan of this owner.
 
@@ -101,14 +102,23 @@ it does so outside any plan of this owner.
 
 A map request asks for a map at one version, or a map diff over a version
 pair, with a Rows, Count, or Exists terminal. The map-carried contributions
-are not selectable in a map request: every map carries both shape-fact
-families, because the map's listing, its terminals, and its Agreement gate
-read the shape comparison across both axes, and it carries the fact stream,
-because the map diff matches facts by their position in the whole stream
-before filtering them to admitted descriptors. Resolution adds every
-map-carried contribution to every map request. The request selects only
-finding families, as the map's request names its analyses, so which analyses
-it names never changes how a fact is matched.
+are not selectable in a map request; resolution adds each one the requested
+result reads:
+
+- both shape-fact families, to every map request, because the map's listing,
+  its terminals, and its Agreement gate read the shape comparison across both
+  axes; and
+- the fact stream, to a one-version map at every terminal and to a map-diff
+  Rows request, because the map diff matches facts by their position in the
+  whole stream before filtering them to admitted descriptors.
+
+A map diff's Count and Exists read only the shape comparison, so they carry
+only the shape-fact families and demand no fact census. A Type's Exists in the
+map diff therefore stays the shape comparison, and a host drawing Type marks
+computes no map of an unopened Type.
+
+The request selects only finding families, as the map's request names its
+analyses, so which analyses it names never changes how a fact is matched.
 
 ### Family contribution request
 
@@ -239,11 +249,12 @@ immutable catalog. None becomes an empty successful plan.
   before a catalog is published.
 - **Admission:** a family the map does not admit cannot register.
 - **Map-carried contributions:** every resolved map request includes both
-  shape-fact families and the fact stream, and a map request that selects one
-  is rejected.
+  shape-fact families; a one-version map and a map-diff Rows request also
+  include the fact stream; a map-diff Count or Exists request does not; and a
+  map request that selects a map-carried contribution is rejected.
 - **Census prerequisite:** the fact stream and every finding family in one plan
-  read one fact census per demanded method, and a plan with neither builds
-  none.
+  read one fact census per demanded method. A plan whose families read no
+  census, including every map-diff Count or Exists plan, builds none.
 - **Member questions:** a Member key set resolves only families supporting
   Member-scope questions, keeps one result per key, and never widens to the
   whole Type.
@@ -277,9 +288,12 @@ immutable catalog. None becomes an empty successful plan.
    Settlement moves from extracting the selected Type to asking for the API
    shape facts of the Members that own uncertain differences, or of the whole
    Type when the Type itself owns one.
-5. Register the fact-stream contribution over the method fact census of the
-   map's adoption step 3, and the admitted Local-instruction finding families
-   that read the same census, for the one-version map of #10217.
+5. Register the Body shape-fact family over the map's Body fact per method
+   from its adoption step 2, the fact-stream contribution over the method fact
+   census of the map's adoption step 3, and the admitted Local-instruction
+   finding families that read the same census. With both shape-fact families
+   registered, map requests resolve, starting with the one-version map of
+   #10217. Until this step, only family contribution requests resolve.
 6. Route the Type-scoped API diff of #10221 through a family contribution
    request for the API shape-fact family at Type focus.
 
