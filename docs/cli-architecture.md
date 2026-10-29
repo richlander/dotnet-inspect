@@ -767,6 +767,20 @@ framework/version, project context, explicit file designation, or local provenan
 routing uses the same selection path and passes the loaded surface to `type`
 unchanged, rather than selecting or extracting it again.
 
+Package Type/Member acquisition preserves an explicit `--tfm` even when the
+positional Type/member boundary remains unresolved. Failure to find the whole
+dotted target as a Type does not authorize selection from another framework.
+An unavailable requested framework fails visibly instead of reverting to the
+package's highest framework. Existing Library selection remains authoritative.
+
+The motivating asset is nuget.org `System.Text.Json` 10.0.0: `member
+System.Text.Json.JsonSerializer.DeserializeAsync --package
+System.Text.Json@10.0.0 --tfm net9.0 --tree` must inspect net9.0, just like
+separate Type and Member arguments. Offline cache-seeded
+`Member_PackageTargetFrameworkSurvivesDeferredBoundary` cases use different
+framework Library populations to gate the actual selection and the unavailable
+framework failure without requiring a network acquisition in ordinary tests.
+
 `TypeApiSelection_RejectsUnusableAssemblyIdentity`,
 `TypeApiSelection_RejectsUnusablePackageAssembly`,
 `TypeApiSelection_PreservesAssemblyAndModuleInspection`,
