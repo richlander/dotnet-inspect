@@ -2069,6 +2069,99 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task
+        PackageLibraryNamespaceRouteUsesOneSelectedSurfaceLibrary()
+    {
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        var options = new LibraryOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            AssemblyName = "ILInspector.Metadata.dll",
+            TypeNamespace = typeof(ApiType).Namespace,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleLibraryNamespaceRouteAsync(
+                    options,
+                    store));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            typeof(ApiType).FullName!,
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Outer.Inner",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "## Library Info",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageLibraryNamespaceRouteAdmitsOnlyExactPinnedRequests()
+    {
+        var options = new LibraryOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            AssemblyName = "ILInspector.Metadata.dll",
+            TypeNamespace = typeof(ApiType).Namespace,
+        };
+
+        Assert.True(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options,
+                out PackageEndpointScopeRequest? request));
+        Assert.Equal(PackageAssetDemand.Surface, request.AssetDemand);
+        Assert.Equal(
+            "ILInspector.Metadata.dll",
+            request.LibrarySelector!.Value);
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { PackagePath = PackageId },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { Tfm = null },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { AssemblyName = null },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { TypeNamespace = null },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with
+                {
+                    AssemblyName = "ILInspector.*",
+                },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { NamesakeLibrary = true },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { FirstLibrary = true },
+                out _));
+    }
+
+    [Fact]
     public void MemberRouteAdmitsOnlyLockedDemandShapes()
     {
         var options = new MemberOptions
@@ -2289,6 +2382,40 @@ public sealed class ExactTypeWorkspaceRouteTests
             house,
             cancellationToken =>
                 root.IssueOperationLease(cancellationToken));
+    }
+
+    static async Task<int> ExecuteEligibleLibraryNamespaceRouteAsync(
+        LibraryOptions options,
+        IPackageStore store)
+    {
+        Assert.True(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options,
+                out PackageEndpointScopeRequest? request));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        int? result =
+            await LibraryCommand.TryExecutePackageNamespaceAsync(
+                options,
+                request,
+                house,
+                cancellationToken =>
+                    root.IssueOperationLease(cancellationToken),
+                TestContext.Current.CancellationToken);
+        return Assert.IsType<int>(result);
     }
 
     static TypeOptions WithPresentation(
