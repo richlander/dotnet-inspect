@@ -407,7 +407,7 @@ internal sealed record FirstAvailableExactTypeInspectionExecution(
 /// Resolves and projects one exact Type through an admitted Workspace
 /// realization operation.
 /// </summary>
-internal static class ExactTypeInspectionQuery
+internal static partial class ExactTypeInspectionQuery
 {
     sealed record Candidate(
         int Order,

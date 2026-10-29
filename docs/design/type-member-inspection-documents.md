@@ -16,9 +16,11 @@ The Type-side producers now have role-specific names:
 optional Member-group population used by compact projections and direct
 discovery. Remaining transitional Member content shapes and host-local
 composition must not be presented as the target contract.
-The complete Type Signature required by exact `Type Info` is specified below.
-Its source-native producer and host adoption remain pending under
-[#10169](https://github.com/richlander/dotnet-inspect/issues/10169).
+The complete Type Signature required by exact `Type Info` is implemented by
+[#10820](https://github.com/richlander/dotnet-inspect/pull/10820).
+CLI fixed-field projections and Browser Type metadata consume the same
+`TypeSignatureInspectionOperation` result. The Browser retains that envelope
+beside its additional relationship and declaration content.
 The transitional exact-Member producer remains C#-spelling-only and rejects
 Metadata spelling until a later producer slice can emit true Metadata
 declarations.
@@ -209,14 +211,19 @@ The completed operation crosses the host-neutral boundary as one
 CLI and Browser/Wasm consumers preserve that Content, Share outcome, and
 diagnostics while independently choosing gestures and presentation.
 
-The current direct CLI path is transitional. It receives category, modifier,
-interface Count, parameter names and flags, parameter annotations, constraint
-row Counts, and a base classification. It admits the source-native TSV writer
-only after content-based admission inspects those facts; constraint Types,
-parameters introduced by declaring generic Types, and nontrivial bases rerun
-the established rich path. Complete Type Signature replaces that admission
-rule and the discard-and-rerun fallback. It does not add a second Type
-formatter or a new Browser gesture.
+The direct CLI TSV path writes the completed Signature without a UTF-16
+document. Other fixed-field projections and Browser Type metadata use the
+same Signature spelling projection, including base and generic-constraint
+evidence. Transport contains byte-originated names only at the JSON sink and
+preserves the detached structural Type shapes, subject, Share, and diagnostics.
+Transported presentation names do not confer Metadata authority.
+
+`System.Text.Json@10.0.0` and the pinned CoreLib below motivate host parity:
+normal/detailed CLI `Type Info` and the existing Browser Type overview must
+not obtain different generic, Base, or nested-Type facts merely because one
+host also requests Member or relationship content. Focused shared and host
+tests compare the completed Signature and its projection without adding a
+Browser gesture.
 
 The pinned .NET 11 RC1 CoreLib below is the production witness. Its generic
 Type census contains zero-constraint and constraint-Type declarations;
@@ -554,22 +561,22 @@ production adoption as focused slices:
    Explanation. Complete.
 5. Implement compact `TypeOverviewDocument`. Complete.
 6. Implement complete `TypeDocument` Member population. Complete; the Type
-   Signature strengthening follows under #10169.
+   Signature strengthening is supplied by #10820.
 7. Adopt the documents independently in CLI and Browser/Wasm.
 8. Retire transitional document names and superseded host-local composition.
 
-The complete Type Signature adoption tracked by #10169 has four focused steps:
+Complete Type Signature adoption has four focused steps:
 
 1. Lock the fixed Signature contract in this owner. This document completes
    that design step.
 2. Land the independently owned
    [Metadata declaration-evidence](metadata-type-declaration-evidence.md) slice
    that supplies every required base and constraint Type shape and immediate
-   nested-Type Count without widening Name requests.
+   nested-Type Count without widening Name requests. Complete.
 3. Adopt that result in exact CLI `Type Info`, preserve every established
-   projection, and retire the post-inspection admission and rich rerun.
+   projection, and retire the post-inspection admission and rich rerun. Complete.
 4. Use the same host-neutral result for Browser/Wasm Type subject facts when
-   that host requests Signature, without adding a new UI gesture.
+   that host requests Signature, without adding a new UI gesture. Complete.
 
 The Type-side naming collision in step 8 is retired:
 `TypeSubjectInspectionOperation` names the reusable subject/population

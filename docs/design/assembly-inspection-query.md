@@ -1408,6 +1408,26 @@ reports median/p95, fingerprints, selected Type and Member cardinality where
 the complete JSON result supplies them. Both warmup and measurement include
 process startup, acquisition, selection, execution, and output consumption.
 
+#### Resolved-source exact Type operation
+
+Exact CLI Type inspection over an already resolved managed Library uses the
+same `ExactTypeInspectionOperation` and detached result as retained Browser
+inspection. The source adapter supplies its resolved descriptor and authorized
+binding policy. The richer request retains its existing shared `TypeMatcher`
+selector over a source-authorized API catalog, including forwarded Types.
+The operation settles the selected forwarding route through Metadata and
+projects the settled definition through the ordinary exact-Type core. Host syntax, source
+authorization, acquisition context, and rendering remain with their owners.
+An unavailable managed Type does not retry host-local acquisition or extraction.
+A catalog execution companion preserves the CLI's existing prefix-browse and
+multiple-match presentation without repeating exact selection. The
+descriptorless module compatibility path is unchanged. Existing cheap exact
+routes remain ahead of this richer source-authorized demand.
+
+`System.Text.Json@10.0.0` at normal/detailed verbosity and the pinned CoreLib
+generic Types are the production witnesses. Focused gates cover exact result
+agreement, forwarding, ambiguity, retained binding policy, and CLI projections.
+
 #### Exact Library API operation
 
 The exact-Library API operation answers one question: for one acquisition-bound

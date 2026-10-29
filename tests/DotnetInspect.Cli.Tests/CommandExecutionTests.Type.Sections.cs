@@ -11,6 +11,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -1651,6 +1652,47 @@ public partial class CommandExecutionTests
         {
             private sealed class Grandchild;
         }
+    }
+
+    [Fact]
+    public void Type_TypeInfoView_UsesCompletedSignatureInsteadOfRichApproximation()
+    {
+        Type type = typeof(CompleteTypeInfoFixture<,,>);
+        MetadataTypeDefinitionName definition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.ParseSerialized(type.FullName!)).Name;
+        InspectionEnvelope<TypeSignatureInspectionOutcome> signature =
+            TypeSignatureInspectionOperation.Execute(
+                ResolvedAssemblyReference.CreateFromPath(
+                    type.Assembly.Location,
+                    AssemblyResolutionProvenance.Local("Type Info projection test")),
+                new(
+                    definition,
+                    new ApiSurfaceExtractionBounds(0, 0, 0, 0, 1_000_000, 0),
+                    new MetadataExactTypeInput(definition)),
+                TestContext.Current.CancellationToken);
+        TypeSignatureInspectionOutcome.Available available =
+            Assert.IsType<TypeSignatureInspectionOutcome.Available>(signature.Content);
+        TypeSignaturePresentation expected =
+            ExactTypeInfoTsvPresentation.Project(available.Signature);
+        var approximation = new ApiType
+        {
+            Name = "Approximation",
+            Namespace = "Wrong",
+            Kind = "struct",
+            BaseType = "Wrong.Base",
+        };
+
+        var view = ApiOutputFormatter.BuildTypeView(
+            approximation, null, null, null, null, null,
+            new TypeOptions { TypeSignatureInspection = signature });
+
+        Assert.NotNull(view.TypeInfo);
+        Assert.Equal(expected.Type, view.TypeInfo.Type);
+        Assert.Equal(expected.Kind, view.TypeInfo.Kind);
+        Assert.Equal(expected.BaseType, view.TypeInfo.BaseType);
+        Assert.Equal(expected.TypeParameters, view.TypeInfo.TypeParameters);
+        Assert.Equal(expected.NestedTypeCount, view.TypeInfo.NestedTypes);
     }
 
     [Fact]
