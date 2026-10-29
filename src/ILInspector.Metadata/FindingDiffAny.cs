@@ -1536,9 +1536,12 @@ public static partial class FindingDiffAny
                     ConstantTypeCode? defaultType = Constant(defaultValue);
                     census.Add(Transient.End(mark).Slot);
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
-                    // Null defaults present as null/default without enum literal lookup.
+                    // Only integral constants can present an enum literal default.
                     if (apiDependencies && api == true && parameter.SequenceNumber > 0
-                        && defaultType is not (null or ConstantTypeCode.NullReference))
+                        && defaultType is ConstantTypeCode.SByte or ConstantTypeCode.Byte
+                            or ConstantTypeCode.Int16 or ConstantTypeCode.UInt16
+                            or ConstantTypeCode.Int32 or ConstantTypeCode.UInt32
+                            or ConstantTypeCode.Int64 or ConstantTypeCode.UInt64)
                         DefaultLiteralDependencies(census, methodHandle, method, parameter.SequenceNumber, parameterKey);
                 }
                 MethodImport import = method.GetImport();
