@@ -145,12 +145,16 @@ M1 and M2 read one Member in each version. So:
   which neither pairs nor walks the Library. M1 then reads its Member key by
   exact key in each version, as the map joins, and an absent side makes the
   key one-sided; it produces only that key's entries, not the Type's map. M2
-  pairs its Member across keys through the
+  holds its key's own diff: the paired diff when the key exists on both
+  sides, and the present side when it exists on one. For a one-sided key, M2
+  also pairs it across keys through the
   [version-pair correspondence](api-qualified-anchor.md#version-pair-correspondence)
   over that Type's declarations, as Finding Diff Any's
-  [Member level](finding-diff-any.md#member) does, so a Member whose signature
-  changed, which is two keys at T1, T2, and M1, opens one M2 diff that covers
-  both. T1 and T2 pair the addressed Type by its identity, not by pairing every
+  [Member level](finding-diff-any.md#member) does, and presents that pair's
+  comparison beside the key's own diff. So a Member whose signature changed,
+  which is two keys at T1, T2, and M1, opens from either key an M2 with that
+  key's one-sided diff and the paired comparison. The coverage relationships
+  read each key's own diff; the paired comparison is presentation. T1 and T2 pair the addressed Type by its identity, not by pairing every
   Type of the two images.
 - **Reuse is optional.** A host may answer a request from a completed wider
   result it already holds, such as a T1 row from a held T2 result or a
@@ -173,10 +177,11 @@ The rungs share everything except a materialized result:
 - **Identity.** One owner-issued Type identity and one **Member key**, the
   map's census key, address every scope. A host spells a Member key as its
   [`MemberAnchor`](api-qualified-anchor.md#basis-and-existing-currencies),
-  with the map's row token where two keys share a spelling, as the
+  with its row token on its side where two keys share a spelling, as the
   [Annotated Type Map](annotated-type-map.md) does. A key names one row at
   T1, T2, and M1, so a link resolves to the same subject at each of those
-  rungs; at M2 it names the Member its correspondence pairs.
+  rungs; at M2 it names that key's own diff, with any paired comparison
+  presented beside it.
 - **Change facts.** Every fact family a Rows rung reports carries per-side
   status facets, so a host's ordinary population, hidden and obsolete
   filters, and accessibility filters are presentation over facets each row
@@ -506,8 +511,9 @@ Each step is its own focused effort:
       comparison as T2, so nothing is replaced and it agrees with T2.
    6. **M2.** The Annotated Source diff document becomes a route with Table and
       Document outputs, a CLI section, and a Browser binding, addressed by
-      Member key and paired through version-pair correspondence, overlaying the
-      M1 facts of the keys it covers when asked.
+      Member key, holding that key's own diff and, for a one-sided key, the
+      comparison version-pair correspondence pairs it with, overlaying the
+      key's M1 facts when asked.
 
    No slice adds an interim producer that a later slice replaces. Today's Diff
    analysis set at Type and Member surface stays as it is until the CLI and
@@ -540,7 +546,9 @@ Each step is its own focused effort:
   fixture request completes while extracting and pairing only the addressed
   Type in each version and the Types its facts read, as the query's receipt
   reports.
-- **Scope agreement:** over the fixtures, with each rung computed by its own
+- **Scope agreement:** over the fixtures, including a public method whose
+  parameter Type changes while its IL stays the same, so it is two one-sided
+  keys that correspondence pairs, with each rung computed by its own
   request, each Member's M1 facts equal its T2 row's facts, and the Coverage
   gate above holds between those independently computed L1, T1, T2, and M2
   answers, with the same qualifiers: decided rows only, and an
