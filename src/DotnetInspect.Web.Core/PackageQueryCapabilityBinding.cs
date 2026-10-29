@@ -1,7 +1,7 @@
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
-namespace DotnetInspect.Web.Interop.Package;
+namespace DotnetInspect.Web;
 
 internal static class PackageQueryCapabilityBinding
 {
