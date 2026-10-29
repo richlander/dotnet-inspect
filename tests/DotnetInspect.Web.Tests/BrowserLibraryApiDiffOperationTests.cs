@@ -1126,6 +1126,35 @@ public sealed class BrowserLibraryApiDiffOperationTests
         }
     }
 
+    [Theory]
+    [InlineData(ApiSurfaceScope.Public)]
+    [InlineData(ApiSurfaceScope.ApiAxis)]
+    public void InventoryUsesSharedTypeOrdering(ApiSurfaceScope scope)
+    {
+        InspectionEnvelope<DiffAnalysisDocument> inspection = Available(12, scope: scope);
+        var source = Assert.IsType<LibraryApiDiffOutcome.Available>(
+            inspection.Content.LibraryApi);
+        var inventory = Assert.IsType<LibraryApiChangesOutcome<
+            LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Available>(
+                LibraryApiChangesInspection.TypeInventoryDocument(source).Content).Content;
+
+        BrowserLibraryApiDiffResult result = BrowserLibraryApiDiffWireProjection.Project(
+            Request("Transport.Package"),
+            inspection,
+            EndpointContext(TargetVersion),
+            EndpointContext(CurrentVersion));
+
+        Assert.Equal(BrowserLibraryApiDiffResultKind.Succeeded, result.Kind);
+        Assert.Equal(
+            inventory.Rows.Select(row => row.Type.Identifier),
+            result.Value!.Types.Select(type => type.DocumentIdentifier));
+        Assert.Equal(
+            inventory.Rows.Select(row => row.TypeDefinitionChanged),
+            result.Value.Types.Select(type => type.TypeDefinitionChanged));
+        Assert.Equal(inventory.Summary.ChangedTypeCount, result.Value.Aggregate.ChangedTypeCount);
+        Assert.Equal(inventory.OutsideOrdinaryRowCount, result.Value.Aggregate.OutsideOrdinaryRowCount);
+    }
+
     [Fact]
     public void IncompleteEndpointRemainsTypedUnavailable()
     {
@@ -2024,12 +2053,13 @@ public sealed class BrowserLibraryApiDiffOperationTests
     static InspectionEnvelope<DiffAnalysisDocument> Available(
         int typeCount,
         string? display = null,
-        int segmentCount = 1)
+        int segmentCount = 1,
+        ApiSurfaceScope scope = ApiSurfaceScope.Public)
     {
         AssemblyReferenceIdentity identity = AssemblyIdentity();
         var endpoint = new LibraryApiDiffEndpointSummary(
             identity,
-            ApiSurfaceScope.Public,
+            scope,
             IsComplete: true,
             []);
         ImmutableArray<ComparisonSubject<LibraryApiTypeDiff>> subjects =
@@ -2046,8 +2076,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
                     var diff = new LibraryApiTypeDiff(
                         typeIdentity,
                         typeIdentity,
-                        LibraryApiTypePairKind.Present,
-                        TypeDefinitionChanged: false,
+                        LibraryApiTypePairKind.Changed,
+                        TypeDefinitionChanged: true,
                         [],
                         []);
                     return new ComparisonSubject<LibraryApiTypeDiff>(

@@ -802,11 +802,11 @@ Focused presentation fixtures establish selection/summary parity and exact
 Member-role retention; the real-package Browser envelope gate remains the
 production-adoption evidence for #10548.
 
-Browser transport and its schema remain unchanged until #10548 consumes this
-inventory and retires its equivalent population/summary projection. The
-operator approved shared-owner prerequisite #10780 precedes that Browser
-slice. #10545 owns the original shared/CLI adoption; #10385 tracks the revised
-five-slice migration.
+Browser adoption #10548 consumes this inventory and retires its equivalent
+population/summary projection while preserving its transport schema.
+The operator-approved shared-owner prerequisite #10780 landed as #10783
+before that Browser slice. #10545 owns the original shared/CLI adoption;
+the revised five-slice migration is tracked by #10385.
 
 The original shared/CLI adoption changes three observable outcomes on the adopted route:
 
