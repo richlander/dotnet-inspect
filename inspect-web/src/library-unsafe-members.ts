@@ -40,6 +40,7 @@ function roleParts(evidence: string): { role: string; callees: string }[] {
 function renderMember(
   member: BrowserUnsafeMember,
   assembly: string,
+  scope: string,
   escape: (value: unknown) => string,
 ): string {
   const navigable = member.typeId && member.stableSelector;
@@ -69,7 +70,7 @@ function renderMember(
     : `<div class="perf-row unsafe-member-static" title="${escape(member.member)}">${body}</div>`;
   const items = member.items.map(item => `<tr><td>${escape(item.role)}</td><td><code>${escape(item.body)}</code></td><td><code>${item.ilOffset === null ? "" : il(item.ilOffset)}</code></td><td><code>${escape(item.detail ?? "")}</code></td></tr>`).join("");
   const count = member.items.length;
-  const key = `${assembly}#${member.metadataToken}`;
+  const key = `${scope}#${member.metadataToken}`;
   return `<article class="triage-item unsafe-member">${row}
     <details class="unsafe-member-items" data-unsafe-evidence="${escape(key)}"${expandedEvidence.has(key) ? " open" : ""}><summary>${count.toLocaleString()} evidence item${count === 1 ? "" : "s"}</summary>
       <div class="unsafe-evidence-wrap"><table class="unsafe-evidence-table"><thead><tr><th>Role</th><th>Body</th><th>IL</th><th>Detail</th></tr></thead><tbody>${items}</tbody></table></div>
@@ -106,8 +107,11 @@ export function renderLibraryUnsafeMembersSurface(options: UnsafeMembersOptions)
       : partial
         ? `<section class="document-section empty-document"><h2>No findings were observed</h2><p>The census is incomplete; absence of unsafe members cannot be established.</p></section>`
         : `<section class="document-section empty-document"><h2>No unsafe members</h2><p>No unsafe members under the updated memory-safety rules.</p></section>`;
+    // Expansion is remembered per exact Library: the coordinate, asset, and
+    // assembly, so a token never opens a row in another version or Platform.
+    const evidenceScope = `${options.coordinate} | ${options.assetPath} | ${data.assembly}`;
     content = warning
-      + (count ? `<p class="library-analysis-note">Members with unsafe evidence under the updated memory-safety rules, one row per declared member. The census reports evidence, not a verdict. Select a member to open it; expand a row for its contributing evidence.</p><div class="perf-list unsafe-member-list">${data.members.map(member => renderMember(member, data.assembly, escape)).join("")}</div>` : "")
+      + (count ? `<p class="library-analysis-note">Members with unsafe evidence under the updated memory-safety rules, one row per declared member. The census reports evidence, not a verdict. Select a linked member to open it; expand a row for its contributing evidence.</p><div class="perf-list unsafe-member-list">${data.members.map(member => renderMember(member, data.assembly, evidenceScope, escape)).join("")}</div>` : "")
       + empty;
   }
   return renderAnalysisInspector(options, "unsafe", status, content);

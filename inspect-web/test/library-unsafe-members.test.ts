@@ -86,10 +86,23 @@ test("failed, unavailable, pending, unselected, and complete empty results remai
 });
 
 test("expanded evidence stays open across re-renders until it is closed", () => {
-  const key = "Fixture.dll#100663297";
-  assert.doesNotMatch(renderLibraryUnsafeMembersSurface({ ...options, data: result() }), /data-unsafe-evidence="Fixture.dll#100663297" open/);
+  const key = "Fixture@1.0 | Fixture.dll | Fixture.dll#100663297";
+  const open = /data-unsafe-evidence="[^"]*" open/;
+  assert.doesNotMatch(renderLibraryUnsafeMembersSurface({ ...options, data: result() }), open);
   rememberUnsafeEvidence(key, true);
-  assert.match(renderLibraryUnsafeMembersSurface({ ...options, data: result() }), /data-unsafe-evidence="Fixture.dll#100663297" open/);
+  assert.match(renderLibraryUnsafeMembersSurface({ ...options, data: result() }), open);
   rememberUnsafeEvidence(key, false);
-  assert.doesNotMatch(renderLibraryUnsafeMembersSurface({ ...options, data: result() }), /data-unsafe-evidence="Fixture.dll#100663297" open/);
+  assert.doesNotMatch(renderLibraryUnsafeMembersSurface({ ...options, data: result() }), open);
+});
+
+test("expanded evidence never opens the same token in another Library", () => {
+  const html = (coordinate: string) => renderLibraryUnsafeMembersSurface({ ...options, coordinate, data: result() });
+  const open = /data-unsafe-evidence="[^"]*" open/;
+  const opened = html("net10.0 · Fixture@9.0").match(/data-unsafe-evidence="([^"]*)"/)?.[1] ?? "";
+  rememberUnsafeEvidence(opened.replaceAll("&amp;", "&"), true);
+  assert.match(html("net10.0 · Fixture@9.0"), open);
+  assert.doesNotMatch(html("net10.0 · Fixture@10.0"), open);
+  assert.doesNotMatch(html("net9.0 · Fixture@9.0"), open);
+  assert.doesNotMatch(renderLibraryUnsafeMembersSurface({ ...options, coordinate: "net10.0 · Fixture@9.0", assetPath: "", data: result() }), open);
+  rememberUnsafeEvidence(opened, false);
 });
