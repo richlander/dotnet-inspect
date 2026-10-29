@@ -35,6 +35,7 @@ public partial class CommandExecutionTests
         Assert.Equal(normal.Output, explicitTree.Output);
         Assert.StartsWith("static class System.Math\n", normal.Output);
         Assert.Contains("Methods (", normal.Output);
+        Assert.Matches(@"─ Abs \([2-9][0-9]*\)", normal.Output);
         Assert.DoesNotContain("overloads", normal.Output);
         Assert.DoesNotContain("logical", normal.Output);
     }
@@ -57,7 +58,7 @@ public partial class CommandExecutionTests
             "static class System.Text.Json.JsonSerializer\n",
             shortName.Output,
             StringComparison.Ordinal);
-        Assert.Contains("─ Deserialize\n", shortName.Output, StringComparison.Ordinal);
+        Assert.Contains("─ Deserialize (", shortName.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("overloads", shortName.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("Inherits", shortName.Output, StringComparison.Ordinal);
     }

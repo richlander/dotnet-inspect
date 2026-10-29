@@ -19,6 +19,17 @@ internal static class ApiViewText
         value is null ? null : Field(value);
 }
 
+public record OverloadRow(
+    string Select,
+    string Anchor,
+    string Signature);
+
+public record DocumentedOverloadRow(
+    string Select,
+    string Anchor,
+    string Signature,
+    string? Description);
+
 /// <summary>
 /// View model for single-type rendering. Pre-computes all display values from ApiType + options.
 /// </summary>
@@ -27,6 +38,14 @@ public class TypeView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
+
+    [MarkoutSection(Name = SectionNames.Overloads)]
+    [JsonIgnore]
+    public List<OverloadRow>? OverloadRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.DocumentedOverloads)]
+    [JsonIgnore]
+    public List<DocumentedOverloadRow>? DocumentedOverloadRows { get; set; }
 
     [MarkoutSection(Name = "Summary", Headless = true)]
     [JsonIgnore]

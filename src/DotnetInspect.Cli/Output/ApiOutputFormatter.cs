@@ -674,6 +674,14 @@ public static class ApiOutputFormatter
         {
             Title = title,
             Description = description,
+            OverloadRows = options is MemberOptions overloadOptions
+                && options.IncludeSections?.Contains(SectionNames.Overloads) == true
+                    ? MemberGroupDocumentOutput.Rows(type, overloadOptions)
+                    : null,
+            DocumentedOverloadRows = options is MemberOptions documentedOptions
+                && options.IncludeSections?.Contains(SectionNames.DocumentedOverloads) == true
+                    ? MemberGroupDocumentOutput.DocumentedRows(type, documentedOptions)
+                    : null,
             Summary = memberDetail
                 ? BuildMemberDetailSummary(type, foundIn, packageName, packageVersion, apiSource, selectedTfm)
                 : null,
