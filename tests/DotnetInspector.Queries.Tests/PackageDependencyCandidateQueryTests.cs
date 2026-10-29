@@ -584,15 +584,16 @@ public sealed class PackageDependencyCandidateQueryTests
             new("later", "https://later.example/v3/index.json"),
         ];
         int clientCount = 0;
+        CancellationToken operationToken = default;
         await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(
                 authority =>
                 {
                     clientCount++;
                     return clientCount == 1
-                        ? CreateDelayedVersionSourceClient(
+                        ? CreateDeadlineObservingVersionSourceClient(
                             authority,
-                            TimeSpan.FromMilliseconds(100),
+                            operationToken,
                             "1.0.0")
                         : throw new InvalidOperationException(
                             "A terminal operation timeout must stop later authorities.");
@@ -601,7 +602,8 @@ public sealed class PackageDependencyCandidateQueryTests
             lease.IssueOperationLease(
                 TestContext.Current.CancellationToken,
                 requestTimeout: TimeSpan.FromSeconds(1),
-                operationTimeout: TimeSpan.FromMilliseconds(30));
+                operationTimeout: TimeSpan.FromSeconds(1));
+        operationToken = operation.OperationCancellationToken;
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
@@ -826,16 +828,16 @@ public sealed class PackageDependencyCandidateQueryTests
                 observeOperation,
                 versions));
 
-    private static IPackageSourceClient CreateDelayedVersionSourceClient(
+    private static IPackageSourceClient CreateDeadlineObservingVersionSourceClient(
         ConfiguredPackageAuthority authority,
-        TimeSpan delay,
+        CancellationToken operationToken,
         params string[] versions) =>
         PackageSourceClientFactory.CreateCustom(
             PackageSourceDescriptor.NuGetGallery,
             authority.Association,
-            factory => new DelayedVersionPackageSource(
+            factory => new DeadlineObservingVersionPackageSource(
                 factory,
-                delay,
+                operationToken,
                 versions));
 
     private static IPackageSourceClient CreateFailedVersionSourceClient(
@@ -998,9 +1000,9 @@ public sealed class PackageDependencyCandidateQueryTests
         }
     }
 
-    private sealed class DelayedVersionPackageSource(
+    private sealed class DeadlineObservingVersionPackageSource(
         PackageSourceResultFactory factory,
-        TimeSpan delay,
+        CancellationToken operationToken,
         IReadOnlyList<string> versions) : IPackageSourceClient
     {
         public PackageSourceResultIdentity Source => factory.Source;
@@ -1013,7 +1015,10 @@ public sealed class PackageDependencyCandidateQueryTests
                 CancellationToken cancellationToken = default,
                 NuGetOperationContext? operationContext = null)
         {
-            await Task.Delay(delay, cancellationToken);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    operationToken));
             PackageCandidateObservation[] candidates =
             [
                 .. versions.Select(version => factory.Candidate(
