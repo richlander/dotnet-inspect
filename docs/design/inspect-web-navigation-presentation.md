@@ -1103,6 +1103,15 @@ and labels for the exact `library.references`, `library.metadata`, and
 Browser Overview and Analysis remain local composites, and Browser route
 tokens, order, applicability, activation, and rendering remain local; this
 bounded adoption does not alias either composite to one Registry facet.
+The ordinary Package strip consumes Registry-issued descriptor identity for
+the exact `package.overview`, `package.dependencies`, and
+`package.dependency-hierarchy` matches through
+`CatalogExports.ListPackageViewFacets`. Overview and Dependency Hierarchy use
+Registry titles. The Package direct-dependency route retains the
+Browser-owned **References** title required by
+[Relationship section naming](relationship-section-naming.md), while Compare,
+Vulnerabilities, route order, applicability, activation, and rendering remain
+local.
 Until those owners' migrations land, this implementation claims the adaptive
 Browser presentation and retirement contract, not full product Navigation
 descriptor or consumer conformance.

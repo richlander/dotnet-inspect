@@ -1104,6 +1104,15 @@ the exact structured Type identity and declaration occurrence that Subject
 Relations consumes through its focus-construction API; hosts do not revalidate
 that identity as Metadata.
 
+An already resolved Library can lend its binding policy to
+`ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync`. Its text overload
+retains query selection. Its structured `MetadataTypeDefinitionName` overload
+uses definition identity directly, including ordinal namespace and name
+equality, without reparsing the name or attempting suffix or generic-name
+fallback. The CLI uses this entrance when Router has already established the
+Type. Both overloads retain the same source authority, forwarding, failure,
+and callback-lifetime contracts.
+
 The unbounded query first reads detached declaration inventories across a
 multi-participant context, then richly projects only participants carrying a
 potentially matching root and any terminal suppliers Metadata resolves from
@@ -1407,6 +1416,28 @@ checks output, diagnostics, and exit-code equality on every invocation, and
 reports median/p95, fingerprints, selected Type and Member cardinality where
 the complete JSON result supplies them. Both warmup and measurement include
 process startup, acquisition, selection, execution, and output consumption.
+
+#### Resolved-source exact Type operation
+
+Exact CLI Type inspection over an already resolved managed Library uses the
+same `ExactTypeInspectionOperation` and detached result as retained Browser
+inspection. The source adapter supplies its resolved descriptor and authorized
+binding policy. The richer request uses Metadata's shared `MetadataTypeLookup`
+selector over a source-authorized API catalog, including forwarded Types.
+Pattern presentation and typo suggestions retain the shared `TypeMatcher`;
+neither replaces exact Metadata selection.
+The operation settles the selected forwarding route through Metadata and
+projects the settled definition through the ordinary exact-Type core. Host syntax, source
+authorization, acquisition context, and rendering remain with their owners.
+An unavailable managed Type does not retry host-local acquisition or extraction.
+A catalog execution companion preserves the CLI's existing prefix-browse and
+multiple-match presentation without repeating exact selection. The
+descriptorless module compatibility path is unchanged. Existing cheap exact
+routes remain ahead of this richer source-authorized demand.
+
+`System.Text.Json@10.0.0` at normal/detailed verbosity and the pinned CoreLib
+generic Types are the production witnesses. Focused gates cover exact result
+agreement, forwarding, ambiguity, retained binding policy, and CLI projections.
 
 #### Exact Library API operation
 

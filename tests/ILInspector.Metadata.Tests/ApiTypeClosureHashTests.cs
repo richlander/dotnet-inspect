@@ -236,6 +236,74 @@ public sealed class ApiTypeClosureHashTests
         AssertDifferentHash(first, second, "C");
     }
 
+    [Theory]
+    [InlineData("enum-default", "public enum E { A = 1 } public class C { public void M(E e = E.A) { } }", "public enum E { B = 1 } public class C { public void M(E e = E.B) { } }", true)]
+    [InlineData("interface-admission", "internal interface I { void M(); } public class C : I { void I.M() { } }", "public interface I { void M(); } public class C : I { void I.M() { } }", true)]
+    [InlineData("internal-interface-negative", "internal interface I { void M(); } public class C : I { void I.M() { } }", "internal interface I { void N(); } public class C : I { void I.N() { } }", false)]
+    [InlineData("module-negative", "[module: System.CLSCompliant(true)] public class C { }", "[module: System.CLSCompliant(false)] public class C { }", false)]
+    [InlineData("nullable-enum-default-negative", "public enum E { A = 1 } public class C { public void M(E? e = E.A) { } }", "public enum E { B = 1 } public class C { public void M(E? e = E.B) { } }", false)]
+    [InlineData("nested-enum-default", "public class Outer { public enum E { A = 1 } } public class C { public void M(Outer.E e = Outer.E.A) { } }", "public class Outer { public enum E { B = 1 } } public class C { public void M(Outer.E e = Outer.E.B) { } }", true)]
+    [InlineData("unused-enum-literal-negative", "public enum E { A = 1, B = 2 } public class C { public void M(E e = E.A) { } }", "public enum E { A = 1, Other = 2 } public class C { public void M(E e = E.A) { } }", false)]
+    [InlineData("enum-value-default-negative", "public enum E { A = 1 } public class C { public void M(E e = E.A) { } }", "public enum E { A = 2 } public class C { public void M(E e = E.A) { } }", false)]
+    [InlineData("multiple-defaults-and-methods", "public enum E { A = 1 } public enum F { B = 2 } public class C { public void M(E x = E.A, int count = 7) { } public void N(F y = F.B, int count = 8) { } }", "public enum E { A = 1 } public enum F { Other = 2 } public class C { public void M(E x = E.A, int count = 7) { } public void N(F y = F.Other, int count = 8) { } }", true)]
+    [InlineData("module-multiple-types-negative", "[module: System.CLSCompliant(true)] public class A { } public class C { }", "[module: System.CLSCompliant(false)] public class A { } public class C { }", false)]
+    public void CensusAndClosureHash_RespectCrossTypeDependencies(string scenario, string oldSource, string newSource, bool expectedChanged)
+    {
+        byte[] oldImage = Compile(oldSource);
+        byte[] newImage = Compile(newSource);
+        using var before = new PEReader(new MemoryStream(oldImage));
+        using var after = new PEReader(new MemoryStream(newImage));
+        var full = MetadataFindings.CompareApi(
+            ApiSurfaceExtractor.ExtractDeclarations(before, ApiSurfaceExtractionScope.ApiAxis),
+            ApiSurfaceExtractor.ExtractDeclarations(after, ApiSurfaceExtractionScope.ApiAxis),
+            Subject, new ApiDiffOptions(ApiDiffScope.All));
+        bool oracle = FindingDiffAnyTests.ChangedTypes(full).Contains("C");
+        var census = Assert.Single(FindingDiffAny.Compare(before, after, axes: FindingDiffAnyAxes.Api, cancellationToken: TestContext.Current.CancellationToken).Types, t => t.FullName == "C").Api;
+        var oldHash = new ApiTypeClosureHash(before.GetMetadataReader());
+        var newHash = new ApiTypeClosureHash(after.GetMetadataReader());
+        bool hashEqual = oldHash.Context() == newHash.Context()
+            && oldHash.Type(Definition(before.GetMetadataReader(), "C"), ApiSurfaceExtractionScope.ApiAxis)
+                == newHash.Type(Definition(after.GetMetadataReader(), "C"), ApiSurfaceExtractionScope.ApiAxis);
+        TestContext.Current.TestOutputHelper!.WriteLine($"{scenario}: completeChanged={oracle}, census={census}, hashEqual={hashEqual}");
+        Assert.Equal(expectedChanged, oracle);
+        Assert.False(hashEqual);
+        Assert.Equal(expectedChanged ? FindingDiffAnyState.Changed : FindingDiffAnyState.Unchanged, census);
+        var pairing = new FindingDiffAnyTypePairing(before, after);
+        Assert.Equal(census, pairing.Inventory("C").Api);
+        FindingDiffAnyTypeMembers partition = pairing.Members("C");
+        Assert.Equal(census, partition.Api);
+        if (expectedChanged)
+            Assert.Contains(partition.Members, member => member.Api == FindingDiffAnyState.Changed);
+        else
+            Assert.All(partition.Members, member => Assert.Equal(FindingDiffAnyState.Unchanged, member.Api));
+        if (scenario == "multiple-defaults-and-methods")
+        {
+            FindingDiffAnyMemberState member = Assert.Single(partition.Members, row => row.Api == FindingDiffAnyState.Changed);
+            Assert.Equal("N", before.GetMetadataReader().GetString(before.GetMetadataReader().GetMethodDefinition((MethodDefinitionHandle)member.Before).Name));
+        }
+        if (scenario.Contains("enum", StringComparison.Ordinal))
+        {
+            using var declarations = DeclarationCensusSide.Create(before);
+            var cursor = DeclarationCensusCursor.Create(declarations, Definition(before.GetMetadataReader(), "C"), FindingDiffAnyAxis.Api);
+            bool dependency = false;
+            while (cursor.Advance()) dependency |= cursor.Current!.Kind == DeclarationFactKind.ApiDependency;
+            Assert.True(dependency, "The signature dependency must reach the shared declaration census.");
+        }
+    }
+
+    [Fact]
+    public void EnumDefaultDependency_DoesNotWidenTheBodyAxis()
+    {
+        byte[] oldImage = Compile("public enum E { A = 1 } public class C { private void M(E e = E.A) { } }");
+        byte[] newImage = Compile("public enum E { B = 1 } public class C { private void M(E e = E.B) { } }");
+        using var before = new PEReader(new MemoryStream(oldImage));
+        using var after = new PEReader(new MemoryStream(newImage));
+        var state = Assert.Single(FindingDiffAny.Compare(before, after,
+            cancellationToken: TestContext.Current.CancellationToken).Types, t => t.FullName == "C");
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Body);
+    }
+
     static readonly ApiSurfaceExtractionScope[] Views =
         [ApiSurfaceExtractionScope.ApiAxis, ApiSurfaceExtractionScope.IncludeAll];
 

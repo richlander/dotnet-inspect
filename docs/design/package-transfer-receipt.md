@@ -157,6 +157,27 @@ A failure or degradation that affects the inspection, such as a ranged read
 refused and replaced by a complete transfer, keeps its ordinary diagnostic
 disclosure where one exists.
 
+### Browser Summary delivery
+
+The operator approved Browser Summary delivery on 2026-10-28 as a focused
+prerequisite for #10598, tracked by #10857. Its Debug-only
+`QueryPackageSummaryWithEvidence` export returns the ordinary Summary beside
+a diagnostic evidence envelope enriching the existing version-settlement
+baseline. The attachment lists the House acquisitions used by that execution,
+including an inferred-runtime continuation; a retained realization does not
+replay its historical receipts. Other version-discovery requests are outside
+the payload-transfer receipt contract. A failed House attempt that issues no
+acquisition receipt contributes no entry; an empty attachment is not a claim
+that no HTTP requests occurred.
+
+The motivating asset is `Microsoft.NETCore.App.Runtime.linux-x64@10.0.10`:
+40,096,825 bytes, 172 managed runtime DLLs, and no `ref/` or `lib/` DLLs.
+Its one runtime population motivates distinguishing two acquisitions for
+inventory from one. Readable directory-equivalent fixtures establish ordered
+receipts, actual transferred bytes, and warm non-replay; complete cached
+packages and the Debug export gate ordinary Summary parity. This diagnostic
+prerequisite changes no acquisition policy.
+
 ### Retired experiences
 
 Release and Debug builds no longer accept `--info`, `DOTNET_INSPECT_INFO`,

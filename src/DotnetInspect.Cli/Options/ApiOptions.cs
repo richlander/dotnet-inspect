@@ -443,6 +443,8 @@ public record TypeOptions : ApiOptions
         get;
         init;
     }
+    internal InspectionEnvelope<TypeSignatureInspectionOutcome>?
+        TypeSignatureInspection { get; init; }
     internal TypeHierarchyRelationsInspection?
         TypeHierarchyRelations
     {

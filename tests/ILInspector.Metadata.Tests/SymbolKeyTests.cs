@@ -56,6 +56,35 @@ public sealed class SymbolKeyTests
     }
 
     [Fact]
+    public void StagedParts_AgreeWithFrozenPartsWithoutIssuingFrozenViews()
+    {
+        var keys = new SymbolKeyBuilder<TestPart>();
+        StagedSymbolKey<TestPart> nested = Build(keys, k => k.Name("nested"u8).Int(-4));
+        StagedSymbolKey<TestPart> staged = Build(keys, k => k.Key(nested).Name("value"u8).Int(27).Ref(12).Blob([1, 2, 3]));
+        SymbolKey<TestPart> frozen = staged.Detach();
+        var borrowed = staged.Parts;
+        var owned = frozen.Parts;
+        while (borrowed.Read())
+        {
+            Assert.True(owned.Read());
+            Assert.True(borrowed.SamePart(owned));
+            Assert.Equal(0, borrowed.ComparePrefix(owned));
+            if (borrowed.Kind == SymbolKeyPartKind.Key)
+            {
+                var childBorrowed = borrowed.NestedParts;
+                var childOwned = owned.Key.Parts;
+                while (childBorrowed.Read())
+                {
+                    Assert.True(childOwned.Read());
+                    Assert.True(childBorrowed.SamePart(childOwned));
+                }
+                Assert.False(childOwned.Read());
+            }
+        }
+        Assert.False(owned.Read());
+    }
+
+    [Fact]
     public void Injectivity_DistinctPartSequencesAreDistinctBytes()
     {
         var keys = new SymbolKeyBuilder<TestPart>();

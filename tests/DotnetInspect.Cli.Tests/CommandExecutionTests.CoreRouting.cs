@@ -2682,16 +2682,16 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Router_ExactPlatformAssembly_StillRoutesToLibrary()
     {
+        var direct = await RunAppAsync("library", "System.Runtime", "--table");
         var (exit, output, error) = await RunAppAsync(
             "System.Runtime", "--table");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("Field", output);
-        Assert.Contains("Value", output);
-        Assert.Contains("Name", output);
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(direct.Output, output);
+        Assert.StartsWith("Note: Routing to platform library 'System.Runtime'", error);
+        Assert.DoesNotContain("Warning:", error);
         Assert.Contains("System.Runtime", output);
-        Assert.Contains("Type Forwarders", output);
     }
 
     [Fact]
@@ -4314,7 +4314,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_FacadePlatformBareName_RoutesToForwardedType()
+    public async Task Router_FacadePlatformBareName_RoutesToLibrary()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");
         if (assemblyPath == null || error != null)
@@ -4326,14 +4326,18 @@ public partial class CommandExecutionTests
         Assert.SkipUnless(IsFacadeAssembly(assemblyPath),
             "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
 
+        var direct = await RunAppAsync(
+            "library", "System.Runtime.CompilerServices.Unsafe", "--markdown", "-v:q");
         var (exit, output, runError) = await RunAppAsync(
             "System.Runtime.CompilerServices.Unsafe", "--markdown", "-v:q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(runError);
-        Assert.Contains("# System.Runtime.CompilerServices.Unsafe", output);
-        Assert.DoesNotContain("# System.Runtime.CompilerServices.Unsafe.dll", output);
-        Assert.Contains("Kind: class", output);
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(direct.Output, output);
+        Assert.Contains("System.Runtime.CompilerServices.Unsafe", output);
+        Assert.StartsWith(
+            "Note: Routing to platform library 'System.Runtime.CompilerServices.Unsafe'", runError);
+        Assert.DoesNotContain("Warning:", runError);
     }
 
     [Fact]
@@ -4348,13 +4352,17 @@ public partial class CommandExecutionTests
 
         Assert.False(IsFacadeAssembly(assemblyPath));
 
+        var direct = await RunAppAsync(
+            "library", "System.Text.Json", "--markdown", "-v:q");
         var (exit, output, runError) = await RunAppAsync(
             "System.Text.Json", "--markdown", "-v:q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(runError);
-        Assert.Contains("# System.Text.Json.dll", output);
-        Assert.Contains("Name: System.Text.Json", output);
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(direct.Output, output);
+        Assert.Contains("System.Text.Json", output);
+        Assert.StartsWith("Note: Routing to platform library 'System.Text.Json'", runError);
+        Assert.DoesNotContain("Warning:", runError);
     }
 
     [Fact]
