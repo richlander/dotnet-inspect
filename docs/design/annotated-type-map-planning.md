@@ -5,8 +5,9 @@
 This document owns the host-neutral registry and exact-selection planning
 substrate for the [Annotated Type Map](annotated-type-map.md). It owns:
 
-- immutable registration of the families a map can carry: its two shape-fact
-  families and its admitted finding families;
+- immutable registration of what a map can carry: its map-carried
+  contributions (the two shape-fact families and the fact stream) and its
+  admitted finding families;
 - binding each registered family to terminal-specialized concrete
   `InspectionQuery<AnnotatedTypeMapContribution>` adapter queries;
 - two request forms over those families: a **map request**, whose result the
@@ -78,15 +79,19 @@ descriptor, key, equality, scope, listing rule, or execution rule.
 
 ## Families
 
-A **family** is the unit a producer contributes. There are two kinds:
+A **family** is the unit a producer contributes. There are three kinds:
 
 - the two **shape-fact families**: the map's API facts and its Body facts at
-  Member grain, as [the map](annotated-type-map.md#the-map) defines them; and
+  Member grain, as [the map](annotated-type-map.md#the-map) defines them;
+- the **fact stream**: for each method a Member owns, the keys of every fact
+  in the method's fact census, admitted or not, in the order the map diff
+  matches them; and
 - a **finding family**: one finding descriptor family the map admits, under
   [Admitted findings](annotated-type-map.md#admitted-findings).
 
-The map owns which families exist and which are admitted. This document adds
-none. A fact the map does not carry, such as a Member's memory-safety
+The shape-fact families and the fact stream are the **map-carried
+contributions**: the map holds them whatever analyses a request names. The map
+owns which families exist and which are admitted. This document adds none. A fact the map does not carry, such as a Member's memory-safety
 contract or JSExport evidence, is not a family here; a producer that computes
 it does so outside any plan of this owner.
 
@@ -95,19 +100,22 @@ it does so outside any plan of this owner.
 ### Map request
 
 A map request asks for a map at one version, or a map diff over a version
-pair, with a Rows, Count, or Exists terminal. Shape facts are not selectable
-in a map request: every map carries both shape-fact families, because the
-map's listing, its terminals, and its Agreement gate read the shape comparison
-across both axes. Resolution adds both shape-fact families to every map
-request. The request selects only finding families, as the map's request names
-its analyses.
+pair, with a Rows, Count, or Exists terminal. The map-carried contributions
+are not selectable in a map request: every map carries both shape-fact
+families, because the map's listing, its terminals, and its Agreement gate
+read the shape comparison across both axes, and it carries the fact stream,
+because the map diff matches facts by their position in the whole stream
+before filtering them to admitted descriptors. Resolution adds every
+map-carried contribution to every map request. The request selects only
+finding families, as the map's request names its analyses, so which analyses
+it names never changes how a fact is matched.
 
 ### Family contribution request
 
 A family contribution request asks for the selected families'
 contributions, at one version or over a pair, and nothing else. It may select
 any non-empty set of registered families, including a single shape-fact
-family. Its result is the contributions themselves, keyed by Member key, each
+family or the fact stream. Its result is the contributions themselves, keyed by Member key, each
 with its own outcome. It has no map listing, no Rows, Count, or Exists, and no
 map diff; it is not a map. A consumer that compares two contributions, such as
 Finding Diff Any's API census settlement, owns that comparison.
@@ -193,6 +201,13 @@ Each adapter query is its own provision. It constructs its family, at the
 plan's focus, and no other facts; it does not compute a broader result and
 filter it. Two families share construction only of a prerequisite that both
 read, such as a per-image index, through the catalog's prerequisite sharing.
+
+The method **fact census** is such a prerequisite. The fact-stream
+contribution and every finding family read it: the fact stream keeps every
+fact's key, and a finding adapter derives its admitted findings from the same
+census without constructing facts the census does not hold. The census is
+built once per method a plan demands, and only when a demanded family reads
+it.
 Shared construction is not coverage: one family's result never satisfies
 another family's requirement, as the
 [producer capabilities](query-space-producer-capabilities.md#covering-relationship)
@@ -209,7 +224,7 @@ host-known inputs before opening an image, never from a completed result.
 ## Failure contract
 
 Resolution returns one typed rejection for an unknown family, a family the
-map does not admit, a shape-fact family selected in a map request, an
+map does not admit, a map-carried contribution selected in a map request, an
 unsupported focus, an unsupported form or terminal, or an adapter query
 absent from the supplied catalog. Invalid construction, such as a non-Type
 focus, an empty Member key set, a key of another Type, or duplicate families,
@@ -223,8 +238,12 @@ immutable catalog. None becomes an empty successful plan.
 - **Registration uniqueness:** duplicate instances and duplicate ids fail
   before a catalog is published.
 - **Admission:** a family the map does not admit cannot register.
-- **Complete shape:** every resolved map request includes both shape-fact
-  families, and a map request that selects one is rejected.
+- **Map-carried contributions:** every resolved map request includes both
+  shape-fact families and the fact stream, and a map request that selects one
+  is rejected.
+- **Census prerequisite:** the fact stream and every finding family in one plan
+  read one fact census per demanded method, and a plan with neither builds
+  none.
 - **Member questions:** a Member key set resolves only families supporting
   Member-scope questions, keeps one result per key, and never widens to the
   whole Type.
@@ -258,8 +277,9 @@ immutable catalog. None becomes an empty successful plan.
    Settlement moves from extracting the selected Type to asking for the API
    shape facts of the Members that own uncertain differences, or of the whole
    Type when the Type itself owns one.
-5. Register the admitted Local-instruction finding families for the
-   one-version map of #10217.
+5. Register the fact-stream contribution over the method fact census of the
+   map's adoption step 3, and the admitted Local-instruction finding families
+   that read the same census, for the one-version map of #10217.
 6. Route the Type-scoped API diff of #10221 through a family contribution
    request for the API shape-fact family at Type focus.
 
@@ -273,8 +293,12 @@ path, exact NativeAOT before and after evidence.
 - This owner does not define any shape fact, finding, descriptor, key,
   equality, admission rule, listing rule, terminal, or map entry; the map and
   its consumed owners do.
-- It does not plan Library scope. The map defers its Library-scope producer to
-  its own adoption step 4; Library-scope planning follows that producer.
+- It does not plan Library scope. The map's Library scope arrives with its
+  map diff in its own adoption step 5; Library-scope planning follows it.
+- It does not define pair-scoped adapters. A pair resolves per-side adapters,
+  so a map diff's Exists compares two retained maps rather than stopping a
+  lockstep walk at its first difference; the map admits both routes to the same
+  result.
 - It does not execute producers, settle contributions, compare maps or
   contributions, or generate the document.
 - It does not define all-applicable requests, presets, portable request
