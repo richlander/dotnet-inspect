@@ -17,7 +17,6 @@ import type {
   BrowserCallGraphTarget,
 } from "./facades/inspect-web-source.d.ts";
 import type {
-  BrowserAssemblyReferenceList,
   BrowserPackageHierarchy,
   BrowserPackageHierarchyRow,
 } from "./facades/inspect-web-package.d.ts";
@@ -62,6 +61,13 @@ export interface PackageHierarchyGraph {
   occurrenceCount: number;
   shownOccurrenceCount: number;
   truncated: boolean;
+}
+
+interface AssemblyReferenceList {
+  readonly references: readonly {
+    readonly name: string;
+    readonly version: string;
+  }[];
 }
 
 export function buildPackageHierarchyGraphMermaid(
@@ -112,7 +118,7 @@ export function buildPackageHierarchyGraphMermaid(
 
 export function buildAssemblyReferenceGraphMermaid(
   assemblyName: string,
-  referenceList: BrowserAssemblyReferenceList,
+  referenceList: AssemblyReferenceList,
 ): AssemblyReferenceGraph | null {
   const references = referenceList.references;
   if (!references.length) return null;

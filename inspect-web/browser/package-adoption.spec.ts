@@ -10,10 +10,8 @@ import {
   type Worker,
 } from "@playwright/test";
 import type {
-  BrowserAssemblyReferenceList as AssemblyReferenceList,
-  BrowserAssemblyReferenceResult as AssemblyReferenceResult,
   BrowserPackageCacheStats as CacheStats,
-  BrowserPackageDependencies as PackageDependencies,
+  BrowserPackageDependencyInspection as PackageDependencies,
   BrowserPackageLoadResult as PackageLoadResult,
   BrowserPackageSurface as PackageSurface,
   BrowserPackageVersions as PackageVersions,
@@ -608,7 +606,7 @@ declare global {
         packageId: string,
         version: string,
         framework: string,
-        assemblyId: string,
+        runtimeIdentifier?: string | null,
       ): Promise<PackageDependencies>;
       queryLibraryReferences(
         packageId: string,
@@ -733,9 +731,9 @@ async function boot(page: Page): Promise<void> {
         client.package.activateWorkspacePackageOccurrence(action),
       clearOccurrences: () =>
         client.package.clearWorkspacePackageOccurrences(),
-      queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
-        client.package.queryPackageDependencies(
-          packageId, pkgVersion, framework, assemblyId, null),
+      queryDependencies: (packageId, pkgVersion, framework, runtimeIdentifier = null) =>
+        client.package.inspectPackageDependencies(
+          packageId, pkgVersion, framework, runtimeIdentifier),
       queryLibraryReferences: (packageId, pkgVersion, framework, assemblyId) =>
         client.package.queryLibraryReferences(
           packageId, pkgVersion, framework, assemblyId, null),
@@ -826,7 +824,12 @@ function driver(page: Page): {
   }[]): Promise<OccurrenceView>;
   activate(action: string): Promise<OccurrenceActivation>;
   clearOccurrences(): Promise<void>;
-  queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
+  queryDependencies(
+    packageId: string,
+    version: string,
+    framework: string,
+    runtimeIdentifier?: string | null,
+  ): Promise<PackageDependencies>;
   queryLibraryReferences(
     packageId: string,
     version: string,
@@ -1013,31 +1016,6 @@ function firstOccurrence(view: OccurrenceView): OccurrenceRow {
     throw new Error("Expected at least one workspace package occurrence.");
   }
   return row;
-}
-
-// The published facade hands back one completed assembly-reference outcome: an
-// available list (the object case), a failure message (the string case), or the
-// generated union's default null. These narrow that result at the consumer,
-// exactly as the production renderer must, so a test that expects one case can
-// never silently read the other.
-function availableReferences(
-  result: AssemblyReferenceResult,
-): AssemblyReferenceList {
-  if (result === null || typeof result === "string") {
-    throw new Error(
-      "Expected an available assembly-reference list; the facade returned "
-        + `${JSON.stringify(result)}.`);
-  }
-  return result;
-}
-
-function referenceFailure(result: AssemblyReferenceResult): string {
-  if (typeof result !== "string") {
-    throw new Error(
-      "Expected an assembly-reference failure message; the facade returned "
-        + `${JSON.stringify(result)}.`);
-  }
-  return result;
 }
 
 test("Library API Diff preserves distinct carriage-return and newline Type identities", async ({
@@ -3255,11 +3233,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(observed[observed.length - 1]).toBe(maxOpenScopes);
   });
 
-  // Issue #6191: BrowserPackageDependencies.AssemblyReferences is a native C#
-  // union of a reference list and a failure message. These drive the published
-  // production Wasm and the public generated queryPackageDependencies facade so
-  // both cases are real engine answers, not hand-written JSON.
-  test("answers the assembly-reference union's available case with real rows", async ({
+  test("answers shared Package Dependency Inspection with real manifest rows", async ({
     page,
     context,
   }) => {
@@ -3268,51 +3242,43 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await boot(page);
     const engine = driver(page);
 
-    // The selected compile library comes from the package's own surface, so the
-    // reference query runs against the identity the production consumer uses.
-    const surface = await engine.queryPackage(references);
-    const library = surface.assemblies.find(
-      candidate => candidate.name === healthyAssemblyName,
-    );
-    if (library === undefined) {
-      throw new Error(`Expected the ${healthyAssemblyName} Library descriptor.`);
-    }
-    expect(String(surface.compileLibrary.status)).toBe("Selected");
-
     const dependencies = await engine.queryDependencies(
       references.packageId,
       version,
       fixtureFramework,
-      library.id,
     );
-    expect(dependencies.package).toBe(references.packageId);
-    expect(dependencies.version).toBe(version);
-    expect(dependencies.activeFramework).toBe(fixtureFramework);
-    expect(dependencies.assembly).toBe(healthyAssemblyFileName);
-
-    // The available case is an object carrying the existing reference rows.
-    const list = availableReferences(dependencies.assemblyReferences);
-    const rows = list.references;
-    expect(rows.map(row => row.name)).toEqual([expectedReferenceName]);
-    const [row] = rows;
-    if (row === undefined) throw new Error("Expected one AssemblyRef row.");
-    expect(row.version).toBe("11.0.0.0");
-    expect(row.culture).toBe("neutral");
-    expect(row.publicKeyToken).toBeTruthy();
-
-    // The retired parallel field is gone from the wire result, and the outer
-    // manifest, framework, and compile-library facts stay independent of it.
-    expect(Object.hasOwn(dependencies, "assemblyReferenceError")).toBe(false);
-    expect(Object.keys(list)).toEqual(["references"]);
-    expect(dependencies.dependencyGroupError).toBeNull();
-    expect(String(dependencies.compileLibrary.status)).toBe("Selected");
-    const [group] = dependencies.dependencyGroups;
+    expect(dependencies.inspection.content?.kind).toBe("available");
+    if (dependencies.inspection.content?.kind !== "available") {
+      throw new Error("Expected available Package Dependency Inspection.");
+    }
+    const content = dependencies.inspection.content;
+    expect(content.manifest.coordinate).toEqual({
+      packageId: references.packageId.toLowerCase(),
+      version,
+    });
+    expect(content.dependencies.requestedTargetFramework)
+      .toBe(fixtureFramework);
+    expect(content.dependencies.selectedTargetFramework)
+      .toBe(fixtureFramework);
+    const [group] = content.dependencies.groups;
     if (group === undefined) {
       throw new Error("Expected the declared manifest dependency group.");
     }
-    expect(group.isActive).toBe(true);
     expect(group.dependencies.map(dependency => dependency.id))
       .toEqual([declaredDependency.id]);
+    expect(content.dependencies.selectedGroup).toEqual(group);
+    expect(dependencies.inspection.share.kind).toBe("nonProjectable");
+    expect(dependencies.inspection.diagnostics).toEqual([]);
+
+    for (const retiredField of [
+      "package",
+      "assembly",
+      "compileLibrary",
+      "assemblyReferences",
+      "declarationFailures",
+    ]) {
+      expect(Object.hasOwn(dependencies, retiredField)).toBe(false);
+    }
   });
 
   test("answers shared Library Reference Inspection with real rows", async ({
@@ -3348,7 +3314,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(envelope.diagnostics).toEqual([]);
   });
 
-  test("answers a manifest-only package with a reference failure beside healthy dependency groups", async ({
+  test("answers a manifest-only package without requiring a compile Library", async ({
     page,
     context,
   }) => {
@@ -3357,39 +3323,27 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await boot(page);
     const engine = driver(page);
 
-    // A manifest-only package declares real dependencies and ships no compile
-    // assets, so no assembly-reference list can exist. The assembly id is
-    // unused on this path: the engine reports compile-library unavailability
-    // rather than attempting a reference query.
     const dependencies = await engine.queryDependencies(
       manifestOnly.packageId,
       version,
       fixtureFramework,
-      "",
     );
-    expect(dependencies.package).toBe(manifestOnly.packageId);
-    expect(dependencies.assembly).toBeNull();
-    expect(String(dependencies.compileLibrary.status)).toBe("NoCompileAssets");
-
-    // The failure case is a string carrying the compile-library message, not an
-    // empty successful list and not the union's default null.
-    const failure = referenceFailure(dependencies.assemblyReferences);
-    expect(failure.length).toBeGreaterThan(0);
-    if (dependencies.compileLibrary.message !== null) {
-      expect(failure).toBe(dependencies.compileLibrary.message);
+    expect(dependencies.inspection.content?.kind).toBe("available");
+    if (dependencies.inspection.content?.kind !== "available") {
+      throw new Error("Expected available Package Dependency Inspection.");
     }
-    expect(Object.hasOwn(dependencies, "assemblyReferenceError")).toBe(false);
-
-    // The manifest evidence stays healthy beside that failure.
-    expect(dependencies.dependencyGroupError).toBeNull();
-    const [group] = dependencies.dependencyGroups;
+    const content = dependencies.inspection.content;
+    const [group] = content.dependencies.groups;
     if (group === undefined) {
       throw new Error("Expected the declared manifest dependency group.");
     }
-    expect(group.isActive).toBe(true);
     expect(group.dependencies).toEqual([
       { id: declaredDependency.id, versionRange: declaredDependency.versionRange },
     ]);
+    expect(content.dependencies.selectedGroup).toEqual(group);
+    expect(Object.hasOwn(dependencies, "assembly")).toBe(false);
+    expect(Object.hasOwn(dependencies, "compileLibrary")).toBe(false);
+    expect(Object.hasOwn(dependencies, "assemblyReferences")).toBe(false);
   });
 
   test("projects runtime defaults and explicit ASP.NET Core platform references", async ({
@@ -3405,7 +3359,6 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       runtimeReference.packageId,
       version,
       fixtureFramework,
-      healthyAssemblyFileName,
     );
     expect(runtime.platformReferences).toEqual([]);
     expect(runtime.defaultPlatformReference).toEqual(
@@ -3417,7 +3370,6 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       aspNetCoreReference.packageId,
       version,
       fixtureFramework,
-      healthyAssemblyFileName,
     );
     expect(aspNetCore.platformReferences).toEqual([
       { family: "aspnetcore", label: "ASP.NET Core" },
