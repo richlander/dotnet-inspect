@@ -460,6 +460,15 @@ public static class TypeOptionsParser
             SharedParsers.ParseTypeFilter(
                 parseResult.GetValue(args.TypeFilterOption));
 
+        if (string.IsNullOrWhiteSpace(source.TypeName)
+            && string.IsNullOrWhiteSpace(typeFilter)
+            && sourceSelection.HasExplicitSource
+            && !opts.IsDiscoveryMode(parseResult)
+            && !mermaidExplicitlySet)
+        {
+            return new ShowHelp();
+        }
+
         // Parse member filter
         var memberValues = parseResult.GetValue(args.MemberOption) ?? [];
         if (memberValues.Any(value => MemberTargetSelector.Parse(value).GenericArity.HasValue))

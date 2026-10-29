@@ -1284,7 +1284,8 @@ that sibling Libraries are outside Package scope.
 
 The same package motivates explicit CLI Type narrowing:
 `Microsoft.Azure.SignalR.ServiceRouteBuilder` is defined in the namesake
-Library. `type --package Microsoft.Azure.SignalR@1.33.1 --namesake-library`
+Library. `type Microsoft.Azure.SignalR.ServiceRouteBuilder --package
+Microsoft.Azure.SignalR@1.33.1 --namesake-library`
 must accept that existing Library gesture and restrict lookup to that one
 Library, without changing aggregate lookup when the option is absent.
 `TypeCommand_NamesakeLibrary_ResolvesSignalRType` retains the pinned real-asset

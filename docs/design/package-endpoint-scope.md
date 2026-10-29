@@ -520,8 +520,8 @@ never retain a participant after the scope is disposed.
    `InspectionEnvelope<ExactTypeInspectionResult>` remains unchanged; raw
    `WorkspaceContextLoadOptions` are no longer an input to the completed
    operation.
-8. **Exact package Library API inspection.** The eligible cold CLI
-   `type --package ID@VERSION --library LIBRARY --tfm TFM` route plans one
+8. **Exact package Library API inspection.** The retained internal CLI
+   Library-listing adapter plans one
    exact compile-Library `Surface` demand before acquisition and opens it
    through this scope. PackageHouse chooses cache, ranged entry acquisition,
    or complete fallback. The complete compile inventory and selector outcome
@@ -530,7 +530,9 @@ never retain a participant after the scope is disposed.
    diagnostics, and legacy configured-source identity remain unchanged.
    Namesake and First Library population semantics remain outside this step;
    once either produces one exact selector, it can converge on the same
-   operation.
+   operation. Its former public `type` entrance without a Type selector is
+   rejected under
+   [Type target admission](../cli-architecture.md#type-target-admission).
 
 `diff --library` compares local files and needs no scope.
 
