@@ -272,6 +272,31 @@ rebuilt from help text or from a curated list of command names.
 
 Exact paths and search keep their existing neighbor tests.
 
+### Diff analysis input explanation
+
+The CLI's installed Diff analysis binding declares the inputs needed to execute
+its selected analysis, not only the `diff --analysis` gesture. For string-literal
+comparison this includes the mandatory predicate cardinality, admitted operators,
+operand bounds, and transport of the complete predicate as one shell argument.
+These are consumer-owned input rules under
+[Inspection Capability Composition](design/inspection-capability-composition.md#consumer-binding);
+[Resource Explanation](design/resource-explanation.md#product-role) projects them
+without package acquisition or inspection. The binding does not introduce a
+Query Space or change the analysis's predicate semantics.
+
+The motivating asset is Microsoft.Identity.Client **4.61.3 -> 4.92.0**, selecting
+`lib/netstandard2.0/Microsoft.Identity.Client.dll`. Its changed HTTPS-containing
+literal uses motivated the
+[matched supply-chain pilot](https://github.com/richlander/dotnet-inspect/issues/8151#issuecomment-6505279459):
+the installed binding exposed the analysis but no input rules, forcing the
+reader to obtain its required predicate from validation errors. The adjacent
+Serilog **4.3.0 -> 4.4.0** comparison supplies a completed no-change control.
+
+`DiffAnalysisBinding_ExplainsTheRequiredLiteralPredicateAndTransport` gates the
+actual installed explanation. Fresh matched readers over those pinned assets
+gate the agent handoff separately; explanation metadata tests alone do not
+establish that an unfamiliar agent will use it successfully.
+
 ### Vocabulary reading admission
 
 The CLI admits `-Q` / `--query-help` on an exact vocabulary root only with a
