@@ -74,6 +74,7 @@ import {
   spotlightCandidateSignature,
   typeLensesFor,
   type DependencyGroupData,
+  type CallGraphTarget,
   type GraphMemberTarget,
   type GraphMemberShareIdentity,
   type PackageIdentity,
@@ -14072,7 +14073,6 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
           signature,
           state: state.typeRelations,
           focusTypeName: typeDisplayName(item),
-          focusTypeQueryId: item.definitionId ?? item.id,
           escapeHtml,
         })
       : "",
@@ -14092,7 +14092,6 @@ function renderTypeAnalysisHtml(item: AppTypeSurface) {
       selectedTypeMetadataLibraryIdentity()),
     state: state.typeRelations,
     focusTypeName: typeDisplayName(item),
-    focusTypeQueryId: item.definitionId ?? item.id,
     escapeHtml,
   });
 }
@@ -15065,7 +15064,7 @@ function bindTypePanelEvents() {
     selectRelationship: targetTypeKey => {
       state.typeRelations.selectedTargetTypeKey = targetTypeKey;
     },
-    activateType: navigateToTypeByName,
+    activateType: navigateToTypeRelationsTarget,
   });
   const renderMemberFilterAndRestoreFocus = (selector = "") => {
     const preserved = captureMemberFocus(document);
@@ -24183,6 +24182,26 @@ function navigateToTypeByName(fullName: string) {
       fullName);
   if (!candidate) return;
   navigateToWorkspaceType(candidate.pkg, candidate.type);
+}
+
+function navigateToTypeRelationsTarget(target: CallGraphTarget) {
+  const candidate =
+    resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
+      state.packages,
+      target);
+  if (candidate.status === "unique") {
+    navigateToWorkspaceType(candidate.pkg, candidate.type);
+    return;
+  }
+  const typeName = callGraphTargetTypeId(target) || "Type";
+  const reason = candidate.status === "ambiguous"
+    ? "matches multiple loaded assemblies"
+    : candidate.status === "skew"
+      ? "has a different loaded assembly identity"
+      : candidate.status === "resident"
+        ? "is not available in the loaded assembly surface"
+        : "is not loaded in the Workspace";
+  showToast(`${typeName} cannot be opened because it ${reason}.`);
 }
 
 function navigateToRelatedType(target: RelatedTypeNavigationTarget) {

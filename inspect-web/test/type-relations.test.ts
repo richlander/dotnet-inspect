@@ -248,14 +248,12 @@ test("ordinary rendering offers explicit inspection without querying", () => {
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
-    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
   const summary = renderTypeRelationsSummary({
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
-    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 
@@ -269,7 +267,6 @@ test("the dedicated Analysis page owns acquisition and relationship presentation
     signature: "package/type",
     state: state(),
     focusTypeName: "Example.Entry",
-    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 
@@ -339,14 +336,12 @@ test("available rendering accepts omitted assembly fields and aggregates exact m
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
-    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
   const summary = renderTypeRelationsSummary({
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
-    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 
@@ -357,10 +352,10 @@ test("available rendering accepts omitted assembly fields and aggregates exact m
   assert.match(html, /Select a relationship in the graph/);
   assert.match(
     html,
-    /data-type-query-id="Example\.Entry">Example\.Entry<\/button>/);
+    /data-type-query-id="Example\.Entry" data-type-assembly="Example">Example\.Entry<\/button>/);
   assert.match(
     html,
-    /data-type-query-id="Example\.Target">Example\.Target<\/button>/);
+    /data-type-query-id="Example\.Target" data-type-assembly="Example\.Dependency">Example\.Target<\/button>/);
   assert.match(html, /2 member relationships · 3 physical sites/);
   assert.match(html, /Run\(\)/);
   assert.match(html, /2 sites/);
@@ -386,14 +381,12 @@ test("complete topology keeps partial compatibility evidence visible", () => {
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
-    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
   const summary = renderTypeRelationsSummary({
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
-    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 
@@ -414,7 +407,6 @@ test("partial empty rendering does not claim that no outgoing calls exist", () =
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
-    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 

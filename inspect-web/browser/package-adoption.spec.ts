@@ -4632,6 +4632,18 @@ test.describe("bounded network-backed Worker smoke", () => {
       .toBeVisible();
     await expect(page.locator("[data-type-analysis]"))
       .toHaveText("3 called types");
+    await page.getByRole("tab", { name: "Analysis", exact: true }).click();
+    const restoredDetail = page.locator(
+      "[data-type-analysis-detail]:not([hidden])",
+    );
+    await expect(restoredDetail).toBeVisible();
+    await restoredDetail.getByRole("button", {
+      name: "System.Text.Json.JsonDocument",
+      exact: true,
+    }).click();
+    await expect(page.locator(
+      '.type-row[data-type][aria-selected="true"] .type-name',
+    )).toHaveText("JsonDocument");
   });
 
   test("projects exact all-access Type method leverage into the UI", async ({

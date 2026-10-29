@@ -1,6 +1,7 @@
 import type {
   BrowserAnnotatedTypeRelationsInspection,
 } from "./facades/inspect-web-metadata.d.ts";
+import type { CallGraphTarget } from "./data.ts";
 
 interface CanonicalSubject {
   id: number;
@@ -124,7 +125,7 @@ export interface TypeRelationsCoordinator {
 export interface TypeRelationsBindingActions {
   inspect(): void;
   selectRelationship(targetTypeKey: string): void;
-  activateType(typeQueryId: string): void;
+  activateType(target: CallGraphTarget): void;
 }
 
 export function bindTypeRelations(
@@ -175,8 +176,32 @@ export function bindTypeRelations(
     "[data-type-analysis-node]",
   )) {
     const activate = () => {
-      const queryId = node.dataset.typeQueryId;
-      if (queryId) actions.activateType(queryId);
+      const typeDefinitionId = node.dataset.typeQueryId;
+      const assembly = node.dataset.typeAssembly;
+      if (!typeDefinitionId || !assembly) return;
+      const assemblyVersion = node.getAttribute(
+        "data-type-assembly-version",
+      );
+      const assemblyCulture = node.getAttribute(
+        "data-type-assembly-culture",
+      );
+      const assemblyPublicKeyToken = node.getAttribute(
+        "data-type-assembly-public-key-token",
+      );
+      const target: CallGraphTarget = {
+        typeDefinitionId,
+        assembly,
+        ...(assemblyVersion !== null
+          ? { assemblyVersion }
+          : {}),
+        ...(assemblyCulture !== null
+          ? { assemblyCulture }
+          : {}),
+        ...(assemblyPublicKeyToken !== null
+          ? { assemblyPublicKeyToken }
+          : {}),
+      };
+      actions.activateType(target);
     };
     node.addEventListener("click", activate);
     node.addEventListener("keydown", event => {
@@ -485,7 +510,6 @@ export interface RenderTypeRelationsOptions {
   signature: string;
   state: TypeRelationsState;
   focusTypeName: string;
-  focusTypeQueryId: string;
   escapeHtml: (value: string) => string;
 }
 
@@ -529,8 +553,9 @@ function projectRelations(
   }
   const edgesByType = new Map<string, TypeEdge>();
   for (const relation of document.relations) {
+    const source = subjects.get(relation.source_subject_id);
     const target = subjects.get(relation.target_subject_id);
-    if (!target) return null;
+    if (!source || !target) return null;
     const type = target.subject.member.member.declaring_type;
     const key = typeIdentityKey(type);
     const edge = edgesByType.get(key) ?? {
@@ -585,6 +610,33 @@ function typeQueryId(
 ): string {
   const { namespace, segments } = type.resolution.type;
   return `${namespace ? `${namespace}.` : ""}${segments.join("+")}`;
+}
+
+function typeNavigationAttributes(
+  type: CanonicalSubject["subject"]["member"]["member"]["declaring_type"],
+  escapeHtml: (value: string) => string,
+): string {
+  const assembly = type.resolution.origin.assembly;
+  const attributes = [
+    `data-type-query-id="${escapeHtml(typeQueryId(type))}"`,
+    `data-type-assembly="${escapeHtml(assembly?.name ?? type.assembly)}"`,
+  ];
+  if (assembly?.version !== undefined) {
+    attributes.push(
+      `data-type-assembly-version="${escapeHtml(assembly.version)}"`,
+    );
+  }
+  if (assembly?.culture !== undefined) {
+    attributes.push(
+      `data-type-assembly-culture="${escapeHtml(assembly.culture)}"`,
+    );
+  }
+  if (assembly?.public_key_token !== undefined) {
+    attributes.push(
+      `data-type-assembly-public-key-token="${escapeHtml(assembly.public_key_token)}"`,
+    );
+  }
+  return attributes.join(" ");
 }
 
 function shortTypeName(value: string): string {
@@ -690,7 +742,7 @@ export function renderTypeRelations(
   options: RenderTypeRelationsOptions,
 ): string {
   const {
-    signature, state, focusTypeName, focusTypeQueryId, escapeHtml,
+    signature, state, focusTypeName, escapeHtml,
   } = options;
   if (state.signature !== signature || (!state.loading && !state.result
     && !state.error)) return "";
@@ -723,6 +775,20 @@ export function renderTypeRelations(
     edge.key === state.selectedTargetTypeKey)
     ? state.selectedTargetTypeKey
     : null;
+  const firstRelation = edges[0]?.relations[0];
+  const sourceType = firstRelation
+    ? subjects.get(firstRelation.source_subject_id)
+      ?.subject.member.member.declaring_type
+    : null;
+  if (edges.length > 0 && !sourceType) {
+    return failure(
+      "The relation document did not retain its focused source Type.",
+      escapeHtml,
+    );
+  }
+  const sourceNavigationAttributes = sourceType
+    ? typeNavigationAttributes(sourceType, escapeHtml)
+    : "";
   const graphHeight = Math.max(190, edges.length * 84 + 38);
   const sourceY = graphHeight / 2 - 25;
   const graphEdges = edges.map((edge, index) => {
@@ -740,11 +806,10 @@ export function renderTypeRelations(
   }).join("");
   const targetNodes = edges.map((edge, index) => {
     const fullName = typeName(edge.targetType);
-    const queryId = typeQueryId(edge.targetType);
     const targetY = 24 + index * 84;
     return `<g class="type-analysis-node type-analysis-target-node" transform="translate(548 ${targetY})"
       role="button" tabindex="0" aria-label="${escapeHtml(`Open ${fullName}`)}"
-      data-type-analysis-node data-type-query-id="${escapeHtml(queryId)}">
+      data-type-analysis-node ${typeNavigationAttributes(edge.targetType, escapeHtml)}>
       <title>${escapeHtml(fullName)}</title>
       <rect width="300" height="50" rx="7"></rect>
       <text x="16" y="22">${escapeHtml(shortTypeName(fullName))}</text>
@@ -797,9 +862,9 @@ export function renderTypeRelations(
       data-type-analysis-detail="${escapeHtml(edge.key)}"${edge.key === selectedKey ? "" : " hidden"}>
       <header>
         <h3>
-          <button type="button" data-type-analysis-node data-type-query-id="${escapeHtml(focusTypeQueryId)}">${escapeHtml(focusTypeName)}</button>
+          <button type="button" data-type-analysis-node ${sourceNavigationAttributes}>${escapeHtml(focusTypeName)}</button>
           <span aria-hidden="true">→</span>
-          <button type="button" data-type-analysis-node data-type-query-id="${escapeHtml(typeQueryId(edge.targetType))}">${escapeHtml(targetName)}</button>
+          <button type="button" data-type-analysis-node ${typeNavigationAttributes(edge.targetType, escapeHtml)}>${escapeHtml(targetName)}</button>
         </h3>
         <span>${edge.relations.length} member relationship${edge.relations.length === 1 ? "" : "s"} · ${siteCount} physical site${siteCount === 1 ? "" : "s"}</span>
       </header>
@@ -830,7 +895,7 @@ export function renderTypeRelations(
             ${graphEdges}
             <g class="type-analysis-node type-analysis-source-node" transform="translate(22 ${sourceY})"
               role="button" tabindex="0" aria-label="${escapeHtml(`Open ${focusTypeName}`)}"
-              data-type-analysis-node data-type-query-id="${escapeHtml(focusTypeQueryId)}">
+              data-type-analysis-node ${sourceNavigationAttributes}>
               <title>${escapeHtml(focusTypeName)}</title>
               <rect width="270" height="50" rx="7"></rect>
               <text x="16" y="22">${escapeHtml(shortTypeName(focusTypeName))}</text>
