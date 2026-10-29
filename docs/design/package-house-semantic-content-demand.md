@@ -536,6 +536,14 @@ selectors preserve their typed outcomes and never authorize sibling Library
 content. The full directory and compile receipt remain authoritative for
 identity, compatible targets, and owner-default targets.
 
+The Browser Package entry follows the same boundary. It first obtains complete
+compile inventory without Library bodies, applies Navigation's First Library
+order to that inventory, and then declares one exact Surface demand for the
+chosen Library. The second request preserves the inventory's settled package
+version and retained target-framework/runtime-identifier request
+correspondence. A failed or unavailable chosen Library remains that Library's
+result; the Browser neither inspects nor substitutes a healthy sibling.
+
 Workspace realization consumes that same selector and prepares only its
 surface and requested implementation participants. It preserves reference API
 semantics and implementation-preferred Library documents. Hosts do not infer
@@ -561,6 +569,10 @@ The gates are `ExactCompileLibraryDemand_RequiresDeclaredRolesAndPackageOnlyHand
 `ExactCompileLibrary_PreservesInventoryAndNarrowsParticipants`, and
 `ExactLibraryDemand_NarrowsTransferAndWorkspace`, plus existing tool-package
 API and Library document gates.
+`QueryPackage_FirstLibrarySurfaceExcludesSibling` and
+`QueryPackage_FirstLibraryFailureDoesNotSelectSiblingSurface` gate complete
+Browser inventory, exact First Library success and failure, and sibling
+exclusion.
 
 ### Joint exact Library inspection demand
 

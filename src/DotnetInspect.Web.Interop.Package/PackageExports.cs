@@ -144,17 +144,11 @@ public static partial class PackageExports
         bool includeSurface)
     {
         BrowserPackageRealizationResult result =
-            includeSurface
-                ? await BrowserPackageWorkspace.RealizeWithSettlementAsync(
-                    packageId,
-                    version,
-                    targetFramework,
-                    runtimeIdentifier)
-                : await BrowserPackageWorkspace.InventoryWithSettlementAsync(
-                    packageId,
-                    version,
-                    targetFramework,
-                    runtimeIdentifier);
+            await BrowserPackageWorkspace.InventoryWithSettlementAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier);
         if (result is BrowserPackageRealizationResult.NotSettled notSettled)
         {
             return new(
@@ -184,10 +178,21 @@ public static partial class PackageExports
         BrowserPackageSurface? surface = null;
         if (includeSurface)
         {
+            Task<BrowserScopeLease<BrowserInspectionScope>> scopeTask =
+                defaultLibraryId is null
+                    ? BrowserPackageWorkspace.OpenScopeAsync(
+                        realization,
+                        CancellationToken.None)
+                    : BrowserPackageWorkspace.OpenLibraryScopeAsync(
+                        realization.Coordinate.PackageId,
+                        realization.Coordinate.Version,
+                        targetFramework,
+                        runtimeIdentifier,
+                        defaultLibraryId,
+                        PackageAssetDemand.Surface,
+                        CancellationToken.None);
             await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-                await BrowserPackageWorkspace.OpenScopeAsync(
-                    realization,
-                    CancellationToken.None);
+                await scopeTask;
             BrowserInspectionScope scope = scopeLease.Scope;
             BrowserPackageSurfaceInfo projected =
                 BrowserPackageSurfaceProjection.ProjectSurface(
