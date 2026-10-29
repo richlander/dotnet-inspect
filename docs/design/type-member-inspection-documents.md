@@ -538,6 +538,35 @@ equivalent multi-row documentation-table gesture; its existing exact-Member
 documentation surface is unchanged. A future host gesture may consume the same
 host-neutral composition without changing this contract.
 
+### Complete Type Member rows
+
+`TypeDocumentAttachmentCompositionOperation` composes the ordinary
+`TypeDocumentInspectionPlan` with an explicit documentation request. It retains
+that inspection outcome, Share, and diagnostics unchanged. Only an available
+Type document supplies subjects to the existing Member attachment operation;
+rejected, incomplete, or failed inspections perform no documentation work.
+Available attachments correspond to all declarations in their existing order.
+An attachment failure does not replace the completed declaration document.
+Empty declaration populations require no documentation provider call.
+
+`System.Text.Json@10.0.0`, `System.Text.Json.JsonSerializer`, motivates this
+composition: its complete declaration list includes multiple overload families,
+including fifteen `Serialize` declarations. Durable tests use the existing
+pinned package acquisition helper, compare documented and plain subjects, and
+exercise missing documentation and mismatched provider results. Documentation
+outcome settlement remains owned by DocumentationHouse. Plain declaration and
+Count operations retain their existing paths and do not acquire documentation;
+this operation adds only explicitly requested attachments to completed rows.
+CLI Type adoption (#10804) and Browser adoption (#10808) consume this shared
+composition in subsequent slices of #10802.
+
+`TypeDocumentInspectionOperationTests` gates declaration/attachment order,
+absence, typed association failures, and skipped work for empty, rejected, and
+incomplete populations. The existing
+`RealSerialize_CountAndBoundedRowsShareOneExactPopulation` and
+`CountAndRowsPlanning_ResolvesAcquisitionOnce` gates retain the independent
+Count/Rows path; that request has no documentation demand or provider.
+
 ## Platform and safety boundary
 
 Requests, documents, population receipts, and explanation handoffs are
