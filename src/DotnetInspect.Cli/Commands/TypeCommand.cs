@@ -42,6 +42,7 @@ public static partial class TypeCommand
     static readonly HashSet<string> DefiningImplementationTypeSections =
         new(StringComparer.OrdinalIgnoreCase)
         {
+            SectionNames.CalledTypes,
             SectionNames.ExceptionRegions,
         };
 
