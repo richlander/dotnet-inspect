@@ -198,6 +198,8 @@ public partial class DependsCommand
         {
             Value.Completion: not RestoredProjectTraversalCompletion.Complete,
         }
+        || content.Evidence.Summary.Phases.Processing.Incomplete > 0
+        || content.Evidence.Summary.Phases.Processing.Failed > 0
         || !content.Evidence.Failures.IsEmpty
         || content.Evidence.Summary.IsTruncated;
 

@@ -136,7 +136,12 @@ Available authored syntax is successful but is never described as evaluated
 or restored. Incomplete authored facts, unavailable restored traversal,
 partial or failed phases, and retained failures produce usable output with
 a visible stderr diagnostic and nonzero exit status, independent of selected
-presentation. Acquisition failures produce a visible error without claiming
+presentation. An independently failed restored pruning phase remains visible
+in Failures and is nonzero even when graph traversal completes.
+The shared failure projection also retains that previously omitted input
+failure for existing restored roots, activating their ordinary typed-failure
+warning without changing locator lookup or pruning policy decisions.
+Acquisition failures produce a visible error without claiming
 an inspection result. Cancellation propagates.
 
 The motivating real source is

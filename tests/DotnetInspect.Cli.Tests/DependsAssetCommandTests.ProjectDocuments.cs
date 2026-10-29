@@ -212,6 +212,50 @@ public partial class DependsAssetCommandTests
     }
 
     [Theory]
+    [InlineData("--envelope")]
+    [InlineData("--json")]
+    [InlineData("--table")]
+    [InlineData("--markdown")]
+    [InlineData("--tsv")]
+    public async Task SuppliedFailedPruningIsVisibleDespiteACompleteGraph(string format)
+    {
+        string input = SuppliedAssets.Replace(
+            "\"dependencies\": {",
+            "\"packagesToPrune\": \"invalid\", \"dependencies\": {",
+            StringComparison.Ordinal);
+        await WithSuppliedProjectFileAsync("project.assets.json", input, async path =>
+        {
+            bool structured = format is "--envelope" or "--json";
+            string[] selection = structured ? [] : ["-S", "Failures"];
+            var result = await RunCapturedOfflineAsync(
+                ["depends", "--project-document", path, .. selection, format]);
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains("packagesToPrune", result.Error, StringComparison.Ordinal);
+            if (structured)
+            {
+                using var json = System.Text.Json.JsonDocument.Parse(result.Output);
+                var content = format == "--envelope"
+                    ? json.RootElement.GetProperty("content")
+                    : json.RootElement;
+                var traversal = content.GetProperty("restored_traversal").GetProperty("value");
+                Assert.Equal("Complete", traversal.GetProperty("completion").GetString());
+                Assert.Equal("failed", traversal.GetProperty("facts")
+                    .GetProperty("package_pruning").GetProperty("kind").GetString());
+                var failure = Assert.Single(content.GetProperty("evidence")
+                    .GetProperty("failures").EnumerateArray());
+                Assert.Equal("Pruning", failure.GetProperty("phase").GetString());
+                Assert.Equal("InvalidShape", failure.GetProperty("reason").GetString());
+            }
+            else
+            {
+                Assert.Contains("Pruning", result.Output, StringComparison.Ordinal);
+                Assert.Contains("InvalidShape", result.Output, StringComparison.Ordinal);
+                Assert.Contains("packagesToPrune", result.Output, StringComparison.Ordinal);
+            }
+        });
+    }
+
+    [Theory]
     [InlineData("Input.csproj", 1_048_577)]
     [InlineData("project.assets.json", 4_194_305)]
     public async Task OversizedSuppliedDocumentsRetainTypedProviderRejection(string name, int length)

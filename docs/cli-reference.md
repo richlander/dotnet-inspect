@@ -2694,6 +2694,10 @@ typed provider outcomes, original declarations, limitations, and failures.
 `--envelope` adds the nonprojectable Share outcome and diagnostics.
 Incomplete, unavailable, partial, and failed results retain usable output but
 return nonzero with a stderr diagnostic, regardless of selected section.
+This includes failed restored pruning even when the dependency graph completes;
+the failure remains available in the Failures section.
+Existing restored roots also retain this input failure and emit their ordinary
+typed-failure warning; their lookup and pruning policy decisions are unchanged.
 Authored files are bounded to 1 MiB and assets files to 4 MiB by their
 existing producers. Other roots, enrichment, traversal controls, row
 selection, Count, and Share cannot be combined with this gesture.
