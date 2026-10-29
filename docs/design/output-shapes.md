@@ -117,6 +117,15 @@ acquisition with its [package transfer receipt](package-transfer-receipt.md).
 It preserves the ordinary primary output and publishes the complete enriched
 frame atomically.
 
+Ecosystem Find adopts a baseline envelope over its staged search summary
+through `EcosystemFindInspection`. Debug `find --ecosystem` and registration-only
+`find --workspace` expose it with `--evidence-envelope <path>`, registering
+`result_kind` `ecosystem-find` at `schema_version` `1`. The complete frame
+contains the same completed blocks and scheduling evidence, with explicit
+legacy acquisition-receipt unavailability. Ordinary output is unchanged.
+Other Find routes, including parse-time explicit `--package-prefix`, refuse
+the option before acquisition; their baseline adoption remains separate.
+
 Debug pairwise `diff --package` adopts `--evidence-envelope <path>` for
 Library API Diff (`LibraryApiDiffOutcome`) and analysis sets
 (`DiffAnalysisDocument`), with the same `PackageAcquisitionEvidence`: the

@@ -1298,7 +1298,7 @@ public partial class CommandExecutionTests
                 public static int Broken(int value)
                 {
                     int local = value;
-                    return local + 1;
+                    return System.Math.Abs(local) + 1;
                 }
             }
             """;
@@ -1358,7 +1358,6 @@ public partial class CommandExecutionTests
             MethodBodyBlock body =
                 peReader.GetMethodBody(
                     method.RelativeVirtualAddress);
-            Assert.False(body.LocalSignature.IsNil);
 
             int sectionIndex =
                 peReader.PEHeaders.GetContainingSectionIndex(
@@ -1370,11 +1369,20 @@ public partial class CommandExecutionTests
                 + method.RelativeVirtualAddress
                 - section.VirtualAddress;
             Assert.Equal(3, image[headerOffset] & 3);
+            // The call's operand names a MemberRef row past the table: the
+            // census rule must resolve every callee to decide the body, so
+            // presence cannot.
+            int codeOffset =
+                headerOffset + ((image[headerOffset + 1] >> 4) * 4);
+            int call = Array.IndexOf(
+                image,
+                (byte)0x28,
+                codeOffset,
+                body.Size);
+            Assert.True(call > 0, "The fixture body must contain a call.");
             BinaryPrimitives.WriteInt32LittleEndian(
-                image.AsSpan(
-                    headerOffset + 8,
-                    sizeof(int)),
-                0x11FFFFFE);
+                image.AsSpan(call + 1, sizeof(int)),
+                0x0AFFFFFE);
             File.WriteAllBytes(
                 assemblyPath,
                 image);

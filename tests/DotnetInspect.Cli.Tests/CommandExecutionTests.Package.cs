@@ -1926,7 +1926,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains(
-                "Test.TreeAlias 1.0.0",
+                "Test.TreeAlias@1.0.0",
                 output);
             Assert.Contains("No compile Libraries", output);
             Assert.Empty(error);
@@ -1956,7 +1956,7 @@ public partial class CommandExecutionTests
                 packagePath);
 
             Assert.Equal(0, exit);
-            Assert.Contains("Test.LibraryFiles 1.0.0", output);
+            Assert.Contains("Test.LibraryFiles@1.0.0", output);
             Assert.Contains(
                 "Latest.One.dll",
                 output);
@@ -2409,7 +2409,7 @@ public partial class CommandExecutionTests
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(
-                "Test.LibraryFiles 1.0.0 (File; net10.0; lib)",
+                "Test.LibraryFiles@1.0.0 (File; net10.0; lib)",
                 lines[0]);
             Assert.DoesNotContain("buildTransitive", result.Output);
         }
@@ -2439,7 +2439,7 @@ public partial class CommandExecutionTests
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(
-                "Test.EmptyCompile 1.0.0 (File; net10.0)",
+                "Test.EmptyCompile@1.0.0 (File; net10.0)",
                 lines[0]);
         }
         finally

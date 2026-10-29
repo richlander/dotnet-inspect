@@ -70,6 +70,9 @@ public sealed class MethodDefinitionExecution
         _description = description;
         _instructionPlan = instructionPlan;
         _breadth = breadth;
+        HasUnboundedTerminalWork =
+            terminalWorkLimits
+                == MethodDefinitionTerminalWorkLimits.Unbounded;
         _sourceCoverage =
             new MethodDefinitionSourceCoverageBuilder(
                 tracksSourceCoverage,
@@ -81,6 +84,8 @@ public sealed class MethodDefinitionExecution
     }
 
     public WorkReceipt Receipt { get; private set; } = new(0, []);
+
+    internal bool HasUnboundedTerminalWork { get; }
 
     internal MethodDefinitionSourceCoverage SourceCoverage { get; private set; } =
         new(
@@ -211,6 +216,7 @@ public sealed class MethodDefinitionExecution
         bool memorySafetyDeclared = false;
         bool callTargetsDeclared = false;
         bool methodCallsDeclared = false;
+        bool calleeIdentitiesShared = false;
         bool semanticIdentityDeclared = false;
         bool methodAnalysisDeclared = false;
         foreach (ProducerState state in execution._states)
@@ -221,7 +227,9 @@ public sealed class MethodDefinitionExecution
             callTargetsDeclared |= state.HasCallTargetLayer;
             methodCallsDeclared |=
                 state.HasCallsLayer
+                || state.HasCallOperandsLayer
                 || state.HasLocalSignatureLayer;
+            calleeIdentitiesShared |= state.SharesCalleeIdentities;
             semanticIdentityDeclared |= state.HasSemanticIdentityLayer;
             methodAnalysisDeclared |= state.HasMethodAnalysisLayer;
         }
@@ -235,7 +243,7 @@ public sealed class MethodDefinitionExecution
                 : null;
         execution._methodCalls =
             methodCallsDeclared
-                ? new MethodCallMetadataSupport(reader)
+                ? new MethodCallMetadataSupport(reader, calleeIdentitiesShared)
                 : null;
         execution._semanticIdentity =
             semanticIdentityDeclared
@@ -609,8 +617,12 @@ public sealed class MethodDefinitionExecution
             lanes.Any(static lane => lane._states.Any(
                 static state =>
                     state.HasCallsLayer
+                    || state.HasCallOperandsLayer
                     || state.HasLocalSignatureLayer))
-                ? new MethodCallMetadataSupport(reader)
+                ? new MethodCallMetadataSupport(
+                    reader,
+                    lanes.Any(static lane => lane._states.Any(
+                        static state => state.SharesCalleeIdentities)))
                 : null;
         MethodSemanticIdentitySupport? semanticIdentity =
             lanes.Any(static lane => lane._states.Any(
@@ -655,6 +667,7 @@ public sealed class MethodDefinitionExecution
                 if (lane._states.Any(
                         static state =>
                             state.HasCallsLayer
+                            || state.HasCallOperandsLayer
                             || state.HasLocalSignatureLayer))
                 {
                     lane._methodCalls = methodCalls;
@@ -2395,6 +2408,13 @@ public sealed class MethodDefinitionExecution
                     state.CallsUses));
             }
 
+            if (state.HasCallOperandsLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.CallOperands),
+                    state.CallOperandUses));
+            }
+
             if (state.HasLocalSignatureLayer)
             {
                 layers.Add(new ProducerLayerParticipation(
@@ -2609,8 +2629,14 @@ public sealed class MethodDefinitionExecution
         public bool HasCallsLayer { get; } =
             (layers & MethodDefinitionLayers.Calls) != 0;
 
+        public bool HasCallOperandsLayer { get; } =
+            (layers & MethodDefinitionLayers.CallOperands) != 0;
+
         public bool HasLocalSignatureLayer { get; } =
             (layers & MethodDefinitionLayers.LocalSignature) != 0;
+
+        public bool SharesCalleeIdentities =>
+            ((IMethodDefinitionProducer)producer).SharesCalleeIdentities;
 
         public bool HasMethodAnalysisLayer { get; } =
             (layers & MethodDefinitionLayers.MethodAnalysis) != 0;
@@ -2675,6 +2701,11 @@ public sealed class MethodDefinitionExecution
         public int CallsUses;
 
         public int LastCallsUnit;
+
+        /// <summary>Units whose resolved call operands were read.</summary>
+        public int CallOperandUses;
+
+        public int LastCallOperandsUnit;
 
         /// <summary>Units whose local-signature support was read.</summary>
         public int LocalSignatureUses;

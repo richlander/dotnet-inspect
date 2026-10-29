@@ -66,7 +66,7 @@ public sealed partial class CompleteRestorationExecutionTests
                 activated.Workspace.Snapshot.Navigation.State.CurrentSnapshot;
             Assert.Equal(requested, installed.ActiveSubject);
             Assert.Equal(retained, installed.RetainedContext);
-            Assert.Equal(facet ?? "type.api",
+            Assert.Equal(facet ?? "type.overview",
                 installed.LensOutcome.EffectiveLens!.Facet.Value);
             if (facet is null)
                 Assert.IsType<NavigationLensEvaluationBasis.Recommendation>(

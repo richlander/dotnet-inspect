@@ -65,6 +65,7 @@ export interface RenderNavigationDescriptorBarOptions {
 }
 
 export interface ScopeBarBindingActions {
+  onProductNavigationAction?: (token: string) => void;
   onLibraryLensSelect: (lens: LibraryLens) => void;
   onMemberSectionSelect: (section: MemberSection) => void;
   onPackageLensSelect: (lens: PackageLens) => void;
@@ -433,6 +434,17 @@ function bindItemActions(
   actions: ScopeBarBindingActions,
   controller: ScopeBarController | null,
 ): void {
+  const activateProductAction = actions.onProductNavigationAction;
+  if (activateProductAction !== undefined) {
+    root.querySelectorAll<HTMLButtonElement>("[data-product-navigation-action]")
+      .forEach(button => button.onclick = () => {
+        if (navigationItemIsDisabled(button)) return;
+        controller?.prepareItemActivation(button);
+        if (button.dataset.navigationCurrent === "true") return;
+        const token = button.dataset.productNavigationAction;
+        if (token !== undefined) activateProductAction(token);
+      });
+  }
   root.querySelectorAll<HTMLButtonElement>("[data-scope]").forEach(button =>
     button.onclick = () => {
       if (navigationItemIsDisabled(button)) return;

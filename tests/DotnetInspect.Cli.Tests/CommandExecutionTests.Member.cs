@@ -2605,8 +2605,11 @@ public partial class CommandExecutionTests
         Assert.Contains("| Canonical Signature | column |", output);
     }
 
-    [Fact]
-    public void MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown(
+        bool useDescriptor)
     {
         var fixtureDir = Path.Combine(
             Path.GetTempPath(),
@@ -2671,7 +2674,13 @@ public partial class CommandExecutionTests
                 publicOnly: true,
                 referenceAssembly,
                 selectedToken,
-                log: null);
+                log: null,
+                useDescriptor
+                    ? ResolvedAssemblyReference.CreateFromPath(
+                        runtimeAssembly,
+                        AssemblyResolutionProvenance.Local(
+                            "member body-state test"))
+                    : null);
 
             Assert.Null(bodyState);
         }

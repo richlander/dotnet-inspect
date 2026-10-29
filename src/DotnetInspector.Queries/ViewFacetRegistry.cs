@@ -115,6 +115,7 @@ public enum ViewFacetRole
     PackageOverview,
     LibraryReferences,
     LibraryTypes,
+    TypeOverview,
     TypeApi,
     MemberOverview,
     ProjectOverview,

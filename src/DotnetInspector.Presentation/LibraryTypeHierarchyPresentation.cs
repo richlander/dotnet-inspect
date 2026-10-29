@@ -1,5 +1,6 @@
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Presentation;
@@ -71,7 +72,9 @@ public static class LibraryTypeHierarchyPresentation
     public static void Write(
         LibraryDocument document,
         LibraryTypeHierarchyPresentationPlan plan,
-        TextWriter output)
+        TextWriter output,
+        InertString libraryName,
+        IReadOnlyList<ResultProperty>? properties = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(plan);
@@ -81,10 +84,12 @@ public static class LibraryTypeHierarchyPresentation
             plan.Hierarchy,
             plan.Types);
 
-        string root =
-            FormatLibrary(
-                document.Assembly,
-                plan.Hierarchy.RootSpelling);
+        string root = plan.Hierarchy.RootSpelling
+            is InspectionHierarchyNodeSpelling.FullSpelling
+                ? ResultTitle.Compose(
+                    libraryName.ToString(),
+                    properties ?? [])
+                : libraryName.ToString();
         // An empty population renders as such rather than as a bare root.
         if (document.Types!.Rows
             is LibraryTypePopulationRowsOutcome.Read { Items.IsEmpty: true })
@@ -205,11 +210,4 @@ public static class LibraryTypeHierarchyPresentation
                 "A Library hierarchy Type definition has an unsupported Member Count outcome."),
         };
     }
-
-    private static string FormatLibrary(
-        LibraryAssemblyIdentity assembly,
-        InspectionHierarchyNodeSpelling spelling) =>
-        spelling is InspectionHierarchyNodeSpelling.FullSpelling
-            ? $"{assembly.Name} {assembly.Version}"
-            : assembly.Name.ToString();
 }

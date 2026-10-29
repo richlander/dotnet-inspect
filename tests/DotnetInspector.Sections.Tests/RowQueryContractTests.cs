@@ -369,6 +369,107 @@ public sealed class RowQueryContractTests
     }
 
     [Fact]
+    public void ExistsFromCardinalityAdmitsRankingAndReadsNoRow()
+    {
+        VocabularyFixture fixture = Vocabulary();
+        ResolvedRowQueryPlan<QueryRow> tail =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Tail(2)
+                        ])));
+        Assert.True(
+            RowQueryExecutor.TryApplyExists(
+                5,
+                tail,
+                out RowSelectionExistsResult populated));
+        Assert.True(populated.IsSuccess);
+        Assert.True(populated.Exists);
+        Assert.True(
+            RowQueryExecutor.TryApplyExists(
+                0,
+                tail,
+                out RowSelectionExistsResult empty));
+        Assert.True(empty.IsSuccess);
+        Assert.False(empty.Exists);
+
+        // Order never changes whether a row exists, so a ranking stage that
+        // Count must decline is read from cardinality here.
+        ResolvedRowQueryPlan<QueryRow> top =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        baseline:
+                            RowQueryOrderIntent.Named(
+                                "score-order",
+                                RowQueryOrderDirection.Ascending),
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Top(
+                                2,
+                                RowQueryOrderIntent.Named(
+                                    "score-order",
+                                    RowQueryOrderDirection.Ascending))
+                        ])));
+        Assert.False(RowQueryExecutor.CanApplyCount(top));
+        Assert.True(RowQueryExecutor.CanApplyExists(top));
+        Assert.True(
+            RowQueryExecutor.TryApplyExists(
+                1,
+                top,
+                out RowSelectionExistsResult ranked));
+        Assert.True(ranked.IsSuccess);
+        Assert.True(ranked.Exists);
+
+        // A strict window beyond the source fails the way Count fails; it
+        // is never read as "no row".
+        ResolvedRowQueryPlan<QueryRow> window =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        selection:
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Window(7, 9)
+                        ])));
+        Assert.True(
+            RowQueryExecutor.TryApplyExists(
+                5,
+                window,
+                out RowSelectionExistsResult beyond));
+        Assert.False(beyond.IsSuccess);
+        Assert.NotNull(beyond.Failure);
+        Assert.Equal(9, beyond.Failure!.RequiredPosition);
+
+        // A residual predicate needs the rows; cardinality cannot answer.
+        ResolvedRowQueryPlan<QueryRow> predicate =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    fixture.Vocabulary,
+                    Intent(
+                        predicates:
+                        [
+                            Predicate(
+                                "score",
+                                RowQueryOperator.GreaterOrEqual,
+                                "2")
+                        ])));
+        Assert.False(RowQueryExecutor.CanApplyExists(predicate));
+        Assert.False(
+            RowQueryExecutor.TryApplyExists(
+                5,
+                predicate,
+                out _));
+    }
+
+    [Fact]
     public void EffectiveBaselineOrderFollowsPrecedence()
     {
         QueryRow[] rows =

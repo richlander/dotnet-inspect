@@ -58,4 +58,16 @@ public static class FindingTargetFormatter
             : $" {occurrence.Detail}";
         return $"{subjectDisplay} :: {occurrence.Kind}{detail}";
     }
+
+    public static string Format(
+        string subjectDisplay,
+        Finding<UnsafeMemberFinding> finding)
+    {
+        MethodIdentity member = finding.Payload.Member;
+        string parameters = string.Join(
+            ", ",
+            member.ParameterTypes.Select(static type => type.ToQualifiedDisplayString()));
+        return $"{subjectDisplay} :: "
+            + $"{member.DeclaringType.ToQualifiedDisplayString()}.{member.Name}({parameters})";
+    }
 }

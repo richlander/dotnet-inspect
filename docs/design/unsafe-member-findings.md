@@ -217,6 +217,15 @@ Unlike the Resource Lifecycle projection, a scoped receipt or a census with no
 findings and some limitations is Incomplete rather than Failed: both carry
 sound positive information, and neither is ever presented as complete.
 
+A body's inspection covers the inputs the rule reads for it, and no others.
+The rule decodes a body, resolves every call operand, and reads the contracts
+of explicit-contract candidates. It decodes the local signature and runs the
+stack model only when the body has an occurrence opcode or an
+explicit-contract call, because only then can a role depend on them. A
+malformed local signature in a body without either is therefore not a
+limitation. The legacy unsafe-evidence probe treated it as one. A body that
+the [role scan](#role-scan) decides covers only what the scan reads.
+
 An incomplete census or a partial finding is never offered to Finding
 comparison as complete. The comparison consumer decides how to present it, and
 must not report a member as added or removed, or its evidence as changed,
@@ -236,12 +245,15 @@ module-wide input arrives through the capabilities below. The census rules it
 shares with the accumulator's legacy member-use rows live in
 `UnsafeMemberUseRules` beside the fold.
 The stateless metadata classifiers it shares, namely body availability, the
-extension-declaration shape, the nested compiler-generated-type check, and
-the recoverable-failure gate, still carry Library Body Analysis type names
-and move under
-[#9959](https://github.com/richlander/dotnet-inspect/issues/9959), as the
+extension-declaration shape, and the nested compiler-generated-type check,
+live in `MethodDefinitionShapes`, and the recoverable-failure gate is
+`AnalysisMethodFailures`. The nested-type check still reads the
+compiler-generated attribute through the Library Body Analysis resolver's
+helper, which the declared-source resolvers share and which moves with them
+under [#9864](https://github.com/richlander/dotnet-inspect/issues/9864), as
+the
 [declared-source relation](method-query-source.md#declared-source-relation)
-records for its own classifiers. The Library Body Analysis accumulator no
+records. The Library Body Analysis accumulator no
 longer builds a census; it was deleted when Library scope moved, not kept
 beside the producer.
 
@@ -336,8 +348,9 @@ exact-type relation, so Type scope moved first:
 - A reached Type-scope expansion bound keeps the visited prefix's findings
   and adds the image-level `AttributionBounded` limitation, so the census is
   available but incomplete.
-- No host consumes the census yet. The CLI section adopts both scopes
-  together, so a member gets one row shape at every scope.
+- The CLI `Unsafe Members` section consumes both scopes together, so a
+  member gets one row shape at every scope; the
+  [Unsafe Members section](unsafe-members-section.md) owns that host.
 
 The landed gates in `UnsafeMemberFindingsTests` cover the following:
 
@@ -373,6 +386,68 @@ The gates for each scope:
   declared execution-scoped capabilities with their own receipts and are
   exempt from that bound.
 
+## Role scan
+
+The census rule has one cheap tier. Before a present body takes the full
+rule, the role scan decides whether the full rule would find only the
+member's own contract in it. When it can prove that, the body's evidence is
+that contract alone, and the body is not materialized. Every other body takes
+the full rule. The scan is part of the census rule, not a second rule: the
+census visit and the presence probe share it, and it never adds or removes a
+role.
+
+The scan decides a body only when all of these hold:
+
+- The body's IL decodes: every opcode is valid, every operand fits, switch
+  tables fit, and the body does not end on a prefix. The scan walks the same
+  unit body evidence as the full rule with the struct visitor of
+  `InstructionDecoder.Visit`; see
+  [Instruction substrate](instruction-substrate.md#layer-0--layer-1).
+- No instruction is an occurrence opcode: `calli`, `localloc`, or an
+  indirect load or store.
+- No call, `callvirt`, or `newobj` operand can be an explicit-contract call.
+  A `ldftn` or `ldvirtftn` operand never is.
+
+A call operand can be an explicit-contract call in two cases:
+
+- The platform projection contains its callee, which the scan resolves
+  through the declared Calls support.
+- It may reach a current-module target with an explicit contract. An image
+  with no TypeDef or TypeRef named `RequiresUnsafeAttribute` has none. Otherwise
+  an operand whose method is a MethodDef of this module binds by token, so
+  the scan reads that MethodDef's contract. Any other operand that may reach
+  the current module resolves its target through call-target support. A
+  current-module target's contract is read directly. A target that this
+  caller's scope leaves unresolved, but that may resolve into the image for
+  another caller, keeps the body on the full rule.
+
+Call-operand facts are keyed by the operand token and the caller's type and
+method generic arities, which are all the inputs that the answer depends on,
+so one fact serves every caller with the same key. The facts belong to the
+execution: memory-safety contract support constructs them at first use. An
+operand the scan cannot read keeps the body on the full rule.
+
+The scan reads only what its answer depends on. It does not validate branch
+targets, exception regions, or call targets that cannot change the answer,
+and it does not repeat the full rule's callee validation for loaded function
+pointers. A body that is malformed only in those inputs is decided as the
+full rule would decide the well-formed body, where the full rule would report
+the body incomplete. That is a non-claim, not a guarantee: no published
+assembly is known to differ. The unguarded scan agreed with the full rule on
+every body of the 313 Microsoft.NETCore.App and Microsoft.AspNetCore.App 11.0
+rc.1 assemblies and of 230 assemblies from other producers, about 1.7 million
+bodies, as
+[Input provenance budget](../evidence-and-validation.md#input-provenance-budget)
+requires before a guard is built. [#10570](https://github.com/richlander/dotnet-inspect/issues/10570) tracks adding a guard
+when an occurrence appears.
+
+`UnsafeMemberRoleScanTests` gates agreement over the unsafe fixtures,
+System.Private.CoreLib, System.Text.Json, and System.Linq.Expressions. Every
+body the scan decides also runs the full rule, which must complete with the
+same evidence. `analysis-harness --unsafe-role-scan-agreement <corpus list>`
+runs the same check over any corpus. Over the shared frameworks above, it
+decides 176,431 of 188,240 bodies with no disagreement.
+
 ## Non-claims
 
 - **Guidance concerns.** A finding is an inventory fact, not a verdict against
@@ -383,7 +458,8 @@ The gates for each scope:
   expression form that compiled metadata does not preserve.
 - **Severity or ranking.** Findings are ungraded.
 - **Hosts.** This document defines no CLI section, Browser contract, or
-  rendering.
+  rendering. The [Unsafe Members section](unsafe-members-section.md) owns
+  the CLI host.
 - **Existing body-level families.** The IL-ordered `analysis.unsafety`
   operations and the legacy unsafe-evidence rows keep their own units and
   admission rules. This family does not change them; step 3 decides how they
@@ -395,10 +471,14 @@ This slice is step 2 of 5 for #5254's Unsafe view:
 
 1. Inventory: the merged updated-semantics unsafe-member inventory.
 2. This producer and its focused Analysis gates.
-3. CLI Library Analysis section over this census, with selection aliases and
-   `diff --analysis` participation through the shared descriptor-keyed
-   comparison, replacing the legacy `Unsafe Members` evidence rows after
-   parity. Under an incomplete census the section is expected to render the
+3. CLI Library Analysis section over this census, with `diff --analysis`
+   participation through the shared descriptor-keyed comparison, replacing
+   the legacy `Unsafe Members` evidence rows after parity. The
+   [Unsafe Members section](unsafe-members-section.md) owns this step. Both
+   the section, at Library and Type scope, and
+   [`diff --analysis unsafe-member`](unsafe-members-section.md#diff) are
+   implemented. Selection has no aliases, as the
+   [selection grammar](command-transition-model.md#selection-grammar) owns. Under an incomplete census the section is expected to render the
    observed findings, report a `--count` equal to those rows, disclose the
    limitations on stderr, and exit nonzero, under the Count-terminal owner's
    [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation),

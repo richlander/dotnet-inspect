@@ -16,7 +16,8 @@ This owner defines:
 
 - Home's page-level hierarchy, wide and narrow composition, and relationship to
   the data bar;
-- which working surfaces exist (Type API, Member API, Type Metadata, Compare,
+- which working surfaces exist (Type Overview, Type Members, Member API,
+  Type Metadata, Compare,
   Source, Member Diff, Package query, Package activity, Diagnostics) and their
   page-level placement relative to Type/Member
   navigation;
@@ -332,12 +333,12 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
-Library Metadata, Compare, Source, Member Diff, and Diagnostics are working
-surfaces rather than documents inset inside a general page. Annotated Source is
-a transient full-bleed viewer reached from Source or exact Finding actions, not
-a persistent Member inspector. The Metadata Explorer retains its separately
-owned full-bleed composition.
+Type Overview, Type Members, Member API, Type Metadata, Package Overview,
+Package Dependencies, Library Metadata, Compare, Source, Member Diff, and
+Diagnostics are working surfaces rather than documents inset inside a general
+page. Annotated Source is a transient full-bleed viewer reached from Source or
+exact Finding actions, not a persistent Member inspector. The Metadata
+Explorer retains its separately owned full-bleed composition.
 
 When present, the top content row has the shared 40-pixel heading height on
 both sides of the master-detail divide. It contains one line: long text elides
@@ -356,14 +357,20 @@ The package-query surface's internal query behavior remains owned by
 failures, and completion remain owned by `package-query-cli.md`. Its former
 package-tab placement stays superseded.
 
-### Type and Member API
+### Type Overview, Type Members, and Member API
 
-Type API and Member API use the full area to the right of Type or Member
-navigation. They do not retain a centered document column, a large subject
-hero, or repeated package, library, namespace, and target-framework context.
-The persistent subject path remains the owner of that hierarchy.
+Type Overview uses the full area to the right of Type navigation. Its internal
+vertical grammar, fact grouping, structural rows, and failure presentation are
+owned by
+[Inspect Web Subject Overview](inspect-web-subject-overview.md#owner-and-claim).
+The subject path remains the owner of the enclosing package, library, and Type
+hierarchy.
 
-The Type API surface contains:
+Type Members and Member API use the full area to the right of Type or Member
+navigation. They do not retain a centered document column or large subject
+hero.
+
+The Type Members surface contains:
 
 ```text
 Members                                  visible / total members

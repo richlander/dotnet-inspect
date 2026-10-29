@@ -1,8 +1,8 @@
 #:project ../src/ILInspector.Analysis/ILInspector.Analysis.csproj
 
-// Regenerates the committed platform caller-unsafe projection
-// (docs/design/platform-caller-unsafe-contracts.md) from one exact
-// Microsoft.NETCore.App.Ref pack directory, for example
+// Regenerates the committed platform caller-unsafe projection and the embedded
+// tables generated from it (docs/design/platform-caller-unsafe-contracts.md)
+// from one exact Microsoft.NETCore.App.Ref pack directory, for example
 // .dotnet/packs/Microsoft.NETCore.App.Ref/11.0.0-rc.1.26425.128.
 
 using System.Text;
@@ -12,7 +12,7 @@ if (args.Length is < 1 or > 2)
 {
     Console.Error.WriteLine(
         "Usage: dotnet run eng/generate-platform-caller-unsafe-contracts.cs -- "
-        + "<Microsoft.NETCore.App.Ref/<version> directory> [output]");
+        + "<Microsoft.NETCore.App.Ref/<version> directory> [output directory]");
     return 2;
 }
 
@@ -36,11 +36,14 @@ string text = PlatformCallerUnsafeProjectionBuilder.Build(
         .Order(StringComparer.Ordinal)
         .Select(path => (Path.GetFileName(path), File.ReadAllBytes(path))));
 
-string outputPath = args.Length == 2
+string outputDirectory = args.Length == 2
     ? Path.GetFullPath(args[1])
-    : Path.Combine(FindRepositoryRoot(Directory.GetCurrentDirectory()), "src", "ILInspector.Analysis", "PlatformCallerUnsafeContracts.txt");
-File.WriteAllText(outputPath, text, new UTF8Encoding(false));
-Console.WriteLine($"Wrote {PlatformCallerUnsafeContracts.Parse(text).Count} entries from {packId} {packVersion} to {outputPath}.");
+    : Path.Combine(FindRepositoryRoot(Directory.GetCurrentDirectory()), "src", "ILInspector.Analysis");
+string projectionPath = Path.Combine(outputDirectory, "PlatformCallerUnsafeContracts.txt");
+string tablesPath = Path.Combine(outputDirectory, "PlatformCallerUnsafeContracts.Tables.cs");
+File.WriteAllText(projectionPath, text, new UTF8Encoding(false));
+File.WriteAllText(tablesPath, PlatformCallerUnsafeProjectionBuilder.BuildTables(text), new UTF8Encoding(false));
+Console.WriteLine($"Wrote {PlatformCallerUnsafeContracts.Parse(text).Count} entries from {packId} {packVersion} to {projectionPath} and {tablesPath}.");
 return 0;
 
 static string FindRepositoryRoot(string start)

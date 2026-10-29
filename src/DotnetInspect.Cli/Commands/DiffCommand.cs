@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -222,6 +223,9 @@ public partial class DiffCommand
                 && !options.Tabular && !options.Tsv && !options.Jsonl)
                 options = options with { Tabular = true, Tsv = true };
         }
+        if (analysisPlan is null && hasLibrary && UsesSharedLibraryApiDiff(1, 1, options)
+            && !ValidateLibraryApiChangesFormat(options))
+            return 1;
 
         string? transportOption = options.EnvelopeOutput ? "--envelope"
             : options.CompactJson ? "--compact" : null;
@@ -446,46 +450,8 @@ public partial class DiffCommand
                 }
                 if (UsesSharedLibraryApiDiff(inputs, options))
                 {
-                    if (options.IsContentJson && options.HasRenderedLineWindow)
-                    {
-                        CommandError.Write(
-                            "Unprojected Library API diff --json cannot be combined with rendered-line clipping.");
-                        return 1;
-                    }
-                    // The output keeps only Types the filter admits, so the
-                    // comparison extracts only those Types on each side.
-                    ApiTypeSelection? typeSelection = options.TypeFilter.Count > 0
-                        ? new ApiTypeSelection(name =>
-                            MatchesAnyDiffTypeFilter(name, options.TypeFilter))
-                        : null;
-                    var comparison =
-                        inputs.From.PackageScope is { } beforeScope
-                        && inputs.To.PackageScope is { } afterScope
-                            ? await LibraryApiDiffRunner.ExecuteAsync(
-                                beforeScope,
-                                afterScope,
-                                options.IncludeAll,
-                                typeSelection,
-                                cancellationToken)
-                            : await LibraryApiDiffRunner.ExecuteAsync(
-                                inputs.From.AssemblySet.Assemblies[0],
-                                inputs.To.AssemblySet.Assemblies[0],
-                                options.IncludeAll,
-                                typeSelection);
-                    int written = LibraryApiDiffOutput.Write(
-                        comparison,
-                        inputs.Name,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
-                        options,
-                        hasPackage ? inputs.From.Framework : null,
-                        hasPackage ? inputs.To.Framework : null);
-                    return PublishAcquisitionEvidence(
-                        inputs,
-                        options,
-                        comparison,
-                        LibraryApiDiffOutput.JsonContract,
-                        written);
+                    return await ExecuteLibraryApiChangesAsync(
+                        inputs, options, hasPackage, cancellationToken);
                 }
                 if (options.EvidenceEnvelopePath is not null)
                 {
@@ -977,6 +943,88 @@ public partial class DiffCommand
 #else
         return exitCode;
 #endif
+    }
+
+    static async Task<int> ExecuteLibraryApiChangesAsync(
+        DiffInputs inputs, DiffOptions options, bool hasPackage, CancellationToken cancellationToken)
+    {
+        if (!ValidateLibraryApiChangesFormat(options))
+            return 1;
+        if (!options.FormatExplicitlySet && !options.JsonOutput && !options.EnvelopeOutput
+            && !options.Tabular && !options.Tsv && !options.Jsonl)
+            options = options with { Tabular = true, Tsv = true };
+
+        ApiTypeSelection? typeSelection = options.TypeFilter.Count > 0
+            ? new(name => MatchesAnyDiffTypeFilter(name, options.TypeFilter)) : null;
+        var selection = new LibraryApiChangesSelection(
+            typeSelection,
+            [
+                .. options.Breaking ? new[] { ChangeClassification.Breaking } : [],
+                .. options.Additive ? new[] { ChangeClassification.Additive } : [],
+            ],
+            RowWindow.ToMarkout(options.Rows));
+        bool detailed = !options.NameOnly && options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
+        if ((options.Tabular || options.Tsv || options.Jsonl || options.NameOnly)
+            && !options.JsonOutput && !options.EnvelopeOutput)
+        {
+            if (detailed)
+                return await Complete(
+                    outcome => LibraryApiChangesInspection.ChangesTable(outcome, selection),
+                    LibraryApiDiffOutput.ChangesTableContract,
+                    table => LibraryApiDiffOutput.WriteChangesRows(table, options));
+            return await Complete(
+                outcome => LibraryApiChangesInspection.TypeTable(outcome, selection),
+                LibraryApiDiffOutput.TypeTableContract,
+                table => LibraryApiDiffOutput.WriteTypeRows(table, options));
+        }
+        if (detailed)
+            return await Complete(
+                outcome => LibraryApiChangesInspection.ChangesDocument(outcome, selection),
+                LibraryApiDiffOutput.ChangesDocumentContract,
+                document => LibraryApiDiffOutput.WriteChangesDocument(
+                    document, inputs.Name, inputs.FromVersion, inputs.ToVersion, options,
+                    hasPackage ? inputs.From.Framework : null, hasPackage ? inputs.To.Framework : null));
+        return await Complete(
+            outcome => LibraryApiChangesInspection.TypeDocument(outcome, selection),
+            LibraryApiDiffOutput.TypeDocumentContract,
+            document => LibraryApiDiffOutput.WriteTypeDocument(
+                document, inputs.Name, inputs.FromVersion, inputs.ToVersion, options,
+                hasPackage ? inputs.From.Framework : null, hasPackage ? inputs.To.Framework : null));
+
+        async Task<int> Complete<T>(
+            Func<LibraryApiDiffOutcome, InspectionEnvelope<LibraryApiChangesOutcome<T>>> project,
+            InspectionEnvelopeJsonContract<LibraryApiChangesOutcome<T>> contract,
+            Action<T> render)
+        {
+            var request = LibraryApiChangesDiffAdapter.CreateRequest(
+                inputs.Name, inputs.FromVersion, inputs.ToVersion, options.IncludeAll, typeSelection);
+            LibraryApiDiffOutcome outcome = inputs.From.PackageScope is { } beforeScope
+                && inputs.To.PackageScope is { } afterScope
+                    ? await LibraryApiChangesDiffAdapter.ExecuteAsync(
+                        request, beforeScope, afterScope, cancellationToken)
+                    : await LibraryApiChangesDiffAdapter.ExecuteAsync(
+                        request, inputs.From.AssemblySet.Assemblies[0], inputs.To.AssemblySet.Assemblies[0]);
+            var envelope = project(outcome);
+            int written = LibraryApiDiffOutput.Write(envelope, contract, inputs.Name, options, render);
+            return PublishAcquisitionEvidence(inputs, options, envelope, contract, written);
+        }
+    }
+
+    static bool ValidateLibraryApiChangesFormat(DiffOptions options)
+    {
+        if (options.Tree)
+        {
+            CommandError.Write("Library API Changes does not offer a Hierarchy representation.");
+            return false;
+        }
+        if (options.JsonOutput && (options.HasRenderedLineWindow
+                || options.Columns is not null || options.Fields is not null))
+        {
+            CommandError.Write(
+                "Structured Library API Changes --json does not support rendered-line clipping or column/field projections.");
+            return false;
+        }
+        return true;
     }
 
     static bool UsesSharedLibraryApiDiff(DiffInputs inputs, DiffOptions options)

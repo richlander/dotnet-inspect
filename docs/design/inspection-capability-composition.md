@@ -21,7 +21,10 @@ partly implemented:
   through its CLI binding.
 - Diff's analyses are resources of the Compare route, composed and explained
   in the same graph. The CLI binding exposes them, and search admits them.
-- Structural sections are still outside the graph.
+- Structural catalogs register their shared Discovery declarations and paths
+  as host-executed resources. CLI view bindings select them, and search admits
+  only resources with a selecting binding. The separate structural search
+  population and host-supplied search entry types are retired.
 
 The [adoption sequence](#adoption-sequence) counts the steps that close each
 gap.
@@ -477,6 +480,44 @@ The owning route of an available resource is the route it belongs to. For a
 host-executed structural resource, it is its structural catalog's root. For
 an analysis, it is the routes of the operations whose bindings select it.
 
+### Browser binding admission
+
+[#10786](https://github.com/richlander/dotnet-inspect/issues/10786) completes
+current Browser admission through one Web Core capability composition. Its
+source witness is this repository at
+[`4a965c485`](https://github.com/richlander/dotnet-inspect/tree/4a965c4854c27fa2571ff793eb68e6cdab96fa47):
+`src/DotnetInspect.Web.Interop.Package/CapabilityCatalogSearchExports.cs`
+composes only Package Query, while
+`src/DotnetInspect.Web.Interop.Metadata/LibraryApiDiffExports.cs` executes
+registered Compare analyses without declaring its Browser binding.
+
+Web Core composes opaque contribution providers selected by the host's
+existing configuration path. Metadata owns the Compare binding and its
+producer availability; Core's existing dependency ceiling excludes Research
+Sections. The host installs one immutable provider list before readiness,
+without evaluating the providers. Search evaluates that list explicitly;
+ordinary requests retain their bounded catalogs. The configured contribution
+list is immutable, so its composed catalog and explanation snapshots are
+materialized lazily once per host configuration and reused by subsequent
+searches. Reconfiguration replaces that metadata snapshot. The snapshot owns
+only resource-free declarations, never inspection content or borrowed state. This is host configuration,
+not mutable per-resource registration or cross-facade dependency. Search projects the shared Analysis identities,
+paths, and bindings; Spotlight selects the existing Compare surface. This
+uses Compare's existing initial literal predicate for string-literal analysis,
+preserving the selected predicate when one already exists. This adds no
+inspector layout or analysis support. Body-signal and retained
+Research producers remain explicitly unavailable, and structural resources
+remain excluded until Browser installs actual structural view bindings.
+
+The durable gates cover real export wire results, producer-selection and
+unbound-resource exclusions, no acquisition during discovery, existing
+Compare behavior, generated facade compatibility, and published Wasm behavior.
+Exact NativeAOT base/head measurements check the existing Package Query
+population and the newly admitted Compare population separately. The current
+Package Query-only search composition retires in the same production slice;
+the specialized Package Query preparation explanation keeps its own bounded
+catalog and reading profile.
+
 ## Authority and knowledge direction
 
 Definitions are producer-owned. Bindings are consumer-owned. Registration
@@ -643,6 +684,14 @@ The allocation contract has three paths:
 | `-D` or `-Q` | The host reads the cached effective descriptor for the active route. No subject acquisition or producer execution occurs. |
 | `--explain` or adoption census | The host may construct and index the required capability graph. These are explicit cold operations. |
 
+Structural explanation consumes validated registration facts. A selected
+catalog does not construct an otherwise empty aggregate route/analysis graph.
+Path validation remains with Resource Explanation and is shared by registration
+and projection. Complete capability explanation composes snapshots before
+catalog validation, without constructing intermediate explanation catalogs
+only to combine and validate them again. The shared path boundary retains
+canonical shape, uniqueness, and owner-membership failures.
+
 Static registration arrays and cached providers may allocate once when their
 own discovery module is first initialized. Ordinary execution must not
 initialize unrelated discovery modules merely because it invokes a route.
@@ -778,13 +827,33 @@ The Diff operation derives its accepted subject kinds from the registered
 participation surfaces. In product order these are Library, Type, and
 Member; Root and Workspace surfaces have no subject-kind declaration. Each
 declaration also carries an owner-written purpose, representative questions,
-grain, and scope, in `CapabilityRoutingDeclarations`.
+grain, and scope, supplied by its producer module in `DotnetInspector.Sections`
+(Package Query and Package Files) or `DotnetInspector.ResearchSections` (Diff).
 
 Every host that composes a declaration's owner modules projects the same
 declaration. A host that doesn't compose them admits no declaration for them,
 under the [Resource Explanation root composition](resource-explanation.md#root-composition)
-rule. Moving the declarations from `CapabilityRoutingDeclarations` in CLI code
-into a host-neutral module is adoption step 4 below.
+rule. `InspectionCapabilityModule.RoutingDeclarations` carries each owner
+contribution; the composed catalog collects only the selected modules, in
+registration order, preserving each role collection's owner-issued order.
+The graph's public module inventory retains its identity ordering.
+Schema Query and Product Vocabulary supply separate metadata modules. The CLI
+selects these modules and assigns the root path; it authors no routing hints.
+
+The step 4 source witness is this repository at
+[`c9e8df668`](https://github.com/richlander/dotnet-inspect/tree/c9e8df66853813bd0d397694a5af10e3a7e07daf),
+under `src/DotnetInspect.Cli`: `Commands/CapabilityRoutingDeclarations.cs`,
+`Planning/StructuralRoutingDeclarations.cs`, and
+`Commands/VocabularyRoutingDeclarations.cs`. At that commit, these owner-issued
+declarations required a CLI assembly and a second host-maintained operation list.
+[#10771](https://github.com/richlander/dotnet-inspect/issues/10771) moves their
+unchanged content into shared modules. Each producer carries its operation;
+Schema Query and Product Vocabulary supply their own metadata modules.
+Module providers materialize cached declarations only when a root requests
+them; constructing a capability graph or searching it must not evaluate them.
+Resource Explanation retains validation and closure. Durable evidence combines
+shared module-selection and cold-materialization gates with the existing CLI
+root reachability test and exact-base/head NativeAOT output comparisons.
 
 Every operation accepts Schema Query subject kinds. A host therefore admits
 these declarations only together with
@@ -1016,11 +1085,26 @@ numbered as in that issue:
      **Complete.**
 3. Register structural catalogs as host-executed resources, with one
    structural view binding per CLI view. Retire Capability Catalog Search's
-   structural population family and its host-assembled entries.
+   structural population family and its host-assembled entries. **Complete.**
+   Tracked by [#10746](https://github.com/richlander/dotnet-inspect/issues/10746).
+   The prerequisite shared declaration construction is tracked by #10743 and
+   implemented in #10745. Generated/composed schema authority stays with
+   [Schema Query](schema-query.md#shared-structural-declaration-construction);
+   graph registration consumes its shared declarations rather than rebuilding
+   their resources or paths. Existing catalog identities retain their installed
+   spelling. Search reads those declarations without constructing structural
+   explanation snapshots. CLI wiring gates preserve all six catalogs and
+   direct-versus-coordinate Library binding scope; shared composition tests
+   enforce path and binding validation and omission of unbound resources.
 4. Move the root's routing declarations from CLI code into a host-neutral
-   module.
-5. Let the Browser admit every resource its bindings select. Sections and
-   analyses join Browser search when Browser binds them.
+   module. **Complete.** Tracked by
+   [#10771](https://github.com/richlander/dotnet-inspect/issues/10771).
+5. Let the Browser admit every resource its bindings select. **Complete for
+   installed Browser bindings**, tracked by
+   [#10786](https://github.com/richlander/dotnet-inspect/issues/10786). Package
+   Query and the executable Compare analyses share the Browser graph. Sections
+   join when Browser installs structural view bindings; no such binding is
+   currently installed.
 
 Each step lands with its production consumer. The CLI's search results stay
 equal to today's except where a step intends a change.

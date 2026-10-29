@@ -13,7 +13,10 @@ public static class PackageManifestContent
     public static string? FindRootManifest(IPackageContent content)
     {
         ArgumentNullException.ThrowIfNull(content);
-        return FindRootManifest(content.EnumerateEntries());
+        return FindRootManifest(
+            content is IRootPackageEntrySource rootEntries
+                ? rootEntries.EnumerateRootEntries()
+                : content.EnumerateEntries());
     }
 
     /// <summary>
@@ -62,4 +65,13 @@ public static class PackageManifestContent
                 "Package content contains more than one root manifest."),
         };
     }
+}
+
+/// <summary>
+/// Supplies already-contained package-root entries without enumerating an
+/// entire materialized package tree.
+/// </summary>
+internal interface IRootPackageEntrySource
+{
+    IEnumerable<string> EnumerateRootEntries();
 }

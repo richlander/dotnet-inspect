@@ -163,8 +163,8 @@ admission. Only an admitted request proceeds. For each endpoint, it then:
 3. projects `ApiSurfaceScope.ApiAxis`, the
    [API axis](api-population-scope.md#the-diffs-api-axis-population), with
    the fixed `BrowserApiSurfacePolicy.Limits`; and
-4. passes both participants to `DiffAnalysisLibraryInspection.Execute`, the
-   shared generic-Diff and Library-presentation terminal.
+4. passes both participants to `DiffOperation.ExecuteLibraryPair`, the
+   [single-Library API Diff terminal](diff-system.md#single-library-api-diff-terminal).
 
 Before is the target version and After is the current version. Each scope is
 released after the shared comparison and wire projection complete.
@@ -172,7 +172,7 @@ released after the shared comparison and wire projection complete.
 The whole-Library comparison and its `LibraryApiDiffOutcome` do not depend on
 the requested surface, Types, or Members. The Worker therefore retains the
 most recent completed pair (`LibraryApiComparisonMemo`) and passes it to
-`DiffAnalysisLibraryInspection.Execute` for a later request over the same
+`DiffOperation.ExecuteLibraryPair` for a later request over the same
 endpoint pair, so Library, Type, and Member Compare complete it once. The key
 is both endpoints' acquired content generation identity, package coordinates,
 and selected compile assets, plus the framework. Reacquired content never
