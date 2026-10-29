@@ -251,7 +251,8 @@ internal static class ApiSourceResolver
                         logger.Log($"Resolved type '{typeName}' to {Path.GetFileName(searchPath)}");
                     }
                 }
-                else if (!string.IsNullOrEmpty(options.Tfm))
+                if (Directory.Exists(searchPath)
+                    && !string.IsNullOrEmpty(options.Tfm))
                 {
                     var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
                     if (tfmAssembly == null)

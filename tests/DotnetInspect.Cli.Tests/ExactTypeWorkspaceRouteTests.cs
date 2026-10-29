@@ -1023,6 +1023,21 @@ public sealed class ExactTypeWorkspaceRouteTests
             TypeCommand.SharedExactTypePackageDemand
                 .DefiningImplementation,
             demand);
+        TypeOptions calledTypes = options with
+        {
+            IncludeSections = [SectionNames.CalledTypes],
+        };
+        Assert.True(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                calledTypes,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(calledTypes),
+                out _,
+                out demand));
+        Assert.Equal(
+            TypeCommand.SharedExactTypePackageDemand
+                .DefiningImplementation,
+            demand);
         Assert.False(
             TypeCommand.TryCreateSharedExactTypeRequest(
                 exceptionRegions with
@@ -1884,6 +1899,47 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Contains(
             $"Type '{typeNamespace}.{typeName}' was not found",
             error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationTypeRouteRendersCalledTypesFromNonNamesakeLibrary()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(CalledTypesFixture).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(CalledTypesFixture).FullName,
+            Select = [SectionNames.CalledTypes],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "type\tassembly\tcalls\tmembers\tcall_kinds",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"{typeof(CalledTypesDependency).FullName}"
+                + "\tDotnetInspect.Cli.Tests\t3\t2\tdirect",
+            output,
             StringComparison.Ordinal);
     }
 
