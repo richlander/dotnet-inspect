@@ -372,7 +372,7 @@ export interface TypePanelBindingActions {
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
   onTypeLeverageRetry: () => void;
-  onTypeCallsOpen: () => void;
+  onTypeAnalysisOpen: () => void;
   onTypeMembersOpen: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
@@ -432,9 +432,9 @@ export function bindTypePanel(
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
-  root.querySelector("[data-type-calls]")?.addEventListener(
+  root.querySelector("[data-type-analysis]")?.addEventListener(
     "click",
-    actions.onTypeCallsOpen);
+    actions.onTypeAnalysisOpen);
   root.querySelector("[data-type-members]")?.addEventListener(
     "click",
     actions.onTypeMembersOpen);
@@ -1020,7 +1020,7 @@ export interface RenderTypeMetadataOptions {
   metadataAvailable?: boolean;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
-  callsSummaryHtml?: string;
+  analysisSummaryHtml?: string;
   escapeHtml: EscapeHtml;
   highlightCSharp: (value: string) => string;
   relatedTypeChip: (
@@ -1035,7 +1035,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     item, packageContext, libraryIdentity, workspaceIdentity,
     metadataAvailable = true, metadataState,
     memberCompositionHtml,
-    callsSummaryHtml = "",
+    analysisSummaryHtml = "",
     escapeHtml, highlightCSharp, relatedTypeChip, factRows,
   } = options;
   const current = typeMetadataSignature(
@@ -1090,7 +1090,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
               <span class="subject-overview-summary-label">Navigate</span>
               <div>
                 <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
-                ${callsSummaryHtml}
+                ${analysisSummaryHtml}
               </div>
             </div>
           </section>

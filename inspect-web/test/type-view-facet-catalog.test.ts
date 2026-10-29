@@ -9,7 +9,7 @@ import {
 const descriptors = [
   { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
   { id: "type.api", kind: "Type", title: "Members", order: 200 },
-  { id: "type.calls", kind: "Type", title: "Calls", order: 250 },
+  { id: "type.analysis", kind: "Type", title: "Analysis", order: 250 },
   { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
   { id: "type.source", kind: "Type", title: "Source", order: 400 },
   { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
@@ -21,7 +21,7 @@ test("Type inspectors hide the legacy Metadata alias", () => {
   assert.deepEqual(typeLensesFor({ source: { kind: "nuget.org" } }), [
     ["overview", "Overview"],
     ["api", "Members"],
-    ["calls", "Calls"],
+    ["analysis", "Analysis"],
     ["source", "Source"],
     ["compare", "Compare"],
   ]);

@@ -10,17 +10,18 @@ It owns:
 - Browser authorization and retained-workspace lifetime;
 - lowering that gesture to the existing host-neutral request;
 - the managed facade and Worker transport boundary; and
-- an aggregated Type-call-graph presentation over the owner-issued document
-projection.
+- a Type Analysis Relationships projection over the owner-issued document; and
+- the graph-selection-details interaction shared with Library Analysis.
 
 Its exact claim is:
 
-> For one retained package-backed exact Type, opening its dedicated **Calls**
-> facet lowers to the existing all-applicable outgoing Rows request with
-> selected compatibility colors, executes the shared focused operation in the
-> retained implementation workspace, and projects the canonical member
-> relations as Type-to-Type edges weighted by distinct member-identity pairs;
-> ordinary Type Overview viewing performs no call-relation work.
+> For one retained package-backed exact Type, opening **Analysis** lowers its
+> initial Relationships view to the existing all-applicable outgoing Rows
+> request with selected compatibility colors, executes the shared focused
+> operation in the retained implementation workspace, and projects canonical
+> member relations as a conventional directed Type graph whose selected edge
+> owns separate member and physical-site facts; ordinary Type Overview viewing
+> performs no call-relation work.
 
 This is slice 7/7 under
 [#10283](https://github.com/richlander/dotnet-inspect/issues/10283), focused as
@@ -41,13 +42,13 @@ relationship catalog, color join, terminal, or document.
 
 ## Gesture and request
 
-Type Overview shows one **Calls** navigation item beside Members. It reports a
-cached called-Type count only after the dedicated Calls facet has completed;
+Type Overview shows one **Analysis** navigation item beside Members. It reports
+a cached called-Type count only after Analysis has completed;
 ordinary Overview rendering never starts the request. Merely opening a Type,
 restoring its Overview, or rendering structural Type relationships executes no
 Annotated Type Relations request.
 
-Opening Calls requests:
+Opening Analysis requests:
 
 - `AllApplicable`;
 - outgoing Type incidence;
@@ -107,18 +108,33 @@ reshape, filter, order, limit, or count semantic rows.
 
 ## Presentation
 
-The result owns a dedicated Type Calls page. Type Overview retains only its
-small navigation item and its existing inheritance-style structural graph. The
-Calls page presents one outgoing Type-to-Type graph. Each edge:
+The result owns **Type → Analysis → Relationships**. Relationships is the
+initial and currently only Analysis mode, so the page does not render a
+one-item mode-tab strip. Future modes require separately owned designs; their
+names, acquisition, and presentation are non-claims here.
+
+Type Overview retains only its small navigation item and its existing
+inheritance-style structural graph. Analysis presents a conventional directed
+Type-to-Type graph for topology and a separate selection-driven details region
+for evidence, following the established Library Analysis Relationships
+interaction model. Facts are not embedded into graph geometry.
+
+Each graph edge:
 
 - groups target members by the typed declaring-Type resolution projected by
   their canonical subjects, never by display text;
 - is weighted by distinct canonical source-member/target-member relation rows;
-- reveals those member pairs grouped by source member when selected;
+- is selectable by pointer or keyboard and retains selection across rerender;
+- updates the separate details region with member pairs grouped by source
+  member;
 - keeps repeated physical IL sites subordinate to their member pair, with IL
   offset, call kind, operand token, and caller method token retained as
-  evidence; and
-- carries compatibility colors as quiet target-member evidence.
+  evidence;
+- carries compatibility colors as quiet target-member evidence; and
+- exposes navigable source and target Type endpoints.
+
+Node activation navigates to the represented Type; it does not select or own
+relationship facts. Edge selection owns facts about `T1 → T2`.
 
 Repeated occurrences and opcode variation do not inflate the Type-edge weight.
 Partial topology marks counts as observed lower bounds and never establishes
@@ -133,7 +149,7 @@ or failure. It does not automatically retry during render.
 ## Gates
 
 - **Explicit work:** ordinary Type and Metadata rendering invokes no relations
-  operation; selecting Calls is the explicit gesture.
+  operation; selecting Analysis is the explicit gesture.
 - **Shared request:** the gesture constructs the exact all-applicable outgoing
   Rows request with the three selected compatibility colors.
 - **Implementation evidence:** the operation uses the selected Type's exact
@@ -148,7 +164,10 @@ or failure. It does not automatically retry during render.
 - **Exact aggregation:** Type-edge weights count distinct exact member pairs,
   and repeated physical sites do not inflate them.
 - **Progressive detail:** selecting one Type edge reveals grouped member pairs
-  before physical-site evidence.
+  and their physical-site evidence in a region outside graph geometry.
+- **Conventional interaction:** the graph owns topology, selected edges own
+  relationship state, nodes own Type navigation, and the separate live region
+  owns facts.
 - **Complete primary witness:** `System.Text.Json.JsonElement.ObjectEnumerator`
   in `System.Text.Json` 10.0.13 projects three called Types and four member
   edges with complete topology and compatibility evidence, so the production
@@ -166,3 +185,4 @@ or failure. It does not automatically retry during render.
 - It does not add Platform or uploaded-Library execution.
 - It does not add paths, incoming calls, a broad multi-format surface, or
   another persistent workspace affordance.
+- It does not define or display additional Type Analysis modes.

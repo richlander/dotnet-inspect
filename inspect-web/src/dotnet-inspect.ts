@@ -367,7 +367,7 @@ import {
 import {
   bindTypeRelations,
   createTypeRelationsCoordinator,
-  renderTypeCallsPage,
+  renderTypeAnalysisPage,
   renderTypeRelationsSummary,
 } from "./type-relations.ts";
 import {
@@ -1628,6 +1628,7 @@ const initialState = {
     result: null,
     error: "",
     generation: 0,
+    selectedTargetTypeKey: null as string | null,
   },
   libraryApiInspections:
     new Map<string, BrowserExactLibraryApiInspection>(),
@@ -10158,7 +10159,7 @@ function renderCore(options: RenderOptions) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type"
-    && (state.lens === "metadata" || state.lens === "calls");
+    && (state.lens === "metadata" || state.lens === "analysis");
   const typeGraphWorkingSurface =
     activeScope === "type"
     && (state.lens === "overview" || state.lens === "metadata");
@@ -14066,11 +14067,12 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
     workspaceIdentity: typeMetadataWorkspaceIdentity(),
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
-    callsSummaryHtml: !pkg.isRuntimePack && state.rootKind !== "library"
+    analysisSummaryHtml: !pkg.isRuntimePack && state.rootKind !== "library"
       ? renderTypeRelationsSummary({
           signature,
           state: state.typeRelations,
           focusTypeName: typeDisplayName(item),
+          focusTypeQueryId: item.definitionId ?? item.id,
           escapeHtml,
         })
       : "",
@@ -14081,15 +14083,16 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
   });
 }
 
-function renderTypeCallsHtml(item: AppTypeSurface) {
+function renderTypeAnalysisHtml(item: AppTypeSurface) {
   const pkg = currentPackage();
-  return renderTypeCallsPage({
+  return renderTypeAnalysisPage({
     signature: currentTypeMetadataSignature(
       item,
       pkg,
       selectedTypeMetadataLibraryIdentity()),
     state: state.typeRelations,
     focusTypeName: typeDisplayName(item),
+    focusTypeQueryId: item.definitionId ?? item.id,
     escapeHtml,
   });
 }
@@ -14185,8 +14188,8 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     escapeHtml);
   if (!item) return "";
   switch (state.lens) {
-    case "calls":
-      return renderTypeCallsHtml(item);
+    case "analysis":
+      return renderTypeAnalysisHtml(item);
     case "source":
       return renderTypeSourceHtml(item);
     case "metadata":
@@ -15053,10 +15056,16 @@ function bindLibraryControlsEvents() {
 }
 
 function bindTypePanelEvents() {
-  bindTypeRelations(document, () => {
-    observeAsync(
-      inspectSelectedTypeRelations(),
-      "Inspecting outgoing Type calls");
+  bindTypeRelations(document, {
+    inspect: () => {
+      observeAsync(
+        inspectSelectedTypeRelations(),
+        "Inspecting Type relationships");
+    },
+    selectRelationship: targetTypeKey => {
+      state.typeRelations.selectedTargetTypeKey = targetTypeKey;
+    },
+    activateType: navigateToTypeByName,
   });
   const renderMemberFilterAndRestoreFocus = (selector = "") => {
     const preserved = captureMemberFocus(document);
@@ -15202,8 +15211,8 @@ function bindTypePanelEvents() {
       loadCurrentSelectionData("Loading the selected Type");
     },
     onTypeLeverageRetry: () => loadTypeLeverage(true),
-    onTypeCallsOpen: () => {
-      state.lens = "calls";
+    onTypeAnalysisOpen: () => {
+      state.lens = "analysis";
       render();
       loadCurrentTypeLensData();
     },
@@ -19437,7 +19446,7 @@ function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
           "Loading Type Overview metadata");
       }
       return undefined;
-    case "calls": return loadSelectedTypeCalls();
+    case "analysis": return loadSelectedTypeAnalysis();
     case "source": return loadSelectedTypeSource();
     case "metadata": return loadSelectedTypeMetadata();
     // Compare work is reconciled by render() from the retained Package mode.
@@ -24022,7 +24031,7 @@ async function inspectSelectedTypeRelations() {
     workspaceJson,
     isVisible: () => {
       const currentType = selectedType();
-      return state.lens === "calls"
+      return state.lens === "analysis"
         && currentType != null
         && currentTypeMetadataSignature(
           currentType,
@@ -24032,7 +24041,7 @@ async function inspectSelectedTypeRelations() {
   });
 }
 
-function loadSelectedTypeCalls(): Promise<void> | undefined {
+function loadSelectedTypeAnalysis(): Promise<void> | undefined {
   const type = selectedType();
   if (!type) return undefined;
   const signature = currentTypeMetadataSignature(

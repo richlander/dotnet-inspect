@@ -332,7 +332,7 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`type-access:${value}`),
     onTypeTraitSelect: value => calls.push(`type-trait:${value}`),
     onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
-    onTypeCallsOpen: () => calls.push("type-calls"),
+    onTypeAnalysisOpen: () => calls.push("type-analysis"),
     onTypeMembersOpen: () => calls.push("type-members"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
@@ -412,14 +412,14 @@ test("type panel binds the qualified Type leverage retry", () => {
 test("type panel binds Type Overview navigation", () => {
   const root = new FakeRoot();
   const members = root.add("[data-type-members]", new FakeElement());
-  const typeCalls = root.add("[data-type-calls]", new FakeElement());
+  const typeAnalysis = root.add("[data-type-analysis]", new FakeElement());
   const calls: string[] = [];
 
   bindPanel(root, recordingActions(calls));
   members.dispatch("click");
-  typeCalls.dispatch("click");
+  typeAnalysis.dispatch("click");
 
-  assert.deepEqual(calls, ["type-members", "type-calls"]);
+  assert.deepEqual(calls, ["type-members", "type-analysis"]);
 });
 
 test("type panel bindings dispatch member filters and leverage retry", () => {
@@ -1663,8 +1663,8 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
       <div class="composition-filters">
         <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
       </div>`,
-    callsSummaryHtml:
-      '<button type="button" data-type-calls>5 called types</button>',
+    analysisSummaryHtml:
+      '<button type="button" data-type-analysis>5 called types</button>',
     escapeHtml,
     highlightCSharp,
     relatedTypeChip: (name, occurrence) =>
@@ -1686,10 +1686,10 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
     html,
     /<h1 id="type-overview-title">Overview<\/h1>[\s\S]*Type metadata[\s\S]*data-overview-badge="class"[\s\S]*data-overview-badge="public"/);
   assert.match(html, /data-type-members>12 members<\/button>/);
-  assert.match(html, /data-type-calls>5 called types<\/button>/);
+  assert.match(html, /data-type-analysis>5 called types<\/button>/);
   assert.match(
     html,
-    /data-type-members>12 members<\/button>[\s\S]*data-type-calls>5 called types<\/button>[\s\S]*Type shape/);
+    /data-type-members>12 members<\/button>[\s\S]*data-type-analysis>5 called types<\/button>[\s\S]*Type shape/);
   assert.match(
     html,
     /Type shape[\s\S]*<dl><div><dt>Kind<\/dt><dd>class<\/dd>/);

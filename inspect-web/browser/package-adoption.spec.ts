@@ -4525,7 +4525,7 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(flattened).toContain("AddHttpClient");
   });
 
-  test("renders the Type Overview grammar over real Wasm", async ({
+  test("renders Type Overview and Analysis Relationships over real Wasm", async ({
     page,
   }, testInfo) => {
     await page.goto(
@@ -4589,43 +4589,48 @@ test.describe("bounded network-backed Worker smoke", () => {
     }).first().click();
     const nestedOverview = page.locator(".type-overview-surface");
     await expect(nestedOverview).toBeVisible({ timeout: 180_000 });
-    const callsLink = nestedOverview.locator("[data-type-calls]");
-    await expect(callsLink).toHaveText("Calls");
-    await callsLink.click();
+    const analysisLink = nestedOverview.locator("[data-type-analysis]");
+    await expect(analysisLink).toHaveText("Analysis");
+    await analysisLink.click();
 
-    const callsPage = page.locator(".type-calls-surface");
-    await expect(callsPage.getByRole("heading", { name: "Calls" }))
+    const analysisPage = page.locator(".type-analysis-surface");
+    await expect(analysisPage.getByRole("heading", { name: "Analysis" }))
       .toBeVisible();
-    const typeCallGraph = callsPage.getByRole("heading", {
-      name: "Type call graph",
+    const relationships = analysisPage.getByRole("heading", {
+      name: "Relationships",
     });
-    await expect(typeCallGraph).toBeVisible({ timeout: 180_000 });
-    await expect(callsPage.locator(".section-title"))
-      .toContainText("3 called types · 4 member edges");
-    await expect(callsPage.getByText("Partial call evidence"))
+    await expect(relationships).toBeVisible({ timeout: 180_000 });
+    await expect(analysisPage.locator(".section-title"))
+      .toContainText("3 called types · 4 member relationships");
+    await expect(analysisPage.getByText("Partial call evidence"))
       .toHaveCount(0);
-    await expect(callsPage.getByText("Partial compatibility evidence"))
+    await expect(analysisPage.getByText("Partial compatibility evidence"))
       .toHaveCount(0);
-    const typeEdges = callsPage.locator(".type-call-edge");
+    const typeEdges =
+      analysisPage.locator("[data-type-analysis-relationship]");
     await expect(typeEdges).toHaveCount(3);
-    await typeEdges.first().locator("summary").click();
-    await expect(typeEdges.first()).toHaveAttribute("open", "");
-    await expect(typeEdges.first().locator(".type-call-member-group").first())
+    await typeEdges.first().click();
+    await expect(typeEdges.first()).toHaveAttribute("aria-pressed", "true");
+    const detail = analysisPage.locator(
+      "[data-type-analysis-detail]:not([hidden])",
+    );
+    await expect(detail).toBeVisible();
+    await expect(detail.locator(".type-analysis-member-group").first())
       .toBeVisible();
-    await expect(typeEdges.first().getByText(/\d+ sites?/, { exact: true })
+    await expect(detail.getByText(/\d+ physical sites?/, { exact: false })
       .first()).toBeVisible();
-    await expect(typeEdges.first().locator(".type-call-site"))
+    await expect(detail.locator(".type-call-site"))
       .toHaveCount(2);
-    await expect(typeEdges.first().locator(".type-call-site").first())
+    await expect(detail.locator(".type-call-site").first())
       .toContainText("IL_");
 
     await page.locator("#subject-panel").screenshot({
-      path: testInfo.outputPath("type-calls-object-enumerator.png"),
+      path: testInfo.outputPath("type-analysis-object-enumerator.png"),
     });
     await page.getByRole("tab", { name: "Overview", exact: true }).click();
     await expect(page.locator(".type-overview-surface"))
       .toBeVisible();
-    await expect(page.locator("[data-type-calls]"))
+    await expect(page.locator("[data-type-analysis]"))
       .toHaveText("3 called types");
   });
 

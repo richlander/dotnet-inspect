@@ -105,6 +105,7 @@ export interface TypeRelationsState {
   result: BrowserAnnotatedTypeRelationsInspection | null;
   error: string;
   generation: number;
+  selectedTargetTypeKey: string | null;
 }
 
 export interface TypeRelationsDependencies {
@@ -120,13 +121,70 @@ export interface TypeRelationsCoordinator {
   inspect(request: TypeRelationsRequest): Promise<void>;
 }
 
+export interface TypeRelationsBindingActions {
+  inspect(): void;
+  selectRelationship(targetTypeKey: string): void;
+  activateType(typeQueryId: string): void;
+}
+
 export function bindTypeRelations(
   root: ParentNode,
-  inspect: () => void,
+  actions: TypeRelationsBindingActions,
 ): void {
   root.querySelectorAll<HTMLButtonElement>(
     "[data-inspect-type-relations]",
-  ).forEach(button => button.addEventListener("click", inspect));
+  ).forEach(button => button.addEventListener(
+    "click",
+    () => actions.inspect(),
+  ));
+  const edges = root.querySelectorAll<SVGPathElement>(
+    "[data-type-analysis-relationship]",
+  );
+  const empty = root.querySelector<HTMLElement>(
+    "[data-type-analysis-detail-empty]",
+  );
+  const details = root.querySelectorAll<HTMLElement>(
+    "[data-type-analysis-detail]",
+  );
+  const select = (edge: SVGPathElement) => {
+    const key = edge.dataset.targetTypeKey;
+    if (!key) return;
+    for (const candidate of edges) {
+      const selected = candidate === edge;
+      candidate.setAttribute("aria-pressed", String(selected));
+      candidate.nextElementSibling?.classList.toggle(
+        "is-selected",
+        selected,
+      );
+    }
+    for (const detail of details) {
+      detail.hidden = detail.dataset.typeAnalysisDetail !== key;
+    }
+    if (empty) empty.hidden = true;
+    actions.selectRelationship(key);
+  };
+  for (const edge of edges) {
+    edge.addEventListener("click", () => select(edge));
+    edge.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      select(edge);
+    });
+  }
+  for (const node of root.querySelectorAll<SVGGElement>(
+    "[data-type-analysis-node]",
+  )) {
+    const activate = () => {
+      const queryId = node.dataset.typeQueryId;
+      if (queryId) actions.activateType(queryId);
+    };
+    node.addEventListener("click", activate);
+    node.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      activate();
+    });
+  }
 }
 
 export function createTypeRelationsCoordinator(
@@ -141,6 +199,7 @@ export function createTypeRelationsCoordinator(
       state.loading = true;
       state.result = null;
       state.error = "";
+      state.selectedTargetTypeKey = null;
       dependencies.render();
       const ownsRequest = () =>
         state.generation === generation
@@ -426,6 +485,7 @@ export interface RenderTypeRelationsOptions {
   signature: string;
   state: TypeRelationsState;
   focusTypeName: string;
+  focusTypeQueryId: string;
   escapeHtml: (value: string) => string;
 }
 
@@ -520,6 +580,18 @@ function typeIdentityKey(
   ]);
 }
 
+function typeQueryId(
+  type: CanonicalSubject["subject"]["member"]["member"]["declaring_type"],
+): string {
+  const { namespace, segments } = type.resolution.type;
+  return `${namespace ? `${namespace}.` : ""}${segments.join("+")}`;
+}
+
+function shortTypeName(value: string): string {
+  const separator = Math.max(value.lastIndexOf("."), value.lastIndexOf("+"));
+  return separator < 0 ? value : value.slice(separator + 1);
+}
+
 function memberName(subject: CanonicalSubject): string {
   const member = subject.subject.member.member;
   const parameters = member.parameter_types?.map(parameter =>
@@ -583,31 +655,31 @@ export function renderTypeRelationsSummary(
   const { signature, state } = options;
   const fresh = state.signature === signature;
   if (!fresh || state.loading)
-    return "<button type=\"button\" data-type-calls>Calls</button>";
+    return "<button type=\"button\" data-type-analysis>Analysis</button>";
   const projection = currentProjection(options);
   if (!projection)
-    return "<button type=\"button\" data-type-calls>Calls</button>";
+    return "<button type=\"button\" data-type-analysis>Analysis</button>";
   const count = projection.edges.length;
-  return `<button type="button" data-type-calls>${
+  return `<button type="button" data-type-analysis>${
     count.toLocaleString()
   }${projection.relationshipIsPartial ? "+" : ""} called type${
     count === 1 ? "" : "s"
   }</button>`;
 }
 
-export function renderTypeCallsPage(
+export function renderTypeAnalysisPage(
   options: RenderTypeRelationsOptions,
 ): string {
   const content = renderTypeRelations(options)
     || section(`
       <div class="source-progress">
         <span class="loader"></span>
-        <p>Preparing focused binary call evidence…</p>
+        <p>Preparing focused binary relationship evidence…</p>
       </div>`);
   return `
-    <section class="metadata-surface type-calls-surface" aria-labelledby="type-calls-title">
+    <section class="metadata-surface type-analysis-surface" aria-labelledby="type-analysis-title">
       <header class="metadata-surface-head">
-        <h1 id="type-calls-title">Calls</h1>
+        <h1 id="type-analysis-title">Analysis</h1>
         <p>${options.escapeHtml(options.focusTypeName)}</p>
       </header>
       <div class="metadata-surface-scroll">${content}</div>
@@ -618,7 +690,7 @@ export function renderTypeRelations(
   options: RenderTypeRelationsOptions,
 ): string {
   const {
-    signature, state, focusTypeName, escapeHtml,
+    signature, state, focusTypeName, focusTypeQueryId, escapeHtml,
   } = options;
   if (state.signature !== signature || (!state.loading && !state.result
     && !state.error)) return "";
@@ -626,7 +698,7 @@ export function renderTypeRelations(
     return section(`
       <div class="source-progress">
         <span class="loader"></span>
-        <p>Building the Type call graph from focused binary evidence…</p>
+        <p>Building Type relationships from focused binary evidence…</p>
       </div>`);
   }
   if (state.error) return failure(state.error, escapeHtml);
@@ -647,7 +719,39 @@ export function renderTypeRelations(
     document, subjects, edges, occurrencesByRelation, colorsBySubject,
     relationshipIsPartial, colorIsPartial,
   } = projection;
-  const edgeHtml = edges.map(edge => {
+  const selectedKey = edges.some(edge =>
+    edge.key === state.selectedTargetTypeKey)
+    ? state.selectedTargetTypeKey
+    : null;
+  const graphHeight = Math.max(190, edges.length * 84 + 38);
+  const sourceY = graphHeight / 2 - 25;
+  const graphEdges = edges.map((edge, index) => {
+    const targetY = 24 + index * 84;
+    const middleY = targetY + 25;
+    const selected = edge.key === selectedKey;
+    const edgeLabel = `${edge.relations.length}${relationshipIsPartial ? "+" : ""}`;
+    return `<g class="type-analysis-edge">
+      <path class="type-analysis-edge-hit" d="M 292 ${sourceY + 25} C 410 ${sourceY + 25}, 430 ${middleY}, 548 ${middleY}"
+        role="button" tabindex="0" aria-label="${escapeHtml(`${focusTypeName} calls ${typeName(edge.targetType)} through ${edge.relations.length} member relationship${edge.relations.length === 1 ? "" : "s"}`)}"
+        aria-pressed="${selected}" data-type-analysis-relationship data-target-type-key="${escapeHtml(edge.key)}"></path>
+      <path class="type-analysis-edge-line${selected ? " is-selected" : ""}" d="M 292 ${sourceY + 25} C 410 ${sourceY + 25}, 430 ${middleY}, 548 ${middleY}"></path>
+      <text class="type-analysis-edge-label" x="420" y="${middleY - 7}" text-anchor="middle">${edgeLabel}</text>
+    </g>`;
+  }).join("");
+  const targetNodes = edges.map((edge, index) => {
+    const fullName = typeName(edge.targetType);
+    const queryId = typeQueryId(edge.targetType);
+    const targetY = 24 + index * 84;
+    return `<g class="type-analysis-node type-analysis-target-node" transform="translate(548 ${targetY})"
+      role="button" tabindex="0" aria-label="${escapeHtml(`Open ${fullName}`)}"
+      data-type-analysis-node data-type-query-id="${escapeHtml(queryId)}">
+      <title>${escapeHtml(fullName)}</title>
+      <rect width="300" height="50" rx="7"></rect>
+      <text x="16" y="22">${escapeHtml(shortTypeName(fullName))}</text>
+      <text class="type-analysis-node-subtitle" x="16" y="38">${edge.relations.length} member relationship${edge.relations.length === 1 ? "" : "s"}</text>
+    </g>`;
+  }).join("");
+  const detailHtml = edges.map(edge => {
     const sourceGroups = new Map<number, CanonicalRelation[]>();
     for (const relation of edge.relations) {
       const group = sourceGroups.get(relation.source_subject_id) ?? [];
@@ -662,7 +766,7 @@ export function renderTypeRelations(
         const occurrences = occurrencesByRelation.get(relation.id) ?? [];
         const sites = occurrences.length;
         const colors = colorsBySubject.get(relation.target_subject_id) ?? [];
-        return `<li class="type-call-member-pair">
+        return `<li class="type-analysis-member-pair">
           <div>
             <code>${escapeHtml(memberName(target))}</code>
             <span>${sites} site${sites === 1 ? "" : "s"}</span>
@@ -678,33 +782,36 @@ export function renderTypeRelations(
           </ol>
         </li>`;
       }).join("");
-      return `<div class="type-call-member-group">
+      return `<div class="type-analysis-member-group">
         <h4>${escapeHtml(source ? memberName(source) : `Member ${sourceId}`)}</h4>
         <ul>${rows}</ul>
       </div>`;
     }).join("");
-    const colorCount = new Set(edge.relations.flatMap(relation =>
-      colorsBySubject.get(relation.target_subject_id) ?? [])).size;
-    return `<details class="type-call-edge">
-      <summary>
-        <span class="type-call-edge-line"><strong>${edge.relations.length}</strong> member edge${edge.relations.length === 1 ? "" : "s"}</span>
-        <span class="type-call-target-node">
-          <strong>${escapeHtml(typeName(edge.targetType))}</strong>
-          <small>${colorCount
-            ? `${colorCount} compatibility signal${colorCount === 1 ? "" : "s"}`
-            : "called Type"}</small>
-        </span>
-      </summary>
-      <div class="type-call-edge-detail">
-        <h3>${escapeHtml(focusTypeName)} → ${escapeHtml(typeName(edge.targetType))}</h3>
+    const siteCount = edge.relations.reduce(
+      (total, relation) =>
+        total + (occurrencesByRelation.get(relation.id)?.length ?? 0),
+      0,
+    );
+    const targetName = typeName(edge.targetType);
+    return `<section class="type-analysis-relationship-detail"
+      data-type-analysis-detail="${escapeHtml(edge.key)}"${edge.key === selectedKey ? "" : " hidden"}>
+      <header>
+        <h3>
+          <button type="button" data-type-analysis-node data-type-query-id="${escapeHtml(focusTypeQueryId)}">${escapeHtml(focusTypeName)}</button>
+          <span aria-hidden="true">→</span>
+          <button type="button" data-type-analysis-node data-type-query-id="${escapeHtml(typeQueryId(edge.targetType))}">${escapeHtml(targetName)}</button>
+        </h3>
+        <span>${edge.relations.length} member relationship${edge.relations.length === 1 ? "" : "s"} · ${siteCount} physical site${siteCount === 1 ? "" : "s"}</span>
+      </header>
+      <div class="type-analysis-relationship-facts">
         ${members}
       </div>
-    </details>`;
+    </section>`;
   }).join("");
   return section(`
     <div class="section-title">
-      <h2 id="type-call-graph-title" tabindex="-1">Type call graph</h2>
-      <span>${edges.length} called type${edges.length === 1 ? "" : "s"} · ${document.relations.length} member edge${document.relations.length === 1 ? "" : "s"}</span>
+      <h2 id="type-analysis-relationships-title" tabindex="-1">Relationships</h2>
+      <span>${edges.length} called type${edges.length === 1 ? "" : "s"} · ${document.relations.length} member relationship${document.relations.length === 1 ? "" : "s"}</span>
     </div>
     ${relationshipIsPartial
       ? `<div class="metadata-warning"><strong>Partial call evidence</strong><p>Counts are observed lower bounds; unresolved calls may add Type or member edges.</p></div>`
@@ -712,22 +819,40 @@ export function renderTypeRelations(
     ${colorIsPartial
       ? `<div class="metadata-warning"><strong>Partial compatibility evidence</strong><p>Compatibility signals are incomplete; an unmarked member may still carry a selected compatibility attribute.</p></div>`
       : ""}
-    ${edgeHtml
-      ? `<div class="type-call-graph" aria-labelledby="type-call-graph-title">
-          <div class="type-call-source-node">
-            <strong>${escapeHtml(focusTypeName)}</strong>
-            <small>selected Type</small>
-          </div>
-          <div class="type-call-edges">${edgeHtml}</div>
+    ${edges.length
+      ? `<div class="type-analysis-graph" aria-labelledby="type-analysis-relationships-title">
+          <svg viewBox="0 0 880 ${graphHeight}" role="group" aria-label="Directed Type relationship graph">
+            <defs>
+              <marker id="type-analysis-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                <path d="M 0 0 L 8 4 L 0 8 z"></path>
+              </marker>
+            </defs>
+            ${graphEdges}
+            <g class="type-analysis-node type-analysis-source-node" transform="translate(22 ${sourceY})"
+              role="button" tabindex="0" aria-label="${escapeHtml(`Open ${focusTypeName}`)}"
+              data-type-analysis-node data-type-query-id="${escapeHtml(focusTypeQueryId)}">
+              <title>${escapeHtml(focusTypeName)}</title>
+              <rect width="270" height="50" rx="7"></rect>
+              <text x="16" y="22">${escapeHtml(shortTypeName(focusTypeName))}</text>
+              <text class="type-analysis-node-subtitle" x="16" y="38">selected Type</text>
+            </g>
+            ${targetNodes}
+          </svg>
         </div>`
       : relationshipIsPartial
         ? "<p>No called Types were resolved from the available evidence.</p>"
         : "<p>No outgoing Type edges found.</p>"}
+    ${edges.length
+      ? `<div class="type-analysis-details" aria-live="polite">
+          <p data-type-analysis-detail-empty${selectedKey ? " hidden" : ""}>Select a relationship in the graph to inspect its member and physical-site evidence.</p>
+          ${detailHtml}
+        </div>`
+      : ""}
     <button type="button" class="tiny-button" data-inspect-type-relations>Refresh</button>`);
 }
 
 function section(content: string): string {
-  return `<section class="document-section type-relations-section" data-type-call-graph-surface>
+  return `<section class="document-section type-relations-section" data-type-analysis-relationships-surface>
     ${content}
   </section>`;
 }
@@ -738,8 +863,8 @@ function failure(
 ): string {
   return section(`
     <div class="metadata-warning" role="alert">
-      <strong>Type call graph unavailable</strong>
+      <strong>Type relationships unavailable</strong>
       <p>${escapeHtml(reason)}</p>
     </div>
-    <button type="button" data-inspect-type-relations>Retry call graph</button>`);
+    <button type="button" data-inspect-type-relations>Retry relationships</button>`);
 }

@@ -17,7 +17,7 @@ export function assertNever(value: never, vocabulary: string): never {
 const typeLensRouteByFacetId = {
   "type.overview": "overview",
   "type.api": "api",
-  "type.calls": "calls",
+  "type.analysis": "analysis",
   "type.metadata": "metadata",
   "type.source": "source",
   "type.compare": "compare",

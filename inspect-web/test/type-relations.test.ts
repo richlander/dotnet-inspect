@@ -6,7 +6,7 @@ import type {
 } from "../src/facades/inspect-web-metadata.d.ts";
 import {
   createTypeRelationsCoordinator,
-  renderTypeCallsPage,
+  renderTypeAnalysisPage,
   renderTypeRelations,
   renderTypeRelationsSummary,
   type TypeRelationsRequest,
@@ -21,6 +21,7 @@ function state(): TypeRelationsState {
     result: null,
     error: "",
     generation: 0,
+    selectedTargetTypeKey: null,
   };
 }
 
@@ -247,32 +248,35 @@ test("ordinary rendering offers explicit inspection without querying", () => {
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
+    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
   const summary = renderTypeRelationsSummary({
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
+    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 
   assert.equal(html, "");
-  assert.match(summary, /data-type-calls>Calls/);
+  assert.match(summary, /data-type-analysis>Analysis/);
   assert.equal(queries, 0);
 });
 
-test("the dedicated Calls page owns acquisition and graph presentation", () => {
-  const html = renderTypeCallsPage({
+test("the dedicated Analysis page owns acquisition and relationship presentation", () => {
+  const html = renderTypeAnalysisPage({
     signature: "package/type",
     state: state(),
     focusTypeName: "Example.Entry",
+    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 
-  assert.match(html, /class="metadata-surface type-calls-surface"/);
-  assert.match(html, /<h1 id="type-calls-title">Calls<\/h1>/);
-  assert.match(html, /Preparing focused binary call evidence/);
-  assert.doesNotMatch(html, /Type call graph/);
+  assert.match(html, /class="metadata-surface type-analysis-surface"/);
+  assert.match(html, /<h1 id="type-analysis-title">Analysis<\/h1>/);
+  assert.match(html, /Preparing focused binary relationship evidence/);
+  assert.doesNotMatch(html, /<h2[^>]*>Relationships/);
 });
 
 test("duplicate activation shares one in-flight request", async () => {
@@ -335,19 +339,29 @@ test("available rendering accepts omitted assembly fields and aggregates exact m
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
+    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
   const summary = renderTypeRelationsSummary({
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
+    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 
   assert.match(summary, /1\+ called type/);
-  assert.match(html, /1 called type · 2 member edges/);
-  assert.match(html, /<strong>2<\/strong> member edges/);
-  assert.match(html, /Example\.Entry → Example\.Target/);
+  assert.match(html, /1 called type · 2 member relationships/);
+  assert.match(html, /aria-label="Directed Type relationship graph"/);
+  assert.match(html, /data-type-analysis-relationship/);
+  assert.match(html, /Select a relationship in the graph/);
+  assert.match(
+    html,
+    /data-type-query-id="Example\.Entry">Example\.Entry<\/button>/);
+  assert.match(
+    html,
+    /data-type-query-id="Example\.Target">Example\.Target<\/button>/);
+  assert.match(html, /2 member relationships · 3 physical sites/);
   assert.match(html, /Run\(\)/);
   assert.match(html, /2 sites/);
   assert.match(html, /IL_000A/);
@@ -372,12 +386,14 @@ test("complete topology keeps partial compatibility evidence visible", () => {
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
+    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
   const summary = renderTypeRelationsSummary({
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
+    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 
@@ -398,6 +414,7 @@ test("partial empty rendering does not claim that no outgoing calls exist", () =
     signature: "package/type",
     state: current,
     focusTypeName: "Example.Entry",
+    focusTypeQueryId: "Example.Entry",
     escapeHtml: String,
   });
 
