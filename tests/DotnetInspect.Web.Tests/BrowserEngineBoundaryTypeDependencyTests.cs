@@ -237,6 +237,26 @@ public sealed partial class BrowserEngineBoundaryTests
                 workspace.ExactTypeInspection,
                 BrowserMetadataJsonContext.Default
                     .ExactTypeInspectionEnvelope));
+        InspectionEnvelope<TypeSignatureInspectionOutcome> directSignature =
+            directScope.UseSurfaceParticipant(
+                directScope.SurfaceParticipant(
+                    rootCoordinate,
+                    rootCoordinate.CompileAsset($"{rootAssemblyName}.dll")),
+                (_, member) => TypeSignatureInspectionOperation.Execute(
+                    member.Assembly,
+                    new(
+                        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                            MetadataTypeDefinitionName.ParseSerialized(typeName)).Name,
+                        BrowserApiSurfacePolicy.ExtractionBounds)));
+        Assert.NotNull(workspace.TypeSignatureInspection);
+        Assert.True(JsonElement.DeepEquals(
+            TypeSignatureInspectionJson.SerializeContent(directSignature.Content),
+            workspace.TypeSignatureInspection.Content));
+        Assert.Equal(directSignature.Share, workspace.TypeSignatureInspection.Share);
+        Assert.Equal(
+            directSignature.Diagnostics,
+            workspace.TypeSignatureInspection.Diagnostics);
+        Assert.Equal(typeName, workspace.TypeSignaturePresentation?.Type);
         Assert.Equal(
             typeName,
             workspace.TypeDependencyInspection.Content

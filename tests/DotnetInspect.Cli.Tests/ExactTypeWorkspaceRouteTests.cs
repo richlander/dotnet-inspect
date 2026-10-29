@@ -1038,12 +1038,28 @@ public sealed class ExactTypeWorkspaceRouteTests
             TypeCommand.SharedExactTypePackageDemand
                 .DefiningImplementation,
             demand);
+        TypeOptions allocationFacts = options with
+        {
+            IncludeSections = [SectionNames.AllocationFacts],
+        };
+        Assert.True(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                allocationFacts,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(allocationFacts),
+                out _,
+                out demand));
+        Assert.Equal(
+            TypeCommand.SharedExactTypePackageDemand
+                .DefiningImplementation,
+            demand);
         Assert.False(
             TypeCommand.TryCreateSharedExactTypeRequest(
                 exceptionRegions with
                 {
                     IncludeSections =
                     [
+                        SectionNames.AllocationFacts,
                         SectionNames.ExceptionRegions,
                         SectionNames.CalledTypes,
                     ],
@@ -1900,6 +1916,47 @@ public sealed class ExactTypeWorkspaceRouteTests
             $"Type '{typeNamespace}.{typeName}' was not found",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationTypeRouteRendersAllocationFactsFromNonNamesakeLibrary()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(SemanticFactsFixture).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(SemanticFactsFixture).FullName,
+            Select = [SectionNames.AllocationFacts],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "member\til_offset\tallocation_kind\tallocated_type",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(SemanticFactsFixture.AllSignals),
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains("array", output, StringComparison.Ordinal);
     }
 
     [Fact]
