@@ -51,7 +51,7 @@ type PackageOperations =
   | "queryPackageIcon"
   | "queryPackageRoot"
   | "queryPackageSummary"
-  | "queryPackageDependencies"
+  | "inspectPackageDependencies"
   | "queryLibraryReferences"
   | "queryReferencePackageSuppliers"
   | "queryPackageHierarchy"

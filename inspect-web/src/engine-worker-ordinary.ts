@@ -66,7 +66,7 @@ type PackageOperationName =
   | "queryLibraryApi"
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
-  | "queryPackageDependencies"
+  | "inspectPackageDependencies"
   | "queryLibraryReferences"
   | "queryReferencePackageSuppliers"
   | "queryPackageHierarchy"
@@ -1279,13 +1279,13 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryLibraries"]>
       ) => facades.package.queryLibraries(...args),
     ),
-    queryPackageDependencies: valueOperation(
-      "ordinary-package-query-dependencies",
-      5,
+    inspectPackageDependencies: valueOperation(
+      "ordinary-package-inspect-dependencies",
+      4,
       (
         facades,
-        ...args: Parameters<PackageFacade["queryPackageDependencies"]>
-      ) => facades.package.queryPackageDependencies(...args),
+        ...args: Parameters<PackageFacade["inspectPackageDependencies"]>
+      ) => facades.package.inspectPackageDependencies(...args),
     ),
     queryLibraryReferences: valueOperation(
       "ordinary-package-query-library-references",
@@ -2683,8 +2683,8 @@ export function bindEngineWorkerOrdinaryClient(
       queryLibraries: bind(
         engineWorkerOrdinaryOperations.package.queryLibraries,
       ),
-      queryPackageDependencies: bind(
-        engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      inspectPackageDependencies: bind(
+        engineWorkerOrdinaryOperations.package.inspectPackageDependencies,
       ),
       queryLibraryReferences: bind(
         engineWorkerOrdinaryOperations.package.queryLibraryReferences,

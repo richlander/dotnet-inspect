@@ -597,6 +597,10 @@ producers that will extend that space.
   [Library Reference Inspection](design/library-reference-inspection.md)
   owns the detached, canonically ordered available, rejected, or failed answer
   for one exact managed Library's direct metadata references.
+  [Package Dependency Inspection](design/package-dependency-inspection.md)
+  owns the detached available, no-manifest, or failed Package manifest
+  dependency answer, including exact declared groups and target-framework
+  selection.
   The sibling
   [host-observable content-kinds](design/host-observable-content-kinds.md)
   owner classifies the envelope's serialized content as a Result, Document, or

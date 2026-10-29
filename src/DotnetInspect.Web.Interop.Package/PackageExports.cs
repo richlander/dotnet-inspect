@@ -624,41 +624,36 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// Normalized NuGet dependency evidence plus the selected compile assembly's direct
-    /// references. Package parsing and compatible dependency-group selection belong to
-    /// <see cref="PackageDependencyGroupsQuery"/>, normalization belongs to
-    /// <see cref="PackageDependencyEvidenceQuery"/>, and the assembly-context query owns the
-    /// metadata session. This method only adapts their typed results for the browser.
+    /// Returns the shared Package dependency inspection with Browser-owned
+    /// platform-reference presentation.
     /// </summary>
-    public static Task<string> QueryPackageDependencies(
+    public static Task<string> InspectPackageDependencies(
         string packageId,
         string version,
-        string targetFramework,
-        string assemblyId) =>
-        QueryPackageDependencies(
+        string targetFramework) =>
+        InspectPackageDependencies(
             packageId,
             version,
             targetFramework,
-            assemblyId,
             runtimeIdentifier: null);
 
     [JSExport]
-    public static async Task<string> QueryPackageDependencies(
+    public static async Task<string> InspectPackageDependencies(
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId,
         string? runtimeIdentifier)
     {
-        BrowserPackageDependencies dependencies = await PackageDependenciesAsync(
-            packageId,
-            version,
-            targetFramework,
-            assemblyId,
-            runtimeIdentifier);
+        BrowserPackageDependencyInspection inspection =
+            await PackageDependenciesAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier);
         return JsonSerializer.Serialize(
-            dependencies,
-            BrowserPackageJsonContext.Default.BrowserPackageDependencies);
+            inspection,
+            BrowserPackageJsonContext.Default
+                .BrowserPackageDependencyInspection);
     }
 
     /// <summary>
@@ -909,163 +904,58 @@ public static partial class PackageExports
             ]);
     }
 
-    static async Task<BrowserPackageDependencies> PackageDependenciesAsync(
+    static async Task<BrowserPackageDependencyInspection>
+        PackageDependenciesAsync(
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId,
         string? runtimeIdentifier)
     {
-        BrowserPackageCoordinate realizedCoordinate =
+        BrowserPackageCoordinate coordinate =
             await BrowserPackageWorkspace.ResolveAsync(
                 packageId,
                 version,
                 targetFramework,
                 runtimeIdentifier);
-        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
-                [realizedCoordinate],
-                CancellationToken.None);
-        BrowserInspectionScope scope = scopeLease.Scope;
-        BrowserPackageCoordinate coordinate =
-            scope.Coordinate(realizedCoordinate);
-        BrowserCompileLibraryAvailability compileLibrary =
-            BrowserPackageWireProjection.Project(
-                BrowserCompileLibraryProjection.Project(coordinate.Selection));
-
-        PackageDependencyEvidenceRoot dependencyEvidence =
-            await PackageDependencyEvidenceAsync(coordinate);
-        PackageDependencyEvidenceDeclarationResult.Available dependencies =
-            dependencyEvidence.Declaration
-                as PackageDependencyEvidenceDeclarationResult.Available
-                ?? throw new InvalidOperationException(
-                    "The package dependency declaration projection is unavailable.");
-
-        string? assembly = null;
-        BrowserAssemblyReferenceResult assemblyReferences;
-        if (coordinate.Selection.IsSelected)
-        {
-            PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
-            assembly = asset.AssemblyName;
-            BrowserWorkspaceParticipant participant =
-                scope.SurfaceParticipant(coordinate, asset);
-            AssemblyContextEntry<ImmutableArray<AssemblyReferenceRow>> referenceResult =
-                scope.UseSurfaceParticipant(
-                    participant,
-                    AssemblyContextReferencesQuery.ExecuteParticipantRows);
-
-            switch (referenceResult)
-            {
-                case AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceRow>>.Available available:
-                    BrowserAssemblyReference[] references =
-                    [
-                        .. available.Value
-                            .OrderBy(
-                                reference => reference.Name,
-                                StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(
-                                reference => reference.Version,
-                                StringComparer.Ordinal)
-                            .ThenBy(
-                                reference => reference.Culture,
-                                StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(
-                                reference => reference.PublicKeyToken,
-                                StringComparer.OrdinalIgnoreCase)
-                            .Select(reference => new BrowserAssemblyReference(
-                                reference.Name,
-                                reference.Version,
-                                reference.Culture,
-                                reference.PublicKeyToken)),
-                    ];
-                    assemblyReferences = new(new BrowserAssemblyReferenceList(references));
-                    break;
-                case AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceRow>>.Rejected rejected:
-                    AssemblyReferenceRowsRejection rejection =
-                        AssemblyContextReferencesQuery.GetRowsRejection(rejected);
-                    assemblyReferences = new(
-                        $"{rejection.Kind} ({rejection.Detail})");
-                    break;
-                case AssemblyContextEntry<
-                    ImmutableArray<AssemblyReferenceRow>>.Failed failed:
-                    assemblyReferences = new(failed.Error.Message);
-                    break;
-                default:
-                    throw new InvalidOperationException(
-                        "Unknown assembly-context reference query result.");
-            }
-        }
-        else
-        {
-            assemblyReferences = new(
-                compileLibrary.Message ?? "No compile library is available for this package.");
-        }
-
-        string? dependencyGroupError =
-            dependencyEvidence.Selection.Status
-                == PackageDependencyEvidenceSelectionStatus.NoMatchingTargetFramework
-                    ? "The manifest declares no dependency group for the active target framework."
-                    : null;
-        BrowserPackageDependencyDeclarationFailure[] declarationFailures =
-            ProjectDependencyDeclarationFailures(dependencies);
-        bool GroupIsComplete(PackageDependencyEvidenceGroup group) =>
-            !dependencies.Failures.Any(failure =>
-                DependencyDeclarationFailureBelongsToGroup(
-                    failure,
-                    group.Identity));
-        bool canSelectEmptyCompleteGroup =
-            dependencyEvidence.Selection.Status switch
-            {
-                PackageDependencyEvidenceSelectionStatus.NoDependencyGroups =>
-                    dependencies.Failures.IsEmpty,
-                PackageDependencyEvidenceSelectionStatus.Selected =>
-                    dependencies.Groups.Any(group =>
-                        group.Declarations.IsEmpty
-                        && GroupIsComplete(group)),
-                _ => false,
-            };
+        InspectionEnvelope<PackageDependencyInspectionOutcome> inspection =
+            await PackageDependencyInspectionOperation.ExecuteAsync(
+                new(
+                    coordinate.CreateInspectionInput(),
+                    coordinate.Framework,
+                    AllowCompatibleFallbackForRequestedTfm: true))
+                .ConfigureAwait(false);
         BrowserPackagePlatformReferenceProjection platformReferences =
-            BrowserPackagePlatformReferences.Project(realizedCoordinate);
-        return new BrowserPackageDependencies(
-                coordinate.PackageId,
-                coordinate.Version,
-                BrowserFrameworkText.Active(coordinate),
-                assembly,
-                [
-                    .. dependencies.Groups.Select((group, index) =>
-                        new BrowserPackageDependencyGroup(
-                            index,
-                            BrowserFrameworkText.DependencyGroup(
-                                group.FrameworkScope.SourceSpelling.ToString()),
-                            group.Identity
-                                == dependencyEvidence.Selection.SelectedGroup,
-                            GroupIsComplete(group),
-                            [
-                                .. group.Declarations.Select(dependency =>
-                                    new BrowserPackageDependency(
-                                        dependency.SourcePackageIdSpelling.ToString(),
-                                        dependency.SourceVersionConstraintSpelling.ToString())),
-                            ])),
-                ],
+            BrowserPackagePlatformReferences.Project(coordinate);
+        bool defaultReferenceEligible =
+            inspection.Content
+                is PackageDependencyInspectionOutcome.Available available
+            && (
+                available.Dependencies.SelectionStatus
+                    == PackageDependencyGroupSelectionStatus
+                        .NoDependencyGroups
+                || available.Dependencies
+                    is
+                    {
+                        SelectionStatus:
+                            PackageDependencyGroupSelectionStatus.Selected,
+                        SelectedGroup.Dependencies.IsEmpty: true,
+                    });
+        return new BrowserPackageDependencyInspection(
+                inspection,
                 [
                     .. platformReferences.References.Select(reference =>
                         new BrowserPackagePlatformReference(
                             reference.Family,
                             reference.Label)),
                 ],
-                canSelectEmptyCompleteGroup
-                    && platformReferences.DefaultReference is { } defaultReference
-                        ? new BrowserPackagePlatformReference(
-                            defaultReference.Family,
-                            defaultReference.Label)
-                        : null,
-                declarationFailures,
-                assemblyReferences,
-                dependencyGroupError,
-                platformReferences.Error,
-                compileLibrary);
+                defaultReferenceEligible
+                    && platformReferences.DefaultReference
+                        is { } defaultReference
+                    ? new BrowserPackagePlatformReference(
+                        defaultReference.Family,
+                        defaultReference.Label)
+                    : null,
+                platformReferences.Error);
     }
 
     private static async Task<
@@ -1136,86 +1026,6 @@ public static partial class PackageExports
             : throw new InvalidOperationException(
                 "One package dependency input must produce one normalized evidence root.");
     }
-
-    internal static BrowserPackageDependencyDeclarationFailure[]
-        ProjectDependencyDeclarationFailures(
-            PackageDependencyEvidenceDeclarationResult.Available declarations,
-            PackageDependencyEvidenceGroupIdentity? selectedGroup = null)
-    {
-        string? Framework(PackageDependencyEvidenceGroupIdentity group) =>
-            declarations.Groups
-                .FirstOrDefault(candidate => candidate.Identity == group)
-                ?.FrameworkScope.SourceSpelling.ToString();
-
-        return
-        [
-            .. declarations.Failures
-                .Where(failure =>
-                    selectedGroup is null
-                    || DependencyDeclarationFailureBelongsToGroup(
-                        failure,
-                        selectedGroup))
-                .Select(failure => failure switch
-                {
-                    PackageDependencyEvidenceDeclarationFailure
-                        .ConflictingPackageDeclaration conflicting =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .ConflictingPackageDeclaration,
-                                Framework(conflicting.Group),
-                                conflicting.CanonicalPackageId,
-                                conflicting.SourceOccurrenceCount),
-                    PackageDependencyEvidenceDeclarationFailure
-                        .InvalidPackageDeclaration invalid =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .InvalidPackageDeclaration,
-                                Framework(invalid.Group),
-                                Package: null,
-                                invalid.SourceOccurrenceCount),
-                    PackageDependencyEvidenceDeclarationFailure
-                        .RestoredProject =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .RestoredProject,
-                                Framework: null,
-                                Package: null,
-                                SourceOccurrenceCount: null),
-                    PackageDependencyEvidenceDeclarationFailure
-                        .AuthoredProject =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .AuthoredProject,
-                                Framework: null,
-                                Package: null,
-                                SourceOccurrenceCount: null),
-                    PackageDependencyEvidenceDeclarationFailure
-                        .AuthoredProjectUnresolvedSyntax =>
-                            new BrowserPackageDependencyDeclarationFailure(
-                                BrowserPackageDependencyDeclarationFailureKind
-                                    .AuthoredProjectUnresolvedSyntax,
-                                Framework: null,
-                                Package: null,
-                                SourceOccurrenceCount: null),
-                    _ => throw new InvalidOperationException(
-                        "Unknown dependency declaration failure."),
-                }),
-        ];
-    }
-
-    private static bool DependencyDeclarationFailureBelongsToGroup(
-        PackageDependencyEvidenceDeclarationFailure failure,
-        PackageDependencyEvidenceGroupIdentity selectedGroup) =>
-        failure switch
-        {
-            PackageDependencyEvidenceDeclarationFailure
-                .ConflictingPackageDeclaration conflicting =>
-                    conflicting.Group == selectedGroup,
-            PackageDependencyEvidenceDeclarationFailure
-                .InvalidPackageDeclaration invalid =>
-                    invalid.Group == selectedGroup,
-            _ => true,
-        };
 
     /// <summary>
     /// The UTF-8 text of one package-shipped Markdown document, identified by its exact package

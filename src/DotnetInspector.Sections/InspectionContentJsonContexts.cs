@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 
 namespace DotnetInspector.Sections;
@@ -12,8 +13,55 @@ namespace DotnetInspector.Sections;
         typeof(PackageRootReacquisitionRequestJsonConverter),
     ],
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(
+    typeof(PackageManifestDependencyFactsResult.Available),
+    TypeInfoPropertyName = "PackageManifestDependencyFactsAvailable")]
+[JsonSerializable(
+    typeof(PackageManifestDependencyFactsResult.Failed),
+    TypeInfoPropertyName = "PackageManifestDependencyFactsFailed")]
+[JsonSerializable(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Available),
+    TypeInfoPropertyName = "PackageManifestFrameworkReferenceFactsAvailable")]
+[JsonSerializable(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Failed),
+    TypeInfoPropertyName = "PackageManifestFrameworkReferenceFactsFailed")]
 [JsonSerializable(typeof(PackageQueryDocument))]
 public partial class PackageQueryJsonContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    Converters = [typeof(InertStringJsonConverter)],
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(
+    typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>))]
+[JsonSerializable(
+    typeof(PackageDependencyInspectionOutcome.Available),
+    TypeInfoPropertyName = "PackageDependencyInspectionAvailable")]
+[JsonSerializable(
+    typeof(PackageDependencyInspectionOutcome.NoManifest),
+    TypeInfoPropertyName = "PackageDependencyInspectionNoManifest")]
+[JsonSerializable(
+    typeof(PackageDependencyInspectionOutcome.Failed),
+    TypeInfoPropertyName = "PackageDependencyInspectionFailed")]
+[JsonSerializable(
+    typeof(PackageManifestDependencyFactsResult.Available),
+    TypeInfoPropertyName = "PackageManifestDependencyFactsAvailable")]
+[JsonSerializable(
+    typeof(PackageManifestDependencyFactsResult.Failed),
+    TypeInfoPropertyName = "PackageManifestDependencyFactsFailed")]
+[JsonSerializable(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Available),
+    TypeInfoPropertyName = "PackageManifestFrameworkReferenceFactsAvailable")]
+[JsonSerializable(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Failed),
+    TypeInfoPropertyName = "PackageManifestFrameworkReferenceFactsFailed")]
+[JsonSerializable(
+    typeof(PackageManifestFacts),
+    TypeInfoPropertyName = "PackageManifestFactsModel")]
+[JsonSerializable(
+    typeof(PackageDependencyGroups),
+    TypeInfoPropertyName = "PackageDependencyGroupsModel")]
+public partial class PackageDependencyInspectionJsonContext
+    : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(
     Converters = [typeof(InertStringJsonConverter)],
