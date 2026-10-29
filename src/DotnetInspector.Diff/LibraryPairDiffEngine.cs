@@ -26,22 +26,38 @@ internal static class LibraryPairDiffEngine
                 nameof(reuse));
         }
 
-        LibraryApiComparison Compute()
+        // The presentation is built only when the result carries it, a
+        // reuse hook retains it, or an incomplete pair needs its reason.
+        AssemblyContextApiComparisonResult CompareApi() =>
+            AssemblyContextApiComparisonQuery.Execute(
+                pair.BeforeGroup,
+                pair.Before,
+                pair.AfterGroup,
+                pair.After,
+                request.View,
+                request.Bounds,
+                request.TypeSelection);
+
+        AssemblyContextApiComparisonResult comparison;
+        LibraryApiDiffOutcome? libraryApi = null;
+        if (reuse is not null)
         {
-            AssemblyContextApiComparisonResult result =
-                AssemblyContextApiComparisonQuery.Execute(
-                    pair.BeforeGroup,
-                    pair.Before,
-                    pair.AfterGroup,
-                    pair.After,
-                    request.View,
-                    request.Bounds,
-                    request.TypeSelection);
-            return new(result, LibraryApiDiffPresentationAdapter.Create(result));
+            (comparison, libraryApi) = reuse(() =>
+            {
+                AssemblyContextApiComparisonResult computed = CompareApi();
+                return new(
+                    computed,
+                    LibraryApiDiffPresentationAdapter.Create(computed));
+            });
+        }
+        else
+        {
+            comparison = CompareApi();
         }
 
-        (AssemblyContextApiComparisonResult comparison, LibraryApiDiffOutcome libraryApi) =
-            reuse is null ? Compute() : reuse(Compute);
+        LibraryApiDiffOutcome LibraryApi() =>
+            libraryApi ??= LibraryApiDiffPresentationAdapter.Create(comparison);
+
         if (request.Selection is not { } selection)
         {
             return DiffAnalysisInspection.LibraryApiOnly(
@@ -49,16 +65,40 @@ internal static class LibraryPairDiffEngine
                 request.BeforeVersion,
                 request.AfterVersion,
                 request.Targets.Surface,
-                libraryApi);
+                LibraryApi());
         }
 
-        DiffAnalysisInput input = CreateInput(
-            request,
+        DiffAnalysisApiSource api =
+            comparison.Before.Surface is { } beforeSurface
+                && comparison.After.Surface is { } afterSurface
+                    ? new DiffAnalysisApiSource.Available(
+                        beforeSurface,
+                        afterSurface,
+                        comparison.Comparison)
+                    : new DiffAnalysisApiSource.Unavailable(
+                        LibraryApi() switch
+                        {
+                            LibraryApiDiffOutcome.Unavailable unavailable =>
+                                $"The selected Library API endpoint pair is incomplete "
+                                    + $"({unavailable.Kind}).",
+                            _ => "The selected Library API endpoint pair has no complete API surfaces.",
+                        });
+        DiffAnalysisInput input = DiffAnalysisInputBuilder.Create(
             selection,
-            pair,
+            api,
+            fromPaths: [],
+            toPaths: [],
+            DiffAnalysisTargets.FromExact(request.Targets),
+            request.StringLiteralQuery,
             content,
-            comparison,
-            libraryApi);
+            literal => StringLiteralComparisonQuery.ExecuteParticipants(
+                pair.BeforeGroup,
+                pair.Before,
+                pair.AfterGroup,
+                pair.After,
+                $"library:{request.Name}",
+                request.Name,
+                literal));
         return DiffAnalysisInspection.Execute(
             new DiffAnalysisInspectionRequest(
                 request.Name,
@@ -68,95 +108,6 @@ internal static class LibraryPairDiffEngine
                 selection,
                 input,
                 request.Views,
-                request.LibraryApi ? libraryApi : null));
-    }
-
-    static DiffAnalysisInput CreateInput(
-        LibraryPairDiffRequest request,
-        AnalysisSetValidationResult.Accepted selection,
-        DiffLibraryPair pair,
-        DiffPairContent content,
-        AssemblyContextApiComparisonResult comparison,
-        LibraryApiDiffOutcome libraryApi)
-    {
-        (IReadOnlySet<string> typeFilters,
-            IReadOnlyList<string> typeNames,
-            IReadOnlySet<string>? memberTargetIdentities) =
-            request.Targets switch
-            {
-                DiffTargets.Library => (
-                    (IReadOnlySet<string>)new HashSet<string>(StringComparer.Ordinal),
-                    (IReadOnlyList<string>)[],
-                    (IReadOnlySet<string>?)null),
-                DiffTargets.Types types => (
-                    new HashSet<string>(types.Names, StringComparer.Ordinal),
-                    types.Names,
-                    null),
-                DiffTargets.Members members => (
-                    new HashSet<string>(members.OwnerTypeNames, StringComparer.Ordinal),
-                    members.OwnerTypeNames,
-                    new HashSet<string>(members.Identities, StringComparer.Ordinal)),
-                _ => throw new InvalidOperationException(
-                    "Unknown Diff targets."),
-            };
-        Func<RetainedFindingComparisonSet>? prepareStringLiterals =
-            request.StringLiteralQuery is { } literal
-                ? () => StringLiteralComparisonQuery.ExecuteParticipants(
-                    pair.BeforeGroup,
-                    pair.Before,
-                    pair.AfterGroup,
-                    pair.After,
-                    $"library:{request.Name}",
-                    request.Name,
-                    literal)
-                : null;
-        if (comparison.Before.Surface is { } beforeSurface
-            && comparison.After.Surface is { } afterSurface)
-        {
-            return new DiffAnalysisInput(
-                beforeSurface,
-                afterSurface,
-                fromPaths: [],
-                toPaths: [],
-                typeFilters,
-                typeNames,
-                memberTargetIdentities,
-                prepareBodySignals: null,
-                prepareImplementation: null,
-                comparison.Comparison,
-                content.HostUnavailability,
-                request.StringLiteralQuery,
-                prepareStringLiterals);
-        }
-
-        string reason = libraryApi switch
-        {
-            LibraryApiDiffOutcome.Unavailable unavailable =>
-                $"The selected Library API endpoint pair is incomplete "
-                    + $"({unavailable.Kind}).",
-            _ => "The selected Library API endpoint pair has no complete API surfaces.",
-        };
-        DiffAnalysisHostUnavailability[] unavailableAnalyses =
-        [
-            .. selection.Analyses
-                .Where(analysis =>
-                    analysis.ParticipationFor(selection.Operation)
-                        ?.For(selection.Surface)
-                        ?.ProducerRoute
-                    != DiffAnalysisCatalog.StringLiteralRoute)
-                .Select(analysis =>
-                    new DiffAnalysisHostUnavailability(analysis.Id, reason)),
-        ];
-        return DiffAnalysisInput.WithoutApiSurfaces(
-            fromPaths: [],
-            toPaths: [],
-            typeFilters,
-            typeNames,
-            memberTargetIdentities,
-            prepareBodySignals: null,
-            prepareImplementation: null,
-            unavailableAnalyses,
-            request.StringLiteralQuery,
-            prepareStringLiterals);
+                request.LibraryApi ? LibraryApi() : null));
     }
 }

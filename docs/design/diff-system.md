@@ -50,8 +50,8 @@ duplicated per host. Only the pairwise producers and the analysis-set runner
 | Which versions to compare | Browser TypeScript (`resolveEffectiveDiffTarget` in `package-comparison-targets.ts`); the CLI's literal `A..B` (`DiffCommand`); CLI History (`DiffHistoryEvaluationPlan`) |
 | Which Libraries correspond | `PackageCompileAssetSelector.FindComparisonAsset` (browser exports); `LibraryApiChangesDiffAdapter` (`.Single()` per side); History's Type matching across all of a cell's assemblies; `CoordinateLibraryPairingQuery` |
 | How endpoints are acquired | Browser `BrowserPackageWorkspace.OpenScopeAsync`; CLI `ApiSurfaceEndpointResolver`; CLI `PackageEndpointDiffSession`; History `PackageHouseVersionPopulation.SelectCell` |
-| Which analyses run and how results combine | `DiffAnalysisInspection` (shared), with inputs built separately by the CLI (`RunAnalysisSet`) and the browser (through `DiffOperation.ExecuteLibraryPair`) |
-| Single-Library API Diff terminal | `DiffOperation.ExecuteLibraryPair`, from the browser and from CLI `diff` through `LibraryApiChangesDiffAdapter`, which projects `LibraryApi` through `LibraryApiChangesInspection` |
+| Which analyses run and how results combine | `DiffAnalysisInspection` (shared), with inputs built by the operation's one input builder from the browser (`DiffOperation.ExecuteLibraryPair`) and CLI `diff --analysis` (`DiffOperation.ExecuteSurfaceSetAsync`, over host-opened surfaces) |
+| Single-Library API Diff terminal | `DiffOperation.ExecuteLibraryPair`, from the browser and from CLI `diff` through `LibraryApiChangesDiffAdapter`; `DiffCommand.ExecuteLibraryApiChangesAsync` projects its `LibraryApi` through `LibraryApiChangesInspection` |
 | Which Member bodies to diff | Browser: `MemberBodyDiffInspection`; CLI: `ImplementationComparisonQuery` |
 | Iterating a version population | `DiffHistoryMethodology`, CLI only, evaluating each version on its own and lowered by the CLI host (`DiffHistoryOutput`); its orchestration now runs in `DiffOperation` |
 

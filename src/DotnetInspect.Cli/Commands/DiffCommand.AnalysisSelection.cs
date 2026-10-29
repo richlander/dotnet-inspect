@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspector.Diff;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -462,17 +463,19 @@ public partial class DiffCommand
         }
         return
         [
-            .. DiffAnalysisInspection.Execute(
-                    CreateAnalysisSetRequest(
-                        "Diff",
-                        fromPaths,
-                        toPaths,
-                        fromSurface,
-                        toSurface,
-                        fromVersion,
-                        toVersion,
-                        planned,
-                        plan))
+            .. RunAnalysisSetAsync(
+                    "Diff",
+                    fromPaths,
+                    toPaths,
+                    fromSurface,
+                    toSurface,
+                    fromVersion,
+                    toVersion,
+                    planned,
+                    plan,
+                    CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
                 .Content.Transitions
                 .GetValueOrDefault()
                 .Select(ToView),
@@ -498,11 +501,12 @@ public partial class DiffCommand
         InspectionEnvelope<DiffAnalysisDocument> Inspection);
 
     /// <summary>
-    /// Resolves request targets, runs every selected analysis's registered
-    /// producer once, and projects each outcome's transitions. A target
-    /// resolution failure throws before any producer runs.
+    /// Runs one analysis set through the diff operation over the endpoints'
+    /// host-opened surfaces. The operation resolves the <c>-t</c> and
+    /// <c>--member</c> targets, and a target resolution failure throws before
+    /// any producer runs; the CLI supplies its method-body readers.
     /// </summary>
-    static DiffAnalysisInspectionRequest CreateAnalysisSetRequest(
+    static ValueTask<InspectionEnvelope<DiffAnalysisDocument>> RunAnalysisSetAsync(
         string name,
         IReadOnlyList<string> fromPaths,
         IReadOnlyList<string> toPaths,
@@ -512,108 +516,64 @@ public partial class DiffCommand
         string toVersion,
         DiffOptions options,
         DiffAnalysisPlan plan,
+        CancellationToken cancellationToken,
         DiffBodyPopulation? bodies = null,
         ResearchComparison? exactBodySignals = null)
-    {
-        AnalysisSetValidationResult.Accepted selection = plan.Selection;
-        AnalysisReportSurfaceKind surface = selection.Surface;
-
-        // Member targets resolve once, before any producer runs, whatever the
-        // set: a target failure is a request failure, never an outcome.
-        ResolvedDiffMemberTargets? targets = null;
-        if (surface == AnalysisReportSurfaceKind.Member)
-        {
-            try
-            {
-                targets = ResolveMemberTargetIdentities(
+        => DiffOperation.ExecuteSurfaceSetAsync(
+            new SurfaceSetDiffRequest(
+                name,
+                fromVersion,
+                toVersion,
+                DiffAnalysisCommandCapability.Catalog,
+                plan.Selection,
+                DocumentViews(plan.Views),
+                new DiffTargetPatterns(
+                    options.TypeFilter,
+                    options.MemberFilter),
+                plan.StringLiteralQuery),
+            new DiffSurfaceSet(fromSurface, toSurface, fromPaths, toPaths),
+            new DiffPairContent(
+                hostUnavailability: [],
+                CreateBodyContent(
+                    name,
+                    fromPaths,
+                    toPaths,
                     fromSurface,
                     toSurface,
-                    options.MemberFilter,
-                    options.TypeFilter);
-            }
-            catch (InvalidOperationException ex)
-                when (ex is not DiffAnalysisTargetException)
-            {
-                throw new DiffAnalysisTargetException(ex.Message);
-            }
-        }
-        IReadOnlyList<string> typeNames = surface switch
-        {
-            AnalysisReportSurfaceKind.Type => DiffAnalysisTypeFilter.Resolve(
-                fromSurface,
-                toSurface,
-                options.TypeFilter),
-            AnalysisReportSurfaceKind.Member when targets is not null =>
-                [.. targets.TypeNames.Order(StringComparer.Ordinal)],
-            _ => [],
-        };
+                    options,
+                    plan.Selection.Surface,
+                    bodies,
+                    exactBodySignals)),
+            cancellationToken);
 
-        ImplementationDiffResult? implementation = null;
-        if (DiffAnalysisCatalog.RequiresImplementation(selection))
-        {
-            try
-            {
-                implementation = RequireImplementationComparison(
-                    ImplementationComparisonQuery.Execute(
-                        bodies is null
-                            ? CreateImplementationComparisonInput(
-                                fromPaths,
-                                toPaths,
-                                options,
-                                fromSurface,
-                                toSurface)
-                            : CreateImplementationComparisonInput(
-                                bodies,
-                                options,
-                                fromSurface,
-                                toSurface)),
-                    "--analysis");
-            }
-            catch (InvalidOperationException ex)
-                when (ex is not DiffAnalysisTargetException)
-            {
-                throw new DiffAnalysisTargetException(ex.Message);
-            }
-        }
-
+    /// <summary>
+    /// The CLI's method-body readers: a package endpoint scope's
+    /// implementation participants, or extracted files. Body signals return
+    /// the exact-allocation comparison when one was already run.
+    /// </summary>
+    static DiffBodyContent CreateBodyContent(
+        string name,
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        DiffOptions options,
+        AnalysisReportSurfaceKind surface,
+        DiffBodyPopulation? bodies,
+        ResearchComparison? exactBodySignals)
+    {
         // String literals read the same assemblies as the other body
         // analyses: a package endpoint scope's implementation participants,
         // or extracted files.
         DiffBodyPopulation literalPopulation = bodies
             ?? DiffBodyPopulation.FromPaths(fromPaths, toPaths, "string-literals");
         // The unsafe member census reads the same assemblies at both scopes.
-        bool comparesUnsafeMembers =
-            DiffAnalysisCatalog.RequiresUnsafeMemberComparison(selection);
         DiffBodyPopulation unsafeMemberPopulation = bodies
             ?? DiffBodyPopulation.FromPaths(fromPaths, toPaths, "unsafe-member");
-        List<DiffAnalysisHostUnavailability> hostUnavailability = [];
-        if (plan.StringLiteralQuery is not null
-            && (literalPopulation.From.Count == 0
-                || literalPopulation.To.Count == 0))
-        {
-            hostUnavailability.Add(new DiffAnalysisHostUnavailability(
-                new AnalysisDeclarationId("string-literals"),
-                "String-literal Diff requires Library assemblies "
-                    + "at both endpoints."));
-        }
-        if (comparesUnsafeMembers
-            && (unsafeMemberPopulation.From.Count == 0
-                || unsafeMemberPopulation.To.Count == 0))
-        {
-            hostUnavailability.Add(new DiffAnalysisHostUnavailability(
-                new AnalysisDeclarationId("unsafe-member"),
-                "Unsafe member Diff requires Library assemblies "
-                    + "at both endpoints."));
-        }
-        var input = new DiffAnalysisInput(
-            fromSurface,
-            toSurface,
-            fromPaths,
-            toPaths,
-            options.TypeFilter,
-            typeNames,
-            targets?.MemberIdentities,
-            descriptors => exactBodySignals
+        return new DiffBodyContent(
+            literalPopulation.From.Count,
+            literalPopulation.To.Count,
+            compareBodySignals: descriptors => exactBodySignals
                 ?? RequireBodySignalComparison(
                     BodySignalComparisonQuery.Execute(
                         bodies is null
@@ -632,36 +592,34 @@ public partial class DiffCommand
                                 descriptors)),
                     options,
                     "--analysis"),
-            implementation is null
-                ? null
-                : () => implementation,
-            hostUnavailability: hostUnavailability,
-            stringLiteralQuery: plan.StringLiteralQuery,
-            prepareStringLiterals: plan.StringLiteralQuery is { } literal
-                ? () => CompareStringLiterals(
-                    name,
-                    literalPopulation,
-                    options,
-                    literal)
-                : null,
-            prepareUnsafeMembers: comparesUnsafeMembers
-                ? () => CompareUnsafeMembers(
-                    name,
-                    unsafeMemberPopulation,
-                    options,
-                    surface,
-                    typeNames,
-                    fromSurface,
-                    toSurface)
-                : null);
-        return new DiffAnalysisInspectionRequest(
-            name,
-            fromVersion,
-            toVersion,
-            DiffAnalysisCommandCapability.Catalog,
-            selection,
-            input,
-            DocumentViews(plan.Views));
+            compareImplementation: () => RequireImplementationComparison(
+                ImplementationComparisonQuery.Execute(
+                    bodies is null
+                        ? CreateImplementationComparisonInput(
+                            fromPaths,
+                            toPaths,
+                            options,
+                            fromSurface,
+                            toSurface)
+                        : CreateImplementationComparisonInput(
+                            bodies,
+                            options,
+                            fromSurface,
+                            toSurface)),
+                "--analysis"),
+            compareStringLiterals: literal => CompareStringLiterals(
+                name,
+                literalPopulation,
+                options,
+                literal),
+            compareUnsafeMembers: typeNames => CompareUnsafeMembers(
+                name,
+                unsafeMemberPopulation,
+                options,
+                surface,
+                typeNames,
+                fromSurface,
+                toSurface));
     }
 
     /// <summary>
@@ -877,8 +835,8 @@ public partial class DiffCommand
             {
                 bool packageEndpoints = inputs.From.PackageScope is not null;
                 return Complete(
-                    await RunAsync(
-                        CreateAnalysisSetRequest(
+                    project(
+                        await RunAnalysisSetAsync(
                             inputs.Name,
                             packageEndpoints ? [] : inputs.FromPaths,
                             packageEndpoints ? [] : inputs.ToPaths,
@@ -888,8 +846,8 @@ public partial class DiffCommand
                             inputs.ToVersion,
                             options,
                             plan,
-                            exactBodySignals: exactBodySignals),
-                        cancellationToken));
+                            cancellationToken,
+                            exactBodySignals: exactBodySignals)));
             }
 
             // A package endpoint scope has no extracted files. An API-only set
@@ -897,8 +855,8 @@ public partial class DiffCommand
             // reads its implementation participants, and runs inside their
             // lifetime.
             InspectionEnvelope<T> run = inputs.From.PackageScope is null
-                ? await RunAsync(
-                    CreateAnalysisSetRequest(
+                ? project(
+                    await RunAnalysisSetAsync(
                         inputs.Name,
                         inputs.FromPaths,
                         inputs.ToPaths,
@@ -907,11 +865,11 @@ public partial class DiffCommand
                         inputs.FromVersion,
                         inputs.ToVersion,
                         options,
-                        plan),
-                    cancellationToken)
+                        plan,
+                        cancellationToken))
                 : DiffAnalysisCatalog.ReadsOnlyApiSurface(plan.Selection)
-                    ? await RunAsync(
-                        CreateAnalysisSetRequest(
+                    ? project(
+                        await RunAnalysisSetAsync(
                             inputs.Name,
                             [],
                             [],
@@ -920,12 +878,12 @@ public partial class DiffCommand
                             inputs.FromVersion,
                             inputs.ToVersion,
                             options,
-                            plan),
-                        cancellationToken)
+                            plan,
+                            cancellationToken))
                     : await WithBodyPopulationAsync(
                         inputs,
-                        (bodied, token) => RunAsync(
-                            CreateAnalysisSetRequest(
+                        async (bodied, token) => project(
+                            await RunAnalysisSetAsync(
                                 inputs.Name,
                                 [],
                                 [],
@@ -935,17 +893,10 @@ public partial class DiffCommand
                                 inputs.ToVersion,
                                 options,
                                 plan,
-                                bodied.Bodies),
-                            token),
+                                token,
+                                bodied.Bodies)),
                         cancellationToken);
             return Complete(run);
-
-            async ValueTask<InspectionEnvelope<T>> RunAsync(
-                DiffAnalysisInspectionRequest request,
-                CancellationToken token) =>
-                project(
-                    await DiffAnalysisCommandCapability.CompareBinding
-                        .ExecuteAsync(request, token));
 
             int Complete(InspectionEnvelope<T> completed)
             {
