@@ -89,7 +89,6 @@ public partial class CommandExecutionTests
     [InlineData("System.Text.Json.Serialization", "--platform", "System.Text.Json", "--mermaid")]
     [InlineData("System.Math", "--mermaid", "--member", "Abs")]
     [InlineData("System.Math", "--mermaid", "--schema", "--discover")]
-    [InlineData("--platform", "System.Private.CoreLib", "--mermaid")]
     [InlineData("System.Math*", "--platform", "System.Private.CoreLib", "--mermaid")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--match")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--json")]

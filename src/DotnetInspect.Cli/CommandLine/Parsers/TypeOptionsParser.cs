@@ -463,8 +463,7 @@ public static class TypeOptionsParser
         if (string.IsNullOrWhiteSpace(source.TypeName)
             && string.IsNullOrWhiteSpace(typeFilter)
             && sourceSelection.HasExplicitSource
-            && !opts.IsDiscoveryMode(parseResult)
-            && !mermaidExplicitlySet)
+            && !opts.IsDiscoveryMode(parseResult))
         {
             return new ShowHelp();
         }
