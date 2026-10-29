@@ -133,6 +133,11 @@ public partial class LibraryCommand
                     .ConfigureAwait(false);
             if (opened is PackageEndpointScopeOutcome.Failed failed)
             {
+                if (failed.Kind
+                    == PackageEndpointScopeFailureKind.NoCompatibleFramework)
+                {
+                    return null;
+                }
                 CommandError.Write(failed.Message);
                 return 1;
             }
@@ -149,6 +154,17 @@ public partial class LibraryCommand
 
             PackageEndpointParticipant selected =
                 scope.SurfaceParticipants[0];
+            string requestedLibrary = options.AssemblyName
+                ?? throw new InvalidOperationException(
+                    "An exact Package Library is required.");
+            if ((requestedLibrary.Contains('/')
+                    || requestedLibrary.Contains('\\'))
+                && !SelectedPathMatches(
+                    selected.Asset.Path,
+                    requestedLibrary))
+            {
+                return null;
+            }
             ArtifactRootResult<LibraryTypeListingResult?> execution =
                 await scope.UseSurfaceParticipantAsync(
                         selected,
@@ -187,6 +203,22 @@ public partial class LibraryCommand
             CommandError.Write(failure);
             return 1;
         }
+    }
+
+    static bool SelectedPathMatches(
+        string selectedPath,
+        string requestedPath)
+    {
+        string normalized = requestedPath.Replace('\\', '/');
+        if (!normalized.EndsWith(
+                ".dll",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            normalized += ".dll";
+        }
+        return selectedPath.Equals(
+            normalized,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static int WriteRejectedPackageNamespace(
