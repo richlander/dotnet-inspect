@@ -57,6 +57,12 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.NotNull(capture.TypeId);
         Assert.NotNull(capture.StableSelector);
         Assert.NotEqual("public", capture.Accessibility);
+        // The declaring Type a host projects when its Type list lacks it is
+        // the same exact Type, named by the Library's surface assembly.
+        BrowserPerformanceTypeSurface declaring = Assert.IsType<BrowserPerformanceTypeSurface>(
+            capture.DeclaringType);
+        Assert.Equal(capture.TypeId, declaring.DefinitionId);
+        Assert.Equal(result.Assembly, declaring.Assembly);
         Assert.Contains(
             capture.Items,
             static item => item.Role == "pointer dereference"
@@ -115,10 +121,22 @@ public sealed partial class BrowserEngineBoundaryTests
                 BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
 
         Assert.Contains(result.Outcome, new[] { "available", "incomplete" });
-        Assert.Equal(assemblyName, result.Assembly);
         Assert.Equal(
             CensusFindings(CensusOf(assemblyPath)).Length,
             result.Members.Length);
+
+        // Rows navigate into the Platform surface, whose Types carry the bare
+        // identity name rather than the file name.
+        BrowserPlatformProjectionInfo projection = BrowserPlatformSurfaceProjection.Project(
+            resolution.Scope, resolution.Participant, resolution.Coordinate);
+        Assert.Equal(Path.GetFileNameWithoutExtension(assemblyName), result.Assembly);
+        BrowserUnsafeMember[] navigable =
+            [.. result.Members.Where(static member => member.TypeId is not null)];
+        Assert.NotEmpty(navigable);
+        Assert.All(navigable, member =>
+            Assert.Equal(result.Assembly, member.DeclaringType?.Assembly));
+        Assert.Contains(navigable, member => projection.Surface.Types.Any(type =>
+            type.Assembly == result.Assembly && type.DefinitionId == member.TypeId));
     }
 
     [Fact]
@@ -133,7 +151,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 new AssemblyUnsafeMemberCensusResult(
                     new UnsafeMemberCensusQueryResult.Failed(new InvalidOperationException("census failed")),
                     System.Collections.Immutable.ImmutableDictionary<int, UnsafeMemberNavigation>.Empty,
-                    [])));
+                    [])),
+            static identity => new BrowserUnsafeMemberSurfaceNaming(identity.Name, identity.Name, null));
         Assert.Equal("failed", failed.Outcome);
         Assert.Equal("census failed", failed.InspectionError);
         Assert.Empty(failed.Members);
@@ -144,7 +163,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 new AssemblyUnsafeMemberCensusResult(
                     new UnsafeMemberCensusQueryResult.NoMetadata(),
                     System.Collections.Immutable.ImmutableDictionary<int, UnsafeMemberNavigation>.Empty,
-                    [])));
+                    [])),
+            static identity => new BrowserUnsafeMemberSurfaceNaming(identity.Name, identity.Name, null));
         Assert.Equal("unavailable", missing.Outcome);
         Assert.Empty(missing.Members);
     }

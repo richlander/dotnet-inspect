@@ -13381,9 +13381,12 @@ function selectedMemberUsesImplementationDeclaration(
         === typeMemberPopulationKey(type, "performance");
 }
 
+// An Analysis row names its declaring Type by assembly and definition id and
+// carries that Type's projection, so it opens even when the ordinary Type
+// list does not list the Type.
 function retainPerformanceNavigationType(
   pkg: AppPackage,
-  member: BrowserPerformanceMember,
+  member: Pick<BrowserPerformanceMember, "assembly" | "typeId" | "declaringType">,
 ): AppTypeSurface {
   const existing = resolvePackagePerformanceType(pkg, member);
   if (existing) return existing;
@@ -13424,17 +13427,24 @@ function drillToPerfMember(
 }
 
 // An Unsafe Members row names its declared member by the Library's complete
-// API surface, so it opens without any ranked Performance evidence. A
-// non-public member widens the member accessibility filter to show it.
+// API surface, so it opens without any ranked Performance evidence. A Type the
+// ordinary list omits opens as a transient Type, as Performance rows do.
 function drillToUnsafeMember(
   stableSelector: string,
   assembly: string,
   typeId: string,
-  accessibility: string,
 ) {
   performanceMemberBrowseContext = null;
   const pkg = currentPackage();
-  const targetType = resolvePackagePerformanceType(pkg, { assembly, typeId });
+  const row = state.packageUnsafeMembersKey === packageScopeSignature()
+    ? state.packageUnsafeMembers?.members.find(candidate =>
+        candidate.stableSelector === stableSelector
+        && candidate.typeId === typeId)
+    : undefined;
+  const declaringType = row?.declaringType;
+  const targetType = declaringType
+    ? retainPerformanceNavigationType(pkg, { assembly, typeId, declaringType })
+    : resolvePackagePerformanceType(pkg, { assembly, typeId });
   if (!targetType) {
     showToast("That unsafe member's Type is not in this Library's surface.");
     return;
@@ -13444,15 +13454,17 @@ function drillToUnsafeMember(
     stableSelector,
     pkg.isRuntimePack ? "overview" : "facts",
     undefined,
-    accessibility && accessibility !== "public" ? "all" : undefined);
+    false);
 }
 
+// Every Analysis drill widens to the Type's whole member population, so a
+// non-public member is listed.
 function drillToAnalysisMember(
   targetType: AppTypeSurface,
   stableSelector: string,
   section: MemberSection,
   resourceMethodToken?: number,
-  memberAccessibility?: MemberAccessibility,
+  usePerformanceBody = true,
 ) {
   const publication = ++performanceMemberNavigationSequence;
 
@@ -13464,7 +13476,6 @@ function drillToAnalysisMember(
   state.memberBrowseTypeId = "";
   state.namespaceFilter = "";
   resetMemberFilters();
-  if (memberAccessibility) state.memberAccessibilityFilter = memberAccessibility;
   setTypeMemberPopulationIntent("all", "csharp", "performance");
   state.lens = "api";
   state.selectedMemberKey = "";
@@ -13487,7 +13498,8 @@ function drillToAnalysisMember(
       expectedPopulationIntent,
       publication,
       section,
-      resourceMethodToken),
+      resourceMethodToken,
+      usePerformanceBody),
     "Loading the ranked Member");
 }
 
@@ -13499,6 +13511,7 @@ async function selectPerformanceMember(
   publication: number,
   section: MemberSection,
   resourceMethodToken?: number,
+  usePerformanceBody = true,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation(true);
   if (viewSignature() !== expectedView) return;
@@ -13525,7 +13538,7 @@ async function selectPerformanceMember(
       typeId: type.id,
       populationReceipt,
     };
-    const ranked = state.packagePerformanceKey === packageScopeSignature()
+    const ranked = usePerformanceBody && state.packagePerformanceKey === packageScopeSignature()
       ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
           && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
       : null;
@@ -14918,8 +14931,7 @@ const packageViewActions: PackageViewBindingActions = {
     drillToUnsafeMember(
       target.stableSelector,
       target.assembly,
-      target.typeId,
-      target.accessibility);
+      target.typeId);
   },
 };
 

@@ -995,6 +995,7 @@ export interface BrowserUnsafeMember {
   readonly typeId: string | null;
   readonly stableSelector: string | null;
   readonly accessibility: string | null;
+  readonly declaringType: BrowserPerformanceTypeSurface | null;
   readonly items: ReadonlyArray<BrowserUnsafeMemberEvidence>;
 }
 

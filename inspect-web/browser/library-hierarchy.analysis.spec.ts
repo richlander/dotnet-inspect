@@ -1521,10 +1521,13 @@ test("Unsafe rows show census evidence and open the declared member's Safety Fac
   const member = page.locator(".unsafe-member");
   await expect(member).toHaveCount(1);
   await expect(member.locator(".unsafe-member-evidence")).toHaveText("pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add");
-  await expect(member).not.toContainText("IL_0007");
+  // Contributing evidence stays collapsed until its summary opens it.
+  const items = member.locator(".unsafe-member-items ul");
+  await expect(items).not.toBeVisible();
   await member.locator("summary").click();
-  await expect(member).toContainText("IL_0007");
-  await expect(member).toContainText("<Run>b__0_0()");
+  await expect(items).toBeVisible();
+  await expect(items).toContainText("IL_0007");
+  await expect(items).toContainText("<Run>b__0_0()");
   await member.locator("button.unsafe-member-name").click();
   await expect(inspectorTab(page, "data-member-section", "facts")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#member-surface-title")).toHaveText("Run");

@@ -24,6 +24,9 @@ public sealed record BrowserUnsafeMembers(
 /// <summary>
 /// One declared member's finding: the row the CLI section shows, its
 /// navigation identity when the API surface resolves it, and its evidence.
+/// <see cref="DeclaringType"/> is the declaring Type as the Library's ordinary
+/// Type list would project it, so a host opens the member as a transient Type
+/// when that list does not carry it, as Performance rows do.
 /// </summary>
 public sealed record BrowserUnsafeMember(
     string Member,
@@ -35,7 +38,17 @@ public sealed record BrowserUnsafeMember(
     string? TypeId,
     string? StableSelector,
     string? Accessibility,
+    BrowserPerformanceTypeSurface? DeclaringType,
     BrowserUnsafeMemberEvidence[] Items);
+
+/// <summary>
+/// How a host's ordinary Type list names the Library, so a row's navigation
+/// identity and transient Type match the Types that list carries.
+/// </summary>
+internal sealed record BrowserUnsafeMemberSurfaceNaming(
+    string Assembly,
+    string AssemblyId,
+    string? PlatformPack);
 
 /// <summary>One contributing evidence item and the physical body that produced it.</summary>
 public sealed record BrowserUnsafeMemberEvidence(
@@ -67,17 +80,17 @@ public static partial class AnalysisExports
         else
         {
             BrowserWorkspaceParticipant participant = scope.LibraryParticipant(coordinate, assemblyName);
+            // Rows navigate into the Library's API surface, which names the assembly.
+            BrowserWorkspaceParticipant surface =
+                scope.TryGetSurfaceParticipant(participant) ?? participant;
             result = scope.ImplementationParticipants.Contains(participant)
-                ? ProjectUnsafeMembers(scope.UseImplementationParticipant(
-                    participant, AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant))
+                ? ProjectUnsafeMembers(
+                    scope.UseImplementationParticipant(
+                        participant, AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant),
+                    _ => new BrowserUnsafeMemberSurfaceNaming(
+                        surface.Asset.AssemblyName, surface.Asset.Id, PlatformPack: null))
                 : UnsafeMembersUnavailable(
                     "unavailable", "The selected library has no managed implementation assembly.");
-            // Rows navigate into the Library's API surface, which names the assembly.
-            result = result with
-            {
-                Assembly = scope.TryGetSurfaceParticipant(participant)?.Asset.AssemblyName
-                    ?? participant.Asset.AssemblyName,
-            };
         }
         return JsonSerializer.Serialize(result, BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers);
     }
@@ -91,21 +104,29 @@ public static partial class AnalysisExports
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework, platformVersion, assemblyFileName, pack))
         {
-            result = ProjectUnsafeMembers(resolution.Scope.UseParticipant(
-                resolution.Participant,
-                static (group, participant) =>
-                    AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant(group, participant)))
-                with { Assembly = assemblyFileName };
+            // Platform Types carry the bare identity name as both assembly and id.
+            string? platformPack = string.IsNullOrWhiteSpace(pack) ? null : pack;
+            result = ProjectUnsafeMembers(
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    static (group, participant) =>
+                        AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant(group, participant)),
+                identity => new BrowserUnsafeMemberSurfaceNaming(
+                    identity.Name, identity.Name, platformPack));
         }
         return JsonSerializer.Serialize(result, BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers);
     }
 
     internal static BrowserUnsafeMembers ProjectUnsafeMembers(
-        AssemblyContextEntry<AssemblyUnsafeMemberCensusResult> entry) =>
+        AssemblyContextEntry<AssemblyUnsafeMemberCensusResult> entry,
+        Func<AssemblyReferenceIdentity, BrowserUnsafeMemberSurfaceNaming> naming) =>
         entry switch
         {
             AssemblyContextEntry<AssemblyUnsafeMemberCensusResult>.Available available =>
-                ProjectUnsafeMembers(available.Subject.Identity, available.Value),
+                ProjectUnsafeMembers(
+                    available.Subject.Identity,
+                    available.Value,
+                    naming(available.Subject.Identity)),
             AssemblyContextEntry<AssemblyUnsafeMemberCensusResult>.Rejected rejected =>
                 UnsafeMembersUnavailable("rejected", rejected.Failure.Detail),
             AssemblyContextEntry<AssemblyUnsafeMemberCensusResult>.Failed failed =>
@@ -115,7 +136,8 @@ public static partial class AnalysisExports
 
     static BrowserUnsafeMembers ProjectUnsafeMembers(
         AssemblyReferenceIdentity identity,
-        AssemblyUnsafeMemberCensusResult content)
+        AssemblyUnsafeMemberCensusResult content,
+        BrowserUnsafeMemberSurfaceNaming naming)
     {
         UnsafeMemberFindingInspection inspection;
         switch (content.Census)
@@ -138,9 +160,9 @@ public static partial class AnalysisExports
         return inspection switch
         {
             UnsafeMemberFindingInspection.Complete complete =>
-                new("available", "", Rows(complete.Inspection, content), [], null),
+                new("available", naming.Assembly, Rows(complete.Inspection, content, identity, naming), [], null),
             UnsafeMemberFindingInspection.Incomplete incomplete =>
-                new("incomplete", "", Rows(incomplete.Inspection, content),
+                new("incomplete", naming.Assembly, Rows(incomplete.Inspection, content, identity, naming),
                     [.. incomplete.Limitations.Select(static limitation =>
                         limitation.Describe(UnsafeMemberMethodLabel))],
                     null),
@@ -153,7 +175,9 @@ public static partial class AnalysisExports
     // Rows in the CLI section's order: the rendered member, then its token.
     static BrowserUnsafeMember[] Rows(
         Inspector.Findings.FindingInspection<UnsafeMemberFinding>.Complete inspection,
-        AssemblyUnsafeMemberCensusResult content) =>
+        AssemblyUnsafeMemberCensusResult content,
+        AssemblyReferenceIdentity identity,
+        BrowserUnsafeMemberSurfaceNaming naming) =>
         [
             .. inspection.Findings
                 .Select(static finding => finding.Payload)
@@ -176,6 +200,16 @@ public static partial class AnalysisExports
                         navigation?.Type,
                         navigation?.StableSelector,
                         navigation?.Accessibility,
+                        navigation is null
+                            ? null
+                            : BrowserAnalysisWireProjection.Project(BrowserSurfaceProjection.Type(
+                                navigation.DeclaringType,
+                                naming.Assembly,
+                                naming.AssemblyId,
+                                identity.Name,
+                                qualifyId: true,
+                                platformPack: naming.PlatformPack,
+                                selectedMembers: [])),
                         [.. finding.Evidence.Select(static evidence => new BrowserUnsafeMemberEvidence(
                             UnsafeMemberFindingSummary.RoleText(evidence.Kind),
                             UnsafeMemberMethodLabel(evidence.Body),
@@ -184,8 +218,10 @@ public static partial class AnalysisExports
                 }),
         ];
 
+    // The CLI section's member spelling: the shared analysis member format
+    // with no method type arguments.
     static string UnsafeMemberMethodLabel(MethodIdentity method) =>
-        $"{method.DeclaringType.ToQualifiedDisplayString()}.{method.Name}({string.Join(", ", method.ParameterTypes.Select(static parameter => parameter.ToQualifiedDisplayString()))})";
+        FormatAnalysisMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
 
     static BrowserUnsafeMembers UnsafeMembersUnavailable(string outcome, string error) =>
         new(outcome, "", [], [], error);

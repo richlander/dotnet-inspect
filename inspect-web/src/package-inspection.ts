@@ -105,7 +105,7 @@ export function resolvePackagePerformanceType(
 }
 
 export function projectPackagePerformanceType(
-  performanceMember: BrowserPerformanceMember,
+  performanceMember: Pick<BrowserPerformanceMember, "declaringType">,
 ): AppTypeSurface {
   return createAppTypeSurface({
     ...performanceMember.declaringType,

@@ -34,6 +34,7 @@ import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPerformanceMember,
+  BrowserUnsafeMember,
 } from "../src/facades/inspect-web-analysis.d.ts";
 import type { PackageMetadata } from "../src/metadata-viewer.ts";
 import {
@@ -436,6 +437,59 @@ test(
       projectPackagePerformanceType(performance),
       { ...type, api: [] });
     assert.deepEqual(packageItem.types, []);
+  });
+
+function unsafeRow(type: AppTypeSurface, stableSelector: string): BrowserUnsafeMember {
+  return {
+    member: `${type.definitionId}.Bounds()`,
+    metadataToken: 0x06001000,
+    exposure: "Non-public",
+    explicitContract: false,
+    evidence: "pointer dereference",
+    partial: false,
+    typeId: type.definitionId,
+    stableSelector,
+    accessibility: "internal",
+    declaringType: performanceDeclaringType(type),
+    items: [],
+  };
+}
+
+test(
+  "an Unsafe row on a Type the ordinary list omits opens it as a transient Type",
+  () => {
+    const member = performanceMember();
+    const type = performanceType(member);
+    const packageItem: AppPackage = packageModel({ types: [] });
+    const row = unsafeRow(type, member.stableSelector);
+
+    assert.equal(
+      resolvePackagePerformanceType(packageItem, { assembly: type.assembly, typeId: row.typeId ?? "" }),
+      null);
+    const projected = projectPackagePerformanceType({ declaringType: row.declaringType! });
+    assert.deepEqual(projected, { ...type, api: [] });
+    assert.equal(projected.definitionId, row.typeId);
+    assert.deepEqual(packageItem.types, []);
+  });
+
+test(
+  "a Platform Unsafe row names its assembly as the Platform surface Types do",
+  () => {
+    const member = performanceMember();
+    const type = { ...performanceType(member), assembly: "System.Fixture" };
+    const packageItem: AppPackage = packageModel({ types: [type] });
+    const row = unsafeRow(type, member.stableSelector);
+
+    assert.equal(
+      resolvePackagePerformanceType(
+        packageItem,
+        { assembly: row.declaringType!.assembly, typeId: row.typeId ?? "" }),
+      type);
+    assert.equal(
+      resolvePackagePerformanceType(
+        packageItem,
+        { assembly: "System.Fixture.dll", typeId: row.typeId ?? "" }),
+      null);
   });
 
 function metadataResult(): PackageMetadata {

@@ -1304,7 +1304,16 @@ only how it presents them.
   - The tab is ungraded: there's no severity, risk, or recommendation.
 - **Navigation.** A row whose member the Library's all-accessibility API
   surface resolves links to that exact member.
-  - A non-public member widens the member accessibility filter so it's listed.
+  - The row names its Type the way the Library's ordinary Type list does. That
+    is the asset's assembly name for a package, and the bare identity name for
+    a Platform Library.
+  - When the ordinary list doesn't carry the Type, the row opens it as a
+    transient Type from the projection the row carries, as Performance rows
+    do. Examples are a Type hidden from the API surface, or an internal Type
+    missing from a reference asset.
+  - Every drill widens to the Type's whole member population, so a non-public
+    member is listed. An Unsafe drill doesn't select a body from Performance
+    evidence.
   - Packages open Member Safety Facts. Platform Libraries open the member
     overview, because Platform Member Facts isn't available.
   - A row the surface can't resolve renders without a link and keeps its

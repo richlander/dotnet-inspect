@@ -15,6 +15,7 @@ const member: BrowserUnsafeMember = {
   typeId: "Fixture.Sample",
   stableSelector: "Read~abc",
   accessibility: "private",
+  declaringType: null,
   items: [
     { role: "pointer dereference", body: "Fixture.Sample.<Read>b__0_0()", ilOffset: 7, detail: "ldind.i4" },
     { role: "explicit-contract call", body: "Fixture.Sample.Read(Int32)", ilOffset: 18, detail: "System.Runtime.CompilerServices.Unsafe::Add" },

@@ -860,7 +860,7 @@ test("typed package view owns package navigation bindings", () => {
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId, target\.resourceMethodToken\)/);
   assert.match(
     binding,
-    /onUnsafeMemberSelect: target => \{[\s\S]*drillToUnsafeMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId,\s*target\.accessibility\)/);
+    /onUnsafeMemberSelect: target => \{[\s\S]*drillToUnsafeMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
   assert.match(
     functionSource("drillToPerfMember"),
     /drillToAnalysisMember\(\s*retainPerformanceNavigationType\(pkg, ranked\),\s*stableSelector,\s*resourceMethodToken === undefined \? "facts" : "resource-triage",\s*resourceMethodToken\)/);
@@ -869,7 +869,7 @@ test("typed package view owns package navigation bindings", () => {
     /resolvePackagePerformanceType\(pkg, \{ assembly, typeId \}\)[\s\S]*drillToAnalysisMember\(/);
   assert.match(
     functionSource("drillToAnalysisMember"),
-    /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*section,\s*resourceMethodToken\)/);
+    /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*section,\s*resourceMethodToken,\s*usePerformanceBody\)/);
   assert.match(
     appSource,
     /implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\)/);

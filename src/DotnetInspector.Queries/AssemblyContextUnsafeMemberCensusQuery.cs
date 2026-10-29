@@ -6,13 +6,16 @@ namespace DotnetInspector.Queries;
 
 /// <summary>
 /// The navigation identity of one declared member: its type, member name,
-/// stable selector, and accessibility on the Library's complete API surface.
+/// stable selector, and accessibility on the Library's complete API surface,
+/// with the declaring type a host projects when its ordinary type list does
+/// not carry it.
 /// </summary>
 public sealed record UnsafeMemberNavigation(
     string Type,
     string Member,
     string StableSelector,
-    string? Accessibility);
+    string? Accessibility,
+    ApiType DeclaringType);
 
 /// <summary>
 /// One participant's unsafe member census, with each declared member's
@@ -66,7 +69,8 @@ public static class AssemblyContextUnsafeMemberCensusQuery
                     AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type),
                     member.Name,
                     ApiMemberIdentity.GetMemberAnchor(type, member).StableSelector,
-                    member.Accessibility);
+                    member.Accessibility,
+                    type);
                 foreach (var selector in CallGraphMemberResolver.CreateBodySelectors(type, member))
                     members.TryAdd(selector.BodyToken, navigation);
             }
