@@ -2862,7 +2862,7 @@ public partial class CommandExecutionTests
         // The type listing's lone Table streams TSV too, through the deferred
         // listing path.
         var (listingExit, listing, listingError) = await RunAppAsync(
-            "type", "--library", TestAssemblyPath, "-S", SectionNames.Classes);
+            "type", "-t", "*", "--library", TestAssemblyPath, "-S", SectionNames.Classes);
 
         Assert.Equal(0, listingExit);
         Assert.Empty(listingError);
@@ -2884,7 +2884,7 @@ public partial class CommandExecutionTests
         Assert.Contains("Section 'Type Info' is scalar and does not support --count", countError);
 
         var (rowsExit, _, rowsError) = await RunAppAsync(
-            "type", "--library", TestAssemblyPath, "-S", SectionNames.ApiInfo, "--rows", "1");
+            "type", "-t", "*", "--library", TestAssemblyPath, "-S", SectionNames.ApiInfo, "--rows", "1");
 
         Assert.Equal(1, rowsExit);
         Assert.Contains("Section 'API Info' is scalar and does not support --rows", rowsError);

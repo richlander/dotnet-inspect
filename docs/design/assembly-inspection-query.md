@@ -1388,9 +1388,11 @@ slice; the reproductions above establish motivation, not a fixed product.
 The exact-Library API operation answers one question: for one acquisition-bound
 package Root and one selected compile asset in its surface-role realization,
 what bounded public API is available? This is the single host-neutral semantic
-path for the existing CLI `type --package ... --library ...` listing and Inspect
-Web Library Overview. It does not add API ownership or output to the `library`
-command.
+path for the retained internal CLI Library-listing adapter and Inspect Web
+Library Overview. The former public `type --package ... --library ...`
+entrance without a Type selector is rejected under
+[Type target admission](../cli-architecture.md#type-target-admission).
+It does not add API ownership or output to the `library` command.
 
 An `ExactLibraryApiInspectionRequest` identifies an exact package id and
 version, one requested TFM other than `all`, and a Library selection. CLI
