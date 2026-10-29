@@ -58,6 +58,8 @@ public readonly struct StagedSymbolKey<TDomain> : IEquatable<StagedSymbolKey<TDo
 
     public TDomain Kind => SymbolKeyDomain.FromMarker<TDomain>(Bytes[0]);
 
+    internal SymbolKeyPartReader<TDomain> Parts => new(Bytes);
+
     public bool Equals(StagedSymbolKey<TDomain> other) => Bytes.SequenceEqual(other.Bytes);
 
     /// <summary>Copies the key's bytes, <see cref="Length"/> of them, into <paramref name="destination"/>.</summary>
