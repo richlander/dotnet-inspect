@@ -111,6 +111,40 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
     }
 
+#if DEBUG
+    [JSExport]
+    public static async Task<string> QueryPackageSummaryWithEvidence(
+        string packageId,
+        string version,
+        string targetFramework,
+        string runtimeIdentifier = "")
+    {
+        BrowserPackageSummaryEvidenceResult result =
+            await PackageSummaryWithEvidenceAsync(
+                packageId, version, targetFramework, runtimeIdentifier);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageSummaryEvidenceResult);
+    }
+#endif
+
+    internal static async Task<BrowserPackageSummaryEvidenceResult> PackageSummaryWithEvidenceAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string runtimeIdentifier = "")
+    {
+        EvidenceInspectionEnvelope<PackageVersionSettlementOutcome, PackageAcquisitionEvidence>? evidence = null;
+        BrowserPackageLoadResult result = await PackageLoadAsync(
+            packageId, version, targetFramework, runtimeIdentifier, includeSurface: false,
+            exactLibraryId: null,
+            capture: realization => evidence = BrowserPackageSummaryEvidence.Capture(realization));
+        return new(
+            result,
+            BrowserPackageWireProjection.Project(evidence
+                ?? throw new InvalidOperationException("Browser Summary did not issue its acquisition evidence.")));
+    }
+
     [JSExport]
     public static async Task<string> QueryPackageRoot(string rootRequest)
     {
@@ -169,7 +203,8 @@ public static partial class PackageExports
         string targetFramework,
         string runtimeIdentifier,
         bool includeSurface,
-        string? exactLibraryId)
+        string? exactLibraryId,
+        Action<BrowserPackageRealizationResult>? capture = null)
     {
         BrowserPackageRealizationResult result =
             includeSurface && exactLibraryId is null
@@ -183,6 +218,7 @@ public static partial class PackageExports
                     version,
                     targetFramework,
                     runtimeIdentifier);
+        capture?.Invoke(result);
         if (result is BrowserPackageRealizationResult.NotSettled notSettled)
         {
             return new(

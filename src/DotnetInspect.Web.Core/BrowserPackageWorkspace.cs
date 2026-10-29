@@ -101,6 +101,9 @@ internal abstract record BrowserPackageRealizationResult
 {
     private BrowserPackageRealizationResult() { }
 
+    internal PackageHouseAcquisitionReceipt? Acquisition { get; init; }
+    internal BrowserPackageRealizationResult? Continuation { get; init; }
+
     internal sealed record Realized(BrowserPackageRealization Realization)
         : BrowserPackageRealizationResult;
 
@@ -1038,7 +1041,10 @@ internal static class BrowserPackageWorkspace
                 return new BrowserPackageRealizationResult.NotSettled(
                     PackageVersionSettlementInspection.ProjectAcquisitionFailure(
                         settled.Result.Request,
-                        houseSettlement.Result));
+                        houseSettlement.Result))
+                {
+                    Acquisition = houseSettlement.Result.Evidence.Acquisition,
+                };
             }
 
             string message = "Package realization did not acquire the settled package "
@@ -1127,7 +1133,11 @@ internal static class BrowserPackageWorkspace
             if (selectedResult
                 is not BrowserPackageRealizationResult.Realized selectedRealized)
             {
-                return selectedResult;
+                return selectedResult with
+                {
+                    Acquisition = acquired.Result.Evidence.Acquisition,
+                    Continuation = selectedResult,
+                };
             }
 
             BrowserPackageRealization explicitRealization =
@@ -1162,7 +1172,11 @@ internal static class BrowserPackageWorkspace
                 };
             }
             return new BrowserPackageRealizationResult.Realized(
-                selectedRealization);
+                selectedRealization)
+            {
+                Acquisition = acquired.Result.Evidence.Acquisition,
+                Continuation = selectedResult,
+            };
         }
         var coordinate = new BrowserPackageCoordinate(
             package,
@@ -1182,7 +1196,10 @@ internal static class BrowserPackageWorkspace
         {
             Cache[key] = Cache[key] with { Realization = realization };
         }
-        return new BrowserPackageRealizationResult.Realized(realization);
+        return new BrowserPackageRealizationResult.Realized(realization)
+        {
+            Acquisition = acquired.Result.Evidence.Acquisition,
+        };
     }
 
     private static bool RequiresRuntimePopulationMaterialization(
