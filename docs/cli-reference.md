@@ -2657,6 +2657,37 @@ dotnet-inspect match System.String.IsNullOrEmpty --similar --library ./System.Ru
 Comparing candidates drawn from two different assemblies is not supported;
 inspect each side on its own.
 
+### Supplied Project documents
+
+```bash
+dotnet-inspect depends --project-document ./App.csproj
+dotnet-inspect depends --project-document ./App.csproj --envelope
+dotnet-inspect depends --project-document ./obj/project.assets.json \
+  --tfm net11.0 --json
+dotnet-inspect depends --project-document ./obj/project.assets.json \
+  -S "Restored Packages" --tsv
+dotnet-inspect depends --project-document ./App.csproj -D
+```
+
+`--project-document` reads only the named `.csproj` or `project.assets.json`.
+It does not look for adjacent assets, evaluate MSBuild, restore, or acquire
+dependencies. Authored constraints and versionless declarations remain syntax
+evidence, not resolved versions; central versions and imported properties
+can make that evidence incomplete. `--tfm` applies only to restored assets.
+Existing `depends --project <path>` retains its restored-assets lookup, and
+the `project` command still inspects package-authored documents.
+
+The default is the Dependencies table. Use `-S` or `-D` for Dependencies,
+Restored Packages, and Failures; Table, TSV, and JSONL require one section.
+Unprojected `--json` retains the complete shared Project input, including
+typed provider outcomes, original declarations, limitations, and failures.
+`--envelope` adds the nonprojectable Share outcome and diagnostics.
+Incomplete, unavailable, partial, and failed results retain usable output but
+return nonzero with a stderr diagnostic, regardless of selected section.
+Authored files are bounded to 1 MiB and assets files to 4 MiB by their
+existing producers. Other roots, enrichment, traversal controls, row
+selection, Count, and Share cannot be combined with this gesture.
+
 ### Relationships and graphs
 
 ```bash

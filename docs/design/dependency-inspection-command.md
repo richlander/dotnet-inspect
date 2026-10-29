@@ -98,6 +98,59 @@ The command may adapt those facts into one presentation-neutral dependency
 document. It must not parse artifact text, reconstruct owner identity from
 labels, or create a second dependency-normalization model.
 
+## Supplied Project documents
+
+The explicit `depends --project-document <file>` gesture adopts
+`ProjectInputInspection` under #10515, the sixth and final slice of #10478.
+The operator selected this spelling rather than changing `project <path>`.
+It inspects exactly one supplied `.csproj` or `project.assets.json`, consuming
+the same `InspectionEnvelope<ProjectInputDocument>` as Inspect Web. Existing
+`--project` roots and search scopes retain their restored-assets lookup;
+the existing `project` package-document command is unchanged.
+
+The CLI owns bounded file acquisition, presentation, and exit policy.
+The shared inspection owns parsing, target selection, normalized evidence,
+and traversal. There is no neighboring-file discovery, MSBuild evaluation,
+restore, source inference, or dependency acquisition. `--tfm` requests an
+exact restored target through the shared owner and is invalid for authored
+syntax. Other roots, traversal/enrichment gestures, row selection, Count,
+and portable Share cannot be combined with this whole-input gesture.
+
+The supplied document is already bounded and completed before presentation.
+Its shared section catalog exposes Dependencies, Restored Packages, and
+Failures; section selection and verbosity affect presentation, not parsing
+or the retained result. The ordinary default selects the Dependencies table.
+Explicit Markdown composes its typed tables with input-basis and completion
+context; Table, TSV, and JSONL require one selected section. No hierarchy is
+fabricated for authored constraints.
+
+Unprojected JSON preserves the complete Project input content.
+`--envelope` additionally retains the shared nonprojectable Share outcome and
+diagnostics, using result kind `project-input`, schema version 1. CLI JSON
+metadata preserves every closed provider outcome and its payload, including
+authored limitations/conditions and restored declaration, graph, pruning,
+and traversal failures. A base-only serialization is not an accepted
+projection. Human output uses Markout, not a second semantic model.
+
+Available authored syntax is successful but is never described as evaluated
+or restored. Incomplete authored facts, unavailable restored traversal,
+partial or failed phases, and retained failures produce usable output with
+a visible stderr diagnostic and nonzero exit status, independent of selected
+presentation. Acquisition failures produce a visible error without claiming
+an inspection result. Cancellation propagates.
+
+The motivating real source is
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at
+`bebfab236a6a3061bc74c53d22067acb86050afc`, already recorded by
+[Project input inspection](project-input-inspection.md#real-input-and-evidence):
+its imported target framework and centrally versioned declarations cannot be
+resolved from supplied XML alone. CLI outcome tests retain that shape beside
+the existing restored-project fixture and a Newtonsoft.Json 13.0.3 control,
+including an adjacent assets file that must not alter authored inspection.
+They gate actual parser-to-output execution, typed available, incomplete,
+unavailable, partial, and failed payloads, malformed/oversized input, format
+lowering, discovery, rejected mixed gestures, and unchanged locator behavior.
+
 ## User purpose
 
 The two former commands divided one user question along an implementation

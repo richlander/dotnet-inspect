@@ -786,7 +786,7 @@ public static class ArgumentPreprocessor
     };
     private static readonly HashSet<string> OptionsWithFollowingValue = new(StringComparer.OrdinalIgnoreCase)
     {
-        "-w", "--package", "--library", "--assembly", "--project", "--bin", "--directory",
+        "-w", "--package", "--library", "--assembly", "--project", "--project-document", "--bin", "--directory",
         "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
         "--caller-package", "--caller-project", "--match", "--path",
