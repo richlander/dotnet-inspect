@@ -173,6 +173,8 @@ public static class ApiMemberSectionDescriptors
             .Add<Properties>()
             .Add<MethodGroups>()
             .Add<Methods>(HasMethods)
+            .Add<Members>()
+            .Add<DocumentedMembers>()
             .Add<MemberIndex>()
             .Add<Operators>(HasOperators)
             .Add<ExplicitInterfaceImplementations>(HasExplicitInterfaceImplementations)
@@ -377,6 +379,28 @@ public static class ApiMemberSectionDescriptors
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(ApiType model)
             => HasMethods(model);
+    }
+
+    public sealed class Members : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Members;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model) => true;
+    }
+
+    public sealed class DocumentedMembers : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.DocumentedMembers;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model) => true;
     }
 
     public sealed class MemberIndex : ISectionDescriptor<ApiType>

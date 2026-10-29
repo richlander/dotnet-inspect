@@ -371,7 +371,8 @@ public partial class ApiCommand
             && !sourceDocumentJson && !findingCensusJson && !factsJson
             && !projectedFactsJson && !callsJson && !callersJson
             && !callGraphTransport
-            && !MemberGroupDocumentOutput.RequestsOverloadSections(options))
+            && !MemberGroupDocumentOutput.RequestsOverloadSections(options)
+            && !TypeMemberDocumentOutput.IsSelected(options))
         {
             if (SectionNames.IncludesBodyMetrics(
                     GetRequestedMemberSections(type, options)))
@@ -1141,6 +1142,16 @@ public partial class ApiCommand
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer),
                 writerOptions);
+            if (options is TypeOptions { MemberSectionCount: { } memberCount })
+            {
+                var (start, end) = options.Rows?.Resolve(memberCount) ?? (0, memberCount);
+                foreach (string section in options.IncludeSections!.Where(
+                    static section => section is SectionNames.Members or SectionNames.DocumentedMembers))
+                {
+                    if (ProjectionIncludesSection(schema, section, options))
+                        projection.RecordRows(section, end - start);
+                }
+            }
             if (options is MemberOptions { OverloadSectionCount: { } overloadCount })
             {
                 var (start, end) = options.Rows?.Resolve(overloadCount)
@@ -1235,7 +1246,8 @@ public partial class ApiCommand
         }
 
         if (options.JsonOutput
-            && MemberGroupDocumentOutput.RequestsOverloadSections(options))
+            && (MemberGroupDocumentOutput.RequestsOverloadSections(options)
+                || TypeMemberDocumentOutput.IsSelected(options)))
         {
             var selectedWriterOptions =
                 ApiOutputFormatter.BuildTypeWriterOptions(type, options);

@@ -69,6 +69,35 @@ The operator's `System.Text.Json.JsonSerializer.DeserializeAsync` flow
 demonstrates the same navigation problem. Implementation-hub selection is
 out of scope.
 
+### CLI Type Member sections
+
+`Members` and `Documented Members` are explicit Type sections. Both present
+complete exact declarations with the same identities, population order, and
+common metadata filters. The documented section adds compiled documentation
+through `TypeDocumentAttachmentCompositionOperation`; the plain section uses
+`TypeDocumentInspectionOperation`. Missing or failed documentation retains the
+declaration beside the documentation outcome. The existing compact Type Tree
+and its approved overload Counts remain the default.
+
+Type member sections do not acquire documentation from verbosity, `ShowDocs`,
+`DocsExplicitlySet`, output format, or a projected Description column. Count
+requests use the common metadata population and do not attach documentation.
+The existing CLI selector identity owner issues copyable digest anchors;
+declaration tokens associate those selectors with the shared exact subjects,
+as in the MemberGroup overload-section adapter. Selector presentation does not
+replace the shared document's subject or reorder its declarations.
+Existing row windows, filtering, and structured output remain admitted through
+the CLI's ordinary section projection pipeline.
+
+`System.Text.Json@10.0.0`, `net9.0/System.Text.Json.dll`, motivates the adoption:
+`JsonSerializer` has multiple overload families, including fifteen `Serialize`
+declarations. The shared document canary retains 104 declarations with hidden
+members admitted. Focused CLI gates compare plain/documented row identities,
+windows and Counts, demonstrate absent documentation beside rows, and check
+that format or column projection cannot enrich the plain section. NativeAOT
+before/after measures the production command at exact base and head. This is
+issue #10804 in #10802's counted CLI/Browser plan; Browser adoption remains #10808.
+
 ### Demand selected by the command
 
 Subject cardinality and child detail are independent. The command selects its
