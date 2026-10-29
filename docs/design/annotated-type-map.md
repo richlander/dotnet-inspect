@@ -424,7 +424,7 @@ Each step is its own focused effort:
    Body fact per method under Finding Diff Any's Body equality, with NativeAOT
    cost per Type for each against Finding Diff Any's lockstep walk. Each is a
    registered family in
-   [Annotated Type Map planning](annotated-type-map-planning.md). A map always
+   [Annotated Type Map planning](annotated-type-map-planning.md). A retained map
    carries both; planning also serves a family contribution request for one
    family's facts outside a map, and each family's producer constructs only
    that family.

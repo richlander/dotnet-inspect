@@ -22,10 +22,10 @@ Its exact claim is:
 > For one exact Type, or a set of Member-scope questions within it, one or two
 > versions, one immutable registry snapshot, one exact family selection, and
 > one request form, Annotated Type Map planning resolves only exact registered
-> families admitted for that focus, binds each to its adapter query, rejects
-> unsupported or unavailable selections explicitly, and returns one immutable
-> typed-query demand whose execution remains owned by the inspection query
-> catalog.
+> families admitted for that focus, binds each family its result reads to its
+> adapter query, rejects unsupported or unavailable selections explicitly, and
+> returns one immutable typed-query demand whose execution remains owned by
+> the inspection query catalog.
 
 It is tracked by
 [#10215](https://github.com/richlander/dotnet-inspect/issues/10215) and
@@ -101,24 +101,34 @@ it does so outside any plan of this owner.
 ### Map request
 
 A map request asks for a map at one version, or a map diff over a version
-pair, with a Rows, Count, or Exists terminal. The map-carried contributions
-are not selectable in a map request; resolution adds each one the requested
-result reads:
+pair, with a Rows, Count, or Exists terminal. Its finding families are the
+analyses the map's request names; a one-version request must name at least
+one. The map-carried contributions are not selectable. Resolution demands, for
+each **result kind**, exactly what that result reads:
 
-- both shape-fact families, to every map request, because the map's listing,
-  its terminals, and its Agreement gate read the shape comparison across both
-  axes; and
-- the fact stream, to a one-version map at every terminal and to a map-diff
-  Rows request, because the map diff matches facts by their position in the
-  whole stream before filtering them to admitted descriptors.
+| Result kind | Shape-fact families | Fact stream | Selected finding families |
+| --- | --- | --- | --- |
+| One-version Rows | both | yes | yes |
+| One-version Count or Exists | no | no | yes |
+| Map-diff Rows | both | yes | yes |
+| Map-diff Count or Exists | both | no | kept in the selection, no demand |
 
-A map diff's Count and Exists read only the shape comparison, so they carry
-only the shape-fact families and demand no fact census. A Type's Exists in the
-map diff therefore stays the shape comparison, and a host drawing Type marks
-computes no map of an unopened Type.
+- A one-version Rows result is a retained map: it holds both shape-fact
+  families and the fact stream so that two retained maps can be compared, and
+  its findings for listing.
+- One-version Count and Exists read only admitted findings, the map's listing
+  rule for one version, so they demand only the selected finding families.
+- A map-diff Rows result lists by the shape comparison across both axes, as
+  the Agreement gate requires, and its fact comparison matches facts by their
+  position in the whole stream before filtering them to admitted descriptors.
+- A map diff's Count and Exists read only the shape comparison. They demand
+  only the shape-fact families; the selected finding families stay in the
+  resolved selection but bind no adapter, because they cannot change the
+  result. A Type's Exists in the map diff therefore stays the shape
+  comparison, and a host drawing Type marks builds no fact census and computes
+  no map of an unopened Type.
 
-The request selects only finding families, as the map's request names its
-analyses, so which analyses it names never changes how a fact is matched.
+Which analyses a request names never changes how a fact is matched.
 
 ### Family contribution request
 
@@ -150,8 +160,9 @@ One family registration binds:
 
 - the family's exact descriptor;
 - whether it supports Type focus, Member-scope questions, or both; and
-- its adapter queries: one per supported map terminal, and one for family
-  contribution requests.
+- its adapter queries: one per result kind the family serves in the table
+  above, and one for family contribution requests. One-version and map-diff
+  results of the same terminal never share an adapter.
 
 The descriptor remains the family's identity; registration introduces no
 second id. A registration supporting Member-scope questions declares how its
@@ -180,9 +191,11 @@ One planning request carries:
 This slice accepts only exact family selections. All-applicable requests,
 presets, and host gestures are later request UX.
 
-Resolution uses descriptor instance identity, not id text. For each family it
-requires a registration supporting the requested focus and the adapter query
-for the requested form and terminal, present in the supplied catalog. A pair
+Resolution uses descriptor instance identity, not id text. For each family that the
+result kind demands, it requires a registration supporting the requested
+focus and the adapter query for that result kind, present in the supplied
+catalog. A selected family the result kind does not demand is retained in the
+resolved selection and binds no adapter. A pair
 request resolves the same families on both sides; comparing the two sides
 stays with the map diff or with the consumer of a contribution request.
 Failure is typed and names the affected family. Resolution never substitutes
@@ -237,8 +250,9 @@ Resolution returns one typed rejection for an unknown family, a family the
 map does not admit, a map-carried contribution selected in a map request, an
 unsupported focus, an unsupported form or terminal, or an adapter query
 absent from the supplied catalog. Invalid construction, such as a non-Type
-focus, an empty Member key set, a key of another Type, or duplicate families,
-fails at the request boundary. Registration defects fail while forming the
+focus, an empty Member key set, a key of another Type, duplicate families, or
+a one-version map request with no finding family, fails at the request
+boundary. Registration defects fail while forming the
 immutable catalog. None becomes an empty successful plan.
 
 ## Gates
@@ -248,18 +262,19 @@ immutable catalog. None becomes an empty successful plan.
 - **Registration uniqueness:** duplicate instances and duplicate ids fail
   before a catalog is published.
 - **Admission:** a family the map does not admit cannot register.
-- **Map-carried contributions:** every resolved map request includes both
-  shape-fact families; a one-version map and a map-diff Rows request also
-  include the fact stream; a map-diff Count or Exists request does not; and a
-  map request that selects a map-carried contribution is rejected.
+- **Result kinds:** each map request demands exactly its row of the result-kind
+  table; a map request that selects a map-carried contribution is rejected,
+  and a one-version request with no finding family is rejected.
 - **Census prerequisite:** the fact stream and every finding family in one plan
-  read one fact census per demanded method. A plan whose families read no
-  census, including every map-diff Count or Exists plan, builds none.
+  read one fact census per demanded method. A plan whose demanded families read
+  no census, including every map-diff Count or Exists plan, builds none: a
+  map-diff Exists fixture that selects a finding family resolves it in the
+  selection, binds no adapter for it, and builds no census.
 - **Member questions:** a Member key set resolves only families supporting
   Member-scope questions, keeps one result per key, and never widens to the
   whole Type.
-- **Form and terminal specialization:** each request selects only its exact
-  adapter query; an unsupported form or terminal fails.
+- **Result-kind specialization:** each request selects only the exact adapter
+  query of its result kind; an unsupported form or result kind fails.
 - **Catalog authority:** an unregistered adapter query fails instead of
   executing through an alternate path.
 - **Follow the T:** every adapter query has the concrete
