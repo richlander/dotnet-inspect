@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
@@ -96,6 +98,28 @@ internal static partial class ExactTypeInspectionQuery
             }
             catalogSurface.Types = [.. catalogSurface.Types.OrderBy(type => type.FullName)];
             catalogSurface.PublicTypeCount = catalogSurface.Types.Count;
+        }
+        if (catalogSurface.InspectionFailures.Any(failure =>
+            failure.Operation != ApiSurface.ConstraintResolutionOperation
+                && MayAffectTypeLookup(
+                    failure, requestedType, ExactTypeSelectionKind.Query)))
+        {
+            ImmutableArray<ApiSurfaceInspectionFailure> lookupFailures =
+            [
+                .. catalogSurface.InspectionFailures.Where(static failure =>
+                    failure.Operation != ApiSurface.ConstraintResolutionOperation),
+            ];
+            return new(
+                new(
+                    new(
+                        ExactTypeInspectionOutcome.Unavailable,
+                        requestedType, null, null, null, null,
+                        [], [],
+                        [.. lookupFailures.Select(ExactTypeApiInspectionFailure.From)],
+                        Incompleteness(lookupFailures)),
+                    [],
+                    null),
+                null);
         }
         ApiType? selectedType;
         string? matchedName;

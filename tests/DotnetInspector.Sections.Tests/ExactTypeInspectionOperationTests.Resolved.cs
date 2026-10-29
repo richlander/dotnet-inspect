@@ -139,11 +139,13 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     [Theory]
-    [InlineData("Exact.Healthy", true)]
-    [InlineData("Exact.Forwarded", false)]
+    [InlineData("Exact.Healthy", ExactTypeInspectionOutcome.Available)]
+    [InlineData("Exact.Forwarded", ExactTypeInspectionOutcome.Unavailable)]
+    [InlineData("Exact.Missing", ExactTypeInspectionOutcome.NotFound)]
     public async Task ResolvedAssembly_ScopesUnresolvedForwarderToItsSubject(
-        string query, bool expectedAvailable)
+        string query, ExactTypeInspectionOutcome expected)
     {
+        bool expectedAvailable = expected == ExactTypeInspectionOutcome.Available;
         var identity = new AssemblyReferenceIdentity(
             "Resolved.Mixed", new Version(1, 0, 0, 0), null, null);
         byte[] image = BuildMetadataAssembly(
@@ -173,11 +175,42 @@ public sealed partial class ExactTypeInspectionOperationTests
                 TestContext.Current.CancellationToken);
 
         Assert.Equal(expectedAvailable, result.Content.IsAvailable);
-        if (!expectedAvailable)
-        {
-            Assert.Equal(
-                ExactTypeInspectionOutcome.Unavailable,
-                result.Content.Outcome);
-        }
+        Assert.Equal(expected, result.Content.Outcome);
+    }
+
+    [Theory]
+    [InlineData("Exact.Type.")]
+    [InlineData("Exact.Missing")]
+    public async Task ResolvedAssembly_MalformedForwarderPreventsConclusiveAbsence(
+        string query)
+    {
+        byte[] image = BuildMalformedForwarderAssembly();
+        ResolvedAssemblyReference assembly = ResolvedAssemblyReference.Create(
+            new("MalformedForwarder", new Version(1, 0, 0, 0), null, null),
+            null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("malformed forwarder selection test"));
+
+        InspectionEnvelope<ExactTypeInspectionResult> result =
+            await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                assembly,
+                NoResolverAssemblyBindingPolicy.Instance,
+                query,
+                ApiSurfaceScope.Public,
+                (envelope, target, _, _) =>
+                {
+                    Assert.Null(target);
+                    return ValueTask.FromResult(envelope);
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(ExactTypeInspectionOutcome.Unavailable, result.Content.Outcome);
+        Assert.Contains(
+            result.Content.InspectionFailures,
+            failure => failure.Operation
+                == ApiSurfaceInspectionFailure.TypeForwarderIdentityOperation);
+        Assert.Contains(
+            result.Content.Failures,
+            failure => failure.Kind == ExactTypeInspectionFailureKind.InspectionIncomplete);
     }
 }
