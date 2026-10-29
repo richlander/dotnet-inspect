@@ -456,6 +456,24 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
+    public void BrowserProjectClosure_ExcludesLocalAnalysisAdapters()
+    {
+        string localSections = Path.Combine(
+            RepositoryRoot(),
+            "src",
+            "DotnetInspector.Sections.Local",
+            "DotnetInspector.Sections.Local.csproj");
+
+        Assert.False(ProjectCanReach(EngineProjectPath, localSections));
+        Assert.DoesNotContain(
+            CompiledAssemblyReferences(AnalysisProjectPath),
+            reference => string.Equals(
+                reference,
+                "DotnetInspector.Sections.Local",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void EcosystemCatalogIsLimitedToOwningFacades()
     {
         // The compiled-reference gate is sound only when catalog IDs cannot be inlined.

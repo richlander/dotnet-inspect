@@ -38,6 +38,9 @@ internal static class AssemblyContextCallGraphAnalysis
             LibraryCallGraphProducer
                 .LibraryRootPathCallGraphProducer.Instance;
 
+    static readonly LibraryMethodLeverageProducer LeverageProducer =
+        LibraryMethodLeverageProducer.Instance;
+
     static readonly WorkDescription Work =
         ProducerPlanner.Plan(
         [
@@ -59,6 +62,17 @@ internal static class AssemblyContextCallGraphAnalysis
             ? accepted.Description
             : throw new ProducerContractException(
                 "The library root-path Call Graph request must plan.");
+
+    static readonly WorkDescription LeverageWork =
+        ProducerPlanner.Plan(
+        [
+            new ProducerRequest(
+                LeverageProducer,
+                ProducerTerminal.Rows),
+        ]) is ProducerPlanResult.Accepted accepted
+            ? accepted.Description
+            : throw new ProducerContractException(
+                "The library Method Leverage request must plan.");
 
     internal static AssemblyContextCallGraphAnalysisResult Execute(
         AssemblyContextGroup group,
@@ -182,6 +196,72 @@ internal static class AssemblyContextCallGraphAnalysis
 
         return Analysis.LibraryCallGraphAnalysisResult
             .FromRootPathProducer(
+                operation.SourceName,
+                producerResult.Value!,
+                sourceReceipt,
+                execution.WorkReceipt);
+    }
+
+    internal static Analysis.LibraryCallGraphAnalysisResult AnalyzeLeverage(
+        AssemblyImageSnapshot snapshot,
+        AssemblyContextSubject subject,
+        MethodDefinitionParallelExecution? parallelExecution = null)
+    {
+        MethodDefinitionSourceRequest<
+            LibraryMethodLeverageProducerResult> request =
+                MethodDefinitionSourceRequest<
+                    LibraryMethodLeverageProducerResult>.Create(
+                        LeverageWork,
+                        LeverageProducer,
+                        MethodDefinitionSourceBreadth
+                            .AllDefinitions
+                            .IncludeGeneratedExecutionBodies());
+        var operation =
+            AssemblyAnalysisOperation<
+                LibraryMethodLeverageProducerResult>.Create(
+                    AssemblyContextAnalysisSource.Name(subject),
+                    request.AsAssemblyAnalysisSource());
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(snapshot);
+        AssemblyAnalysisServiceResult<
+            LibraryMethodLeverageProducerResult> serviceResult =
+                session.SnapshotOperation(
+                    operation,
+                    access =>
+                        AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access,
+                            parallelExecution));
+        if (serviceResult
+            is AssemblyAnalysisServiceResult<
+                LibraryMethodLeverageProducerResult>.Rejected rejected)
+        {
+            throw new BadImageFormatException(
+                "The library Method Leverage operation was rejected: "
+                + $"{rejected.Kind}.");
+        }
+
+        AssemblyAnalysisExecution<
+            LibraryMethodLeverageProducerResult> execution =
+                ((AssemblyAnalysisServiceResult<
+                    LibraryMethodLeverageProducerResult>.Completed)
+                        serviceResult)
+                .Execution;
+        ProducerResult<
+            LibraryMethodLeverageProducerResult> producerResult =
+                execution.ResultOf(LeverageProducer);
+        MethodDefinitionSourceReceipt sourceReceipt =
+            execution.MethodDefinitionReceipt();
+        if (!producerResult.HasValue)
+        {
+            throw new BadImageFormatException(
+                producerResult.Failure?.Message
+                    ?? producerResult.Critical?.Message
+                    ?? "The library Method Leverage producer failed.");
+        }
+
+        return Analysis.LibraryCallGraphAnalysisResult
+            .FromLeverageProducer(
                 operation.SourceName,
                 producerResult.Value!,
                 sourceReceipt,

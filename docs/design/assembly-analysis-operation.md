@@ -527,8 +527,37 @@ exception classification, declared-owner mappings, and diagnostics.
 `AssemblyAnalysisOperation` and consumes only the focused result. Its
 `LibraryCallGraphAnalysisResult` compatibility receipt remains transitional;
 the exact Method-source receipt and Producer Planning work receipt are the
-authoritative execution evidence. Type Method Leverage and other consumers of
-the legacy whole-library Call Graph remain separate drain slices.
+authoritative execution evidence. [#10779](https://github.com/richlander/dotnet-inspect/issues/10779)
+moves Type Method Leverage to `LibraryMethodLeverageProducer`, an
+all-definition Rows producer that retains semantic identities, complete
+resolved call operands, loop classification, and generated-owner attribution.
+Its declared-method map resolves current-module targets for ranking, so the
+producer does not duplicate same-module call-target construction or acquire
+the general Call Graph producer's safety, body-signal, exception, and
+allocation-adjacent work. `AssemblyContextCallGraphAnalysis` binds its focused
+result while preserving complete-source and diagnostic failure semantics
+without opening `LibraryBodyAnalysisService`. Other consumers of the legacy
+whole-library Call Graph remain separate drain slices.
+
+The host-neutral Type Method Leverage operation remains serial by default.
+Local desktop hosts may supply `MethodDefinitionParallelExecution` through
+`DotnetInspector.Sections.Local`. Only an exhaustive, unbounded
+all-MethodDef `Rows` request can adopt that capability. The producer divides
+the metadata-ordered method sequence into a bounded number of contiguous exact
+MethodDef partitions, gives each partition independent execution state, and
+folds the detached body evidence in partition and metadata order. The
+partitions share one immutable memory-safety metadata projection but retain
+independent query-work receipts, so projection construction is charged once
+without merging concurrent counters. The local adapter starts its bounded
+workers immediately rather than relying on pool growth for the few coarse
+partitions. During the ordered fold, complete resolved call evidence is also
+shared with the declared-source relation; incomplete or malformed evidence
+retains the relation's body-scan fallback. The
+all-definition generated-body relation still records the bodies acquired by
+the producer and settles once after the ordered fold. Row-limited and exact
+breadths retain interpreted serial execution. The Browser/Wasm operation uses
+the default overload; its project closure does not reference
+`DotnetInspector.Sections.Local` or the local worker adapter.
 
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
 exact method-analysis producer for safety-only IL-coordinate preparation.
