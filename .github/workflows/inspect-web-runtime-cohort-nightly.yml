@@ -35,6 +35,10 @@ on:
         description: Candidate dotnet/dotnet VMR commit
         required: false
         type: string
+      dotnet_target_framework:
+        description: Validated candidate browser workload target framework
+        required: false
+        type: string
       samples:
         description: Samples per admitted runtime
         required: false
@@ -273,6 +277,7 @@ jobs:
       RUNTIME_COHORT_SDK_FEATURE_BAND_OVERRIDE: ${{ inputs.dotnet_sdk_feature_band || '' }}
       RUNTIME_COHORT_SDK_VERSION_OVERRIDE: ${{ inputs.dotnet_sdk_version || '' }}
       RUNTIME_COHORT_VMR_COMMIT_OVERRIDE: ${{ inputs.dotnet_vmr_commit || '' }}
+      RUNTIME_COHORT_TARGET_FRAMEWORK_OVERRIDE: ${{ inputs.dotnet_target_framework || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -292,7 +297,8 @@ jobs:
           pin_env="$RUNNER_TEMP/inspect-web-runtime-cohort.env"
           node inspect-web/scripts/runtime-cohort-pin.ts export \
             --pin inspect-web/runtime-cohort-pin.json \
-            --output "$pin_env"
+            --output "$pin_env" \
+            --output-pin "$RUNNER_TEMP/inspect-web-runtime-cohort-pin.json"
           set -a
           source "$pin_env"
           set +a
@@ -352,13 +358,13 @@ jobs:
             --arg sdk "$DOTNET_SDK_VERSION" \
             --arg runtime "$DOTNET_RUNTIME_VERSION" \
             --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
-            --slurpfile pin inspect-web/runtime-cohort-pin.json \
+            --slurpfile pin "$RUNNER_TEMP/inspect-web-runtime-cohort-pin.json" \
             '
               . as $manifest
               | $pin[0] as $pin
               | .workloads[$workload].packs as $packs
               | .version == $sdk
-                and $packs == $pin.workload.packIds
+                and ($packs | sort) == ($pin.workload.packIds | sort)
                 and all($packs[]; . as $id |
                   $manifest.packs[$id].version == $runtime)
             ' "$manifest" >/dev/null

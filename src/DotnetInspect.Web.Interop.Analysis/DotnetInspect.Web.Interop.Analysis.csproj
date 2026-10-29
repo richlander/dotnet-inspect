@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
+    <TargetFramework Condition="'$(INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK)' != ''">$(INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK)</TargetFramework>
     <AssemblyName>DotnetInspect.Web.Interop.Analysis</AssemblyName>
     <RootNamespace>DotnetInspect.Web.Interop.Analysis</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
