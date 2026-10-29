@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections.Local;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using InertText;
@@ -274,22 +275,10 @@ public sealed class InspectionQueryContext : IDisposable
             {
                 try
                 {
-                    var binding = new AssemblyReferenceBindingAccess(
-                        ReferenceBindingSubject(),
-                        BodyReferenceResolver switch
-                        {
-                            IAssemblyBindingPolicy policy => policy,
-                            not null =>
-                                new AssemblyReferenceBindingPolicy(
-                                    BodyReferenceResolver),
-                            null => throw new InvalidOperationException(
-                                "Sync Calls in Async requires reference "
-                                + "binding."),
-                        });
                     return new SyncCallsInAsyncBindingResult.Available(
                         SyncCallsInAsyncQuery.Execute(
                             session,
-                            binding,
+                            ReferenceBinding(),
                             closings));
                 }
                 catch (Exception ex)
@@ -324,6 +313,19 @@ public sealed class InspectionQueryContext : IDisposable
             ?? throw new BadImageFormatException(
                 "The selected Library snapshot has no managed metadata.");
     }
+
+    private AssemblyReferenceBindingAccess ReferenceBinding()
+        => new(
+            ReferenceBindingSubject(),
+            BodyReferenceResolver switch
+            {
+                IAssemblyBindingPolicy policy => policy,
+                not null =>
+                    new AssemblyReferenceBindingPolicy(
+                        BodyReferenceResolver),
+                null => throw new InvalidOperationException(
+                    "The selected query requires reference binding."),
+            });
 
     /// <summary>
     /// How many typed query adapters have taken the shared-session branch of
@@ -406,6 +408,28 @@ public sealed class InspectionQueryContext : IDisposable
 
         OpenBodySession("body analysis");
         return _bodySession!.AnalysisExecution;
+    }
+
+    public TopLeverageResult TopLeverage()
+    {
+        RequireUnboundedDeclaration("method leverage analysis");
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        TopLeverageResult result = Query(
+            session =>
+                LocalLibraryTopLeverageInspectionOperation.Execute(
+                    session,
+                    AssemblyPath,
+                    BodyReferenceResolver is null
+                        ? null
+                        : ReferenceBinding())
+                .Content,
+            static error => new TopLeverageResult.Failed(error));
+        Trace?.RecordResource(
+            "method leverage analysis",
+            InertString.Format(
+                TextPolicy.Field,
+                $"built in {Elapsed(start)} (local desktop realization)"));
+        return result;
     }
 
     private void OpenBodySession(string resource)
