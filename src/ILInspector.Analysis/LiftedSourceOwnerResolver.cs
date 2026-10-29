@@ -1426,6 +1426,12 @@ internal sealed class LiftedSourceOwnerResolver
                 }
                 if (handle.Kind != HandleKind.MemberReference)
                     continue;
+                if (!CompilerGeneratedNames.TryGetLiftedOwnerName(
+                        call.Callee.Name,
+                        out _))
+                {
+                    continue;
+                }
 
                 referencedMembers.Add(
                     _methodReferenceResolver.ResolveIdentity(
