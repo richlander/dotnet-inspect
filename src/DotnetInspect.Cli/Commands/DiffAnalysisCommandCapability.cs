@@ -1,7 +1,10 @@
 using System.Collections.Immutable;
+using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
+using ILInspector.Analysis;
+using QuerySpace;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -35,6 +38,15 @@ internal static class DiffAnalysisCommandCapability
                 "diff --analysis"),
             DiffAnalysisCatalog.Route,
             exposedQueryTerms: [],
+            inputRules:
+            [
+                "Selecting --analysis string-literals requires exactly one --where predicate.",
+                $"Use \"{StringLiteralComparisonQuery.LiteralKey} {RowPredicateSyntaxParser.Comparison(PortableQueryOperator.Contains)} value\""
+                    + $" or \"{StringLiteralComparisonQuery.LiteralKey} {RowPredicateSyntaxParser.Comparison(PortableQueryOperator.StartsWith)} value\".",
+                $"Supply a non-empty operand of at most {StringLiteralUsePredicate.MaximumLength} UTF-16 characters.",
+                "Pass the complete predicate as one shell argument; for example "
+                    + $"--where \"{StringLiteralComparisonQuery.LiteralKey} {RowPredicateSyntaxParser.Comparison(PortableQueryOperator.Contains)} https://\".",
+            ],
             exposedAnalyses:
             [
                 .. DiffAnalysisCatalog.Registrations

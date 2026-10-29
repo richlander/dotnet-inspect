@@ -172,6 +172,7 @@ type CatalogOperations =
   | "listHomeDemos"
   | "listLibraryViewFacets"
   | "listMemberViewFacets"
+  | "listPackageViewFacets"
   | "listTypeViewFacets"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"

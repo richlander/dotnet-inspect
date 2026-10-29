@@ -246,7 +246,7 @@ internal static class ApiServices
             BindingContexts: bindingContexts);
     }
 
-    static ResolvedAssemblyReference? SelectRootAssembly(
+    internal static ResolvedAssemblyReference? SelectRootAssembly(
         string assemblyPath,
         AssemblyResolutionProvenance provenance) =>
         ResolvedAssemblyReference.SelectFromPath(assemblyPath, provenance)
@@ -314,7 +314,7 @@ internal static class ApiServices
         }
     }
 
-    static AssemblyResolutionProvenance CreateRootProvenance(
+    internal static AssemblyResolutionProvenance CreateRootProvenance(
         string? apiSource,
         string? apiVersion,
         string? packageName,

@@ -255,6 +255,7 @@ public static partial class TypeCommand
         TypeCommandPlan? commandPlan = null,
         bool requireTypeSelector = false,
         Action<Action<IBufferWriter<byte>>>? writeUtf8 = null,
+        ApiTypeLookupResult? resolvedLookup = null,
         CancellationToken cancellationToken = default)
     {
         if (plan.Intent.Surface != InspectionSurface.Type)
@@ -703,6 +704,14 @@ public static partial class TypeCommand
             }
             else
             {
+                if (loadedSurface is null && preselectedType is null)
+                {
+                    int? sharedExitCode = await TryExecuteResolvedExactTypeAsync(
+                        options, plan, source, cancellationToken).ConfigureAwait(false);
+                    if (sharedExitCode is not null)
+                        return sharedExitCode.Value;
+                }
+
                 var loaded = loadedSurface
                     ?? ApiServices.LoadTypeApi(source, options);
                 if (loaded == null)
@@ -711,11 +720,79 @@ public static partial class TypeCommand
                     return 1;
                 }
 
+                static async Task<int?> TryExecuteResolvedExactTypeAsync(
+                    TypeOptions options,
+                    ResolvedMemberInspectionPlan plan,
+                    ApiSourceResult source,
+                    CancellationToken cancellationToken)
+                {
+                    string? path = ApiServices.FindApiDll(
+                        source.SearchPath, source.Context.Logger);
+                    if (path is null)
+                    {
+                        CommandError.Write("Could not extract API from library.");
+                        return 1;
+                    }
+                    ResolvedAssemblyReference? assembly = ApiServices.SelectRootAssembly(
+                        path,
+                        ApiServices.CreateRootProvenance(
+                            source.ApiSource, source.ApiVersion, source.PackageName,
+                            source.SelectedTfm, options, source.PlatformFramework));
+                    if (assembly is null)
+                        return null;
+
+                    using var resolution = new TypeDefinitionResolutionSession(
+                        assembly,
+                        source.RuntimeAssemblyPath is not null
+                            || source.ApiSource == SourceKind.Platform,
+                        options.ProjectAssetsPath,
+                        options.Tfm ?? source.SelectedTfm,
+                        source.PlatformFramework ?? options.PlatformFramework,
+                        source.PackageExtractPath,
+                        options.SourceOptions,
+                        usePackageSourcePolicy: source.PackageExtractPath is not null);
+                    IAssemblyBindingPolicy policy = resolution.BindingContext(
+                        AssemblyBindingOccurrence.Seed(assembly)).Policy;
+                    return await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                        assembly,
+                        policy,
+                        source.TypeName!,
+                        options.IncludeAll
+                            ? ApiSurfaceScope.IncludeAll
+                            : ApiSurfaceScope.Public,
+                        async (envelope, target, catalog, _) =>
+                        {
+                            if (catalog is not null)
+                            {
+                                var loaded = new ApiServices.LoadedApiSurface(
+                                    catalog, path, path,
+                                    new Dictionary<ApiType, ResolvedAssemblyReference>());
+                                return await ExecuteCoreAsync(
+                                    options, plan, source, loaded,
+                                    resolvedLookup: new(
+                                        source.TypeName!,
+                                        new(null, envelope.Content.Suggestions),
+                                        null),
+                                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                            }
+                            if (!envelope.Content.IsAvailable || target is null)
+                            {
+                                WriteExactTypeNonSuccess(envelope);
+                                return 1;
+                            }
+                            return await ExecuteWorkspaceExactTypeResultAsync(
+                                options, plan, envelope.Content, envelope.Diagnostics,
+                                ExactTypeRenderSource.From(source), target,
+                                source.PackageExtractPath).ConfigureAwait(false);
+                        },
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 var api = loaded.Api;
                 var apiDllPath = loaded.ApiDllPath;
 
                 ApiTypeLookupResult lookupResult =
-                    preselectedType is null
+                    resolvedLookup ?? (preselectedType is null
                         ? ApiTypeLookupService.LookupType(api, typeName)
                         : new(
                             typeName,
@@ -724,7 +801,7 @@ public static partial class TypeCommand
                                     ?.ToEscapedFullName()
                                     ?? preselectedType.FullName,
                                 []),
-                            preselectedType);
+                            preselectedType));
                 if (lookupResult.ImpliedMember is not null)
                 {
                     lookupResult.WriteNotFoundError();
@@ -769,6 +846,31 @@ public static partial class TypeCommand
                     // The resolved assembly path enables decompiler-backed
                     // sections (whole-type Decompiled Source).
                     effectiveOptions = effectiveOptions with { DllPath = apiType.SourceAssemblyPath ?? runtimeAssemblyPath ?? apiDllPath };
+
+                    if (!effectiveOptions.EffectiveDiscovery
+                        && effectiveOptions.IncludeSections?.Contains(
+                            SectionNames.TypeInfo) == true
+                        && sourceAssembly is not null
+                        && apiType.DefinitionName is { } signatureType)
+                    {
+                        InspectionEnvelope<TypeSignatureInspectionOutcome> signature =
+                            TypeSignatureInspectionOperation.Execute(
+                                sourceAssembly,
+                                new(signatureType, s_directExactTypeBounds),
+                                cancellationToken);
+                        WriteInspectionDiagnostics(signature.Diagnostics);
+                        if (signature.Content
+                            is not TypeSignatureInspectionOutcome.Available)
+                        {
+                            CommandError.Write(
+                                "The exact Type Info inspection did not complete.");
+                            return 1;
+                        }
+                        effectiveOptions = effectiveOptions with
+                        {
+                            TypeSignatureInspection = signature,
+                        };
+                    }
 
                     if (!CloneCandidatesCommand.ValidatePredicateSelection(
                             effectiveOptions.CloneCandidateQuery,

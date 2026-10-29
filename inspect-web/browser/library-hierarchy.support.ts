@@ -4277,6 +4277,48 @@ async function installFacades(
           ],
         };
       }
+      export function listPackageViewFacets() {
+        return {
+          facets: [
+            {
+              id: "package.libraries",
+              kind: "Package",
+              title: "Libraries",
+              summary:
+                "Libraries of the selected target, or RID packages of a tool pointer package.",
+              order: 50,
+              role: "PackageLibraries",
+            },
+            {
+              id: "package.overview",
+              kind: "Package",
+              title: "Overview",
+              summary:
+                "Package identity, selected target, assets, and summary facts.",
+              order: 100,
+              role: "PackageOverview",
+            },
+            {
+              id: "package.dependencies",
+              kind: "Package",
+              title: "Dependencies",
+              summary:
+                "Declared package dependencies for the selected target framework.",
+              order: 200,
+              role: null,
+            },
+            {
+              id: "package.dependency-hierarchy",
+              kind: "Package",
+              title: "Dependency Hierarchy",
+              summary:
+                "Rooted transitive package dependencies for the selected target framework.",
+              order: 300,
+              role: null,
+            },
+          ],
+        };
+      }
       export function listTypeViewFacets() {
         return {
           facets: [

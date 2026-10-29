@@ -28,7 +28,7 @@ export interface EngineStartupClient {
     EngineClient["catalog"],
     "inspectVocabulary" | "listEcosystems" | "listHomeDemos"
       | "listLibraryViewFacets" | "listMemberViewFacets"
-      | "listTypeViewFacets"
+      | "listPackageViewFacets" | "listTypeViewFacets"
   >;
   readonly package:
     Pick<EngineClient["package"], "listPackageActivityEcosystems">
@@ -49,6 +49,8 @@ interface StartupReads {
     EngineStartupClient["catalog"]["listLibraryViewFacets"];
   readonly listMemberViewFacets:
     EngineStartupClient["catalog"]["listMemberViewFacets"];
+  readonly listPackageViewFacets:
+    EngineStartupClient["catalog"]["listPackageViewFacets"];
   readonly listTypeViewFacets:
     EngineStartupClient["catalog"]["listTypeViewFacets"];
   readonly listPackageActivityEcosystems:
@@ -100,6 +102,9 @@ export function registerEngineWorkerStartupOperations(
   register(
     engineStartupOperations.listMemberViewFacets,
     reads.listMemberViewFacets);
+  register(
+    engineStartupOperations.listPackageViewFacets,
+    reads.listPackageViewFacets);
   register(
     engineStartupOperations.listTypeViewFacets,
     reads.listTypeViewFacets);
@@ -192,6 +197,8 @@ export function bindEngineWorkerStartupClient(
         bind(engineStartupOperations.listLibraryViewFacets),
       listMemberViewFacets:
         bind(engineStartupOperations.listMemberViewFacets),
+      listPackageViewFacets:
+        bind(engineStartupOperations.listPackageViewFacets),
       listTypeViewFacets:
         bind(engineStartupOperations.listTypeViewFacets),
     },
