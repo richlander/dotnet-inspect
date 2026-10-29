@@ -19,9 +19,9 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <PackageReference Include="xunit.v3" />
     <PackageDownload Include="Microsoft.NETCore.App.Ref"
-                     Version="[10.0.10];[11.0.0-preview.7.26381.103]" />
+                     Version="[10.0.14];[11.0.0-preview.7.26381.103]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
-                     Version="[10.0.10]" />
+                     Version="[10.0.14]" />
     <PackageDownload Include="Microsoft.Extensions.Http"
                      Version="[10.0.0]" />
     <PackageDownload Include="PCLStorage"
@@ -106,11 +106,11 @@
     <None Include="$(NuGetPackageRoot)aspire.stackexchange.redis/13.6.3/aspire.stackexchange.redis.13.6.3.nupkg"
           Link="RealAssets/CompleteRestoration/aspire.stackexchange.redis.13.6.3.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/microsoft.netcore.app.ref.10.0.10.nupkg"
-          Link="RealAssets/CompleteRestoration/microsoft.netcore.app.ref.10.0.10.nupkg"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.14/microsoft.netcore.app.ref.10.0.14.nupkg"
+          Link="RealAssets/CompleteRestoration/microsoft.netcore.app.ref.10.0.14.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/10.0.10/microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"
-          Link="RealAssets/CompleteRestoration/microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/10.0.14/microsoft.netcore.app.runtime.linux-x64.10.0.14.nupkg"
+          Link="RealAssets/CompleteRestoration/microsoft.netcore.app.runtime.linux-x64.10.0.14.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CSharpText.MemberSlicing\MemberTextSlicer.cs"
           Link="RealAssets/LibraryAdapter/MemberTextSlicer.cs"
