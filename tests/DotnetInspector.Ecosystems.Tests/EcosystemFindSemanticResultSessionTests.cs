@@ -198,6 +198,137 @@ public partial class EcosystemFindIndexTests
     }
 
     [Fact]
+    public void IndexedTypeFind_DuplicateSourceDoesNotConsumeCapacity()
+    {
+        IReadOnlyList<ILInspector.Metadata.EcosystemIntegrationSignalInfo>
+            signals = ScanFixture();
+        EcosystemFindIndexArtifact first = Artifact(
+            EcosystemPackIds.Aspire,
+            [
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 0,
+                    packageId: "Fixture.Core",
+                    assetPath: "lib/net10.0/Fixture.Core.dll",
+                    assemblyName: "Fixture.Core",
+                    signals),
+            ]);
+        EcosystemFindIndexArtifact second = Artifact(
+            EcosystemPackIds.AI,
+            [
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 0,
+                    packageId: "Fixture.Core",
+                    assetPath: "lib/net10.0/Fixture.Core.dll",
+                    assemblyName: "Fixture.Core",
+                    signals),
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 1,
+                    packageId: "Fixture.Other",
+                    assetPath: "lib/net10.0/Fixture.Other.dll",
+                    assemblyName: "Fixture.Other",
+                    signals),
+            ]);
+        var session = new FindSemanticResultSession(maximumFindings: 2);
+
+        var result =
+            Assert.IsType<EcosystemFindIndexedIntegrationResult.Type>(
+                EcosystemFindIndexedIntegration.Evaluate(
+                    Request(
+                        [first, second],
+                        [
+                            Demand(first, prefixOrdinal: 0),
+                            Demand(second, prefixOrdinal: 0),
+                        ],
+                        TypeFindQuestion.Create(
+                            ["IServiceCollection"],
+                            FindVisibility.Public),
+                        maximumRows: 2),
+                    session,
+                    TestContext.Current.CancellationToken));
+        FindSemanticResult completed = session.Complete(
+            FindSemanticResultCompletion.RowLimitReached);
+
+        Assert.Equal(2, result.Matches.Length);
+        Assert.Equal(2, completed.Findings.Length);
+        Assert.Equal(
+            2,
+            completed.Findings
+                .Select(finding => finding.Identity)
+                .Distinct()
+                .Count());
+    }
+
+    [Fact]
+    public void IndexedMemberFind_DuplicateSourceDoesNotConsumeCapacity()
+    {
+        IReadOnlyList<ILInspector.Metadata.EcosystemIntegrationSignalInfo>
+            signals = ScanFixture();
+        EcosystemFindIndexArtifact first = Artifact(
+            EcosystemPackIds.Aspire,
+            [
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 0,
+                    packageId: "Fixture.Core",
+                    assetPath: "lib/net10.0/Fixture.Core.dll",
+                    assemblyName: "Fixture.Core",
+                    signals),
+            ]);
+        EcosystemFindIndexArtifact second = Artifact(
+            EcosystemPackIds.AI,
+            [
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 0,
+                    packageId: "Fixture.Core",
+                    assetPath: "lib/net10.0/Fixture.Core.dll",
+                    assemblyName: "Fixture.Core",
+                    signals),
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 1,
+                    packageId: "Fixture.Other",
+                    assetPath: "lib/net10.0/Fixture.Other.dll",
+                    assemblyName: "Fixture.Other",
+                    signals),
+            ]);
+        var session = new FindSemanticResultSession(maximumFindings: 3);
+
+        var result =
+            Assert.IsType<EcosystemFindIndexedIntegrationResult.Member>(
+                EcosystemFindIndexedIntegration.Evaluate(
+                    Request(
+                        [first, second],
+                        [
+                            Demand(first, prefixOrdinal: 0),
+                            Demand(second, prefixOrdinal: 0),
+                        ],
+                        MemberFindQuestion.Create(
+                            ["AddIndexedThing"],
+                            FindVisibility.All,
+                            declaringTypeFilter:
+                                "Microsoft.Extensions.DependencyInjection."
+                                    + "TestServiceCollectionExtensions"),
+                        maximumRows: 3),
+                    session,
+                    TestContext.Current.CancellationToken));
+        FindSemanticResult completed = session.Complete(
+            FindSemanticResultCompletion.RowLimitReached);
+
+        Assert.Equal(3, result.Matches.Length);
+        Assert.Equal(3, completed.Findings.Length);
+        Assert.Equal(
+            3,
+            completed.Findings
+                .Select(finding => finding.Identity)
+                .Distinct()
+                .Count());
+    }
+
+    [Fact]
     public void ResultSession_SuppressesOnlyExactRepeatedFindingIdentity()
     {
         EcosystemFindIndexArtifact artifact = Artifact(

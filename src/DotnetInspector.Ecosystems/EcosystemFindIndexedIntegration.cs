@@ -314,7 +314,8 @@ public static class EcosystemFindIndexedIntegration
                                 IsPublicSurface: true,
                                 symbol.TypeDiscoveryAttributes)),
                 ];
-                int? remaining = maximum is int finite
+                int? remaining = resultSession is null
+                    && maximum is int finite
                     ? finite - matches.Count
                     : null;
                 TypeFindCandidateEvaluation evaluation =
@@ -355,6 +356,11 @@ public static class EcosystemFindIndexedIntegration
                                 .RowLimitReached;
                         goto Complete;
                     }
+                    if (publication
+                        is FindSemanticFindingPublication.Duplicate)
+                    {
+                        continue;
+                    }
                     matches.Add(match);
                     EcosystemFindIndexedPublishedSymbolIdentity identity =
                         EcosystemFindIndexedPublishedSymbolIdentity.ForType(
@@ -362,7 +368,9 @@ public static class EcosystemFindIndexedIntegration
                             match.Declaration.Name);
                     if (publishedSet.Add(identity))
                         published.Add(identity);
-                    if (resultSession?.RemainingCapacity == 0)
+                    if (resultSession?.RemainingCapacity == 0
+                        || maximum is int admittedLimit
+                            && matches.Count >= admittedLimit)
                     {
                         completion =
                             EcosystemFindIndexedIntegrationCompletion
@@ -527,7 +535,8 @@ public static class EcosystemFindIndexedIntegration
                     continue;
                 }
 
-                int? remaining = maximum is int finite
+                int? remaining = resultSession is null
+                    && maximum is int finite
                     ? finite - matches.Count
                     : null;
                 MemberFindCandidateEvaluation evaluation =
@@ -599,6 +608,12 @@ public static class EcosystemFindIndexedIntegration
                 is FindSemanticFindingPublication.RowLimitReached)
             {
                 return false;
+            }
+            if (publication
+                is FindSemanticFindingPublication.Duplicate)
+            {
+                return resultSession?.RemainingCapacity != 0
+                    && (maximum is null || matches.Count < maximum);
             }
             matches.Add(match);
             EcosystemFindIndexedPublishedSymbolIdentity identity =
