@@ -1,3 +1,4 @@
+import { rememberUnsafeEvidence } from "./library-unsafe-members.ts";
 import type { PackageVersionState } from "./catalog-requests.ts";
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
 import type { BrowserPackageRuntimePopulationChoiceStatus } from "./facades/inspect-web-package.d.ts";
@@ -218,6 +219,10 @@ export function bindPackageView(
       typeId: button.dataset.perfType ?? "",
       ...(button.dataset.resourceToken ? { resourceMethodToken: Number(button.dataset.resourceToken) } : {}),
     })));
+  // Record the next state before the click's re-render replaces the element.
+  root.querySelectorAll<HTMLDetailsElement>("details[data-unsafe-evidence]").forEach(details =>
+    details.querySelector("summary")?.addEventListener("click", () =>
+      rememberUnsafeEvidence(details.dataset.unsafeEvidence ?? "", !details.open)));
   root.querySelectorAll<HTMLElement>("[data-unsafe-selector]").forEach(button =>
     button.addEventListener("click", () => actions.onUnsafeMemberSelect({
       stableSelector: button.dataset.unsafeSelector ?? "",

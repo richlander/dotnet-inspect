@@ -9,6 +9,16 @@ interface UnsafeMembersOptions extends AnalysisInspectorContext {
   data: BrowserUnsafeMembers | null;
 }
 
+// Expanded evidence is presentation state: it survives the app's re-renders,
+// keyed by the row's Library assembly and member token.
+const expandedEvidence = new Set<string>();
+
+export function rememberUnsafeEvidence(key: string, open: boolean): void {
+  if (!key) return;
+  if (open) expandedEvidence.add(key);
+  else expandedEvidence.delete(key);
+}
+
 function il(offset: number): string {
   return `IL_${offset.toString(16).padStart(4, "0").toUpperCase()}`;
 }
@@ -59,8 +69,9 @@ function renderMember(
     : `<div class="perf-row unsafe-member-static" title="${escape(member.member)}">${body}</div>`;
   const items = member.items.map(item => `<tr><td>${escape(item.role)}</td><td><code>${escape(item.body)}</code></td><td><code>${item.ilOffset === null ? "" : il(item.ilOffset)}</code></td><td><code>${escape(item.detail ?? "")}</code></td></tr>`).join("");
   const count = member.items.length;
+  const key = `${assembly}#${member.metadataToken}`;
   return `<article class="triage-item unsafe-member">${row}
-    <details class="unsafe-member-items"><summary>${count.toLocaleString()} evidence item${count === 1 ? "" : "s"}</summary>
+    <details class="unsafe-member-items" data-unsafe-evidence="${escape(key)}"${expandedEvidence.has(key) ? " open" : ""}><summary>${count.toLocaleString()} evidence item${count === 1 ? "" : "s"}</summary>
       <div class="unsafe-evidence-wrap"><table class="unsafe-evidence-table"><thead><tr><th>Role</th><th>Body</th><th>IL</th><th>Detail</th></tr></thead><tbody>${items}</tbody></table></div>
     </details>
   </article>`;

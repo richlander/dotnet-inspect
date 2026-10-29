@@ -6772,6 +6772,7 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .unsafe-member-static { cursor: default; }
 .unsafe-member-static:hover { border-color: var(--line); background: transparent; }
 .unsafe-member-callees { font-family: var(--mono); font-size: 11px; color: var(--dim); overflow-wrap: anywhere; }
+.unsafe-member-exposure { text-transform: none; }
 .unsafe-member-partial { color: #c99a3a; border-color: color-mix(in srgb, #c99a3a 45%, var(--line)); }
 .unsafe-member-items { padding: 0 16px 10px 60px; }
 .unsafe-member-items summary { cursor: pointer; font-size: 11px; color: var(--dim); }

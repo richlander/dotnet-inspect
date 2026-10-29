@@ -1529,6 +1529,9 @@ test("Unsafe rows show census evidence and open the declared member's Safety Fac
   await expect(items).not.toBeVisible();
   await member.locator("summary").click();
   await expect(items).toBeVisible();
+  // The expansion survives the app's re-render after the click.
+  await page.waitForTimeout(1000);
+  await expect(items).toBeVisible();
   await expect(items).toContainText("IL_0007");
   await expect(items).toContainText("<Run>b__0_0()");
   await member.locator("button.perf-row").click();

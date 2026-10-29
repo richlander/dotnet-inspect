@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderLibraryUnsafeMembersSurface } from "../src/library-unsafe-members.ts";
+import { rememberUnsafeEvidence, renderLibraryUnsafeMembersSurface } from "../src/library-unsafe-members.ts";
 import type { BrowserUnsafeMember, BrowserUnsafeMembers } from "../src/facades/inspect-web-analysis.d.ts";
 
 const escapeHtml = (value: unknown) => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -83,4 +83,13 @@ test("failed, unavailable, pending, unselected, and complete empty results remai
   assert.match(renderLibraryUnsafeMembersSurface({ ...options, loading: true, data: result() }), /Reading unsafe members/);
   assert.match(renderLibraryUnsafeMembersSurface({ ...options, error: "<transport>", data: null }), /&lt;transport&gt;/);
   assert.match(renderLibraryUnsafeMembersSurface({ ...options, requireLibrary: true, data: null }), /Pick a library/);
+});
+
+test("expanded evidence stays open across re-renders until it is closed", () => {
+  const key = "Fixture.dll#100663297";
+  assert.doesNotMatch(renderLibraryUnsafeMembersSurface({ ...options, data: result() }), /data-unsafe-evidence="Fixture.dll#100663297" open/);
+  rememberUnsafeEvidence(key, true);
+  assert.match(renderLibraryUnsafeMembersSurface({ ...options, data: result() }), /data-unsafe-evidence="Fixture.dll#100663297" open/);
+  rememberUnsafeEvidence(key, false);
+  assert.doesNotMatch(renderLibraryUnsafeMembersSurface({ ...options, data: result() }), /data-unsafe-evidence="Fixture.dll#100663297" open/);
 });
