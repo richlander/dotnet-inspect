@@ -864,12 +864,15 @@ public partial class PackageCommand
                 logger.Log);
             if (wantsEcosystemDependencies)
             {
-                await ApplyPackageEcosystemDependenciesAsync(
+                if (!await TryApplyPackageEcosystemDependenciesAsync(
                     result,
                     resolution,
                     RequiresPackageEcosystemDiagnosticDisclosure(
                         producerOptions),
-                    logger.Log);
+                    logger.Log))
+                {
+                    return null;
+                }
             }
 
             await PopulatePackageSignatureAsync(
