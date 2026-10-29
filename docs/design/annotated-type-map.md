@@ -424,9 +424,10 @@ Each step is its own focused effort:
    Body fact per method under Finding Diff Any's Body equality, with NativeAOT
    cost per Type for each against Finding Diff Any's lockstep walk. Each is a
    registered family in
-   [Annotated Type Map planning](annotated-type-map-planning.md), which also
-   plans a request for only some Members' shape facts, and its producer
-   computes only the families a plan selects.
+   [Annotated Type Map planning](annotated-type-map-planning.md). A map always
+   carries both; planning also serves a family contribution request for one
+   family's facts outside a map, and each family's producer constructs only
+   that family.
 3. **Fact census without text.** The Annotated Source owner produces one
    method's whole fact stream and fact comparison, for each method a Member
    owns including generated methods, without the text comparison or the C#
