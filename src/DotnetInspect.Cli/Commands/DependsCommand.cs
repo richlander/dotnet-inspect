@@ -303,62 +303,6 @@ public partial class DependsCommand
         return false;
     }
 
-    public static async Task<int> ExecutePackageDependsAsync(
-        DependsOptions options,
-        CancellationToken cancellationToken = default)
-    {
-        var context = new CommandContext(options.Verbose);
-        var logger = context.Logger;
-
-        try
-        {
-            if (DependsShareProjection.ValidateOptions(options) is { } shareError)
-            {
-                CommandError.Write(shareError);
-                return 1;
-            }
-            if (options.ShareFormat is not null)
-            {
-                return await DependsShareProjection.WriteAsync(
-                    options,
-                    context.HttpClient,
-                    logger,
-                    cancellationToken);
-            }
-
-            var packageRef = options.PackageName!;
-            var result = await DependencyGraphService.BuildPackageDependencyGraphAsync(
-                context.HttpClient, packageRef, options.Tfm, options.SourceOptions, logger);
-            if (result is PackageDependencyGraphResult.Error error)
-            {
-                // Detail lists the TFMs a package actually offers, which comes
-                // straight out of its .nuspec. It used to go out as its own
-                // unindented line, so a hostile targetFramework attribute
-                // containing a line separator forged a diagnostic under it.
-                CommandError.Write(error.Message, error.Detail is null ? [] : [error.Detail]);
-                return 1;
-            }
-            if (result is PackageDependencyGraphResult.Empty empty)
-            {
-                WriteGraph(
-                    DependencyGraphProjection.Package(empty),
-                    options);
-                return 0;
-            }
-
-            var graph = (PackageDependencyGraphResult.Graph)result;
-            WriteGraph(
-                DependencyGraphProjection.Package(graph),
-                options);
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            CommandError.Write(ex);
-            return 1;
-        }
-    }
-
     /// <summary>
     /// A tree label is written straight into the terminal beside a box-drawing
     /// gutter, so an ESC or a bidi override in a metadata name rewrites the
@@ -414,30 +358,6 @@ public partial class DependsCommand
 
     private static string ContainLabel(string label)
         => CSharpIdentifier.ContainRenderedText(label);
-
-    private static void WriteGraph(
-        DependencyGraphDocument document,
-        DependsOptions options)
-    {
-        IReadOnlyList<DependencyGraphEdgeRow> rows =
-            RowWindow.Apply(
-                options.Rows,
-                DependencyGraphOutputAdapter.EdgeRows(document));
-        if (options.Count)
-        {
-            CountOutput.WriteCount(rows.Count);
-            return;
-        }
-
-        DependencyGraphOutputAdapter.Write(
-            document,
-            rows,
-            EffectiveFormat(options),
-            options.Tree,
-            options.EmbeddedMermaid,
-            options.NoHeader,
-            options.CompactJson);
-    }
 
     private static OutputFormat EffectiveFormat(DependsOptions options) =>
         options.JsonOutput
