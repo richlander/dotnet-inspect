@@ -1542,6 +1542,12 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await expect(member.locator(".unsafe-member-callees")).toHaveText("System.Runtime.CompilerServices.Unsafe::Add");
   await expect(member.locator(".unsafe-pill")).toHaveText(["Public", "safe boundary"]);
   await expect(typeSurface.locator(".unsafe-evidence-table")).toHaveCount(0);
+  // The drill leaves the Library's own Analysis selection unchanged.
+  await chooseSubject(page, "library", "Library");
+  await expect(page.locator('[data-analysis-scope="library"][data-analysis-mode="unsafe"]')).toHaveAttribute("aria-selected", "true");
+  await expect(typeRow).toHaveCount(1);
+  await typeRow.locator("button.perf-row").click();
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
   // Unsafe is the Type's default mode, so the link omits the refinement, and
   // a reload restores the Type Analysis Unsafe tab from the packet.
   await expect.poll(() => new URL(page.url()).searchParams.has("analysis")).toBe(false);
@@ -1571,11 +1577,6 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await expect(memberTab).toHaveAttribute("aria-selected", "true");
   await expect(memberSurface.locator(".unsafe-evidence-table")).toContainText("IL_0007");
   expect(page.url()).toBe(memberUrl);
-  // The drills leave the Library's own Analysis selection unchanged.
-  await page.goBack();
-  await page.goBack();
-  await expect(page.getByRole("tab", { name: "Unsafe", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(librarySurface.locator(".unsafe-type")).toHaveCount(1);
 });
 
 test("Resource rows open member Resource Triage with detailed evidence and Explore", async ({ page }) => {
