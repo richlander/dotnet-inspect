@@ -1113,6 +1113,34 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task DiffAnalysisBinding_ExplainsTheRequiredLiteralPredicateAndTransport()
+    {
+        var result = await RunAsync(
+            "explain",
+            "diff-analysis/bindings/cli",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        string[] rules = document.RootElement
+            .GetProperty("facts")
+            .GetProperty("input-rules")
+            .EnumerateArray()
+            .Select(rule => rule.GetString()!)
+            .ToArray();
+        Assert.Contains(rules, rule =>
+            rule.Contains("--analysis string-literals", StringComparison.Ordinal)
+            && rule.Contains("exactly one --where", StringComparison.Ordinal));
+        Assert.Contains(rules, rule =>
+            rule.Contains("Literal contains value", StringComparison.Ordinal)
+            && rule.Contains("Literal starts-with value", StringComparison.Ordinal));
+        Assert.Contains(rules, rule =>
+            rule.Contains("one shell argument", StringComparison.Ordinal)
+            && rule.Contains("--where \"Literal contains https://\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Search_AdmitsEveryAnalysisDiffBinds()
     {
         var search = await RunAsync(
