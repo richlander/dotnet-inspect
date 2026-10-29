@@ -42,15 +42,18 @@ public sealed partial class BrowserEngineBoundaryTests
             [.. CensusFindings(census)
                 .Select(static finding => finding.Member.MetadataToken)
                 .Order()],
-            [.. result.Members.Select(static member => member.MetadataToken).Order()]);
+            [.. Members(result).Select(static member => member.MetadataToken).Order()]);
         Assert.Equal(
-            [.. result.Members.Select(static member => member.Member).Order(StringComparer.Ordinal)],
-            [.. result.Members.Select(static member => member.Member)]);
+            [.. result.Types.Select(static type => type.Type).Order(StringComparer.Ordinal)],
+            [.. result.Types.Select(static type => type.Type)]);
+        Assert.All(result.Types, static type => Assert.Equal(
+            [.. type.Members.Select(static member => member.Member).Order(StringComparer.Ordinal)],
+            [.. type.Members.Select(static member => member.Member)]));
 
         // A lambda's dereference folds into its declaring non-public member,
         // which still resolves to an exact navigation identity.
         BrowserUnsafeMember capture = Assert.Single(
-            result.Members,
+            Members(result),
             static member => member.Member.Contains(".CaptureLocal(", StringComparison.Ordinal));
         Assert.Equal("Non-public", capture.Exposure);
         Assert.Equal("pointer dereference", capture.Evidence);
@@ -67,7 +70,35 @@ public sealed partial class BrowserEngineBoundaryTests
             capture.Items,
             static item => item.Role == "pointer dereference"
                 && item.Body.Contains(">b__", StringComparison.Ordinal));
-        Assert.DoesNotContain(result.Members, static member => member.Member.Contains(">b__", StringComparison.Ordinal));
+        Assert.DoesNotContain(Members(result), static member => member.Member.Contains(">b__", StringComparison.Ordinal));
+
+        // The fixture uses the updated rules, so a member with an inner
+        // unsafe block and no contract is a safe boundary.
+        Assert.Equal("safe boundary", capture.SafeBoundary);
+
+        // Types group the same rows in the same order, each with the shared
+        // counts, and the Library counts are their sum.
+        BrowserUnsafeType captureType = Assert.Single(
+            result.Types, type => type.Members.Contains(capture));
+        Assert.Equal(capture.TypeId, captureType.TypeId);
+        Assert.All(result.Types, type => Assert.All(
+            type.Members,
+            member => Assert.StartsWith(type.Type + ".", member.Member, StringComparison.Ordinal)));
+        Assert.Equal(
+            result.Types.Length,
+            result.Types.Select(static type => type.Type).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(Members(result).Length, result.Counts.Members);
+        Assert.Equal(result.Types.Sum(static type => type.Counts.SafeBoundaries), result.Counts.SafeBoundaries);
+        Assert.Equal(result.Types.Sum(static type => type.Counts.Propagating), result.Counts.Propagating);
+        Assert.Equal(result.Types.Sum(static type => type.Counts.Public), result.Counts.Public);
+        Assert.Equal(
+            Members(result).Count(static member => member.SafeBoundary == "safe boundary"),
+            result.Counts.SafeBoundaries);
+        Assert.Equal(
+            Members(result).Count(static member => member.ExplicitContract),
+            result.Counts.Propagating);
+        Assert.True(result.Counts.Propagating > 0);
+        Assert.Equal(0, result.Counts.SafeBoundaryUndecided);
     }
 
     [Fact]
@@ -88,7 +119,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
 
         Assert.Equal("unavailable", result.Outcome);
-        Assert.Empty(result.Members);
+        Assert.Empty(Members(result));
         Assert.NotNull(result.InspectionError);
     }
 
@@ -123,7 +154,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Contains(result.Outcome, new[] { "available", "incomplete" });
         Assert.Equal(
             CensusFindings(CensusOf(assemblyPath)).Length,
-            result.Members.Length);
+            Members(result).Length);
 
         // Rows navigate into the Platform surface, whose Types carry the bare
         // identity name rather than the file name.
@@ -131,7 +162,7 @@ public sealed partial class BrowserEngineBoundaryTests
             resolution.Scope, resolution.Participant, resolution.Coordinate);
         Assert.Equal(Path.GetFileNameWithoutExtension(assemblyName), result.Assembly);
         BrowserUnsafeMember[] navigable =
-            [.. result.Members.Where(static member => member.TypeId is not null)];
+            [.. Members(result).Where(static member => member.TypeId is not null)];
         Assert.NotEmpty(navigable);
         Assert.All(navigable, member =>
             Assert.Equal(result.Assembly, member.DeclaringType?.Assembly));
@@ -155,7 +186,7 @@ public sealed partial class BrowserEngineBoundaryTests
             static identity => new BrowserUnsafeMemberSurfaceNaming(identity.Name, identity.Name, null));
         Assert.Equal("failed", failed.Outcome);
         Assert.Equal("census failed", failed.InspectionError);
-        Assert.Empty(failed.Members);
+        Assert.Empty(Members(failed));
 
         BrowserUnsafeMembers missing = AnalysisExports.ProjectUnsafeMembers(
             new AssemblyContextEntry<AssemblyUnsafeMemberCensusResult>.Available(
@@ -166,8 +197,11 @@ public sealed partial class BrowserEngineBoundaryTests
                     [])),
             static identity => new BrowserUnsafeMemberSurfaceNaming(identity.Name, identity.Name, null));
         Assert.Equal("unavailable", missing.Outcome);
-        Assert.Empty(missing.Members);
+        Assert.Empty(Members(missing));
     }
+
+    static BrowserUnsafeMember[] Members(BrowserUnsafeMembers result) =>
+        [.. result.Types.SelectMany(static type => type.Members)];
 
     static UnsafeMemberFindingInspection CensusOf(string assemblyPath)
     {

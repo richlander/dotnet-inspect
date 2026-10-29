@@ -18,6 +18,28 @@ public enum UnsafeMemberExposure
 /// One positive unsafe-member role and the physical body that produced it,
 /// with the callee contract's source for an explicit-contract call.
 /// </summary>
+/// <summary>
+/// Whether a declared member is a safe boundary: under the updated
+/// memory-safety rules, it uses an unsafe context internally without
+/// propagating that requirement to its callers
+/// (<c>docs/design/memory-safety-models.md</c>). The module's rules decide
+/// whether the question applies.
+/// </summary>
+public enum UnsafeMemberSafeBoundary
+{
+    /// <summary>The module does not use the updated rules.</summary>
+    NotApplicable,
+
+    /// <summary>The module's memory-safety rules could not be decided.</summary>
+    Unknown,
+
+    /// <summary>The member propagates, or has no inner-unsafe evidence.</summary>
+    No,
+
+    /// <summary>Inner-unsafe evidence and no explicit caller-unsafe contract.</summary>
+    Yes,
+}
+
 public sealed record UnsafeMemberFindingEvidence(
     UnsafeMemberUseKind Kind,
     MethodIdentity Body,
@@ -122,7 +144,8 @@ public sealed record UnsafeMemberFinding(
     bool HasExplicitUnsafeContract,
     ImmutableArray<UnsafeMemberFindingEvidence> Evidence,
     ImmutableArray<UnsafeMemberLimitation> UninspectedBodies,
-    UnsafeMemberExposure Exposure)
+    UnsafeMemberExposure Exposure,
+    UnsafeMemberSafeBoundary SafeBoundary = UnsafeMemberSafeBoundary.NotApplicable)
 {
     ImmutableArray<UnsafeMemberFindingEvidence> _evidence =
         ImmutableArrayValueEquality.RequireInitialized(Evidence, nameof(Evidence));
@@ -147,7 +170,8 @@ public sealed record UnsafeMemberFinding(
             && HasExplicitUnsafeContract == other.HasExplicitUnsafeContract
             && ImmutableArrayValueEquality.SequenceEqual(Evidence, other.Evidence)
             && ImmutableArrayValueEquality.SequenceEqual(UninspectedBodies, other.UninspectedBodies)
-            && Exposure == other.Exposure;
+            && Exposure == other.Exposure
+            && SafeBoundary == other.SafeBoundary;
 
     public override int GetHashCode()
     {
@@ -157,6 +181,7 @@ public sealed record UnsafeMemberFinding(
         ImmutableArrayValueEquality.AddToHash(ref hash, Evidence);
         ImmutableArrayValueEquality.AddToHash(ref hash, UninspectedBodies);
         hash.Add(Exposure);
+        hash.Add(SafeBoundary);
         return hash.ToHashCode();
     }
 

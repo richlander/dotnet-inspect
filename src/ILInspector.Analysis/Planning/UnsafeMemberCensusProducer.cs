@@ -50,7 +50,7 @@ public sealed class UnsafeMemberCensusProducer
     UnsafeMemberCensusProducer()
         : base(
             "UnsafeMemberCensus",
-            version: 1,
+            version: 2,
             tier: 0,
             MethodDefinitionLayers.Body
                 | MethodDefinitionLayers.Calls
@@ -127,6 +127,20 @@ public sealed class UnsafeMemberCensusProducer
                 requiresOwnerByShape);
         }
 
+        UnsafeMemberModuleRules rules = UnsafeMemberModuleRules.NotRead;
+        if (HasInnerUnsafeEvidence(evidence))
+        {
+            try
+            {
+                rules = ModuleRules(view.GetMemorySafetyRules());
+            }
+            catch (Exception exception)
+                when (IsRecoverable(exception))
+            {
+                rules = UnsafeMemberModuleRules.Unknown;
+            }
+        }
+
         return new(
             Facts(
                 token,
@@ -134,9 +148,31 @@ public sealed class UnsafeMemberCensusProducer
                 extensionShape,
                 availability,
                 failureDetail: null,
-                evidence),
+                evidence) with { ModuleRules = rules },
             requiresOwnerByShape);
     }
+
+    // Any role but the member's own contract is evidence of an unsafe context
+    // the body used.
+    static bool HasInnerUnsafeEvidence(ImmutableArray<UnsafeMemberUseEvidence> evidence)
+    {
+        foreach (UnsafeMemberUseEvidence item in evidence)
+        {
+            if (item.Kind != UnsafeMemberUseKind.ExplicitContract)
+                return true;
+        }
+        return false;
+    }
+
+    static UnsafeMemberModuleRules ModuleRules(MemorySafetyRulesResult rules) =>
+        rules switch
+        {
+            MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Updated } =>
+                UnsafeMemberModuleRules.Updated,
+            MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Legacy } =>
+                UnsafeMemberModuleRules.Legacy,
+            _ => UnsafeMemberModuleRules.Unknown,
+        };
 
     internal override List<UnsafeMemberCensusBodyFact> Seed() => [];
 

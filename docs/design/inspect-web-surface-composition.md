@@ -1285,44 +1285,72 @@ defined by
 
 #### Unsafe
 
-Unsafe renders the
-[unsafe member census](unsafe-member-findings.md) for the selected package or
-Platform Library, as step 4 of its
+Unsafe presents the [unsafe member census](unsafe-member-findings.md) for the
+selected package or Platform Library, as step 4 of its
 [adoption](unsafe-member-findings.md#adoption-and-gates). The census owns
-admission, attribution, identity, exposure, and completeness. This tab owns
-only how it presents them.
+admission, attribution, identity, exposure, the
+[safe-boundary state](unsafe-member-findings.md#safe-boundary), Type groups,
+counts, and completeness. This view owns only how it discloses them.
 
-- **Population.** The census covers members of every accessibility. Exposure
-  is a row attribute, not a public-only filter.
-- **Rows.** There's one row per declared member with a finding, in the
-  [Unsafe Members section](unsafe-members-section.md#rows) order. Each row
-  shows the member, its exposure, an explicit-contract badge, the shared
-  evidence summary text, and a partial badge.
-  - Each row's contributing evidence items expand under it, with role,
-    physical body, IL offset, and detail. A lambda, local-function, or
-    state-machine body appears only as evidence of its declared member.
-  - The tab is ungraded: there's no severity, risk, or recommendation.
-- **Navigation.** A row whose member the Library's all-accessibility API
-  surface resolves links to that exact member.
-  - The row names its Type the way the Library's ordinary Type list does. That
-    is the asset's assembly name for a package, and the bare identity name for
-    a Platform Library.
+Unsafe uses progressive disclosure, as Compare does. Each scope is a useful
+answer on its own and leads to the next:
+
+```text
+Library:  counts | Types with findings, each with its counts
+Type:     counts | the Type's members with findings, each with its dimensions
+Member:   the member's dimensions | its contributing evidence
+```
+
+- **Dimensions.** Every scope presents three separate dimensions and never
+  merges them into one safe/unsafe value:
+  - presence: the member uses or propagates unsafe code;
+  - exposure: public, non-public, or unknown;
+  - safe boundary: the member uses an unsafe context without propagating it.
+    It's decided only under the updated rules. A legacy module shows it as not
+    applicable, never as a negative.
+
+  Propagation is the explicit caller-unsafe contract. A propagator is never a
+  safe boundary.
+- **Library scope.** The Library Analysis **Unsafe** tab shows the Library
+  counts and one row per declaring Type with a finding, ordered by Type name.
+  A row shows the Type, its member count, and its public, propagating, and
+  safe-boundary counts. Activating a row opens that Type with its **Unsafe**
+  lens.
+- **Type scope.** The Type **Unsafe** lens shows the Type's counts and one row
+  per member with a finding, in the
+  [Unsafe Members section](unsafe-members-section.md#rows) order. A row shows
+  the member, its exposure, its propagation, its safe-boundary state, its
+  evidence summary, and a partial badge. Activating a row opens that member
+  with its **Unsafe** section. A Type without findings states that, unless
+  the census is incomplete, when it states that absence can't be established.
+- **Member scope.** The Member **Unsafe** section shows the member's
+  dimensions and its contributing evidence items as a table of role, physical
+  body, IL offset, and detail. A lambda, local-function, or state-machine body
+  appears only as evidence of its declared member. When several declared
+  bodies anchor to one member, such as property accessors, each keeps its own
+  finding.
+- **Ungraded.** No scope shows severity, risk, or recommendation.
+- **Navigation.** Each scope links through the Library's all-accessibility API
+  surface.
+  - The Type and member rows name their Type the way the Library's ordinary
+    Type list does. That is the asset's assembly name for a package, and the
+    bare identity name for a Platform Library.
   - When the ordinary list doesn't carry the Type, the row opens it as a
-    transient Type from the projection the row carries, as Performance rows
-    do. Examples are a Type hidden from the API surface, or an internal Type
-    missing from a reference asset.
-  - Every drill widens to the Type's whole member population, so a non-public
-    member is listed. An Unsafe drill doesn't select a body from Performance
-    evidence.
-  - Packages open Member Safety Facts. Platform Libraries open the member
-    overview, because Platform Member Facts isn't available.
-  - A row the surface can't resolve renders without a link and keeps its
-    finding.
-- **State.** Unsafe uses the same closed request state as Resource Triage: one
-  exact Library/coordinate request. Only the current request may publish;
-  replacement and package invalidation retire it. Workspace snapshots
-  normalize an interrupted load to idle.
-- **Outcomes.** Each outcome renders distinctly:
+    transient Type from the projection it carries, as Performance rows do.
+  - Every drill widens to the Type's whole member population, so a
+    non-public member is listed.
+  - A Type or member the surface can't resolve renders without a link and
+    keeps its finding.
+  - The Type lens and the Member section are Browser-owned. They're available
+    for package and Platform Libraries alike, because they present the
+    census, not Member Facts.
+- **State.** All three scopes share the closed request state Resource Triage
+  uses, for one exact Library and coordinate. Only the current request may
+  publish; replacement and package invalidation retire it. Workspace
+  snapshots normalize an interrupted load to idle. The Type and Member scopes
+  select from that one Library result by the product-issued Type identity and
+  member stable selector. They don't regroup, filter, or recount rows.
+- **Outcomes.** Each outcome renders distinctly at every scope:
   - loading;
   - failed or rejected, with its diagnostic;
   - unavailable, such as a reference-only Library;
@@ -1338,7 +1366,8 @@ only how it presents them.
 The managed export runs `AssemblyContextUnsafeMemberCensusQuery` over the
 Library's admitted implementation participant. That query runs the census
 through its shared session entry, and adds navigation identities from the
-complete API surface.
+complete API surface. The export groups findings with
+`UnsafeMemberTypeGroup` and counts them with `UnsafeMemberCounts`.
 
 The platform selector stays above scrolling results and keeps its existing
 acquisition behavior. Analysis has no bottom context row. Browser HTML lowering

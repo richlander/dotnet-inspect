@@ -140,6 +140,49 @@ updated-model caller-unsafe contract. Legacy pointer-shaped signatures,
 inventory roles in a legacy assembly, and evidence attributed from generated
 bodies never imply propagation.
 
+## Safe boundary
+
+A safe boundary, as
+[memory-safety models](memory-safety-models.md#v2-audit-and-identification-scenarios) defines
+it, is a member that uses an unsafe context internally without propagating
+that requirement to its callers. Each finding carries one of four states:
+
+- **Yes:** the module uses the updated rules, the member has no explicit
+  caller-unsafe contract, and the finding has inner-unsafe evidence. That is
+  any role except the member's own contract.
+- **No:** the member propagates. A propagator is never a safe boundary,
+  whatever the module's rules.
+- **Not applicable:** the module uses the legacy rules, which define no safe
+  boundary. A legacy member with inner-unsafe evidence is not reported as a
+  safe boundary.
+- **Unknown:** the module's memory-safety rules could not be decided.
+
+Only a body with inner-unsafe evidence reads the module's rules, so the census
+adds no rules read to a body without evidence. Every non-propagating finding
+has such evidence. The state is derived from the contract, the evidence, and
+the module's rules, so it is not part of the
+[finding summary](unsafe-members-section.md#diff) that comparison uses.
+
+The constructor-initializer exception in
+[memory-safety models](memory-safety-models.md#v2-audit-and-identification-scenarios) applies
+only to a constructor with an unsafe contract, and such a constructor is a
+propagator. It therefore never changes this state.
+
+## Type groups and counts
+
+`UnsafeMemberTypeGroup.Group` partitions findings by declaring Type. Each Type
+appears in the order of its first finding and keeps its findings in the given
+order. `UnsafeMemberCounts` counts the dimensions a scope carries:
+
+- members with findings;
+- public members;
+- propagating members;
+- safe boundaries;
+- members whose safe-boundary state is not applicable or unknown.
+
+Hosts present the census at Library, Type, and Member scope through these
+values, without regrouping or recounting rows.
+
 ## Body availability
 
 Each physical body in scope is classified with the shared
@@ -493,10 +536,11 @@ This slice is step 2 of 5 for #5254's Unsafe view:
    evidence change; pairing generated bodies across versions belongs to
    [#9861](https://github.com/richlander/dotnet-inspect/issues/9861) and
    [#9870](https://github.com/richlander/dotnet-inspect/issues/9870).
-4. Inspect Web Library Analysis Unsafe tab over this census, replacing
-   #9366's public-member-only attribution. It's implemented: the
-   [Unsafe tab](inspect-web-surface-composition.md#unsafe) owns its
-   presentation.
+4. Inspect Web Unsafe view over this census, replacing #9366's
+   public-member-only attribution. It discloses the census at Library, Type,
+   and Member scope with the safe-boundary state and the Type counts. The
+   [Unsafe view](inspect-web-surface-composition.md#unsafe) owns its
+   presentation. The CLI section's adoption of the same scopes is a successor.
 5. Unsafe guidance findings: a focused checker family with its own design.
 
 Steps 3 through 5 are separate focused efforts, each naming its own owner.
@@ -521,6 +565,12 @@ Focused Release gates in `UnsafeMemberFindingsTests` cover:
 - `ExplicitContractBelongsOnlyToTheDeclaringMember` and
   `LegacyEvidenceNeverPropagates`: contracts and propagation stay with the
   declaring member;
+- `SafeBoundaryIsDecidedOnlyUnderTheUpdatedRules`: every propagator is
+  `No`; under the updated rules every other finding is `Yes`, including a
+  member whose lambda holds the unsafe block; under the legacy rules every
+  other finding is `Not applicable`;
+- `TypeGroupsPartitionTheCensusWithTheirCounts`: Type groups partition the
+  census in order, and each count is the count of its findings;
 - `IdentityIgnoresModuleTokenAndContractButSeparatesOverloads`: identity
   through the shared fragment;
 - `InspectionProjectsOneFindingPerMemberAndKeepsIncompleteness` and

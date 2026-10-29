@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
@@ -10,16 +11,43 @@ using TsJsExport;
 namespace DotnetInspect.Web.Interop.Analysis;
 
 /// <summary>
-/// The unsafe member census of one Library, one row per declared member with a
-/// finding, as docs/design/inspect-web-surface-composition.md#unsafe
-/// defines for the Unsafe tab.
+/// The unsafe member census of one Library, grouped by declaring Type, as
+/// docs/design/inspect-web-surface-composition.md#unsafe defines for its
+/// Library, Type, and Member scopes. <see cref="Counts"/> covers the Library.
 /// </summary>
 public sealed record BrowserUnsafeMembers(
     string Outcome,
     string Assembly,
-    BrowserUnsafeMember[] Members,
+    BrowserUnsafeMemberCounts Counts,
+    BrowserUnsafeType[] Types,
     string[] Limitations,
     string? InspectionError);
+
+/// <summary>
+/// The unsafe member dimensions a scope carries: members with findings, public
+/// ones, propagating ones, and safe boundaries.
+/// <see cref="SafeBoundaryUndecided"/> counts members whose module rules leave
+/// the safe-boundary question inapplicable or unknown.
+/// </summary>
+public sealed record BrowserUnsafeMemberCounts(
+    int Members,
+    int Public,
+    int Propagating,
+    int SafeBoundaries,
+    int SafeBoundaryUndecided);
+
+/// <summary>
+/// One declaring Type's findings and counts. <see cref="TypeId"/> and
+/// <see cref="DeclaringType"/> are its navigation identity when the API
+/// surface resolves one of its members; the Type otherwise renders without a
+/// link.
+/// </summary>
+public sealed record BrowserUnsafeType(
+    string Type,
+    string? TypeId,
+    BrowserPerformanceTypeSurface? DeclaringType,
+    BrowserUnsafeMemberCounts Counts,
+    BrowserUnsafeMember[] Members);
 
 /// <summary>
 /// One declared member's finding: the row the CLI section shows, its
@@ -33,6 +61,7 @@ public sealed record BrowserUnsafeMember(
     int MetadataToken,
     string Exposure,
     bool ExplicitContract,
+    string SafeBoundary,
     string Evidence,
     bool Partial,
     string? TypeId,
@@ -160,30 +189,67 @@ public static partial class AnalysisExports
         return inspection switch
         {
             UnsafeMemberFindingInspection.Complete complete =>
-                new("available", naming.Assembly, Rows(complete.Inspection, content, identity, naming), [], null),
+                Project("available", naming.Assembly, complete.Inspection, content, identity, naming, []),
             UnsafeMemberFindingInspection.Incomplete incomplete =>
-                new("incomplete", naming.Assembly, Rows(incomplete.Inspection, content, identity, naming),
+                Project("incomplete", naming.Assembly, incomplete.Inspection, content, identity, naming,
                     [.. incomplete.Limitations.Select(static limitation =>
-                        limitation.Describe(UnsafeMemberMethodLabel))],
-                    null),
+                        limitation.Describe(UnsafeMemberMethodLabel))]),
             UnsafeMemberFindingInspection.Failed failed =>
                 UnsafeMembersUnavailable("failed", failed.Error.Reason),
             _ => throw new InvalidOperationException("Unknown unsafe member inspection outcome."),
         };
     }
 
-    // Rows in the CLI section's order: the rendered member, then its token.
-    static BrowserUnsafeMember[] Rows(
+    // Types by name, each with its findings in the CLI section's order (the
+    // rendered member, then its token) and the shared counts.
+    static BrowserUnsafeMembers Project(
+        string outcome,
+        string assembly,
         Inspector.Findings.FindingInspection<UnsafeMemberFinding>.Complete inspection,
+        AssemblyUnsafeMemberCensusResult content,
+        AssemblyReferenceIdentity identity,
+        BrowserUnsafeMemberSurfaceNaming naming,
+        string[] limitations)
+    {
+        UnsafeMemberFinding[] ordered =
+        [
+            .. inspection.Findings
+                .Select(static finding => finding.Payload)
+                .OrderBy(static finding => UnsafeMemberMethodLabel(finding.Member), StringComparer.Ordinal)
+                .ThenBy(static finding => finding.Member.MetadataToken),
+        ];
+        BrowserUnsafeType[] types =
+        [
+            .. UnsafeMemberTypeGroup.Group(ordered)
+                .Select(static group => (Name: group.DeclaringType.ToQualifiedDisplayString(), Group: group))
+                .OrderBy(static entry => entry.Name, StringComparer.Ordinal)
+                .Select(static entry => entry.Group)
+                .Select(group =>
+            {
+                BrowserUnsafeMember[] members = Rows(group.Members, content, identity, naming);
+                BrowserUnsafeMember? navigable = members.FirstOrDefault(static member => member.TypeId is not null);
+                return new BrowserUnsafeType(
+                    group.DeclaringType.ToQualifiedDisplayString(),
+                    navigable?.TypeId,
+                    navigable?.DeclaringType,
+                    Counts(group.Counts),
+                    members);
+            }),
+        ];
+        return new(outcome, assembly, Counts(UnsafeMemberCounts.Of(ordered)), types, limitations, null);
+    }
+
+    static BrowserUnsafeMemberCounts Counts(UnsafeMemberCounts counts) =>
+        new(counts.Members, counts.Public, counts.Propagating, counts.SafeBoundaries, counts.SafeBoundaryUndecided);
+
+    static BrowserUnsafeMember[] Rows(
+        ImmutableArray<UnsafeMemberFinding> findings,
         AssemblyUnsafeMemberCensusResult content,
         AssemblyReferenceIdentity identity,
         BrowserUnsafeMemberSurfaceNaming naming) =>
         [
-            .. inspection.Findings
-                .Select(static finding => finding.Payload)
+            .. findings
                 .Select(finding => (Label: UnsafeMemberMethodLabel(finding.Member), Finding: finding))
-                .OrderBy(static row => row.Label, StringComparer.Ordinal)
-                .ThenBy(static row => row.Finding.Member.MetadataToken)
                 .Select(row =>
                 {
                     UnsafeMemberFinding finding = row.Finding;
@@ -194,6 +260,7 @@ public static partial class AnalysisExports
                         finding.Member.MetadataToken,
                         UnsafeMemberFindingSummary.ExposureText(finding.Exposure),
                         finding.HasExplicitUnsafeContract,
+                        UnsafeMemberFindingSummary.SafeBoundaryText(finding.SafeBoundary),
                         string.Join("; ", UnsafeMemberFindingSummary.RolesOf(finding.Evidence)
                             .Select(static role => UnsafeMemberFindingSummary.RoleText(role, static callee => callee))),
                         finding.HasPartialEvidence,
@@ -224,5 +291,5 @@ public static partial class AnalysisExports
         FormatAnalysisMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
 
     static BrowserUnsafeMembers UnsafeMembersUnavailable(string outcome, string error) =>
-        new(outcome, "", [], [], error);
+        new(outcome, "", new(0, 0, 0, 0, 0), [], [], error);
 }
