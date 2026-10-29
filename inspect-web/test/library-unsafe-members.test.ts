@@ -29,13 +29,16 @@ test("Unsafe shows one row per declared member with its census evidence", () => 
   const html = renderLibraryUnsafeMembersSurface({ ...options, data: result() });
   assert.match(html, /data-analysis-mode="unsafe" aria-selected="true"/);
   assert.match(html, /1 unsafe member</);
-  assert.equal(html.match(/class="unsafe-member"/g)?.length, 1);
+  assert.equal(html.match(/class="triage-item unsafe-member"/g)?.length, 1);
   for (const text of ["Fixture.Sample.Read(Int32)", "Non-public", "pointer dereference ×2", "Unsafe::Add"]) assert.ok(html.includes(text));
   assert.match(html, /data-unsafe-selector="Read~abc"/);
   assert.match(html, /data-unsafe-assembly="Fixture.dll"/);
   assert.match(html, /data-unsafe-type="Fixture.Sample"/);
   assert.match(html, /data-unsafe-accessibility="private"/);
   assert.match(html, /2 evidence items/);
+  assert.match(html, /class="perf-count"[^>]*>2</);
+  assert.match(html, /<span class="perf-shape">pointer dereference ×2<\/span><span class="perf-shape">explicit-contract call<\/span>/);
+  assert.match(html, /class="unsafe-member-callees">System.Runtime.CompilerServices.Unsafe::Add</);
   assert.match(html, /&lt;Read&gt;b__0_0\(\)/);
   assert.match(html, /IL_0007/);
   assert.doesNotMatch(html, /severity|risk|recommend/i);
@@ -51,6 +54,7 @@ test("a member the API surface cannot resolve renders without navigation", () =>
   const html = renderLibraryUnsafeMembersSurface({ ...options, data: result({ members: [{ ...member, typeId: null, stableSelector: null }] }) });
   assert.match(html, /Fixture.Sample.Read\(Int32\)/);
   assert.doesNotMatch(html, /data-unsafe-selector=/);
+  assert.match(html, /<div class="perf-row unsafe-member-static"/);
 });
 
 test("an incomplete census lists its limitations and keeps the observed rows", () => {

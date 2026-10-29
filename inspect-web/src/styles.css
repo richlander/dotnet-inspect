@@ -6769,17 +6769,17 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .triage-code { margin: 0 16px 12px 60px; padding: 10px 12px; overflow-x: auto; font-size: 12px; background: var(--panel); white-space: pre; }
 .resource-triage-member { color: var(--accent); background: transparent; border: 0; padding: 0; text-align: left; font: inherit; cursor: pointer; }
 .resource-triage-member:hover { text-decoration: underline; }
-.unsafe-member-list { display: grid; gap: 0.5rem; }
-.unsafe-member { border-bottom: 1px solid var(--border); padding: 0.4rem 0; }
-.unsafe-member-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
-.unsafe-member-name { color: var(--accent); background: transparent; border: 0; padding: 0; text-align: left; font: inherit; overflow-wrap: anywhere; }
-button.unsafe-member-name { cursor: pointer; }
-button.unsafe-member-name:hover { text-decoration: underline; }
-span.unsafe-member-name { color: inherit; }
-.unsafe-member-badges { display: inline-flex; gap: 0.25rem; }
-.unsafe-member-badge { font-size: 0.8em; border: 1px solid var(--border); border-radius: 0.25rem; padding: 0 0.3rem; }
-.unsafe-member-evidence { overflow-wrap: anywhere; }
-.unsafe-member-items summary { cursor: pointer; font-size: 0.85em; }
-.unsafe-member-items ul { margin: 0.25rem 0 0; padding-left: 1.25rem; }
+.unsafe-member-static { cursor: default; }
+.unsafe-member-static:hover { border-color: var(--line); background: transparent; }
+.unsafe-member-callees { font-family: var(--mono); font-size: 11px; color: var(--dim); overflow-wrap: anywhere; }
+.unsafe-member-partial { color: #c99a3a; border-color: color-mix(in srgb, #c99a3a 45%, var(--line)); }
+.unsafe-member-items { padding: 0 16px 10px 60px; }
+.unsafe-member-items summary { cursor: pointer; font-size: 11px; color: var(--dim); }
+.unsafe-member-items summary:hover { color: var(--text); }
+.unsafe-evidence-wrap { margin-top: 6px; overflow-x: auto; }
+.unsafe-evidence-table { border-collapse: collapse; font-size: 11px; }
+.unsafe-evidence-table th { text-align: left; font-weight: 500; color: var(--dim); padding: 2px 12px 2px 0; border-bottom: 1px solid var(--line); }
+.unsafe-evidence-table td { padding: 2px 12px 2px 0; vertical-align: top; white-space: nowrap; }
+.unsafe-evidence-table code { font-size: 11px; color: var(--muted); }
 
 .triage-code .triage-caret .token.comment { color: var(--accent); }

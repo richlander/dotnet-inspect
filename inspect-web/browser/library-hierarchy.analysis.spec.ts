@@ -1521,15 +1521,17 @@ test("Unsafe rows show census evidence and open the declared member's Safety Fac
   await expect(page.getByRole("tab", { name: "Unsafe", exact: true })).toHaveAttribute("aria-selected", "true");
   const member = page.locator(".unsafe-member");
   await expect(member).toHaveCount(1);
-  await expect(member.locator(".unsafe-member-evidence")).toHaveText("pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add");
+  await expect(member.locator(".unsafe-member-evidence")).toHaveAttribute("title", "pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add");
+  await expect(member.locator(".unsafe-member-evidence .perf-shape")).toHaveText(["pointer dereference ×2", "explicit-contract call"]);
+  await expect(member.locator(".unsafe-member-callees")).toHaveText("System.Runtime.CompilerServices.Unsafe::Add");
   // Contributing evidence stays collapsed until its summary opens it.
-  const items = member.locator(".unsafe-member-items ul");
+  const items = member.locator(".unsafe-evidence-table");
   await expect(items).not.toBeVisible();
   await member.locator("summary").click();
   await expect(items).toBeVisible();
   await expect(items).toContainText("IL_0007");
   await expect(items).toContainText("<Run>b__0_0()");
-  await member.locator("button.unsafe-member-name").click();
+  await member.locator("button.perf-row").click();
   await expect(inspectorTab(page, "data-member-section", "facts")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#member-surface-title")).toHaveText("Run");
 });

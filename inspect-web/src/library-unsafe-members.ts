@@ -13,27 +13,56 @@ function il(offset: number): string {
   return `IL_${offset.toString(16).padStart(4, "0").toUpperCase()}`;
 }
 
-// One row per declared member, as the census issues it: no severity, risk,
-// or recommendation. Contributing evidence stays subordinate to its member.
+// One shared summary part per role: "role[ ×N][: callee, callee]". Callee names
+// contain "::" but never ": ", so the first ": " separates the role from them.
+function roleParts(evidence: string): { role: string; callees: string }[] {
+  return evidence.split("; ").filter(Boolean).map(part => {
+    const split = part.indexOf(": ");
+    return split < 0
+      ? { role: part, callees: "" }
+      : { role: part.slice(0, split), callees: part.slice(split + 2) };
+  });
+}
+
+// One row per declared member, as the census issues it, in Performance
+// Triage's row frame: no severity, risk, or recommendation. The count is the
+// member's contributing evidence items, which stay subordinate to the row.
 function renderMember(
   member: BrowserUnsafeMember,
   assembly: string,
   escape: (value: unknown) => string,
 ): string {
   const navigable = member.typeId && member.stableSelector;
-  const name = navigable
-    ? `<button type="button" class="unsafe-member-name" data-unsafe-selector="${escape(member.stableSelector)}" data-unsafe-assembly="${escape(assembly)}" data-unsafe-type="${escape(member.typeId)}" data-unsafe-accessibility="${escape(member.accessibility ?? "")}" title="Open ${escape(member.member)}">${escape(member.member)}</button>`
-    : `<span class="unsafe-member-name" title="${escape(member.member)}">${escape(member.member)}</span>`;
+  const parts = roleParts(member.evidence);
+  const roles = parts
+    .map(part => `<span class="perf-shape">${escape(part.role)}</span>`)
+    .join("");
+  const callees = parts
+    .filter(part => part.callees)
+    .map(part => escape(part.callees))
+    .join("; ");
   const badges = [
-    `<span class="unsafe-member-badge">${escape(member.exposure)}</span>`,
-    member.explicitContract ? `<span class="unsafe-member-badge">explicit</span>` : "",
-    member.partial ? `<span class="unsafe-member-badge unsafe-member-partial">partial</span>` : "",
+    member.partial ? `<span class="perf-confidence unsafe-member-partial">partial</span>` : "",
+    member.explicitContract ? `<span class="perf-confidence unsafe-member-badge">explicit</span>` : "",
+    `<span class="perf-confidence unsafe-member-exposure">${escape(member.exposure)}</span>`,
   ].join("");
-  const items = member.items.map(item => `<li><span class="unsafe-evidence-role">${escape(item.role)}</span> <code>${escape(item.body)}</code>${item.ilOffset === null ? "" : ` <code>${il(item.ilOffset)}</code>`}${item.detail ? ` <code>${escape(item.detail)}</code>` : ""}</li>`).join("");
-  return `<article class="unsafe-member">
-    <div class="unsafe-member-row">${name}<span class="unsafe-member-badges">${badges}</span></div>
-    <div class="unsafe-member-evidence">${escape(member.evidence)}</div>
-    <details class="unsafe-member-items"><summary>${member.items.length.toLocaleString()} evidence item${member.items.length === 1 ? "" : "s"}</summary><ul>${items}</ul></details>
+  const body = `
+    <span class="perf-count" title="Contributing evidence items">${member.items.length.toLocaleString()}</span>
+    <span class="perf-member">
+      <span class="perf-name unsafe-member-name">${escape(member.member)}</span>
+      <span class="perf-shapes unsafe-member-evidence" title="${escape(member.evidence)}">${roles}</span>
+      ${callees ? `<span class="unsafe-member-callees">${callees}</span>` : ""}
+    </span>
+    <span class="perf-meta">${badges}</span>`;
+  const row = navigable
+    ? `<button type="button" class="perf-row" data-unsafe-selector="${escape(member.stableSelector)}" data-unsafe-assembly="${escape(assembly)}" data-unsafe-type="${escape(member.typeId)}" data-unsafe-accessibility="${escape(member.accessibility ?? "")}" title="${escape(member.member)} &mdash; open member">${body}</button>`
+    : `<div class="perf-row unsafe-member-static" title="${escape(member.member)}">${body}</div>`;
+  const items = member.items.map(item => `<tr><td>${escape(item.role)}</td><td><code>${escape(item.body)}</code></td><td><code>${item.ilOffset === null ? "" : il(item.ilOffset)}</code></td><td><code>${escape(item.detail ?? "")}</code></td></tr>`).join("");
+  const count = member.items.length;
+  return `<article class="triage-item unsafe-member">${row}
+    <details class="unsafe-member-items"><summary>${count.toLocaleString()} evidence item${count === 1 ? "" : "s"}</summary>
+      <div class="unsafe-evidence-wrap"><table class="unsafe-evidence-table"><thead><tr><th>Role</th><th>Body</th><th>IL</th><th>Detail</th></tr></thead><tbody>${items}</tbody></table></div>
+    </details>
   </article>`;
 }
 
@@ -67,7 +96,7 @@ export function renderLibraryUnsafeMembersSurface(options: UnsafeMembersOptions)
         ? `<section class="document-section empty-document"><h2>No findings were observed</h2><p>The census is incomplete; absence of unsafe members cannot be established.</p></section>`
         : `<section class="document-section empty-document"><h2>No unsafe members</h2><p>No unsafe members under the updated memory-safety rules.</p></section>`;
     content = warning
-      + (count ? `<div class="unsafe-member-list">${data.members.map(member => renderMember(member, data.assembly, escape)).join("")}</div>` : "")
+      + (count ? `<p class="library-analysis-note">Members with unsafe evidence under the updated memory-safety rules, one row per declared member. The census reports evidence, not a verdict. Select a member to open it; expand a row for its contributing evidence.</p><div class="perf-list unsafe-member-list">${data.members.map(member => renderMember(member, data.assembly, escape)).join("")}</div>` : "")
       + empty;
   }
   return renderAnalysisInspector(options, "unsafe", status, content);
