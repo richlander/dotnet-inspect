@@ -134,6 +134,58 @@ public sealed partial class PackageSourceOperationOwnershipTests
         Assert.Single(fixture.Client.Contexts);
     }
 
+    [Fact]
+    public async Task ScopedCandidateExpiryRetainsSettledEvidenceAndUnconsultedAuthorities()
+    {
+        PackageSourceAuthorization authorization = PackageSourceAuthorization.Authorize(
+        [
+            new("ready", "https://ready.example/v3/index.json"),
+            new("slow", "https://slow.example/v3/index.json"),
+            new("later", "https://later.example/v3/index.json"),
+        ]);
+        var clients = new List<IPackageSourceClient>();
+        await using PackageSourceSettlementLease root = PackageSourceSettlementService.IssueLease(
+            authority =>
+            {
+                string name = authority.Source.Name;
+                Assert.NotEqual("later", name);
+                IPackageSourceClient client = PackageSourceClientFactory.CreateCustom(
+                    PackageSourceDescriptor.NuGetV3(
+                        name, name, new Uri($"https://{name}.example/v3/index.json")),
+                    authority.Association,
+                    factory => new SourceClient(factory)
+                    {
+                        BeforeStep = name == "slow"
+                            ? _ => Task.Delay(TimeSpan.FromMilliseconds(300))
+                            : null,
+                    });
+                clients.Add(client);
+                return client;
+            });
+        using PackageSourceOperationLease operation = root.IssueOperationLease(
+            TestContext.Current.CancellationToken,
+            TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(100));
+        try
+        {
+            PackageVersionDiscoveryResult result =
+                await operation.DiscoverDependencyCandidateVersionsAsync(
+                    Coordinate.PackageId, "1.0.0", new FixedAuthorization(authorization));
+            Assert.Equal(PackageVersionDiscoveryState.Failed, result.State);
+            Assert.Equal(1, result.CandidateObservationCount);
+            Assert.Equal(["", "slow", "later"],
+                result.Failures.Select(failure => failure.Authority.ToString()));
+            Assert.All(result.Failures, failure =>
+                Assert.Equal(PackageSourceTimeoutKind.Operation, failure.Timeout?.Kind));
+            Assert.Throws<InvalidOperationException>(() => result.SelectCandidate("1.0.0"));
+            Assert.Equal(2, clients.Count);
+        }
+        finally
+        {
+            foreach (IPackageSourceClient client in clients)
+                client.Dispose();
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

@@ -16,11 +16,14 @@ internal sealed partial class PackageSourceSettlementGeneration
     {
         var participants = new List<CandidateObservations.Observation>();
         var evidence = new List<PackageSourceDependencyCandidateEvidence>();
+        PackageSourceAuthorization? authorization = null;
+        var listingFailures = new List<PackageAuthorityFailure>();
+        IReadOnlyList<int> requiredAuthorities = [];
+        int nextListing = 0;
         try
         {
             operation.ThrowIfExpired();
-            PackageSourceAuthorization authorization =
-                sourceAuthorization.AuthorizeSourcesFor(packageId);
+            authorization = sourceAuthorization.AuthorizeSourcesFor(packageId);
             foreach (ConfiguredPackageAuthority authority in authorization.Authorities)
             {
                 operation.ThrowIfExpired();
@@ -34,8 +37,10 @@ internal sealed partial class PackageSourceSettlementGeneration
                 log?.Invoke(reused
                     ? $"Reusing dependency identity evidence from {PackageSourceDisplay.ForDiagnostics(authority.Source)}."
                     : $"Fetching dependency identity evidence from {PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
-                evidence.Add(await shared.Work.Value.ConfigureAwait(false));
+                PackageSourceDependencyCandidateEvidence source =
+                    await shared.Work.Value.ConfigureAwait(false);
                 operation.ThrowIfExpired();
+                evidence.Add(source);
             }
 
             while (true)
@@ -53,24 +58,37 @@ internal sealed partial class PackageSourceSettlementGeneration
                 }
 
                 var required = (PackageSourceDependencyCandidateSelection.NeedListings)selection;
-                var failures = new List<PackageAuthorityFailure>();
-                foreach (int index in required.Authorities)
+                listingFailures.Clear();
+                requiredAuthorities = required.Authorities;
+                for (nextListing = 0; nextListing < requiredAuthorities.Count; nextListing++)
                 {
                     operation.ThrowIfExpired();
+                    int index = requiredAuthorities[nextListing];
                     PackageAuthorityFailure? failure = await evidence[index].AcquireListingAsync(
                         required.Version, authorization.Authorities[index], operation).ConfigureAwait(false);
                     if (failure is not null)
-                        failures.Add(failure);
+                        listingFailures.Add(failure);
                 }
-                if (failures.Count > 0)
+                if (listingFailures.Count > 0)
                 {
                     return _candidateIssuer.CreateIncompleteDependencyCandidateDiscovery(
-                        packageId, constraint, failures, required.Observations);
+                        packageId, constraint, listingFailures, required.Observations);
                 }
             }
         }
         catch (NuGetOperationTimeoutException)
         {
+            if (authorization is not null)
+            {
+                return _candidateIssuer.CreateExpiredDependencyCandidateDiscovery(
+                    packageId, constraint, authorization, evidence,
+                    [
+                        .. listingFailures,
+                        .. OperationTimeoutFailures(authorization, evidence.Count, operation),
+                        .. requiredAuthorities.Skip(nextListing).Select(index =>
+                            OperationTimeoutFailure(authorization.Authorities[index], operation)),
+                    ]);
+            }
             return _candidateIssuer.CreateIncompleteDependencyCandidateDiscovery(
                 packageId, constraint, [VersionDiscoveryOperationTimeoutFailure(operation)]);
         }

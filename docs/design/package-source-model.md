@@ -1330,6 +1330,8 @@ The Release gates are
 `ScopedCandidatesMatchCompleteDiscoveryAcrossNuGetConstraints`,
 `ScopedCandidatesDoNotSelectOrRetainMissingRequiredListing`, and
 `ScopedListingWaitersPreserveCallerCancellationAndOperationDeadline`.
+`ScopedCandidateExpiryRetainsSettledEvidenceAndUnconsultedAuthorities`
+gates retained observations and source-attributed timeout diagnostics.
 
 The motivating asset is `Microsoft.Azure.SignalR@1.33.1`, selecting root net8.0
 with the default net11.0 governing traversal. Its raw hierarchy observed 28

@@ -23,40 +23,8 @@ public sealed partial class PackageAcquisitionCandidateIssuer
         IReadOnlyList<PackageSourceDependencyCandidateEvidence> evidence,
         NuGetOperationContext operation)
     {
-        var candidates = new List<ConfiguredPackageCandidateObservation>();
-        var failures = new List<PackageAuthorityFailure>(authorization.Failures);
-        if (authorization.Authorities.Count == 0 && failures.Count == 0)
-        {
-            failures.Add(new PackageAuthorityFailure(
-                InertText.InertString.Empty,
-                PackageAuthorityFailureKind.Configuration,
-                authorization.DenialReason ?? $"No configured package source is authorized for '{packageId}'."));
-        }
-        for (int i = 0; i < evidence.Count; i++)
-        {
-            operation.ThrowIfExpired();
-            ConfiguredPackageAuthority authority = authorization.Authorities[i];
-            PackageSourceDependencyCandidateEvidence source = evidence[i];
-            RequireAuthority(source.Client.Source, authority);
-            if (source.Failure is { } failure)
-            {
-                RequireAuthority(failure.Source, authority);
-                failures.Add(PackageAuthorityFailureAdapter.DescribeVersionFailure(authority.Source, failure));
-                continue;
-            }
-            foreach (PackageCandidateObservation candidate in source.GetCandidates())
-            {
-                operation.ThrowIfExpired();
-                RequireVersionObservation(packageId, source.Client.Source, candidate);
-                bool gallery = source.Client.Source.TransportKind == PackageSourceKind.NuGetGallery;
-                if (candidate.ListingState == PackageListingState.Unlisted
-                    && (gallery || source.HasAuthoritativeListingState))
-                {
-                    continue;
-                }
-                candidates.Add(new(authority, candidate));
-            }
-        }
+        var (candidates, failures) = CollectDependencyCandidateObservations(
+            packageId, authorization, evidence, operation);
         if (failures.Count > 0)
         {
             return new PackageSourceDependencyCandidateSelection.Complete(
@@ -113,6 +81,68 @@ public sealed partial class PackageAcquisitionCandidateIssuer
                 hasAnyCandidate: true, selected,
                 PackageVersionDiscoveryContract.DependencyCandidateResolution,
                 _issuer, constraint));
+    }
+
+    private static (
+        List<ConfiguredPackageCandidateObservation> Candidates,
+        List<PackageAuthorityFailure> Failures) CollectDependencyCandidateObservations(
+            string packageId,
+            PackageSourceAuthorization authorization,
+            IReadOnlyList<PackageSourceDependencyCandidateEvidence> evidence,
+            NuGetOperationContext? operation = null)
+    {
+        var candidates = new List<ConfiguredPackageCandidateObservation>();
+        var failures = new List<PackageAuthorityFailure>(authorization.Failures);
+        if (authorization.Authorities.Count == 0 && failures.Count == 0)
+        {
+            failures.Add(new PackageAuthorityFailure(
+                InertText.InertString.Empty,
+                PackageAuthorityFailureKind.Configuration,
+                authorization.DenialReason ?? $"No configured package source is authorized for '{packageId}'."));
+        }
+        for (int i = 0; i < evidence.Count; i++)
+        {
+            operation?.ThrowIfExpired();
+            ConfiguredPackageAuthority authority = authorization.Authorities[i];
+            PackageSourceDependencyCandidateEvidence source = evidence[i];
+            RequireAuthority(source.Client.Source, authority);
+            if (source.Failure is { } failure)
+            {
+                RequireAuthority(failure.Source, authority);
+                failures.Add(PackageAuthorityFailureAdapter.DescribeVersionFailure(authority.Source, failure));
+                continue;
+            }
+            foreach (PackageCandidateObservation candidate in source.GetCandidates())
+            {
+                operation?.ThrowIfExpired();
+                RequireVersionObservation(packageId, source.Client.Source, candidate);
+                bool gallery = source.Client.Source.TransportKind == PackageSourceKind.NuGetGallery;
+                if (candidate.ListingState == PackageListingState.Unlisted
+                    && (gallery || source.HasAuthoritativeListingState))
+                {
+                    continue;
+                }
+                candidates.Add(new(authority, candidate));
+            }
+        }
+        return (candidates, failures);
+    }
+
+    internal PackageVersionDiscoveryResult CreateExpiredDependencyCandidateDiscovery(
+        string packageId,
+        string? constraint,
+        PackageSourceAuthorization authorization,
+        IReadOnlyList<PackageSourceDependencyCandidateEvidence> evidence,
+        IReadOnlyList<PackageAuthorityFailure> terminalFailures)
+    {
+        var (candidates, failures) = CollectDependencyCandidateObservations(
+            packageId, authorization, evidence);
+        return new PackageVersionDiscoveryResult(
+            packageId, PackageVersionDiscoveryState.Failed, [],
+            [.. failures, .. terminalFailures],
+            hasAnyCandidate: evidence.Any(source => source.HasAnyCandidate), candidates,
+            PackageVersionDiscoveryContract.DependencyCandidateResolution,
+            _issuer, constraint);
     }
 
     internal PackageVersionDiscoveryResult CreateIncompleteDependencyCandidateDiscovery(
