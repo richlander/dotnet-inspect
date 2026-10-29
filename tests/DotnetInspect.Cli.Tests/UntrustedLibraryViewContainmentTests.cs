@@ -1459,6 +1459,10 @@ public class LibraryViewShapeDerivedContainmentTests
     /// the available case of the typed metadata-image result. They carry text
     /// transitively rather than being set.
     /// </description></item>
+    /// <item><description>
+    /// The unsafe-member JSON lists project the owner-issued, JSON-ignored
+    /// <c>UnsafeMemberInspection</c>, which this model walk does not fabricate.
+    /// </description></item>
     /// </list>
     ///
     /// This is a declared boundary, not a silent one. The set is asserted
@@ -1473,6 +1477,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "ApiMember.DeclaringTypeDefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",
         "ApiSignature.ReturnTypeShape (ApiTypeShape): no public constructor",
+        "ApiSurfaceInspectionFailure.MechanismName (String): string with no setter",
         "ApiSurfaceInspectionFailure.OwningTypeDefinition (MetadataTypeDefinitionName): no public constructor",
         "ApiType.DefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiTypeReferenceIdentity.DefinitionName (MetadataTypeDefinitionName): no public constructor",
@@ -1504,6 +1509,8 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.Switches (List`1): computed projection still null after the walk",
         "LibraryInspection.TypeForwarders (List`1): computed projection still null after the walk",
         "LibraryInspection.UnionTypes (List`1): computed projection still null after the walk",
+        "LibraryInspection.UnsafeMemberLimitations (List`1): computed projection still null after the walk",
+        "LibraryInspection.UnsafeMembers (List`1): computed projection still null after the walk",
         "MemberRef.DeclaringType (TypeRef): no public constructor",
         "MemberRef.OpenReturnType (TypeRef): no public constructor",
         "MemberRef.OpenSignatureParameters (ImmutableArray`1): computed projection still empty after the walk",
@@ -1538,7 +1545,18 @@ public class LibraryViewShapeDerivedContainmentTests
         // report is asserted as a *set*: an entry that appears is an
         // unannounced gap, and an entry that disappears is coverage this pin
         // should have claimed. Both directions fail.
-        Assert.Equal(OutOfReach, walk.Declined.Distinct().Order(StringComparer.Ordinal).ToArray());
+        string[] observed = walk.Declined.Distinct().Order(StringComparer.Ordinal).ToArray();
+        Assert.True(
+            OutOfReach.SequenceEqual(observed, StringComparer.Ordinal),
+            "The exact derived-containment reachability set changed."
+                + Environment.NewLine
+                + "New declines:"
+                + Environment.NewLine
+                + string.Join(Environment.NewLine, observed.Except(OutOfReach, StringComparer.Ordinal))
+                + Environment.NewLine
+                + "Stale declines:"
+                + Environment.NewLine
+                + string.Join(Environment.NewLine, OutOfReach.Except(observed, StringComparer.Ordinal)));
 
         var output = MarkoutSerializer.Serialize(
             new LibraryInspectionView(inspection, topFieldsOnly), InspectionContext.Default);
