@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.DocumentationHouse;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -125,7 +126,7 @@ internal static class TypeMemberDocumentOutput
             : Declarations(type, options).Select(member => new TypeMemberRow(
                 member.Declaration.Subject.Group.Category.ToString(),
                 Anchor(type, member.Selector),
-                MarkoutInline.Code(member.Declaration.DisplaySignature.ToString()))).ToList();
+                MarkoutInline.Code(MemberGroupPresentation.FormatOverload(member.Declaration)))).ToList();
 
     internal static List<DocumentedTypeMemberRow>? DocumentedRows(ApiType type, TypeOptions options)
     {
@@ -137,7 +138,7 @@ internal static class TypeMemberDocumentOutput
         return Declarations(type, options).Select(member => new DocumentedTypeMemberRow(
             member.Declaration.Subject.Group.Category.ToString(),
             Anchor(type, member.Selector),
-            MarkoutInline.Code(member.Declaration.DisplaySignature.ToString()),
+            MarkoutInline.Code(MemberGroupPresentation.FormatOverload(member.Declaration)),
             attachments is not null
                 ? MemberDocumentOutput.DescribeDocumentation(attachments[member.Declaration.Subject].Outcome)
                 : $"Documentation attachment failed ({(options.MemberDocumentation as MemberDocumentationAttachmentOutcome.Failed)?.Reason})."))
