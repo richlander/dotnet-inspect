@@ -1,12 +1,13 @@
 import {
   packageIdentityKey,
+  type DependencyGroup,
   type DependencyGroupData,
   type LibraryLens,
   type PackageLens,
   type PackageIdentity,
 } from "./data.ts";
 import type {
-  BrowserPackageDependencies,
+  BrowserPackageDependencyInspection,
   BrowserPackageVulnerabilityResult,
   InspectionEnvelope,
   LibraryReferenceInspectionOutcome,
@@ -73,7 +74,7 @@ export function normalizePackageInspectionRequestSnapshot<TResult>(
 }
 
 export type PackageDependenciesState =
-  PackageInspectionRequestState<BrowserPackageDependencies>;
+  PackageInspectionRequestState<BrowserPackageDependencyInspection>;
 export type LibraryReferenceInspectionEnvelope =
   InspectionEnvelope<LibraryReferenceInspectionOutcome | null>;
 export type LibraryReferenceInspectionState =
@@ -126,21 +127,141 @@ export function resolvePackagePerformanceMember(
   return type && member ? { type, member } : null;
 }
 
-function dependencyProjectionError(
-  result: BrowserPackageDependencies,
-): string {
-  const errors: string[] = [];
-  if (result.dependencyGroupError) {
-    errors.push(result.dependencyGroupError);
+export interface PackageDependencyGroupProjection extends DependencyGroup {
+  readonly dependencies: readonly {
+    readonly id: string;
+    readonly versionRange: string;
+  }[];
+}
+
+export interface PackageDependencyProjection
+  extends DependencyGroupData<PackageDependencyGroupProjection> {
+  readonly dependencyGroups: readonly PackageDependencyGroupProjection[];
+  readonly selectedDependencyGroup: PackageDependencyGroupProjection | null;
+  readonly dependencyGroupError: string;
+  readonly platformReferences: readonly {
+    readonly family: string;
+    readonly label: string;
+  }[];
+  readonly defaultPlatformReference: {
+    readonly family: string;
+    readonly label: string;
+  } | null;
+  readonly platformReferenceError: string | null;
+  readonly inspectionError: string;
+}
+
+function projectPackageDependencyFramework(framework: string): string | null {
+  if (framework.trim().length === 0) return "any";
+  if (framework.length > 128
+    || !/^[A-Za-z0-9.\-+_,= ]+$/.test(framework)) {
+    return null;
+  }
+  return framework;
+}
+
+export function projectPackageDependencyInspection(
+  result: BrowserPackageDependencyInspection | null | undefined,
+): PackageDependencyProjection {
+  const inspection = result?.inspection;
+  const content = inspection?.content;
+  const platform = {
+    platformReferences: result?.platformReferences ?? [],
+    defaultPlatformReference: result?.defaultPlatformReference ?? null,
+    platformReferenceError: result?.platformReferenceError ?? null,
+  };
+  if (!content) {
+    return {
+      ...platform,
+      dependencyGroups: [],
+      selectedDependencyGroup: null,
+      dependencyGroupError: "",
+      inspectionError:
+        "Package dependency inspection returned no shared content.",
+    };
+  }
+  if (content.kind === "no-manifest") {
+    return {
+      ...platform,
+      dependencyGroups: [],
+      selectedDependencyGroup: null,
+      dependencyGroupError: "",
+      inspectionError:
+        "The package contains no root manifest; dependencies are unavailable.",
+    };
+  }
+  if (content.kind === "failed") {
+    const diagnostic = inspection.diagnostics
+      .map(candidate => candidate.summary)
+      .find(summary => summary.trim());
+    return {
+      ...platform,
+      dependencyGroups: [],
+      selectedDependencyGroup: null,
+      dependencyGroupError: "",
+      inspectionError: diagnostic
+        ?? "The package dependency manifest could not be inspected.",
+    };
   }
 
-  const failureCount = result.declarationFailures.length;
-  if (failureCount > 0) {
-    errors.push(
-      `Dependency declaration projection is incomplete (${failureCount} ${
-        failureCount === 1 ? "failure" : "failures"
-      }).`,
-    );
+  const selectedGroupIndex = content.dependencies.selectedGroupIndex;
+  const selectedGroup = content.dependencies.selectedGroup;
+  const frameworks = content.dependencies.groups.map(group =>
+    projectPackageDependencyFramework(group.targetFramework));
+  if (frameworks.some(framework => framework === null)) {
+    return {
+      ...platform,
+      dependencyGroups: [],
+      selectedDependencyGroup: null,
+      dependencyGroupError: "",
+      inspectionError:
+        "A dependency group framework identifier cannot be represented safely.",
+    };
+  }
+  const dependencyGroups = content.dependencies.groups.map((group, index) => ({
+    index,
+    framework: frameworks[index] ?? "any",
+    isActive: index === selectedGroupIndex,
+    isComplete: true,
+    dependencies: group.dependencies.map(dependency => ({
+      id: dependency.id,
+      versionRange: dependency.versionRange,
+    })),
+  }));
+  const selectedDependencyGroup =
+    selectedGroup && selectedGroupIndex !== null
+      ? {
+          index: selectedGroupIndex,
+          framework: frameworks[selectedGroupIndex] ?? "any",
+          isActive: true,
+          isComplete: true,
+          dependencies: selectedGroup.dependencies.map(dependency => ({
+            id: dependency.id,
+            versionRange: dependency.versionRange,
+          })),
+        }
+      : null;
+  return {
+    ...platform,
+    dependencyGroups,
+    selectedDependencyGroup,
+    dependencyGroupError:
+      dependencyGroups.length > 0 && selectedGroupIndex === null
+        ? "The manifest declares no dependency group for the active target framework."
+        : "",
+    inspectionError: "",
+  };
+}
+
+function dependencyProjectionError(
+  result: PackageDependencyProjection,
+): string {
+  const errors: string[] = [];
+  if (result.inspectionError) {
+    errors.push(result.inspectionError);
+  }
+  if (result.dependencyGroupError) {
+    errors.push(result.dependencyGroupError);
   }
 
   return errors.join(" ");
@@ -190,9 +311,8 @@ export interface PackageInspectionState {
 export interface PackageInspectionDependencies {
   state: PackageInspectionState;
   queryDependencies(
-    packageModel: PackageIdentity
-      & Pick<AppPackage, "assemblyId" | "selectedCompileAssetId">,
-  ): Promise<BrowserPackageDependencies>;
+    packageModel: PackageIdentity & Pick<AppPackage, "runtimeIdentifier">,
+  ): Promise<BrowserPackageDependencyInspection>;
   queryLibraryReferences(
     packageModel: PackageIdentity
       & Pick<AppPackage, "assemblyId" | "selectedCompileAssetId">,
@@ -398,15 +518,11 @@ export function createPackageInspectionCoordinator(
       state.workspaceDependencyLoads.add(key);
       try {
         const result = await dependencies.queryDependencies(packageModel);
+        const projection = projectPackageDependencyInspection(result);
         if (generation !== packageResultGeneration) return;
         if (!packageIsResident(state.packages, packageModel)) continue;
-        state.workspaceDependencies[key] = {
-          dependencyGroups: result?.dependencyGroups || [],
-          dependencyGroupError: result?.dependencyGroupError || "",
-        };
-        const projectionError = result
-          ? dependencyProjectionError(result)
-          : "";
+        state.workspaceDependencies[key] = projection;
+        const projectionError = dependencyProjectionError(projection);
         if (projectionError) {
           state.workspaceDependencyErrors[key] = projectionError;
         } else {
@@ -489,10 +605,6 @@ export function createPackageInspectionCoordinator(
         version: packageModel.version,
         activeFramework: packageModel.activeFramework,
         runtimeIdentifier: packageModel.runtimeIdentifier ?? null,
-        assemblyId: packageModel.assemblyId,
-        ...(packageModel.selectedCompileAssetId
-          ? { selectedCompileAssetId: packageModel.selectedCompileAssetId }
-          : {}),
       };
       const workspaceKey = workspaceDependencyKey(packageRequest);
       try {
@@ -504,14 +616,11 @@ export function createPackageInspectionCoordinator(
             result,
           };
         }
-        if (result?.dependencyGroups
-          && generation === packageResultGeneration
+        const projection = projectPackageDependencyInspection(result);
+        if (generation === packageResultGeneration
           && packageIsResident(state.packages, packageRequest)) {
-          state.workspaceDependencies[workspaceKey] = {
-            dependencyGroups: result.dependencyGroups,
-            dependencyGroupError: result.dependencyGroupError || "",
-          };
-          const projectionError = dependencyProjectionError(result);
+          state.workspaceDependencies[workspaceKey] = projection;
+          const projectionError = dependencyProjectionError(projection);
           if (projectionError) {
             state.workspaceDependencyErrors[workspaceKey] = projectionError;
           } else {

@@ -48,6 +48,25 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Type target admission
+
+Ordinary `type` inspection requires a Type name or pattern, supplied
+positionally or through `-t`/`--type`. A source alone does not select a Type:
+the command fails non-zero on stderr with usage and Library-inventory guidance,
+without emitting inspection content. Help, section discovery, and query
+discovery remain available without a Type. Explicit Type selection and implicit
+router behavior retain their existing contracts.
+
+The motivating real asset is nuget.org `Microsoft.Azure.SignalR` 1.33.1.
+`type --package Microsoft.Azure.SignalR@1.33.1` incorrectly returned a
+Library-wide Classes/Interfaces document, while `type
+Microsoft.Azure.SignalR.ServiceRouteBuilder --package
+Microsoft.Azure.SignalR@1.33.1` correctly returned that Type's Members.
+Durable CLI tests cover missing selectors across source forms and output modes,
+with exact-Type, explicit-pattern, and discovery controls. The pinned package
+commands provide the real-asset smoke check; missing-input tests do not acquire
+packages because rejection must not depend on package availability.
+
 ### Online Package inspection admission
 
 Ordinary online single-Package inspection acquires through PackageHouse and
@@ -747,6 +766,20 @@ The descriptor carries the resolved source's package/version/TFM, platform
 framework/version, project context, explicit file designation, or local provenance. Deferred type/member
 routing uses the same selection path and passes the loaded surface to `type`
 unchanged, rather than selecting or extracting it again.
+
+Package Type/Member acquisition preserves an explicit `--tfm` even when the
+positional Type/member boundary remains unresolved. Failure to find the whole
+dotted target as a Type does not authorize selection from another framework.
+An unavailable requested framework fails visibly instead of reverting to the
+package's highest framework. Existing Library selection remains authoritative.
+
+The motivating asset is nuget.org `System.Text.Json` 10.0.0: `member
+System.Text.Json.JsonSerializer.DeserializeAsync --package
+System.Text.Json@10.0.0 --tfm net9.0 --tree` must inspect net9.0, just like
+separate Type and Member arguments. Offline cache-seeded
+`Member_PackageTargetFrameworkSurvivesDeferredBoundary` cases use different
+framework Library populations to gate the actual selection and the unavailable
+framework failure without requiring a network acquisition in ordinary tests.
 
 `TypeApiSelection_RejectsUnusableAssemblyIdentity`,
 `TypeApiSelection_RejectsUnusablePackageAssembly`,

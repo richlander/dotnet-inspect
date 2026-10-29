@@ -1473,41 +1473,30 @@ async function installFacades(
           diagnostics: [],
         };
       }
-      export async function queryPackageDependencies(id, version, framework, asset) {
-        document.documentElement.dataset.referenceRequest = asset;
-        document.documentElement.dataset.packageDependenciesRequest = JSON.stringify([id, version, framework]);
-        const surface = surfaceFor(id, version, framework);
-        const selected = surface.assemblies.find(item => item.id === asset);
-        if (!selected) throw new Error("Unknown library: " + asset);
-        const scenario = ${JSON.stringify(references)};
-        if (scenario === "deferred") {
-          await new Promise(resolve => document.addEventListener(
-            "fixture-references-ready:" + asset, resolve, { once: true }));
-        }
-        if (scenario === "query-error") throw new Error("Reference query unavailable.");
+      export async function inspectPackageDependencies(
+        id, version, framework, runtimeIdentifier
+      ) {
+        document.documentElement.dataset.packageDependenciesRequest =
+          JSON.stringify([id, version, framework, runtimeIdentifier]);
         return {
-          package: id, version, activeFramework: framework, assembly: selected.name,
-          dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
-          platformReferences: [], defaultPlatformReference: null, platformReferenceError: null,
-          assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
-            : { references: scenario === "empty" ? [] : scenario === "workspace-library"
-            ? [{
-                name: "Reference.Target", version: "1.0.0.0",
-                culture: "neutral", publicKeyToken: null
-              }]
-            : scenario === "external-supplier"
-            ? [{
-                name: "Reference.Target", version: "1.0.0.0",
-                culture: "neutral", publicKeyToken: null
-              }]
-            : scenario === "long"
-            ? Array.from({ length: 80 }, (_, index) => ({
-                name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
-                version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
-                publicKeyToken: "0123456789abcdef"
-              }))
-            : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
-          compileLibrary: surface.compileLibrary
+          inspection: {
+            content: {
+              kind: "available",
+              manifest: { coordinate: { packageId: id, version } },
+              dependencies: {
+                groups: [], requestedTargetFramework: framework,
+                selectedTargetFramework: null, selectedGroupIndex: null,
+                selectionStatus: 1, selectedGroup: null
+              }
+            },
+            share: {
+              kind: "nonProjectable", fullUrl: null, packet: null,
+              path: "", reason: "Package dependencies are not projectable."
+            },
+            diagnostics: []
+          },
+          platformReferences: [], defaultPlatformReference: null,
+          platformReferenceError: null
         };
       }
       export async function queryLibraryReferences(id, version, framework, asset) {

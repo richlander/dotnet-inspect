@@ -1193,10 +1193,10 @@ The browser-only presentation scope was explicitly approved for
 [the one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6165).
 Its one production consumer is Library References; adoption retires only that
 consumer's generic hero and inset reference section. Browser HTML lowering
-continues over the existing typed `BrowserPackageDependencies` reference result.
-This remains a browser-only projection over the existing query rather than a
-new query or rendering architecture. Metadata and Package Dependencies are the
-local composition precedents.
+continues over the shared Library Reference Inspection envelope. This remains
+a browser-only projection over the existing operation rather than a new query
+or rendering architecture. Metadata and Package Dependencies are the local
+composition precedents.
 
 Focused renderer and production-composition browser gates cover wide/narrow
 geometry, long names and identities, many/zero rows, pending and failed results,

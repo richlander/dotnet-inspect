@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using TsJsExport;
@@ -73,6 +74,7 @@ public sealed class ProductionFacadeContextTests
             "GetPackageDocument",
             "GetPlatformCatalog",
             "GetPlatformVersions",
+            "InspectPackageDependencies",
             "InspectPackageQueryFacets",
             "ListPackageActivityEcosystems",
             "LoadRuntimePack",
@@ -87,7 +89,6 @@ public sealed class ProductionFacadeContextTests
             "QueryMemberDocumentation",
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
-            "QueryPackageDependencies",
             "QueryPackageHierarchy",
             "QueryPackageIcon",
             "QueryPackageRoot",
@@ -369,6 +370,26 @@ public sealed class ProductionFacadeContextTests
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
         var sharedPackageContractTypes = new HashSet<Type>();
+        Collect(
+            typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),
+            sharedPackageContractTypes);
+        foreach (Type outcome in
+                 typeof(PackageDependencyInspectionOutcome).GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
+        foreach (Type outcome in
+                 typeof(PackageManifestDependencyFactsResult)
+                     .GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
+        foreach (Type outcome in
+                 typeof(PackageManifestFrameworkReferenceFactsResult)
+                     .GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
         Collect(
             typeof(InspectionEnvelope<LibraryReferenceInspectionOutcome>),
             sharedPackageContractTypes);

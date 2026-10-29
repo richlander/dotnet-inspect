@@ -186,6 +186,7 @@ public sealed class BrowserLibraryApiDiffEnvelopeParityTests
                                     catalog,
                                     selection,
                                     DiffAnalysisDocumentViews.Changes,
+                                    libraryApi: true,
                                     new DiffTargets.Library(),
                                     ApiSurfaceScope.ApiAxis,
                                     BrowserApiSurfacePolicy.Limits),
