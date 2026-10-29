@@ -130,7 +130,7 @@ it.
 | T1 | a Library pair and a Type identity | that Type's pairing and its Members' and residual's states | one row per Member, and the residual, with a `Changed` or `Indeterminate` state |
 | T2 | a Library pair and a Type identity | T1's rows and each changed row's change facts | T1's rows, each with its change facts |
 | M1 | a Library pair and a Member key | that key's entries in each version and their change facts | the key's change facts, one-sided when the key exists on one side |
-| M2 | a Library pair and a Member key | the corresponding Member's complete diff, and its change facts when asked | the Member's text diff per medium, with its facts overlaid when asked |
+| M2 | a Library pair and a Member key | that key's own complete diff, paired when the key exists on both sides and its present side when on one; for a one-sided key, the comparison version-pair correspondence pairs it with; and its change facts when asked | the key's text diff per medium, with any paired comparison beside it and its facts overlaid when asked |
 
 ### Demand-shaped
 
