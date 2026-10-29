@@ -456,10 +456,11 @@ public sealed partial class WorkspaceScopeTests
                         "net10.0"),
                     PackageRootTestHouseExecution.Create(options),
                     TestContext.Current.CancellationToken));
-        Assert.True(
-            acquired.Payload.Content.TryOpenArchive(
-                out Stream? packageStream));
-        using (packageStream)
+        using (Stream packageStream = await new NuGetClient(client).DownloadAsync(
+            "System.Text.Json",
+            "10.0.0",
+            PackageSource.NuGetOrg.Url,
+            cancellationToken: TestContext.Current.CancellationToken))
         using (var copy = new MemoryStream())
         {
             await packageStream.CopyToAsync(
