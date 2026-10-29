@@ -75,6 +75,11 @@ owns and consumes only the operation lease returned for the completed edge
 set. Hosts retain ownership of clients, stores, root content, and settlement
 roots.
 
+For a retained Browser Workspace, the capability comes from the exact admitted
+posting's source transport and per-package authorization. The host does not
+substitute its default gallery merely because the exact root has already been
+realized.
+
 ## Operation-local Workspace
 
 The inspection creates one fresh `InspectionWorkspace`, publishes only the

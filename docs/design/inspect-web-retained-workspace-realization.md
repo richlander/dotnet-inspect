@@ -881,6 +881,12 @@ Exact target identity determines whether an operation belongs to the active
 realization. Labels, coordinates, assembly names, Platform names, and content
 similarity are not operation-admission keys.
 
+An admitted retained Package operation also carries the active posting's
+package-source transport and per-package authorization. Dependency-aware work
+must use that capability for its complete source settlement; it cannot replace
+the admitted source set with NuGet.org or reconstruct authorization from the
+Package coordinate.
+
 ## Package bytes and other shared resources
 
 The one-realization rule does not require redownloading immutable package bytes

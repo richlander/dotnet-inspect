@@ -179,13 +179,16 @@ internal sealed record BrowserRetainedWorkspacePlatformPresentation(
 internal sealed class BrowserRetainedNavigationPreparation
 {
     readonly NavigationFacetAvailabilityProvider _availability;
+    readonly BrowserPackageSourceCapabilities _packageSources;
     readonly ApiSurfaceProjectionLimits _surfaceLimits;
 
     BrowserRetainedNavigationPreparation(
         NavigationFacetAvailabilityProvider availability,
+        BrowserPackageSourceCapabilities packageSources,
         ApiSurfaceProjectionLimits surfaceLimits)
     {
         _availability = availability;
+        _packageSources = packageSources;
         _surfaceLimits = surfaceLimits;
     }
 
@@ -195,8 +198,14 @@ internal sealed class BrowserRetainedNavigationPreparation
         ArgumentNullException.ThrowIfNull(options);
         return new(
             options.FacetAvailability,
+            new(
+                options.ContextLoad.HttpClient,
+                options.ContextLoad.SourceAuthorization),
             options.PackageSurfaceLimits);
     }
+
+    internal BrowserPackageSourceCapabilities PackageSources =>
+        _packageSources;
 
     internal ApiSurfaceProjectionLimits SurfaceLimits => _surfaceLimits;
 
@@ -421,7 +430,8 @@ internal abstract record BrowserRetainedWorkspacePackageOperationAdmission
         WorkspaceRealizationOperationLease Operation,
         BrowserRetainedWorkspacePackagePresentation Presentation,
         PackageRootBinding Binding,
-        AssemblyContextGroup Group)
+        AssemblyContextGroup Group,
+        BrowserPackageSourceCapabilities PackageSources)
         : BrowserRetainedWorkspacePackageOperationAdmission;
 
     internal sealed record Superseded
@@ -2051,7 +2061,8 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
             admitted.Lease,
             presentation,
             bindings[0],
-            group);
+            group,
+            expected.NavigationPreparation.PackageSources);
     }
 
     internal Task<BrowserRetainedWorkspaceAdmissionResult<BrowserRetainedWorkspacePlatformPresentation>>

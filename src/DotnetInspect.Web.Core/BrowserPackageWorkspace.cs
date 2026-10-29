@@ -356,7 +356,8 @@ internal static class BrowserPackageWorkspace
         DependencyCallGraphRealizationPolicy =>
         BrowserInspectionScope.RealizationPolicy;
 
-    static BrowserSessionPackageStore StoreFor(IPackageSourceClient source) =>
+    internal static BrowserSessionPackageStore StoreFor(
+        IPackageSourceClient source) =>
         SourceStores.GetValue(
             source,
             static client => new BrowserSessionPackageStore(client));
@@ -1714,6 +1715,7 @@ internal static class BrowserPackageWorkspace
                         workspacePlan,
                         supplyChainBaseline,
                         platformPruning,
+                        packageSources: null,
                         deadline)
                     .ConfigureAwait(false);
             },
@@ -1729,6 +1731,7 @@ internal static class BrowserPackageWorkspace
             string? traversalTargetFramework,
             WorkspacePlan workspacePlan,
             PackageSupplyChainBaseline supplyChainBaseline,
+            BrowserPackageSourceCapabilities packageSources,
             PackageDependencyMemberCallGraphPlatformPruning?
                 platformPruning = null,
             CancellationToken cancellationToken = default)
@@ -1736,6 +1739,7 @@ internal static class BrowserPackageWorkspace
         ArgumentNullException.ThrowIfNull(binding);
         ArgumentNullException.ThrowIfNull(focus);
         ArgumentNullException.ThrowIfNull(workspacePlan);
+        ArgumentNullException.ThrowIfNull(packageSources);
         return RunPackageOperationAsync(
             deadline => ExecuteDependencyMemberCallGraphAsync(
                 binding,
@@ -1744,6 +1748,7 @@ internal static class BrowserPackageWorkspace
                 workspacePlan,
                 supplyChainBaseline,
                 platformPruning,
+                packageSources,
                 deadline),
             PackageChangesOperationTimeout,
             cancellationToken);
@@ -1760,21 +1765,15 @@ internal static class BrowserPackageWorkspace
             PackageSupplyChainBaseline supplyChainBaseline,
             PackageDependencyMemberCallGraphPlatformPruning?
                 platformPruning,
+            BrowserPackageSourceCapabilities? packageSources,
             BrowserPackageOperationDeadline deadline)
     {
-        IPackageSourceClient source = Gallery;
-        IPackageSourceAuthorization authorization =
-            SourceAuthorizationFor(source);
+        using var sources = new BrowserDependencyPackageSourceRuntime(
+            packageSources);
+        IPackageSourceAuthorization authorization = sources.Authorization;
         await using PackageSourceSettlementLease sourceLease =
             PackageSourceSettlementService.IssueLease(
-                authority =>
-                    ReferenceEquals(
-                        authority.Association,
-                        source.Source.Association)
-                        ? source
-                        : throw new InvalidOperationException(
-                            "The dependency call graph requested another "
-                                + "configured package source."));
+                sources.ClientFor);
         TimeSpan sourceOperationTimeout =
             SourceSettlementOperationTimeout(deadline.Remaining);
         PackageHouseOperation operation =
@@ -1782,21 +1781,14 @@ internal static class BrowserPackageWorkspace
                 PackageHouseOperationProfile.Realize,
                 requestTimeout: sourceOperationTimeout,
                 operationTimeout: sourceOperationTimeout);
-        BrowserSessionPackageStore store = StoreFor(source);
         var house = new PackageHouse(
             authorization,
             new PackagePayloadAcquisitionPlan(
                 (authority, _) =>
-                    ReferenceEquals(
-                        authority.Association,
-                        source.Source.Association)
-                        ? store
-                        : throw new InvalidOperationException(
-                            "The dependency call graph requested another "
-                                + "configured package source."),
+                    sources.StoreFor(authority),
                 PayloadLimits,
                 new BrowserPackageOperationTransferPolicy(
-                    store,
+                    sources,
                     deadline)));
         var inspectionSource =
             new PackageDependencyMemberCallGraphInspectionSource(
@@ -1814,16 +1806,10 @@ internal static class BrowserPackageWorkspace
                 authorization,
                 new PackagePayloadAcquisitionPlan(
                     (authority, _) =>
-                        ReferenceEquals(
-                            authority.Association,
-                            source.Source.Association)
-                            ? store
-                            : throw new InvalidOperationException(
-                                "The dependency call graph requested another "
-                                    + "configured Platform package source."),
+                        sources.StoreFor(authority),
                     PayloadLimits,
                     new BrowserPackageOperationTransferPolicy(
-                        store,
+                        sources,
                         deadline),
                     access: PackagePayloadAccess.Ranged)),
             "browser-call-graph-platform-package");
@@ -4885,16 +4871,31 @@ internal static class BrowserPackageWorkspace
         internal BrowserSessionPackageStore(
             IPackageSourceClient source,
             IBrowserPackageEntryPersistence? entryPersistence = null)
+            : this(
+                source,
+                SourceAuthorizationFor(source),
+                ConfiguredSourceIdentityFor(source),
+                entryPersistence)
+        {
+        }
+
+        internal BrowserSessionPackageStore(
+            IPackageSourceClient source,
+            IPackageSourceAuthorization authorization,
+            PackageSourceIdentity sourceIdentity,
+            IBrowserPackageEntryPersistence? entryPersistence = null)
         {
             ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(authorization);
+            ArgumentNullException.ThrowIfNull(sourceIdentity);
             _source = source;
-            _authorization = SourceAuthorizationFor(source);
+            _authorization = authorization;
             _entryPersistenceOverride = entryPersistence;
             _producerKeys =
             [
                 source.Source.Producer.Key,
                 NuGetCache.GetSourceKey(
-                    ConfiguredSourceIdentityFor(source).Value),
+                    sourceIdentity.Value),
             ];
         }
 

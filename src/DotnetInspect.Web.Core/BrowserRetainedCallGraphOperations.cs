@@ -27,10 +27,48 @@ internal static class BrowserRetainedCallGraphOperations
         string traversalTargetFramework,
         string? runtimeIdentifier,
         PackageDependencyMemberCallGraphPlatformPruning? platformPruning,
+        CancellationToken cancellationToken = default) =>
+        await QueryAsync(
+            BrowserRetainedWorkspaceActivationRegistry.Owner,
+            retainedDefinitionId,
+            realizationId,
+            navigationId,
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken,
+            traversalTargetFramework,
+            runtimeIdentifier,
+            platformPruning,
+            cancellationToken).ConfigureAwait(false);
+
+    internal static async Task<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>> QueryAsync(
+        BrowserRetainedWorkspaceActivationOwner owner,
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        string traversalTargetFramework,
+        string? runtimeIdentifier,
+        PackageDependencyMemberCallGraphPlatformPruning? platformPruning,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(owner);
         BrowserRetainedWorkspacePackageOperationAdmission admission =
-            await BrowserRetainedWorkspaceActivationRegistry.Owner
+            await owner
                 .EnterPackageOperationAsync(
                     retainedDefinitionId,
                     realizationId,
@@ -159,6 +197,7 @@ internal static class BrowserRetainedCallGraphOperations
                 traversalTargetFramework,
                 operation.Definition.Plan,
                 PackageSupplyChainBaseline.SelfAndRegisteredEcosystems,
+                admitted.PackageSources,
                 platformPruning,
                 cancellationToken)
             .ConfigureAwait(false);
