@@ -33,6 +33,10 @@ internal sealed class BrowserDependencyPackageSourceRuntime :
         PackageSourceAssociation,
         SourceEntry> _entries =
             new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<
+        string,
+        BrowserPackageWorkspace.BrowserSessionPackageStore> _stores =
+            new(StringComparer.Ordinal);
     bool _disposed;
 
     internal BrowserDependencyPackageSourceRuntime(
@@ -42,13 +46,18 @@ internal sealed class BrowserDependencyPackageSourceRuntime :
         {
             Authorization = BrowserPackageWorkspace.SourceAuthorizationFor(
                 BrowserPackageWorkspace.Gallery);
+            BrowserPackageWorkspace.BrowserSessionPackageStore store =
+                BrowserPackageWorkspace.StoreFor(
+                    BrowserPackageWorkspace.Gallery);
             _entries.Add(
                 BrowserPackageWorkspace.Gallery.Source.Association,
                 new(
                     BrowserPackageWorkspace.Gallery,
-                    BrowserPackageWorkspace.StoreFor(
-                        BrowserPackageWorkspace.Gallery),
+                    store,
                     Owned: false));
+            _stores.Add(
+                BrowserPackageWorkspace.Gallery.Source.Producer.Key,
+                store);
         }
         else
         {
@@ -84,14 +93,15 @@ internal sealed class BrowserDependencyPackageSourceRuntime :
                 {
                     continue;
                 }
-                if (store is not null)
+                if (store is not null
+                    && !ReferenceEquals(store, entry.Store))
                 {
                     throw new InvalidOperationException(
                         "The Browser dependency call graph matched one "
                             + "package transfer to multiple configured "
                             + "source stores.");
                 }
-                store = entry.Store;
+                store ??= entry.Store;
             }
         }
 
@@ -150,12 +160,21 @@ internal sealed class BrowserDependencyPackageSourceRuntime :
             SourceEntry created;
             try
             {
+                if (!_stores.TryGetValue(
+                    client.Source.Producer.Key,
+                    out BrowserPackageWorkspace.BrowserSessionPackageStore?
+                        store))
+                {
+                    store =
+                        new BrowserPackageWorkspace.BrowserSessionPackageStore(
+                            client,
+                            Authorization,
+                            PackageSourceIdentity.ForHttpEndpoint(endpoint));
+                    _stores.Add(client.Source.Producer.Key, store);
+                }
                 created = new(
                     client,
-                    new BrowserPackageWorkspace.BrowserSessionPackageStore(
-                        client,
-                        Authorization,
-                        PackageSourceIdentity.ForHttpEndpoint(endpoint)),
+                    store,
                     Owned: true);
                 _entries.Add(authority.Association, created);
             }
@@ -178,6 +197,7 @@ internal sealed class BrowserDependencyPackageSourceRuntime :
             _disposed = true;
             entries = [.. _entries.Values];
             _entries.Clear();
+            _stores.Clear();
         }
 
         foreach (SourceEntry entry in entries)

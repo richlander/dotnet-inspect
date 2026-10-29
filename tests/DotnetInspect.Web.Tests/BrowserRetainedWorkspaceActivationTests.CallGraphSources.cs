@@ -18,12 +18,14 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         "configured.callgraph.target";
     const string ConfiguredCallGraphVersion = "1.0.0";
     const string ConfiguredCallGraphFramework = "netstandard2.0";
+    const string ConfiguredCallGraphMissingEndpoint =
+        "https://configured.example/missing/v3/index.json";
     const string ConfiguredCallGraphEndpoint =
-        "https://configured.example/v3/index.json";
+        "https://configured.example/missing/v3/index.json/";
 
     [Fact]
     public async Task
-        RetainedPackageCallGraph_UsesTheAdmittedWorkspacePackageSource()
+        RetainedPackageCallGraph_UsesLaterSourceWithSharedProducerIdentity()
     {
         byte[] rootArchive = ConfiguredCallGraphPackage(
             ConfiguredCallGraphRootPackage,
@@ -47,9 +49,17 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         var authorization = new UniformPackageSourceAuthorization(
             [
                 new PackageSource(
+                    ConfiguredCallGraphMissingEndpoint,
+                    ConfiguredCallGraphMissingEndpoint),
+                new PackageSource(
                     ConfiguredCallGraphEndpoint,
                     ConfiguredCallGraphEndpoint),
             ]);
+        Assert.Equal(
+            PackageSourceIdentity.ForHttpEndpoint(
+                new Uri(ConfiguredCallGraphMissingEndpoint)),
+            PackageSourceIdentity.ForHttpEndpoint(
+                new Uri(ConfiguredCallGraphEndpoint)));
         CompleteRestorationExecutionOptions options = baseline with
         {
             ContextLoad = baseline.ContextLoad with
@@ -116,6 +126,16 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     + $"{ConfiguredCallGraphTargetPackage}."
                     + $"{ConfiguredCallGraphVersion}.nupkg",
                 StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            handler.Requested,
+            request => request.AbsolutePath.Equals(
+                "/missing/v3/index.json",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            handler.Requested,
+            request => request.AbsolutePath.Equals(
+                "/missing/v3/index.json/",
+                StringComparison.Ordinal));
         Assert.All(
             handler.Requested,
             request => Assert.Equal(
@@ -161,8 +181,12 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     {
         string json =
             """
-            {"f":5,"s":[["__ENDPOINT__"]],"t":[["__PACKAGE__","__VERSION__","__FRAMEWORK__",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+            {"f":5,"s":[["__MISSING_ENDPOINT__"],["__ENDPOINT__"]],"t":[["__PACKAGE__","__VERSION__","__FRAMEWORK__",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
             """
+            .Replace(
+                "__MISSING_ENDPOINT__",
+                ConfiguredCallGraphMissingEndpoint,
+                StringComparison.Ordinal)
             .Replace(
                 "__ENDPOINT__",
                 ConfiguredCallGraphEndpoint,
@@ -208,13 +232,23 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 ?? throw new InvalidOperationException(
                     "The configured-source test request has no URI.");
             Requested.Add(uri);
-            if (uri.AbsolutePath == "/v3/index.json")
+            if (uri.AbsolutePath == "/missing/v3/index.json")
             {
                 return Task.FromResult(Json(
                     """
                     {"version":"3.0.0","resources":[
-                      {"@id":"https://configured.example/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},
-                      {"@id":"https://configured.example/v3/registration5-gz-semver2/","@type":"RegistrationsBaseUrl/3.6.0"}
+                      {"@id":"https://configured.example/missing/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},
+                      {"@id":"https://configured.example/missing/v3/registration5-gz-semver2/","@type":"RegistrationsBaseUrl/3.6.0"}
+                    ]}
+                    """));
+            }
+            if (uri.AbsolutePath == "/missing/v3/index.json/")
+            {
+                return Task.FromResult(Json(
+                    """
+                    {"version":"3.0.0","resources":[
+                      {"@id":"https://configured.example/available/v3-flatcontainer/","@type":"PackageBaseAddress/3.0.0"},
+                      {"@id":"https://configured.example/available/v3/registration5-gz-semver2/","@type":"RegistrationsBaseUrl/3.6.0"}
                     ]}
                     """));
             }
@@ -224,7 +258,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             {
                 string id = packageId.ToLowerInvariant();
                 if (uri.AbsolutePath.Equals(
-                    $"/v3-flatcontainer/{id}/index.json",
+                    $"/available/v3-flatcontainer/{id}/index.json",
                     StringComparison.OrdinalIgnoreCase))
                 {
                     return Task.FromResult(Json(
@@ -237,7 +271,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                         })));
                 }
                 if (uri.AbsolutePath.Equals(
-                    $"/v3/registration5-gz-semver2/{id}/index.json",
+                    $"/available/v3/registration5-gz-semver2/{id}/index.json",
                     StringComparison.OrdinalIgnoreCase))
                 {
                     return Task.FromResult(Json(
@@ -264,7 +298,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                         })));
                 }
                 if (uri.AbsolutePath.Equals(
-                    $"/v3-flatcontainer/{id}/"
+                    $"/available/v3-flatcontainer/{id}/"
                         + $"{ConfiguredCallGraphVersion}/{id}.nuspec",
                     StringComparison.OrdinalIgnoreCase))
                 {
@@ -275,7 +309,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                     });
                 }
                 if (uri.AbsolutePath.Equals(
-                    $"/v3-flatcontainer/{id}/"
+                    $"/available/v3-flatcontainer/{id}/"
                         + $"{ConfiguredCallGraphVersion}/{id}."
                         + $"{ConfiguredCallGraphVersion}.nupkg",
                     StringComparison.OrdinalIgnoreCase))
