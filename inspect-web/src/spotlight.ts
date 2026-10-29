@@ -320,6 +320,18 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
   }
 }
 
+export function spotlightCapabilityDestination(
+  capability: BrowserCapabilityCatalogSearchResult,
+): "package-query" | "compare" | null {
+  const browserBindings = capability.productionBindings.filter(binding =>
+    binding.consumerKind === "Browser");
+  if (browserBindings.some(binding => binding.identity === "dotnet-inspect.web/package-query"))
+    return "package-query";
+  if (browserBindings.some(binding => binding.identity === "dotnet-inspect.web/diff-compare"))
+    return "compare";
+  return null;
+}
+
 export function spotlightCapabilityDraftValue(
   result: SpotlightCapabilityResult,
 ): string {
@@ -371,6 +383,8 @@ function capabilityKindLabel(
       return "Query facet";
     case "ConsumerBinding":
       return "Consumer binding";
+    case "Analysis":
+      return "Analysis";
     default:
       return "Capability";
   }

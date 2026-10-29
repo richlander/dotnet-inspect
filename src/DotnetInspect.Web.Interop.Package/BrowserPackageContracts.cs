@@ -914,6 +914,7 @@ public enum BrowserCapabilityCatalogSearchMatchSource
     Summary,
     RelatedRoute,
     ProductionBinding,
+    IssuedFinding,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityResourceKind>))]
@@ -924,6 +925,7 @@ public enum BrowserCapabilityResourceKind
     QuerySpace,
     QueryFacet,
     ConsumerBinding,
+    Analysis,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCapabilityCatalogSearchResourceKind>))]
@@ -934,6 +936,7 @@ public enum BrowserCapabilityCatalogSearchResourceKind
     QuerySpace,
     QueryFacet,
     ConsumerBinding,
+    Analysis,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionConsumerKind>))]
