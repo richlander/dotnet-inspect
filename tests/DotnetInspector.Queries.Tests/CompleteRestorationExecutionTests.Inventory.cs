@@ -42,7 +42,7 @@ public sealed partial class CompleteRestorationExecutionTests
         string contexts = reverseContexts ? "[[2],[0,1]]" : "[[0,1],[2]]";
         CompleteWorkspaceSnapshot snapshot = await RestoreInventoryAsync(
             $$$"""
-            {"f":3,"t":[[":Platform","10.0.10","net10.0","linux-x64"],["System.Text.Json","9.0.4","net10.0","linux-x64"],["System.Text.Json","9.0.4","net9.0",null]],"g":{{{contexts}}},"r":[],"a":1,"x":{{{mixedIndex}}},"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"package"},"u":{"k":"package"}},{"t":2,"r":{"k":"package"},"u":{"k":"package"}}]}
+            {"f":3,"t":[[":Platform","10.0.14","net10.0","linux-x64"],["System.Text.Json","9.0.4","net10.0","linux-x64"],["System.Text.Json","9.0.4","net9.0",null]],"g":{{{contexts}}},"r":[],"a":1,"x":{{{mixedIndex}}},"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"package"},"u":{"k":"package"}},{"t":2,"r":{"k":"package"},"u":{"k":"package"}}]}
             """,
             fixture.Store);
 
@@ -82,7 +82,7 @@ public sealed partial class CompleteRestorationExecutionTests
         PackageFixture fixture = await SystemTextJsonAndPlatformPackagesAsync();
         CompleteWorkspaceSnapshot snapshot = await RestoreInventoryAsync(
             """
-            {"f":3,"t":[[":Platform","10.0.10","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+            {"f":3,"t":[[":Platform","10.0.14","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
             """,
             fixture.Store,
             capture);
@@ -110,7 +110,7 @@ public sealed partial class CompleteRestorationExecutionTests
         var platform = new DefinitionMemberCoordinate.PlatformCoordinate(
             "runtime",
             "System.Text.Json",
-            "10.0.10",
+            "10.0.14",
             "net10.0");
         var request = new CompleteRestorationRequestBasis.DefinitionInput(
             "scenario",
@@ -179,7 +179,7 @@ public sealed partial class CompleteRestorationExecutionTests
         Assert.Equal("platform", captured.NavigationId);
         Assert.Equal(0, captured.ContextIndex);
         Assert.Equal("runtime", captured.Family);
-        Assert.Equal("10.0.10", captured.Version);
+        Assert.Equal("10.0.14", captured.Version);
         Assert.Equal("net10.0", captured.Framework);
         Assert.True((await workspace.CloseAsync()).Succeeded);
     }
@@ -284,13 +284,13 @@ public sealed partial class CompleteRestorationExecutionTests
     {
         Assert.Equal("t0", platform.NavigationId);
         Assert.Equal("runtime", platform.Family);
-        Assert.Equal("10.0.10", platform.Version);
+        Assert.Equal("10.0.14", platform.Version);
         Assert.Equal("net10.0", platform.Framework);
         Assert.True(platform.Libraries.Length > 1);
         Assert.All(platform.Libraries, library =>
         {
             Assert.Equal("runtime", library.Coordinate.Family);
-            Assert.Equal("10.0.10", library.Coordinate.Version);
+            Assert.Equal("10.0.14", library.Coordinate.Version);
             Assert.Equal("net10.0", library.Coordinate.Framework);
             Assert.False(string.IsNullOrEmpty(library.Subject.Identity.Name));
         });
