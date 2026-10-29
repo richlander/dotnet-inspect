@@ -209,6 +209,15 @@ public ref struct SymbolKeyPartReader<TDomain>
             _ => _payload.CompareTo(other._payload) == 0,
         };
 
+    /// <summary>Copies the payload of a Name, Key, or Blob part, staged or frozen.</summary>
+    internal byte[] CopyPayload()
+    {
+        byte[] bytes = new byte[_payload.Length];
+        for (int i = 0; i < bytes.Length; i++)
+            bytes[i] = _payload.ByteAt(i);
+        return bytes;
+    }
+
     internal bool PayloadStartsWith(byte value)
         => _payload.Length != 0 && _payload.ByteAt(0) == value;
 

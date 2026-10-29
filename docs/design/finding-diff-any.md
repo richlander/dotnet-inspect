@@ -358,6 +358,20 @@ A complete comparison is projected only for the selected Type when no
 presented difference settles the census. Equal censuses project no model.
 The receipt reports API surfaces built and the time constructing them.
 
+That projection covers only what the uncertain differences can change. Each
+uncertain fact has an owner: the Member it describes, or the Member owning its
+parameter or generic parameter. The projection holds the Type row and every
+Member whose metadata name, or one of whose accessors' names, equals an owner's
+name byte for byte, so overloads and the property or event of an accessor are
+compared together. A Member outside it owns no differing fact. A Type-owned
+uncertain fact, such as a Type attribute or nullable context, can change how
+every Member is presented, so it projects the whole Type. The projection is the
+complete comparison's input with only the facts that comparison reads: it
+omits memory-safety facts and accessor semantics, so the image's memory-safety
+index is never built for it. `ApiEqualityExtractionTests` gates both: equality
+projection compares equal to the complete extraction, and member selection by
+name and accessor name.
+
 Module attribute descriptors are read once per image; owned constructor keys
 and blob handles are shared across Type censuses. Defaulted parameters of one method share its
 decoded signature dependencies, and the constant handle is read once per

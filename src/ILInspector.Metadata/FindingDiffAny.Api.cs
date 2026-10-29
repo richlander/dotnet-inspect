@@ -13,20 +13,25 @@ public static partial class FindingDiffAny
     {
         if (CensusesEqual(a, before, b, after))
             return FindingDiffAnyState.Unchanged;
-        if (HasPresentedApiDifference(a, before, b, after))
+        var owners = new UncertainOwners();
+        if (HasPresentedApiDifference(a, before, b, after, owners))
             return FindingDiffAnyState.Changed;
 
+        // Settle with the complete API comparison over only what the
+        // uncertain facts can change: the Type row and the Members that own
+        // them, or the whole Type when the Type itself owns one.
+        ApiMemberNameSelection? members = owners.TypeWide ? null : owners.Members;
         ApiSurface oldSurface;
         ApiSurface newSurface;
         long start = Stopwatch.GetTimestamp();
         try
         {
             work.ApiSurfacesBuilt++;
-            oldSurface = ApiSurfaceExtractor.ExtractDeclarations(
-                a.Pe, ApiSurfaceExtractionScope.ApiAxis, type => type == unitA.Owner);
+            oldSurface = ApiSurfaceExtractor.ExtractApiEquality(
+                a.Pe, ApiSurfaceExtractionScope.ApiAxis, type => type == unitA.Owner, members);
             work.ApiSurfacesBuilt++;
-            newSurface = ApiSurfaceExtractor.ExtractDeclarations(
-                b.Pe, ApiSurfaceExtractionScope.ApiAxis, type => type == unitB.Owner);
+            newSurface = ApiSurfaceExtractor.ExtractApiEquality(
+                b.Pe, ApiSurfaceExtractionScope.ApiAxis, type => type == unitB.Owner, members);
         }
         finally
         {
@@ -47,7 +52,60 @@ public static partial class FindingDiffAny
     // The censuses are sorted by serialized key. Compare the kind and first
     // subject part before the payload: a row present on one side differs from
     // two versions of the same row whose flags alone changed. No key detaches.
-    static bool HasPresentedApiDifference(Side a, List<SymbolKeySlot> before, Side b, List<SymbolKeySlot> after)
+    // The owners of the uncertain differences. A fact's subject is its first
+    // part after the kind: a Member, or a parameter or generic parameter of
+    // one, is owned by that Member, named by its exact metadata name bytes;
+    // any other subject, such as the Type itself, makes the Type the owner.
+    sealed class UncertainOwners
+    {
+        public ApiMemberNameSelection Members { get; } = new();
+
+        public bool TypeWide { get; private set; }
+
+        public void Add(StagedSymbolKey<FindingDiffAnyPart> fact)
+        {
+            if (TypeWide)
+                return;
+            var parts = fact.Parts;
+            parts.Read();
+            parts.Read();
+            AddSubject(parts);
+        }
+
+        void AddSubject(SymbolKeyPartReader<FindingDiffAnyPart> part)
+        {
+            if (part.Kind != SymbolKeyPartKind.Key)
+            {
+                TypeWide = true;
+                return;
+            }
+            var key = part.NestedParts;
+            key.Read();
+            if (key.Marker is FindingDiffAnyPart.Parameter or FindingDiffAnyPart.GenericParameter)
+            {
+                key.Read();
+                AddSubject(key);
+                return;
+            }
+            if (key.Marker is not (FindingDiffAnyPart.Method or FindingDiffAnyPart.Field
+                or FindingDiffAnyPart.Property or FindingDiffAnyPart.Event))
+            {
+                TypeWide = true;
+                return;
+            }
+            key.Read();
+            key.Read();
+            if (key.Kind != SymbolKeyPartKind.Name)
+            {
+                TypeWide = true;
+                return;
+            }
+            Members.Add(key.CopyPayload());
+        }
+    }
+
+    static bool HasPresentedApiDifference(
+        Side a, List<SymbolKeySlot> before, Side b, List<SymbolKeySlot> after, UncertainOwners owners)
     {
         int i = 0, j = 0;
         while (i < before.Count && j < after.Count)
@@ -74,6 +132,7 @@ public static partial class FindingDiffAny
             {
                 if (PresentedPair(x.Kind, ref px, ref py))
                     return true;
+                owners.Add(x);
                 i++;
                 j++;
             }
@@ -81,21 +140,31 @@ public static partial class FindingDiffAny
             {
                 if (PresentedPresence(x))
                     return true;
+                owners.Add(x);
                 i++;
             }
             else
             {
                 if (PresentedPresence(y))
                     return true;
+                owners.Add(y);
                 j++;
             }
         }
         for (; i < before.Count; i++)
-            if (PresentedPresence(a.Transient.Resolve(before[i])))
+        {
+            var x = a.Transient.Resolve(before[i]);
+            if (PresentedPresence(x))
                 return true;
+            owners.Add(x);
+        }
         for (; j < after.Count; j++)
-            if (PresentedPresence(b.Transient.Resolve(after[j])))
+        {
+            var y = b.Transient.Resolve(after[j]);
+            if (PresentedPresence(y))
                 return true;
+            owners.Add(y);
+        }
         return false;
     }
 
