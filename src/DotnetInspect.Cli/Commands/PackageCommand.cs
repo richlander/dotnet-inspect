@@ -1525,11 +1525,14 @@ public partial class PackageCommand
                 }
                 else
                 {
-                    await ApplyPackageEcosystemDependenciesAsync(
+                    if (!await TryApplyPackageEcosystemDependenciesAsync(
                         result,
                         resolution,
                         discloseDiagnostics,
-                        logger.Log);
+                        logger.Log))
+                    {
+                        return 1;
+                    }
                 }
             }
 

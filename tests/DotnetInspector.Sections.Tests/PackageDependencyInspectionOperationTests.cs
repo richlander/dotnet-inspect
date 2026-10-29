@@ -267,6 +267,27 @@ public sealed class PackageDependencyInspectionOperationTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_RetainsMalformedManifestFailure()
+    {
+        PackageInspectionInput input = Input("<dependencies>");
+
+        var inspection =
+            await PackageDependencyInspectionOperation.ExecuteAsync(
+                new(input),
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<PackageDependencyInspectionOutcome.Failed>(
+                inspection.Content);
+        var failure = Assert.IsType<PackageManifestFailure>(
+            failed.ManifestFailure);
+        Assert.Equal(PackageManifestFailureReason.MalformedXml, failure.Reason);
+        Assert.True(failure.LineNumber > 0);
+        Assert.True(failure.LinePosition > 0);
+        Assert.Null(failed.Manifest);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ReturnsTypedUnavailableContent()
     {
         PackageInspectionInput input = PackageInspectionInput.CreateLocal(
