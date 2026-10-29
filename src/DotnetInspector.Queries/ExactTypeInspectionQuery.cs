@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
@@ -224,6 +225,9 @@ public sealed record ExactTypeApi(
     string? EnumUnderlyingType,
     bool IsForwarded)
 {
+    [JsonIgnore]
+    public int NestedTypeCount { get; init; }
+
     internal static ExactTypeApi From(ApiType type) =>
         new(
             type.FullName,
@@ -262,7 +266,10 @@ public sealed record ExactTypeApi(
                         member.Signature)),
             ],
             type.EnumUnderlyingType,
-            type.IsForwarded);
+            type.IsForwarded)
+        {
+            NestedTypeCount = type.NestedTypeCount,
+        };
 }
 
 /// <summary>

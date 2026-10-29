@@ -1952,6 +1952,7 @@ public static partial class TypeCommand
             IsReadOnly = exactType.IsReadOnly,
             BaseType = exactType.BaseType,
             Interfaces = [.. exactType.Interfaces],
+            NestedTypeCount = exactType.NestedTypeCount,
             DerivedTypes = [.. exactType.DerivedTypes],
             TypeParameters =
             [
