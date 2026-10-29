@@ -990,6 +990,7 @@ export interface BrowserUnsafeMember {
   readonly metadataToken: number;
   readonly exposure: string;
   readonly explicitContract: boolean;
+  readonly safeBoundary: string;
   readonly evidence: string;
   readonly partial: boolean;
   readonly typeId: string | null;
@@ -997,6 +998,14 @@ export interface BrowserUnsafeMember {
   readonly accessibility: string | null;
   readonly declaringType: BrowserPerformanceTypeSurface | null;
   readonly items: ReadonlyArray<BrowserUnsafeMemberEvidence>;
+}
+
+export interface BrowserUnsafeMemberCounts {
+  readonly members: number;
+  readonly public: number;
+  readonly propagating: number;
+  readonly safeBoundaries: number;
+  readonly safeBoundaryUndecided: number;
 }
 
 export interface BrowserUnsafeMemberEvidence {
@@ -1009,9 +1018,18 @@ export interface BrowserUnsafeMemberEvidence {
 export interface BrowserUnsafeMembers {
   readonly outcome: string;
   readonly assembly: string;
-  readonly members: ReadonlyArray<BrowserUnsafeMember>;
+  readonly counts: BrowserUnsafeMemberCounts;
+  readonly types: ReadonlyArray<BrowserUnsafeType>;
   readonly limitations: ReadonlyArray<string>;
   readonly inspectionError: string | null;
+}
+
+export interface BrowserUnsafeType {
+  readonly type: string;
+  readonly typeId: string | null;
+  readonly declaringType: BrowserPerformanceTypeSurface | null;
+  readonly counts: BrowserUnsafeMemberCounts;
+  readonly members: ReadonlyArray<BrowserUnsafeMember>;
 }
 
 type $ManagedExports = {

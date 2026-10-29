@@ -22,6 +22,7 @@ test("Type inspectors hide the legacy Metadata alias", () => {
     ["api", "Members"],
     ["source", "Source"],
     ["compare", "Compare"],
+    ["unsafe", "Unsafe"],
   ]);
   assert.equal(canonicalTypeLens("metadata"), "overview");
   assert.equal(canonicalTypeLens("source"), "source");

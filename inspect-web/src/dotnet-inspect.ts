@@ -427,7 +427,11 @@ import {
 } from "./analysis-inspector.ts";
 import { bindTriageCode, singlePerformanceBodyTarget, triageIssuePreview } from "./triage-code.ts";
 import { renderLibraryResourceTriageSurface, renderMemberResourceTriageSurface } from "./library-resource-triage.ts";
-import { renderLibraryUnsafeMembersSurface } from "./library-unsafe-members.ts";
+import {
+  renderLibraryUnsafeMembersSurface,
+  renderMemberUnsafeMembersSurface,
+  renderTypeUnsafeMembersSurface,
+} from "./library-unsafe-members.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
@@ -912,7 +916,7 @@ import type {
   BrowserTypeMemberPopulationInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
-import type { BrowserPerformanceMember } from "./facades/inspect-web-analysis.d.ts";
+import type { BrowserPerformanceMember, BrowserPerformanceTypeSurface } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
   typeLeverageAchievements,
@@ -8626,7 +8630,8 @@ function memberSectionUsesWorkingSurface(section: MemberSection) {
   return section === "overview"
     || section === "call-graph"
     || section === "facts"
-    || section === "resource-triage";
+    || section === "resource-triage"
+    || section === "unsafe";
 }
 
 function typeAnalysisWorkspaceGeneration(pkg: AppPackage) {
@@ -9237,6 +9242,8 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
   else if (id === "facts" || id === "resource-triage")
     observeAsync(loadSelectedMemberAnalysisSurface(), "Loading member analysis");
+  else if (id === "unsafe")
+    observeAsync(loadPackageUnsafeMembers(), "Loading unsafe members");
   else if (id === "overview")
     observeAsync(loadSelectedMemberOverview(), "Loading member overview");
   else if (id === "compare")
@@ -10142,6 +10149,8 @@ function renderCore(options: RenderOptions) {
     && (sourcePageSource !== null || typeCodeViewText(typeCodeView) !== null);
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
+  const typeUnsafeWorkingSurface =
+    activeScope === "type" && state.lens === "unsafe";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
   const typeGraphWorkingSurface =
@@ -10199,6 +10208,7 @@ function renderCore(options: RenderOptions) {
       : navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
     !memberBodyWorkingSurface && (apiWorkingSurface
+    || typeUnsafeWorkingSurface
     || metadataWorkingSurface
     || overviewWorkingSurface
     || packageDependenciesWorkingSurface
@@ -10287,7 +10297,7 @@ function renderCore(options: RenderOptions) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageVulnerabilitiesWorkingSurface ? " package-vulnerabilities-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
+          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${typeUnsafeWorkingSurface ? " type-unsafe-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageVulnerabilitiesWorkingSurface ? " package-vulnerabilities-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
               ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}" data-package-loading-coordinate="${escapeHtml(packageContentLoadingRuntimeIdentifier ?? state.requestedFramework)}"><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : packageContentLoadingRuntimeIdentifier ? `runtime ${escapeHtml(packageContentLoadingRuntimeIdentifier)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
@@ -12718,7 +12728,7 @@ function renderPackageUnsafeMembers() {
   const pkg = currentPackage();
   const library = selectedLibrary();
   const scopedLib = scopedPlatformLibrary();
-  const current = packageScopeSignature();
+  const current = unsafeMembersSignature();
   return renderLibraryUnsafeMembersSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -12831,21 +12841,50 @@ async function loadPackageResourceTriage() {
     scopedLib);
 }
 
+// One Library census serves the Library, Type, and Member Unsafe scopes. Its
+// key names the exact Library even when an aggregate package's Type or member
+// is the subject, so one Library's result never stands for another's.
+function unsafeMembersSignature() {
+  const pkg = currentPackage();
+  const lib = selectedLibraryShareKey() || selectedLibraryRequest();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
+}
+
+function currentUnsafeMembersState() {
+  return {
+    fresh: state.packageUnsafeMembersKey === unsafeMembersSignature(),
+    loading: state.packageUnsafeMembersLoading,
+    error: state.packageUnsafeMembersError,
+    data: state.packageUnsafeMembers,
+    escapeHtml,
+  };
+}
+
 async function loadPackageUnsafeMembers() {
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
   return packageInspection.loadUnsafeMembers(
     pkg,
-    packageScopeSignature(),
+    unsafeMembersSignature(),
     scopedLib);
 }
 
+function unsafeMembersScopeIsVisible() {
+  if (state.atPackageRoot) return false;
+  if (state.atLibraryRoot) {
+    return state.libraryLens === "analysis"
+      && !aggregateLibrarySubjectIsActive()
+      && state.analysisMode === "unsafe";
+  }
+  const activeScope = scope();
+  return activeScope === "type" && state.lens === "unsafe"
+    || activeScope === "member" && state.memberSection === "unsafe";
+}
+
 function maybeAutoLoadPackageUnsafeMembers() {
-  if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
-  if (aggregateLibrarySubjectIsActive()) return;
-  if (state.analysisMode !== "unsafe") return;
+  if (!unsafeMembersScopeIsVisible()) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageUnsafeMembersKey === packageScopeSignature()) return;
+  if (state.packageUnsafeMembersKey === unsafeMembersSignature()) return;
   observeAsync(loadPackageUnsafeMembers(), "Loading unsafe members");
 }
 
@@ -13426,9 +13465,60 @@ function drillToPerfMember(
     resourceMethodToken);
 }
 
-// An Unsafe Members row names its declared member by the Library's complete
-// API surface, so it opens without any ranked Performance evidence. A Type the
-// ordinary list omits opens as a transient Type, as Performance rows do.
+function currentUnsafeType(typeId: string) {
+  return state.packageUnsafeMembersKey === unsafeMembersSignature()
+    ? state.packageUnsafeMembers?.types.find(candidate =>
+        candidate.typeId === typeId)
+    : undefined;
+}
+
+// Unsafe rows name their Type by the Library's complete API surface, so they
+// open without any ranked Performance evidence. A Type the ordinary list omits
+// opens as a transient Type, as Performance rows do.
+function resolveUnsafeNavigationType(
+  pkg: AppPackage,
+  assembly: string,
+  typeId: string,
+  declaringType: BrowserPerformanceTypeSurface | null | undefined,
+) {
+  return declaringType
+    ? retainPerformanceNavigationType(pkg, { assembly, typeId, declaringType })
+    : resolvePackagePerformanceType(pkg, { assembly, typeId });
+}
+
+// A Library Unsafe Type row opens that Type with its Unsafe lens, widened to
+// its whole member population so a non-public member is listed.
+function drillToUnsafeType(assembly: string, typeId: string) {
+  performanceMemberBrowseContext = null;
+  const pkg = currentPackage();
+  const targetType = resolveUnsafeNavigationType(
+    pkg,
+    assembly,
+    typeId,
+    currentUnsafeType(typeId)?.declaringType);
+  if (!targetType) {
+    showToast("That unsafe Type is not in this Library's surface.");
+    return;
+  }
+  state.atPackageRoot = false;
+  state.atLibraryRoot = false;
+  state.libraryScope = new Set([libraryKey(targetType)]);
+  state.selectedTypeId = targetType.id;
+  reconcileAccessibilityFilter(targetType);
+  state.memberBrowseTypeId = "";
+  state.namespaceFilter = "";
+  resetMemberFilters();
+  setTypeMemberPopulationIntent("all", "csharp");
+  state.lens = "unsafe";
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  resetMemberSectionState();
+  state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === targetType.id);
+  render();
+  loadCurrentSelectionData("Loading the selected Type's unsafe members");
+}
+
+// A Type Unsafe member row opens that member with its Unsafe section.
 function drillToUnsafeMember(
   stableSelector: string,
   assembly: string,
@@ -13436,15 +13526,13 @@ function drillToUnsafeMember(
 ) {
   performanceMemberBrowseContext = null;
   const pkg = currentPackage();
-  const row = state.packageUnsafeMembersKey === packageScopeSignature()
-    ? state.packageUnsafeMembers?.members.find(candidate =>
-        candidate.stableSelector === stableSelector
-        && candidate.typeId === typeId)
-    : undefined;
-  const declaringType = row?.declaringType;
-  const targetType = declaringType
-    ? retainPerformanceNavigationType(pkg, { assembly, typeId, declaringType })
-    : resolvePackagePerformanceType(pkg, { assembly, typeId });
+  const row = currentUnsafeType(typeId)?.members.find(candidate =>
+    candidate.stableSelector === stableSelector);
+  const targetType = resolveUnsafeNavigationType(
+    pkg,
+    assembly,
+    typeId,
+    row?.declaringType);
   if (!targetType) {
     showToast("That unsafe member's Type is not in this Library's surface.");
     return;
@@ -13452,7 +13540,7 @@ function drillToUnsafeMember(
   drillToAnalysisMember(
     targetType,
     stableSelector,
-    pkg.isRuntimePack ? "overview" : "facts",
+    "unsafe",
     undefined,
     false);
 }
@@ -14266,6 +14354,12 @@ function renderLens(item: AppTypeSurface | null | undefined) {
       return renderCompareSurface();
     case "api":
       return renderApiLens(item);
+    case "unsafe":
+      return renderTypeUnsafeMembersSurface({
+        ...currentUnsafeMembersState(),
+        typeId: item.definitionId ?? item.id,
+        typeName: typeDisplayName(item),
+      });
     default:
       return assertNever(state.lens, "type lens");
   }
@@ -14700,6 +14794,12 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         }, resourceCandidates)
       : "")
       + renderMemberFacts(state, !currentPackage().isRuntimePack);
+  } else if (state.memberSection === "unsafe") {
+    content = renderMemberUnsafeMembersSurface({
+      ...currentUnsafeMembersState(),
+      typeId: type.definitionId ?? type.id,
+      stableSelector: selectedOverload?.stableSelector ?? "",
+    });
   } else if (state.memberSection === "source") {
     content = renderMemberSourceHtml();
   } else if (state.memberSection === "compare") {
@@ -14926,6 +15026,9 @@ const packageViewActions: PackageViewBindingActions = {
       target.stableSelector,
       target.assembly,
       target.typeId, target.resourceMethodToken);
+  },
+  onUnsafeTypeSelect: target => {
+    drillToUnsafeType(target.assembly, target.typeId);
   },
   onUnsafeMemberSelect: target => {
     drillToUnsafeMember(
@@ -19508,6 +19611,7 @@ function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
     case "metadata": return loadSelectedTypeMetadata();
     // Compare work is reconciled by render() from the retained Package mode.
     case "compare": return undefined;
+    case "unsafe": return loadPackageUnsafeMembers();
     case "api": return "member";
   }
   return assertNever(state.lens, "type lens");
@@ -19547,6 +19651,7 @@ async function loadSelectionData() {
     case "call-graph": await loadSelectedMemberCallGraph(); return;
     case "facts":
     case "resource-triage": await loadSelectedMemberAnalysisSurface(); return;
+    case "unsafe": await loadPackageUnsafeMembers(); return;
     case "compare": return;
     default: return assertNever(state.memberSection, "member section");
   }

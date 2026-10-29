@@ -1551,6 +1551,7 @@ kbd {
 .detail-scroll.library-references-working-surface,
 .detail-scroll.library-integrations-working-surface,
 .detail-scroll.library-analysis-working-surface,
+.detail-scroll.type-unsafe-working-surface,
 .detail-scroll.library-api-diff-working-surface,
 .detail-scroll.package-dependencies-working-surface,
 .detail-scroll.package-vulnerabilities-working-surface,
@@ -6772,11 +6773,14 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .unsafe-member-static { cursor: default; }
 .unsafe-member-static:hover { border-color: var(--line); background: transparent; }
 .unsafe-member-callees { font-family: var(--mono); font-size: 11px; color: var(--dim); overflow-wrap: anywhere; }
-.unsafe-member-exposure { text-transform: none; }
+.unsafe-pill { text-transform: none; }
 .unsafe-member-partial { color: #c99a3a; border-color: color-mix(in srgb, #c99a3a 45%, var(--line)); }
-.unsafe-member-items { padding: 0 16px 10px 60px; }
-.unsafe-member-items summary { cursor: pointer; font-size: 11px; color: var(--dim); }
-.unsafe-member-items summary:hover { color: var(--text); }
+.unsafe-counts { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.unsafe-counts div { display: flex; align-items: baseline; gap: 6px; }
+.unsafe-counts dt { color: var(--text); font: 600 13px var(--mono); }
+.unsafe-counts dd { margin: 0; color: var(--dim); font-size: 12px; }
+.member-unsafe .unsafe-member-finding { padding: 0 0 20px; }
+.unsafe-member-dimensions dd { overflow-wrap: anywhere; }
 .unsafe-evidence-wrap { margin-top: 6px; overflow-x: auto; }
 .unsafe-evidence-table { border-collapse: collapse; font-size: 11px; }
 .unsafe-evidence-table th { text-align: left; font-weight: 500; color: var(--dim); padding: 2px 12px 2px 0; border-bottom: 1px solid var(--line); }

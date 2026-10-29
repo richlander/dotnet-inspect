@@ -2264,7 +2264,9 @@ async function installFacades(
       export async function queryPackageUnsafeMembers(id, version, framework, asset) {
         const selected = surfaceFor(id).assemblies.find(item => item.id === asset);
         const type = surfaceFor(id).types.find(item => item.assemblyId === selected.id);
-        return { outcome: "available", assembly: selected.name + ".dll", members: [{ member: type.definitionId + ".Run()", metadataToken: 100663297, exposure: "Public", explicitContract: false, evidence: "pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add", partial: false, typeId: type.definitionId, stableSelector: "Run", accessibility: "public", declaringType: type, items: [{ role: "pointer dereference", body: type.definitionId + ".<Run>b__0_0()", ilOffset: 7, detail: "ldind.i4" }] }], limitations: [], inspectionError: null };
+        const counts = { members: 1, public: 1, propagating: 0, safeBoundaries: 1, safeBoundaryUndecided: 0 };
+        const member = { member: type.definitionId + ".Run()", metadataToken: 100663297, exposure: "Public", explicitContract: false, safeBoundary: "safe boundary", evidence: "pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add", partial: false, typeId: type.definitionId, stableSelector: "Run", accessibility: "public", declaringType: type, items: [{ role: "pointer dereference", body: type.definitionId + ".<Run>b__0_0()", ilOffset: 7, detail: "ldind.i4" }] };
+        return { outcome: "available", assembly: selected.name + ".dll", counts, types: [{ type: type.definitionId, typeId: type.definitionId, declaringType: type, counts, members: [member] }], limitations: [], inspectionError: null };
       }
       export async function queryPackageResourceTriage(id, version, framework, asset) {
         const selected = surfaceFor(id).assemblies.find(item => item.id === asset);

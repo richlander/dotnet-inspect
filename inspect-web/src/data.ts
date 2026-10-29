@@ -63,14 +63,21 @@ const memberSectionRoutes = [
   "call-graph",
   "facts",
   "resource-triage",
+  "unsafe",
   "source",
   "compare",
 ] as const;
 
 export type TypeLens =
+  RegisteredTypeLens | (typeof browserTypeLensRoutes)[number];
+
+type RegisteredTypeLens =
   (typeof typeLensRouteByFacetId)[keyof typeof typeLensRouteByFacetId];
 
-type RegisteredTypeLens = TypeLens;
+// Browser-owned Type lenses present Browser analyses, not product view facets;
+// they follow the catalog lenses.
+const browserTypeLensRoutes = ["unsafe"] as const;
+
 export type MemberSection = (typeof memberSectionRoutes)[number];
 
 function isTypeViewFacetId(
@@ -156,7 +163,8 @@ export function isTypeLens(
   value: string | null | undefined,
 ): value is TypeLens {
   return typeof value === "string"
-    && Object.values(typeLensRouteByFacetId).some(id => id === value);
+    && (Object.values(typeLensRouteByFacetId).some(id => id === value)
+      || browserTypeLensRoutes.some(id => id === value));
 }
 
 export function canonicalTypeLens(value: TypeLens): TypeLens {
@@ -316,6 +324,7 @@ export function memberSectionDefinitions():
     if (route === "resource-triage") {
       return [route, "Resource Triage"] as const;
     }
+    if (route === "unsafe") return [route, "Unsafe"] as const;
     const title = titles.get(route);
     if (title === undefined) {
       throw new Error(
@@ -2000,8 +2009,14 @@ export function memberSectionIdsFor(
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
     // Compare is Diff-capable for every API member kind; only its Clone mode
-    // needs a method body, and the surface reports that itself.
-    return isRuntimePack ? ["overview"] : ["overview", "compare"];
+    // needs a method body, and the surface reports that itself. Unsafe
+    // presents the census, whose accessor findings anchor to their property
+    // or event.
+    const unsafe: MemberSection[] =
+      ["property", "event"].includes(member?.kind ?? "") ? ["unsafe"] : [];
+    return isRuntimePack
+      ? ["overview", ...unsafe]
+      : ["overview", ...unsafe, "compare"];
   }
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
@@ -2022,14 +2037,23 @@ export function typeLensesFor(
   }
   if (pkg?.source?.kind === "file")
     return typeLenses.filter(([id]) => id === "overview" || id === "api");
+  // Unsafe presents the Library's unsafe member census, which package and
+  // Platform Libraries both issue.
+  const unsafe = [["unsafe", "Unsafe"]] as const;
   if (pkg?.isRuntimePack)
-    return typeLenses.filter(
-      ([id]) => id === "overview" || id === "api" || id === "source");
+    return [
+      ...typeLenses.filter(
+        ([id]) => id === "overview" || id === "api" || id === "source"),
+      ...unsafe,
+    ];
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
-  return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
-    ? typeLenses.filter(([id]) => id !== "compare")
-    : typeLenses;
+  return [
+    ...pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
+      ? typeLenses.filter(([id]) => id !== "compare")
+      : typeLenses,
+    ...unsafe,
+  ];
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;

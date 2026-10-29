@@ -445,6 +445,7 @@ function unsafeRow(type: AppTypeSurface, stableSelector: string): BrowserUnsafeM
     metadataToken: 0x06001000,
     exposure: "Non-public",
     explicitContract: false,
+    safeBoundary: "safe boundary",
     evidence: "pointer dereference",
     partial: false,
     typeId: type.definitionId,
@@ -2680,7 +2681,7 @@ test("runtime package lenses wait for an explicit library scope", async () => {
 });
 
 function unsafeMembersResult(): PackageUnsafeMembers {
-  return { outcome: "available", assembly: "Selected.dll", members: [], limitations: [], inspectionError: null };
+  return { outcome: "available", assembly: "Selected.dll", counts: { members: 0, public: 0, propagating: 0, safeBoundaries: 0, safeBoundaryUndecided: 0 }, types: [], limitations: [], inspectionError: null };
 }
 
 test("unsafe members route the exact platform library and wait for selection", async () => {

@@ -135,19 +135,19 @@ test("shared HTML escaping covers text and attribute delimiters", () => {
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
-    ["overview", "api", "source"]);
+    ["overview", "api", "source", "unsafe"]);
   assert.deepEqual(
     typeLensesFor({ source: { kind: "file" } }).map(([id]) => id),
     ["overview", "api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "facts", "resource-triage", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "unsafe", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
-    ["overview", "call-graph", "facts", "resource-triage", "source", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "unsafe", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
-    ["overview", "call-graph", "facts", "resource-triage", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "unsafe", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, false),
     [
@@ -155,12 +155,13 @@ test("platform type and member navigation hides package-only operations", () => 
       "call-graph",
       "facts",
       "resource-triage",
+      "unsafe",
       "source",
       "compare",
     ]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "resource-triage", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "unsafe", "compare"]);
 });
 
 test("implementation evidence remains subtle member-list heat", () => {
@@ -865,8 +866,17 @@ test("typed package view owns package navigation bindings", () => {
     functionSource("drillToPerfMember"),
     /drillToAnalysisMember\(\s*retainPerformanceNavigationType\(pkg, ranked\),\s*stableSelector,\s*resourceMethodToken === undefined \? "facts" : "resource-triage",\s*resourceMethodToken\)/);
   assert.match(
+    binding,
+    /onUnsafeTypeSelect: target => \{[\s\S]*drillToUnsafeType\(target\.assembly, target\.typeId\)/);
+  assert.match(
+    functionSource("resolveUnsafeNavigationType"),
+    /retainPerformanceNavigationType\(pkg, \{ assembly, typeId, declaringType \}\)[\s\S]*resolvePackagePerformanceType\(pkg, \{ assembly, typeId \}\)/);
+  assert.match(
     functionSource("drillToUnsafeMember"),
-    /resolvePackagePerformanceType\(pkg, \{ assembly, typeId \}\)[\s\S]*drillToAnalysisMember\(/);
+    /resolveUnsafeNavigationType\([\s\S]*drillToAnalysisMember\(\s*targetType,\s*stableSelector,\s*"unsafe",/);
+  assert.match(
+    functionSource("drillToUnsafeType"),
+    /resolveUnsafeNavigationType\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp"\);[\s\S]*state\.lens = "unsafe";[\s\S]*render\(\);/);
   assert.match(
     functionSource("drillToAnalysisMember"),
     /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*section,\s*resourceMethodToken,\s*usePerformanceBody\)/);

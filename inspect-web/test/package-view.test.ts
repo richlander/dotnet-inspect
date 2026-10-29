@@ -72,6 +72,8 @@ function recordingActions(calls: string[]): PackageViewBindingActions {
     onPerformanceMemberSelect: (target: PackagePerformanceTarget) =>
       calls.push(
         `performance:${target.stableSelector}:${target.assembly}:${target.typeId}`),
+    onUnsafeTypeSelect: target =>
+      calls.push(`unsafe-type:${target.assembly}:${target.typeId}`),
     onUnsafeMemberSelect: target =>
       calls.push(
         `unsafe:${target.stableSelector}:${target.assembly}:${target.typeId}:${target.accessibility}`),
@@ -114,6 +116,16 @@ test("package view bindings decode navigation controls without eager work", () =
     perfType: "Example.Type",
   });
   const defaultPerformance = new FakeElement();
+  const unsafeType = new FakeElement({
+    unsafeTypeRow: "Example.Type",
+    unsafeAssembly: "Example.dll",
+  });
+  const unsafeMember = new FakeElement({
+    unsafeSelector: "Run",
+    unsafeAssembly: "Example.dll",
+    unsafeType: "Example.Type",
+    unsafeAccessibility: "internal",
+  });
   const packageLibrary = new FakeElement({
     packageChildLibrary: "tools/net10.0/any/Example.dll",
   });
@@ -136,6 +148,8 @@ test("package view bindings decode navigation controls without eager work", () =
   root.addAll("[data-lib-scope]", library, defaultLibrary);
   root.addAll("[data-graph-type]", graphType, defaultGraphType);
   root.addAll("[data-perf-selector]", performance, defaultPerformance);
+  root.addAll("[data-unsafe-type-row]", unsafeType);
+  root.addAll("[data-unsafe-selector]", unsafeMember);
   const calls: string[] = [];
 
   bindPackageView(
@@ -164,6 +178,8 @@ test("package view bindings decode navigation controls without eager work", () =
   defaultGraphType.dispatch("click");
   performance.dispatch("click");
   defaultPerformance.dispatch("click");
+  unsafeType.dispatch("click");
+  unsafeMember.dispatch("click");
 
   assert.deepEqual(calls, [
     "package-child-library:tools/net10.0/any/Example.dll",
@@ -185,6 +201,8 @@ test("package view bindings decode navigation controls without eager work", () =
     "graph-type:::::",
     "performance:M:Example.Type.Run:Example.dll:Example.Type",
     "performance:::",
+    "unsafe-type:Example.dll:Example.Type",
+    "unsafe:Run:Example.dll:Example.Type:internal",
   ]);
 });
 

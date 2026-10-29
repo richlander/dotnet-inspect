@@ -728,7 +728,7 @@ test("generated source wrappers parse their JSON envelopes", () => {
 });
 
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {
-  for (const kind of ["property", "field", "event", "constant"]) {
+  for (const kind of ["field", "constant"]) {
     // Compare stays: its Diff mode needs no body, and its Clone mode reports
     // the missing body itself. Runtime packs have no Compare at all.
     assert.deepEqual(
@@ -738,12 +738,22 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
       memberSectionIdsFor({ kind }, true),
       ["overview"]);
   }
+  // Unsafe presents the census, whose accessor findings anchor to their
+  // property or event.
+  for (const kind of ["property", "event"]) {
+    assert.deepEqual(
+      memberSectionIdsFor({ kind }),
+      ["overview", "unsafe", "compare"]);
+    assert.deepEqual(
+      memberSectionIdsFor({ kind }, true),
+      ["overview", "unsafe"]);
+  }
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
-    ["overview", "call-graph", "facts", "resource-triage", "source", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "unsafe", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "facts", "resource-triage", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "unsafe", "source"]);
 });
 
 // Compare follows cross-Member navigation; exact method sections return to the
