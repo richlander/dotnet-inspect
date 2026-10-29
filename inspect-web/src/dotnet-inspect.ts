@@ -13689,7 +13689,11 @@ async function selectPerformanceMember(
     state.memberSection = section;
     completePerformanceMemberNavigationPublication(publication);
     render();
-    await loadSelectedMemberAnalysisSurface();
+    // Member Analysis starts only its selected mode's work; Facts and
+    // Resource Triage load the member's analysis surface.
+    await (section === "analysis"
+      ? loadSelectedMemberAnalysisMode()
+      : loadSelectedMemberAnalysisSurface());
     return;
   }
   showToast("That ranked Member is no longer loaded in the selected Type.");

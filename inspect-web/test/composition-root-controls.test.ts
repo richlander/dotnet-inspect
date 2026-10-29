@@ -893,7 +893,13 @@ test("typed package view owns package navigation bindings", () => {
     ?? "";
   assert.match(
     selectPerformanceMember,
-    /const populationReceipt = await loadSelectedTypeMemberPopulation\(true\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*performanceMemberBrowseContext = \{[\s\S]*populationReceipt,[\s\S]*state\.memberSection = section;[\s\S]*await loadSelectedMemberAnalysisSurface\(\)/);
+    /const populationReceipt = await loadSelectedTypeMemberPopulation\(true\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*performanceMemberBrowseContext = \{[\s\S]*populationReceipt,[\s\S]*state\.memberSection = section;[\s\S]*section === "analysis"\s*\?\s*loadSelectedMemberAnalysisMode\(\)\s*:\s*loadSelectedMemberAnalysisSurface\(\)/);
+  // An Unsafe drill opens Member Analysis, whose selected mode alone loads:
+  // no Member Facts or Annotated Source work starts for it.
+  const drillToUnsafeMember =
+    appSource.match(/function drillToUnsafeMember\([\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(drillToUnsafeMember, /drillToAnalysisMember\([\s\S]*"analysis"/);
+  assert.doesNotMatch(drillToUnsafeMember, /loadSelectedMemberFacts|loadSelectedMemberAnnotatedSource|loadSelectedMemberAnalysisSurface/);
   assert.match(
     appSource,
     /const receipt: TypeMemberPopulationReceipt = \{[\s\S]*generation: \+\+typeMemberPopulationGeneration,[\s\S]*typeMemberPopulationReceipt = receipt;[\s\S]*return receipt;/);

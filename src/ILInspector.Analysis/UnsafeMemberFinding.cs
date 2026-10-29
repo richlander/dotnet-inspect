@@ -15,10 +15,6 @@ public enum UnsafeMemberExposure
 }
 
 /// <summary>
-/// One positive unsafe-member role and the physical body that produced it,
-/// with the callee contract's source for an explicit-contract call.
-/// </summary>
-/// <summary>
 /// Whether a declared member is a safe boundary: under the updated
 /// memory-safety rules, it uses an unsafe context internally without
 /// propagating that requirement to its callers
@@ -40,6 +36,10 @@ public enum UnsafeMemberSafeBoundary
     Yes,
 }
 
+/// <summary>
+/// One positive unsafe-member role and the physical body that produced it,
+/// with the callee contract's source for an explicit-contract call.
+/// </summary>
 public sealed record UnsafeMemberFindingEvidence(
     UnsafeMemberUseKind Kind,
     MethodIdentity Body,

@@ -1225,8 +1225,9 @@ can render:
 A Type or Member gains a mode only when that mode defines its scope there.
 The Type and Member Analysis inspectors are offered wherever their modes can
 render: for package and Platform Types, but not `file` sources or forwarded
-Types; for members with bodies, and for properties and events, whose accessor
-findings anchor to them. A drill from one scope's mode opens the next scope's
+Types; for methods and constructors, including bodiless ones whose contract is
+a finding, and for properties and events, whose accessor findings anchor to
+them. Fields and constants have no Member Analysis. A drill from one scope's mode opens the next scope's
 Analysis inspector on the same mode. The
 [`analysis` refinement](inspect-web-navigation-consumer.md#canonical-location-and-refresh)
 deep-links the selected mode at every scope.
