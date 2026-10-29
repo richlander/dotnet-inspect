@@ -97,6 +97,7 @@ export interface TypeRelationsRequest {
   assembly: string;
   typeDefinitionId: string;
   workspaceJson: string;
+  isCurrent(): boolean;
   isVisible(): boolean;
 }
 
@@ -231,9 +232,9 @@ export function createTypeRelationsCoordinator(
         && state.signature === request.signature;
       try {
         const result = await dependencies.query(request);
-        if (ownsRequest() && request.isVisible()) state.result = result;
+        if (ownsRequest() && request.isCurrent()) state.result = result;
       } catch (error) {
-        if (ownsRequest() && request.isVisible()) {
+        if (ownsRequest() && request.isCurrent()) {
           state.error = dependencies.describeError(error);
         }
       } finally {

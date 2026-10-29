@@ -24049,6 +24049,14 @@ async function inspectSelectedTypeRelations() {
     assembly: type.assembly,
     typeDefinitionId: type.definitionId ?? type.id,
     workspaceJson,
+    isCurrent: () => {
+      const currentType = selectedType();
+      return currentType != null
+        && currentTypeMetadataSignature(
+          currentType,
+          currentPackage(),
+          selectedTypeMetadataLibraryIdentity()) === signature;
+    },
     isVisible: () => {
       const currentType = selectedType();
       return state.lens === "analysis"

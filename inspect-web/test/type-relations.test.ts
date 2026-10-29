@@ -227,6 +227,7 @@ function request(isVisible = () => true): TypeRelationsRequest {
     assembly: "Example.dll",
     typeDefinitionId: "Example.Entry",
     workspaceJson: "[]",
+    isCurrent: () => true,
     isVisible,
   };
 }
@@ -303,8 +304,41 @@ test("duplicate activation shares one in-flight request", async () => {
   assert.equal(current.result?.outcome, "Available");
 });
 
-test("stale results are discarded and retry is explicit", async () => {
+test("current results are retained when Analysis becomes hidden", async () => {
   let visible = true;
+  let queries = 0;
+  let renders = 0;
+  let complete:
+    ((value: BrowserAnnotatedTypeRelationsInspection) => void) | undefined;
+  const pending = new Promise<BrowserAnnotatedTypeRelationsInspection>(
+    resolve => {
+      complete = resolve;
+    });
+  const current = state();
+  const coordinator = createTypeRelationsCoordinator({
+    state: current,
+    query: async () => {
+      queries++;
+      return pending;
+    },
+    describeError: String,
+    render() {
+      renders++;
+    },
+  });
+
+  const inspection = coordinator.inspect(request(() => visible));
+  visible = false;
+  complete?.(available());
+  await inspection;
+
+  assert.equal(current.result?.outcome, "Available");
+  assert.equal(queries, 1);
+  assert.equal(renders, 1);
+});
+
+test("stale results are discarded and retry is explicit", async () => {
+  let currentRequest = true;
   let queries = 0;
   const current = state();
   const coordinator = createTypeRelationsCoordinator({
@@ -316,14 +350,16 @@ test("stale results are discarded and retry is explicit", async () => {
     describeError: String,
     render() {},
   });
-  const stale = coordinator.inspect(request(() => visible));
-  visible = false;
+  const staleRequest = request();
+  staleRequest.isCurrent = () => currentRequest;
+  const stale = coordinator.inspect(staleRequest);
+  currentRequest = false;
   await stale;
   assert.equal(current.result, null);
 
-  visible = true;
-  await coordinator.inspect(request(() => visible));
-  await coordinator.inspect(request(() => visible));
+  currentRequest = true;
+  await coordinator.inspect(request());
+  await coordinator.inspect(request());
   assert.equal(queries, 3);
 });
 
