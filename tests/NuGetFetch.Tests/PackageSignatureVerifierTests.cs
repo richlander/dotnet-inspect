@@ -127,7 +127,7 @@ public class PackageSignatureVerifierTests : IDisposable
     public async Task VerifySignatureFile_TransplantedTimestampIsNotTrusted()
     {
         string targetPath = await DownloadPackageAsync("System.Text.Json", "9.0.4");
-        string donorPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
+        string donorPath = await DownloadPackageAsync("System.Text.Json", "9.0.5");
         string signaturePath = Path.Combine(
             Path.GetTempPath(),
             $"transplanted-timestamp-{Guid.NewGuid():N}.p7s");
@@ -139,8 +139,27 @@ public class PackageSignatureVerifierTests : IDisposable
             SignerInfo donorSigner = Assert.Single(donor.SignerInfos.Cast<SignerInfo>());
             AsnEncodedData targetTimestamp = GetTimestampValue(targetSigner);
             AsnEncodedData donorTimestamp = GetTimestampValue(donorSigner);
+            SignatureVerificationResult original =
+                PackageSignatureVerifier.VerifyPackage(targetPath);
+            SignatureVerificationResult donorResult =
+                PackageSignatureVerifier.VerifyPackage(donorPath);
+            Assert.True(original.IsValid, original.Reason);
+            Assert.NotNull(original.Timestamp);
+            Assert.True(donorResult.IsValid, donorResult.Reason);
+            Assert.NotNull(donorResult.Timestamp);
+            X509Certificate2 certificate =
+                Assert.IsType<X509Certificate2>(targetSigner.Certificate);
+            Assert.InRange(
+                donorResult.Timestamp.Value,
+                new DateTimeOffset(certificate.NotBefore.ToUniversalTime()),
+                new DateTimeOffset(certificate.NotAfter.ToUniversalTime()));
 
             targetSigner.RemoveUnsignedAttribute(targetTimestamp);
+            File.WriteAllBytes(signaturePath, target.Encode());
+            SignatureVerificationResult withoutTimestamp =
+                PackageSignatureVerifier.VerifySignatureFile(signaturePath);
+            Assert.Null(withoutTimestamp.Timestamp);
+
             targetSigner.AddUnsignedAttribute(new AsnEncodedData(
                 new Oid(TimestampTokenOid),
                 donorTimestamp.RawData));
@@ -149,7 +168,8 @@ public class PackageSignatureVerifierTests : IDisposable
             SignatureVerificationResult result =
                 PackageSignatureVerifier.VerifySignatureFile(signaturePath);
 
-            Assert.True(result.IsValid, result.Reason);
+            Assert.Equal(withoutTimestamp.Status, result.Status);
+            Assert.Equal(withoutTimestamp.Reason, result.Reason);
             Assert.Null(result.Timestamp);
         }
         finally
