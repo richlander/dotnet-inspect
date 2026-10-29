@@ -12,6 +12,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -602,6 +603,85 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public async Task
+        LibraryCatalogOperation_PropagatesForwardedConstraintFailure()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath =
+                Path.Combine(directory, "Facade.dll");
+            string targetPath =
+                Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Target",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null),
+                    typeName: "Type`1"));
+            File.WriteAllBytes(
+                targetPath,
+                BuildTargetWithMissingConstraint());
+            ResolvedAssemblyReference facade =
+                ResolvedAssemblyReference.CreateFromPath(
+                    facadePath,
+                    AssemblyResolutionProvenance.Local(
+                        "resolved catalog failure test"));
+            using var resolution =
+                new TypeDefinitionResolutionSession(
+                    facade,
+                    isPlatformAssembly: false,
+                    projectAssetsPath: null,
+                    targetFramework: null);
+            IAssemblyBindingPolicy policy =
+                resolution.BindingContext(
+                    AssemblyBindingOccurrence.Seed(facade))
+                    .Policy;
+
+            InspectionEnvelope<LibraryApiCatalogInspectionResult>
+                result =
+                await LibraryApiCatalogInspectionOperation
+                    .ExecuteWithLiveCatalogAsync(
+                        facade,
+                        policy,
+                        ApiSurfaceScope.Public,
+                        (envelope, target, _) =>
+                        {
+                            Assert.NotNull(target);
+                            Assert.True(
+                                Assert.Single(
+                                    target.Surface.Types)
+                                    .IsForwarded);
+                            ApiSurfaceInspectionFailure failure =
+                                Assert.Single(
+                                    target.Surface
+                                        .InspectionFailures);
+                            Assert.Contains(
+                                "N.ForwardedBase",
+                                failure.Detail,
+                                StringComparison.Ordinal);
+                            Assert.Single(
+                                target.Surface
+                                    .ConstraintResolutionFailuresBySubject);
+                            return ValueTask.FromResult(envelope);
+                        },
+                        TestContext.Current.CancellationToken);
+
+            Assert.True(result.Content.IsAvailable);
+            Assert.Single(result.Content.Failures);
+            Assert.Single(result.Diagnostics);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ApiServices_ClassifiesConstraintsOnForwardedType()
     {
         string directory = CreateDirectory();
@@ -680,6 +760,129 @@ public class SourceForwarderResolutionTests
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCatalogOperation_ClassifiesConstraintsOnForwardedType()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string targetSource =
+                typeof(CrossAssemblyConstraintRestatementFixture)
+                    .Assembly.Location;
+            string dependencySource =
+                typeof(
+                    DotnetInspector.Fixtures
+                        .ExternalConstraintClass)
+                    .Assembly.Location;
+            string targetPath = Path.Combine(
+                directory,
+                Path.GetFileName(targetSource));
+            string dependencyPath = Path.Combine(
+                directory,
+                Path.GetFileName(dependencySource));
+            File.Copy(targetSource, targetPath);
+            File.Copy(dependencySource, dependencyPath);
+
+            AssemblyName targetName =
+                typeof(CrossAssemblyConstraintRestatementFixture)
+                    .Assembly.GetName();
+            string facadePath =
+                Path.Combine(directory, "Facade.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        targetName.Name!,
+                        targetName.Version,
+                        targetName.CultureName,
+                        null),
+                    typeNamespace:
+                        typeof(
+                            CrossAssemblyConstraintRestatementFixture)
+                            .Namespace!,
+                    typeName:
+                        nameof(
+                            CrossAssemblyConstraintRestatementFixture)));
+            ResolvedAssemblyReference facade =
+                ResolvedAssemblyReference.CreateFromPath(
+                    facadePath,
+                    AssemblyResolutionProvenance.Local(
+                        "resolved catalog constraint test"));
+            using var resolution =
+                new TypeDefinitionResolutionSession(
+                    facade,
+                    isPlatformAssembly: false,
+                    projectAssetsPath: null,
+                    targetFramework: null);
+            IAssemblyBindingPolicy policy =
+                resolution.BindingContext(
+                    AssemblyBindingOccurrence.Seed(facade))
+                    .Policy;
+
+            InspectionEnvelope<LibraryApiCatalogInspectionResult>
+                result =
+                await LibraryApiCatalogInspectionOperation
+                    .ExecuteWithLiveCatalogAsync(
+                        facade,
+                        policy,
+                        ApiSurfaceScope.Public,
+                        (envelope, target, _) =>
+                        {
+                            Assert.NotNull(target);
+                            ApiType type = Assert.Single(
+                                target.Surface.Types);
+                            Assert.True(type.IsForwarded);
+                            AssertKind(
+                                type,
+                                nameof(
+                                    CrossAssemblyConstraintRestatementFixture
+                                        .ClassConstraint),
+                                TypeParameterTypeKind.ReferenceType);
+                            AssertKind(
+                                type,
+                                nameof(
+                                    CrossAssemblyConstraintRestatementFixture
+                                        .InterfaceConstraint),
+                                TypeParameterTypeKind
+                                    .NeitherReferenceNorValue);
+                            LibraryApiCatalogTypeTarget retained =
+                                Assert.Single(target.Types);
+                            Assert.Equal(
+                                Path.GetFullPath(targetPath),
+                                retained.Assembly.Path);
+                            Assert.Equal(
+                                retained.Assembly.Identity,
+                                retained.Occurrence.Assembly.Identity);
+                            return ValueTask.FromResult(envelope);
+                        },
+                        TestContext.Current.CancellationToken);
+
+            Assert.True(result.Content.IsAvailable);
+            Assert.Empty(result.Content.Failures);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+
+        static void AssertKind(
+            ApiType type,
+            string methodName,
+            TypeParameterTypeKind expected)
+        {
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == methodName);
+            Assert.Equal(
+                expected,
+                Assert.Single(
+                    member.SignatureModel!.TypeParameters)
+                    .TypeKind);
         }
     }
 
