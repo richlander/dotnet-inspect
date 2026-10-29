@@ -12141,13 +12141,13 @@ async function renderPackageDependencyList() {
 
 async function renderPackageDependencyIcons(
   data: PackageDependencyProjection,
-  selectedGroupIndex: number | null,
+  explicitGroupIndex: number | null,
   matches: readonly (AppPackage | null)[],
 ) {
   const container =
     document.querySelector<HTMLElement>("#dep-list-section");
   const groups = data.dependencyGroups;
-  const group = selectedDependencyGroup(data, selectedGroupIndex)
+  const group = selectedDependencyGroup(data, explicitGroupIndex)
     ?? groups[0];
   if (!container || !group) return;
 
@@ -12162,7 +12162,7 @@ async function renderPackageDependencyIcons(
     document.querySelector("#dep-list-section") === container
     && packageDependenciesData() === data
     && packageDependenciesSignature() === signature
-    && resolveDependenciesGroupIndex(groups) === selectedGroupIndex;
+    && explicitDependenciesGroupIndex(groups) === explicitGroupIndex;
   let next = 0;
 
   const loadNext = async () => {

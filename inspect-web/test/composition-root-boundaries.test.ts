@@ -383,3 +383,9 @@ test("dependency graph uses the active package's explicitly selected group", () 
     selectedDependencyGroup(data, 0),
     data.dependencyGroups[0]);
 });
+
+test("dependency icons retain the default logical selection through completion", () => {
+  assert.match(
+    appSource,
+    /async function renderPackageDependencyIcons\([\s\S]*explicitDependenciesGroupIndex\(groups\) === explicitGroupIndex/);
+});
