@@ -9,6 +9,7 @@
 
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
+    <TargetFramework Condition="'$(INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK)' != ''">$(INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK)</TargetFramework>
     <OutputType>Exe</OutputType>
     <AssemblyName>DotnetInspect.Web</AssemblyName>
     <RootNamespace>DotnetInspect.Web</RootNamespace>
