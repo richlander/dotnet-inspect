@@ -174,7 +174,6 @@ public static class TypeOptionsParser
         Option<string[]> RelationsOption,
         Option<string[]> RelationColorOption,
         Option<string[]> RequireRelationColorOption,
-        Option<string?> SuppressRuntimeTypeFallbackOption,
         Option<bool> NamesakeLibraryOption);
 
     internal static bool IsTypeListingRowSelection(
@@ -299,10 +298,7 @@ public static class TypeOptionsParser
             parseResult.GetResult(opts.Mermaid) is { Implicit: false }
             && parseResult.GetValue(opts.Mermaid);
         bool routerCompletedPlatformLookup =
-            RouterCommandDefinition
-                .IsSuppressRuntimeTypeFallbackCapability(
-                    parseResult.GetValue(
-                        args.SuppressRuntimeTypeFallbackOption));
+            RouterTargetAnalysis.Get(parseResult) is not null;
         string? workspacePacket =
             parseResult.GetValue(args.WorkspaceOption);
         WorkspaceShareFormat? shareFormat =
@@ -533,6 +529,7 @@ public static class TypeOptionsParser
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
+            ResolvedRouterTarget = RouterTargetAnalysis.Get(parseResult),
             TypeTargetUsedPlatformPrefixFallback =
                 source.UsedPlatformPrefixFallback,
             RouterCompletedPlatformLookup =

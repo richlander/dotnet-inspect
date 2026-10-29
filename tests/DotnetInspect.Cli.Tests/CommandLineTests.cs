@@ -2692,7 +2692,7 @@ public class CommandLineTests
     [Theory]
     [InlineData("--version")]
     [InlineData("--latest-version")]
-    public async Task Router_PackageVersionTextAsOutputValue_RetainsMemberRoute(
+    public async Task Router_PackageVersionTextAsOutputValue_RetainsPackageRoute(
         string outputPath)
     {
         NuGetCache.Initialize("dotnet-inspect");
@@ -2705,8 +2705,8 @@ public class CommandLineTests
                 args));
 
         Assert.Equal(0, exit);
-        Assert.Contains("Inspect type members", output);
-        Assert.DoesNotContain("Inspect a NuGet package", output);
+        Assert.Contains("Inspect a NuGet package", output);
+        Assert.DoesNotContain("Inspect type members", output);
         Assert.DoesNotContain(
             "requires the explicit 'package' command",
             error);

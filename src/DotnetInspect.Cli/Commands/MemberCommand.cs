@@ -117,6 +117,8 @@ public static partial class MemberCommand
         }
 
         bool mayResolveImpliedMember =
+            options.ResolvedRouterTarget is null
+            &&
             options.MemberFilter.Count == 0
             && options.TypeName is { } unresolvedTarget
             && HasPotentialImpliedMember(unresolvedTarget);
@@ -177,6 +179,8 @@ public static partial class MemberCommand
         var unresolvedOptions = options;
         bool memberGestureChanged = false;
         bool catalogNeedsTargetResolution =
+            options.ResolvedRouterTarget is null
+            &&
             !options.RouterDeferredTypeOrMember
             && options.IncludeSections is null
             && options.MemberFilter.Count == 0
@@ -292,7 +296,10 @@ public static partial class MemberCommand
             var apiDllPath = loaded.ApiDllPath;
             var pdbLookupPath = loaded.PdbLookupPath;
             var lookupResult = preselectedType is null
-                ? ApiTypeLookupService.LookupType(api, typeName!)
+                ? options.ResolvedRouterTarget is { } resolvedTarget
+                    ? ApiTypeLookupService.LookupResolvedType(
+                        api, resolvedTarget)
+                    : ApiTypeLookupService.LookupType(api, typeName!)
                 : new ApiTypeLookupResult(typeName!, new LookupResult(preselectedType.FullName, []),
                     preselectedType);
             if (!lookupResult.Found)

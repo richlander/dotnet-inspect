@@ -178,15 +178,16 @@ public class OfflineVerbosityTests : IDisposable
     }
 
     [Fact]
-    public async Task Router_QualifiedTypeTypo_Offline_SuggestsPlatformType()
+    public async Task Router_QualifiedTypeTypo_Offline_FailsWithoutDiscoveryHints()
     {
         var (exit, output, error) = await RunAppAsync(
             "System.Text.Json.JsonSerializizer", "-v:q", "--offline");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Type 'JsonSerializizer' not found", error);
-        Assert.Contains("JsonSerializer", error);
+        Assert.Contains("selected Platform domain", error);
+        Assert.Contains("System.Text.Json.JsonSerializizer", error);
+        Assert.DoesNotContain("Did you mean", error);
         Assert.DoesNotContain("Package 'System.Text.Json.JsonSerializizer'", error);
     }
 

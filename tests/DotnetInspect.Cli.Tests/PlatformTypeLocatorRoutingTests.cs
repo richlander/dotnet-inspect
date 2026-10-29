@@ -120,7 +120,7 @@ public sealed class PlatformTypeLocatorRoutingTests
 
     [Fact]
     public async Task
-        InstalledPopulationPreservesAmbiguousMemberTypeBoundary()
+        InstalledPopulationDoesNotAddCompatibilitySuffixProbes()
     {
         string dotnetRoot = Assert.IsType<string>(
             PlatformTypeCatalogRouting.FindActiveDotnetRoot());
@@ -140,18 +140,12 @@ public sealed class PlatformTypeLocatorRoutingTests
                     "System.Numerics.Enumerator.X",
                     TestContext.Current.CancellationToken));
 
-        PlatformTypeCatalogRouteOutcome? route =
-            PlatformTypeLocatorRouting.ResolveCompatibilityType(
-                completed,
-                "Enumerator",
-                TestContext.Current.CancellationToken);
-        var ambiguous =
-            Assert.IsType<PlatformTypeCatalogRouteOutcome.Ambiguous>(
-                route);
+        var evaluated =
+            Assert.IsType<TypeDeclarationLocatorSectionResult.Evaluated>(
+                completed.Envelope.Content);
         Assert.Equal(
-            "Enumerator",
-            ambiguous.Request.TypePattern);
-        Assert.Null(ambiguous.Request.MemberSelector);
+            completed.TypeRequests.Length + 1,
+            evaluated.Answers.Length);
     }
 
     [Fact]

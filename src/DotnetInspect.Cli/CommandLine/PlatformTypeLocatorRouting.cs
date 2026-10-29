@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
@@ -38,13 +39,11 @@ internal abstract class CliPlatformTypeLocatorOutcome
         internal Completed(
             PlatformTypeCatalogRouteTarget target,
             ImmutableArray<PlatformTypeCatalogRouteRequest> typeRequests,
-            ImmutableArray<string> compatibilityTypePatterns,
             InspectionEnvelope<TypeDeclarationLocatorSectionResult> envelope,
             PlatformHouseReceipt houseReceipt)
         {
             Target = target;
             TypeRequests = typeRequests;
-            CompatibilityTypePatterns = compatibilityTypePatterns;
             Envelope = envelope;
             HouseReceipt = houseReceipt;
         }
@@ -52,7 +51,6 @@ internal abstract class CliPlatformTypeLocatorOutcome
         internal PlatformTypeCatalogRouteTarget Target { get; }
         internal ImmutableArray<PlatformTypeCatalogRouteRequest> TypeRequests
         { get; }
-        internal ImmutableArray<string> CompatibilityTypePatterns { get; }
         internal int NamespaceAnswerIndex => TypeRequests.Length;
         internal InspectionEnvelope<TypeDeclarationLocatorSectionResult>
             Envelope
@@ -95,7 +93,6 @@ internal abstract class CliPlatformTypeLocatorOutcome
 
 internal static class PlatformTypeLocatorRouting
 {
-    private const int MaxTypeMemberBoundaryProbes = 64;
     private static readonly LibraryTypeDeclarationInventoryInspectionBounds
         InventoryBounds = new(
             maximumAssemblyBytes: 512 * 1024 * 1024,
@@ -210,25 +207,9 @@ internal static class PlatformTypeLocatorRouting
                 populationTarget.Version.Value);
             (
                 ImmutableArray<PlatformTypeCatalogRouteRequest> typeRequests,
-                ImmutableArray<string> compatibilityTypePatterns,
                 ImmutableArray<TypeDeclarationLocatorRequest> requests) =
                     BuildRequests(
                         target,
-                        [
-                            .. completed.Population.Value.Members
-                                .Select(
-                                    static member =>
-                                        member.PlatformLibrary.Library.ApiAssembly
-                                            .AssemblyIdentity)
-                                .OfType<
-                                    ManagedMetadataIdentity.Assembly>()
-                                .Select(
-                                    static identity =>
-                                        identity.Identity.Name)
-                                .Distinct(
-                                    StringComparer.OrdinalIgnoreCase),
-                        ],
-                        routeTarget,
                         cancellationToken);
             InspectionEnvelope<TypeDeclarationLocatorSectionResult> envelope =
                 await TypeDeclarationLocatorInspection.ExecuteAsync(
@@ -285,7 +266,6 @@ internal static class PlatformTypeLocatorRouting
             return new CliPlatformTypeLocatorOutcome.Completed(
                 routeTarget,
                 typeRequests,
-                compatibilityTypePatterns,
                 envelope,
                 completed.Population.Receipt.HouseReceipt);
         }
@@ -454,69 +434,11 @@ internal static class PlatformTypeLocatorRouting
                     + "canonical Workspace Share projection."));
     }
 
-    internal static PlatformTypeCatalogRouteOutcome?
-        ResolveCompatibilityType(
-            CliPlatformTypeLocatorOutcome.Completed completed,
-            string pattern,
-            CancellationToken cancellationToken)
-    {
-        int patternIndex = -1;
-        for (int index = 0;
-            index < completed.CompatibilityTypePatterns.Length;
-            index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (string.Equals(
-                    completed.CompatibilityTypePatterns[index],
-                    pattern,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                patternIndex = index;
-                break;
-            }
-        }
-        if (patternIndex < 0)
-            return null;
-
-        TypeDeclarationLocatorSectionResult.Evaluated evaluated =
-            AssertEvaluated(completed.Envelope);
-        int answerIndex =
-            completed.NamespaceAnswerIndex + 1 + patternIndex;
-        ImmutableArray<TypeDeclarationLocatorSectionCandidate> preferred =
-            SelectCompatibilityCandidates(
-                evaluated.Answers[answerIndex].Candidates,
-                pattern,
-                cancellationToken);
-        var request = new PlatformTypeCatalogRouteRequest(
-            pattern,
-            pattern,
-            memberSelector: null);
-        if (preferred.IsDefaultOrEmpty)
-        {
-            return new PlatformTypeCatalogRouteOutcome.Missing(
-                request,
-                completed.Target);
-        }
-
-        return preferred.Length == 1
-            ? new PlatformTypeCatalogRouteOutcome.Resolved(
-                request,
-                completed.Target,
-                Snapshot(preferred[0]))
-            : new PlatformTypeCatalogRouteOutcome.Ambiguous(
-                request,
-                completed.Target,
-                [.. preferred.Select(Snapshot)]);
-    }
-
     private static (
         ImmutableArray<PlatformTypeCatalogRouteRequest> TypeRequests,
-        ImmutableArray<string> CompatibilityTypePatterns,
         ImmutableArray<TypeDeclarationLocatorRequest> Requests)
         BuildRequests(
             string target,
-            ImmutableArray<string> platformAssemblyNames,
-            PlatformTypeCatalogRouteTarget routeTarget,
             CancellationToken cancellationToken)
     {
         string discoveryTarget = target.Trim();
@@ -527,66 +449,20 @@ internal static class PlatformTypeLocatorRouting
             ImmutableArray.CreateBuilder<TypeDeclarationLocatorRequest>();
 
         AddTypeRequest(discoveryTarget, memberSelector: null);
-        int probes = 0;
-        int genericDepth = 0;
-        for (int index = discoveryTarget.Length - 1;
-            index > 0 && probes < MaxTypeMemberBoundaryProbes;
-            index--)
+        foreach (ImpliedMemberTypeCandidate candidate in
+            ApiTypeLookupService.GetImpliedMemberTypeCandidates(discoveryTarget))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            switch (discoveryTarget[index])
-            {
-                case '>':
-                    genericDepth++;
-                    continue;
-                case '<':
-                    genericDepth--;
-                    continue;
-                case '.' when genericDepth == 0
-                    && index < discoveryTarget.Length - 1:
-                    break;
-                default:
-                    continue;
-            }
-
-            probes++;
             AddTypeRequest(
-                discoveryTarget[..index],
-                discoveryTarget[(index + 1)..]);
+                candidate.TypeName,
+                candidate.MemberSelector);
         }
         requests.Add(
             new TypeDeclarationLocatorRequest.Namespace(
                 discoveryTarget,
                 MetadataNamespaceMatch.Exact));
-        var compatibilityTypePatterns =
-            ImmutableArray.CreateBuilder<string>();
-        var seenCompatibilityPatterns =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (PlatformTypeCatalogRouteRequest request
-            in typeRequests)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!TrySplitPlatformQualifiedTypeName(
-                    request.TypePattern,
-                    out string assemblyName,
-                    out string pattern)
-                || !IsAssemblyOwnedByTarget(
-                    assemblyName,
-                    platformAssemblyNames,
-                    routeTarget))
-            {
-                continue;
-            }
-            if (seenCompatibilityPatterns.Add(pattern))
-            {
-                compatibilityTypePatterns.Add(pattern);
-                requests.Add(
-                    new TypeDeclarationLocatorRequest.Pattern(pattern));
-            }
-        }
         return (
             typeRequests.ToImmutable(),
-            compatibilityTypePatterns.ToImmutable(),
             requests.ToImmutable());
 
         void AddTypeRequest(
@@ -602,64 +478,6 @@ internal static class PlatformTypeLocatorRouting
                 new TypeDeclarationLocatorRequest.Pattern(
                     typePattern));
         }
-    }
-
-    private static bool TrySplitPlatformQualifiedTypeName(
-        string qualifiedName,
-        out string assemblyName,
-        out string typeName)
-    {
-        assemblyName = null!;
-        typeName = null!;
-
-        if (qualifiedName.Count(static character => character == '.') < 2)
-            return false;
-
-        for (int index = qualifiedName.Length - 1; index >= 0; index--)
-        {
-            if (qualifiedName[index] != '.')
-                continue;
-
-            string candidateAssembly = qualifiedName[..index];
-            string candidateType = qualifiedName[(index + 1)..];
-            if (candidateAssembly.Length == 0
-                || candidateType.Length == 0
-                || !EcosystemPackCatalog.ShouldSearchPlatform(candidateAssembly))
-            {
-                continue;
-            }
-
-            assemblyName = candidateAssembly;
-            typeName = candidateType;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsAssemblyOwnedByTarget(
-        string assemblyName,
-        ImmutableArray<string> platformAssemblyNames,
-        PlatformTypeCatalogRouteTarget target)
-    {
-        if (platformAssemblyNames.Contains(
-                assemblyName,
-                StringComparer.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        string framework = target.Family switch
-        {
-            PlatformFamily.DotNetRuntime => "runtime",
-            PlatformFamily.AspNetCore => "aspnetcore",
-            _ => throw new InvalidOperationException(
-                "Unknown Platform family."),
-        };
-        return PlatformResolver.ResolveAssembly(
-                assemblyName,
-                $"{framework}@{target.Version}")
-            .AssemblyPath is not null;
     }
 
     private static ImmutableArray<TypeDeclarationLocatorSectionCandidate>
@@ -729,91 +547,6 @@ internal static class PlatformTypeLocatorRouting
         return definitions.IsDefaultOrEmpty
             ? preferred
             : definitions;
-    }
-
-    private static ImmutableArray<TypeDeclarationLocatorSectionCandidate>
-        SelectCompatibilityCandidates(
-            ImmutableArray<TypeDeclarationLocatorSectionCandidate>
-                candidates,
-            string pattern,
-            CancellationToken cancellationToken)
-    {
-        string normalizedPattern =
-            FqnParser.NormalizeTypeName(pattern.Trim()).Replace('+', '.');
-        bool explicitGeneric =
-            TypeMatcher.HasExplicitGenericNotation(pattern);
-        ImmutableArray<TypeDeclarationLocatorSectionCandidate> selected =
-        [
-            .. candidates.Where(
-                candidate =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    return TypeMatcher.MatchesNormalized(
-                        Normalize(candidate.Name),
-                        normalizedPattern);
-                }),
-        ];
-        ImmutableArray<TypeDeclarationLocatorSectionCandidate> definitions =
-        [
-            .. selected.Where(
-                candidate =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    return candidate.DeclarationKind
-                        == AssemblyTypeDeclarationKind.Definition;
-                }),
-        ];
-        if (!definitions.IsDefaultOrEmpty)
-            selected = definitions;
-
-        ImmutableArray<TypeDeclarationLocatorSectionCandidate> exact =
-        [
-            .. selected.Where(
-                candidate =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    string normalizedCandidate = Normalize(candidate.Name);
-                    return normalizedCandidate.Equals(
-                            normalizedPattern,
-                            StringComparison.OrdinalIgnoreCase)
-                        || normalizedCandidate.EndsWith(
-                            $".{normalizedPattern}",
-                            StringComparison.OrdinalIgnoreCase);
-                }),
-        ];
-        if (!exact.IsDefaultOrEmpty)
-            selected = exact;
-        else if (explicitGeneric)
-            return [];
-
-        if (selected.Length <= 1
-            || selected
-                .Select(candidate => Normalize(candidate.Name))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count() != 1)
-        {
-            return selected;
-        }
-
-        string resolvedTypeName = Normalize(selected[0].Name);
-        TypeDeclarationLocatorSectionCandidate[] assemblyPrefixMatches =
-        [
-            .. selected
-                .Where(candidate =>
-                    resolvedTypeName.StartsWith(
-                        candidate.Observation.AssemblyIdentity.Name + ".",
-                        StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(candidate =>
-                    candidate.Observation.AssemblyIdentity.Name.Length),
-        ];
-        return assemblyPrefixMatches.Length > 0
-            && (assemblyPrefixMatches.Length == 1
-                || assemblyPrefixMatches[0]
-                        .Observation.AssemblyIdentity.Name.Length
-                    > assemblyPrefixMatches[1]
-                        .Observation.AssemblyIdentity.Name.Length)
-            ? [assemblyPrefixMatches[0]]
-            : selected;
     }
 
     private static bool TryGetRejection(

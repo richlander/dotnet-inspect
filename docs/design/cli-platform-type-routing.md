@@ -2,12 +2,11 @@
 
 ## Status
 
-The Platform locator composition below is implemented. The operator-approved
-[bare-target domain-selection pivot](../cli-architecture.md#bare-target-domain-selection)
-is not yet implemented and supersedes this adapter's former permission to
-continue cross-domain classification after a miss. This document retains
-Platform resolution and resource-lifetime mechanics; the CLI host owns which
-domain may be entered.
+The Platform locator composition and the
+[bare-target domain-selection policy](../cli-architecture.md#bare-target-domain-selection)
+are implemented. The CLI host selects Platform before entering this adapter;
+a miss cannot continue cross-domain classification. This document retains
+Platform resolution and resource-lifetime mechanics, not domain selection.
 
 ## Owner and claim
 
@@ -44,9 +43,8 @@ The path accepts:
 It runs only when the caller supplied no explicit package, platform, project,
 library, or framework source. Explicit `--framework runtime@version` remains
 an exact route and bypasses the versionless policy in this slice.
-Under the planned pivot, selecting Platform precedes this adapter; a
-standalone Router domain disambiguator must not be confused with a valued
-source selector.
+Selecting Platform precedes this adapter; a standalone Router domain
+disambiguator is distinct from a valued source selector.
 
 The host adapter returns one resource-free locator outcome:
 
@@ -80,7 +78,7 @@ type|member <structured type> --platform <assembly> \
 
 No assembly display-name prefix is treated as identity. Ambiguous, rejected,
 or incomplete locator outcomes fail visibly. `Missing` is valid only after the
-complete admitted population was evaluated. Under the planned domain policy it
+complete admitted population was evaluated. Under the selected-domain policy it
 is terminal for that selected Platform request, not permission to search
 Packages or another unselected population. A hint can suggest an explicit
 override without performing additional discovery.
@@ -160,21 +158,12 @@ discovery remains shared; exact-name preference, explicit generic-arity
 behavior, top-level preference, definition preference, and ambiguity are
 Router-owned policy.
 
-The same envelope also carries compatibility suffix requests derived from
-directly recognized assembly prefixes that belong to the selected Platform
-target, including runtime-only assemblies such as `System.Private.CoreLib`.
-The Router consults those answers only after direct assembly-prefix
-classification cannot prove an exact Type. This preserves resolved and
-ambiguous qualified-name behavior without adding another framework
-family, reopening the runtime catalog, or repeating a reverse
-declaration scan.
-
-The implemented internal Type-command handoff prevents source resolution and
-Type's later exact find-if-miss from reopening runtime-wide discovery after a
-complete locator miss. That guard does not authorize another domain, framework
-family or wider population under the planned policy. Explicit Type and Find
-commands retain their own selection contracts; the handoff is
-capability-guarded and is not a user-facing option.
+The detached resolved Type and member selector pass to the selected command
+as typed facts. Type's later find-if-miss and prefix browsing do not reopen
+discovery for a resolved Router target; a complete locator miss is terminal
+before invoking a child command. No compatibility suffix requests, second
+framework family, or wider population are scheduled. Explicit Type and Find
+commands retain their own selection contracts.
 
 The locator projects all declarations for Type/member parity with the replaced
 catalog. Namespace routing applies Metadata's `IsPublicSurface` fact before
@@ -189,7 +178,7 @@ discarding the complete inventory evidence.
 - When every Type boundary misses, the Router checks the exact namespace answer
   and selects the longest namesake-Library prefix, preserving Platform
   population order within a namesake tier.
-- A complete miss terminates the selected Platform request under the planned
+- A complete miss terminates the selected Platform request under the
   domain policy, without Package lookup or another population search.
 
 Explicit-source and acquisition-free structural routes run before this path
@@ -205,8 +194,7 @@ PlatformHouse adoption supplies package-backed capabilities directly.
 
 ## Evidence gates
 
-Existing Release tests target the implemented locator composition, not
-certification of the planned domain-selection policy:
+Release tests target the locator composition and the selected-domain handoff:
 
 - real `System.Text.Json.JsonSerializer` and
   `System.Collections.Generic.List<T>.Add` routing through selected locator
@@ -242,8 +230,8 @@ The CLI route is a direct host-specific command projection and does not use
 Markout. It adds no rendered section or output schema; the existing `type` and
 `member` commands continue to own presentation.
 
-The domain-selection pivot requires separate CLI entry-point and avoided-work
-gates in its owning section before adoption is complete. These composition
+The domain-selection policy requires separate CLI entry-point and avoided-work
+gates in its owning section. These composition
 gates do not establish that cold Platform realization is cheap or authorize
 implicit searches to preserve old shorthand.
 

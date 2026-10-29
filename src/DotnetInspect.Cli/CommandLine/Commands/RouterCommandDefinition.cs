@@ -25,29 +25,14 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class RouterCommandDefinition
 {
-    private const string LegacyNonRuntimePlatformFramework =
-        "aspnetcore";
-    private static readonly string[] LegacyNonRuntimePlatformFrameworks =
-    [
-        LegacyNonRuntimePlatformFramework,
-    ];
-
     internal const string DeferredTypeOrMemberOptionName =
         "--router-deferred-type-or-member";
-    internal const string SuppressRuntimeTypeFallbackOptionName =
-        "--router-suppress-runtime-type-fallback";
 
     private static readonly string DeferredTypeOrMemberCapability =
-        Guid.NewGuid().ToString("N");
-    private static readonly string SuppressRuntimeTypeFallbackCapability =
         Guid.NewGuid().ToString("N");
 
     internal static bool IsDeferredTypeOrMemberCapability(string? value) =>
         value == DeferredTypeOrMemberCapability;
-
-    internal static bool IsSuppressRuntimeTypeFallbackCapability(
-        string? value) =>
-        value == SuppressRuntimeTypeFallbackCapability;
 
     internal static bool IsAcquisitionFreePackageRoute(string[] tokens, RootCommand rootCommand) =>
         RouterTokenRewriter.TryRewriteAcquisitionFree(
@@ -178,7 +163,10 @@ public static class RouterCommandDefinition
                 return 1;
             }
 
-            if (ContainsHelpOption(tokens) && !tokens[0].StartsWith('-'))
+            if (ContainsHelpOption(tokens)
+                && !tokens[0].StartsWith('-')
+                && !RouterTokenRewriter.HasExplicitApiSource(tokens)
+                && !RouterTokenRewriter.ContainsOption(tokens, "--framework"))
             {
                 CommandError.WriteNote($"interpreting bare token '{tokens[0]}' as a package or platform target.");
                 CommandError.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");
@@ -387,13 +375,14 @@ public static class RouterCommandDefinition
                 return 1;
             }
 
-            string? selectedPlatformFramework = null;
-            var rewritten = await RouterTokenRewriter.RewriteAsync(
+            RouterRewrite? selection = await RouterTokenRewriter.RewriteSelectedAsync(
                 tokens,
                 sourceOptions,
                 rootCommand,
-                ct,
-                framework => selectedPlatformFramework = framework);
+                ct);
+            if (selection is null)
+                return 1;
+            string[] rewritten = selection.Tokens;
             RouterDecisionLog.Record(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
@@ -413,16 +402,18 @@ public static class RouterCommandDefinition
             ParseResult childParse = rootCommand.Parse(rewritten);
             if (childParse.Errors.Count == 0
                 && !RouterTokenRewriter.HasExplicitApiSource(tokens)
+                && !RouterTokenRewriter.ContainsOption(tokens, "--framework")
                 && !opts.IsDiscoveryMode(sourceParseResult)
                 && !CommandLineBuilder.HasParsedOption(childParse, "--workspace")
                 && !CommandLineBuilder.HasParsedOption(childParse, "--version"))
             {
                 RouterEcosystemExplanation.Write(
-                    tokens[0], rewritten[0], selectedPlatformFramework);
+                    tokens[0], rewritten[0], selection.SelectedPlatformFramework);
             }
             return await CommandLineBuilder.InvokeWithLineWindowAsync(
                 childParse,
-                rewritten);
+                rewritten,
+                selection.ResolvedTarget);
         });
 
         return routerCommand;
@@ -623,438 +614,188 @@ public static class RouterCommandDefinition
     private static bool ContainsHelpOption(IEnumerable<string> tokens)
         => tokens.Any(token => token is "--help" or "-h" or "-?");
 
+    private sealed record RouterRewrite(
+        string[] Tokens,
+        RouterResolvedTarget? ResolvedTarget = null,
+        string? SelectedPlatformFramework = null);
+
     private static class RouterTokenRewriter
     {
-        private const int MaxTypeMemberBoundaryProbes = 64;
-
-        public static async Task<string[]> RewriteAsync(
+        public static async Task<RouterRewrite?> RewriteSelectedAsync(
             string[] tokens,
             NuGetSourceOptions sourceOptions,
             RootCommand rootCommand,
-            CancellationToken cancellationToken,
-            Action<string?>? selectedPlatform = null)
+            CancellationToken cancellationToken)
         {
-            var target = tokens[0];
-            var tail = tokens[1..];
+            string target = tokens[0].Trim();
+            tokens = [target, .. tokens[1..]];
+            string[] tail = tokens[1..];
+            bool platformOverride = IsStandaloneOverride(tail, "--platform", rootCommand);
+            bool packageOverride = IsStandaloneOverride(tail, "--package", rootCommand);
+            if (tail.Count(token => token == "--platform"
+                    || token.StartsWith("--platform=", StringComparison.Ordinal)) > 1
+                || tail.Count(token => token == "--package"
+                    || token.StartsWith("--package=", StringComparison.Ordinal)) > 1
+                || (platformOverride && target.Contains('@')))
+            {
+                CommandError.Write("Choose one unambiguous bare target domain or source using --platform or --package.");
+                return null;
+            }
+            if (ContainsOption(tail, "--platform")
+                && ContainsOption(tail, "--package"))
+            {
+                CommandError.Write("Choose only one bare target domain or source: --platform or --package.");
+                return null;
+            }
 
-            if (TryRewriteAcquisitionFree(
+            if (platformOverride || packageOverride)
+            {
+                tail = RemoveStandaloneOverride(tail, platformOverride ? "--platform" : "--package");
+                tokens = [target, .. tail];
+            }
+            RouterTargetDomain domain =
+                packageOverride || target.Contains('@') ? RouterTargetDomain.Package
+                : platformOverride || ContainsOption(tail, "--framework")
+                    ? RouterTargetDomain.Platform
+                : RouterTargetAnalysis.Classify(target);
+
+            bool needsPlatformAnalysis =
+                domain == RouterTargetDomain.Platform
+                && !HasExplicitApiSource(tail)
+                && !ContainsOption(tail, "--framework")
+                && GetSecondaryPositionalTarget(tokens, rootCommand) is null
+                && !ContainsHelpOption(tokens)
+                && !ContainsOption(tail, "--versions")
+                && !ContainsOption(tail, "--versions-with-feed")
+                && !target.Contains('@');
+            if (!platformOverride && !packageOverride
+                && !needsPlatformAnalysis
+                && TryRewriteAcquisitionFree(
                     tokens,
                     rootCommand,
                     structuralSchema: false,
-                    out string[] rewritten))
-                return rewritten;
+                    out string[] explicitRoute))
+            {
+                return new RouterRewrite(explicitRoute);
+            }
 
-            var trailingSegmentStart =
-                FqnParser.LastTopLevelDot(target) + 1;
-            var trailingSegmentHasGenericNotation =
-                TypeMatcher.HasExplicitGenericNotation(
-                    target[trailingSegmentStart..]);
-            var hasTypeOption = ContainsOption(tokens, "--type")
-                || ContainsOption(tokens, "-t");
-            var hasMemberOption = ContainsOption(tokens, "--member")
-                || ContainsOption(tokens, "-m");
-            var hasLibraryValue = TryGetLibraryValue(
-                tail,
-                rootCommand,
-                out _);
-            var hasExplicitApiSource =
-                ContainsOption(tail, "--package")
-                || ContainsOption(tail, "--platform")
-                || ContainsOption(tail, "--project")
-                || hasLibraryValue;
+            if (domain == RouterTargetDomain.Package)
+                return new RouterRewrite([PackageCommand.Name, .. tokens]);
+
+            if (ContainsOption(tail, "--framework"))
+            {
+                if (ContainsOption(tail, "--type") || ContainsOption(tail, "-t"))
+                    return new RouterRewrite([TypeCommand.Name, target, .. tail]);
+
+                string? framework = GetOptionValue(tail, "--framework");
+                if (framework is not null
+                    && PlatformResolver.ResolveAssembly(target, framework)
+                        .AssemblyPath is not null)
+                    return new RouterRewrite(["library", target, .. tail]);
+
+                if (framework is null)
+                    return new RouterRewrite([TypeCommand.Name, target, .. tail]);
+
+                var (analyzed, error) =
+                    await RouterTargetAnalysis.ResolveFrameworkAsync(
+                        target, framework, sourceOptions, cancellationToken);
+                if (analyzed is not null)
+                    return RewriteResolved(analyzed, tail);
+                CommandError.Write(error!);
+                return null;
+            }
 
             var context = new CommandContext(verbose: false);
-            if (EcosystemPackCatalog.ShouldSearchPlatform(target))
-            {
-                var (resolvedPath, resolvedFramework, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
+            var (resolvedPath, resolvedFramework, _, assemblyError) =
+                await PlatformResolver.ResolveAssemblyAsync(
                     target,
                     context.HttpClient,
                     context.Logger.Log,
                     sourceOptions: sourceOptions);
-                if (resolvedPath != null && resolvedError == null)
+            if (resolvedPath is not null && assemblyError is null)
+            {
+                AssemblySurfaceClassificationOutcome classification =
+                    PlatformResolver.ClassifyAssemblySurface(resolvedPath);
+                if (classification is AssemblySurfaceClassificationOutcome.Rejected rejected)
                 {
-                    AssemblySurfaceClassificationOutcome classification =
-                        PlatformResolver.ClassifyAssemblySurface(resolvedPath);
-                    if (classification
-                        is AssemblySurfaceClassificationOutcome.Rejected rejected)
-                    {
-                        CommandError.Write(
-                            $"Could not classify the platform assembly surface ({rejected.Failure.Kind}).");
-                        return tokens;
-                    }
-
-                    bool isFacade =
-                        ((AssemblySurfaceClassificationOutcome.Classified)
-                            classification).Classification.Kind
-                        == AssemblySurfaceKind.Facade;
-                    if (!hasExplicitApiSource
-                        && !ContainsOption(tail, "--framework"))
-                        selectedPlatform?.Invoke(resolvedFramework);
-                    return target.Count(c => c == '.') >= 2 && isFacade
-                        ? ["type", target, .. tail]
-                        : ["library", target, .. tail];
+                    CommandError.Write(
+                        $"Could not classify the platform assembly surface ({rejected.Failure.Kind}).");
+                    return null;
                 }
+
+                return new RouterRewrite(
+                    ["library", target, .. tail],
+                    SelectedPlatformFramework: resolvedFramework);
             }
 
-            var allowPlatformPrefixFallback =
-                EcosystemPackCatalog.ShouldSearchPlatform(target);
+            var (locator, route) = await RouterTargetAnalysis.ResolvePlatformAsync(
+                target,
+                sourceOptions,
+                cancellationToken);
+            if (route?.Content is PlatformTypeCatalogRouteOutcome.Resolved resolved)
+                return RewriteResolved(RouterResolvedTarget.From(resolved), tail);
 
-            var frameworkSpec = GetOptionValue(tail, "--framework");
-            bool completeLocatorMiss = false;
-            CliPlatformTypeLocatorOutcome.Completed? completedLocator =
-                null;
-            if (!hasExplicitApiSource
-                && frameworkSpec is null
-                && !hasTypeOption
-                && !hasMemberOption)
+            if (locator is CliPlatformTypeLocatorOutcome.Completed completed
+                && route?.Content is PlatformTypeCatalogRouteOutcome.Missing)
             {
-                CliPlatformTypeLocatorOutcome locatorOutcome =
-                    await PlatformTypeLocatorRouting.LocateAsync(
-                        context,
-                        sourceOptions,
+                var namespaceRoute =
+                    PlatformTypeLocatorRouting.ResolveNamespace(
+                        completed,
                         target,
                         cancellationToken);
-                switch (locatorOutcome)
+                if (namespaceRoute.Content is PlatformNamespaceDiscoveryOutcome.Found found)
                 {
-                    case CliPlatformTypeLocatorOutcome.Completed completed:
-                        completedLocator = completed;
-                        InspectionEnvelope<PlatformTypeCatalogRouteOutcome>
-                            route =
-                            PlatformTypeLocatorRouting.ResolveType(
-                                completed,
-                                cancellationToken);
-                        switch (route.Content)
-                        {
-                            case PlatformTypeCatalogRouteOutcome.Resolved
-                                resolved:
-                                return RoutePlatformCatalogResult(
-                                    resolved,
-                                    tail);
-                            case PlatformTypeCatalogRouteOutcome.Ambiguous
-                                ambiguous:
-                                CommandError.Write(
-                                    $"Type '{ambiguous.Request.TypePattern}' matched multiple platform types. The target-bound catalog contains {ambiguous.Candidates.Length} equally preferred candidates.");
-                                return tokens;
-                            case PlatformTypeCatalogRouteOutcome.Rejected
-                                rejected:
-                                CommandError.Write(
-                                    $"Platform type lookup failed ({rejected.Rejection}).");
-                                return tokens;
-                            case PlatformTypeCatalogRouteOutcome.Missing:
-                                InspectionEnvelope<
-                                    PlatformNamespaceDiscoveryOutcome>
-                                    namespaceInspection =
-                                    PlatformTypeLocatorRouting
-                                        .ResolveNamespace(
-                                            completed,
-                                            target,
-                                            cancellationToken);
-                                switch (namespaceInspection.Content)
-                                {
-                                    case PlatformNamespaceDiscoveryOutcome
-                                        .Found found:
-                                        PlatformNamespaceDiscoveryHit hit =
-                                            found.Hits[0];
-                                        RouterDecisionLog.Record(
-                                            "platform-namespace",
-                                            $"{target} -> "
-                                                + $"library={hit.Library}; "
-                                                + $"namespace={hit.Namespace}");
-                                        return [
-                                            "library",
-                                            hit.Library,
-                                            "--namespace",
-                                            hit.Namespace,
-                                            "--framework",
-                                            PlatformFrameworkSpec(
-                                                hit.Target),
-                                            .. tail,
-                                        ];
-                                    case PlatformNamespaceDiscoveryOutcome
-                                        .Missing:
-                                        completeLocatorMiss = true;
-                                        break;
-                                    default:
-                                        throw new InvalidOperationException(
-                                            "Unknown Platform namespace route outcome.");
-                                }
-                                break;
-                        }
-                        break;
-                    case CliPlatformTypeLocatorOutcome.NotCompleted failure:
-                        CommandError.Write(
-                            $"Platform type locator routing failed ({failure.Kind}).");
-                        return tokens;
+                    PlatformNamespaceDiscoveryHit hit = found.Hits[0];
+                    return new RouterRewrite([
+                        "library", hit.Library, "--namespace", hit.Namespace,
+                        "--framework", PlatformFrameworkSpec(hit.Target), .. tail,
+                    ]);
                 }
             }
 
-            string? compatibilityFrameworkSpec =
-                completeLocatorMiss
-                    ? LegacyNonRuntimePlatformFramework
-                    : frameworkSpec;
-            PlatformTypeLookupOutcome? exactTypeLookup =
-                LookupExactGenericPlatformType(
-                    target,
-                    allowSimpleName: hasTypeOption || hasMemberOption,
-                    frameworkSpec: compatibilityFrameworkSpec);
-            if (exactTypeLookup is PlatformTypeLookupOutcome.Resolved exactType)
-            {
-                return hasMemberOption
-                    && trailingSegmentHasGenericNotation
-                    && exactType.Candidate.Type.Segments.Length == 1
-                    ? RouteExactGenericPlatformMemberTarget(
-                        exactType,
-                        target,
-                        tail)
-                    : RouteExactGenericPlatformType(
-                        exactType,
-                        target,
-                        tail);
-            }
-
-            if (LookupExactGenericPlatformMember(
-                    target,
-                    compatibilityFrameworkSpec)
-                is { } exactMember)
-            {
-                if (exactMember.Lookup
-                    is PlatformTypeLookupOutcome.Resolved resolved)
-                {
-                    return RouteExactGenericPlatformMember(
-                        (exactMember.TypeTarget,
-                            exactMember.MemberSelector,
-                            resolved),
-                        tail);
-                }
-
-                if (hasExplicitApiSource)
-                    return RouteDeferredTypeOrMember(target, tail);
-
-                if (WritePlatformTypeLookupFailure(exactMember.Lookup))
-                    return tokens;
-            }
-
-            if (hasExplicitApiSource && exactTypeLookup is not null)
-                return RouteDeferredTypeOrMember(target, tail);
-            if (WritePlatformTypeLookupFailure(exactTypeLookup))
-                return tokens;
-
-            string[]? compatibilityPlatformFrameworks =
-                completeLocatorMiss
-                    ? LegacyNonRuntimePlatformFrameworks
-                    : null;
-            string? platformLookupFailure = null;
-            var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(
-                target,
-                sourceOptions,
-                allowPlatformPrefixFallback,
-                message => platformLookupFailure ??= message,
-                allowRuntimeTypeFallback: !completeLocatorMiss);
-            if (memberSplit != null)
-            {
-                var probe = memberSplit.Value.Probe;
-                if (probe.Kind == SourceResolver.LocalSourceKind.Platform
-                    && !await IsExactPlatformTypeAsync(probe, context))
-                {
-                    if (completeLocatorMiss
-                        && completedLocator is not null)
-                    {
-                        PlatformTypeCatalogRouteOutcome?
-                            compatibility =
-                                PlatformTypeLocatorRouting
-                                    .ResolveCompatibilityType(
-                                        completedLocator,
-                                        probe.Remainder,
-                                        cancellationToken);
-                        switch (compatibility)
-                        {
-                            case PlatformTypeCatalogRouteOutcome.Resolved
-                                resolved:
-                                return RoutePlatformCatalogCandidate(
-                                    resolved.Candidate,
-                                    resolved.Target,
-                                    memberSplit.Value.MemberName,
-                                    tail);
-                            case PlatformTypeCatalogRouteOutcome.Ambiguous
-                                ambiguous:
-                                CommandError.Write(
-                                    $"Platform type lookup is ambiguous across {ambiguous.Candidates.Length} candidates.");
-                                return tokens;
-                            case PlatformTypeCatalogRouteOutcome.Rejected
-                                rejected:
-                                CommandError.Write(
-                                    $"Platform type lookup failed ({rejected.Rejection}).");
-                                return tokens;
-                        }
-                    }
-                    memberSplit = null;
-                }
-            }
-
-            if (memberSplit is { Probe.Kind: not SourceResolver.LocalSourceKind.Platform })
-            {
-                var probe = memberSplit.Value.Probe;
-                RouterDecisionLog.Record(
-                    "qualified-member",
-                    $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
-
-                return ["member", probe.Remainder, "--package", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
-            }
-
-            // Preserve shared-framework routing while avoiding another scan of
-            // the runtime population already covered by the locator.
-            var memberFind =
-                await TypeFindIfMissResolver
-                    .ResolvePlatformMemberAsync(
-                        target,
-                        includeAll: false,
-                        sourceOptions,
-                        context.HttpClient,
-                        context.Logger,
-                        frameworkSpec,
-                        compatibilityPlatformFrameworks);
-            if (memberFind.Status == TypeFindIfMissStatus.Found)
-            {
-                var match = memberFind.TypeResolution.Match!;
-                return ["member", match.FullName, "--platform", match.Library, .. FrameworkArgsUnlessSpecified(match.Source, tail), "-m", memberFind.MemberSelector, .. tail];
-            }
-            if (memberFind.Status == TypeFindIfMissStatus.Ambiguous)
-            {
-                memberFind.WriteAmbiguousError();
-                return tokens;
-            }
-
-            if (memberSplit != null)
-            {
-                var probe = memberSplit.Value.Probe;
-                RouterDecisionLog.Record(
-                    "qualified-member",
-                    $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
-
-                return ["member", probe.Remainder, "--platform", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
-            }
-
-            var typeProbe = SourceResolver.TryResolveQualifiedTypeName(
-                target,
-                sourceOptions,
-                allowPlatformPrefixFallback,
-                message => platformLookupFailure ??= message,
-                allowRuntimeTypeFallback: !completeLocatorMiss);
-            bool hasNonExactPlatformProbe = false;
-            if (typeProbe != null)
-            {
-                hasNonExactPlatformProbe =
-                    typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
-                    && !await IsExactPlatformTypeAsync(typeProbe, context);
-                if (hasNonExactPlatformProbe
-                    && completeLocatorMiss
-                    && completedLocator is not null)
-                {
-                    PlatformTypeCatalogRouteOutcome? compatibility =
-                        PlatformTypeLocatorRouting.ResolveCompatibilityType(
-                            completedLocator,
-                            typeProbe.Remainder,
-                            cancellationToken);
-                    switch (compatibility)
-                    {
-                        case PlatformTypeCatalogRouteOutcome.Resolved
-                            resolved:
-                            return RoutePlatformCatalogCandidate(
-                                resolved.Candidate,
-                                resolved.Target,
-                                memberSelector: null,
-                                tail);
-                        case PlatformTypeCatalogRouteOutcome.Ambiguous
-                            ambiguous:
-                            CommandError.Write(
-                                $"Platform type lookup is ambiguous across {ambiguous.Candidates.Length} candidates.");
-                            return tokens;
-                        case PlatformTypeCatalogRouteOutcome.Rejected
-                            rejected:
-                            CommandError.Write(
-                                $"Platform type lookup failed ({rejected.Rejection}).");
-                            return tokens;
-                    }
-
-                }
-                if (!hasNonExactPlatformProbe)
-                {
-                    RouterDecisionLog.Record(
-                        "qualified-type",
-                        $"{target} -> source={typeProbe.SourceName}; type={typeProbe.Remainder}");
-
-                    return typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
-                        ? ["type", typeProbe.Remainder, "--platform", typeProbe.SourceName, .. tail]
-                        : ["type", typeProbe.Remainder, "--package", typeProbe.SourceName, .. tail];
-                }
-            }
-
-            var typeFind =
-                await TypeFindIfMissResolver.ResolvePlatformAsync(
-                    target,
-                    includeAll: false,
-                    sourceOptions,
-                    context.HttpClient,
-                    context.Logger,
-                    frameworkSpec,
-                    compatibilityPlatformFrameworks);
-            if (typeFind.Status == TypeFindIfMissStatus.Found)
-            {
-                var match = typeFind.Match!;
-                CommandError.WriteNote($"Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
-                return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgsUnlessSpecified(match.Source, tail), .. tail];
-            }
-            if (typeFind.Status == TypeFindIfMissStatus.Ambiguous)
-            {
-                typeFind.WriteAmbiguousError();
-                return tokens;
-            }
-
-            if (platformLookupFailure is not null)
-            {
-                CommandError.Write(platformLookupFailure);
-                return tokens;
-            }
-
-            if (hasNonExactPlatformProbe)
-                return RouteTypeAfterLocator(
-                    target,
-                    tail,
-                    completeLocatorMiss);
-
-            if (EcosystemPackCatalog.ShouldSearchPlatform(target))
-            {
-                if (await PackageExistsAsync(target, sourceOptions, context))
-                    return ["package", .. tokens];
-
-                return RouteTypeAfterLocator(
-                    target,
-                    tail,
-                    completeLocatorMiss);
-            }
-
-            return ["package", .. tokens];
+            CommandError.Write(RouterTargetAnalysis.Failure(locator, route?.Content, target)
+                ?? $"Could not route '{target}' in the selected Platform domain.");
+            return null;
         }
 
-        private static string[] RouteTypeAfterLocator(
-            string target,
-            string[] tail,
-            bool completeLocatorMiss)
+        private static RouterRewrite RewriteResolved(
+            RouterResolvedTarget analyzed,
+            string[] tail)
         {
-            if (!completeLocatorMiss)
-                return ["type", target, .. tail];
-
-            RouterDecisionLog.Record(
-                "type-after-complete-platform-lookup",
-                target);
-            return [
-                "type",
-                target,
-                SuppressRuntimeTypeFallbackOptionName,
-                SuppressRuntimeTypeFallbackCapability,
-                .. tail,
+            string framework = analyzed.Framework;
+            string[] source = [
+                "--platform",
+                analyzed.Assembly.Name,
+                "--framework",
+                framework,
             ];
+            string[] remainder = RemoveOptionWithValue(tail, "--framework", framework);
+            string[] rewritten = analyzed.Member is { } member
+                ? [MemberCommand.Name, analyzed.TypeName, .. source,
+                    "-m", member.RequestedText, .. remainder]
+                : [TypeCommand.Name, analyzed.TypeName, .. source, .. remainder];
+            return new RouterRewrite(rewritten, analyzed, framework);
         }
+
+        private static bool IsStandaloneOverride(
+            string[] tokens,
+            string option,
+            RootCommand rootCommand)
+        {
+            for (int i = 0; i < tokens.Length; i++)
+            {
+                if (tokens[i] != option)
+                    continue;
+                return i + 1 == tokens.Length
+                    || IsKnownOption(rootCommand, tokens[i + 1]);
+            }
+            return false;
+        }
+
+        private static string[] RemoveStandaloneOverride(
+            string[] tokens,
+            string option) =>
+            [.. tokens.Where(token => token != option)];
 
         public static bool TryRewriteAcquisitionFree(
             string[] tokens,
@@ -1271,7 +1012,18 @@ public static class RouterCommandDefinition
             if (hasExplicitApiSource)
             {
                 rewritten =
-                    (structuralSchema
+                    (!hasMemberOption
+                        && hasExplicitGenericNotation
+                        && StructuralViewRegistry
+                            .HasExplicitGenericTypeTail(target)
+                        && !StructuralViewRegistry
+                            .HasGenericTypeAndGenericTailAmbiguity(target)
+                        && !StructuralViewRegistry
+                            .RequiresGenericTailMemberAlternative(
+                                target, tokens)
+                        && !StructuralViewRegistry
+                            .HasUnambiguousMemberTail(target))
+                    || (structuralSchema
                         || ContainsOption(tail, "--mermaid"))
                     && hasExplicitGenericNotation
                     && StructuralViewRegistry
@@ -1471,236 +1223,6 @@ public static class RouterCommandDefinition
             .. tail
         ];
 
-        private static async Task<bool> PackageExistsAsync(
-            string packageName,
-            NuGetSourceOptions sourceOptions,
-            CommandContext context)
-        {
-            if (PackageExtractor.HasCachedCandidateVersion(
-                    packageName,
-                    SourceResolver.ResolveSourceKeysForProbe(
-                        sourceOptions,
-                        packageName)))
-            {
-                return true;
-            }
-
-            try
-            {
-                var versions = await PackageExtractor.GetVersionsAsync(
-                    context.HttpClient,
-                    packageName,
-                    includePrerelease: true,
-                    limit: 1,
-                    log: context.Logger.Log,
-                    sourceOptions);
-                return versions is { Count: > 0 };
-            }
-            catch (Exception ex)
-            {
-                context.Logger.Log($"Could not query package versions for '{packageName}': {ex.Message}");
-                return false;
-            }
-        }
-
-        private static async Task<bool> IsExactPlatformTypeAsync(
-            SourceResolver.LocalProbeResult probe,
-            CommandContext context)
-        {
-            var (assemblyPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
-                probe.SourceName,
-                context.HttpClient,
-                context.Logger.Log);
-            return error == null
-                   && assemblyPath != null
-                   && PlatformResolver.HasType(assemblyPath, probe.Remainder);
-        }
-
-        private static PlatformTypeLookupOutcome? LookupExactGenericPlatformType(
-            string target,
-            bool allowSimpleName = false,
-            string? frameworkSpec = null)
-        {
-            if (!target.Contains('`') && !target.Contains('<'))
-                return null;
-
-            var normalizedTarget = FqnParser.NormalizeTypeName(target).Replace('+', '.');
-            var lookup = frameworkSpec is null
-                ? PlatformResolver.LookupType(target)
-                : PlatformResolver.LookupTypeInFramework(
-                    target,
-                    frameworkSpec);
-            if (frameworkSpec is null
-                && (lookup is not PlatformTypeLookupOutcome.Resolved runtimeResolved
-                    || !runtimeResolved.Candidate.Type
-                        .ToMetadataFullName()
-                        .Replace('+', '.')
-                        .Equals(
-                            normalizedTarget,
-                            StringComparison.OrdinalIgnoreCase)))
-            {
-                lookup = PlatformResolver.LookupTypeAcrossFrameworks(target);
-            }
-
-            if (lookup is not PlatformTypeLookupOutcome.Resolved resolved)
-                return lookup is PlatformTypeLookupOutcome.Missing
-                    ? null
-                    : lookup;
-
-            var normalizedCandidate = resolved.Candidate.Type
-                .ToMetadataFullName()
-                .Replace('+', '.');
-            var exactMatch = normalizedCandidate.Equals(
-                normalizedTarget,
-                StringComparison.OrdinalIgnoreCase);
-            var suffixStart = normalizedCandidate.Length - normalizedTarget.Length;
-            var unqualifiedMatch = (allowSimpleName || normalizedTarget.Contains('.'))
-                && suffixStart > 0
-                && normalizedCandidate[suffixStart - 1] == '.'
-                && normalizedCandidate.EndsWith(
-                    normalizedTarget,
-                    StringComparison.OrdinalIgnoreCase);
-            return exactMatch || unqualifiedMatch
-                ? resolved
-                : null;
-        }
-
-        private static (
-            string TypeTarget,
-            string MemberSelector,
-            PlatformTypeLookupOutcome Lookup)?
-            LookupExactGenericPlatformMember(
-                string target,
-                string? frameworkSpec)
-        {
-            (
-                string TypeTarget,
-                string MemberSelector,
-                PlatformTypeLookupOutcome.Resolved Lookup)? resolved = null;
-            var genericDepth = 0;
-            var probes = 0;
-            for (var i = 0;
-                i < target.Length
-                && probes < MaxTypeMemberBoundaryProbes;
-                i++)
-            {
-                if (target[i] == '<')
-                {
-                    genericDepth++;
-                    continue;
-                }
-                if (target[i] == '>')
-                {
-                    genericDepth--;
-                    continue;
-                }
-                if (target[i] != '.'
-                    || genericDepth != 0
-                    || i == 0
-                    || i == target.Length - 1)
-                {
-                    continue;
-                }
-
-                var typeTarget = target[..i];
-                if (!TypeMatcher.HasExplicitGenericNotation(
-                        typeTarget))
-                {
-                    continue;
-                }
-
-                probes++;
-                var lookup = LookupExactGenericPlatformType(
-                    typeTarget,
-                    allowSimpleName: true,
-                    frameworkSpec: frameworkSpec);
-                if (lookup
-                    is PlatformTypeLookupOutcome.Resolved exact)
-                {
-                    resolved = (
-                        typeTarget,
-                        target[(i + 1)..],
-                        exact);
-                    continue;
-                }
-
-                if (resolved is not null)
-                    return resolved;
-                if (lookup is not null)
-                {
-                    return (
-                        typeTarget,
-                        target[(i + 1)..],
-                        lookup);
-                }
-                return null;
-            }
-
-            return resolved;
-        }
-
-        private static bool WritePlatformTypeLookupFailure(
-            PlatformTypeLookupOutcome? lookup)
-        {
-            switch (lookup)
-            {
-                case PlatformTypeLookupOutcome.Ambiguous ambiguous:
-                    CommandError.Write(
-                        $"Platform type lookup is ambiguous across {ambiguous.Candidates.Length} candidates.");
-                    return true;
-                case PlatformTypeLookupOutcome.Rejected rejected:
-                    CommandError.Write(
-                        $"Platform type lookup failed ({rejected.Failure.Kind}).");
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        private static string[] RoutePlatformCatalogResult(
-            PlatformTypeCatalogRouteOutcome.Resolved resolved,
-            string[] tail) =>
-            RoutePlatformCatalogCandidate(
-                resolved.Candidate,
-                resolved.Target,
-                resolved.Request.MemberSelector,
-                tail);
-
-        private static string[] RoutePlatformCatalogCandidate(
-            PlatformTypeCatalogRouteCandidate candidate,
-            PlatformTypeCatalogRouteTarget target,
-            string? memberSelector,
-            string[] tail)
-        {
-            string typeName =
-                MetadataTypeNameFormatter.FormatGenericTypeName(
-                    candidate.Type.ToMetadataFullName());
-            string assemblyName =
-                candidate.Assembly.Identity.Name;
-            string framework = PlatformFrameworkSpec(target);
-            return memberSelector is null
-                ? [
-                    "type",
-                    typeName,
-                    "--platform",
-                    assemblyName,
-                    "--framework",
-                    framework,
-                    .. tail,
-                ]
-                : [
-                    "member",
-                    typeName,
-                    "--platform",
-                    assemblyName,
-                    "--framework",
-                    framework,
-                    "-m",
-                    memberSelector,
-                    .. tail,
-                ];
-        }
-
         private static string PlatformFrameworkSpec(
             PlatformTypeCatalogRouteTarget target) =>
             target.Family switch
@@ -1712,70 +1234,6 @@ public static class RouterCommandDefinition
                 _ => throw new InvalidOperationException(
                     "Unknown Platform family."),
             };
-
-        private static string[] RouteExactGenericPlatformType(
-            PlatformTypeLookupOutcome.Resolved resolved,
-            string target,
-            string[] tail) =>
-            !HasExplicitApiSource(tail)
-            && TryGetExplicitPlatformSource(resolved, out var assembly, out var framework)
-                ? [
-                    "type",
-                    target,
-                    "--platform",
-                    assembly,
-                    .. FrameworkArgsUnlessSpecified(framework, tail),
-                    .. tail
-                ]
-                : ["type", target, .. tail];
-
-        private static string[] RouteExactGenericPlatformMember(
-            (
-                string TypeTarget,
-                string MemberSelector,
-                PlatformTypeLookupOutcome.Resolved Resolved) member,
-            string[] tail) =>
-            !HasExplicitApiSource(tail)
-            && TryGetExplicitPlatformSource(
-                member.Resolved,
-                out var assembly,
-                out var framework)
-                ? [
-                    "member",
-                    member.TypeTarget,
-                    "--platform",
-                    assembly,
-                    .. FrameworkArgsUnlessSpecified(framework, tail),
-                    "-m",
-                    member.MemberSelector,
-                    .. tail
-                ]
-                : [
-                    "member",
-                    member.TypeTarget,
-                    "-m",
-                    member.MemberSelector,
-                    .. tail
-                ];
-
-        private static string[] RouteExactGenericPlatformMemberTarget(
-            PlatformTypeLookupOutcome.Resolved resolved,
-            string target,
-            string[] tail) =>
-            !HasExplicitApiSource(tail)
-            && TryGetExplicitPlatformSource(
-                resolved,
-                out var assembly,
-                out var framework)
-                ? [
-                    "member",
-                    target,
-                    "--platform",
-                    assembly,
-                    .. FrameworkArgsUnlessSpecified(framework, tail),
-                    .. tail
-                ]
-                : ["member", target, .. tail];
 
         internal static bool HasExplicitApiSource(string[] tokens) =>
             ContainsOption(tokens, "--package")
@@ -2104,34 +1562,5 @@ public static class RouterCommandDefinition
             return false;
         }
 
-        private static string[] FrameworkArgsUnlessSpecified(
-            string framework,
-            string[] tokens) =>
-            ContainsOption(tokens, "--framework")
-                ? []
-                : ["--framework", framework];
-
-        private static bool TryGetExplicitPlatformSource(
-            PlatformTypeLookupOutcome.Resolved resolved,
-            out string assembly,
-            out string framework)
-        {
-            assembly = resolved.Candidate.Assembly.Identity.Name;
-            framework = "";
-            if (resolved.Candidate.Assembly.Provenance
-                is not AssemblyResolutionProvenance.PlatformAsset platform)
-            {
-                return false;
-            }
-
-            framework = platform.Framework;
-
-            // Runtime reference extraction does not currently materialize nested
-            // generic types that are implemented by the core library.
-            return !platform.Framework.Equals(
-                    "runtime",
-                    StringComparison.OrdinalIgnoreCase)
-                || resolved.Candidate.Type.Segments.Length == 1;
-        }
     }
 }

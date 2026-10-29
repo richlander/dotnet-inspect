@@ -346,6 +346,7 @@ public static partial class TypeCommand
             {
                 if (exactTypeOverview?.Format
                         is not TypeOverviewHierarchyPresentationFormat.Mermaid
+                    && options.ResolvedRouterTarget is null
                     && await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                     return prefixBrowseExitCode;
                 if (exactTypeOverview?.Format
@@ -716,7 +717,10 @@ public static partial class TypeCommand
 
                 ApiTypeLookupResult lookupResult =
                     preselectedType is null
-                        ? ApiTypeLookupService.LookupType(api, typeName)
+                        ? options.ResolvedRouterTarget is { } resolvedTarget
+                            ? ApiTypeLookupService.LookupResolvedType(
+                                api, resolvedTarget)
+                            : ApiTypeLookupService.LookupType(api, typeName)
                         : new(
                             typeName,
                             new LookupResult(

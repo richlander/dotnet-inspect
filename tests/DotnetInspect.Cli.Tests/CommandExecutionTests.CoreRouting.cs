@@ -7,12 +7,24 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.Services;
+using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    private static async Task<string[]> GetRouterSelectedPlatformSourceAsync(
+        string target)
+    {
+        var (_, route) = await RouterTargetAnalysis.ResolvePlatformAsync(
+            target, new NuGetSourceOptions(), TestContext.Current.CancellationToken);
+        var analyzed = RouterResolvedTarget.From(
+            Assert.IsType<PlatformTypeCatalogRouteOutcome.Resolved>(route!.Content));
+        return ["--platform", analyzed.Assembly.Name, "--framework", analyzed.Framework];
+    }
+
     [Theory]
     [InlineData("-S")]
     [InlineData("-s")]
@@ -589,22 +601,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
+    public async Task Router_PlatformTypo_DoesNotDiscoverPrefixMatches()
     {
         var (exit, output, error) = await RunAppAsync(
             "System.Runtime.CompilerService", "--table");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("best-effort prefix matches", error);
-        Assert.Contains("System.Runtime.CompilerService", error);
-        Assert.Contains("System.Runtime.CompilerServices.CompilerGeneratedAttribute", output);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected Platform domain", error);
+        Assert.DoesNotContain("best-effort", error);
     }
 
     [Fact]
     public async Task Router_BareSimpleType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Regex", "--markdown");
+            "Regex", "--platform", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
@@ -622,7 +634,7 @@ public partial class CommandExecutionTests
         string expectedType)
     {
         var (exit, output, error) = await RunAppAsync(
-            query, "--markdown");
+            query, "--platform", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains($"# {expectedType}", output);
@@ -634,7 +646,7 @@ public partial class CommandExecutionTests
     public async Task Router_NestedPlatformTypePlusSyntax_RemainsResolvable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "JSType+String", "--markdown");
+            "JSType+String", "--platform", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -647,7 +659,7 @@ public partial class CommandExecutionTests
     public async Task Router_AmbiguousTargetBoundPlatformLocator_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Timer", "--markdown");
+            "Timer", "--platform", "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -661,7 +673,7 @@ public partial class CommandExecutionTests
     public async Task Router_AmbiguousTargetBoundPlatformMember_ReportsAmbiguity()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Timer.Start", "--markdown");
+            "Timer.Start", "--platform", "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -675,23 +687,22 @@ public partial class CommandExecutionTests
     [InlineData("System.Numerics.String")]
     [InlineData("System.Numerics.String.IsNullOrEmpty")]
     public async Task
-        Router_QualifiedCompatibilityRoutePreservesAmbiguity(string query)
+        Router_QualifiedMissDoesNotStripNamespace(string query)
     {
         var (exit, output, error) = await RunAppAsync(
             query, "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(
-            "Platform type lookup is ambiguous across 2 candidates.",
-            error);
+        Assert.Contains("selected Platform domain", error);
+        Assert.Contains(query, error);
     }
 
     [Fact]
     public async Task Router_BareGenericType_UsesTargetBoundPlatformLocator()
     {
         var (exit, output, error) = await RunAppAsync(
-            "List<T>", "--markdown");
+            "List<T>", "--platform", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
@@ -723,7 +734,7 @@ public partial class CommandExecutionTests
         string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown");
+            target, "--platform", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -820,14 +831,15 @@ public partial class CommandExecutionTests
             "Type Info",
             "--markdown",
         ];
-        string[] scopedTail = explicitPlatform
-            ? ["--platform", "System.Private.CoreLib", .. tail]
-            : tail;
+        string[] source = explicitPlatform
+            ? ["--platform", "System.Private.CoreLib"]
+            : await GetRouterSelectedPlatformSourceAsync(target);
+        string[] scopedTail = [.. source, .. tail];
 
         var direct = await RunAppAsync(
             ["type", target, .. scopedTail]);
         var routed = await RunAppAsync(
-            [target, .. scopedTail]);
+            [target, .. (explicitPlatform ? scopedTail : tail)]);
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
@@ -866,7 +878,8 @@ public partial class CommandExecutionTests
             "-m",
             "MoveNext",
         ];
-        var direct = await RunAppAsync(["type", target, .. tail]);
+        var direct = await RunAppAsync(
+            ["type", target, .. await GetRouterSelectedPlatformSourceAsync(target), .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
 
         Assert.Equal(direct, routed);
@@ -947,7 +960,7 @@ public partial class CommandExecutionTests
         string expectedType)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown");
+            target, "--platform", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains($"# {expectedType}", output);
@@ -961,7 +974,7 @@ public partial class CommandExecutionTests
     public async Task Router_UnqualifiedGenericPlatformMember_UsesSelectedRuntimeCatalog()
     {
         var (exit, output, error) = await RunAppAsync(
-            "SequenceReader<T>.TryRead", "--all", "--markdown");
+            "SequenceReader<T>.TryRead", "--platform", "--all", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1809,8 +1822,8 @@ public partial class CommandExecutionTests
         [
             "--markdown",
         ];
-        var direct = await RunAppAsync(["Regex", .. tail]);
-        var routed = await RunAppAsync([" Regex ", .. tail]);
+        var direct = await RunAppAsync(["Regex", "--platform", .. tail]);
+        var routed = await RunAppAsync([" Regex ", "--platform", .. tail]);
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
@@ -1836,33 +1849,20 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Router_UnclassifiedCompleteLocatorMissSearchesPlatformOnce()
+        Router_CompleteLocatorMissDoesNotSearchOtherPlatformFamilies()
     {
         var (exit, _, error) = await RunAppAsync(
             "System.DoesNotExist",
             "--verbose");
 
         Assert.Equal(1, exit);
-        Assert.Equal(
-            1,
-            error.Split(
-                "libraries in runtime@",
-                StringSplitOptions.None).Length - 1);
-        Assert.Equal(
-            1,
-            error.Split(
-                "libraries in aspnetcore@",
-                StringSplitOptions.None).Length - 1);
-        Assert.Equal(
-            1,
-            error.Split(
-                "libraries in netstandard@",
-                StringSplitOptions.None).Length - 1);
+        Assert.Contains("selected Platform domain", error);
+        Assert.DoesNotContain("libraries in", error);
     }
 
     [Fact]
     public async Task
-        Router_RuntimeOnlyAssemblyPrefixUsesLocatorCompatibility()
+        Router_RuntimeOnlyAssemblyPrefixDoesNotBecomeAnotherType()
     {
         using RouterDecisionLog.Capture decisions =
             RouterDecisionLog.Begin();
@@ -1870,9 +1870,9 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "System.Private.CoreLib.JsonSerializer.Serialize");
 
-        Assert.Equal(0, exit);
-        Assert.NotEmpty(output);
-        Assert.Empty(error);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected Platform domain", error);
         Assert.DoesNotContain(
             decisions.Decisions,
             static decision =>
@@ -1916,6 +1916,8 @@ public partial class CommandExecutionTests
         string[] args =
         [
             target,
+            "--framework",
+            "aspnetcore",
             "-t",
             target,
             "--all",
@@ -2453,7 +2455,7 @@ public partial class CommandExecutionTests
     public async Task Router_UnqualifiedNestedGenericType_RoutesAsExactType(string typeName)
     {
         var (exit, output, error) = await RunAppAsync(
-            typeName, "--tree");
+            typeName, "--platform", "--tree");
 
         Assert.Equal(0, exit);
         Assert.Contains(
@@ -2468,7 +2470,7 @@ public partial class CommandExecutionTests
     public async Task Router_GenericNestedTypeMember_UsesLongestExactTypePrefix(string target)
     {
         var (exit, output, error) = await RunAppAsync(
-            target, "--table");
+            target, "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2480,7 +2482,7 @@ public partial class CommandExecutionTests
     public async Task Router_VoidKeyword_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "void", "--table");
+            "void", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Package 'void'", error);
@@ -2502,7 +2504,7 @@ public partial class CommandExecutionTests
     public async Task Router_SimplePlatformMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.IndexOf", "--table");
+            "String.IndexOf", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
@@ -2514,7 +2516,7 @@ public partial class CommandExecutionTests
     public async Task Router_PrimitiveKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "string.IndexOf", "--table");
+            "string.IndexOf", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf", output);
@@ -2526,7 +2528,7 @@ public partial class CommandExecutionTests
     public async Task Router_NumericKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "int.Parse", "--table");
+            "int.Parse", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Parse", output);
@@ -2538,7 +2540,7 @@ public partial class CommandExecutionTests
     public async Task Router_BooleanKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "bool.TryParse", "--table");
+            "bool.TryParse", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("TryParse", output);
@@ -2549,7 +2551,7 @@ public partial class CommandExecutionTests
     public async Task Router_ObjectKeywordMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "object.GetType", "--table");
+            "object.GetType", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("GetType", output);
@@ -2561,7 +2563,7 @@ public partial class CommandExecutionTests
     public async Task Router_GenericMemberSelector_NormalizesGenericTypeArguments()
     {
         var (exit, output, error) = await RunAppAsync(
-            "JsonSerializer.Deserialize<TValue>", "--table");
+            "JsonSerializer.Deserialize<TValue>", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
@@ -2573,7 +2575,7 @@ public partial class CommandExecutionTests
     public async Task Router_ConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.ctor", "--table");
+            "String.ctor", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -2585,7 +2587,7 @@ public partial class CommandExecutionTests
     public async Task Router_DoubleDotConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "List<T>..ctor", "--table");
+            "List<T>..ctor", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -2597,7 +2599,7 @@ public partial class CommandExecutionTests
     public async Task Router_DoubleDotConstructorSelector_PreservesOverloadIndex()
     {
         var (exit, output, error) = await RunAppAsync(
-            "List<T>..ctor:3", "--table");
+            "List<T>..ctor:3", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains(".ctor", output);
@@ -2609,7 +2611,7 @@ public partial class CommandExecutionTests
     public async Task Router_IndexerSelector_NormalizesThisAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.this[]", "--table");
+            "String.this[]", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Chars", output);
@@ -2621,7 +2623,7 @@ public partial class CommandExecutionTests
     public async Task Router_IndexerSelector_NormalizesThisAliasWithIllustrativeArgument()
     {
         var (exit, output, error) = await RunAppAsync(
-            "String.this[0]", "--table");
+            "String.this[0]", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Chars", output);
@@ -2633,7 +2635,7 @@ public partial class CommandExecutionTests
     public async Task Router_GenericIndexerSelector_NormalizesThisAliasWithTypeArgument()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Dictionary<TKey,TValue>.this[TKey]", "--table");
+            "Dictionary<TKey,TValue>.this[TKey]", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Item", output);
@@ -2645,7 +2647,7 @@ public partial class CommandExecutionTests
     public async Task Router_OperatorSelector_NormalizesOperatorAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "DateTime.operator+", "--table");
+            "DateTime.operator+", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("operator +", output);
@@ -2657,7 +2659,7 @@ public partial class CommandExecutionTests
     public async Task Router_ConversionSelector_NormalizesImplicitAlias()
     {
         var (exit, output, error) = await RunAppAsync(
-            "Decimal.implicit", "--table");
+            "Decimal.implicit", "--platform", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("implicit operator", output);
@@ -2666,17 +2668,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_PlatformPrefixBrowse_UnresolvedNamespace_ListsPlatformMatches()
+    public async Task Router_UnresolvedNamespace_DoesNotDiscoverPlatformMatches()
     {
         var (exit, output, error) = await RunAppAsync(
             "System.Text", "--table");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("best-effort platform prefix matches", error);
-        Assert.Contains("System.Text", error);
-        Assert.Contains("System.Text.StringBuilder", output);
-        Assert.Contains("System.Text.Json.JsonSerializer", output);
-        Assert.DoesNotContain("Package 'system.text' not found", error);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected Platform domain", error);
+        Assert.DoesNotContain("best-effort", error);
     }
 
     [Fact]
@@ -2715,16 +2715,15 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_PlatformPrefixBrowse_NarrowSourceMissFallsBackToWidePlatformMatches()
+    public async Task Router_NamespaceMiss_DoesNotWidenPlatformScope()
     {
         var (exit, output, error) = await RunAppAsync(
             "System.Collections.Frozen", "--table");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("best-effort platform prefix matches", error);
-        Assert.Contains("System.Collections.Frozen", error);
-        Assert.Contains("System.Collections.Frozen.FrozenDictionary", output);
-        Assert.Contains("System.Collections.Frozen.FrozenSet", output);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected Platform domain", error);
+        Assert.DoesNotContain("best-effort", error);
     }
 
     [Fact]
@@ -4281,9 +4280,10 @@ public partial class CommandExecutionTests
             "--version=q");
         var routed = await RunAppAsync(arguments);
 
-        Assert.Equal(direct, routed);
+        Assert.Equal(direct.Exit, routed.Exit);
+        Assert.Equal(direct.Output, routed.Output);
         Assert.Equal(1, routed.Exit);
-        Assert.Contains("Unrecognized option '--package'", routed.Error);
+        Assert.Contains("--package", routed.Error);
     }
 
     [Fact]

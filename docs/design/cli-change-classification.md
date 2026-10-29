@@ -98,7 +98,7 @@ additive after its effect on existing inputs has been checked.
 The required pathological cases are:
 
 - **Implicit target routing:** command names are reserved before a bare token
-  can enter the platform-preferred, NuGet-fallback router. Adding a command or
+  can enter the selected-domain bare-target router. Adding a command or
   alias can therefore change an existing invocation from "resolve this
   target" to "run this command."
 - **Parser binding:** an option, optional value, alias, or more-lenient parse

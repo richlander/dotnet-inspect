@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -374,10 +375,18 @@ public static class MemberOptionsParser
     /// <summary>
     /// Parses member command options asynchronously (due to source resolution).
     /// </summary>
-    public static async Task<MemberParseResult> ParseAsync(
+    public static Task<MemberParseResult> ParseAsync(
         ParseResult parseResult,
         SharedOptions opts,
-        MemberCommandArgs args)
+        MemberCommandArgs args) =>
+        ParseWithCancellationAsync(
+            parseResult, opts, args, CancellationToken.None);
+
+    internal static async Task<MemberParseResult> ParseWithCancellationAsync(
+        ParseResult parseResult,
+        SharedOptions opts,
+        MemberCommandArgs args,
+        CancellationToken cancellationToken)
     {
         bool sourceParts = parseResult.GetValue(args.SourcePartsOption);
         MemberSourcePartKind? sourcePart = null;
@@ -454,6 +463,8 @@ public static class MemberOptionsParser
             ? projectValues[0]
             : null;
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+        RouterResolvedTarget? resolvedTarget =
+            RouterTargetAnalysis.Get(parseResult);
         var deferredRouteValue =
             parseResult.GetValue(args.RouterDeferredTargetOption);
         if (deferredRouteValue is not null
@@ -484,7 +495,42 @@ public static class MemberOptionsParser
         // Resolve source
         SharedParsers.SourceSelection sourceSelection;
         SourceResolver.ResolvedSource source;
-        if (projectSourcePath is not null || workspacePacket is not null)
+        if (resolvedTarget is null
+            && projectSourcePath is null
+            && workspacePacket is null
+            && !sourceInputs.HasExplicitSource
+            && sourceInputs.Args.Length == 1)
+        {
+            string target = sourceInputs.Args[0];
+            if (parseResult.GetValue(args.FrameworkOption) is { } framework)
+            {
+                var (analyzed, error) =
+                    await RouterTargetAnalysis.ResolveFrameworkAsync(
+                        target, framework, sourceOptions, cancellationToken);
+                if (error is not null)
+                    return new VersionError(error);
+                resolvedTarget = analyzed;
+            }
+        }
+
+        if (resolvedTarget is not null)
+        {
+            source = new SourceResolver.ResolvedSource(
+                PackagePath: null,
+                AssemblyPath: null,
+                PlatformAssembly: resolvedTarget.Assembly.Name,
+                FrameworkOverride: resolvedTarget.Framework,
+                TypeName: resolvedTarget.TypeName);
+            sourceSelection = new SharedParsers.SourceSelection(
+                sourceInputs.Args,
+                sourceInputs.ExplicitPackage,
+                sourceInputs.ExplicitAssembly,
+                sourceInputs.ExplicitPlatform,
+                sourceInputs.IsLibrarySelector,
+                HasExplicitSource: true,
+                source);
+        }
+        else if (projectSourcePath is not null || workspacePacket is not null)
         {
             source = new SourceResolver.ResolvedSource(
                 PackagePath: null,
@@ -516,13 +562,18 @@ public static class MemberOptionsParser
             return new VersionError(source.VersionErrorMessage!);
 
         var optionMembers = parseResult.GetValue(args.MemberOption) ?? [];
+        if (resolvedTarget?.Member is { } selectedMember
+            && optionMembers.Length == 0
+            && positionalMembers.Count == 0)
+            positionalMembers.Add(selectedMember.RequestedText);
 
         // If the only positional value is a fully-qualified Type.Member, split the
         // member suffix first, then probe the type portion as the source/type name.
         // Handles: member System.Text.Json.JsonSerializer.SerializeToNode
         //   → source=System.Text.Json, type=JsonSerializer, member=SerializeToNode
         bool resolvedQualifiedTypeMember = false;
-        if (sourceSelection.ExplicitPackage == null
+        if (resolvedTarget is null
+            && sourceSelection.ExplicitPackage == null
             && source.TypeName == null
             && source.PackagePath != null
             && source.PlatformAssembly == null
@@ -552,7 +603,8 @@ public static class MemberOptionsParser
         // If source resolution left us with an unresolved package that is actually
         // a qualified type name (e.g., "System.Text.Json.JsonDocument"), split it
         // so the user can write: member System.Text.Json.JsonDocument Parse
-        if (!resolvedQualifiedTypeMember
+        if (resolvedTarget is null
+            && !resolvedQualifiedTypeMember
             && sourceSelection.ExplicitPackage == null
             && source.PackagePath != null
             && source.PlatformAssembly == null
@@ -592,13 +644,16 @@ public static class MemberOptionsParser
         // crosses that same metadata boundary instead of forcing a syntactic type/member guess.
         // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
         // not a type.member pair.
-        ApplySyntacticMemberSplit(
-            sourceInputs,
-            routerDeferredTypeOrMember,
-            mergeExplicitMemberSelectors: false,
-            ref typeName,
-            positionalMembers,
-            optionMembers);
+        if (resolvedTarget is null)
+        {
+            ApplySyntacticMemberSplit(
+                sourceInputs,
+                routerDeferredTypeOrMember,
+                mergeExplicitMemberSelectors: false,
+                ref typeName,
+                positionalMembers,
+                optionMembers);
+        }
 
         // Check for unrecognized options in positional args
         var badOption = positionalMembers.FirstOrDefault(m => m.StartsWith('-'));
@@ -616,14 +671,28 @@ public static class MemberOptionsParser
         int? explicitIndex =
             parseResult.GetValue(args.IndexOption);
         OptionError? selectorConflictError =
-            GetMemberSelectorConflictError(allMembers);
+            resolvedTarget?.Member is not null && allMembers.Length == 1
+                ? null
+                : GetMemberSelectorConflictError(allMembers);
         if (selectorConflictError is not null)
             return new VersionError(selectorConflictError.Value);
         var (dottedTypeFilter, shorthandIndex, memberDigest, memberGenericArity, memberGenericArityConflict, memberKindFilter) =
-            SharedParsers.ProcessMemberArguments(
-                allMembers,
-                inferDottedTypeFilter: string.IsNullOrEmpty(typeName),
-                suppliedTypeName: typeName);
+            resolvedTarget?.Member is { } selector
+                && allMembers.Length == 1
+                && allMembers[0] == selector.RequestedText
+                ? (null, selector.OverloadIndex, selector.DigestPrefix,
+                    selector.GenericArity, false,
+                    selector.Kind is { } kind
+                        ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { kind }
+                        : new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+                : SharedParsers.ProcessMemberArguments(
+                    allMembers,
+                    inferDottedTypeFilter: string.IsNullOrEmpty(typeName),
+                    suppliedTypeName: typeName);
+        if (resolvedTarget?.Member is { } analyzedMember
+            && allMembers.Length == 1
+            && allMembers[0] == analyzedMember.RequestedText)
+            allMembers[0] = analyzedMember.Name;
 
         // Use extracted type name if no explicit type was provided
         if (dottedTypeFilter != null && string.IsNullOrEmpty(typeName))
@@ -682,6 +751,7 @@ public static class MemberOptionsParser
         var options = new MemberOptions
         {
             TypeName = typeName,
+            ResolvedRouterTarget = resolvedTarget,
             PackagePath = source.PackagePath,
             PackageRangeAddress = parseResult.GetValue(args.AtOption),
             AssemblyPath = source.AssemblyPath,

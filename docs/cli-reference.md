@@ -111,12 +111,21 @@ contract do not classify at all. Treat any Windows Metadata result as
 unsupported output regardless of how confident it looks. Tracked by
 [#5559](https://github.com/richlander/dotnet-inspect/issues/5559).
 
-Bare names are routed automatically: platform-looking names (`System.*`,
-`Microsoft.AspNetCore.*`) resolve to installed platform libraries; other names
-resolve as NuGet packages. In API commands, common CoreLib aliases and simple
-type names such as `string`, `int`, `DateTime`, and `Guid` resolve to
-`System.Private.CoreLib`. Use explicit commands and `--package`, `--platform`,
-or `--library` when you need a specific source.
+**Breaking change — bare targets:** The Router selects exactly one domain
+before looking up the target. An Ecosystem-configured Platform-eligible
+assembly-name claim selects Platform; otherwise it selects Package, regardless
+of whether a NuGet package exists or the selected Platform target can be
+found. `System.CommandLine` therefore defaults to Platform even when a
+same-named package is published. Use `package System.CommandLine` or
+`System.CommandLine --package` to select Package instead. A coordinate such as
+`System.Text.Json@10.0.0` selects Package. Bare `List<T>` and `string.ctor`
+need `--platform` to select Platform; direct `type` and `member` commands
+retain their own explicit source options (for example,
+`type JsonSerializer --package System.Text.Json`). A miss, failure, or
+ambiguity is terminal within the selected domain. Use `find` for API symbol
+discovery or Spotlight for cross-domain discovery, rather than expecting
+Router fallback. Exact file, Package-reference, and Workspace-packet entrances
+retain their separate admissions.
 
 After exact Type and Member lookup misses, a dotted Platform name may resolve
 as an exact namespace in its longest namesake Library. For example:
@@ -132,9 +141,10 @@ dotnet-inspect library System.Text.Json \
   --namespace System.Text.Json.Nodes
 ```
 
-The Router confirms exact ordinal namespace membership before selecting this
-route. It does not use suffix or descendant matching, and broad inputs such as
-`System.Text` retain their existing Type-prefix browsing behavior.
+The Router confirms exact ordinal namespace membership within the selected
+Platform population before selecting this route. It does not use suffix or
+descendant matching; an unresolved name does not authorize prefix browsing or
+a second source.
 
 `find` uses the same exact namespace meaning after direct Type lookup misses:
 

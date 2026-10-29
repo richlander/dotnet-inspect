@@ -27,10 +27,6 @@ public class TypeOptionsParserTests
         var projectOption = new Option<string?>("--project");
         var frameworkOption = new Option<string?>("--framework");
         var tfmOption = new Option<string?>("--tfm");
-        var suppressRuntimeTypeFallbackOption =
-            new Option<string?>(
-                RouterCommandDefinition
-                    .SuppressRuntimeTypeFallbackOptionName);
         var workspaceOption = new Option<string?>("--workspace");
         var shareOption = WorkspaceShareOption.Create("test");
         var allOption = new Option<bool>("--all");
@@ -65,7 +61,6 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
         typeCommand.Options.Add(tfmOption);
-        typeCommand.Options.Add(suppressRuntimeTypeFallbackOption);
         typeCommand.Options.Add(workspaceOption);
         typeCommand.Options.Add(shareOption);
         typeCommand.Options.Add(allOption);
@@ -99,7 +94,7 @@ public class TypeOptionsParserTests
             unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption,
             relationsOption, relationColorOption, requireRelationColorOption,
-            suppressRuntimeTypeFallbackOption, namesakeLibraryOption);
+            namesakeLibraryOption);
 
         return (root, opts, args);
     }

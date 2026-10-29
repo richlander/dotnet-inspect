@@ -461,10 +461,21 @@ public static class CommandLineBuilder
             rawArgs,
             installLineWindow: true);
 
+    internal static Task<int> InvokeWithLineWindowAsync(
+        ParseResult parseResult,
+        string[]? rawArgs,
+        RouterResolvedTarget? resolvedTarget)
+        => InvokeParsedAsync(
+            parseResult,
+            rawArgs,
+            installLineWindow: true,
+            resolvedTarget);
+
     private static async Task<int> InvokeParsedAsync(
         ParseResult parseResult,
         string[]? rawArgs,
-        bool installLineWindow)
+        bool installLineWindow,
+        RouterResolvedTarget? resolvedTarget = null)
     {
         ArgumentPreprocessor.SetLineWindow(
             headLines: null,
@@ -510,6 +521,8 @@ public static class CommandLineBuilder
             return 1;
         }
         parseResult = rowSelection.ParseResult;
+        if (resolvedTarget is not null)
+            RouterTargetAnalysis.Bind(parseResult, resolvedTarget);
         IReadOnlyList<string> effectiveArguments =
             rowSelection.Arguments
                 ?? rawArgs

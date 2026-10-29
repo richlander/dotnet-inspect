@@ -53,13 +53,6 @@ public static class ApiCommandDefinitions
         var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
-        var suppressRuntimeTypeFallbackOption =
-            new Option<string?>(
-                RouterCommandDefinition
-                    .SuppressRuntimeTypeFallbackOptionName)
-            {
-                Hidden = true,
-            };
         var workspaceOption = new Option<string?>("--workspace")
         {
             Description = "Source: canonical Base64URL Workspace packet string",
@@ -121,7 +114,6 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
         typeCommand.Options.Add(tfmOption);
-        typeCommand.Options.Add(suppressRuntimeTypeFallbackOption);
         typeCommand.Options.Add(workspaceOption);
         typeCommand.Options.Add(matchOption);
         typeCommand.Options.Add(shareOption);
@@ -167,7 +159,7 @@ public static class ApiCommandDefinitions
             opts.NoHeaders, unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption,
             relationsOption, relationColorOption, requireRelationColorOption,
-            suppressRuntimeTypeFallbackOption, namesakeLibraryOption);
+            namesakeLibraryOption);
         structuralArgs = commandArgs;
         typeCommand.Validators.Add(result =>
         {
@@ -912,7 +904,7 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
-            var result = await MemberOptionsParser.ParseAsync(parseResult, opts, commandArgs);
+            var result = await MemberOptionsParser.ParseWithCancellationAsync(parseResult, opts, commandArgs, ct);
 
             switch (result)
             {
