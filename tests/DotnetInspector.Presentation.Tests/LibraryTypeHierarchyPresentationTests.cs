@@ -40,11 +40,18 @@ public class LibraryTypeHierarchyPresentationTests
         LibraryTypeHierarchyPresentation.Write(
             Document(),
             plan,
-            output);
+            output,
+            Text("Renamed.dll"),
+            [
+                new("package", "Example.Package@5.6.7"),
+                new("source", "NuGet"),
+                new("target", "net10.0"),
+                new("root", "ref"),
+            ]);
 
         Assert.Equal(
             """
-            Example 1.2.3.4
+            Renamed.dll (Example.Package@5.6.7; NuGet; net10.0; ref)
             ├─ (global namespace) (1 type)
             │  └─ struct Loose
             ├─ Example (2 types)
@@ -73,10 +80,12 @@ public class LibraryTypeHierarchyPresentationTests
                     defaults.Hierarchy.Children));
         using var output = new StringWriter();
 
-        LibraryTypeHierarchyPresentation.Write(Document(), plan, output);
+        LibraryTypeHierarchyPresentation.Write(
+            Document(), plan, output, Text("Example.dll"),
+            [new("source", "File")]);
 
         Assert.StartsWith(
-            "Example" + Environment.NewLine,
+            "Example.dll" + Environment.NewLine,
             output.ToString(),
             StringComparison.Ordinal);
     }
@@ -92,11 +101,16 @@ public class LibraryTypeHierarchyPresentationTests
         LibraryTypeHierarchyPresentation.Write(
             Document(),
             plan,
-            output);
+            output,
+            Text("Example.dll"),
+            [new("package", "Example.Package@5.6.7"), new("source", "NuGet")]);
 
         string result = output.ToString();
         Assert.StartsWith("graph TD", result, StringComparison.Ordinal);
-        Assert.Contains("Example 1.2.3.4", result, StringComparison.Ordinal);
+        Assert.Contains(
+            "Example.dll (Example.Package@5.6.7; NuGet)",
+            result,
+            StringComparison.Ordinal);
         Assert.Contains(
             "class Widget&lt;T&gt;",
             result,
@@ -139,7 +153,8 @@ public class LibraryTypeHierarchyPresentationTests
         LibraryTypeHierarchyPresentation.Write(
             Document(counted: true),
             plan,
-            output);
+            output,
+            Text("Example.dll"));
 
         Assert.Contains(
             "class Widget<T> (3 members)",
@@ -165,7 +180,8 @@ public class LibraryTypeHierarchyPresentationTests
                 Document(counted: true),
                 LibraryTypeHierarchyPresentation.CreateDefaultPlan(
                     LibraryTypeHierarchyPresentationFormat.Tree),
-                output));
+                output,
+                Text("Example.dll")));
         Assert.Empty(output.ToString());
     }
 
@@ -195,7 +211,8 @@ public class LibraryTypeHierarchyPresentationTests
             () => LibraryTypeHierarchyPresentation.Write(
                 continued,
                 LibraryTypeHierarchyPresentation.CreateDefaultPlan(format),
-                output));
+                output,
+                Text("Example.dll")));
         Assert.Empty(output.ToString());
     }
 
@@ -221,17 +238,18 @@ public class LibraryTypeHierarchyPresentationTests
         LibraryTypeHierarchyPresentation.Write(
             empty,
             LibraryTypeHierarchyPresentation.CreateDefaultPlan(format),
-            output);
+            output,
+            Text("Example.dll"));
 
         string result = output.ToString();
         Assert.Contains(
-            "Example 1.2.3.4 (no public types)",
+            "Example.dll (no public types)",
             result,
             StringComparison.Ordinal);
         if (format == LibraryTypeHierarchyPresentationFormat.Tree)
         {
             Assert.Equal(
-                "Example 1.2.3.4 (no public types)" + Environment.NewLine,
+                "Example.dll (no public types)" + Environment.NewLine,
                 result);
         }
         else
@@ -263,7 +281,8 @@ public class LibraryTypeHierarchyPresentationTests
                     faceted,
                     LibraryTypeHierarchyPresentation.CreateDefaultPlan(
                         LibraryTypeHierarchyPresentationFormat.Tree),
-                    output));
+                    output,
+                    Text("Example.dll")));
 
         Assert.Contains(
             "unfaceted",
