@@ -836,16 +836,6 @@ export function dependencyGroupSelectionMessage(data: DependencyGroupData | null
   return data?.dependencyGroupError || "";
 }
 
-export function dependencyGraphGroupSelectionIndex(
-  data: DependencyGroupData | null | undefined,
-  selectedGroupIndex: number | null,
-  resolvedGroupIndex: number | null,
-): number | null {
-  return data?.dependencyGroupError
-    ? selectedGroupIndex
-    : resolvedGroupIndex;
-}
-
 export function selectedDependencyGroup<
   TGroup extends DependencyGroup = DependencyGroup,
 >(
@@ -856,11 +846,7 @@ export function selectedDependencyGroup<
   if (!groups.length) return null;
   if (selectedGroupIndex !== null) {
     const selected = groups.find(group => group.index === selectedGroupIndex);
-    if (selected) {
-      return data?.selectedDependencyGroup?.index === selectedGroupIndex
-        ? data.selectedDependencyGroup
-        : selected;
-    }
+    if (selected) return selected;
   }
   if (data?.dependencyGroupError) return null;
   return data?.selectedDependencyGroup

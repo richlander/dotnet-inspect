@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   callGraphDiagnosticsMessage,
   dependencyGroupSelectionMessage,
-  dependencyGraphGroupSelectionIndex,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
@@ -322,25 +321,6 @@ test("dependency graph honors explicit selection after an exact group miss", () 
     data.dependencyGroups[0]);
 });
 
-test("dependency graph does not turn display fallback into explicit selection", () => {
-  const missingExact = {
-    dependencyGroupError: "No exact dependency group."
-  };
-
-  assert.equal(
-    dependencyGraphGroupSelectionIndex(missingExact, null, 0),
-    null);
-  assert.equal(
-    dependencyGraphGroupSelectionIndex(missingExact, 1, 0),
-    1);
-  assert.equal(
-    dependencyGraphGroupSelectionIndex({}, null, 1),
-    1);
-  assert.match(
-    graphSource,
-    /dependencyGraphGroupSelectionIndex\(\s*model\.packageDependencies,\s*model\.dependenciesGroupIndex,\s*fallbackGroupIndex\)/);
-});
-
 test("dependency graph uses each cached package's product-selected group", () => {
   const data = {
     dependencyGroupError: "",
@@ -383,8 +363,11 @@ test("dependency graph keeps logical selection separate from source groups", () 
   };
 
   assert.equal(selectedDependencyGroup(data), data.selectedDependencyGroup);
-  assert.equal(selectedDependencyGroup(data, 0), data.selectedDependencyGroup);
+  assert.equal(selectedDependencyGroup(data, 0), data.dependencyGroups[0]);
   assert.equal(selectedDependencyGroup(data, 2), data.dependencyGroups[2]);
+  assert.match(
+    graphSource,
+    /const explicitGroupIndex = groups\.some\([\s\S]*model\.dependenciesGroupIndex[\s\S]*\\? model\.dependenciesGroupIndex[\s\S]*: null;[\s\S]*selectedDependencyGroup\(\s*model\.packageDependencies,\s*explicitGroupIndex\)/);
 });
 
 test("dependency graph uses the active package's explicitly selected group", () => {
@@ -399,7 +382,4 @@ test("dependency graph uses the active package's explicitly selected group", () 
   assert.equal(
     selectedDependencyGroup(data, 0),
     data.dependencyGroups[0]);
-  assert.match(
-    graphSource,
-    /selectedDependencyGroup\(\s*model\.packageDependencies,\s*selectedGroupIndex\)/);
 });

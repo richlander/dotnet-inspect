@@ -11739,6 +11739,7 @@ function renderPackageDependencies() {
   const dependencyGroupNotice = dependencyGroupError
     ? `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>No exact dependency group</h2><p>${escapeHtml(dependencyGroupError)}</p></section>`
     : "";
+  const explicitGroupIndex = explicitDependenciesGroupIndex(groups);
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   const selectedPlatformReferenceSection =
     platformReferenceSectionHtml(data, selectedGroupIndex);
@@ -11774,11 +11775,11 @@ function renderPackageDependencies() {
       <div class="type-chip-list" id="dep-tfm-chips">${selectorChips}</div>
     </section>`;
 
-  const depList = dependencyListSectionHtml(data, selectedGroupIndex);
+  const depList = dependencyListSectionHtml(data, explicitGroupIndex);
 
   return renderPackageDependenciesSurface(
     `<div data-dependency-graph-surface>${dependencyGroupNotice}${selector}${graphSection}</div>${selectedPlatformReferenceSection}${depList}`,
-    packageDependenciesStatus(data, selectedGroupIndex));
+    packageDependenciesStatus(data, explicitGroupIndex));
 }
 
 function workspaceTraversalTargetFramework(): string | null {
@@ -12102,9 +12103,9 @@ async function renderPackageDependencyList() {
   if (!container || container.dataset.dependencyMatchState !== "pending") return;
   const data = packageDependenciesData();
   const groups = data?.dependencyGroups || [];
-  const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
+  const explicitGroupIndex = explicitDependenciesGroupIndex(groups);
   const group = data
-    ? selectedDependencyGroup(data, selectedGroupIndex)
+    ? selectedDependencyGroup(data, explicitGroupIndex)
       ?? groups[0]
     : null;
   if (!data || !group) {
@@ -12115,7 +12116,7 @@ async function renderPackageDependencyList() {
   const isCurrent = () =>
     document.querySelector("#dep-list-section") === container
     && packageDependenciesData() === data
-    && resolveDependenciesGroupIndex(groups) === selectedGroupIndex
+    && explicitDependenciesGroupIndex(groups) === explicitGroupIndex
     && JSON.stringify(dependencyCoordinateCandidates(state.packages)) === coordinates;
   container.dataset.dependencyMatchState = "loading";
   try {
@@ -12123,11 +12124,11 @@ async function renderPackageDependencyList() {
       uniqueCompatiblePackage(packages, dependency.id, dependency.versionRange)));
     if (!isCurrent()) return;
     container.outerHTML =
-      dependencyListSectionHtml(data, selectedGroupIndex, matches);
+      dependencyListSectionHtml(data, explicitGroupIndex, matches);
     bindPackageDependencyListEvents();
     await renderPackageDependencyIcons(
       data,
-      selectedGroupIndex,
+      explicitGroupIndex,
       matches);
   } catch (error) {
     if (!isCurrent()) return;
@@ -12218,20 +12219,21 @@ function patchDependenciesGroup() {
   const status =
     document.querySelector<HTMLElement>("[data-package-dependencies-status]");
   if (!data || !groups.length || !listSection || !status) { render(); return; }
+  const explicitGroupIndex = explicitDependenciesGroupIndex(groups);
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button => {
     const selected = Number(button.dataset.depGroup) === selectedGroupIndex;
     button.classList.toggle("active", selected);
     button.setAttribute("aria-pressed", String(selected));
   });
-  status.textContent = packageDependenciesStatus(data, selectedGroupIndex);
+  status.textContent = packageDependenciesStatus(data, explicitGroupIndex);
   const platformSlot =
     document.querySelector<HTMLElement>("[data-platform-reference-slot]");
   if (platformSlot) {
     platformSlot.outerHTML =
       platformReferenceSectionHtml(data, selectedGroupIndex);
   }
-  listSection.outerHTML = dependencyListSectionHtml(data, selectedGroupIndex);
+  listSection.outerHTML = dependencyListSectionHtml(data, explicitGroupIndex);
   bindPackageDependencyListEvents();
   observeAsync(renderPackageDependencyList(), "Matching dependency packages");
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
@@ -12240,11 +12242,18 @@ function patchDependenciesGroup() {
 function resolveDependenciesGroupIndex(
   groups: readonly PackageDependencyGroupProjection[],
 ) {
-  if (groups.some(group => group.index === state.dependenciesGroupIndex)) {
-    return state.dependenciesGroupIndex;
-  }
+  const explicitGroupIndex = explicitDependenciesGroupIndex(groups);
+  if (explicitGroupIndex !== null) return explicitGroupIndex;
   const active = groups.find(group => group.isActive);
   return active?.index ?? groups[0]?.index ?? null;
+}
+
+function explicitDependenciesGroupIndex(
+  groups: readonly PackageDependencyGroupProjection[],
+) {
+  return groups.some(group => group.index === state.dependenciesGroupIndex)
+    ? state.dependenciesGroupIndex
+    : null;
 }
 
 const packageInspection = createPackageInspectionCoordinator({
