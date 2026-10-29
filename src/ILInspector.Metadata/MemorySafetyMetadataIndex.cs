@@ -393,6 +393,26 @@ public sealed class MemorySafetyMetadataIndex
             MetadataSafetyPolicy.MaxMemorySafetyNameWorkChars,
             new MemorySafetyMetadataWorkRecorder());
 
+    /// <summary>
+    /// Creates an independently receipted query view over this index's
+    /// immutable module projection. The view performs no construction work.
+    /// </summary>
+    public MemorySafetyMetadataIndex CreateReceiptedQueryView() =>
+        new(
+            _reader,
+            _methodRowCount,
+            _fieldRowCount,
+            _propertyRowCount,
+            _eventRowCount,
+            _attributeRowBudget,
+            _nameWorkBudget,
+            Rules,
+            _associatedContracts,
+            _ambiguousAssociations,
+            AssociationFailure,
+            _associationsIncomplete,
+            new MemorySafetyMetadataWorkRecorder());
+
     internal static MemorySafetyMetadataIndex Create(
         MetadataReader reader,
         int associationRowBudget,

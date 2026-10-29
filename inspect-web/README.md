@@ -834,7 +834,7 @@ Release to `artifacts/inspect-web-publish`.
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryMethodBodyComparisonTargets` | one already-retained package or platform implementation assembly | bounded API surface and `AssemblyContextMethodAddressQuery.ExecuteParticipant(...)` |
 | `QueryMethodBodyComparison` | two selected methods in that implementation assembly | `DirectMemberComparisonQuery.Execute(...)` |
-| `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
+| `InspectPackageDependencies` | one package/version/framework/runtime | `PackageDependencyInspectionOperation` plus Browser-owned platform-reference presentation |
 | `QueryPackageIntegrations` | one exact library in a package/version/framework | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
 | `QueryPackageOpportunities` | one exact library in a package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
 | `QueryPackagePerformance` | one exact library in a package/version/framework | `AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)` |
@@ -1169,20 +1169,17 @@ Analysis-only `QueryMemberFacts` payload remains separate. Browser selection
 and stale-result behavior follow under #5517 rather than entering this
 transport operation.
 
-`QueryPackageDependencies` asks the package-content query for every dependency
-group in manifest order and its compatible target-framework selection, then
-passes that exact owner-issued result through
-`PackageDependencyEvidenceQuery`. The Browser projects its groups and source
-spellings from the normalized evidence rather than parsing the nuspec or
-creating another dependency model. A missing matching group remains visible
-while the UI permits inspecting the groups that were actually declared.
-Typed normalization failures also cross the boundary, so conflicting or
-invalid declarations remain visible instead of becoming successful empty
-groups. The
-dependency list and graph both follow that explicit UI selection for the active
-package; other open packages use their product-selected groups. The selected
-compile participant's direct references come from the assembly-context query;
-the browser does not open another assembly session.
+`InspectPackageDependencies` issues one shared
+`InspectionEnvelope<PackageDependencyInspectionOutcome>` for the exact Package
+coordinate. The Browser projects the owner-issued manifest groups and logical
+selection without parsing the nuspec, normalizing declarations again, or
+creating a second dependency model. Declaration order, duplicate rows, and
+case-distinct identifiers remain visible. A missing matching group remains
+visible while the UI permits inspecting the groups that were actually
+declared. The dependency list and graph both follow that explicit UI selection
+for the active package; other open packages use their product-selected groups.
+Package Dependency Inspection does not select a Library, open an assembly
+session, or carry direct assembly references.
 
 Package References combines the selected NuGet dependency group with platform
 references projected from the same exact PackageHouse realization.
@@ -1200,7 +1197,9 @@ evidence. Explicit platform references remain visible across dependency-group
 selection; the default appears only for a successfully normalized empty
 selected group, consistently in the list, status, and graph. Library References
 continues to show only the selected Library's assembly references.
-Internal `dependencies` route and contract identities remain unchanged.
+The internal dependency request identity is the Package ID, version, active
+framework, and runtime identifier; selected Library identity is not part of
+that request.
 
 Each NuGet dependency row displays the package's embedded icon when its exact
 version resolves and the icon passes the existing package-icon bounds.
@@ -1559,11 +1558,10 @@ modules after derivation; deleting a stale ignored module therefore cannot
 leave a dangling static-web-asset item. The SDK declaration is copied only
 into a temporary compiler workspace and is never published.
 
-The package facade's assembly-reference result adopts a native C# union through
-this generated handoff. The Library References view consumes an available list
-or failure message rather than parallel list/error fields, while its request
-lifecycle stays separate. The focused contract and outcome gates live in
-[Package reference result](../docs/design/inspect-web-package-reference-result.md).
+The package facade's Library Reference Inspection result crosses this generated
+handoff as one shared envelope, while its request lifecycle stays separate.
+The focused contract and outcome gates live in
+[Library Reference Inspection](../docs/design/library-reference-inspection.md).
 
 PR CI uses `--fast-check` for ordinary browser changes. It regenerates the
 canonical sources from current C#, keeps the complete transient artifact

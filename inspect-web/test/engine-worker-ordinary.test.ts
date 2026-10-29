@@ -136,8 +136,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberDocumentation"),
     queryPlatformMemberDocumentation: () =>
       unexpected("queryPlatformMemberDocumentation"),
-    queryPackageDependencies: () =>
-      unexpected("queryPackageDependencies"),
+    inspectPackageDependencies: () =>
+      unexpected("inspectPackageDependencies"),
     queryLibraryReferences: () =>
       unexpected("queryLibraryReferences"),
     queryReferencePackageSuppliers: () =>
@@ -2738,7 +2738,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberDocumentation",
       "queryPlatformMemberDocumentation",
       "queryPackage",
-      "queryPackageDependencies",
+      "inspectPackageDependencies",
       "queryLibraryReferences",
       "queryReferencePackageSuppliers",
       "queryPackageHierarchy",

@@ -226,7 +226,7 @@ Package acquisition, content, dependencies, documentation, and ranking:
 - `QueryLibraryApi`
 - `QueryMemberDocumentation`
 - `QueryPackage`
-- `QueryPackageDependencies`
+- `InspectPackageDependencies`
 - `QueryPackageIcon`
 - `QueryPackageRoot`
 - `QueryPackageSummary`

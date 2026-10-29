@@ -356,6 +356,64 @@ public sealed partial class CompiledDocumentationQueryTests
                 result.Outcome.Work.CompiledXmlBytesObserved > 0);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SubjectResolver_DeclaringTypeScopeRemainsExact(
+        bool foreignType)
+    {
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync();
+        DocumentationSubjectReference expected = Subject(library);
+        MetadataTypeDefinitionName declaringType = foreignType
+            ? Assert.Single(
+                library.ApiSurfaceCorrespondence.Surface.Types,
+                type => type.FullName
+                    == "System.Text.Json.JsonSerializerOptions")
+                .DefinitionName!
+            : expected.TypeIdentity;
+        var bounds = new ApiSurfaceExtractionBounds(
+            maxTypes: 1,
+            maxMembers: 100_000,
+            maxInspectionFailures: 1_000,
+            maxTypeForwarders: 10_000,
+            maxMetadataRows: 1_000_000,
+            maxRetainedTextCharacters: 20_000_000);
+
+        if (foreignType)
+        {
+            InvalidOperationException failure =
+                Assert.Throws<InvalidOperationException>(() =>
+                    CompiledDocumentationSubjectResolver.Resolve(
+                        library.Reference,
+                        library.Owner,
+                        [DeserializeIdentity],
+                        ApiSurfaceExtractionScope.Public,
+                        bounds,
+                        declaringType,
+                        TestContext.Current.CancellationToken));
+            Assert.Contains(DeserializeIdentity, failure.Message);
+            return;
+        }
+
+        DocumentationSubjectReference actual = Assert.Single(
+            CompiledDocumentationSubjectResolver.Resolve(
+                library.Reference,
+                library.Owner,
+                [DeserializeIdentity],
+                ApiSurfaceExtractionScope.Public,
+                bounds,
+                declaringType,
+                TestContext.Current.CancellationToken)).Value;
+        Assert.Equal(expected.TypeIdentity, actual.TypeIdentity);
+        Assert.Equal(expected.MetadataToken, actual.MetadataToken);
+        Assert.Equal(
+            expected.CompiledXmlIdentity,
+            actual.CompiledXmlIdentity);
+        Assert.Same(library.Reference, actual.Library);
+        Assert.Single(actual.ApiSurfaceCorrespondence.Surface.Types);
+    }
+
     [Fact]
     public async Task
         SubjectResolver_AvailableModeOmitsMissingReferenceSubjects()

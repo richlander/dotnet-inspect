@@ -121,64 +121,6 @@ internal static class DependencyGraphProjection
     }
 
     internal static DependencyGraphDocument Package(
-        PackageDependencyGraphResult.Graph graph)
-    {
-        ArgumentNullException.ThrowIfNull(graph);
-        PackageDependencyGraph dependencyGraph = graph.DependencyGraph;
-        var rootIdentity = new PackageDependencyIdentity(
-            graph.ManifestPackageName,
-            graph.ManifestVersion);
-        var builder = new Builder(
-            PackageIdentity(rootIdentity),
-            Field(graph.Title));
-
-        foreach (PackageDependencyRelationship relationship in
-                 dependencyGraph.Relationships.OrderBy(
-                     static relationship => relationship.Ordinal))
-        {
-            builder.AddEdge(
-                PackageIdentity(relationship.Source),
-                PackageLabel(
-                    relationship.Source,
-                    FindNode(
-                        dependencyGraph.Nodes,
-                        relationship.Source)?.Author),
-                PackageIdentity(relationship.Target),
-                PackageLabel(
-                    relationship.Target,
-                    FindNode(
-                        dependencyGraph.Nodes,
-                        relationship.Target)?.Author),
-                "package-dependency",
-                relationship.Resolution switch
-                {
-                    PackageDependencyResolutionState.Resolved =>
-                        DependencyGraphResolutionState.Resolved,
-                    PackageDependencyResolutionState.Unavailable =>
-                        DependencyGraphResolutionState.Unavailable,
-                    _ => DependencyGraphResolutionState.Declared,
-                },
-                new DependencyGraphEvidenceIdentity
-                    .PackageVersionConstraint(
-                        Field(relationship.VersionConstraint)));
-        }
-
-        return builder.Build();
-    }
-
-    internal static DependencyGraphDocument Package(
-        PackageDependencyGraphResult.Empty empty)
-    {
-        ArgumentNullException.ThrowIfNull(empty);
-        var rootIdentity = new PackageDependencyIdentity(
-            empty.ManifestPackageName,
-            empty.ManifestVersion);
-        return new Builder(
-            PackageIdentity(rootIdentity),
-            Field($"{empty.PackageName} ({empty.Version})")).Build();
-    }
-
-    internal static DependencyGraphDocument Package(
         PackageDependencyTraversalOutcome traversal,
         IReadOnlyList<int> rootOccurrenceIndexes) =>
         PackageTraversalGraphProjection.Project(
@@ -538,21 +480,6 @@ internal static class DependencyGraphProjection
         IReadOnlyDictionary<int, int> projectionRemap) =>
         projectionIndex is { } value ? projectionRemap[value] : null;
 
-    private static DependencyGraphNodeIdentity.Package PackageIdentity(
-        PackageDependencyIdentity identity) =>
-        new(identity.PackageId, identity.Version);
-
-    private static PackageDependencyGraphNode? FindNode(
-        IReadOnlyList<PackageDependencyGraphNode> nodes,
-        PackageDependencyIdentity identity) =>
-        nodes.FirstOrDefault(node =>
-            StringComparer.OrdinalIgnoreCase.Equals(
-                node.Identity.PackageId,
-                identity.PackageId)
-            && StringComparer.OrdinalIgnoreCase.Equals(
-                node.Identity.Version,
-                identity.Version));
-
     private static AssemblyReferenceNode? FindNode(
         IReadOnlyList<AssemblyReferenceNode> nodes,
         ManagedMetadataIdentity identity) =>
@@ -594,21 +521,6 @@ internal static class DependencyGraphProjection
                 $" ({failure.ToString().ToLowerInvariant()})";
         }
         return Field(label);
-    }
-
-    private static InertString PackageLabel(
-        PackageDependencyIdentity identity,
-        string? author)
-    {
-        InertString id = Field(identity.PackageId);
-        InertString version = Field(identity.Version);
-        return string.IsNullOrEmpty(author)
-            ? InertString.Format(
-                TextPolicy.Field,
-                $"{id} {version}")
-            : InertString.Format(
-                TextPolicy.Field,
-                $"{id} {version} [{Field(author)}]");
     }
 
     private static InertString PackageLabel(

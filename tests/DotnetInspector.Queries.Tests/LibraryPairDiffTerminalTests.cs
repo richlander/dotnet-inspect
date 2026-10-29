@@ -302,7 +302,6 @@ public sealed class LibraryPairDiffTerminalTests
             "LibraryApiDiffFixture",
             "1.0.0",
             "2.0.0",
-            new DiffTargets.Library(),
             ApiSurfaceScope.Public,
             limits,
             typeSelection);

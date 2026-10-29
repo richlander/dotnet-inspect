@@ -509,6 +509,10 @@ internal sealed record TypeHierarchyRelationCandidate(
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    internal MemberDocumentResolutionOutcome? OverloadSectionResolution { get; init; }
+    internal MemberDocumentationAttachmentOutcome? OverloadSectionDocumentation { get; init; }
+    internal int? OverloadSectionCount { get; init; }
+
     public string? WorkspacePacket { get; init; }
     public ExplanationProjection? Explanation { get; init; }
     public bool EnvelopeOutput { get; init; }

@@ -291,6 +291,37 @@ public sealed partial class MemorySafetyMetadataIndexTests
         Assert.Equal(0, failed.AssociationMethodSemanticsRows);
     }
 
+    [Fact]
+    public void MemorySafetyMetadataIndex_QueryViewsReceiptIndependently()
+    {
+        using OpenedMetadata opened = Open(BuildSyntheticImage([2]));
+        MetadataReader reader = opened.Reader;
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.CreateReceipted(reader);
+        MemorySafetyMetadataIndex first =
+            index.CreateReceiptedQueryView();
+        MemorySafetyMetadataIndex second =
+            index.CreateReceiptedQueryView();
+        var property = (PropertyDefinitionHandle)FindPropertyOrEvent(
+            reader,
+            "Samples.Target",
+            "AssociatedProperty");
+        MethodDefinitionHandle getter =
+            reader.GetPropertyDefinition(property).GetAccessors().Getter;
+        MemorySafetyMemberContractResult expected =
+            index.GetMemberContract(getter);
+        MemorySafetyMetadataWork parentBefore = index.RecordedWork!;
+
+        Assert.Equal(MemorySafetyMetadataWork.Empty, first.ConstructionWork);
+        Assert.Equal(MemorySafetyMetadataWork.Empty, first.RecordedWork);
+        Assert.Equal(MemorySafetyMetadataWork.Empty, second.ConstructionWork);
+        Assert.Equal(MemorySafetyMetadataWork.Empty, second.RecordedWork);
+        Assert.Equal(expected, first.GetMemberContract(getter));
+        Assert.NotEqual(MemorySafetyMetadataWork.Empty, first.RecordedWork);
+        Assert.Equal(MemorySafetyMetadataWork.Empty, second.RecordedWork);
+        Assert.Equal(parentBefore, index.RecordedWork);
+    }
+
     static (byte[] Image, int AssociationRows, int AttributeRows, int NameChars)
         ReceiptFixture(string name)
     {

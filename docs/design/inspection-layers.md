@@ -285,8 +285,8 @@ consumer and resource canaries.
 `BrowserEngineBoundaryTests.PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible`
 executes the query from exact in-memory bytes in the inspect-web consumer test
 surface. The CI inspect-web lane publishes the Browser/Wasm engine, where the
-exported `QueryPackageDependencies` operation roots the same query through
-`PackageDependencyGroupsQuery`; the
+exported `InspectPackageDependencies` operation roots the same manifest facts
+through `PackageDependencyInspectionOperation`; the
 `PackageManifestFactsProjection.cs` and `PackageManifestFactsQuery.cs`
 change-detection canaries ensure changes to either side of that path cannot
 skip the lane.

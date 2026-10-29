@@ -2225,22 +2225,17 @@ only ordinary compiler output.
    throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
    Printability here is a function of **provenance, not content**: the same
    helper receives user-typed coordinates and artifact-derived ones, so it
-   cannot be decided by inspecting the value. Three graph-resolved paths reach
+   cannot be decided by inspecting the value. Two graph-resolved paths reach
    it, all verified:
 
    - `ProjectCommand` → `ProjectAssetsParser` package references →
      `PackageExtractor.ExtractPackageAsync`.
-   - `NuspecParser` → `PackageDependency.Id`/`.Version` →
-     `DependencyResolutionService.ResolveDependencyTreeAsync` →
-     `PackageExtractor.TryGetNuspecXmlAsync` → `NuGetCache.TryGetCachedPackage`.
    - A package-authored `DotnetToolSettings.xml` `Id` becoming the current
      package source, then reaching acquisition and cache validation.
 
-   The second path leaks twice and reaches a package the user never named.
-   `DependencyResolutionService` logs `dep.Id`/`dep.Version` before any
-   validation, then catches `Exception` and logs `ex.Message`, re-emitting the
-   rejected value; that same handler returns an empty result, which is the
-   success-shaped failure this document forbids elsewhere.
+   The former transitive `DependencyResolutionService` path is retired: its
+   unused tree/graph execution, including pre-validation dependency logging,
+   has been removed after the CLI adopted typed package traversal.
    `ValidatePathComponent` does not reject control characters other than
    `NUL`, so an `ESC` passes it outright. The nuspec projection boundary now
    rejects malformed XML, unsupported structure, identity mismatch, dependency
@@ -2249,8 +2244,7 @@ only ordinary compiler output.
    `PackageManifestFactsQueryTests.FailureMessage_IsStableForEveryReason`,
    `FailureMessage_IsSafeForUnknownFutureReason`, and the hostile-input
    execution tests gate that diagnostic contract. Package-coordinate validation
-   and the two graph-resolution leaks remain the next application of the
-   hardened-entrypoint pattern.
+   remains the next application of the hardened-entrypoint pattern.
 10. Establish fuzzing over the PE, metadata, PDB, nuspec, and archive entry
     points. The domain-matched precedent is `binutils`, whose parsers are
     continuously fuzzed and have repeatedly yielded CVEs that way. Most of
