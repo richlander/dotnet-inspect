@@ -304,8 +304,8 @@ test("duplicate activation shares one in-flight request", async () => {
   assert.equal(current.result?.outcome, "Available");
 });
 
-test("current results are retained when Analysis becomes hidden", async () => {
-  let visible = true;
+test("current results rerender a visible Overview", async () => {
+  let lens: "analysis" | "overview" = "analysis";
   let queries = 0;
   let renders = 0;
   let complete:
@@ -327,13 +327,32 @@ test("current results are retained when Analysis becomes hidden", async () => {
     },
   });
 
-  const inspection = coordinator.inspect(request(() => visible));
-  visible = false;
+  const inspection = coordinator.inspect(
+    request(() => lens === "analysis" || lens === "overview"));
+  lens = "overview";
   complete?.(available());
   await inspection;
 
   assert.equal(current.result?.outcome, "Available");
   assert.equal(queries, 1);
+  assert.equal(renders, 2);
+});
+
+test("current results do not rerender an unrelated surface", async () => {
+  let renders = 0;
+  const current = state();
+  const coordinator = createTypeRelationsCoordinator({
+    state: current,
+    query: async () => available(),
+    describeError: String,
+    render() {
+      renders++;
+    },
+  });
+
+  await coordinator.inspect(request(() => false));
+
+  assert.equal(current.result?.outcome, "Available");
   assert.equal(renders, 1);
 });
 

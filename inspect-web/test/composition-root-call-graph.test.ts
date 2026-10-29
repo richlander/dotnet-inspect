@@ -1940,7 +1940,7 @@ test("Type Overview adopts the full-area metadata surface", () => {
     /case "metadata":\s*case "overview":\s*return renderTypeMetadataHtml\(item\);/);
   assert.match(
     appSource,
-    /function inspectSelectedTypeRelations\(\)[\s\S]*?return \(state\.lens === "overview" \|\| state\.lens === "metadata"\)[\s\S]*?currentTypeMetadataSignature/);
+    /function inspectSelectedTypeRelations\(\)[\s\S]*?const isCurrent = \(\) =>[\s\S]*?currentTypeMetadataSignature[\s\S]*?isCurrent,\s*isVisible: \(\) =>\s*\(state\.lens === "analysis"\s*\|\| state\.lens === "overview"\s*\|\| state\.lens === "metadata"\)\s*&& isCurrent\(\)/);
   assert.doesNotMatch(
     renderLens,
     /case "metadata":[\s\S]*?typeHeadingHtml\(item\)/);

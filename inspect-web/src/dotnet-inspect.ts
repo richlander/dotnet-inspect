@@ -24040,6 +24040,14 @@ async function inspectSelectedTypeRelations() {
     type,
     pkg,
     selectedTypeMetadataLibraryIdentity());
+  const isCurrent = () => {
+    const currentType = selectedType();
+    return currentType != null
+      && currentTypeMetadataSignature(
+        currentType,
+        currentPackage(),
+        selectedTypeMetadataLibraryIdentity()) === signature;
+  };
   return typeRelationsInspection.inspect({
     signature,
     packageId: pkg.id,
@@ -24049,23 +24057,12 @@ async function inspectSelectedTypeRelations() {
     assembly: type.assembly,
     typeDefinitionId: type.definitionId ?? type.id,
     workspaceJson,
-    isCurrent: () => {
-      const currentType = selectedType();
-      return currentType != null
-        && currentTypeMetadataSignature(
-          currentType,
-          currentPackage(),
-          selectedTypeMetadataLibraryIdentity()) === signature;
-    },
-    isVisible: () => {
-      const currentType = selectedType();
-      return state.lens === "analysis"
-        && currentType != null
-        && currentTypeMetadataSignature(
-          currentType,
-          currentPackage(),
-          selectedTypeMetadataLibraryIdentity()) === signature;
-    },
+    isCurrent,
+    isVisible: () =>
+      (state.lens === "analysis"
+        || state.lens === "overview"
+        || state.lens === "metadata")
+      && isCurrent(),
   });
 }
 
