@@ -1,6 +1,5 @@
 import {
   dependencyGraphExternalKey,
-  dependencyGraphGroupSelectionIndex,
   dependencyGraphPackageKey,
   ensureBoundedGraphNode,
   mermaidLabel,
@@ -17,7 +16,6 @@ import type {
   BrowserCallGraphTarget,
 } from "./facades/inspect-web-source.d.ts";
 import type {
-  BrowserAssemblyReferenceList,
   BrowserPackageHierarchy,
   BrowserPackageHierarchyRow,
 } from "./facades/inspect-web-package.d.ts";
@@ -62,6 +60,13 @@ export interface PackageHierarchyGraph {
   occurrenceCount: number;
   shownOccurrenceCount: number;
   truncated: boolean;
+}
+
+interface AssemblyReferenceList {
+  readonly references: readonly {
+    readonly name: string;
+    readonly version: string;
+  }[];
 }
 
 export function buildPackageHierarchyGraphMermaid(
@@ -112,7 +117,7 @@ export function buildPackageHierarchyGraphMermaid(
 
 export function buildAssemblyReferenceGraphMermaid(
   assemblyName: string,
-  referenceList: BrowserAssemblyReferenceList,
+  referenceList: AssemblyReferenceList,
 ): AssemblyReferenceGraph | null {
   const references = referenceList.references;
   if (!references.length) return null;
@@ -573,17 +578,13 @@ export async function buildDependencyGraphMermaid(
   const groupFor = (pkg: DependencyGraphPackage): DependencyGroup | null => {
     if (packageIdentityKey(pkg) === packageIdentityKey(model.package)) {
       const groups = model.packageDependencies?.dependencyGroups || [];
-      const fallbackGroupIndex = groups.some(
+      const explicitGroupIndex = groups.some(
         group => group.index === model.dependenciesGroupIndex)
         ? model.dependenciesGroupIndex
-        : groups.find(group => group.isActive)?.index ?? groups[0]?.index ?? null;
-      const selectedGroupIndex = dependencyGraphGroupSelectionIndex(
-        model.packageDependencies,
-        model.dependenciesGroupIndex,
-        fallbackGroupIndex);
+        : null;
       return selectedDependencyGroup(
         model.packageDependencies,
-        selectedGroupIndex);
+        explicitGroupIndex);
     }
 
     const data = model.workspaceDependencies[workspaceDependencyKey(pkg)];
