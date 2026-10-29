@@ -106,6 +106,7 @@ public class TypeOptionsParserTests
 
     [Theory]
     [InlineData()]
+    [InlineData("--mermaid")]
     [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1")]
     [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1", "--json")]
     [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1", "--markdown")]
@@ -116,8 +117,13 @@ public class TypeOptionsParserTests
     [InlineData("--library", "/missing/no-type.dll")]
     [InlineData("--project", "/missing/project.assets.json")]
     [InlineData("System.Text.Json")]
+    [InlineData("System.Text.Json", "--mermaid")]
+    [InlineData("Serilog", "--mermaid")]
     [InlineData("Microsoft.Azure.SignalR@1.33.1")]
+    [InlineData("Microsoft.Azure.SignalR@1.33.1", "--mermaid")]
     [InlineData("/missing/no-type.nupkg")]
+    [InlineData("/missing/no-type.nupkg", "--mermaid")]
+    [InlineData("/missing/no-type.dll", "--mermaid")]
     [InlineData("", "--package", "Microsoft.Azure.SignalR@1.33.1")]
     [InlineData("-t", " ", "--package", "Microsoft.Azure.SignalR@1.33.1")]
     public async Task MissingType_FailsWithoutInspectionOutput(

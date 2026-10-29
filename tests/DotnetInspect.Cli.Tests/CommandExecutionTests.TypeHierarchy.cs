@@ -2,6 +2,19 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public async Task TypeHierarchy_Mermaid_BareTypeUsesFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Regex", "--mermaid");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith(
+            "graph TD\n  n0[\"class System.Text.RegularExpressions.Regex\"]",
+            output);
+        Assert.Contains("resolved via platform find", error);
+    }
+
     [Theory]
     [InlineData("System.Math")]
     [InlineData("Math")]

@@ -690,7 +690,21 @@ public static class TypeOptionsParser
         ResolvedMemberInspectionPlan inspectionPlan =
             ResolvedMemberInspectionPlan
                 .FromCompatibilityOptions(options);
-        return TypeCommandPlanner.Plan(options, inspectionPlan) switch
+        TypeCommandPlanningResult planning =
+            TypeCommandPlanner.Plan(options, inspectionPlan);
+        if (planning is TypeCommandPlanningResult.Rejected
+                { Error: TypeCommandPlanner.ExactTypeMermaidError }
+            && !sourceSelection.HasExplicitSource
+            && string.IsNullOrWhiteSpace(options.TypeName)
+            && string.IsNullOrWhiteSpace(options.TypeFilter)
+            && options.PlatformPrefixQuery is null)
+        {
+            // Bare names need find-if-miss before exact-Type eligibility.
+            planning = new TypeCommandPlanningResult.Planned(
+                new TypeCommandPlan.Standard());
+        }
+
+        return planning switch
         {
             TypeCommandPlanningResult.Planned planned =>
                 new Success(
