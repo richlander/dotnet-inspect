@@ -142,6 +142,73 @@ function demoCallGraph(
   };
 }
 
+function managedPeerTypeFind(): unknown {
+  return {
+    status: "Completed",
+    operation: {
+      find: {
+        content: {
+          kind: "evaluated",
+          contexts: [{ is_realized: true, failures: [] }],
+          members: [{ is_complete: true }],
+          answers: [{
+            identity: { ordinal: 1 },
+            candidates: [{
+              wireIdentity: "managed-peer-neighbor",
+              coordinate: {
+                kind: "assembly",
+                library_identity: {
+                  name: other.name,
+                  version: other.version,
+                  culture: other.culture,
+                  public_key_token: other.publicKeyToken,
+                },
+              },
+              name: {
+                namespace: "Example",
+                segments: ["Neighbor"],
+              },
+              declaration_kind: "Class",
+              module_version_id:
+                "00000000-0000-0000-0000-000000000001",
+              observation: {
+                context_order: 0,
+                member_order: 0,
+                realization: {
+                  kind: "package",
+                  package_id: peerSurface.package,
+                  version: peerSurface.version,
+                  producer: "configured",
+                },
+              },
+            }],
+            is_complete: true,
+          }],
+        },
+        share: {
+          kind: "nonProjectable",
+          fullUrl: null,
+          packet: null,
+          path: "managed-peer-neighbor",
+          reason: "Fixture Type Find is not projectable.",
+        },
+        diagnostics: [],
+      },
+      activations: [{
+        candidate: {
+          answerOrdinal: 1,
+          candidateOrdinal: 1,
+        },
+        source: "Package",
+        status: "Available",
+        action: "managed-spotlight-type",
+        reason: null,
+      }],
+    },
+    reason: null,
+  };
+}
+
 function homeDemoResult(
   section: "Methods" | "Call Graph",
   focusKind: "package" | "platform",
@@ -416,6 +483,16 @@ async function installHomeDemo(
         [id]: homeDemoResolution(id, section, focusKind),
       },
       results: { [id]: homeDemoResult(section, focusKind) },
+      ...(section === "Methods" && focusKind === "package"
+        ? {
+            managedTypeFind: managedPeerTypeFind(),
+            managedSpotlightNavigationId: "t0",
+            managedSpotlightSelection: {
+              definitionId: peerSurface.types[0]!.definitionId,
+              assemblyName: peerSurface.types[0]!.assemblyName,
+            },
+          }
+        : {}),
       ...(options?.holdResolutionAt === undefined
         ? {}
         : { resolutionPendingOrdinal: options.holdResolutionAt }),
@@ -1045,6 +1122,47 @@ test("retained Package Call Graph enters the active realization", async ({
       packageId: surface.package,
       version: surface.version,
       targetFramework: surface.activeFramework,
+    },
+  ]);
+  expect(await page.locator("html")
+    .getAttribute("data-compatibility-call-graph")).toBeNull();
+});
+
+test("managed Spotlight Package Call Graph retains the selected realization", async ({
+  page,
+}) => {
+  await openHomeDemo(page, "Methods", "package");
+  await page.keyboard.press("Control+p");
+  await page.locator("#spotlight-input").fill("Neighbor");
+  await page.getByRole("option")
+    .filter({ hasText: "Peer.Package@1.0.0" })
+    .click();
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Neighbor");
+  await chooseSubject(page, "member", "Member");
+  await chooseInspector(
+    page,
+    "data-member-section",
+    "call-graph",
+    "Call graph",
+  );
+  await expect(page.locator("#call-graph-diagram svg")).toBeVisible();
+  const serialized = await page.locator("html")
+    .getAttribute("data-retained-call-graph-request");
+  expect(serialized).not.toBeNull();
+  if (serialized === null)
+    throw new Error("The managed Spotlight Call Graph request was not observed.");
+  const request: unknown = JSON.parse(serialized);
+  expect(request).toMatchObject([
+    expect.any(String),
+    expect.any(String),
+    "t0",
+    {
+      packageId: peerSurface.package,
+      version: peerSurface.version,
+      targetFramework: peerSurface.activeFramework,
     },
   ]);
   expect(await page.locator("html")

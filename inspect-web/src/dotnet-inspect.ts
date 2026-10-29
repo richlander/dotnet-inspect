@@ -18261,6 +18261,11 @@ async function pickManagedSpotlightType(
             selected.navigation.posting,
           );
           retainedWorkspacePresentation = selected.navigation.presentation;
+          associateRetainedPackageCallGraphAuthority(
+            selected.navigation.posting,
+            selected.navigation.navigationId,
+            selected.pkg,
+          );
         }
         installManagedSpotlightType(selected.pkg, selected.type);
         render({ synchronizeUrl: false });
@@ -18405,6 +18410,7 @@ async function projectManagedSpotlightActivation(
   navigation: {
     posting: BrowserRetainedWorkspacePosting;
     presentation: NavigationDescriptorPresentation;
+    navigationId: string;
   } | null;
 }> {
   if (activation.status === "blocked") {
@@ -18466,6 +18472,7 @@ async function projectManagedNavigationType(
   navigation: {
     posting: BrowserRetainedWorkspacePosting;
     presentation: NavigationDescriptorPresentation;
+    navigationId: string;
   };
 }> {
   if (navigation.outcome.kind !== "Applied") {
@@ -18517,6 +18524,7 @@ async function projectManagedNavigationType(
     navigation: {
       posting: updatedPosting,
       presentation,
+      navigationId: inventory.navigationId,
     },
   };
 }

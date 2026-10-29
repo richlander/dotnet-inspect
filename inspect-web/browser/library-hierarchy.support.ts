@@ -349,6 +349,12 @@ interface HomeDemoFixture {
   catalog: readonly BrowserHomeDemoCatalogEntry[];
   resolutions?: Readonly<Record<string, BrowserHomeDemoResolved>>;
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
+  managedTypeFind?: unknown;
+  managedSpotlightNavigationId?: string;
+  managedSpotlightSelection?: {
+    readonly definitionId: string;
+    readonly assemblyName: string;
+  };
   catalogPending?: boolean;
   resolutionPendingOrdinal?: number;
   resolutionFailureOrdinal?: number;
@@ -1638,6 +1644,15 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      const managedTypeFind = ${JSON.stringify(
+        homeDemos?.managedTypeFind ?? null)};
+      export async function findTypes() {
+        return managedTypeFind ?? {
+          status: "Unavailable",
+          operation: null,
+          reason: "Managed Type Find is unavailable.",
+        };
+      }
       ${diagnostics.libraryApiDiffPilot ? `
       export async function queryLibraryApiDiff(operationId, request) {
         const endpoint = version => ({
@@ -3355,6 +3370,10 @@ async function installFacades(
       }`,
     catalog: `
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
+      const managedSpotlightNavigationId = ${JSON.stringify(
+        homeDemos?.managedSpotlightNavigationId ?? null)};
+      const managedSpotlightSelection = ${JSON.stringify(
+        homeDemos?.managedSpotlightSelection ?? null)};
       const ecosystemAdmissionOptions = ${JSON.stringify(ecosystemAdmission)};
       const productEcosystems = [{
         id: "ecosystem.fixture-platform",
@@ -4749,6 +4768,68 @@ async function installFacades(
       }
       export function validateRetainedWorkspaceNavigationAuthority() {
         return true;
+      }
+      export function activateSpotlightDestination(action) {
+        if (action !== "managed-spotlight-type"
+          || managedSpotlightNavigationId === null
+          || managedSpotlightSelection === null
+          || preparedRetainedWorkspace === null) {
+          return {
+            status: "unavailable",
+            navigation: null,
+            surface: null,
+            selectedType: null,
+            selection: null,
+            activationStatus: null,
+            reason: "Managed Spotlight activation is unavailable.",
+          };
+        }
+        const inventory = preparedRetainedWorkspace.packages.find(
+          item => item.navigationId === managedSpotlightNavigationId);
+        const navigation = structuredClone(
+          preparedRetainedWorkspace.navigation);
+        const target = navigation.snapshot.packages.find(
+          item => item.subject.id === inventory?.consumerPackageSubjectId);
+        if (inventory === undefined || target === undefined) {
+          throw new Error(
+            "Managed Spotlight activation target is unavailable.");
+        }
+        navigation.operation = "Navigate";
+        navigation.request = "managed-spotlight-type";
+        navigation.snapshot.activePackage = target.subject.id;
+        navigation.snapshot.activeSubject = target.subject;
+        navigation.snapshot.packages = navigation.snapshot.packages.map(
+          item => ({
+            ...item,
+            state: item === target ? "Active" : "Available",
+            isCurrent: item === target,
+          }));
+        navigation.snapshot.hierarchy = navigation.snapshot.hierarchy.map(
+          item => item.kind === "Package"
+            ? {
+                ...item,
+                state: item.subject.id === target.subject.id
+                  ? "Active"
+                  : "Available",
+                isActive: item.subject.id === target.subject.id,
+              }
+            : item);
+        navigation.synchronization = "Current";
+        navigation.authority = {
+          session: "home-demo-session",
+          revision: "managed-spotlight-revision",
+          intent: "managed-spotlight-intent",
+          epoch: "managed-spotlight-epoch",
+        };
+        return {
+          status: "navigation",
+          navigation,
+          surface: null,
+          selectedType: null,
+          selection: managedSpotlightSelection,
+          activationStatus: null,
+          reason: null,
+        };
       }
       export async function recordRetainedWorkspaceNavigationPosting() {
         if (preparedRetainedWorkspace?.navigation.operation === "Scope"
