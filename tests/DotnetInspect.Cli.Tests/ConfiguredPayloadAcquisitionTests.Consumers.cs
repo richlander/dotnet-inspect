@@ -29,12 +29,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             ["type", RangeType, "--package", $"{Id}@{endpoints}", "--at", selector,
-                "--source", fileUri ? new Uri(source).AbsoluteUri : source]);
+                "--source", fileUri ? new Uri(source).AbsoluteUri : source, "--markdown"]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
         Assert.Contains(RangeType, result.Output);
-        Assert.Contains($"{Id} {expected}", result.Output);
+        Assert.Contains($"Package: {Id}", result.Output);
+        Assert.Contains($"Version: {expected}", result.Output);
     }
 
     [Fact]
@@ -1073,11 +1074,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync(
             ["type", RangeType, "--package", $"{Id}@{Version}",
                 "--source", source, "--source", Path.Combine(_root, "unreadable"),
-                ]);
+                "--markdown"]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
-        Assert.Contains($"{Id} {Version}", result.Output);
+        Assert.Contains($"Package: {Id}", result.Output);
+        Assert.Contains($"Version: {Version}", result.Output);
     }
 
     [Theory]
@@ -1096,12 +1098,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync(
             ["type", RangeType, "--package", $"{Id}{selector}",
-                "--source", source]);
+                "--source", source, "--markdown"]);
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
         Assert.Contains(RangeType, result.Output);
-        Assert.Contains($"{Id} {expectedVersion}", result.Output);
+        Assert.Contains($"Package: {Id}", result.Output);
+        Assert.Contains($"Version: {expectedVersion}", result.Output);
     }
 
     [Fact]
