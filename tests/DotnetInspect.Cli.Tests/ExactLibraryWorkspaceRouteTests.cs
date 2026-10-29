@@ -256,6 +256,8 @@ public sealed class ExactLibraryWorkspaceRouteTests
         string[] arguments =
         [
             "type",
+            "-t",
+            "*",
             "--package",
             "System.Text.Json@10.0.0",
             "--library",
@@ -291,6 +293,8 @@ public sealed class ExactLibraryWorkspaceRouteTests
         string[] arguments =
         [
             "type",
+            "-t",
+            "*",
             "--package",
             "System.Text.Json@10.0.0",
             "--library",

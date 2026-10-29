@@ -1380,6 +1380,8 @@ public static partial class ApiSurfaceExtractor
                 IsObsolete = typeIsObsolete,
                 ObsoleteMessage = typeObsoleteMessage,
                 ObsoleteIsError = typeObsoleteIsError,
+                NestedTypeCount =
+                    typeDef.GetNestedTypes().Count(),
                 MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 Layout = (ApiTypeLayout)(attributes & TypeAttributes.LayoutMask),
                 LayoutDetails = typesOnly

@@ -21,7 +21,8 @@ internal static class DiffAnalysisCommandCapability
     /// <summary>
     /// The <c>diff --analysis</c> command's binding to Diff's Compare
     /// inspection route. It selects every analysis the route's operation can
-    /// dispatch, and every analysis-set run executes through it.
+    /// dispatch; every analysis-set run executes that route through
+    /// <c>DiffOperation.ExecuteSurfaceSetAsync</c>.
     /// </summary>
     internal static InspectionConsumerBinding<
         DiffAnalysisInspectionRequest,

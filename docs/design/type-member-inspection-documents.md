@@ -602,16 +602,18 @@ projections retain their independently admitted routes.
 As a performance prerequisite for later slice 7 adoption, exact direct-Library
 effective discovery in the CLI uses
 `TypeSubjectInspectionOperation` without claiming adoption of the four public
-document declarations. Exact `Type Info` requests only the detached Type
-subject. Bare discovery adds declared Member-group selector Counts and a
-separately typed same-image contextual-extension Exists request. Both share one
-opened assembly image; neither constructs Member-group Rows or the rich API
-surface. Direct bare discovery admits only minimal, non-tree output, which
-lists categories without their members, so it does not run the opt-in unsafe
-applicability probe; exact `Unsafe Members` discovery still runs it on demand.
-Unsupported declaration shapes, non-exact or non-round-tripping names, and
-requests that list category members retain the established route and its
-probe.
+document declarations. Direct-Library TSV `Type Info` now selects complete
+Signature before inspection and streams that host-neutral result without
+constructing the rich API surface. Bare discovery retains declaration demand,
+then adds declared Member-group selector Counts and a separately typed
+same-image contextual-extension Exists request. Both routes share one opened
+assembly image; neither constructs Member-group Rows. Direct bare discovery
+admits only minimal, non-tree output, which lists categories without their
+members, so it does not run the opt-in unsafe applicability probe; exact
+`Unsafe Members` discovery still runs it on demand. Non-TSV output,
+non-direct acquisition, unsupported declaration shapes, non-exact or
+non-round-tripping names, and requests that list category members retain the
+established route and its probe.
 
 The motivating production case is .NET 11 RC1 CoreLib
 `System.Text.StringBuilder`, whose previous exact direct-Library effective

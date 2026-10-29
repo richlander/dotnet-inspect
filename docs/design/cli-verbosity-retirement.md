@@ -285,8 +285,10 @@ For Type members, the motivating progression is:
 These are semantic descriptions, not newly registered section names, facet
 IDs, or command aliases. The focused adopting owner chooses those bindings.
 The existing Type default remains the cheap MemberGroup question; it does not
-select a representative overload signature, count exact overloads, or obtain
-documentation merely to emit a group row. Group identity comes from the
+select a representative overload signature or obtain documentation merely to
+emit a group row. The subsequently approved
+[Type navigation refinement](primary-subject-views.md#type-and-member-navigation)
+adds exact-overload Counts to those group summaries. Group identity comes from the
 [Type/Member population owner](type-member-inspection-documents.md#population-bindings-and-counts),
 not grouping rendered signatures or names in the CLI.
 

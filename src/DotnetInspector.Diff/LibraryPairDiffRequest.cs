@@ -3,6 +3,8 @@ using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using ILInspector.Research;
+using Inspector.Findings;
 
 namespace DotnetInspector.Diff;
 
@@ -52,19 +54,25 @@ public sealed class LibraryPairDiffRequest : DiffRequest
     }
 
     /// <summary>
-    /// Asks for only the Library API presentation, running no analysis.
-    /// <paramref name="typeSelection"/> narrows the comparison itself, so
-    /// changed Types outside it are not extracted.
+    /// Asks for only the Library API presentation of the whole Library,
+    /// running no analysis. <paramref name="typeSelection"/> is its only
+    /// narrowing: it narrows the comparison itself, so changed Types outside
+    /// it are not extracted.
     /// </summary>
     public LibraryPairDiffRequest(
         string name,
         string beforeVersion,
         string afterVersion,
-        DiffTargets targets,
         ApiSurfaceScope view,
         ApiSurfaceProjectionLimits bounds,
         ApiTypeSelection? typeSelection)
-        : this(name, beforeVersion, afterVersion, targets, view, bounds)
+        : this(
+            name,
+            beforeVersion,
+            afterVersion,
+            new DiffTargets.Library(),
+            view,
+            bounds)
     {
         LibraryApi = true;
         TypeSelection = typeSelection;
@@ -230,19 +238,90 @@ public sealed class DiffLibraryPair
 
 /// <summary>
 /// What the host supplies for the pair's content beyond the request: the
-/// analyses the host cannot run.
+/// analyses the host cannot run, and its method-body readers.
 /// </summary>
 public sealed class DiffPairContent
 {
     public DiffPairContent(
-        IReadOnlyList<DiffAnalysisHostUnavailability> hostUnavailability)
+        IReadOnlyList<DiffAnalysisHostUnavailability> hostUnavailability,
+        DiffBodyContent? bodies = null)
     {
         HostUnavailability = hostUnavailability
             ?? throw new ArgumentNullException(nameof(hostUnavailability));
+        Bodies = bodies;
     }
 
     /// <summary>Selected analyses the host reports as unavailable.</summary>
     public IReadOnlyList<DiffAnalysisHostUnavailability> HostUnavailability { get; }
+
+    /// <summary>
+    /// The host's method-body readers, or null when the host reads no
+    /// bodies beyond what the endpoint source reads itself.
+    /// </summary>
+    public DiffBodyContent? Bodies { get; }
+}
+
+/// <summary>
+/// The host's method-body readers over each endpoint's body population, the
+/// assemblies whose method bodies the body analyses read. The host supplies
+/// them until adoption step 7 gives Member body content one selected
+/// population (diff-system.md#adoption-and-retirement); the operation decides
+/// when each runs and what its absence means. A reader that is null leaves its
+/// analyses without a producer input.
+/// </summary>
+public sealed class DiffBodyContent
+{
+    public DiffBodyContent(
+        int beforeAssemblyCount,
+        int afterAssemblyCount,
+        Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>?
+            compareBodySignals = null,
+        Func<ImplementationDiffResult>? compareImplementation = null,
+        Func<StringLiteralComparisonQueryPlan, RetainedFindingComparisonSet>?
+            compareStringLiterals = null,
+        Func<IReadOnlyList<string>, RetainedFindingComparisonSet>?
+            compareUnsafeMembers = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(beforeAssemblyCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(afterAssemblyCount);
+        BeforeAssemblyCount = beforeAssemblyCount;
+        AfterAssemblyCount = afterAssemblyCount;
+        CompareBodySignals = compareBodySignals;
+        CompareImplementation = compareImplementation;
+        CompareStringLiterals = compareStringLiterals;
+        CompareUnsafeMembers = compareUnsafeMembers;
+    }
+
+    /// <summary>The Before endpoint's body population size.</summary>
+    public int BeforeAssemblyCount { get; }
+
+    /// <summary>The After endpoint's body population size.</summary>
+    public int AfterAssemblyCount { get; }
+
+    /// <summary>
+    /// Runs the one shared body-signal comparison retaining the given
+    /// descriptors.
+    /// </summary>
+    public Func<IReadOnlyList<FindingDescriptor>, ResearchComparison>?
+        CompareBodySignals { get; }
+
+    /// <summary>
+    /// Runs the typed implementation comparison. The operation runs it once,
+    /// before any producer; its <see cref="InvalidOperationException"/> is a
+    /// target failure of the request.
+    /// </summary>
+    public Func<ImplementationDiffResult>? CompareImplementation { get; }
+
+    /// <summary>Compares string literals under the request's predicate.</summary>
+    public Func<StringLiteralComparisonQueryPlan, RetainedFindingComparisonSet>?
+        CompareStringLiterals { get; }
+
+    /// <summary>
+    /// Compares the unsafe member census, given the request's resolved Type
+    /// names: empty at Library surface.
+    /// </summary>
+    public Func<IReadOnlyList<string>, RetainedFindingComparisonSet>?
+        CompareUnsafeMembers { get; }
 }
 
 /// <summary>

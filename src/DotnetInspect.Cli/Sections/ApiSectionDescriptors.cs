@@ -819,6 +819,8 @@ public static class ApiMemberSectionPipelines
                 .. CommonExactOnlySections,
                 SectionNames.Signature,
                 SectionNames.CustomAttributes,
+                SectionNames.Overloads,
+                SectionNames.DocumentedOverloads,
             ],
             StringComparer.OrdinalIgnoreCase);
 
@@ -992,6 +994,8 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Properties>()
             .Add<ApiMemberDetailSectionDescriptors.Signature>()
             .Add<Methods>()
+            .Add<Overloads>()
+            .Add<DocumentedOverloads>()
             .Add<ApiMemberSectionDescriptors.MemberIndex>()
             .Add<ApiMemberSectionDescriptors.SourceLocations>()
             .Add<ApiMemberSectionDescriptors.Operators>()
@@ -1051,6 +1055,30 @@ public static class ApiMemberOverloadSectionDescriptors
 
     private static bool HasSingleBodyBackedMember(ApiType model)
         => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+
+    public sealed class Overloads : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Overloads;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "method");
+    }
+
+    public sealed class DocumentedOverloads : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.DocumentedOverloads;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "method");
+    }
 
     private static bool HasSingleExecutableBodyMember(
         ApiType model,

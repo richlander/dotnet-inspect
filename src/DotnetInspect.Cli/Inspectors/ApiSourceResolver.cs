@@ -428,7 +428,7 @@ internal static class ApiSourceResolver
                 CommandError.Write("No package, library, or platform specified.");
                 CommandError.WriteBlankLine();
                 CommandError.WriteLine("Examples:");
-                CommandError.WriteLine("  dotnet-inspect type --package System.Text.Json");
+                CommandError.WriteLine("  dotnet-inspect type JsonSerializer --package System.Text.Json");
                 CommandError.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
                 return (null!, 1);
             }

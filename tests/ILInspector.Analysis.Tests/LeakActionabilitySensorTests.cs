@@ -8,7 +8,7 @@ namespace ILInspector.Analysis.Tests;
 public sealed class LeakActionabilitySensorTests
 {
     const string MessagePackSha256 =
-        "b2c1cc3fc4c262a0f7cfa14f668afc61c1f8b8b460b51d894d6331b63acc14b2";
+        "1ebc0c2baec5a89b3738e892d61c92f037dd588db52412e1e3bdf2adc407aa94";
 
     [Fact]
     public void Measure_ConsumesGenericProductClassification()
