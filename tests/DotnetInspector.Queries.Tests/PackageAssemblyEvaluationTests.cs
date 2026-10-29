@@ -61,7 +61,7 @@ public sealed class PackageAssemblyEvaluationTests
 
         Assert.Equal(["runtimes/linux-x64/lib/net11.0/A.Primary.dll"], content.OpenedEntries);
         Assert.NotNull(result.SelectedAsset);
-        Assert.Equal(1, result.SelectedAsset.UnevaluatedSiblings);
+        Assert.Equal(0, result.SelectedAsset.UnevaluatedSiblings);
         Assert.Equal("linux-x64", result.Subject.RootRequest.SelectionRuntimeIdentifier);
     }
 
