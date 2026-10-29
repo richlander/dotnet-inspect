@@ -2134,6 +2134,15 @@ public sealed class ExactTypeWorkspaceRouteTests
                 out _));
         Assert.False(
             LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with
+                {
+                    PackagePath = Path.Combine(
+                        Path.GetTempPath(),
+                        "Example.1.0.0.nupkg"),
+                },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
                 options with { Tfm = null },
                 out _));
         Assert.False(

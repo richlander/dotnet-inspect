@@ -617,6 +617,32 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Library_MissingPackageArchiveNamespacePreservesFileNotFound()
+    {
+        string missingPackagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Missing.dll",
+            "--package",
+            missingPackagePath,
+            "--tfm",
+            "net10.0",
+            "--namespace",
+            "DotnetInspect.Cli.Tests");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"File not found: {missingPackagePath}",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
         Library_NamespaceMarkdownRejectsProjectionControls()
     {
         var (exit, output, error) = await RunAppAsync(

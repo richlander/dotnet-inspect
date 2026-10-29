@@ -24,6 +24,9 @@ public partial class LibraryCommand
         request = null;
         if (string.IsNullOrWhiteSpace(options.PackagePath)
             || File.Exists(options.PackagePath)
+            || options.PackagePath.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase)
             || options.PackagePath.Contains("::", StringComparison.Ordinal)
             || options.WorkspacePacket is not null
             || options.PlatformAssembly is not null
