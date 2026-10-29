@@ -1877,7 +1877,8 @@ public sealed partial class ExactTypeInspectionOperationTests
         bool definesType,
         string typeNamespace,
         string typeName,
-        AssemblyReferenceIdentity? forwardTarget = null)
+        AssemblyReferenceIdentity? forwardTarget = null,
+        string? definedTypeName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1906,7 +1907,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString(typeNamespace),
-                metadata.GetOrAddString(typeName),
+                metadata.GetOrAddString(definedTypeName ?? typeName),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));

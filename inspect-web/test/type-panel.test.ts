@@ -1625,6 +1625,7 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
       typeMetadataError: null,
       typeMetadata: {
         exactTypeInspection: availableExactTypeInspection({
+          baseType: "Wrong.CompatibilityBase",
           interfaces: ["System.IDisposable"],
           members: [{
             name: "Serialize",
@@ -1632,6 +1633,17 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
             signature: null,
           }],
         }),
+        typeSignaturePresentation: {
+          type: "System.Text.Json.JsonSerializer",
+          kind: "class",
+          modifiers: [],
+          accessibility: "public",
+          namespace: "System.Text.Json",
+          baseType: "Example.GenericBase<T>",
+          typeParameters: "T : class, new()",
+          interfaceCount: 1,
+          nestedTypeCount: 2,
+        },
         hierarchy: {
           form: "Derived Types",
           status: "available",
@@ -1706,7 +1718,40 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
     /data-graph-asset="lib\/net9\.0\/System\.Text\.Json\.dll"/);
   assert.match(html, /Members/);
   assert.match(html, /data-member-jump-kind="method"/);
+  assert.match(html, /Base type<\/dt><dd>Example\.GenericBase&lt;T&gt;/);
+  assert.match(html, /Type parameters<\/dt><dd>T : class, new\(\)/);
+  assert.match(html, /Nested types<\/dt><dd>2/);
+  assert.doesNotMatch(html, /Wrong\.CompatibilityBase/);
   assert.doesNotMatch(html, /Custom attributes|custom-attribute-list/);
+});
+
+test("unavailable Signature does not substitute compatibility Base or hide relationships", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const html = renderTypeMetadata({
+    item: jsonSerializer,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+      typeMetadataLoading: false,
+      typeMetadataError: null,
+      typeMetadata: {
+        exactTypeInspection: availableExactTypeInspection({
+          baseType: "Wrong.CompatibilityBase",
+          interfaces: ["System.IDisposable"],
+        }),
+        typeSignaturePresentation: null,
+      },
+    },
+    memberCompositionHtml: "",
+    escapeHtml,
+    highlightCSharp,
+    relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
+    factRows,
+  });
+
+  assert.match(html, /Type signature<\/dt><dd>Unavailable/);
+  assert.match(html, /System\.IDisposable/);
+  assert.doesNotMatch(html, /Wrong\.CompatibilityBase/);
 });
 
 for (const count of [2, 40]) {

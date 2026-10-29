@@ -4610,7 +4610,9 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(overview.getByRole("heading", { name: "Type shape" }))
       .toBeVisible({ timeout: 180_000 });
     await expect(overview.locator(".fact-rows"))
-      .toContainText("System.Object");
+      .toContainText("Nested types");
+    await expect(overview.locator(".fact-rows"))
+      .toContainText("9");
     await expect(overview.getByRole("heading", { name: "Implements" }))
       .toBeVisible();
     await expect(overview.locator(".type-chip-list"))

@@ -483,3 +483,8 @@ public class MemberFoldMethodImpl : IMemberFoldA, IMemberFoldB
     public void M() { }
     void IMemberFoldA.M() { }
 }
+
+public class MemberFoldUncertainGetterStatus
+{
+    public int Value { get => 1; }
+}
