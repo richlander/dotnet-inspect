@@ -1505,6 +1505,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryResult))]
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
+[JsonSerializable(typeof(InspectionEnvelope<ProgressiveJsonlProfile>))]
 [JsonSerializable(typeof(BrowserPackageDependencyInspection))]
 [JsonSerializable(
     typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>))]
