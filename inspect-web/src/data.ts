@@ -815,8 +815,11 @@ interface DependencyGroupDependency {
   versionRange?: string;
 }
 
-export interface DependencyGroupData {
-  dependencyGroups?: readonly DependencyGroup[];
+export interface DependencyGroupData<
+  TGroup extends DependencyGroup = DependencyGroup,
+> {
+  dependencyGroups?: readonly TGroup[];
+  selectedDependencyGroup?: TGroup | null;
   dependencyGroupError?: string | null;
   platformReferences?: readonly {
     family: string;
@@ -843,16 +846,26 @@ export function dependencyGraphGroupSelectionIndex(
     : resolvedGroupIndex;
 }
 
-export function selectedDependencyGroup(
-  data: DependencyGroupData | null | undefined,
+export function selectedDependencyGroup<
+  TGroup extends DependencyGroup = DependencyGroup,
+>(
+  data: DependencyGroupData<TGroup> | null | undefined,
   selectedGroupIndex: number | null = null,
-): DependencyGroup | null {
+): TGroup | null {
   const groups = data?.dependencyGroups || [];
   if (!groups.length) return null;
-  const selected = groups.find(group => group.index === selectedGroupIndex);
-  if (selected) return selected;
+  if (selectedGroupIndex !== null) {
+    const selected = groups.find(group => group.index === selectedGroupIndex);
+    if (selected) {
+      return data?.selectedDependencyGroup?.index === selectedGroupIndex
+        ? data.selectedDependencyGroup
+        : selected;
+    }
+  }
   if (data?.dependencyGroupError) return null;
-  return groups.find(group => group.isActive) || null;
+  return data?.selectedDependencyGroup
+    ?? groups.find(group => group.isActive)
+    ?? null;
 }
 
 export function spotlightCandidateKey(pkg: PackageIdentity, typeId: string): string {

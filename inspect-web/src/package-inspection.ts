@@ -132,8 +132,10 @@ export interface PackageDependencyGroupProjection extends DependencyGroup {
   }[];
 }
 
-export interface PackageDependencyProjection extends DependencyGroupData {
+export interface PackageDependencyProjection
+  extends DependencyGroupData<PackageDependencyGroupProjection> {
   readonly dependencyGroups: readonly PackageDependencyGroupProjection[];
+  readonly selectedDependencyGroup: PackageDependencyGroupProjection | null;
   readonly dependencyGroupError: string;
   readonly platformReferences: readonly {
     readonly family: string;
@@ -170,6 +172,7 @@ export function projectPackageDependencyInspection(
     return {
       ...platform,
       dependencyGroups: [],
+      selectedDependencyGroup: null,
       dependencyGroupError: "",
       inspectionError:
         "Package dependency inspection returned no shared content.",
@@ -179,6 +182,7 @@ export function projectPackageDependencyInspection(
     return {
       ...platform,
       dependencyGroups: [],
+      selectedDependencyGroup: null,
       dependencyGroupError: "",
       inspectionError:
         "The package contains no root manifest; dependencies are unavailable.",
@@ -191,6 +195,7 @@ export function projectPackageDependencyInspection(
     return {
       ...platform,
       dependencyGroups: [],
+      selectedDependencyGroup: null,
       dependencyGroupError: "",
       inspectionError: diagnostic
         ?? "The package dependency manifest could not be inspected.",
@@ -205,6 +210,7 @@ export function projectPackageDependencyInspection(
     return {
       ...platform,
       dependencyGroups: [],
+      selectedDependencyGroup: null,
       dependencyGroupError: "",
       inspectionError:
         "A dependency group framework identifier cannot be represented safely.",
@@ -215,16 +221,28 @@ export function projectPackageDependencyInspection(
     framework: frameworks[index] ?? "any",
     isActive: index === selectedGroupIndex,
     isComplete: true,
-    dependencies: (index === selectedGroupIndex && selectedGroup
-      ? selectedGroup
-      : group).dependencies.map(dependency => ({
-        id: dependency.id,
-        versionRange: dependency.versionRange,
-      })),
+    dependencies: group.dependencies.map(dependency => ({
+      id: dependency.id,
+      versionRange: dependency.versionRange,
+    })),
   }));
+  const selectedDependencyGroup =
+    selectedGroup && selectedGroupIndex !== null
+      ? {
+          index: selectedGroupIndex,
+          framework: frameworks[selectedGroupIndex] ?? "any",
+          isActive: true,
+          isComplete: true,
+          dependencies: selectedGroup.dependencies.map(dependency => ({
+            id: dependency.id,
+            versionRange: dependency.versionRange,
+          })),
+        }
+      : null;
   return {
     ...platform,
     dependencyGroups,
+    selectedDependencyGroup,
     dependencyGroupError:
       dependencyGroups.length > 0 && selectedGroupIndex === null
         ? "The manifest declares no dependency group for the active target framework."

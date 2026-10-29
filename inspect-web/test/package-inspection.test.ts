@@ -246,6 +246,69 @@ test("package dependency state rejects contradictory shapes at compile time", ()
   void [loadingWithResult, readyWithError, failedWithoutError];
 });
 
+test("dependency projection keeps source groups separate from logical selection", () => {
+  const result = dependencyResult();
+  if (result.inspection.content?.kind !== "available") {
+    throw new Error("Expected available dependency inspection.");
+  }
+  const groups = [
+    {
+      targetFramework: "any",
+      isImplicitManifestGroup: true,
+      dependencies: [{ id: "A", versionRange: "1" }],
+    },
+    {
+      targetFramework: "net10.0",
+      isImplicitManifestGroup: false,
+      dependencies: [{ id: "B", versionRange: "1" }],
+    },
+    {
+      targetFramework: "any",
+      isImplicitManifestGroup: true,
+      dependencies: [{ id: "C", versionRange: "1" }],
+    },
+  ];
+  const separated = {
+    ...result,
+    inspection: {
+      ...result.inspection,
+      content: {
+        ...result.inspection.content,
+        manifest: {
+          ...result.inspection.content.manifest,
+          dependencyGroups: groups,
+        },
+        dependencies: {
+          groups,
+          requestedTargetFramework: "net10.0",
+          selectedTargetFramework: "any",
+          selectedGroupIndex: 0,
+          selectionStatus: 0,
+          selectedGroup: {
+            targetFramework: "any",
+            isImplicitManifestGroup: true,
+            dependencies: [
+              groups[0]!.dependencies[0]!,
+              groups[2]!.dependencies[0]!,
+            ],
+          },
+        },
+      },
+    },
+  };
+
+  const projection = dependencyProjection(separated);
+
+  assert.deepEqual(
+    projection.dependencyGroups.map(group =>
+      group.dependencies.map(dependency => dependency.id)),
+    [["A"], ["B"], ["C"]]);
+  assert.deepEqual(
+    projection.selectedDependencyGroup?.dependencies.map(
+      dependency => dependency.id),
+    ["A", "C"]);
+});
+
 test("package integrations state rejects contradictory shapes at compile time", () => {
   const result = integrationsResult();
   const loadingWithResult: PackageIntegrationsState = {

@@ -59,6 +59,7 @@ import {
   resolveLoadedGraphTargetCandidate,
   resolveOpportunitySourceCandidate,
   resolveRuntimeGraphTargetCandidate,
+  selectedDependencyGroup,
   workspacePackageRemovalKey,
   runtimeGraphTargetAssemblyIsResident,
   runtimeGraphTargetNavigationDisposition,
@@ -11682,7 +11683,7 @@ function packageDependenciesStatus(
 ) {
   const groups = data.dependencyGroups || [];
   const selectedGroup =
-    groups.find(group => group.index === selectedGroupIndex) ?? groups[0];
+    selectedDependencyGroup(data, selectedGroupIndex) ?? groups[0];
   const dependencyCount = selectedGroup?.dependencies?.length ?? 0;
   const platformCount = platformReferencesForDependencyGroup(
     data.platformReferences ?? [],
@@ -11773,7 +11774,7 @@ function renderPackageDependencies() {
       <div class="type-chip-list" id="dep-tfm-chips">${selectorChips}</div>
     </section>`;
 
-  const depList = dependencyListSectionHtml(groups, selectedGroupIndex);
+  const depList = dependencyListSectionHtml(data, selectedGroupIndex);
 
   return renderPackageDependenciesSurface(
     `<div data-dependency-graph-surface>${dependencyGroupNotice}${selector}${graphSection}</div>${selectedPlatformReferenceSection}${depList}`,
@@ -12071,11 +12072,12 @@ async function uniqueCompatiblePackage(
 // replace just this section in place instead of re-rendering the whole page (which would
 // reset the dependency graph container to its loader and flash the diagram).
 function dependencyListSectionHtml(
-  groups: readonly PackageDependencyGroupProjection[],
+  data: PackageDependencyProjection,
   selectedGroupIndex: number | null,
   matches?: readonly (AppPackage | null)[],
 ) {
-  const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
+  const group = selectedDependencyGroup(data, selectedGroupIndex)
+    ?? data.dependencyGroups[0];
   if (!group) throw new Error("Cannot render a dependency list without a dependency group.");
   const deps = group.dependencies || [];
   return `
@@ -12101,8 +12103,13 @@ async function renderPackageDependencyList() {
   const data = packageDependenciesData();
   const groups = data?.dependencyGroups || [];
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
-  const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
-  if (!group) throw new Error("Cannot match dependencies without a dependency group.");
+  const group = data
+    ? selectedDependencyGroup(data, selectedGroupIndex)
+      ?? groups[0]
+    : null;
+  if (!data || !group) {
+    throw new Error("Cannot match dependencies without a dependency group.");
+  }
   const packages = state.packages.map(pkg => ({ ...pkg }));
   const coordinates = JSON.stringify(dependencyCoordinateCandidates(packages));
   const isCurrent = () =>
@@ -12115,11 +12122,11 @@ async function renderPackageDependencyList() {
     const matches = await Promise.all((group.dependencies || []).map(dependency =>
       uniqueCompatiblePackage(packages, dependency.id, dependency.versionRange)));
     if (!isCurrent()) return;
-    container.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex, matches);
+    container.outerHTML =
+      dependencyListSectionHtml(data, selectedGroupIndex, matches);
     bindPackageDependencyListEvents();
     await renderPackageDependencyIcons(
       data,
-      groups,
       selectedGroupIndex,
       matches);
   } catch (error) {
@@ -12132,16 +12139,15 @@ async function renderPackageDependencyList() {
 }
 
 async function renderPackageDependencyIcons(
-  data: PackageDependencyProjection | null,
-  groups: readonly PackageDependencyGroupProjection[],
+  data: PackageDependencyProjection,
   selectedGroupIndex: number | null,
   matches: readonly (AppPackage | null)[],
 ) {
   const container =
     document.querySelector<HTMLElement>("#dep-list-section");
-  const group =
-    groups.find(candidate => candidate.index === selectedGroupIndex)
-    || groups[0];
+  const groups = data.dependencyGroups;
+  const group = selectedDependencyGroup(data, selectedGroupIndex)
+    ?? groups[0];
   if (!container || !group) return;
 
   const dependencies = group.dependencies || [];
@@ -12225,7 +12231,7 @@ function patchDependenciesGroup() {
     platformSlot.outerHTML =
       platformReferenceSectionHtml(data, selectedGroupIndex);
   }
-  listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
+  listSection.outerHTML = dependencyListSectionHtml(data, selectedGroupIndex);
   bindPackageDependencyListEvents();
   observeAsync(renderPackageDependencyList(), "Matching dependency packages");
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
@@ -18725,10 +18731,10 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   if (packageSubjectOpen
     && state.packageLens === "dependencies"
     && state.dependenciesGroupIndex !== null) {
-    const selectedDependencyGroup =
+    const selectedGroup =
       packageDependenciesData()?.dependencyGroups.find(
         group => group.index === state.dependenciesGroupIndex);
-    if (selectedDependencyGroup && !selectedDependencyGroup.isActive) {
+    if (selectedGroup && !selectedGroup.isActive) {
       throw new Error(
         "The selected dependency group differs from the package target framework and cannot be shared.");
     }

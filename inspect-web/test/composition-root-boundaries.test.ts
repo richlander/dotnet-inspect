@@ -355,6 +355,38 @@ test("dependency graph uses each cached package's product-selected group", () =>
     data.dependencyGroups[1]);
 });
 
+test("dependency graph keeps logical selection separate from source groups", () => {
+  const data = {
+    dependencyGroups: [{
+      index: 0,
+      isActive: true,
+      framework: "any",
+      dependencies: [{ id: "A", versionRange: "1.0.0" }],
+    }, {
+      index: 1,
+      framework: "net10.0",
+      dependencies: [{ id: "B", versionRange: "1.0.0" }],
+    }, {
+      index: 2,
+      framework: "any",
+      dependencies: [{ id: "C", versionRange: "1.0.0" }],
+    }],
+    selectedDependencyGroup: {
+      index: 0,
+      isActive: true,
+      framework: "any",
+      dependencies: [
+        { id: "A", versionRange: "1.0.0" },
+        { id: "C", versionRange: "1.0.0" },
+      ],
+    },
+  };
+
+  assert.equal(selectedDependencyGroup(data), data.selectedDependencyGroup);
+  assert.equal(selectedDependencyGroup(data, 0), data.selectedDependencyGroup);
+  assert.equal(selectedDependencyGroup(data, 2), data.dependencyGroups[2]);
+});
+
 test("dependency graph uses the active package's explicitly selected group", () => {
   const data = {
     dependencyGroupError: "",
