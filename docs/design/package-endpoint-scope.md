@@ -53,7 +53,7 @@ extracted file paths. Its API views extract surfaces from paths, and its body
 views open method bodies by path. Ranged House content has no files, so
 `diff` can't read by range, and the browser can't reuse `diff`'s endpoint
 code. The comparison itself is already shared:
-`LibraryApiDiffInspection.Execute` diffs two assembly groups and participants,
+`DiffOperation.ExecuteLibraryPair` diffs two assembly groups and participants,
 and both the CLI and Inspect Web call it.
 
 `diff --history` already acquires through House version cells, ranged, with

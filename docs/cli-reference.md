@@ -214,7 +214,7 @@ dotnet-inspect library System.Text.Json
 ```
 
 ```text
-System.Text.Json 11.0.0.0
+System.Text.Json.dll (Platform)
 ├─ System.Runtime.CompilerServices (3 types)
 │  ├─ IsExternalInit (forwarded)
 │  └─ …
@@ -246,6 +246,16 @@ The suggested `package` command repeats `--tfm` and the NuGet source options
 that selected the Libraries. A package whose Libraries come only from a
 runtime-specific folder, which `package` does not list, gets the count
 without a suggestion.
+
+The title names the selected Library filename, not its assembly version.
+Package-backed titles include the resolved Package coordinate and the known
+source, target framework, and asset root in that order:
+
+```text
+Microsoft.Azure.SignalR.dll (Microsoft.Azure.SignalR@1.33.1; NuGet; net8.0; lib)
+```
+
+Assembly identity details remain available through `-S "Library Info"`.
 
 Sectioned views such as `-S "Library Info"` keep the multi-Library aggregate.
 Package-scoped Type lookup is also aggregate by default: it searches every
@@ -950,7 +960,7 @@ Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
 all consume that same Package children document. The tree title prints the
 subject identity followed by the owner-issued properties of the displayed
 children — source, selected target, and asset root, as in
-`System.Text.Json 10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
+`System.Text.Json@10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
 carries subject, completion, total and selected Counts, and typed child rows.
 Row formats expose the exact asset ID, asset path, target, and child role;
 they carry no replay command, because host navigation is not package content

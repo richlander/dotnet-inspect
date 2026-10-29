@@ -30,7 +30,7 @@ public sealed class PackageChildrenTreePresentationTests
 
         Assert.Equal(
             """
-            Example.Package 1.0.0 (NuGet; net10.0; lib, tools)
+            Example.Package@1.0.0 (NuGet; net10.0; lib, tools)
             ├─ Example.Tool.dll (entry point)
             └─ Example.Core.dll
 
@@ -57,7 +57,7 @@ public sealed class PackageChildrenTreePresentationTests
 
         string result = output.ToString();
         Assert.Contains(
-            "Example.Package 1.0.0",
+            "Example.Package@1.0.0",
             result,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -88,7 +88,7 @@ public sealed class PackageChildrenTreePresentationTests
             output);
 
         Assert.Equal(
-            "Example.Package 1.0.0 (NuGet; net10.0; lib)"
+            "Example.Package@1.0.0 (NuGet; net10.0; lib)"
                 + Environment.NewLine,
             output.ToString());
     }
