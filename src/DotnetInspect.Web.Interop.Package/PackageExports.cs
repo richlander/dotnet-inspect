@@ -56,7 +56,33 @@ public static partial class PackageExports
                 version,
                 targetFramework,
                 runtimeIdentifier,
-                includeSurface: true);
+                includeSurface: true,
+                exactLibraryId: null);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
+    }
+
+    /// <summary>
+    /// The package type surface for one exact Package Library child.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryLibrarySurface(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId,
+        string runtimeIdentifier = "")
+    {
+        ArgumentException.ThrowIfNullOrEmpty(assemblyId);
+        BrowserPackageLoadResult result =
+            await PackageLoadAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier,
+                includeSurface: true,
+                exactLibraryId: assemblyId);
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -78,7 +104,8 @@ public static partial class PackageExports
                 version,
                 targetFramework,
                 runtimeIdentifier,
-                includeSurface: false);
+                includeSurface: false,
+                exactLibraryId: null);
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -141,14 +168,21 @@ public static partial class PackageExports
         string version,
         string targetFramework,
         string runtimeIdentifier,
-        bool includeSurface)
+        bool includeSurface,
+        string? exactLibraryId)
     {
         BrowserPackageRealizationResult result =
-            await BrowserPackageWorkspace.InventoryWithSettlementAsync(
-                packageId,
-                version,
-                targetFramework,
-                runtimeIdentifier);
+            includeSurface && exactLibraryId is null
+                ? await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    packageId,
+                    version,
+                    targetFramework,
+                    runtimeIdentifier)
+                : await BrowserPackageWorkspace.InventoryWithSettlementAsync(
+                    packageId,
+                    version,
+                    targetFramework,
+                    runtimeIdentifier);
         if (result is BrowserPackageRealizationResult.NotSettled notSettled)
         {
             return new(
@@ -179,7 +213,7 @@ public static partial class PackageExports
         if (includeSurface)
         {
             Task<BrowserScopeLease<BrowserInspectionScope>> scopeTask =
-                defaultLibraryId is null
+                exactLibraryId is null
                     ? BrowserPackageWorkspace.OpenScopeAsync(
                         realization,
                         CancellationToken.None)
@@ -188,7 +222,7 @@ public static partial class PackageExports
                         realization.Coordinate.Version,
                         targetFramework,
                         runtimeIdentifier,
-                        defaultLibraryId,
+                        exactLibraryId,
                         PackageAssetDemand.Surface,
                         CancellationToken.None);
             await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
@@ -199,7 +233,8 @@ public static partial class PackageExports
                     scope,
                     scope.Coordinates[0]) with
                 {
-                    DefaultAssemblyId = defaultLibraryId,
+                    DefaultAssemblyId =
+                        exactLibraryId ?? defaultLibraryId,
                 };
             surface = BrowserPackageWireProjection.Project(
                 projected);

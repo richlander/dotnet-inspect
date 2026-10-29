@@ -536,13 +536,21 @@ selectors preserve their typed outcomes and never authorize sibling Library
 content. The full directory and compile receipt remain authoritative for
 identity, compatible targets, and owner-default targets.
 
-The Browser Package entry follows the same boundary. It first obtains complete
-compile inventory without Library bodies, applies Navigation's First Library
-order to that inventory, and then declares one exact Surface demand for the
-chosen Library. The second request preserves the inventory's settled package
-version and retained target-framework/runtime-identifier request
+The Browser follows the same boundary when Navigation enters one Library. It
+first obtains complete compile inventory without Library bodies, applies
+Navigation's existing Library selection, and then declares one exact Surface
+demand for that Library. First Library entry uses Navigation's existing
+namesake and order policy. The second request preserves the inventory's settled
+package version and retained target-framework/runtime-identifier request
 correspondence. A failed or unavailable chosen Library remains that Library's
 result; the Browser neither inspects nor substitutes a healthy sibling.
+
+That exact gesture does not redefine the explicit `All libraries` subject or a
+Package-scoped Type request. Those gestures retain the aggregate Package
+surface because their answer may require declarations from any admitted
+Library. The Browser therefore exposes separate aggregate Package and exact
+Library surface operations; installing an exact surface does not settle a
+later aggregate request.
 
 Workspace realization consumes that same selector and prepares only its
 surface and requested implementation participants. It preserves reference API
@@ -569,10 +577,11 @@ The gates are `ExactCompileLibraryDemand_RequiresDeclaredRolesAndPackageOnlyHand
 `ExactCompileLibrary_PreservesInventoryAndNarrowsParticipants`, and
 `ExactLibraryDemand_NarrowsTransferAndWorkspace`, plus existing tool-package
 API and Library document gates.
-`QueryPackage_FirstLibrarySurfaceExcludesSibling` and
-`QueryPackage_FirstLibraryFailureDoesNotSelectSiblingSurface` gate complete
-Browser inventory, exact First Library success and failure, and sibling
-exclusion.
+`QueryPackage_PreservesAggregateLibrarySurface`,
+`QueryLibrarySurface_FirstLibrarySurfaceExcludesSibling`, and
+`QueryLibrarySurface_FirstLibraryFailureDoesNotSelectSiblingSurface` gate the
+aggregate Package subject, complete Browser inventory, exact First Library
+success and failure, and sibling exclusion.
 
 ### Joint exact Library inspection demand
 

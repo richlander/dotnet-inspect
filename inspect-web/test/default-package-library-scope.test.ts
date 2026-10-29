@@ -127,30 +127,79 @@ test("restored Library navigation retains its exact selection and inspector", ()
 const autoLoad = stripTypeScriptTypes(
   sourceText(functionDeclaration("maybeAutoLoadPackageSurfaceForLibraryNavigation")),
 );
+const deepLoad = stripTypeScriptTypes(
+  sourceText(functionDeclaration("loadDeepPackageSurface")),
+);
 
 for (const lens of ["overview", "api"]) {
-  test(`Library ${lens} requests broad Type navigation only when needed`, () => {
-    let loads = 0;
+  test(`Library ${lens} requests its exact Type surface only when needed`, () => {
+    const loads: (string | null)[] = [];
     runInNewContext(`${autoLoad}\nmaybeAutoLoadPackageSurfaceForLibraryNavigation();`, {
       state: { package: { id: "Sample" }, atLibraryRoot: true, libraryLens: lens, libraryScope: new Set(["best"]) },
-      packageSurfaceCanLoadTypes: () => true,
-      loadPackageSurface: () => { loads++; return Promise.resolve(true); },
+      packageSurfaceIsEligible: () => true,
+      loadPackageSurface: (_pkg: unknown, libraryId: string | null) => {
+        loads.push(libraryId);
+        return Promise.resolve(true);
+      },
       observeAsync: () => {},
     });
-    assert.equal(loads, lens === "overview" ? 0 : 1);
+    assert.deepEqual(loads, lens === "overview" ? [] : ["best"]);
   });
 }
 
 
 test("All Libraries Overview retains its broad Type navigation request", () => {
-  let loads = 0;
+  const loads: (string | null)[] = [];
   runInNewContext(`${autoLoad}\nmaybeAutoLoadPackageSurfaceForLibraryNavigation();`, {
     state: { package: { id: "Sample" }, atLibraryRoot: true, libraryLens: "overview", libraryScope: null },
-    packageSurfaceCanLoadTypes: () => true,
-    loadPackageSurface: () => { loads++; return Promise.resolve(true); },
+    packageSurfaceIsEligible: () => true,
+    loadPackageSurface: (_pkg: unknown, libraryId: string | null) => {
+      loads.push(libraryId);
+      return Promise.resolve(true);
+    },
     observeAsync: () => {},
   });
-  assert.equal(loads, 1);
+  assert.deepEqual(loads, [null]);
+});
+
+test("deep Library Type navigation requests only its exact Library surface", async () => {
+  const loads: (string | null)[] = [];
+  await runInNewContext(
+    `${deepLoad}\nloadDeepPackageSurface(pkg, deep, undefined);`,
+    {
+      pkg: { id: "Sample" },
+      deep: { atLibraryRoot: true, library: "sibling", type: "Sibling.Type" },
+      packageSurfaceIsEligible: () => true,
+      packageLibrariesForModel: () => [{ id: "sibling-id" }],
+      resolvePackageLibrary: () => ({ id: "sibling-id" }),
+      resolveReplacementPackageLibrary: () => null,
+      loadPackageSurface: (_pkg: unknown, libraryId: string | null) => {
+        loads.push(libraryId);
+        return Promise.resolve(true);
+      },
+    },
+  );
+  assert.deepEqual(loads, ["sibling-id"]);
+});
+
+test("package-scoped deep Type navigation retains aggregate loading", async () => {
+  const loads: (string | null)[] = [];
+  await runInNewContext(
+    `${deepLoad}\nloadDeepPackageSurface(pkg, deep, undefined);`,
+    {
+      pkg: { id: "Sample" },
+      deep: { type: "Sibling.Type" },
+      packageSurfaceIsEligible: () => true,
+      packageLibrariesForModel: () => [{ id: "first" }, { id: "sibling" }],
+      resolvePackageLibrary: () => null,
+      resolveReplacementPackageLibrary: () => null,
+      loadPackageSurface: (_pkg: unknown, libraryId: string | null) => {
+        loads.push(libraryId);
+        return Promise.resolve(true);
+      },
+    },
+  );
+  assert.deepEqual(loads, [null]);
 });
 
 

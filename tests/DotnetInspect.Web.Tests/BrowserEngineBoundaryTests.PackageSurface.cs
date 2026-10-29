@@ -2077,7 +2077,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task QueryPackage_FirstLibrarySurfaceExcludesSibling()
+    public async Task QueryPackage_PreservesAggregateLibrarySurface()
     {
         const string packageId = "Package.First.Surface";
         const string firstAsset = "lib/net11.0/A.First.dll";
@@ -2126,16 +2126,77 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(2, children.Content.Libraries.Length);
         BrowserPackageSurface surface =
             Assert.IsType<BrowserPackageSurface>(load.Surface);
+        Assert.Equal(2, surface.Assemblies.Length);
+        Assert.Contains(
+            surface.Assemblies,
+            candidate => candidate.Id == firstLibraryId);
+        Assert.Contains(
+            surface.Assemblies,
+            candidate => candidate.Id == $"compile:{siblingAsset}");
+    }
+
+    [Fact]
+    public async Task QueryLibrarySurface_FirstLibrarySurfaceExcludesSibling()
+    {
+        const string packageId = "Package.First.Surface.Exact";
+        const string firstAsset = "lib/net11.0/A.First.dll";
+        const string siblingAsset = "lib/net11.0/Z.Sibling.dll";
+        byte[] package = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                $"""
+                 <?xml version="1.0" encoding="utf-8"?>
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>1.0.0</version>
+                   </metadata>
+                 </package>
+                 """)),
+            (firstAsset,
+                File.ReadAllBytes(
+                    typeof(DotnetInspect.Web.Interop.Package
+                        .PackageExports).Assembly.Location)),
+            (siblingAsset,
+                File.ReadAllBytes(
+                    typeof(BrowserPackage).Assembly.Location)));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                package,
+                fromCache: false));
+
+        string firstLibraryId = $"compile:{firstAsset}";
+        BrowserPackageLoadResult load =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryLibrarySurface(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            firstLibraryId),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+
+        Assert.Equal(firstLibraryId, load.DefaultLibraryId);
+        BrowserPackageChildrenInspection children =
+            Assert.IsType<BrowserPackageChildrenInspection>(
+                load.PackageChildren);
+        Assert.Equal(2, children.Content.Libraries.Length);
+        BrowserPackageSurface surface =
+            Assert.IsType<BrowserPackageSurface>(load.Surface);
         BrowserAssemblySurface assembly =
             Assert.Single(surface.Assemblies);
         Assert.Equal(firstLibraryId, assembly.Id);
+        Assert.Equal(firstLibraryId, surface.DefaultAssemblyId);
         Assert.DoesNotContain(
             surface.Assemblies,
             candidate => candidate.Id == $"compile:{siblingAsset}");
     }
 
     [Fact]
-    public async Task QueryPackage_FirstLibraryFailureDoesNotSelectSiblingSurface()
+    public async Task QueryLibrarySurface_FirstLibraryFailureDoesNotSelectSiblingSurface()
     {
         const string packageId = "Package.First.Library";
         const string firstAsset =
@@ -2186,10 +2247,11 @@ public sealed partial class BrowserEngineBoundaryTests
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => DotnetInspect.Web.Interop.Package
-                    .PackageExports.QueryPackage(
+                    .PackageExports.QueryLibrarySurface(
                         packageId,
                         "1.0.0",
-                        "net11.0"));
+                        "net11.0",
+                        firstLibraryId));
         Assert.Contains(
             "Assembly unavailable: InvalidImage.",
             failure.Message,
