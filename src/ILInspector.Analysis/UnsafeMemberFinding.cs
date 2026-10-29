@@ -62,6 +62,11 @@ public sealed record UnsafeMemberLimitation(
     ImmutableArray<UnsafeMemberFindingEvidence> Evidence,
     string? Detail = null)
 {
+    public UnsafeMemberLimitationReason Reason { get; init; } = Reason;
+    public int? BodyToken { get; init; } = BodyToken;
+    public MethodIdentity? Body { get; init; } = Body;
+    public MethodIdentity? DeclaredMember { get; init; } = DeclaredMember;
+
     ImmutableArray<UnsafeMemberFindingEvidence> _evidence =
         ImmutableArrayValueEquality.EmptyIfDefault(Evidence, nameof(Evidence));
 
@@ -70,6 +75,8 @@ public sealed record UnsafeMemberLimitation(
         get => _evidence;
         init => _evidence = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(Evidence));
     }
+
+    public string? Detail { get; init; } = Detail;
 
     public bool Equals(UnsafeMemberLimitation? other)
         => other is not null
@@ -104,6 +111,9 @@ public sealed record UnsafeMemberFinding(
     ImmutableArray<UnsafeMemberLimitation> UninspectedBodies,
     UnsafeMemberExposure Exposure)
 {
+    public MethodIdentity Member { get; init; } = Member;
+    public bool HasExplicitUnsafeContract { get; init; } = HasExplicitUnsafeContract;
+
     ImmutableArray<UnsafeMemberFindingEvidence> _evidence =
         ImmutableArrayValueEquality.RequireInitialized(Evidence, nameof(Evidence));
     ImmutableArray<UnsafeMemberLimitation> _uninspectedBodies =
@@ -120,6 +130,8 @@ public sealed record UnsafeMemberFinding(
         get => _uninspectedBodies;
         init => _uninspectedBodies = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(UninspectedBodies));
     }
+
+    public UnsafeMemberExposure Exposure { get; init; } = Exposure;
 
     public bool Equals(UnsafeMemberFinding? other)
         => other is not null
