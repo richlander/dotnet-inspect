@@ -314,6 +314,7 @@ internal sealed class DeclaredSourceResolver(
             directMethods.ToDictionary(
                 static handle => MetadataTokens.GetToken(handle),
                 static handle => handle);
+        var ambiguousDeclaredOwnerTokens = new HashSet<int>();
         var suppressionByToken = new Dictionary<int, bool>();
         var pending = new Queue<MethodDefinitionHandle>(directMethods);
         var expanded =
@@ -531,7 +532,28 @@ internal sealed class DeclaredSourceResolver(
             attributed.Add(token);
             suppressionByToken[token] = suppressesOpportunities;
             if (!selected.Add(token))
+            {
+                if (!ambiguousDeclaredOwnerTokens.Contains(token)
+                    && declaredOwnerByToken.TryGetValue(
+                        token,
+                        out MethodDefinitionHandle existingOwner))
+                {
+                    if (existingOwner == method)
+                    {
+                        // All-definition breadth initially treats every
+                        // MethodDef as its own owner. Replace that placeholder
+                        // so generated descendants compose to the authenticated
+                        // ultimate owner.
+                        declaredOwnerByToken[token] = owner;
+                    }
+                    else if (existingOwner != owner)
+                    {
+                        ambiguousDeclaredOwnerTokens.Add(token);
+                        declaredOwnerByToken[token] = method;
+                    }
+                }
                 return;
+            }
             declaredOwnerByToken.Add(token, owner);
             expanded.Add(method);
             pending.Enqueue(method);
