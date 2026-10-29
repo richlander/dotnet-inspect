@@ -1238,10 +1238,15 @@ direct-library routes are not changed by this operation.
 
 ##### Shared Type lookup
 
-**Status:** specified for adoption in
-[#10694](https://github.com/richlander/dotnet-inspect/issues/10694).
-The existing routes above retain their current behavior until their adoption
-lands. This subsection extends the exact single-Type operation's selection
+**Status:** specification locked in
+[#10702](https://github.com/richlander/dotnet-inspect/pull/10702), with adoption
+tracked by [#10694](https://github.com/richlander/dotnet-inspect/issues/10694).
+Slice 2 supplies `MetadataTypeLookup` and uses it in the existing exact-Type
+operation. CLI Package/Workspace selection and Browser exact activation share
+this primitive through that operation. Admission retains the existing
+caller-selected scopes while #10693 consolidates its own policy. Other routes
+retain their current selection until their adoption lands.
+This subsection extends the exact single-Type operation's selection
 contract to every consumer that resolves a user-written Type query. Assembly
 Inspection owns that shared operation; Metadata owns the name-selection
 primitive it composes. Hosts and presentation consume the selected identity
@@ -1380,8 +1385,28 @@ bounded truncation retain the existing exact-Type gates. Find's discovery
 cardinality is tested under its own contract, with exact row activation checked
 against the selected definition. A layering gate prevents adopted hosts and
 presentation paths from restoring local semantic selection or admission.
-These adoption gates are required and remain unverified in this docs-only
-slice; the reproductions above establish motivation, not a fixed product.
+`MetadataTypeLookupTests` gates name precedence, retained associations,
+collisions, generic and nested arities, literal delimiters, ordinal definition
+selection, glob refusal, and the absence of fuzzy success. Its slow pinned
+CoreLib control uses the already retained
+`Microsoft.NETCore.App.Runtime.linux-x64` 11.0.0-rc.1.26425.128 counterpart of
+the motivating asset: `CurrencyWrapper` is selected from IncludeAll and absent
+from Public, while the `Action` family preserves exact arity. Daily Deep
+Inspect's Metadata suite owns that slow control. The exact-Type operation
+tests additionally exercise case variants through bounded and unbounded
+execution; `ExactTypeWorkspaceRouteTests` and Browser's `QueryTypeProjection_*`
+cases exercise the existing production consumers. CLI `LayeringTests` prevents
+the adopted exact-Type query from restoring its local arity-preserving tier
+predicate. The wider cross-entry-point gates above remain required and
+unverified until the remaining slices land; this adoption does not claim to
+fix the compact Tree or legacy Member admission discrepancies.
+
+`eng/measure-type-lookup.cs` runs exact base/head NativeAOT CLI apphosts against
+an explicit JSON array of named argument lists. It rotates execution order,
+checks output, diagnostics, and exit-code equality on every invocation, and
+reports median/p95, fingerprints, selected Type and Member cardinality where
+the complete JSON result supplies them. Both warmup and measurement include
+process startup, acquisition, selection, execution, and output consumption.
 
 #### Exact Library API operation
 

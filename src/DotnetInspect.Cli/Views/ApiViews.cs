@@ -683,6 +683,9 @@ public class TypeInfoSection
 
     public int? Interfaces { get; init; }
 
+    [MarkoutPropertyName("Nested Types")]
+    public int? NestedTypes { get; init; }
+
     [MarkoutPropertyName("Library")]
     public string? Assembly { get; init; }
 

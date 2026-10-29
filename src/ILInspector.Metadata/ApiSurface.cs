@@ -1134,6 +1134,8 @@ public class ApiType
     public ApiTypeReferenceIdentity? BaseTypeReference { get; set; }
     public List<string> Interfaces { get; set; } = [];
     [JsonIgnore]
+    public int NestedTypeCount { get; set; }
+    [JsonIgnore]
     public List<ApiTypeReferenceIdentity> InterfaceReferences
         { get; set; } = [];
 
