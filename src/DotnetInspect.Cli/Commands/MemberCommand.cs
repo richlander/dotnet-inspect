@@ -1128,8 +1128,8 @@ public static partial class MemberCommand
                         context.HttpClient,
                         CancellationToken.None);
                     if (memberGroupExitCode == 0 && count > 1)
-                        CommandError.WriteLine(
-                            $"Warning: {apiType.FullName}.{memberName} has "
+                        CommandError.WriteWarning(
+                            $"{apiType.FullName}.{memberName} has "
                                 + $"{count} overloads; showing {memberName}:1. "
                                 + "Add --tree to list all overloads, or select "
                                 + $"another with {memberName}:N.");
