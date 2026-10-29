@@ -48,7 +48,7 @@ public static class PackageChildrenTreePresentation
         ArgumentNullException.ThrowIfNull(output);
 
         string title = ResultTitle.Compose(
-            $"{document.Subject.PackageId} "
+            $"{document.Subject.PackageId}@"
                 + $"{document.Subject.PackageVersion}",
             PackageChildrenProperties.For(document));
         IMarkoutFormatter formatter = plan.Format switch

@@ -514,6 +514,35 @@ The subject's identity itself — the package, library, type, or member being
 inspected — is not a property. Identity is owned by the subject's resolution;
 properties qualify what was displayed about it.
 
+### Compact Package and Library titles
+
+The native Package children Tree identifies its subject as `Id@Version`.
+The native Library Type Tree identifies its subject by the selected asset's
+filename, including its extension, rather than its assembly name and assembly
+version. Both Tree and Mermaid presentations use these same identities.
+
+A Package-backed Library carries the resolved Package coordinate as its first
+property, followed by acquisition source, selected target framework, and asset
+root, when known. File and Platform Libraries carry their known acquisition
+source without inventing a Package coordinate or target. These display
+properties do not change resolution, child demand, warnings, Info sections,
+or structured and row output.
+
+The motivating asset is `Microsoft.Azure.SignalR@1.33.1` on nuget.org. Its
+`net8.0` Library population contains `Microsoft.Azure.SignalR.Common.dll` and
+`Microsoft.Azure.SignalR.dll`; the latter's assembly version is `1.33.1.0`.
+The compact titles distinguish the Package version from that assembly version:
+
+```text
+Microsoft.Azure.SignalR@1.33.1 (NuGet; net8.0; lib)
+Microsoft.Azure.SignalR.dll (Microsoft.Azure.SignalR@1.33.1; NuGet; net8.0; lib)
+```
+
+`PackageChildrenTreePresentationTests`, `LibraryTypeHierarchyPresentationTests`,
+and the CLI compact-title tests gate these identities and property ordering.
+The pinned SignalR CLI case exercises normal Package acquisition; local
+fixtures cover renamed assets, selected TFMs, and tool payload provenance.
+
 ## Invariants every lowering keeps
 
 **Lowerings present; they do not author.** A lowering may elide, group, nest,
