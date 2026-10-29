@@ -13520,6 +13520,28 @@ function packageSurfaceFailed(
     packageSurfaceKey(libraryId)) === true;
 }
 
+function installPackageSurfacePopulation(
+  pkg: AppPackage,
+  expanded: AppPackage,
+  preserveDefaultLibrary: boolean,
+) {
+  const defaultLibrary = preserveDefaultLibrary
+    ? {
+      assembly: pkg.assembly,
+      assemblyId: pkg.assemblyId,
+      assemblyAsset: pkg.assemblyAsset,
+      selectedCompileAssetId: pkg.selectedCompileAssetId,
+    }
+    : null;
+  Object.assign(pkg, {
+    ...expanded,
+    versionSettlement: pkg.versionSettlement,
+    packageInfo: pkg.packageInfo,
+    packageChildren: pkg.packageChildren ?? expanded.packageChildren,
+    ...defaultLibrary,
+  });
+}
+
 async function loadPackageSurface(
   pkg: AppPackage,
   libraryId: string | null = null,
@@ -13557,12 +13579,7 @@ async function loadPackageSurface(
       const expanded = pkg.packageChildren
         ? createNuGetPackageModel(load.surface, pkg.packageChildren)
         : createNuGetPackageModel(load.surface);
-      Object.assign(pkg, {
-        ...expanded,
-        versionSettlement: pkg.versionSettlement,
-        packageInfo: pkg.packageInfo,
-        packageChildren: pkg.packageChildren ?? expanded.packageChildren,
-      });
+      installPackageSurfacePopulation(pkg, expanded, libraryId !== null);
       if (state.package === pkg && state.accessibilityFilter.size === 0) {
         setTypeAccessibilityFilter(
           defaultAccessibilityFilter(pkg),
@@ -13610,8 +13627,7 @@ function prepareSpotlightResults() {
       : state.packages)
     .filter(packageSurfaceIsEligible)
     .filter(pkg =>
-      !packageSurfaceLoads.has(pkg)
-      && !packageSurfaceIsAvailable(pkg, null)
+      !packageSurfaceIsAvailable(pkg, null)
       && !packageSurfaceFailed(pkg, null));
   if (candidates.length === 0) return;
   observeAsync(

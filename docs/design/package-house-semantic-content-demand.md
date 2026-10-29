@@ -550,7 +550,11 @@ Package-scoped Type request. Those gestures retain the aggregate Package
 surface because their answer may require declarations from any admitted
 Library. The Browser therefore exposes separate aggregate Package and exact
 Library surface operations; installing an exact surface does not settle a
-later aggregate request.
+later aggregate request. Installing an exact sibling surface also preserves
+the inventory-owned First Library identity used by later Navigation gestures.
+If aggregate demand arrives while an exact request is active, it waits for that
+request and then realizes the still-required aggregate surface; active narrower
+work does not suppress the broader demand.
 
 Workspace realization consumes that same selector and prepares only its
 surface and requested implementation participants. It preserves reference API

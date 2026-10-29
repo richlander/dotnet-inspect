@@ -15,6 +15,12 @@ const selectLens = stripTypeScriptTypes(
 const applyLocation = stripTypeScriptTypes(
   sourceText(functionDeclaration("applyLocationView")),
 );
+const installSurface = stripTypeScriptTypes(
+  sourceText(functionDeclaration("installPackageSurfacePopulation")),
+);
+const prepareSpotlight = stripTypeScriptTypes(
+  sourceText(functionDeclaration("prepareSpotlightResults")),
+);
 
 type PackageChildren =
   Parameters<typeof createNuGetPackageSummaryModel>[0];
@@ -265,6 +271,77 @@ test("an exact-only Library lens consumes the owner-issued First Library", () =>
   });
   assert.deepEqual(selected, ["owner-first"]);
   assert.equal(state.libraryLens, "api");
+});
+
+test("installing an exact sibling surface retains the owner-issued First Library", () => {
+  const ownerChildren = { content: { libraries: [] } };
+  const pkg = {
+    assembly: "Owner.First",
+    assemblyId: "owner-first",
+    assemblyAsset: "ref/net8.0/Owner.First.dll",
+    packageChildren: ownerChildren,
+    packageInfo: { content: "owner-info" },
+    versionSettlement: { content: "owner-version" },
+    types: [],
+  };
+  const expanded = {
+    assembly: "Sibling",
+    assemblyId: "sibling",
+    assemblyAsset: "ref/net8.0/Sibling.dll",
+    packageChildren: { content: { libraries: ["sibling"] } },
+    packageInfo: undefined,
+    versionSettlement: undefined,
+    types: [{ name: "Sibling.Type" }],
+  };
+  runInNewContext(
+    `${installSurface}\ninstallPackageSurfacePopulation(pkg, expanded, true);`,
+    { pkg, expanded },
+  );
+  assert.equal(pkg.assembly, "Owner.First");
+  assert.equal(pkg.assemblyId, "owner-first");
+  assert.equal(pkg.assemblyAsset, "ref/net8.0/Owner.First.dll");
+  assert.equal(pkg.packageChildren, ownerChildren);
+  assert.deepEqual(pkg.types, [{ name: "Sibling.Type" }]);
+});
+
+test("Spotlight queues aggregate loading while an exact request is in flight", async () => {
+  const pkg = { id: "Sample" };
+  const loads: (string | null)[] = [];
+  let releaseExact!: () => void;
+  const exactSettled = new Promise<void>(resolve => {
+    releaseExact = resolve;
+  });
+  let observed!: Promise<unknown>;
+  let updates = 0;
+  runInNewContext(`${prepareSpotlight}\nprepareSpotlightResults();`, {
+    state: {
+      spotlightOpen: true,
+      spotlightQuery: "Sibling.Type",
+      spotlightScope: "types",
+      packages: [pkg],
+      package: pkg,
+    },
+    packageSurfaceIsEligible: () => true,
+    packageSurfaceIsAvailable: () => false,
+    packageSurfaceFailed: () => false,
+    loadPackageSurface: async (_pkg: unknown, libraryId: string | null = null) => {
+      loads.push(libraryId);
+      await exactSettled;
+      return true;
+    },
+    observeAsync: (operation: Promise<unknown>) => {
+      observed = operation;
+    },
+    spotlight: {
+      updateResults: () => {
+        updates++;
+      },
+    },
+  });
+  assert.deepEqual(loads, [null]);
+  releaseExact();
+  await observed;
+  assert.equal(updates, 1);
 });
 
 test("summary construction without a default field preserves its legacy fallback", () => {
