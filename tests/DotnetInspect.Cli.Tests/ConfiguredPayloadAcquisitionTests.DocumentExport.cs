@@ -45,7 +45,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Equal(expected, result.Output.Trim());
-        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.True(feed.RangedResponses > 0);
         Assert.True(
             feed.PackageBytesServed
@@ -74,8 +74,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
     /// <summary>
     /// Gates 11 and 13, real asset Newtonsoft.Json 13.0.4 (2.5 MB, root
-    /// README.md): the cold file projection is the size probe, the directory
-    /// tail, and one exact entry span, and writes the README's exact
+    /// README.md): the cold file projection is the directory tail and one
+    /// exact entry span, and writes the README's exact
     /// bytes; warm file, raw, separator, and JSONL projections are answered by
     /// the entry cache with no package request.
     /// </summary>
@@ -99,9 +99,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(cold.Exit == 0, cold.Error);
         Assert.Empty(cold.Output);
         Assert.Equal(ReadEntry(package, "README.md"), File.ReadAllBytes(outputPath));
-        // The one complete response is the size probe, abandoned before its
-        // body; then the directory tail and one exact entry span.
-        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.True(2 == feed.RangedResponses, string.Join("; ", feed.Ranges));
         ZipEntryExtent readme = Assert.Single(
             ZipEntryExtent.Read(package),
@@ -116,7 +114,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
         Assert.Contains("1 of 24 entries", cold.Error, StringComparison.Ordinal);
         Assert.Contains(
-            "Ranged, 3 package requests",
+            "Ranged, 2 package requests",
             cold.Error,
             StringComparison.Ordinal);
 
@@ -132,7 +130,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "EntryCache, 0 package requests, 0 bytes received",
             warm.Error,
             StringComparison.Ordinal);
-        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.Equal(ranged, feed.RangedResponses);
         Assert.Equal(served, feed.PackageBytesServed);
 
@@ -254,7 +252,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(result.Exit == 0, result.Error);
         Assert.Equal(Skill.Trim(), result.Output.Trim());
         Assert.Contains("1 of 6 entries", result.Error, StringComparison.Ordinal);
-        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
         Assert.True(
             feed.PackageBytesServed < 128 * 1024 + AbandonedProbeReadBound,
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
