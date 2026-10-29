@@ -1272,6 +1272,76 @@ policy. `MatchDiscoveryTests` covers exact replay with local, HTTP, mapped,
 ambient-config, and query-distinct sources. `AssemblySetResolverTests` covers
 the reused TFM selection and transferred ownership.
 
+### Candidate-scoped version metadata
+
+Source may expose complete version identities separately from complete listing
+coverage. An owner-issued, operation-local snapshot retains every discovered
+identity, including prereleases, its source association, the Registration index,
+and acquired listing facts. It is not an acquisition candidate or permission
+to reinterpret partial listing coverage as authoritative full enumeration.
+
+A request for particular snapshot versions acquires only the Registration pages
+needed for their listing facts. NuGet's inclusive semantic-version page bounds
+identify relevant pages. Missing, invalid, or inverted bounds cannot exclude a
+page. Already-inline facts require no external page acquisition. The returned
+observation retains all identities: unexamined versions remain explicitly
+`Unknown`, and full-listing authority is true only when every identity has a
+known listing state. Unavailable required metadata remains incomplete evidence.
+
+The snapshot retains the existing shared metadata-byte and leaf-count budgets
+across listing requests. Existing source identity, bounded parsing, retry,
+deadline, cancellation, draining, and response-adoption contracts still apply.
+The existing full version-enumeration API completes its original join; clients
+without this optional capability retain that path. Metadata itself does not
+choose a NuGet range match or authorize acquisition.
+
+The package-owned candidate-discovery capability composes this metadata with
+`PackageDependencyVersionRange`, which continues to own ordering and range
+satisfaction. Every eligible authority settles complete identities. Listing
+facts are required for every reporting authority of each potentially winning
+coordinate; an unlisted match can advance selection, but an unknown match
+cannot be treated as absent. Generic/local sources retain their existing
+visible-candidate convention.
+
+A proven selection uses the distinct `DependencyCandidateResolution` contract,
+retains its declaration constraint, and exposes only the proven best version
+(or no version when no match was proven). It is not complete version
+enumeration. A consumer must verify the result covers its constraint before
+selecting a candidate. Issued candidate correspondence does not include that
+constraint: different declarations selecting the same coordinate and reporting
+authorities in one source context still coalesce.
+
+Operation-local reuse retains complete identities, the Registration index and
+known listing facts after a successful scoped selection. Listing acquisition
+for one authority/package is serialized so overlapping declarations reuse the
+facts obtained by preceding requests, including neighboring versions on a page.
+Other package IDs retain the operation's configured concurrency. Partial or
+failed selection cannot retain an otherwise unretained observation. Reuse
+ends with the operation and does not change ordinary full-discovery reuse.
+
+The [candidate-listing interaction model](models/package-source-candidate-listing/README.md)
+checks concurrent declarations against complete-listing selection, including
+source-relative absence, unknown better matches, and reuse of neighboring page
+facts. Its successful-evidence bounds do not replace the operation lifecycle
+model or implementation gates for incomplete responses and shared deadlines.
+
+The motivating asset is `Microsoft.Azure.SignalR@1.33.1`, selecting root net8.0
+with the default net11.0 governing traversal. Its raw hierarchy observed 28
+flat indexes, 28 Registration indexes, and 46 external history pages.
+`Microsoft.Extensions.Http@2.1.0` needs listing evidence on its containing page,
+not the later 5.x–11.x pages. This motivates reduced acquisition, not an
+unmeasured latency claim. Deterministic Source fixtures preserve the relevant
+page structure, unlisted observations, and incomplete controls; published asset
+acquisition remains the reproducible production evidence.
+
+The convention is
+[NuGet Registration page bounds](https://learn.microsoft.com/en-us/nuget/api/registration-base-url-resource#registration-page-object).
+Registration leaf URLs are discovered, never predicted from a version.
+[#10833](https://github.com/richlander/dotnet-inspect/issues/10833) tracks this
+Source prerequisite; shared candidate-query adoption in both CLI and
+Browser/Wasm is the next focused step in
+[#10404](https://github.com/richlander/dotnet-inspect/issues/10404).
+
 ### Metadata-only version queries
 
 The consumer is the CLI version-query family, not package inspection. The
