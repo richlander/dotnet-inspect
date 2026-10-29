@@ -13,16 +13,10 @@ public sealed class PdbLocalScopePass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        var duplicates = Enumerable.Range(0, function.LocalNames.Length)
-            .Where(index => function.LocalNames[index] is { } name
-                && CSharpNaming.IsUsableIdentifier(name))
-            .GroupBy(index => function.LocalNames[index]!, StringComparer.Ordinal)
-            .Where(group => group.Skip(1).Any())
-            .Select(group => group.Where(index =>
-                !function.EliminatedLocalSlots.Contains(index)
-                && IrFunction.LocalSlotReferencesInScope(function, index).Any()).ToArray())
-            .Where(group => group.Length > 1)
-            .ToArray();
+        var duplicates = DuplicateNames(function);
+        foreach (int[] group in duplicates)
+            PruneUnreachableClonedReads(function, group, context);
+        duplicates = DuplicateNames(function);
         if (duplicates.Length == 0)
             return;
 
@@ -99,6 +93,147 @@ public sealed class PdbLocalScopePass : IIrPass
                 : -1;
     }
 
+    static int[][] DuplicateNames(IrFunction function)
+        => Enumerable.Range(0, function.LocalNames.Length)
+            .Where(index => function.LocalNames[index] is { } name
+                && CSharpNaming.IsUsableIdentifier(name))
+            .GroupBy(index => function.LocalNames[index]!, StringComparer.Ordinal)
+            .Where(group => group.Skip(1).Any())
+            .Select(group => group.Where(index =>
+                !function.EliminatedLocalSlots.Contains(index)
+                && IrFunction.LocalSlotReferencesInScope(function, index).Any()).ToArray())
+            .Where(group => group.Length > 1)
+            .ToArray();
+
+    static bool TrialPreservesAssignedExactNames(
+        IrFunction trial, int[] group, int? synthetic = null)
+    {
+        var facts = new DataflowFacts();
+        var early = DefiniteAssignment.Compute(
+            trial, ReferenceOwnership.CollectBranchTargets(trial), facts);
+        if (facts.Bailed
+            || group.Any(early.Contains)
+            || synthetic is { } flag && early.Contains(flag))
+            return false;
+
+        var retained = ExactLocalNameAllocation.RetainedLocalSlots(
+            trial, trial.Locals.Length, trial.EliminatedLocalSlots);
+        var allocation = ExactLocalNameAllocation.Allocate(
+            trial, trial.Locals.Length, trial.LocalNames,
+            ExactLocalNameAllocation.ReservedNames(
+                trial, trial.Signature.Parameters,
+                trial.Signature.GenericParameterNames),
+            retained);
+        return group.All(index =>
+            allocation.Dispositions[index] == ExactLocalNameDisposition.Preserved);
+    }
+
+    static void PruneUnreachableClonedReads(
+        IrFunction function, int[] group, PassContext context)
+    {
+        if (group.Any(index => index >= function.LocalDeclarationBindings.Length
+            || function.LocalDeclarationBindings[index] is null))
+            return;
+        if (!group.Any(index =>
+        {
+            LocalSlotScope scope =
+                function.LocalDeclarationBindings[index]!.Scope;
+            return IrFunction.LocalSlotReferencesInScope(
+                    function.Body, index)
+                .OfType<LoadLocal>()
+                .Where(load => load.SourceOffset >= scope.StartOffset
+                    && load.SourceOffset < scope.EndOffset)
+                .GroupBy(load => load.SourceOffset)
+                .Any(sameOffset => sameOffset.Skip(1).Any());
+        }))
+            return;
+        var scopes = LocalDeclarationPlan.Create(
+            function, function.Locals.Length).DeclarationScopes;
+        for (int left = 0; left < group.Length; left++)
+        {
+            int index = group[left];
+            LocalSlotScope scope = function.LocalDeclarationBindings[index]!.Scope;
+            if (!group.Any(other => other != index
+                && ExactLocalNameAllocation.ScopesOverlap(
+                    scopes[index], scopes[other])))
+                continue;
+            if (group.Any(other => other != index
+                && scope.StartOffset < function.LocalDeclarationBindings[other]!.Scope.EndOffset
+                && function.LocalDeclarationBindings[other]!.Scope.StartOffset < scope.EndOffset))
+                continue;
+
+            var loads = IrFunction.LocalSlotReferencesInScope(
+                function.Body, index).OfType<LoadLocal>()
+                .Where(load => load.SourceOffset >= scope.StartOffset
+                    && load.SourceOffset < scope.EndOffset)
+                .ToArray();
+            if (!loads.GroupBy(load => load.SourceOffset)
+                .Any(sameOffset => sameOffset.Skip(1).Any()))
+                continue;
+
+            foreach (var block in function.DescendantsOutsideNestedFunctions
+                .OfType<Block>().ToArray())
+            {
+                for (int position = 0; position + 1 < block.Children.Count; position++)
+                {
+                    if (block.Children[position] is not (Return or Throw))
+                        continue;
+                    IrNode[] suffix = [.. block.Children.Skip(position + 1)];
+                    var enteredOffsets = suffix
+                        .SelectMany(statement => statement
+                            .DescendantsOutsideNestedFunctions
+                            .Prepend(statement))
+                        .OfType<Block>()
+                        .Select(nested => nested.StartOffset)
+                        .Where(offset => offset >= 0)
+                        .ToHashSet();
+                    if (!loads.Any(load => ReferenceOwnership.IsInsideAny(
+                            load, suffix)
+                        && loads.Any(other => !ReferenceOwnership.IsInsideAny(
+                                other, suffix)
+                            && other.SourceOffset == load.SourceOffset))
+                        || ReferenceOwnership.RewriteWouldInvalidateLabels(
+                            function, suffix, [])
+                        || suffix.SelectMany(statement => statement
+                                .DescendantsOutsideNestedFunctions
+                                .Prepend(statement))
+                            .Any(node => ReferenceOwnership
+                                .TransferTargets(node).Any())
+                        || function.DescendantsOutsideNestedFunctions
+                            .Where(node => !ReferenceOwnership.IsInsideAny(
+                                node, suffix))
+                            .SelectMany(ReferenceOwnership.TransferTargets)
+                            .Any(enteredOffsets.Contains))
+                        continue;
+
+                    var trial = (IrFunction)function.Clone();
+                    var path = new Stack<int>();
+                    for (IrNode? node = block; node is not null
+                        && !ReferenceEquals(node, function); node = node.Parent)
+                        path.Push(node.ChildIndex);
+                    IrNode matched = trial;
+                    while (path.TryPop(out int childIndex))
+                        matched = matched.Children[childIndex];
+                    var trialBlock = (Block)matched;
+                    var trialStatements = trialBlock.DetachChildren();
+                    for (int i = 0; i <= position; i++)
+                        trialBlock.Add(trialStatements[i]);
+
+                    if (!TrialPreservesAssignedExactNames(trial, group))
+                        continue;
+
+                    context.Stepper.StepOver(
+                        $"discard unreachable cloned exact-name read after terminal in IL_{block.StartOffset:X4}",
+                        block);
+                    var statements = block.DetachChildren();
+                    for (int i = 0; i <= position; i++)
+                        block.Add(statements[i]);
+                    return;
+                }
+            }
+        }
+    }
+
     static void TryRetainBlock(
         IrFunction function,
         int index,
@@ -114,6 +249,13 @@ public sealed class PdbLocalScopePass : IIrPass
         {
             return;
         }
+        if (TryConfineInScopeStoreToGuard(
+                function, index, sameName, references, declaration, block))
+            return;
+        if (TrySeparateConditionalScopes(
+                function, index, sameName, references, declaration, block,
+                context))
+            return;
         int first = declaration.ChildIndex;
         int last = first;
         foreach (var reference in references)
@@ -178,6 +320,209 @@ public sealed class PdbLocalScopePass : IIrPass
                 block.Add(statements[position]);
         }
         context.Stepper.StepOver($"retain scope for local {index}", lexical);
+    }
+
+    static bool TrySeparateConditionalScopes(
+        IrFunction function,
+        int index,
+        int[] sameName,
+        IrNode[] references,
+        IrNode declaration,
+        Block block,
+        PassContext context)
+    {
+        if (declaration is not StoreLocal store
+            || store.Type.Kind is TypeRefKind.ByRef or TypeRefKind.Pinned
+            || store.Type.ContainsUnsupported
+            || index >= function.LocalDeclarationBindings.Length
+            || function.LocalDeclarationBindings[index] is not { } binding
+            || store.SourceOffset < binding.Scope.StartOffset
+            || store.SourceOffset >= binding.Scope.EndOffset
+            || store.ChildIndex + 1 >= block.Children.Count
+            || block.Children[store.ChildIndex + 1] is not IfStatement { HasElse: true } guard)
+            return false;
+
+        int[] guardedPeers = [.. sameName.Where(other => other != index
+            && other < function.LocalDeclarationBindings.Length
+            && function.LocalDeclarationBindings[other] is { } peerBinding
+            && (binding.Scope.EndOffset <= peerBinding.Scope.StartOffset
+                || peerBinding.Scope.EndOffset <= binding.Scope.StartOffset)
+            && IrFunction.LocalSlotReferencesInScope(function.Body, other)
+                .Any()
+            && IrFunction.LocalSlotReferencesInScope(function.Body, other)
+                .All(reference => ReferenceOwnership.IsInside(
+                    reference, guard.Else!)))];
+        if (guardedPeers.Length != 1
+            || references.Any(reference => !ReferenceEquals(reference, store)
+                && !ReferenceOwnership.IsInside(reference, guard.Condition)
+                && !ReferenceOwnership.IsInside(reference, guard.Then))
+            || !IrFunction.LocalSlotReferencesInScope(guard.Condition, index)
+                .Any()
+            || IrFunction.LocalSlotReferencesInScope(guard.Condition, index)
+                .Any(reference => reference is not LoadLocal)
+            || ReferenceOwnership.RewriteWouldInvalidateLabels(
+                function, [store, guard], []))
+            return false;
+        int peer = guardedPeers[0];
+
+        // A binder in the guard's condition must not escape the lexical
+        // block that will own the guard and its true arm.
+        for (int local = 0; local < function.Locals.Length; local++)
+        {
+            IrNode[] uses = IrFunction.LocalSlotReferencesInScope(
+                function.Body, local).ToArray();
+            if (uses.Any(use => ReferenceOwnership.IsInside(
+                    use, guard.Condition)
+                    && use is not (LoadLocal or StoreLocal or LoadLocalAddress))
+                && uses.Any(use => !ReferenceOwnership.IsInside(use, guard)))
+                return false;
+        }
+
+        var trial = (IrFunction)function.Clone();
+        IrNode trialNode = trial;
+        var indices = new Stack<int>();
+        for (IrNode? node = store; node is not null
+            && !ReferenceEquals(node, function); node = node.Parent)
+            indices.Push(node.ChildIndex);
+        while (indices.TryPop(out int childIndex))
+            trialNode = trialNode.Children[childIndex];
+        var trialStore = (StoreLocal)trialNode;
+        int trialFlag = SplitConditionalScopes(
+            trial, trialStore, (Block)trialStore.Parent!,
+            (IfStatement)trialStore.Parent!.Children[trialStore.ChildIndex + 1]);
+        var trialScopes = LocalDeclarationPlan.Create(
+            trial, trial.Locals.Length).DeclarationScopes;
+        if (ExactLocalNameAllocation.ScopesOverlap(
+                trialScopes[index], trialScopes[peer]))
+            return false;
+
+        if (!TrialPreservesAssignedExactNames(trial, sameName, trialFlag))
+            return false;
+
+        context.Stepper.StepOver(
+            $"separate conditional exact-name scopes for locals {index} and {peer}",
+            guard);
+        SplitConditionalScopes(function, store, block, guard);
+        return true;
+    }
+
+    static int SplitConditionalScopes(
+        IrFunction function, StoreLocal store, Block block, IfStatement guard)
+    {
+        int flag = function.AddLocal(
+            TypeRef.CoreLib("System", "Boolean"));
+        var initialize = new StoreLocal(flag, function.Locals[flag],
+            new Constant(false, function.Locals[flag]));
+        var activate = new StoreLocal(flag, function.Locals[flag],
+            new Constant(true, function.Locals[flag]));
+        var activation = new Block(-1);
+        activation.Add(activate);
+
+        var children = guard.DetachChildren();
+        var first = new IfStatement(
+            (IrExpression)children[0], (Block)children[1], activation);
+        first.InheritSourceOffset(guard);
+        var second = new IfStatement(
+            new LoadLocal(flag, function.Locals[flag]),
+            (Block)children[2], null);
+        var scoped = new Block(store.SourceOffset);
+        int firstPosition = store.ChildIndex;
+        var statements = block.DetachChildren();
+        int scopeStart = firstPosition;
+        if (firstPosition > 0
+            && statements[firstPosition - 1] is LabelAnchor
+            {
+                RetainsPdbLocalScope: true,
+            } anchor
+            && anchor.SourceOffset == store.SourceOffset)
+            scopeStart--;
+        for (int position = 0; position < statements.Count; position++)
+        {
+            if (position == scopeStart)
+            {
+                block.Add(initialize);
+                block.Add(scoped);
+            }
+            if (position >= scopeStart && position <= firstPosition)
+                scoped.Add(statements[position]);
+            else if (position == firstPosition + 1)
+            {
+                scoped.Add(first);
+                block.Add(second);
+            }
+            else
+                block.Add(statements[position]);
+        }
+        return flag;
+    }
+
+    static bool TryConfineInScopeStoreToGuard(
+        IrFunction function,
+        int index,
+        int[] sameName,
+        IrNode[] references,
+        IrNode declaration,
+        Block block)
+    {
+        if (declaration is not StoreLocal { Value: LoadLocal source } store
+            || source.Index == index
+            || !store.Type.Equals(source.Type)
+            || store.Type.Kind is TypeRefKind.ByRef or TypeRefKind.Pinned
+            || store.Type.ContainsUnsupported
+            || IrFunction.LocalSlotReferencesInScope(
+                    function.Body, source.Index)
+                .Any(reference => reference is LoadLocalAddress)
+            || index >= function.LocalDeclarationBindings.Length
+            || function.LocalDeclarationBindings[index] is not { } binding
+            || store.SourceOffset < binding.Scope.StartOffset
+            || store.SourceOffset >= binding.Scope.EndOffset
+            || sameName.Any(other => other != index
+                && (other >= function.LocalDeclarationBindings.Length
+                    || function.LocalDeclarationBindings[other] is not { } peer
+                    || binding.Scope.StartOffset < peer.Scope.EndOffset
+                        && peer.Scope.StartOffset < binding.Scope.EndOffset))
+            || store.ChildIndex + 1 >= block.Children.Count
+            || block.Children[store.ChildIndex + 1] is not IfStatement guard
+            || references.Any(reference => !ReferenceEquals(reference, store)
+                && !ReferenceOwnership.IsInside(reference, guard.Then))
+            || IrFunction.LocalSlotReferencesInScope(
+                guard.Condition, index).Any()
+            || IrFunction.LocalSlotReferencesInScope(
+                guard.Condition, source.Index).Any()
+            || ReferenceOwnership.RewriteWouldInvalidateLabels(
+                function, [guard.Then], []))
+            return false;
+
+        int originalPosition = store.ChildIndex;
+        var statements = block.DetachChildren();
+        foreach (IrNode statement in statements)
+            if (!ReferenceEquals(statement, store))
+                block.Add(statement);
+        var guarded = guard.Then.DetachChildren();
+        guard.Then.Add(store);
+        foreach (IrNode statement in guarded)
+            guard.Then.Add(statement);
+
+        var scopes = LocalDeclarationPlan.Create(
+            function, function.Locals.Length).DeclarationScopes;
+        if (!sameName.Any(other => other != index
+            && ExactLocalNameAllocation.ScopesOverlap(
+                scopes[index], scopes[other])))
+            return true;
+
+        var restoredGuarded = guard.Then.DetachChildren();
+        foreach (IrNode statement in restoredGuarded)
+            if (!ReferenceEquals(statement, store))
+                guard.Then.Add(statement);
+        var restoredStatements = block.DetachChildren();
+        for (int position = 0; position <= restoredStatements.Count; position++)
+        {
+            if (position == originalPosition)
+                block.Add(store);
+            if (position < restoredStatements.Count)
+                block.Add(restoredStatements[position]);
+        }
+        return false;
     }
 
     static void TryRetainBasicBlockRange(

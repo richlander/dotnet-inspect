@@ -97,6 +97,38 @@ guessing.
 Planning declaration ownership does not move a statement, alter a branch,
 split storage, manufacture initialization, or retain a lexical block.
 
+### Exact-name scope composition before planning
+
+The existing `PdbLocalScopePass` may establish a narrower typed lexical tree
+before the final plan when disjoint exact PDB rows would otherwise overlap in
+C#. It can split an `if` whose first exact local is read by its condition and
+true arm while a same-named sibling belongs solely to its false arm. The
+condition still runs once: an explicitly initialized synthetic Boolean records
+the false outcome, the original true arm stays with the condition and first
+declaration, and the original false arm runs afterward only on that outcome.
+The first declaration, condition, and true arm share one lexical block; the
+false arm occupies a disjoint sibling. No externally entered label, escaping
+condition binder, unsupported storage, or missing exact PDB identity is
+admitted. A clone trial must prove definite assignment for the new flag and
+every affected exact name, non-overlapping emitted declaration scopes, and
+preserved exact-name allocation before changing the source tree. No original
+condition, arm, value read, store, or PDB row is copied or renamed.
+
+When structuring has cloned a source read into a terminal suffix after an
+unconditional `return` or `throw`, the scope pass may discard that suffix only
+if the same exact PDB row and source offset have another surviving read, no
+transfer can enter the suffix or a nested block, and a clone trial proves
+reaching assignment and exact-name allocation for every affected sibling.
+The discarded read was unreachable, not an independently reachable use whose
+assignment could be inferred from its source offset. This is not a license to
+prune a live clone, invent a reaching write, or relax the structurer's separate
+transfer-ownership proof.
+`PdbLocalDeclarationScopeTests.InScopeStore_UsesOnlyGuardedDeclarationExtent`
+and `PdbScopeEntryLocalPassTests.PatternProjection_ConfinesGuardedSameNamedSibling`
+gate the single-evaluation conditional placement and its external-entry
+decline. `TerminalCloneRead_OnlySurvivingBindingNeedsScope` gates dead-clone
+removal against both a live clone and a separately entered suffix.
+
 ### Binding allocation
 
 Binding allocation consumes the complete declaration-ownership result and the
@@ -197,7 +229,11 @@ For a successful plan:
    fallback provenance and fidelity remain explicit otherwise.
 6. Declaration planning does not change control flow, storage identity,
    evaluation order, exception regions, or initialization semantics.
-7. Planning the same finalized body with the same options produces the same
+7. Before assigning an exact name, each surviving read has a proved reaching
+   assignment and lies within that name's emitted lexical declaration scope;
+   unreachable cloned reads and conditionally scoped names cannot evade this
+   check by sharing a source offset or PDB range.
+8. Planning the same finalized body with the same options produces the same
    result.
 
 The first production adoption gates the declaration-ownership subset in
