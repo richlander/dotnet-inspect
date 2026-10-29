@@ -422,7 +422,11 @@ Each step is its own focused effort:
    extraction of
    [#10221](https://github.com/richlander/dotnet-inspect/issues/10221), and a
    Body fact per method under Finding Diff Any's Body equality, with NativeAOT
-   cost per Type for each against Finding Diff Any's lockstep walk.
+   cost per Type for each against Finding Diff Any's lockstep walk. Each is a
+   registered family in
+   [Annotated Type Map planning](annotated-type-map-planning.md), which also
+   plans a request for only some Members' shape facts, and its producer
+   computes only the families a plan selects.
 3. **Fact census without text.** The Annotated Source owner produces one
    method's whole fact stream and fact comparison, for each method a Member
    owns including generated methods, without the text comparison or the C#
