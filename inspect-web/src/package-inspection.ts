@@ -39,6 +39,20 @@ import type {
 export type PackagePerformance = BrowserPackagePerformance;
 export type PackageResourceTriage = BrowserResourceTriage;
 export type PackageUnsafeMembers = BrowserUnsafeMembers;
+export type PackageUnsafeMembersState =
+  PackageInspectionRequestState<PackageUnsafeMembers>;
+
+// The census breadth a request asks for: the whole Library when both are
+// empty, one Type, or one member of that Type.
+export interface UnsafeMembersScope {
+  readonly typeIdentity: string;
+  readonly stableSelector: string;
+}
+
+export const libraryUnsafeMembersScope: UnsafeMembersScope = {
+  typeIdentity: "",
+  stableSelector: "",
+};
 export type PackageLibraryMetrics = BrowserLibraryMetrics;
 export type PackageLibraryDependencyStructure =
   BrowserLibraryDependencyStructure;
@@ -293,6 +307,8 @@ export interface PackageInspectionState {
   packageUnsafeMembersLoading: boolean;
   packageUnsafeMembersError: string;
   packageUnsafeMembersKey: string;
+  packageTypeUnsafeMembers: PackageUnsafeMembersState;
+  packageMemberUnsafeMembers: PackageUnsafeMembersState;
   packageLibraryMetrics: PackageLibraryMetrics | null;
   packageLibraryMetricsLoading: boolean;
   packageLibraryMetricsError: string;
@@ -351,6 +367,7 @@ export interface PackageInspectionDependencies {
   queryPackageUnsafeMembers(
     packageModel: AppPackage,
     library: string,
+    scope: UnsafeMembersScope,
   ): Promise<PackageUnsafeMembers>;
   queryPackageLibraryMetrics(
     packageModel: AppPackage,
@@ -377,6 +394,8 @@ export interface PackageInspectionDependencies {
     platformVersion: string,
     assemblyFileName: string,
     pack: string,
+    typeIdentity: string,
+    stableSelector: string,
   ): Promise<PackageUnsafeMembers>;
   queryPlatformLibraryMetrics(
     framework: string,
@@ -449,6 +468,7 @@ export interface PackageInspectionCoordinator {
     packageModel: AppPackage,
     signature: string,
     scopedLibrary: string | null,
+    scope?: UnsafeMembersScope,
   ): Promise<void>;
   loadLibraryMetrics(
     packageModel: AppPackage,
@@ -572,6 +592,8 @@ export function createPackageInspectionCoordinator(
       state.packageUnsafeMembersLoading = false;
       state.packageUnsafeMembersError = "";
       state.packageUnsafeMembersKey = "";
+      state.packageTypeUnsafeMembers = { status: "idle" };
+      state.packageMemberUnsafeMembers = { status: "idle" };
       state.packageLibraryMetrics = null;
       state.packageLibraryMetricsLoading = false;
       state.packageLibraryMetricsError = "";
@@ -920,10 +942,66 @@ export function createPackageInspectionCoordinator(
       }
     },
 
-    // Only the current request for this exact Library and coordinate may
-    // publish; replacement and invalidation retire it without publication.
-    async loadUnsafeMembers(packageModel, signature, scopedLibrary) {
+    // Only the current request for this exact Library and coordinate, and
+    // for a narrow scope its Type or member, may publish; replacement and
+    // invalidation retire it without publication.
+    async loadUnsafeMembers(
+      packageModel,
+      signature,
+      scopedLibrary,
+      scope = libraryUnsafeMembersScope,
+    ) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
+      const query = () => {
+        const coordinates = packageModel.isRuntimePack
+          ? platformCoordinates(packageModel, scopedLibrary ?? "")
+          : null;
+        return coordinates
+          ? dependencies.queryPlatformUnsafeMembers(
+              coordinates.framework,
+              coordinates.platformVersion,
+              coordinates.assemblyFileName,
+              coordinates.pack,
+              scope.typeIdentity,
+              scope.stableSelector)
+          : dependencies.queryPackageUnsafeMembers(
+              packageModel,
+              scopedLibrary ?? "",
+              scope);
+      };
+      if (scope.typeIdentity) {
+        const field = scope.stableSelector
+          ? "packageMemberUnsafeMembers"
+          : "packageTypeUnsafeMembers";
+        const current = state[field];
+        if ((current.status === "ready" || current.status === "failed")
+          && current.key === signature) {
+          dependencies.render();
+          return;
+        }
+        if (current.status === "loading" && current.request.key === signature) return;
+        const request = { key: signature };
+        const ownsRequest = () => {
+          const live = state[field];
+          return live.status === "loading" && live.request === request;
+        };
+        state[field] = { status: "loading", request };
+        dependencies.render();
+        try {
+          const result = await query();
+          if (!ownsRequest()) return;
+          state[field] = { status: "ready", key: signature, result };
+        } catch (error) {
+          if (!ownsRequest()) return;
+          state[field] = {
+            status: "failed",
+            key: signature,
+            error: dependencies.describeError(error),
+          };
+        }
+        dependencies.render();
+        return;
+      }
       if (state.packageUnsafeMembersKey === signature
         && (state.packageUnsafeMembers || state.packageUnsafeMembersError)) {
         dependencies.render();
@@ -939,18 +1017,7 @@ export function createPackageInspectionCoordinator(
       state.packageUnsafeMembersLoading = true;
       dependencies.render();
       try {
-        const coordinates = packageModel.isRuntimePack
-          ? platformCoordinates(packageModel, scopedLibrary ?? "")
-          : null;
-        const result = coordinates
-          ? await dependencies.queryPlatformUnsafeMembers(
-              coordinates.framework,
-              coordinates.platformVersion,
-              coordinates.assemblyFileName,
-              coordinates.pack)
-          : await dependencies.queryPackageUnsafeMembers(
-              packageModel,
-              scopedLibrary ?? "");
+        const result = await query();
         if (ownsRequest()) {
           state.packageUnsafeMembers = result;
         }

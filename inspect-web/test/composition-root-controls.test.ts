@@ -874,6 +874,19 @@ test("typed package view owns package navigation bindings", () => {
   assert.match(
     functionSource("drillToUnsafeMember"),
     /resolveUnsafeNavigationType\([\s\S]*state\.memberAnalysisMode = "unsafe";[\s\S]*drillToAnalysisMember\(\s*targetType,\s*stableSelector,\s*"analysis",/);
+  // A view loads only its own scope; a covering wider census answers it.
+  assert.match(
+    functionSource("unsafeCensusFor"),
+    /unsafeCensusSourceFor\(view, \{\s*library: library\.fresh,\s*type: view === "member" && type\.fresh,\s*\}\)/);
+  assert.match(
+    functionSource("visibleUnsafeCensus"),
+    /if \(state\.atLibraryRoot\) return unsafeCensusFor\("library"\);[\s\S]*if \(scope\(\) === "type"\) return unsafeCensusFor\("type", unsafeTypeIdentity\(type\)\);[\s\S]*unsafeCensusFor\("member", unsafeTypeIdentity\(type\), selector\)/);
+  assert.match(
+    functionSource("loadPackageUnsafeMembers"),
+    /if \(census\.source !== census\.view\) return;[\s\S]*packageInspection\.loadUnsafeMembers\(\s*pkg,\s*census\.key,\s*scopedLib,\s*census\.scope\)/);
+  assert.match(
+    functionSource("maybeAutoLoadPackageUnsafeMembers"),
+    /if \(!census \|\| census\.source !== census\.view \|\| census\.request\.fresh\) return;/);
   assert.match(
     functionSource("drillToUnsafeType"),
     /resolveUnsafeNavigationType\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp"\);[\s\S]*state\.lens = "analysis";\s*state\.typeAnalysisMode = "unsafe";[\s\S]*render\(\);/);

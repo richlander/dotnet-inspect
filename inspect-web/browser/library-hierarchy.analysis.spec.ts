@@ -17,6 +17,7 @@ import {
   releaseFacade,
   root,
   openPlatform,
+  unsafeMembersRequests,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
@@ -1548,6 +1549,12 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await expect(typeRow).toHaveCount(1);
   await typeRow.locator("button.perf-row").click();
   await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  await expect(member).toHaveCount(1);
+  // The Library census answers the drilled Type: one Library request, and no
+  // Type or Member request.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "library", typeIdentity: "", stableSelector: "" },
+  ]);
   // Unsafe is the Type's default mode, so the link omits the refinement, and
   // a reload restores the Type Analysis Unsafe tab from the packet.
   await expect.poll(() => new URL(page.url()).searchParams.has("analysis")).toBe(false);
@@ -1556,6 +1563,10 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await expect(typeTab).toHaveAttribute("aria-selected", "true");
   await expect(member).toHaveCount(1);
   expect(page.url()).toBe(typeUrl);
+  // A reload at Type runs only that Type's census.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "type", typeIdentity: "Example.Widget", stableSelector: "" },
+  ]);
   // Member scope: the member's Analysis inspector opens on Unsafe with its
   // dimensions and evidence.
   await member.locator("button.perf-row").click();
@@ -1571,12 +1582,20 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await expect(items).toBeVisible();
   await expect(items).toContainText("IL_0007");
   await expect(items).toContainText("<Run>b__0_0()");
+  // The Type census answers the drilled member without another request.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "type", typeIdentity: "Example.Widget", stableSelector: "" },
+  ]);
   await expect.poll(() => new URL(page.url()).searchParams.has("analysis")).toBe(false);
   const memberUrl = page.url();
   await page.reload();
   await expect(memberTab).toHaveAttribute("aria-selected", "true");
   await expect(memberSurface.locator(".unsafe-evidence-table")).toContainText("IL_0007");
   expect(page.url()).toBe(memberUrl);
+  // A reload at Member runs only that member's census.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "member", typeIdentity: "Example.Widget", stableSelector: "Run" },
+  ]);
 });
 
 test("Resource rows open member Resource Triage with detailed evidence and Explore", async ({ page }) => {

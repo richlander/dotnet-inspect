@@ -330,6 +330,18 @@ Breadth follows the requested scope:
   An expansion bound
   keeps the visited prefix as sound findings and makes the census incomplete
   with an attribution-bound limitation; it is not a failed inspection.
+- **Member scope** uses exact-method breadth over one declared member's
+  MethodDefs, which are a method's own definition or a property's or event's
+  accessors, with generated execution bodies in every role. Its census is
+  measured against those definitions and the generated bodies the relation
+  authenticates to them. It reaches no nested type, so it has no
+  unauthenticated candidates: a generated body that the relation cannot
+  authenticate to the member is outside its claim. Type and Library scope
+  report such a body as an unattributed limitation, so a Member-scope census
+  never states that the member has no unsafe evidence; it states that none
+  was attributed to it. Breadth and terminal work stay within the member's
+  definitions and their authenticated expansion, without a type or table
+  scan.
 - **Library scope** uses all-definition breadth with the declared-source
   relation over it. Every physical body is visited, so a generated-shaped body
   with no authenticated owner is still inspected and becomes an unattributed
@@ -375,8 +387,9 @@ exact-type relation, so Type scope moved first:
 
 - `UnsafeMemberCensusProducer` declares Body, Calls, memory-safety contract,
   semantic identity, public-root, and reference-assembly support, and
-  `UnsafeMemberCensusAnalysis.ForTypes` and `ForLibrary` request it over the
-  Type-scope and Library-scope breadths above.
+  `UnsafeMemberCensusAnalysis.ForMethods`, `ForTypes`, and `ForLibrary`
+  request it over the Member-scope, Type-scope, and Library-scope breadths
+  above.
 - Completion reads each visited body's declared-source outcome from the
   [relation](method-query-source.md#declared-source-relation) and joins each
   authenticated owner to its visited identity, so an owner the source did not
@@ -565,6 +578,11 @@ Focused Release gates in `UnsafeMemberFindingsTests` cover:
 - `ExplicitContractBelongsOnlyToTheDeclaringMember` and
   `LegacyEvidenceNeverPropagates`: contracts and propagation stay with the
   declaring member;
+- `MemberScopeAgreesWithLibraryScopeWithinItsBreadth`: for every
+  fixture member, the Member-scope census has the same findings as the
+  Library-scope census, including lambda, local-function, and iterator folds,
+  and its breadth stays within the member's definitions and their
+  authenticated expansion;
 - `SafeBoundaryIsDecidedOnlyUnderTheUpdatedRules`: every propagator is
   `No`; under the updated rules every other finding is `Yes`, including a
   member whose lambda holds the unsafe block; under the legacy rules every

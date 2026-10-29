@@ -5,6 +5,7 @@ import type {
   BrowserUnsafeType,
 } from "./facades/inspect-web-analysis.d.ts";
 import { renderAnalysisInspector, type AnalysisInspectorContext } from "./analysis-inspector.ts";
+import type { UnsafeCensusSource } from "./unsafe-members-scope.ts";
 
 // The census request state every Unsafe scope shares: one Library result for
 // one exact Library and coordinate.
@@ -26,6 +27,9 @@ export interface TypeUnsafeMembersOptions extends UnsafeCensusState {
 }
 
 export interface MemberUnsafeMembersOptions extends UnsafeCensusState {
+  // The census the data came from: a Member-scope census can't see a
+  // generated body it can't authenticate to the member.
+  source: UnsafeCensusSource;
   memberName: string;
   typeId: string;
   stableSelector: string;
@@ -233,7 +237,10 @@ export function renderMemberUnsafeMembersSurface(options: MemberUnsafeMembersOpt
       .filter(member => member.stableSelector === options.stableSelector) ?? []
     : [];
   const status = `${options.memberName} · ${plural(findings.length, "finding")}${partial ? " · incomplete" : ""}`;
+  const empty = options.source === "member"
+    ? section("No unsafe evidence was attributed to this member", "A generated body that can't be authenticated to this member is reported at Type and Library scope.", escape)
+    : emptySection(partial, "No unsafe evidence for this member", escape);
   return renderAnalysisInspector(options, "unsafe", status, warning + (findings.length
     ? findings.map(member => renderFinding(member, escape)).join("")
-    : emptySection(partial, "No unsafe evidence for this member", escape)), "member");
+    : empty), "member");
 }

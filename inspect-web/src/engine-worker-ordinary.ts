@@ -1855,7 +1855,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPackageUnsafeMembers: valueOperation(
       "ordinary-analysis-query-package-unsafe-members",
-      4,
+      6,
       (
         facades,
         ...args: Parameters<AnalysisFacade["queryPackageUnsafeMembers"]>
@@ -1937,7 +1937,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPlatformUnsafeMembers: valueOperation(
       "ordinary-analysis-query-platform-unsafe-members",
-      4,
+      6,
       (
         facades,
         ...args: Parameters<AnalysisFacade["queryPlatformUnsafeMembers"]>

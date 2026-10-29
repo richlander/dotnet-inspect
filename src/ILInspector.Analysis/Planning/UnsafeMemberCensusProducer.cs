@@ -604,6 +604,33 @@ public static class UnsafeMemberCensusAnalysis
                 "The unsafe member census request must plan.");
 
     /// <summary>
+    /// Member-scope breadth: one declared member's method definitions with the
+    /// generated bodies authenticated to them in every role. It reaches no
+    /// nested type, so it has no unauthenticated candidates.
+    /// </summary>
+    public static MethodDefinitionSourceBreadth MemberScope(
+        IEnumerable<MethodDefinitionHandle> methods,
+        MethodDefinitionGeneratedExpansionLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(methods);
+        return MethodDefinitionSourceBreadth
+            .ExactMethods(methods.ToImmutableArray())
+            .IncludeGeneratedExecutionBodies(
+                limits,
+                MethodDefinitionGeneratedBodyRoles.All);
+    }
+
+    /// <summary>The census request over one declared member's definitions.</summary>
+    public static MethodDefinitionSourceRequest<UnsafeMemberCensus>
+        ForMethods(
+            IEnumerable<MethodDefinitionHandle> methods,
+            MethodDefinitionGeneratedExpansionLimits? limits = null) =>
+        MethodDefinitionSourceRequest<UnsafeMemberCensus>.Create(
+            Description,
+            UnsafeMemberCensusProducer.Instance,
+            MemberScope(methods, limits));
+
+    /// <summary>
     /// Type-scope breadth: the selected types' methods with their generated
     /// bodies in every role and the unauthenticated candidates the expansion
     /// reaches, which are visited without an owner.

@@ -29,7 +29,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserUnsafeMembers result = Assert.IsType<BrowserUnsafeMembers>(
             JsonSerializer.Deserialize(
                 await AnalysisExports.QueryPackageUnsafeMembers(
-                    packageId, "1.0.0", "net11.0", assemblyId),
+                    packageId, "1.0.0", "net11.0", assemblyId, "", ""),
                 BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
 
         UnsafeMemberFindingInspection census = CensusOf(assemblyPath);
@@ -101,6 +101,69 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(0, result.Counts.SafeBoundaryUndecided);
     }
 
+    // A Type or member request runs only its own scope's census, and
+    // answers with the same rows the Library census issues for that scope.
+    [Fact]
+    public async Task PackageUnsafeMembers_TypeAndMemberScopesAgreeWithTheLibrary()
+    {
+        const string packageId = "Browser.Library.UnsafeMembers.Scopes";
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
+        string assemblyName = Path.GetFileName(assemblyPath);
+        BrowserPackageCoordinate coordinate = await Coordinate(
+            packageId,
+            Package(File.ReadAllBytes(assemblyPath), $"lib/net11.0/{assemblyName}"));
+        string assemblyId = Assert.Single(coordinate.Selection.Assets).Id;
+        async Task<BrowserUnsafeMembers> Query(string typeIdentity, string stableSelector) =>
+            Assert.IsType<BrowserUnsafeMembers>(
+                JsonSerializer.Deserialize(
+                    await AnalysisExports.QueryPackageUnsafeMembers(
+                        packageId, "1.0.0", "net11.0", assemblyId, typeIdentity, stableSelector),
+                    BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
+
+        BrowserUnsafeMembers library = await Query("", "");
+        BrowserUnsafeType expectedType = Assert.Single(
+            library.Types,
+            static type => type.Members.Any(static member => member.Member.Contains(".CaptureLocal(", StringComparison.Ordinal)));
+        string typeId = Assert.IsType<string>(expectedType.TypeId);
+
+        BrowserUnsafeMembers typeScope = await Query(typeId, "");
+        Assert.Equal(library.Outcome, typeScope.Outcome);
+        BrowserUnsafeType type = Assert.Single(typeScope.Types);
+        Assert.Equal(expectedType.Type, type.Type);
+        Assert.Equal(expectedType.TypeId, type.TypeId);
+        Assert.Equal(expectedType.Counts, type.Counts);
+        Assert.Equal(type.Counts, typeScope.Counts);
+        Assert.Equal(
+            [.. expectedType.Members.Select(Row)],
+            [.. type.Members.Select(Row)]);
+
+        foreach (BrowserUnsafeMember expected in expectedType.Members.Where(static member => member.StableSelector is not null))
+        {
+            BrowserUnsafeMembers memberScope = await Query(typeId, expected.StableSelector!);
+            Assert.Equal("available", memberScope.Outcome);
+            BrowserUnsafeMember[] rows = Members(memberScope);
+            Assert.Contains(Row(expected), rows.Select(Row));
+            Assert.All(rows, row => Assert.Equal(expected.StableSelector, row.StableSelector));
+        }
+    }
+
+    // A member's row value without its evidence-item array, which records
+    // compare by reference.
+    static string Row(BrowserUnsafeMember member) =>
+        string.Join(
+            " | ",
+            member.Member,
+            member.MetadataToken,
+            member.Exposure,
+            member.ExplicitContract,
+            member.SafeBoundary,
+            member.Evidence,
+            member.Partial,
+            member.TypeId,
+            member.StableSelector,
+            member.Accessibility,
+            string.Join("; ", member.Items.Select(static item => $"{item.Role} {item.Body} {item.IlOffset} {item.Detail}")));
+
     [Fact]
     public async Task PackageUnsafeMembers_WithoutImplementationAssemblyIsUnavailable()
     {
@@ -115,7 +178,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserUnsafeMembers result = Assert.IsType<BrowserUnsafeMembers>(
             JsonSerializer.Deserialize(
                 await AnalysisExports.QueryPackageUnsafeMembers(
-                    packageId, "1.0.0", "net11.0", assemblyId),
+                    packageId, "1.0.0", "net11.0", assemblyId, "", ""),
                 BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
 
         Assert.Equal("unavailable", result.Outcome);
@@ -148,7 +211,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserUnsafeMembers result = Assert.IsType<BrowserUnsafeMembers>(
             JsonSerializer.Deserialize(
                 await AnalysisExports.QueryPlatformUnsafeMembers(
-                    framework, "", assemblyName, "netcore.app"),
+                    framework, "", assemblyName, "netcore.app", "", ""),
                 BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers));
 
         Assert.Contains(result.Outcome, new[] { "available", "incomplete" });

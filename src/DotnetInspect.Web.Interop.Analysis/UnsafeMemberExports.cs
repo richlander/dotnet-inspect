@@ -93,8 +93,10 @@ public static partial class AnalysisExports
 {
     [JSExport]
     public static async Task<string> QueryPackageUnsafeMembers(
-        string packageId, string version, string targetFramework, string assemblyName)
+        string packageId, string version, string targetFramework, string assemblyName,
+        string typeIdentity, string stableSelector)
     {
+        UnsafeMemberCensusScope censusScope = CensusScope(typeIdentity, stableSelector);
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(packageId, version, targetFramework);
         BrowserInspectionScope scope = scopeLease.Scope;
@@ -115,7 +117,9 @@ public static partial class AnalysisExports
             result = scope.ImplementationParticipants.Contains(participant)
                 ? ProjectUnsafeMembers(
                     scope.UseImplementationParticipant(
-                        participant, AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant),
+                        participant,
+                        (group, member) => AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant(
+                            group, member, censusScope)),
                     _ => new BrowserUnsafeMemberSurfaceNaming(
                         surface.Asset.AssemblyName, surface.Asset.Id, PlatformPack: null))
                 : UnsafeMembersUnavailable(
@@ -126,8 +130,10 @@ public static partial class AnalysisExports
 
     [JSExport]
     public static async Task<string> QueryPlatformUnsafeMembers(
-        string targetFramework, string platformVersion, string assemblyFileName, string pack)
+        string targetFramework, string platformVersion, string assemblyFileName, string pack,
+        string typeIdentity, string stableSelector)
     {
+        UnsafeMemberCensusScope censusScope = CensusScope(typeIdentity, stableSelector);
         BrowserUnsafeMembers result;
         await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
@@ -138,13 +144,23 @@ public static partial class AnalysisExports
             result = ProjectUnsafeMembers(
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
-                    static (group, participant) =>
-                        AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant(group, participant)),
+                    (group, participant) =>
+                        AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant(
+                            group, participant, censusScope)),
                 identity => new BrowserUnsafeMemberSurfaceNaming(
                     identity.Name, identity.Name, platformPack));
         }
         return JsonSerializer.Serialize(result, BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers);
     }
+
+    // An empty Type identity requests the Library; a Type with an empty
+    // stable selector requests that Type; both request one member.
+    static UnsafeMemberCensusScope CensusScope(string typeIdentity, string stableSelector) =>
+        string.IsNullOrEmpty(typeIdentity)
+            ? UnsafeMemberCensusScope.Library
+            : string.IsNullOrEmpty(stableSelector)
+                ? new UnsafeMemberCensusScope.TypeScope(typeIdentity)
+                : new UnsafeMemberCensusScope.MemberScope(typeIdentity, stableSelector);
 
     internal static BrowserUnsafeMembers ProjectUnsafeMembers(
         AssemblyContextEntry<AssemblyUnsafeMemberCensusResult> entry,

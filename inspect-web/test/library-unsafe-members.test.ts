@@ -16,7 +16,7 @@ const escapeHtml = (value: unknown) => String(value).replaceAll("&", "&amp;").re
 const census = { fresh: true, loading: false, error: "", escapeHtml };
 const library = { ...census, assemblyIdentity: "Fixture", assetPath: "Fixture.dll", coordinate: "Fixture@1.0", pickerHtml: "", requireLibrary: false };
 const typeScope = { ...census, typeId: "Fixture.Sample", typeName: "Sample" };
-const memberScope = { ...census, memberName: "Read", typeId: "Fixture.Sample", stableSelector: "Read~abc" };
+const memberScope = { ...census, source: "library" as const, memberName: "Read", typeId: "Fixture.Sample", stableSelector: "Read~abc" };
 const member: BrowserUnsafeMember = {
   member: "Fixture.Sample.Read(Int32)",
   metadataToken: 0x06000001,
@@ -156,6 +156,22 @@ test("a member absent from a complete census says it has no unsafe evidence", ()
   const html = renderMemberUnsafeMembersSurface({ ...memberScope, stableSelector: "Other~x", data: result() });
   assert.match(html, /No unsafe evidence for this member/);
   assert.match(html, /No unsafe members under the updated memory-safety rules/);
+});
+
+test("a member without findings from its own Member census reads as unattributed, not absent", () => {
+  const empty = result({ counts: counts({ members: 0, safeBoundaries: 0 }), types: [group({ counts: counts({ members: 0, safeBoundaries: 0 }), members: [] })] });
+  for (const data of [empty, result({ ...empty, outcome: "incomplete", limitations: ["ReferenceAssembly"] })]) {
+    const html = renderMemberUnsafeMembersSurface({ ...memberScope, source: "member", data });
+    assert.match(html, /No unsafe evidence was attributed to this member/);
+    assert.match(html, /generated body that can&#39;t be authenticated|generated body that can't be authenticated/);
+    assert.doesNotMatch(html, /No unsafe members under the updated memory-safety rules|No unsafe evidence for this member/);
+  }
+  // Selected from a Type or Library census, the member keeps that census's wording.
+  for (const source of ["type", "library"] as const) {
+    const html = renderMemberUnsafeMembersSurface({ ...memberScope, source, stableSelector: "Other~x", data: result() });
+    assert.match(html, /No unsafe evidence for this member/);
+    assert.doesNotMatch(html, /attributed/);
+  }
 });
 
 test("an incomplete census lists its limitations at every scope and keeps the observed rows", () => {

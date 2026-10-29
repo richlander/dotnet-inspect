@@ -1369,12 +1369,32 @@ Every scope is the **Unsafe** tab of that scope's
   - The Type and Member Analysis inspectors are available for package and
     Platform Libraries alike, because Unsafe presents the census, not Member
     Facts.
-- **State.** All three scopes share the closed request state Resource Triage
-  uses, for one exact Library and coordinate. Only the current request may
-  publish; replacement and package invalidation retire it. Workspace
-  snapshots normalize an interrupted load to idle. The Type and Member scopes
-  select from that one Library result by the product-issued Type identity and
-  member stable selector. They don't regroup, filter, or recount rows.
+- **Scope of work.** A view runs the narrowest census that answers it, and
+  reuses a wider one that's already loaded:
+  - Library Unsafe runs the Library census.
+  - Type Unsafe selects its Type from a fresh Library census of the same
+    Library when one is loaded. Otherwise it runs the Type-scope census for
+    that Type alone.
+  - Member Unsafe selects its member from a fresh Library census, or from a
+    fresh Type census of its declaring Type, when one is loaded. Otherwise it
+    runs the Member-scope census for that member alone.
+
+  So a drill down from the Library starts no new census, and a deep link or
+  refresh at Type or Member scope never waits for a Library census. Widening
+  from a narrow scope to the Library runs the Library census then.
+- **State.** Each scope has the closed request state Resource Triage uses,
+  keyed by exact Library and coordinate, plus the Type identity at Type scope
+  and the member's Type and stable selector at Member scope. Only the current
+  request may publish; replacement and package invalidation retire it.
+  Workspace snapshots normalize an interrupted load to idle. A view selects
+  from a covering result by the product-issued Type identity and member
+  stable selector, and doesn't regroup, filter, or recount rows.
+- **Member-scope absence.** A Member-scope census can't see a generated body
+  that the relation can't authenticate to the member, as
+  [the census execution](unsafe-member-findings.md#execution) states. So a
+  member without findings from that census reads "No unsafe evidence was
+  attributed to this member", never that it has none. The same member
+  selected from a Type or Library census keeps that census's limitations.
 - **Outcomes.** Each outcome renders distinctly at every scope:
   - loading;
   - failed or rejected, with its diagnostic;
@@ -1388,10 +1408,12 @@ Every scope is the **Unsafe** tab of that scope's
 - **Bounds.** There's no row bound. The census is one bounded Library
   operation.
 
-The managed export runs `AssemblyContextUnsafeMemberCensusQuery` over the
-Library's admitted implementation participant. That query runs the census
-through its shared session entry, and adds navigation identities from the
-complete API surface. The export groups findings with
+The managed exports run `AssemblyContextUnsafeMemberCensusQuery` over the
+Library's admitted implementation participant at the requested scope. That
+query runs the census through its shared session entry. It resolves a Type
+scope's TypeDef and a Member scope's MethodDefs through the existing API
+surface selection, and adds navigation identities from the complete API
+surface. The export groups findings with
 `UnsafeMemberTypeGroup` and counts them with `UnsafeMemberCounts`.
 
 The platform selector stays above scrolling results and keeps its existing

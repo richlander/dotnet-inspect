@@ -210,6 +210,8 @@ import {
   type PackagePerformance,
   type PackageResourceTriage,
   type PackageUnsafeMembers,
+  type PackageUnsafeMembersState,
+  type UnsafeMembersScope,
   type PackageIntegrationsState,
   type PackageMetadataState,
   type PackageOpportunitiesState,
@@ -440,6 +442,15 @@ import {
   renderMemberUnsafeMembersSurface,
   renderTypeUnsafeMembersSurface,
 } from "./library-unsafe-members.ts";
+import {
+  unsafeCensusRequestView,
+  unsafeCensusScope,
+  unsafeCensusSourceFor,
+  unsafeMemberCensusKey,
+  unsafeTypeCensusKey,
+  type UnsafeCensusRequestView,
+  type UnsafeCensusSource,
+} from "./unsafe-members-scope.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
@@ -1665,6 +1676,8 @@ const initialState = {
   packageUnsafeMembersLoading: false,
   packageUnsafeMembersError: "",
   packageUnsafeMembersKey: "",
+  packageTypeUnsafeMembers: { status: "idle" } as PackageUnsafeMembersState,
+  packageMemberUnsafeMembers: { status: "idle" } as PackageUnsafeMembersState,
   packageLibraryMetrics: null,
   packageLibraryMetricsLoading: false,
   packageLibraryMetricsError: "",
@@ -2149,6 +2162,10 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
   snapshotState.packageUnsafeMembersLoading = false;
+  snapshotState.packageTypeUnsafeMembers =
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageTypeUnsafeMembers);
+  snapshotState.packageMemberUnsafeMembers =
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageMemberUnsafeMembers);
   snapshotState.packageMetadata =
     normalizePackageInspectionRequestSnapshot(snapshotState.packageMetadata);
   snapshotState.memberCallGraphLoading = false;
@@ -12356,11 +12373,13 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
-  queryPackageUnsafeMembers: (packageModel, library) => inspectPackageUnsafeMembers(
+  queryPackageUnsafeMembers: (packageModel, library, censusScope) => inspectPackageUnsafeMembers(
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework,
-    library),
+    library,
+    censusScope.typeIdentity,
+    censusScope.stableSelector),
   queryPackageLibraryDependencyStructure: (packageModel, library) =>
     inspectPackageLibraryDependencyStructure(
       packageModel.id,
@@ -12403,12 +12422,16 @@ const packageInspection = createPackageInspectionCoordinator({
     platformVersion,
     assemblyFileName,
     pack,
+    typeIdentity,
+    stableSelector,
   ) =>
     inspectPlatformUnsafeMembers(
       framework,
       platformVersion,
       assemblyFileName,
-      pack),
+      pack,
+      typeIdentity,
+      stableSelector),
   queryPlatformLibraryDependencyStructure: (
     framework,
     platformVersion,
@@ -12841,32 +12864,94 @@ async function loadPackageResourceTriage() {
     scopedLib);
 }
 
-// One Library census serves the Library, Type, and Member Unsafe scopes. Its
-// key names the exact Library even when an aggregate package's Type or member
-// is the subject, so one Library's result never stands for another's.
+// The exact Library key every Unsafe census request extends. It names the
+// Library even when an aggregate package's Type or member is the subject, so
+// one Library's result never stands for another's.
 function unsafeMembersSignature() {
   const pkg = currentPackage();
   const lib = selectedLibraryShareKey() || selectedLibraryRequest();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
-function currentUnsafeMembersState() {
-  return {
-    fresh: state.packageUnsafeMembersKey === unsafeMembersSignature(),
+interface UnsafeCensusSelection {
+  view: UnsafeCensusSource;
+  source: UnsafeCensusSource;
+  key: string;
+  scope: UnsafeMembersScope;
+  request: UnsafeCensusRequestView;
+}
+
+// The census that answers an Unsafe view: a fresh Library census covers
+// every scope, a fresh Type census covers its members, and otherwise the view
+// uses its own scope's request.
+function unsafeCensusFor(
+  view: UnsafeCensusSource,
+  typeIdentity = "",
+  stableSelector = "",
+): UnsafeCensusSelection {
+  const libraryCensusKey = unsafeMembersSignature();
+  const library: UnsafeCensusRequestView = {
+    fresh: state.packageUnsafeMembersKey === libraryCensusKey,
     loading: state.packageUnsafeMembersLoading,
     error: state.packageUnsafeMembersError,
     data: state.packageUnsafeMembers,
-    escapeHtml,
   };
+  const typeKey = unsafeTypeCensusKey(libraryCensusKey, typeIdentity);
+  const type = unsafeCensusRequestView(state.packageTypeUnsafeMembers, typeKey);
+  const source = unsafeCensusSourceFor(view, {
+    library: library.fresh,
+    type: view === "member" && type.fresh,
+  });
+  const censusScope = unsafeCensusScope(source, typeIdentity, stableSelector);
+  switch (source) {
+    case "library":
+      return { view, source, key: libraryCensusKey, scope: censusScope, request: library };
+    case "type":
+      return { view, source, key: typeKey, scope: censusScope, request: type };
+    case "member": {
+      const key = unsafeMemberCensusKey(libraryCensusKey, typeIdentity, stableSelector);
+      return {
+        view,
+        source,
+        key,
+        scope: censusScope,
+        request: unsafeCensusRequestView(state.packageMemberUnsafeMembers, key),
+      };
+    }
+    default:
+      return assertNever(source, "Unsafe census source");
+  }
 }
 
+function unsafeTypeIdentity(type: AppTypeSurface) {
+  return type.definitionId ?? type.id;
+}
+
+// The census the visible Unsafe view needs, or null when none is visible.
+function visibleUnsafeCensus(): UnsafeCensusSelection | null {
+  if (!unsafeMembersScopeIsVisible()) return null;
+  if (state.atLibraryRoot) return unsafeCensusFor("library");
+  const type = selectedType();
+  if (!type) return null;
+  if (scope() === "type") return unsafeCensusFor("type", unsafeTypeIdentity(type));
+  const selector = selectedMemberOverload(type, selectedMember(type))?.stableSelector;
+  return selector
+    ? unsafeCensusFor("member", unsafeTypeIdentity(type), selector)
+    : null;
+}
+
+// Loads only the visible view's own scope; a covering wider census, loading
+// or settled, answers it without a new request.
 async function loadPackageUnsafeMembers() {
+  const census = visibleUnsafeCensus() ?? unsafeCensusFor("library");
+  if (census.source !== census.view) return;
   const pkg = currentPackage();
   const scopedLib = selectedLibraryRequest() || null;
   return packageInspection.loadUnsafeMembers(
     pkg,
-    unsafeMembersSignature(),
-    scopedLib);
+    census.key,
+    scopedLib,
+    census.scope);
 }
 
 // The selected mode of the Analysis inspector the current view shows, at
@@ -12916,9 +13001,9 @@ function loadSelectedMemberAnalysisMode(): Promise<void> {
 }
 
 function maybeAutoLoadPackageUnsafeMembers() {
-  if (!unsafeMembersScopeIsVisible()) return;
+  const census = visibleUnsafeCensus();
+  if (!census || census.source !== census.view || census.request.fresh) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageUnsafeMembersKey === unsafeMembersSignature()) return;
   observeAsync(loadPackageUnsafeMembers(), "Loading unsafe members");
 }
 
@@ -13499,10 +13584,12 @@ function drillToPerfMember(
     resourceMethodToken);
 }
 
+// The Type group a Library or Type Unsafe row drills from, in the census
+// that answers that Type.
 function currentUnsafeType(typeId: string) {
-  return state.packageUnsafeMembersKey === unsafeMembersSignature()
-    ? state.packageUnsafeMembers?.types.find(candidate =>
-        candidate.typeId === typeId)
+  const { request } = unsafeCensusFor("type", typeId);
+  return request.fresh
+    ? request.data?.types.find(candidate => candidate.typeId === typeId)
     : undefined;
 }
 
@@ -14405,8 +14492,9 @@ function renderTypeAnalysis(item: AppTypeSurface) {
   switch (state.typeAnalysisMode) {
     case "unsafe":
       return renderTypeUnsafeMembersSurface({
-        ...currentUnsafeMembersState(),
-        typeId: item.definitionId ?? item.id,
+        ...unsafeCensusFor("type", unsafeTypeIdentity(item)).request,
+        escapeHtml,
+        typeId: unsafeTypeIdentity(item),
         typeName: typeDisplayName(item),
       });
     default:
@@ -14420,13 +14508,19 @@ function renderMemberAnalysis(
   overload: AppMemberSurface | undefined,
 ) {
   switch (state.memberAnalysisMode) {
-    case "unsafe":
+    case "unsafe": {
+      const typeId = unsafeTypeIdentity(type);
+      const stableSelector = overload?.stableSelector ?? "";
+      const census = unsafeCensusFor("member", typeId, stableSelector);
       return renderMemberUnsafeMembersSurface({
-        ...currentUnsafeMembersState(),
+        ...census.request,
+        escapeHtml,
+        source: census.source,
         memberName: member.name,
-        typeId: type.definitionId ?? type.id,
-        stableSelector: overload?.stableSelector ?? "",
+        typeId,
+        stableSelector,
       });
+    }
     default:
       return assertNever(state.memberAnalysisMode, "Member analysis mode");
   }
