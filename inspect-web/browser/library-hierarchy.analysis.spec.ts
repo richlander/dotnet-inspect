@@ -55,6 +55,7 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     "Integrations",
     "Performance Triage",
     "Resource Triage",
+    "Unsafe",
   ]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-analysis-mode="relationships"]'))
