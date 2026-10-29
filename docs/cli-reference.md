@@ -1908,15 +1908,17 @@ An exact `type` target with no competing operation or projection defaults to
 the compact public Type hierarchy; `--tree` explicitly selects the same Tree
 profile. A short name that platform find resolves to one exact Type, such as
 `type JsonSerializer`, renders the same Tree. The Tree lists one row per Member
-group under its category, and a category counts its Member groups. It shows no
-overload Counts; use `member <Type> <Name>` for a Member group's overloads.
+group under its category, and a category counts its Member groups. A group
+name carries its exact-overload Count when greater than one, such as
+`DeserializeAsync (10)`. Counts follow the selected visibility policy.
+Use `member <Type> <Name> --tree` for the overload signatures.
 
 ```text
 static class System.Text.Json.JsonSerializer
 ├─ Properties (1)
 │  └─ IsReflectionEnabledByDefault
 └─ Methods (10)
-   ├─ Deserialize
+   ├─ DeserializeAsync (10)
    └─ …
 ```
 
@@ -2043,12 +2045,27 @@ dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
-A bare ordinary method name selects its MemberGroup. Its default output is a
-native Tree rooted at one compact identity line and containing every public,
-non-hidden exact overload; explicit `--tree` renders the same population.
-This remains a MemberGroup when the selected version has one overload.
-Use `--columns "Signature;Description"` to request compiled documentation for
-each returned exact overload and render the bounded population as a table.
+A bare ordinary method name defaults to the first public, non-hidden overload's
+Signature table and compiled documentation. When alternatives exist, a warning
+identifies the selected ordinal and total Count and names `--tree` as the
+gesture that lists them. Explicit formats, sections, and verbosity preserve
+their requested population instead of implicitly selecting one overload.
+
+Explicit `--tree` shows the parent Type with available acquisition properties,
+then the same-name MemberGroup and every overload's ordinal and signature.
+`-S Overloads --table` lists every overload with its ordinal selector, stable
+digest anchor, and signature. `-S "Documented Overloads" --table` requests the
+same ordered population with compiled documentation. Missing or failed
+documentation remains visible and does not remove declarations. Both sections
+also support Markdown, JSON, TSV, JSONL, column projection, row windows, and
+Count. Format and column projection do not request documentation.
+
+```bash
+dotnet-inspect member JsonSerializer.DeserializeAsync --package System.Text.Json --tree
+dotnet-inspect member JsonSerializer.DeserializeAsync --package System.Text.Json -S Overloads --table
+dotnet-inspect member JsonSerializer.DeserializeAsync --package System.Text.Json -S "Documented Overloads" --table
+```
+
 Select an exact Member with an ordinal or digest when the intended subject is
 one declaration rather than its overload family. Its native default is one
 singular Signature view containing the display signature, digest, and canonical

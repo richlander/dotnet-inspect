@@ -10,6 +10,30 @@ namespace DotnetInspector.DocumentationHouse.Direct;
 /// </summary>
 public static class DirectLibraryDocumentationQuery
 {
+    public static ValueTask<
+        IReadOnlyDictionary<string, DocumentationQueryOutcome>>
+        ExecuteManyAsync(
+            LibraryReference library,
+            LibraryContentOwner owner,
+            IReadOnlyCollection<string> documentationIds,
+            DocumentationDemand demand,
+            ApiSurfaceExtractionScope apiSurfaceScope,
+            ApiSurfaceExtractionBounds apiSurfaceBounds,
+            DocumentationHouseLimits documentationLimits,
+            TimeSpan timeout,
+            CancellationToken cancellationToken = default)
+        => ExecuteManyAsync(
+            library,
+            owner,
+            documentationIds,
+            demand,
+            apiSurfaceScope,
+            apiSurfaceBounds,
+            documentationLimits,
+            timeout,
+            declaringType: null,
+            cancellationToken);
+
     public static async ValueTask<
         IReadOnlyDictionary<string, DocumentationQueryOutcome>>
         ExecuteManyAsync(
@@ -21,6 +45,7 @@ public static class DirectLibraryDocumentationQuery
             ApiSurfaceExtractionBounds apiSurfaceBounds,
             DocumentationHouseLimits documentationLimits,
             TimeSpan timeout,
+            MetadataTypeDefinitionName? declaringType,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(library);
@@ -56,13 +81,22 @@ public static class DirectLibraryDocumentationQuery
         }
 
         IReadOnlyDictionary<string, DocumentationSubjectReference> subjects =
-            CompiledDocumentationSubjectResolver.Resolve(
-                library,
-                owner,
-                requestedIds,
-                apiSurfaceScope,
-                apiSurfaceBounds,
-                cancellationToken);
+            declaringType is null
+                ? CompiledDocumentationSubjectResolver.Resolve(
+                    library,
+                    owner,
+                    requestedIds,
+                    apiSurfaceScope,
+                    apiSurfaceBounds,
+                    cancellationToken)
+                : CompiledDocumentationSubjectResolver.Resolve(
+                    library,
+                    owner,
+                    requestedIds,
+                    apiSurfaceScope,
+                    apiSurfaceBounds,
+                    declaringType,
+                    cancellationToken);
         var requests =
             new List<DocumentationHouseRequest>(requestedIds.Length);
         foreach (string documentationId in requestedIds)
