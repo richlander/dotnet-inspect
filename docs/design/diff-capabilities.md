@@ -129,8 +129,8 @@ it.
 | L1 | a Library pair | one state per Type per axis, stopped at each Type's first difference | one row per Type with a `Changed` or `Indeterminate` state, with per-axis states and counts |
 | T1 | a Library pair and a Type identity | that Type's pairing and its Members' and residual's states | one row per Member, and the residual, with a `Changed` or `Indeterminate` state |
 | T2 | a Library pair and a Type identity | T1's rows and each changed row's change facts | T1's rows, each with its change facts |
-| M1 | a Library pair and a Member's `MemberAnchor` | that Member's change facts in both versions | the Member's change facts |
-| M2 | a Library pair and a Member's `MemberAnchor` | that Member's complete diff, and its change facts when asked | the Member's text diff per medium, with its facts overlaid when asked |
+| M1 | a Library pair and a Member key | that key's entries in each version and their change facts | the key's change facts, one-sided when the key exists on one side |
+| M2 | a Library pair and a Member key | the corresponding Member's complete diff, and its change facts when asked | the Member's text diff per medium, with its facts overlaid when asked |
 
 ### Demand-shaped
 
@@ -140,17 +140,23 @@ M1 and M2 read one Member in each version. So:
 
 - **No prerequisite rung.** A Type or Member request, such as one a link
   opens, never computes, waits for, or selects from a wider rung's result.
-  M1 and M2 resolve their Member in each version through the exact single-Type
-  lookup ([assembly inspection query](assembly-inspection-query.md)) and the
+  Both resolve the addressed Type in each version through the exact
+  single-Type lookup ([assembly inspection query](assembly-inspection-query.md)),
+  which neither pairs nor walks the Library. M1 then reads its Member key by
+  exact key in each version, as the map joins, and an absent side makes the
+  key one-sided; it produces only that key's entries, not the Type's map. M2
+  pairs its Member across keys through the
   [version-pair correspondence](api-qualified-anchor.md#version-pair-correspondence)
   over that Type's declarations, as Finding Diff Any's
-  [Member level](finding-diff-any.md#member) does, which neither pair nor
-  walk the Library. T1 and T2 pair the addressed Type by its identity, not by
-  pairing every Type of the two images.
+  [Member level](finding-diff-any.md#member) does, so a Member whose signature
+  changed, which is two keys at T1, T2, and M1, opens one M2 diff that covers
+  both. T1 and T2 pair the addressed Type by its identity, not by pairing every
+  Type of the two images.
 - **Reuse is optional.** A host may answer a request from a completed wider
   result it already holds, such as a T1 row from a held T2 result or a
   retained per-version map, when that result covers the narrower address.
-  That is a cache, never a requirement and never a provision.
+  That is a cache of the provision that answers the address, never a
+  requirement.
 - **No whole-Library reads.** A Type- or Member-addressed query performs none
   of the reads the [single-Library API Diff
   terminal](diff-system.md#single-library-api-diff-terminal) makes across the
@@ -164,9 +170,13 @@ M1 and M2 read one Member in each version. So:
 
 The rungs share everything except a materialized result:
 
-- **Identity.** One owner-issued Type identity and
-  [`MemberAnchor`](api-qualified-anchor.md#basis-and-existing-currencies), the
-  durable selection and diff-row identity, address every scope, so a link resolves to the same subject at each rung.
+- **Identity.** One owner-issued Type identity and one **Member key**, the
+  map's census key, address every scope. A host spells a Member key as its
+  [`MemberAnchor`](api-qualified-anchor.md#basis-and-existing-currencies),
+  with the map's row token where two keys share a spelling, as the
+  [Annotated Type Map](annotated-type-map.md) does. A key names one row at
+  T1, T2, and M1, so a link resolves to the same subject at each of those
+  rungs; at M2 it names the Member its correspondence pairs.
 - **Change facts.** Every fact family a Rows rung reports carries per-side
   status facets, so a host's ordinary population, hidden and obsolete
   filters, and accessibility filters are presentation over facets each row
@@ -359,7 +369,7 @@ offers:
 | Provision | Answers | Shape |
 | --- | --- | --- |
 | Lockstep Exists | Rungs 1 and 2 | Walks both images, compares symbolic facts (the API census, the Body declaration census, and IL), stops each axis at its first difference |
-| Map diff | T2 and M1, and T1 as its projection | Produces both versions' [Annotated Type Maps](annotated-type-map.md) for the addressed Type, in lockstep as that owner permits, and compares them by key; it has no text comparison and builds no Type-scope source view |
+| Map diff | T2 and M1, and T1 as its projection | Produces both versions' [Annotated Type Map](annotated-type-map.md) entries for the address, in lockstep as that owner permits, and compares them by key: the addressed Type's entries for T1 and T2, and only the addressed key's entries for M1. For T1 it runs as Exists, comparing shape facts and stopping at each row's first difference, with no fact comparison. It has no text comparison and builds no Type-scope source view |
 | Complete | M2 | Builds the complete models of the addressed Member and explains every difference |
 
 A host that retains one version's map, built once, may compare two retained
@@ -490,13 +500,14 @@ Each step is its own focused effort:
       comparison, the map diff becomes the T2 route, admitting API change kinds
       and declaration facts with their status facets, with a CLI section and a
       Browser export.
-   5. **M1.** The map diff's Member scope becomes the M1 route, addressed
-      through the exact single-Type lookup and version-pair correspondence,
-      with a CLI section and a Browser export. It reads the same fact
+   5. **M1.** The map diff's Member scope becomes the M1 route, addressed by
+      Member key through the exact single-Type lookup and an exact key read in
+      each version, with a CLI section and a Browser export. It reads the same fact
       comparison as T2, so nothing is replaced and it agrees with T2.
    6. **M2.** The Annotated Source diff document becomes a route with Table and
-      Document outputs, a CLI section, and a Browser binding, overlaying M1's
-      facts when asked.
+      Document outputs, a CLI section, and a Browser binding, addressed by
+      Member key and paired through version-pair correspondence, overlaying the
+      M1 facts of the keys it covers when asked.
 
    No slice adds an interim producer that a later slice replaces. Today's Diff
    analysis set at Type and Member surface stays as it is until the CLI and
