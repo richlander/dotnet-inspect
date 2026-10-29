@@ -9,34 +9,44 @@ public static class MemberGroupPresentation
     public static void WriteTree(
         MemberOverviewDocument document,
         string declaringTypeDisplay,
-        TextWriter output)
+        TextWriter output,
+        IReadOnlyList<ResultProperty>? properties = null,
+        IReadOnlyDictionary<int, int>? selectorIndices = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         WriteTree(
             document.Subject,
             document.Members,
             declaringTypeDisplay,
-            output);
+            output,
+            properties ?? [],
+            selectorIndices);
     }
 
     public static void WriteTree(
         MemberDocument document,
         string declaringTypeDisplay,
-        TextWriter output)
+        TextWriter output,
+        IReadOnlyList<ResultProperty>? properties = null,
+        IReadOnlyDictionary<int, int>? selectorIndices = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         WriteTree(
             document.Subject.Group,
             [document],
             declaringTypeDisplay,
-            output);
+            output,
+            properties ?? [],
+            selectorIndices);
     }
 
     private static void WriteTree(
         MemberGroupSubject subject,
         IReadOnlyList<MemberDeclaration> members,
         string declaringTypeDisplay,
-        TextWriter output)
+        TextWriter output,
+        IReadOnlyList<ResultProperty> properties,
+        IReadOnlyDictionary<int, int>? selectorIndices)
     {
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentNullException.ThrowIfNull(members);
@@ -47,17 +57,36 @@ public static class MemberGroupPresentation
                 "Member-group Tree presentation requires at least one declaration.",
                 nameof(members));
 
-        output.WriteLine(
-            FormatTitle(subject, declaringTypeDisplay, members.Count));
+        if (selectorIndices is not null)
+            members = members.OrderBy(
+                member => selectorIndices[member.Subject.MetadataToken])
+                .ToArray();
+        output.WriteLine(ResultTitle.Compose(
+            CSharpIdentifier.ContainRenderedText(declaringTypeDisplay),
+            properties));
         var writer = new MarkoutWriter(output, new MarkdownFormatter());
         writer.WriteTree(tree =>
         {
-            for (int index = 0; index < members.Count; index++)
-            {
-                tree.WriteNode(
-                    FormatOverload(members[index]),
-                    isLastSibling: index == members.Count - 1);
-            }
+            string count = members.Count == 1
+                ? "1 overload"
+                : $"{members.Count} overloads";
+            tree.WriteNode(
+                $"{CSharpIdentifier.ContainRenderedText(subject.Name)} ({count})",
+                isLastSibling: true,
+                branch =>
+                {
+                    for (int index = 0; index < members.Count; index++)
+                    {
+                        MemberDeclaration member = members[index];
+                        int ordinal = selectorIndices is null
+                            ? member.Subject.BaselineOrdinal
+                            : selectorIndices[member.Subject.MetadataToken];
+                        branch.WriteNode(
+                            $":{ordinal} "
+                                + FormatOverload(member),
+                            isLastSibling: index == members.Count - 1);
+                    }
+                });
         });
         writer.Flush();
     }

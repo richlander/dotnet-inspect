@@ -336,6 +336,14 @@ same-named XML file or SourceHouse target from another library.
 Display names, package IDs, assembly file names, source paths, URLs, overload
 ordinals, and rendered signatures are not substitute identity.
 
+A caller that already holds the structured declaring Type may narrow Metadata
+subject resolution to that Type before extracting declarations. The resulting
+subjects still come from the selected Library's owner-issued API correspondence
+and retain exact structured Type and compiler XML identities. A full-name
+prefilter does not replace those checks or authorize subjects from another Type.
+The CLI exact-Member and MemberGroup documentation adapters use this scope rather
+than extracting unrelated declarations solely to resolve their XML IDs.
+
 Multi-subject execution is a bounded execution optimization, not a broader
 subject contract. It accepts several ordinary exact requests under one
 matching Library operation lease, preserves request order and one independent
