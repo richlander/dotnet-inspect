@@ -1325,6 +1325,12 @@ source-relative absence, unknown better matches, and reuse of neighboring page
 facts. Its successful-evidence bounds do not replace the operation lifecycle
 model or implementation gates for incomplete responses and shared deadlines.
 
+The Release gates are
+`ScopedCandidatesPreserveSelectionAndShareListingFacts`,
+`ScopedCandidatesMatchCompleteDiscoveryAcrossNuGetConstraints`,
+`ScopedCandidatesDoNotSelectOrRetainMissingRequiredListing`, and
+`ScopedListingWaitersPreserveCallerCancellationAndOperationDeadline`.
+
 The motivating asset is `Microsoft.Azure.SignalR@1.33.1`, selecting root net8.0
 with the default net11.0 governing traversal. Its raw hierarchy observed 28
 flat indexes, 28 Registration indexes, and 46 external history pages.

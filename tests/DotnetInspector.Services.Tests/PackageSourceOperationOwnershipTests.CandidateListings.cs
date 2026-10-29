@@ -134,6 +134,68 @@ public sealed partial class PackageSourceOperationOwnershipTests
         Assert.Single(fixture.Client.Contexts);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ScopedListingWaitersPreserveCallerCancellationAndOperationDeadline(
+        bool expire)
+    {
+        await using var fixture = new GalleryHistoryFixture();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        using PackageSourceOperationLease operation = fixture.Root.IssueOperationLease(
+            cancellation.Token, TimeSpan.FromSeconds(3),
+            expire ? TimeSpan.FromSeconds(1) : null, maximumConcurrentSteps: 2);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Handler.BeforeResponse = (url, token) =>
+        {
+            if (url != GalleryHistoryHandler.EarlyPage)
+                return Task.CompletedTask;
+            started.TrySetResult();
+            return Task.Delay(Timeout.InfiniteTimeSpan, token);
+        };
+        Task<PackageVersionDiscoveryResult> first = operation.DiscoverDependencyCandidateVersionsAsync(
+            GalleryHistoryHandler.PackageId, "[2.1.0,3.0.0)", fixture.Policy);
+        Task<PackageVersionDiscoveryResult>? second = null;
+        try
+        {
+            Task signal = await Task.WhenAny(started.Task, first)
+                .WaitAsync(TestContext.Current.CancellationToken);
+            Assert.Same(started.Task, signal);
+            second = operation.DiscoverDependencyCandidateVersionsAsync(
+                GalleryHistoryHandler.PackageId, "2.1.0", fixture.Policy);
+            Assert.False(second.IsCompleted);
+            if (expire)
+            {
+                PackageVersionDiscoveryResult[] results = await Task.WhenAll(first, second);
+                Assert.All(results, result =>
+                {
+                    Assert.NotEqual(PackageVersionDiscoveryState.Authoritative, result.State);
+                    Assert.Contains(result.Failures,
+                        failure => failure.Timeout?.Kind == PackageSourceTimeoutKind.Operation);
+                });
+            }
+            else
+            {
+                cancellation.Cancel();
+                foreach (Task task in new Task[] { first, second })
+                {
+                    OperationCanceledException failure =
+                        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+                    Assert.Equal(cancellation.Token, failure.CancellationToken);
+                }
+            }
+            Assert.Equal(1, fixture.Handler.Requested.Count(url => url == GalleryHistoryHandler.EarlyPage));
+        }
+        finally
+        {
+            cancellation.Cancel();
+            Task settlement = second is null ? first : Task.WhenAll(first, second);
+            await settlement.ConfigureAwait(
+                ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+    }
+
     private sealed class GalleryHistoryFixture : IAsyncDisposable
     {
         internal GalleryHistoryHandler Handler { get; }

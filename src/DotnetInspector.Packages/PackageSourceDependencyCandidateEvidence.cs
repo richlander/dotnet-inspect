@@ -73,7 +73,6 @@ internal sealed class PackageSourceDependencyCandidateEvidence
             await _listingGate.WaitAsync(operation.OperationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
-            when (!operation.CancellationToken.IsCancellationRequested)
         {
             operation.ThrowIfExpired();
             throw;
