@@ -229,7 +229,7 @@ public partial class CommandExecutionTests
         try
         {
             var result = await RunAppAsync(
-                "type",
+                "type", "-t", "*",
                 "--library",
                 path,
                 "-v:d");
@@ -266,13 +266,16 @@ public partial class CommandExecutionTests
             malformedAssemblyReference: true);
         try
         {
-            var result = await RunAppAsync(
-                "type",
-                "--library",
-                path,
-                $"-v:{verbosity}");
+            var result = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(new TypeOptions
+                {
+                    AssemblyPath = path,
+                    Verbosity = verbosity == "m"
+                        ? Verbosity.Minimal
+                        : Verbosity.Normal,
+                }));
 
-            Assert.Equal(0, result.Exit);
+            Assert.Equal(0, result.ExitCode);
             Assert.DoesNotContain(
                 "## Inspection Failures",
                 result.Output,
@@ -297,7 +300,7 @@ public partial class CommandExecutionTests
         try
         {
             var result = await RunAppAsync(
-                "type",
+                "type", "-t", "*",
                 "--library",
                 path,
                 "-S",
@@ -337,7 +340,7 @@ public partial class CommandExecutionTests
         try
         {
             var result = await RunAppAsync(
-                "type",
+                "type", "-t", "*",
                 "--library",
                 path,
                 "-S",
@@ -372,7 +375,7 @@ public partial class CommandExecutionTests
         try
         {
             var result = await RunAppAsync(
-                "type",
+                "type", "-t", "*",
                 "--library",
                 path,
                 "-S",
