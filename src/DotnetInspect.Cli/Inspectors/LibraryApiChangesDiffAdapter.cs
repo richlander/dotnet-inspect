@@ -111,7 +111,6 @@ internal static class LibraryApiChangesDiffAdapter
             name,
             beforeVersion,
             afterVersion,
-            new DiffTargets.Library(),
             includeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.ApiAxis,
             Limits,
             typeSelection);
