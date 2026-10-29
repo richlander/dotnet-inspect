@@ -166,6 +166,23 @@ public readonly struct MetadataUtf8Name : IEquatable<MetadataUtf8Name>
     /// </summary>
     public void WriteCSharpComposedTo(
         IBufferWriter<byte> destination)
+        => WriteCSharpComposedTo(
+            destination,
+            containFieldTab: false);
+
+    /// <summary>
+    /// Writes the contained composed-name spelling used inside a text field,
+    /// additionally making a tab delimiter visible.
+    /// </summary>
+    public void WriteCSharpComposedFieldTo(
+        IBufferWriter<byte> destination)
+        => WriteCSharpComposedTo(
+            destination,
+            containFieldTab: true);
+
+    void WriteCSharpComposedTo(
+        IBufferWriter<byte> destination,
+        bool containFieldTab)
     {
         ArgumentNullException.ThrowIfNull(destination);
         Span<byte> storage = _range.Length <= 256
@@ -203,6 +220,10 @@ public readonly struct MetadataUtf8Name : IEquatable<MetadataUtf8Name>
             if (IsLineTerminator(rune.Value))
             {
                 WriteByte(destination, (byte)' ');
+            }
+            else if (containFieldTab && rune.Value == '\t')
+            {
+                WriteBytes(destination, "\\^I"u8);
             }
             else if (IsRenderingHazard(rune))
             {

@@ -489,7 +489,7 @@ public static class ExactTypeInfoTsvPresentation
                     : name;
         if (RequiresDeclarationEscape(display))
             WriteByte(output, (byte)'@');
-        display.WriteCSharpComposedTo(output);
+        display.WriteCSharpComposedFieldTo(output);
     }
 
     private static bool RequiresDeclarationEscape(

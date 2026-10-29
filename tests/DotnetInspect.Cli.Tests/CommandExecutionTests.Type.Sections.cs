@@ -1260,11 +1260,18 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(
+        "Example.Bad\vName",
+        "Type\tExample.Bad\\u000BName")]
+    [InlineData(
+        "Example.Bad\tName",
+        "Type\tExample.Bad\\^IName")]
     public async Task
-        Type_DirectLibraryContainedExactType_WritesContainedUtf8()
+        Type_DirectLibraryContainedExactType_WritesContainedUtf8(
+            string typeName,
+            string expected)
     {
-        const string typeName = "Example.Bad\vName";
         string assemblyPath = WriteTypeInfoFixture(typeName);
         try
         {
@@ -1296,7 +1303,7 @@ public partial class CommandExecutionTests
             Assert.Empty(output);
             Assert.Empty(error);
             Assert.Contains(
-                "Type\tExample.Bad\\u000BName",
+                expected,
                 Encoding.UTF8.GetString(bytes.WrittenSpan),
                 StringComparison.Ordinal);
         }

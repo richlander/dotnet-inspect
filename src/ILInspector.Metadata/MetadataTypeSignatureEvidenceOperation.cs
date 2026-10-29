@@ -1064,6 +1064,14 @@ internal sealed class MetadataTypeSignatureEvidenceOperation
             ArrayShape shape)
         {
             Node();
+            if (!ArrayShapeText.IsLoadableRank(shape.Rank))
+            {
+                throw _owner.Refuse(
+                    _site,
+                    MetadataTypeDeclarationFailureReason
+                        .MalformedMetadata,
+                    "A Signature array rank is not loadable.");
+            }
             return new PendingType.Array(
                 elementType,
                 shape.Rank,
