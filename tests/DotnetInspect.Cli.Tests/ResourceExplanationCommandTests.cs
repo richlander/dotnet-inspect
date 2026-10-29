@@ -12,6 +12,7 @@ using DotnetInspector.Networking;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
+using ILInspector.Analysis;
 using QuerySpace;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
@@ -1135,6 +1136,11 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Contains(rules, rule =>
             rule.Contains("Literal contains value", StringComparison.Ordinal)
             && rule.Contains("Literal starts-with value", StringComparison.Ordinal));
+        Assert.Contains(rules, rule =>
+            rule.Contains("non-empty", StringComparison.Ordinal)
+            && rule.Contains(
+                $"at most {StringLiteralUsePredicate.MaximumLength} UTF-16",
+                StringComparison.Ordinal));
         Assert.Contains(rules, rule =>
             rule.Contains("one shell argument", StringComparison.Ordinal)
             && rule.Contains("--where \"Literal contains https://\"", StringComparison.Ordinal));
