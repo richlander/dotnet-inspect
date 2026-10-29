@@ -1210,6 +1210,44 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Type_DirectLibraryNestedGenericExactType_WritesEnclosingConstraints()
+    {
+        var bytes = new ArrayBufferWriter<byte>();
+
+        var (exit, output, error) =
+            await ConsoleCapture.RunAsync(async () =>
+            {
+                using IDisposable redirect =
+                    Utf8StandardOutput.Redirect(payload =>
+                    {
+                        payload.Span.CopyTo(
+                            bytes.GetSpan(payload.Length));
+                        bytes.Advance(payload.Length);
+                    });
+                return await InvokeAppAsync(
+                    [
+                        "type",
+                        typeof(TypeInfoConstraintOuter<>.Inner<>)
+                            .FullName!,
+                        "--library",
+                        TestAssemblyPath,
+                        "-S",
+                        SectionNames.TypeInfo,
+                        "--tsv",
+                    ]);
+            });
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Type Parameters\tT : class, new(), U\n",
+            Encoding.UTF8.GetString(bytes.WrittenSpan),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
         Type_DirectLibraryNonAsciiExactType_WritesUtf8WithoutTextProjection()
     {
         const string typeName = "Δοκιμή.內部";
@@ -1258,6 +1296,12 @@ public partial class CommandExecutionTests
         {
             File.Delete(assemblyPath);
         }
+    }
+
+    public sealed class TypeInfoConstraintOuter<T>
+        where T : class, new()
+    {
+        public sealed class Inner<U>;
     }
 
     [Theory]

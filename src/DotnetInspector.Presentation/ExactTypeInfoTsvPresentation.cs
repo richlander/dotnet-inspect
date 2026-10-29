@@ -170,10 +170,8 @@ public static class ExactTypeInfoTsvPresentation
                 WriteByte(output, (byte)' ');
             }
             WriteIdentifier(output, parameter.Name);
-
             bool wroteConstraint = false;
-            if (leafDeclaration
-                && parameter.PrimaryConstraint is { } primary)
+            if (parameter.PrimaryConstraint is { } primary)
             {
                 WriteConstraintSeparator(
                     output,
@@ -181,9 +179,7 @@ public static class ExactTypeInfoTsvPresentation
                 WriteString(output, primary);
             }
             foreach (MetadataTypeSignatureConstraintEvidence constraint
-                in leafDeclaration
-                    ? parameter.TypeConstraints
-                    : [])
+                in parameter.TypeConstraints)
             {
                 WriteConstraintSeparator(
                     output,
@@ -196,8 +192,7 @@ public static class ExactTypeInfoTsvPresentation
                 if (constraint.NullableFlag == 2)
                     WriteByte(output, (byte)'?');
             }
-            if (leafDeclaration
-                && parameter.ConstructorConstraint
+            if (parameter.ConstructorConstraint
                 is { } constructor)
             {
                 WriteConstraintSeparator(
@@ -205,8 +200,7 @@ public static class ExactTypeInfoTsvPresentation
                     ref wroteConstraint);
                 WriteString(output, constructor);
             }
-            if (leafDeclaration
-                && parameter.AllowsRefStructConstraint
+            if (parameter.AllowsRefStructConstraint
                 is { } allowsRefStruct)
             {
                 WriteConstraintSeparator(

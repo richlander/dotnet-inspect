@@ -301,7 +301,12 @@ public static partial class TypeCommand
                 output,
                 presentation,
                 showHeader: !options.NoHeader));
-        return 0;
+        return envelope.Diagnostics.Any(
+            static diagnostic =>
+                diagnostic.Severity
+                    == InspectionDiagnosticSeverity.Error)
+            ? 1
+            : 0;
     }
 
     static bool RequiresMemberApplicability(TypeOptions options) =>

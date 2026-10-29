@@ -191,6 +191,14 @@ public partial class CommandExecutionTests
                 "N.Healthy",
                 "--library",
                 path);
+            var directTypeInfo = await RunAppAsync(
+                "type",
+                "N.Healthy",
+                "--library",
+                path,
+                "-S",
+                SectionNames.TypeInfo,
+                "--tsv");
             var selectedMember = await RunAppAsync(
                 "member",
                 "N.Healthy",
@@ -202,6 +210,15 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "rejected 1 metadata row",
                 selectedType.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, directTypeInfo.Exit);
+            Assert.Contains(
+                "N.Healthy",
+                directTypeInfo.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "selected image has",
+                directTypeInfo.Error,
                 StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1, selectedMember.Exit);
             Assert.Contains("N.Healthy", selectedMember.Output);
