@@ -134,6 +134,8 @@ export type DocumentationQueryRequestRejectionReason = "LibraryReferenceMismatch
 
 export type InspectionDiagnosticSeverity = number;
 
+export type JsonValueKind = number;
+
 export type LibraryReferenceInspectionFailureKind = "Unexpected" | number;
 
 export type PackageDependencyGroupSelectionStatus = number;
