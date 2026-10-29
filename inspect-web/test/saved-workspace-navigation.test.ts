@@ -181,6 +181,11 @@ const hostNames = new Set([
   "captureCanonicalWorkspaceUrl", "projectCurrentWorkspaceUrl",
   "normalizeWorkspaceAsyncSnapshotState", "settleInterruptedPlatformStatus",
   "cloneCanonicalWorkspaceSnapshotForRetention",
+  "associateRetainedPackageCallGraphAuthority",
+  "copyRetainedPackageCallGraphAuthority",
+  "reassociateRetainedPackageCallGraphAuthorities",
+  "retainedPackageCallGraphAuthorityIsCurrent",
+  "loadSelectedMemberCallGraph",
   "invalidateWorkspaceAsyncOwners",
   "captureWorkspaceConstructionSnapshots", "cancelPendingWorkspaceConstruction",
   "setWorkspaceConstructionPending",
@@ -750,6 +755,11 @@ function harness() {
     pendingWorkspaceConstruction: null,
     retainedWorkspaceActivation: null,
     activeRetainedWorkspacePosting: null,
+    retainedPackageCallGraphAuthorities: new WeakMap<object, {
+      retainedDefinitionId: string;
+      realizationId: string;
+      navigationId: string;
+    }>(),
     retainedWorkspacePresentation: null,
     retainedWorkspaceInitialDetailAuthority: null,
     installedRetainedLocation: null,
@@ -2189,8 +2199,25 @@ test("failed same-coordinate navigation preserves the source Workspace URL", asy
   assert.match(h.state.queryNotice, /shared library is unavailable/);
 });
 
-test("failed ordinary navigation restores the committed source incumbent", async () => {
+test("failed ordinary navigation restores exact retained Package Call Graph authority", async () => {
   const h = harness();
+  const sourcePosting = {
+    retainedDefinitionId: "source-definition",
+    realizationId: "source-realization-a",
+    packages: [{ navigationId: "source-package" }],
+  };
+  const restoredPosting = {
+    ...sourcePosting,
+    realizationId: "source-realization-b",
+  };
+  Object.assign(h.context, {
+    activeRetainedWorkspacePosting: sourcePosting,
+  });
+  h.context.retainedPackageCallGraphAuthorities.set(sourcePackage, {
+    retainedDefinitionId: sourcePosting.retainedDefinitionId,
+    realizationId: sourcePosting.realizationId,
+    navigationId: "source-package",
+  });
   const committed: unknown = runInNewContext(
     "captureCanonicalWorkspaceRestoreSnapshot()",
     h.context);
@@ -2215,8 +2242,13 @@ test("failed ordinary navigation restores the committed source incumbent", async
         async restore() {
           managedDefinition = "source-A";
           runInNewContext(
-            "restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
-            { ...h.context, snapshot: committed });
+            "snapshot.activeRetainedWorkspacePosting = posting;"
+              + " restoreCanonicalWorkspaceRestoreSnapshot(snapshot)",
+            {
+              ...h.context,
+              snapshot: committed,
+              posting: restoredPosting,
+            });
           recoveryCompleted = true;
           return true;
         },
@@ -2243,6 +2275,80 @@ test("failed ordinary navigation restores the committed source incumbent", async
   assert.match(h.state.queryNotice, /Couldn’t load Missing.Package/);
   assert.equal(recoveryCompleted, true);
   assert.equal(managedDefinition, "source-A");
+  const restoredPackage = h.state.package;
+  assert.ok(restoredPackage);
+  const authority =
+    h.context.retainedPackageCallGraphAuthorities.get(restoredPackage);
+  assert.equal(
+    authority?.retainedDefinitionId,
+    restoredPosting.retainedDefinitionId,
+  );
+  assert.equal(authority?.realizationId, restoredPosting.realizationId);
+  assert.equal(authority?.navigationId, "source-package");
+  assert.equal(
+    authority === undefined ? "compatibility" : "retained",
+    "retained",
+  );
+  type ObservedCallGraphRequest = {
+    retainedPackage: {
+      retainedDefinitionId: string;
+      realizationId: string;
+      navigationId: string;
+    } | null;
+    isCurrent: () => boolean;
+  };
+  const callGraphRequests: ObservedCallGraphRequest[] = [];
+  Object.assign(h.state, {
+    callGraphTraversalFramework: "net10.0",
+    selectedBodyTarget: null,
+  });
+  Object.assign(h.context, {
+    selectedType: () => ({
+      id: "Source.Type",
+      definitionId: "Source.Type",
+      queryId: "Source.Type",
+      metadataId: "Source.Type",
+      assembly: "Source",
+      platformPack: null,
+    }),
+    selectedMember: () => ({}),
+    selectedMemberOverload: () => ({
+      name: "Run",
+      signature: "Run()",
+      graphSelectorKey: "Run:0",
+      metadataToken: 1,
+    }),
+    memberRequestSignature: () => "Source.Type|Run:0",
+    currentPackage: () => h.state.package,
+    assemblyDescriptorForType: () => null,
+    platformPackForAssembly: () => null,
+    platformDemoContextIdFor: () => null,
+    memberRequestIsCurrent: () => true,
+    callGraphInspection: {
+      load(request: ObservedCallGraphRequest) {
+        callGraphRequests.push(request);
+        return Promise.resolve();
+      },
+    },
+  });
+
+  await runInNewContext("loadSelectedMemberCallGraph()", h.context);
+
+  const callGraphRequest = callGraphRequests[0];
+  assert.ok(callGraphRequest);
+  assert.equal(
+    callGraphRequest.retainedPackage?.retainedDefinitionId,
+    restoredPosting.retainedDefinitionId,
+  );
+  assert.equal(
+    callGraphRequest.retainedPackage?.realizationId,
+    restoredPosting.realizationId,
+  );
+  assert.equal(
+    callGraphRequest.retainedPackage?.navigationId,
+    "source-package",
+  );
+  assert.equal(callGraphRequest.isCurrent(), true);
 });
 
 test("a committed ordinary successor revokes inherited recovery without mutation", async () => {

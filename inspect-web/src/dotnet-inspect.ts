@@ -2023,6 +2023,11 @@ CanonicalWorkspaceRestoreSnapshot {
     if (!copy) throw new Error("Workspace snapshot lost a Package.");
     copies.set(original, copy);
     catalogRequests.copyPackage(original, copy);
+    copyRetainedPackageCallGraphAuthority(
+      activeRetainedWorkspacePosting,
+      original,
+      copy,
+    );
   }
   packageComparisonTargets.copyPackages(copies);
   memberBodyDiff.copyPackages(copies);
@@ -2225,6 +2230,10 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   state.workspaceOccurrenceError = "";
   navigationHistory.restore(snapshot.navigation);
   activeRetainedWorkspacePosting = snapshot.activeRetainedWorkspacePosting;
+  reassociateRetainedPackageCallGraphAuthorities(
+    activeRetainedWorkspacePosting,
+    state.packages,
+  );
   retainedWorkspacePresentation = snapshot.retainedWorkspacePresentation;
   retainedWorkspaceInitialDetailAuthority =
     snapshot.retainedWorkspaceInitialDetailAuthority;
@@ -2266,6 +2275,11 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     if (!copy) throw new Error("Retained Workspace snapshot lost a Package.");
     copies.set(original, copy);
     catalogRequests.copyPackage(original, copy);
+    copyRetainedPackageCallGraphAuthority(
+      snapshot.activeRetainedWorkspacePosting,
+      original,
+      copy,
+    );
   }
   packageComparisonTargets.copyPackages(copies);
   memberBodyDiff.copyPackages(copies);
@@ -2565,6 +2579,41 @@ function associateRetainedPackageCallGraphAuthority(
     realizationId: posting.realizationId,
     navigationId,
   });
+}
+
+function copyRetainedPackageCallGraphAuthority(
+  posting: BrowserRetainedWorkspacePosting | null,
+  source: AppPackage,
+  target: AppPackage,
+): void {
+  const authority = retainedPackageCallGraphAuthorities.get(source);
+  if (authority !== undefined
+    && posting?.retainedDefinitionId === authority.retainedDefinitionId
+    && posting.realizationId === authority.realizationId
+    && posting.packages.some(
+      candidate => candidate.navigationId === authority.navigationId)) {
+    retainedPackageCallGraphAuthorities.set(target, authority);
+  }
+}
+
+function reassociateRetainedPackageCallGraphAuthorities(
+  posting: BrowserRetainedWorkspacePosting | null,
+  packageModels: readonly AppPackage[],
+): void {
+  for (const packageModel of packageModels) {
+    const authority =
+      retainedPackageCallGraphAuthorities.get(packageModel);
+    if (authority === undefined) continue;
+    if (posting === null) {
+      retainedPackageCallGraphAuthorities.delete(packageModel);
+      continue;
+    }
+    associateRetainedPackageCallGraphAuthority(
+      posting,
+      authority.navigationId,
+      packageModel,
+    );
+  }
 }
 
 function retainedPackageCallGraphAuthorityIsCurrent(
