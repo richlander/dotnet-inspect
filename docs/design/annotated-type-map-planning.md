@@ -110,7 +110,7 @@ each **result kind**, exactly what that result reads:
 | --- | --- | --- | --- |
 | One-version Rows | both | yes | yes |
 | One-version Count or Exists | no | no | yes |
-| Map-diff Rows | both | yes | yes |
+| Map-diff Rows | both | when a finding family is selected | yes |
 | Map-diff Count or Exists | both | no | kept in the selection, no demand |
 
 - A one-version Rows result is a retained map: it holds both shape-fact
@@ -119,8 +119,11 @@ each **result kind**, exactly what that result reads:
 - One-version Count and Exists read only admitted findings, the map's listing
   rule for one version, so they demand only the selected finding families.
 - A map-diff Rows result lists by the shape comparison across both axes, as
-  the Agreement gate requires, and its fact comparison matches facts by their
-  position in the whole stream before filtering them to admitted descriptors.
+  the Agreement gate requires. When it names finding families, its fact
+  comparison matches facts by their position in the whole stream before
+  filtering them to admitted descriptors. When it names none, no finding
+  transition can be admitted, so it demands no fact stream and builds no
+  census.
 - A map diff's Count and Exists read only the shape comparison. They demand
   only the shape-fact families; the selected finding families stay in the
   resolved selection but bind no adapter, because they cannot change the
@@ -269,7 +272,8 @@ immutable catalog. None becomes an empty successful plan.
   read one fact census per demanded method. A plan whose demanded families read
   no census, including every map-diff Count or Exists plan, builds none: a
   map-diff Exists fixture that selects a finding family resolves it in the
-  selection, binds no adapter for it, and builds no census.
+  selection, binds no adapter for it, and builds no census, and a map-diff
+  Rows fixture that selects no finding family builds no census.
 - **Member questions:** a Member key set resolves only families supporting
   Member-scope questions, keeps one result per key, and never widens to the
   whole Type.
@@ -324,10 +328,12 @@ path, exact NativeAOT before and after evidence.
   its consumed owners do.
 - It does not plan Library scope. The map's Library scope arrives with its
   map diff in its own adoption step 5; Library-scope planning follows it.
-- It does not define pair-scoped adapters. A pair resolves per-side adapters,
-  so a map diff's Exists compares two retained maps rather than stopping a
-  lockstep walk at its first difference; the map admits both routes to the same
-  result.
+- It does not define pair-scoped adapters. A pair resolves per-side
+  result-kind contributions, and the map diff compares those rather than
+  stopping a lockstep walk at its first difference; the map admits both routes
+  to the same result. If the map's adoption steps 3 and 5 show that lockstep,
+  which can census only listed Members, is cheaper, pair-scoped adapters are a
+  follow-up to this owner.
 - It does not execute producers, settle contributions, compare maps or
   contributions, or generate the document.
 - It does not define all-applicable requests, presets, portable request
