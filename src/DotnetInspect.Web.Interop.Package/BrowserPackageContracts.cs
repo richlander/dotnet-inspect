@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.InspectionContracts;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using InertText;
@@ -1306,25 +1307,14 @@ public sealed record BrowserPackageQueryMatchCreditResponse(
 }
 
 /// <summary>
-/// Declared package dependency groups, platform references, and one selected
-/// assembly's direct references. Dependency parsing and compatible
-/// target-framework selection belong to <c>PackageDependencyGroupsQuery</c>;
-/// explicit platform evidence belongs to PackageHouse; direct assembly
-/// references belong to <c>AssemblyContextReferencesQuery</c>.
+/// The shared Package dependency inspection plus Browser-owned platform
+/// presentation.
 /// </summary>
-public sealed record BrowserPackageDependencies(
-    string Package,
-    string Version,
-    string ActiveFramework,
-    string? Assembly,
-    BrowserPackageDependencyGroup[] DependencyGroups,
+public sealed record BrowserPackageDependencyInspection(
+    InspectionEnvelope<PackageDependencyInspectionOutcome> Inspection,
     BrowserPackagePlatformReference[] PlatformReferences,
     BrowserPackagePlatformReference? DefaultPlatformReference,
-    BrowserPackageDependencyDeclarationFailure[] DeclarationFailures,
-    BrowserAssemblyReferenceResult AssemblyReferences,
-    string? DependencyGroupError,
-    string? PlatformReferenceError,
-    BrowserCompileLibraryAvailability CompileLibrary);
+    string? PlatformReferenceError);
 
 /// <summary>One rooted transitive dependency occurrence for the Browser.</summary>
 public sealed record BrowserPackageHierarchyRow(
@@ -1386,39 +1376,6 @@ public sealed record BrowserLibraryQuerySummary(
     string IncompleteReasons,
     bool IsComplete);
 
-public union BrowserAssemblyReferenceResult(BrowserAssemblyReferenceList, string);
-
-public sealed record BrowserAssemblyReferenceList(
-    BrowserAssemblyReference[] References);
-
-public sealed record BrowserPackageDependencyGroup(
-    int Index,
-    string Framework,
-    bool IsActive,
-    bool IsComplete,
-    BrowserPackageDependency[] Dependencies);
-
-public sealed record BrowserPackageDependency(
-    string Id,
-    string VersionRange);
-
-[JsonConverter(typeof(JsonStringEnumConverter<
-    BrowserPackageDependencyDeclarationFailureKind>))]
-public enum BrowserPackageDependencyDeclarationFailureKind
-{
-    ConflictingPackageDeclaration,
-    InvalidPackageDeclaration,
-    RestoredProject,
-    AuthoredProject,
-    AuthoredProjectUnresolvedSyntax,
-}
-
-public sealed record BrowserPackageDependencyDeclarationFailure(
-    BrowserPackageDependencyDeclarationFailureKind Kind,
-    string? Framework,
-    string? Package,
-    int? SourceOccurrenceCount);
-
 [JsonConverter(
     typeof(JsonStringEnumConverter<BrowserPackageVulnerabilityAvailability>))]
 public enum BrowserPackageVulnerabilityAvailability
@@ -1467,12 +1424,6 @@ public sealed record BrowserPackageVulnerabilityAdvisory(
     string AdvisoryUrl,
     DateTimeOffset PublishedAt,
     DateTimeOffset UpdatedAt);
-
-public sealed record BrowserAssemblyReference(
-    string Name,
-    string Version,
-    string? Culture,
-    string? PublicKeyToken);
 
 public sealed record BrowserReferencePackageSupplier(
     string Name,
@@ -1554,7 +1505,36 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryResult))]
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
-[JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserPackageDependencyInspection))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>))]
+[JsonSerializable(
+    typeof(PackageDependencyInspectionOutcome.Available),
+    TypeInfoPropertyName = "PackageDependencyInspectionAvailable")]
+[JsonSerializable(
+    typeof(PackageDependencyInspectionOutcome.NoManifest),
+    TypeInfoPropertyName = "PackageDependencyInspectionNoManifest")]
+[JsonSerializable(
+    typeof(PackageDependencyInspectionOutcome.Failed),
+    TypeInfoPropertyName = "PackageDependencyInspectionFailed")]
+[JsonSerializable(
+    typeof(PackageManifestDependencyFactsResult.Available),
+    TypeInfoPropertyName = "PackageManifestDependencyFactsAvailable")]
+[JsonSerializable(
+    typeof(PackageManifestDependencyFactsResult.Failed),
+    TypeInfoPropertyName = "PackageManifestDependencyFactsFailed")]
+[JsonSerializable(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Available),
+    TypeInfoPropertyName = "PackageManifestFrameworkReferenceFactsAvailable")]
+[JsonSerializable(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Failed),
+    TypeInfoPropertyName = "PackageManifestFrameworkReferenceFactsFailed")]
+[JsonSerializable(
+    typeof(PackageManifestFacts),
+    TypeInfoPropertyName = "PackageManifestFactsModel")]
+[JsonSerializable(
+    typeof(PackageDependencyGroups),
+    TypeInfoPropertyName = "PackageDependencyGroupsModel")]
 [JsonSerializable(
     typeof(InspectionEnvelope<LibraryReferenceInspectionOutcome>))]
 [JsonSerializable(
