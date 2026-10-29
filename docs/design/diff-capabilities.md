@@ -120,16 +120,17 @@ section's rows, which a rung's CLI section may also offer. The Diff analysis
 set's Compare route is the existing example of a route with that shape.
 
 Each section query's result carries a **receipt** of the Types it extracted
-and paired in each version, as Finding Diff Any's result already reports what
-it compared. The Demand-shaped gate below reads it.
+and paired in each version. Finding Diff Any's result reports a compared-Type
+count today; the receipt names the Types. The Demand-shaped gate below reads
+it.
 
 | Rung | Address | Computes only | Rows |
 | --- | --- | --- | --- |
 | L1 | a Library pair | one state per Type per axis, stopped at each Type's first difference | one row per Type with a `Changed` or `Indeterminate` state, with per-axis states and counts |
 | T1 | a Library pair and a Type identity | that Type's pairing and its Members' and residual's states | one row per Member, and the residual, with a `Changed` or `Indeterminate` state |
 | T2 | a Library pair and a Type identity | T1's rows and each changed row's change facts | T1's rows, each with its change facts |
-| M1 | a Library pair and a Member stable selector | that Member's change facts in both versions | the Member's change facts |
-| M2 | a Library pair and a Member stable selector | that Member's complete diff, and its change facts when asked | the Member's text diff per medium, with its facts overlaid when asked |
+| M1 | a Library pair and a Member's `MemberAnchor` | that Member's change facts in both versions | the Member's change facts |
+| M2 | a Library pair and a Member's `MemberAnchor` | that Member's complete diff, and its change facts when asked | the Member's text diff per medium, with its facts overlaid when asked |
 
 ### Demand-shaped
 
@@ -139,10 +140,11 @@ M1 and M2 read one Member in each version. So:
 
 - **No prerequisite rung.** A Type or Member request, such as one a link
   opens, never computes, waits for, or selects from a wider rung's result.
-  M1 and M2 resolve their Member in each version by its stable selector
-  through the exact single-Type lookup
-  ([assembly inspection query](assembly-inspection-query.md)) and the
-  Member's [stable selector](api-qualified-anchor.md), which neither pair nor
+  M1 and M2 resolve their Member in each version through the exact single-Type
+  lookup ([assembly inspection query](assembly-inspection-query.md)) and the
+  [version-pair correspondence](api-qualified-anchor.md#version-pair-correspondence)
+  over that Type's declarations, as Finding Diff Any's
+  [Member level](finding-diff-any.md#member) does, which neither pair nor
   walk the Library. T1 and T2 pair the addressed Type by its identity, not by
   pairing every Type of the two images.
 - **Reuse is optional.** A host may answer a request from a completed wider
@@ -162,8 +164,9 @@ M1 and M2 read one Member in each version. So:
 
 The rungs share everything except a materialized result:
 
-- **Identity.** One owner-issued Type identity and Member stable selector
-  address every scope, so a link resolves to the same subject at each rung.
+- **Identity.** One owner-issued Type identity and
+  [`MemberAnchor`](api-qualified-anchor.md#basis-and-existing-currencies), the
+  durable selection and diff-row identity, address every scope, so a link resolves to the same subject at each rung.
 - **Change facts.** Every fact family a Rows rung reports carries per-side
   status facets, so a host's ordinary population, hidden and obsolete
   filters, and accessibility filters are presentation over facets each row
@@ -179,9 +182,9 @@ The rungs share everything except a materialized result:
     view.
 
   A family joins T2 and M1 only when its facts carry per-side status facets.
-  Call relationships, such as `call.edge`, stay with [Annotated Type
-  Relations](annotated-type-relations.md), as the map states. Other Finding
-  families of today's Diff analysis set, such as unsafe members, string
+  Call relationships, such as `call.edge`, join under the map's own rule:
+  when the Annotated Source owner adds them to the fact comparison. Other
+  Finding families of today's Diff analysis set, such as unsafe members, string
   literals, and API attributes, join when the map's admission owner admits
   them; a thrown-exception diff, which no producer computes yet, joins when
   one does.
@@ -356,12 +359,13 @@ offers:
 | Provision | Answers | Shape |
 | --- | --- | --- |
 | Lockstep Exists | Rungs 1 and 2 | Walks both images, compares symbolic facts (the API census, the Body declaration census, and IL), stops each axis at its first difference |
-| Complete | T2, M1, and M2 | Builds the complete models of the addressed Type or Member and explains every difference |
+| Map diff | T2 and M1, and T1 as its projection | Produces both versions' [Annotated Type Maps](annotated-type-map.md) for the addressed Type, in lockstep as that owner permits, and compares them by key; it has no text comparison and builds no Type-scope source view |
+| Complete | M2 | Builds the complete models of the addressed Member and explains every difference |
 
-A host that retains one version's facts, such as an Annotated Type Map it
-built once, may compare two retained maps by key to answer T1 and T2 for a Type
-they cover. That is the cache [Demand-shaped](#demand-shaped) allows, not a
-provision: it is never a prerequisite of a Type- or Member-addressed request.
+A host that retains one version's map, built once, may compare two retained
+maps by key to answer T1 and T2 for a Type they cover. That is the map diff
+provision's cache, which [Demand-shaped](#demand-shaped) allows: it is never a
+prerequisite of a Type- or Member-addressed request.
 
 All provisions share one fact substrate: Member and operand identity are [Symbol
 Keys](symbol-key.md), Member grain is Finding Diff Any's census key, and the
@@ -414,7 +418,7 @@ of their axes.
 Exists is distinct from Rows by the structural rule, not by a ratio at Library
 scope: most Types in a pair are unchanged and proving that is the dominant
 cost, so early exit saves little there. The distinction that matters is between
-L1 and T1, which never explain, and T2, M1, and M2, which build facts or
+L1 and T1, which never explain, and T2, M1, and M2, which build maps or
 models for the Types and Members a user opens, or once per version when a host
 retains maps as a cache. The numeric rule is necessary for replacing a provision, and
 Finding census's [Cost gate](finding-census.md#gates) must hold as well.
@@ -481,13 +485,15 @@ Each step is its own focused effort:
       states and pairing the addressed Type by identity, becomes a route with a
       CLI section and a Browser export, after the Type census work in flight
       ([#10776](https://github.com/richlander/dotnet-inspect/pull/10776)).
-   4. **T2.** The map diff becomes the T2 route, admitting API change kinds and
-      declaration facts with their status facets, with a CLI section and a
+   4. **T2.** After the map's [adoption](annotated-type-map.md#adoption)
+      steps 2 to 5, which include the Annotated Source owner's fact
+      comparison, the map diff becomes the T2 route, admitting API change kinds
+      and declaration facts with their status facets, with a CLI section and a
       Browser export.
-   5. **M1.** The map's Member scope becomes the M1 route, addressed through
-      the exact single-Type lookup and the Member's stable selector, with a CLI
-      section and a Browser export. The Annotated Source diff document's fact
-      comparison answers it when that lands, and agrees with T2.
+   5. **M1.** The map diff's Member scope becomes the M1 route, addressed
+      through the exact single-Type lookup and version-pair correspondence,
+      with a CLI section and a Browser export. It reads the same fact
+      comparison as T2, so nothing is replaced and it agrees with T2.
    6. **M2.** The Annotated Source diff document becomes a route with Table and
       Document outputs, a CLI section, and a Browser binding, overlaying M1's
       facts when asked.
@@ -525,7 +531,7 @@ Each step is its own focused effort:
   reports.
 - **Scope agreement:** over the fixtures, with each rung computed by its own
   request, each Member's M1 facts equal its T2 row's facts, and the Coverage
-  gate above holds between those independently computed L1, T1, and M2
+  gate above holds between those independently computed L1, T1, T2, and M2
   answers, with the same qualifiers: decided rows only, and an
   `Indeterminate` row read under the Exists contract's third rule.
 
