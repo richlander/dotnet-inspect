@@ -53,13 +53,7 @@ public sealed class LibraryLeverageAnalysisResult
                 + "execution.");
         }
 
-        return MethodLeverageRanking.Top(
-            _callGraph.DirectCalls,
-            _callGraph.Methods,
-            count,
-            scope,
-            maxDepth: 64,
-            _callGraph.DeclaredMethodMap);
+        return _callGraph.TopLeverage(count, scope);
     }
 
     /// <summary>

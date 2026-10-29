@@ -731,6 +731,8 @@ public static class ApiOutputFormatter
                 BaseType = baseType,
                 TypeParameters = typeParamsSummary,
                 Interfaces = NullIfZero(type.Interfaces.Count),
+                NestedTypes = NullIfZero(
+                    type.NestedTypeCount),
                 Assembly = foundIn,
                 Package = packageName,
                 Version = packageVersion,

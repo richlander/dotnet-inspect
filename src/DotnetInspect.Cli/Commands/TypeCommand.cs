@@ -95,6 +95,7 @@ public static partial class TypeCommand
             options,
             plan,
             commandPlan: commandPlan,
+            requireTypeSelector: true,
             writeUtf8: Utf8StandardOutput.Write,
             cancellationToken: cancellationToken);
 
@@ -230,6 +231,15 @@ public static partial class TypeCommand
         };
     }
 
+    internal static int WriteMissingTypeError()
+    {
+        CommandError.Write("Type name or pattern required.");
+        CommandError.WriteLine("Use 'dotnet-inspect type <Type> --package <Package>' to inspect a type.");
+        CommandError.WriteLine("Use 'dotnet-inspect library --package <Package>' or 'dotnet-inspect library <Library>' to list types.");
+        CommandError.WriteLine("Run 'dotnet-inspect type --help' for usage.");
+        return 1;
+    }
+
     private static async Task<int> ExecuteCoreAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
@@ -242,6 +252,7 @@ public static partial class TypeCommand
             issuePackageOperation = null,
         WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime = null,
         TypeCommandPlan? commandPlan = null,
+        bool requireTypeSelector = false,
         Action<Action<IBufferWriter<byte>>>? writeUtf8 = null,
         CancellationToken cancellationToken = default)
     {
@@ -348,6 +359,14 @@ public static partial class TypeCommand
                 CommandError.Write(ex);
                 return 1;
             }
+        }
+
+        if (requireTypeSelector
+            && options.Discover is null
+            && string.IsNullOrWhiteSpace(options.TypeName)
+            && string.IsNullOrWhiteSpace(options.TypeFilter))
+        {
+            return WriteMissingTypeError();
         }
 
         if (resolvedSource is null
@@ -672,7 +691,7 @@ public static partial class TypeCommand
                         List<Tip> tips =
                         [
                             new(MemberCommand.Name, $"{simpleName} {sourceFlag}", "inspect type members"),
-                            new(Name, $"{sourceFlag} --tree", "view type tree"),
+                            new(Name, $"-t \"*\" {sourceFlag} --tree", "view type tree"),
                             new(Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
                         ];
 
@@ -1933,6 +1952,7 @@ public static partial class TypeCommand
             IsReadOnly = exactType.IsReadOnly,
             BaseType = exactType.BaseType,
             Interfaces = [.. exactType.Interfaces],
+            NestedTypeCount = exactType.NestedTypeCount,
             DerivedTypes = [.. exactType.DerivedTypes],
             TypeParameters =
             [

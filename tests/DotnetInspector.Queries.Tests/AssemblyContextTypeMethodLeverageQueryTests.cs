@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -111,6 +112,78 @@ public sealed class AssemblyContextTypeMethodLeverageQueryTests
             ApiMemberIdentity.GetMemberAnchor(type, publicRunnerUp)
                 .StableSelector,
             winner.StableSelector);
+    }
+
+    [Fact]
+    public async Task ExecuteParticipant_ParallelMatchesSerial()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(
+            workspace,
+            RealAsset("DocumentationQuery", "System.Text.Json.dll"));
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        ApiType type = Type(
+            group,
+            participant,
+            "JsonSerializerOptions",
+            ApiSurfaceScope.IncludeAll);
+        string typeDefinitionId =
+            AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type);
+        AssemblyTypeMethodLeverageInspection serial =
+            Available(group, participant, typeDefinitionId);
+        var parallelExecution = new TestParallelExecution(4);
+
+        AssemblyContextEntry<AssemblyTypeMethodLeverageInspection> entry =
+            AssemblyContextTypeMethodLeverageQuery.ExecuteParticipant(
+                group,
+                participant,
+                typeDefinitionId,
+                parallelExecution);
+        if (entry
+            is AssemblyContextEntry<
+                AssemblyTypeMethodLeverageInspection>.Failed failed)
+        {
+            throw failed.Error;
+        }
+        AssemblyTypeMethodLeverageInspection parallel =
+            Assert.IsType<
+                AssemblyContextEntry<
+                    AssemblyTypeMethodLeverageInspection>.Available>(entry)
+                .Value;
+
+        Assert.Equal(
+            serial.TypeDefinitionId,
+            parallel.TypeDefinitionId);
+        Assert.Equal(serial.MethodCount, parallel.MethodCount);
+        Assert.Equal(serial.WinnerCount, parallel.WinnerCount);
+        Assert.Equal(serial.WinningRank, parallel.WinningRank);
+        Assert.Equal(
+            serial.AnchoredWinners.Length,
+            parallel.AnchoredWinners.Length);
+        for (int index = 0;
+            index < serial.AnchoredWinners.Length;
+            index++)
+        {
+            TypeMethodLeverageWinner expected =
+                serial.AnchoredWinners[index];
+            TypeMethodLeverageWinner actual =
+                parallel.AnchoredWinners[index];
+            Assert.Equal(
+                expected.TypeDefinitionId,
+                actual.TypeDefinitionId);
+            Assert.Equal(
+                expected.StableSelector,
+                actual.StableSelector);
+            Assert.Equal(
+                expected.MethodTokens,
+                actual.MethodTokens);
+        }
+        Assert.Equal(serial.Diagnostics, parallel.Diagnostics);
+        Assert.Equal(
+            serial.ApiSurfaceInspectionFailures,
+            parallel.ApiSurfaceInspectionFailures);
+        Assert.True(parallelExecution.PartitionCount >= 2);
     }
 
     [Fact]
@@ -292,6 +365,27 @@ public sealed class AssemblyContextTypeMethodLeverageQueryTests
                     provenance)),
             new MissingBindingPolicy());
         return workspace.CreateAssemblyContextGroup([participant]);
+    }
+
+    sealed class TestParallelExecution(int maximumConcurrency)
+        : MethodDefinitionParallelExecution(maximumConcurrency)
+    {
+        public int PartitionCount { get; private set; }
+
+        public override void ExecutePartitions(
+            int partitionCount,
+            Action<int> executePartition)
+        {
+            PartitionCount = partitionCount;
+            Parallel.For(
+                0,
+                partitionCount,
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = MaximumConcurrency,
+                },
+                executePartition);
+        }
     }
 
     static byte[] ExternalCallerImage(bool corruptCaller)

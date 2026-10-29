@@ -13,7 +13,8 @@ public sealed record MetadataTypeDocumentInspectionRequest
             null,
         MetadataTypeDeclarationPopulationRequest? memberDeclarations =
             null,
-        MetadataExactTypeInput? exactInput = null)
+        MetadataExactTypeInput? exactInput = null,
+        bool includeCompleteSignature = false)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
         if (exactInput is not null && !type.Equals(exactInput.Type))
@@ -55,6 +56,7 @@ public sealed record MetadataTypeDocumentInspectionRequest
             expectedDeclarationPopulationType;
         MemberDeclarations = memberDeclarations;
         ExactInput = exactInput;
+        IncludeCompleteSignature = includeCompleteSignature;
     }
 
     public MetadataTypeDefinitionName Type { get; }
@@ -64,6 +66,7 @@ public sealed record MetadataTypeDocumentInspectionRequest
     public MetadataTypeDeclarationPopulationRequest? MemberDeclarations
     { get; }
     public MetadataExactTypeInput? ExactInput { get; }
+    public bool IncludeCompleteSignature { get; }
 }
 
 public sealed record MetadataTypeDocument(
@@ -74,6 +77,13 @@ public sealed record MetadataTypeDocument(
     /// <summary>The uniquely matched Metadata identity detached as contained byte ranges.</summary>
     [JsonIgnore]
     public MetadataUtf8TypeDefinitionName? MatchedName
+    {
+        get;
+        internal init;
+    }
+
+    [JsonIgnore]
+    public MetadataTypeSignatureEvidence? CompleteSignature
     {
         get;
         internal init;
@@ -138,6 +148,10 @@ internal static class MetadataTypeDocumentInspection
             MetadataTypeDefinitionAddress,
             CancellationToken,
             MetadataTypeDeclarationResult> postDeclaration,
+        Func<
+            MetadataTypeDefinitionAddress,
+            CancellationToken,
+            MetadataTypeSignatureResult> postSignature,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(peReader);
@@ -145,6 +159,7 @@ internal static class MetadataTypeDocumentInspection
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(bounds);
         ArgumentNullException.ThrowIfNull(postDeclaration);
+        ArgumentNullException.ThrowIfNull(postSignature);
         cancellationToken.ThrowIfCancellationRequested();
 
         try
@@ -207,6 +222,38 @@ internal static class MetadataTypeDocumentInspection
             MetadataTypeDeclarationEvidence subject =
                 ((MetadataTypeDeclarationResult.Posted)declaration)
                     .Evidence;
+            MetadataTypeSignatureEvidence? completeSignature = null;
+            if (request.IncludeCompleteSignature)
+            {
+                MetadataTypeSignatureResult signature =
+                    postSignature(
+                        subject.Type,
+                        cancellationToken);
+                if (signature
+                    is MetadataTypeSignatureResult.Rejected signatureRejected)
+                {
+                    MetadataTypeDeclarationFailure failure =
+                        signatureRejected.Failure;
+                    return failure.Reason
+                            is MetadataTypeDeclarationFailureReason
+                                .BudgetExceeded
+                        && failure.BudgetDimension
+                            is MetadataOperationDimension.MetadataRows
+                        && failure.BudgetLimit is { } limit
+                        && failure.BudgetAttempted is { } measured
+                            ? new MetadataTypeDocumentInspectionOutcome
+                                .Incomplete(
+                                    MetadataTypeDocumentBound.MetadataRows,
+                                    limit,
+                                    measured)
+                            : new MetadataTypeDocumentInspectionOutcome
+                                .Failed();
+                }
+
+                completeSignature =
+                    ((MetadataTypeSignatureResult.Posted)signature)
+                        .Evidence;
+            }
             MetadataTypeDocumentDeclarations declarations =
                 request.Declarations is null
                     ? new MetadataTypeDocumentDeclarations.NotRequested()
@@ -254,6 +301,7 @@ internal static class MetadataTypeDocumentInspection
                     memberDeclarations)
                 {
                     MatchedName = matchedName,
+                    CompleteSignature = completeSignature,
                 });
         }
         catch (Exception exception) when (

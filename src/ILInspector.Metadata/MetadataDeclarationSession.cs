@@ -165,6 +165,7 @@ public sealed class MetadataDeclarationSession : IDisposable
             request,
             bounds,
             PostTypeDeclaration,
+            PostTypeSignature,
             cancellationToken);
     }
 

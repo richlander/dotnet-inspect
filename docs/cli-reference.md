@@ -84,7 +84,7 @@ See [AGENTS.md](../AGENTS.md) for launch guidance,
 
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
-| NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
+| NuGet packages | `package System.Text.Json`, `type MarkoutWriter --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
 | Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S README` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Prefers installed packs when the requested version is available; otherwise uses package-backed Platform packs. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
@@ -214,7 +214,7 @@ dotnet-inspect library System.Text.Json
 ```
 
 ```text
-System.Text.Json 11.0.0.0
+System.Text.Json.dll (Platform)
 ├─ System.Runtime.CompilerServices (3 types)
 │  ├─ IsExternalInit (forwarded)
 │  └─ …
@@ -246,6 +246,16 @@ The suggested `package` command repeats `--tfm` and the NuGet source options
 that selected the Libraries. A package whose Libraries come only from a
 runtime-specific folder, which `package` does not list, gets the count
 without a suggestion.
+
+The title names the selected Library filename, not its assembly version.
+Package-backed titles include the resolved Package coordinate and the known
+source, target framework, and asset root in that order:
+
+```text
+Microsoft.Azure.SignalR.dll (Microsoft.Azure.SignalR@1.33.1; NuGet; net8.0; lib)
+```
+
+Assembly identity details remain available through `-S "Library Info"`.
 
 Sectioned views such as `-S "Library Info"` keep the multi-Library aggregate.
 Package-scoped Type lookup is also aggregate by default: it searches every
@@ -417,7 +427,7 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
 | `library query DIR` | Query a directory or `--platform` reference pack as a bounded Library population; `references=NAME` qualifies direct assembly references. |
-| `type X` | Discover types or render a single type shape. |
+| `type X` | Inspect a Type name or pattern; a source alone is not a Type selector. Use `library` to list a Library's Types. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
 | `find [X]` | Search for API types in installed .NET Runtime, ASP.NET Core, and .NET Standard populations by default. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names; add package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. Use `package query` to discover package IDs. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
@@ -950,7 +960,7 @@ Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
 all consume that same Package children document. The tree title prints the
 subject identity followed by the owner-issued properties of the displayed
 children — source, selected target, and asset root, as in
-`System.Text.Json 10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
+`System.Text.Json@10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
 carries subject, completion, total and selected Counts, and typed child rows.
 Row formats expose the exact asset ID, asset path, target, and child role;
 they carry no replay command, because host navigation is not package content
@@ -2008,7 +2018,7 @@ unchanged, and `-n` remains a rendered-line window.
 dotnet-inspect type string --tree
 dotnet-inspect member System.String.Trim:1 -S Source --count
 dotnet-inspect member System.String.Trim:1 -S Source --rows 2..3
-dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
+dotnet-inspect type -t '*' --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member --explain

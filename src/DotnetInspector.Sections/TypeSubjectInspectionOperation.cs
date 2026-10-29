@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Libraries;
@@ -41,7 +42,11 @@ public static class TypeSubjectInspectionOperation
                             request.Plan.Type,
                             execution.MetadataDeclarations,
                             execution.ExpectedType,
-                            exactInput: request.Plan.ExactInput),
+                            exactInput: request.Plan.ExactInput,
+                            includeCompleteSignature:
+                                request.Plan.Demand
+                                    is TypeSubjectInspectionDemand
+                                        .CompleteSignature),
                         request.Plan.Bounds),
                     lease,
                     cancellationToken);
@@ -227,7 +232,11 @@ public static class TypeSubjectInspectionOperation
                     plan.Type,
                     execution.MetadataDeclarations,
                     execution.ExpectedType,
-                    exactInput: plan.ExactInput),
+                    exactInput: plan.ExactInput,
+                    includeCompleteSignature:
+                        plan.Demand
+                            is TypeSubjectInspectionDemand
+                                .CompleteSignature),
                 plan.Bounds,
                 cancellationToken);
         int assemblyBytes = checked((int)session.ImageLength);
@@ -533,6 +542,22 @@ public static class TypeSubjectInspectionOperation
                 matchedName,
                 document.Subject,
                 assembly);
+        TypeSignature? completeSignature = null;
+        if (plan.Demand
+            is TypeSubjectInspectionDemand.CompleteSignature)
+        {
+            if (document.CompleteSignature is not { } evidence
+                || !TryProjectCompleteSignature(
+                    subject,
+                    matchedName,
+                    evidence,
+                    out completeSignature))
+            {
+                return Failed(
+                    TypeSubjectInspectionFailure
+                        .UnsupportedSignatureEvidence);
+            }
+        }
         var outcome =
             new TypeSubjectInspectionOutcome.Available(
                 new(
@@ -540,7 +565,8 @@ public static class TypeSubjectInspectionOperation
                     declarations,
                     assemblyBytes,
                     document.Subject.BaseKind,
-                    document.Subject.InterfaceCount));
+                    document.Subject.InterfaceCount,
+                    completeSignature));
         return rootAdjacency
                 is MetadataRootAdjacencyInspectionOutcome.Invalid invalid
             ? Envelope(
@@ -594,6 +620,163 @@ public static class TypeSubjectInspectionOperation
                                 .Contain(TextPolicy.Field)
                                 .ToInertString(),
                             parameter.Attributes))));
+
+    private static bool TryProjectCompleteSignature(
+        TypeSubject subject,
+        MetadataUtf8TypeDefinitionName matchedName,
+        MetadataTypeSignatureEvidence evidence,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out TypeSignature? signature)
+    {
+        signature = null;
+        if (evidence.Declaration.Type.ModuleVersionId
+                != subject.ModuleVersionId
+            || evidence.Declaration.Type.Definition.Value
+                != subject.TypeDefinitionToken
+            || evidence.GenericParameters.Length
+                != evidence.Declaration.Signature
+                    .GenericParameters.Length)
+        {
+            return false;
+        }
+
+        var parameters =
+            ImmutableArray.CreateBuilder<
+                TypeSignatureGenericParameter>(
+                evidence.GenericParameters.Length);
+        foreach (MetadataTypeSignatureGenericParameterEvidence parameter
+            in evidence.GenericParameters)
+        {
+            MetadataTypeGenericParameterDeclarationEvidence declaration =
+                parameter.Declaration;
+            if (!declaration.Annotations.IsCanonical)
+                return false;
+
+            var typeConstraints =
+                ImmutableArray.CreateBuilder<
+                    MetadataTypeSignatureConstraintEvidence>(
+                    parameter.TypeConstraints.Length);
+            foreach (MetadataTypeSignatureConstraintEvidence constraint
+                in parameter.TypeConstraints)
+            {
+                if (!IsPseudoConstraint(
+                        constraint,
+                        declaration))
+                {
+                    typeConstraints.Add(constraint);
+                }
+            }
+
+            GenericParameterAttributes attributes =
+                declaration.Attributes;
+            parameters.Add(
+                new(
+                    declaration.DefinitionSegmentIndex,
+                    declaration.MetadataIndex,
+                    declaration.Name,
+                    GenericConstraintKeywords.VarianceKeyword(
+                        attributes),
+                    GenericConstraintKeywords.PrimaryKeyword(
+                        attributes,
+                        declaration.Annotations.NullableFlag,
+                        declaration.Annotations.IsUnmanaged),
+                    typeConstraints.ToImmutable(),
+                    GenericConstraintKeywords.NewConstraintKeyword(
+                        attributes),
+                    GenericConstraintKeywords
+                        .AllowsRefStructKeyword(attributes)));
+        }
+
+        MetadataTypeSignatureTypeEvidence? baseType =
+            evidence.Declaration.BaseKind
+                is MetadataTypeDeclarationBaseKind
+                    .Object
+                    or MetadataTypeDeclarationBaseKind.ValueType
+                    or MetadataTypeDeclarationBaseKind.Enum
+                ? null
+                : evidence.BaseType;
+        signature = new(
+            subject,
+            matchedName,
+            baseType,
+            parameters.MoveToImmutable(),
+            evidence.Declaration.InterfaceCount,
+            evidence.AreEnclosingTypesExternallyReachable,
+            evidence.NestedTypeCount);
+        return true;
+    }
+
+    private static bool IsPseudoConstraint(
+        MetadataTypeSignatureConstraintEvidence constraint,
+        MetadataTypeGenericParameterDeclarationEvidence parameter)
+    {
+        if (!constraint.IsCoreLibraryPseudoConstraint)
+            return false;
+
+        if (!TryPseudoConstraintName(
+                constraint.Type,
+                out MetadataTypeSignatureNamedType? name,
+                out bool unmanagedEncoding)
+            || !name.Namespace.ValueTextEquals("System"u8)
+            || name.Segments is not [var segment])
+        {
+            return false;
+        }
+
+        if (segment.ValueTextEquals("Object"u8))
+            return true;
+        if (!segment.ValueTextEquals("ValueType"u8))
+            return false;
+
+        const GenericParameterAttributes standardValueTypeFlags =
+            GenericParameterAttributes.NotNullableValueTypeConstraint
+                | GenericParameterAttributes
+                    .DefaultConstructorConstraint;
+        const GenericParameterAttributes specialConstraintFlags =
+            GenericParameterAttributes.ReferenceTypeConstraint
+                | GenericParameterAttributes
+                    .NotNullableValueTypeConstraint
+                | GenericParameterAttributes
+                    .DefaultConstructorConstraint;
+        return (parameter.Attributes & specialConstraintFlags)
+                == standardValueTypeFlags
+            && parameter.Annotations.IsUnmanaged
+                == unmanagedEncoding;
+    }
+
+    private static bool TryPseudoConstraintName(
+        MetadataTypeSignatureType type,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+            out MetadataTypeSignatureNamedType? name,
+        out bool unmanagedEncoding)
+    {
+        unmanagedEncoding = false;
+        if (type is MetadataTypeSignatureType.Named named)
+        {
+            name = named.Name;
+            return true;
+        }
+
+        if (type is MetadataTypeSignatureType.Modified
+            {
+                IsRequired: true,
+                Modifier: MetadataTypeSignatureType.Named modifier,
+                UnmodifiedType:
+                    MetadataTypeSignatureType.Named unmodified,
+            }
+            && modifier.Name.Namespace.ValueTextEquals(
+                "System.Runtime.InteropServices"u8)
+            && modifier.Name.Segments is [var modifierSegment]
+            && modifierSegment.ValueTextEquals("UnmanagedType"u8))
+        {
+            name = unmodified.Name;
+            unmanagedEncoding = true;
+            return true;
+        }
+
+        name = null;
+        return false;
+    }
 
     private static TypeSubjectMemberGroups ProjectDeclarations(
         AssemblyReferenceIdentity assemblyIdentity,
