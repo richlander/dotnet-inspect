@@ -80,6 +80,43 @@ public sealed record BrowserPackageLoadResult(
     string? DefaultLibraryId = null,
     BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
 
+public sealed record BrowserPackageSummaryEvidenceResult(
+    BrowserPackageLoadResult Result,
+    BrowserPackageVersionSettlementEvidenceInspection EvidenceEnvelope);
+
+public sealed record BrowserPackageVersionSettlementEvidenceInspection(
+    BrowserPackageVersionSettlementOutcome Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics,
+    BrowserPackageAcquisitionEvidence Evidence);
+
+public sealed record BrowserPackageAcquisitionEvidence(
+    BrowserPackageAcquisitionEvidenceEntry[] Acquisitions);
+
+public sealed record BrowserPackageAcquisitionEvidenceEntry(
+    string PackageId,
+    string Version,
+    string Authority,
+    string Origin,
+    BrowserPackageTransferReceipt Transfer);
+
+public sealed record BrowserPackageTransferReceipt(
+    string Path,
+    string? FallbackReason,
+    BrowserPackageTransferRequest[] Requests,
+    int RequestCount,
+    long BytesReceived,
+    bool IsTruncated);
+
+public sealed record BrowserPackageTransferRange(long? Start, long Length);
+
+public sealed record BrowserPackageTransferRequest(
+    string Purpose,
+    BrowserPackageTransferRange? Range,
+    string Outcome,
+    long? AdvertisedLength,
+    long BytesReceived);
+
 public sealed record BrowserPackageRootLoadResult(
     BrowserPackageChildrenInspection PackageChildren,
     BrowserPackageDocument[] Documents,
@@ -1484,6 +1521,7 @@ public sealed record BrowserPackageVersions(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageVersions))]
 [JsonSerializable(typeof(BrowserPackageLoadResult))]
+[JsonSerializable(typeof(BrowserPackageSummaryEvidenceResult))]
 [JsonSerializable(typeof(BrowserPackageRootLoadResult))]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageIconInspection))]

@@ -93,6 +93,9 @@ public sealed class ProductionFacadeContextTests
             "QueryPackageIcon",
             "QueryPackageRoot",
             "QueryPackageSummary",
+#if DEBUG
+            "QueryPackageSummaryWithEvidence",
+#endif
             "QueryPackageVulnerabilities",
             "QueryPackageVersions",
             "QueryReferencePackageSuppliers",
