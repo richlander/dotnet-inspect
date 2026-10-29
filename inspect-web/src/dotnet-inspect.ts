@@ -24059,7 +24059,8 @@ async function inspectSelectedTypeRelations() {
     workspaceJson,
     isCurrent,
     isVisible: () =>
-      (state.lens === "analysis"
+      scope() === "type"
+      && (state.lens === "analysis"
         || state.lens === "overview"
         || state.lens === "metadata")
       && isCurrent(),
