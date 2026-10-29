@@ -17,7 +17,7 @@
 
   <ItemGroup>
     <PackageDownload Include="Jurassic" Version="[3.2.9]" />
-    <PackageDownload Include="MessagePack" Version="[2.5.192]" />
+    <PackageDownload Include="MessagePack" Version="[2.5.303]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
                      Version="[11.0.0-rc.1.26425.128]" />
     <PackageDownload Include="System.Text.Json" Version="[10.0.0]" />
@@ -28,7 +28,7 @@
     <None Include="$(NuGetPackageRoot)jurassic/3.2.9/lib/netstandard2.0/Jurassic.dll"
           Link="RealAssets/AllocationLifetime/Jurassic.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)messagepack/2.5.192/lib/net6.0/MessagePack.dll"
+    <None Include="$(NuGetPackageRoot)messagepack/2.5.303/lib/net6.0/MessagePack.dll"
           Link="RealAssets/ResourceTriage/MessagePack.dll"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
