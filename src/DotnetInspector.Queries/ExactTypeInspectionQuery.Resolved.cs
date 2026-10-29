@@ -64,13 +64,28 @@ internal static partial class ExactTypeInspectionQuery
                         outcome.TerminalAssemblyIdentity)
                     {
                         SourceAssemblyPath = assembly.Path,
+                        AffectedTypeDefinitions = [forwardedRequest.Type],
                     });
                     continue;
                 }
                 AssemblyContextEntry<AssemblyApiSurface> entry =
                     ProjectSupplier(available.Definition.Assembly.Assembly);
                 if (entry is not AssemblyContextEntry<AssemblyApiSurface>.Available projected)
-                    return Unavailable("The forwarded Library API could not be read.");
+                {
+                    catalogSurface.InspectionFailures.Add(new(
+                        "resolve forwarded type",
+                        0,
+                        MetadataTypeNameFailureMechanism.Metadata,
+                        "Unavailable",
+                        "The forwarded Library API could not be read.",
+                        assembly.Identity,
+                        available.Definition.Assembly.Assembly.Identity)
+                    {
+                        SourceAssemblyPath = assembly.Path,
+                        AffectedTypeDefinitions = [forwardedRequest.Type],
+                    });
+                    continue;
+                }
                 ApiType? forwardedType = projected.Value.Surface.Types.FirstOrDefault(
                     type => type.DefinitionName?.Equals(available.Definition.Type) == true);
                 if (forwardedType is null)
@@ -82,27 +97,67 @@ internal static partial class ExactTypeInspectionQuery
             catalogSurface.Types = [.. catalogSurface.Types.OrderBy(type => type.FullName)];
             catalogSurface.PublicTypeCount = catalogSurface.Types.Count;
         }
-        string[] names = [.. catalogSurface.Types.Select(type => type.FullName)];
-        LookupResult lookup = TypeMatcher.Lookup(names, requestedType);
-        if (lookup.Match is null)
+        ApiType? selectedType;
+        string? matchedName;
+        string[] suggestions;
+        bool ambiguous;
+        if (TypeMatcher.IsTypeGlobPattern(requestedType))
         {
-            ExactTypeInspectionOutcome outcome =
-                TypeMatcher.IsTypeGlobPattern(requestedType)
-                    && lookup.Suggestions.Count > 0
-                || names.Count(name => TypeMatcher.MatchesExactTypeName(name, requestedType)) > 1
-                    ? ExactTypeInspectionOutcome.Ambiguous
-                    : ExactTypeInspectionOutcome.NotFound;
+            string[] names = [.. catalogSurface.Types.Select(type => type.FullName)];
+            LookupResult pattern = TypeMatcher.Lookup(names, requestedType);
+            selectedType = pattern.Match is null
+                ? null
+                : catalogSurface.Types.First(type => type.FullName == pattern.Match);
+            matchedName = pattern.Match;
+            suggestions = [.. pattern.Suggestions];
+            ambiguous = pattern.Match is null && pattern.Suggestions.Count > 0;
+        }
+        else
+        {
+            MetadataTypeLookupResult<ApiType> lookup = MetadataTypeLookup.Query(
+                catalogSurface.Types.Where(type => type.DefinitionName is not null),
+                static type => type.DefinitionName!,
+                requestedType);
+            selectedType = lookup.Matches.Length == 1 ? lookup.Matches[0] : null;
+            matchedName = lookup.MatchedName;
+            ambiguous = lookup.Matches.Length > 1;
+            suggestions = ambiguous
+                ? [.. lookup.Matches.Select(type => type.FullName).Distinct(StringComparer.Ordinal)]
+                : selectedType is null
+                    ? [.. TypeMatcher.Lookup(
+                        [.. catalogSurface.Types.Select(type => type.FullName)],
+                        requestedType).Suggestions]
+                    : [];
+        }
+        if (selectedType is null)
+        {
+            if (!ambiguous && !TypeMatcher.IsTypeGlobPattern(requestedType))
+            {
+                MetadataTypeLookupResult<TypeForwarder> forwarded = MetadataTypeLookup.Query(
+                    catalogSurface.TypeForwarders.Where(item => item.DefinitionName is not null),
+                    static item => item.DefinitionName!,
+                    requestedType);
+                if (forwarded.Matches.Length == 1)
+                    return Unavailable("The selected forwarded Type API could not be read.");
+                if (forwarded.Matches.Length > 1)
+                {
+                    ambiguous = true;
+                    suggestions = [.. forwarded.Matches.Select(item => item.TypeName)];
+                }
+            }
             return new(
                 new(
-                    new(outcome, requestedType, null, null, null, null,
-                        [], [.. lookup.Suggestions], [], []),
+                    new(
+                        ambiguous
+                            ? ExactTypeInspectionOutcome.Ambiguous
+                            : ExactTypeInspectionOutcome.NotFound,
+                        requestedType, null, null, null, null,
+                        [], [.. suggestions], [], []),
                     [],
                     null),
                 catalogSurface);
         }
 
-        ApiType selectedType = catalogSurface.Types.First(
-            type => type.FullName == lookup.Match);
         if (selectedType.DefinitionName is not { } selectedDefinition)
             return Unavailable("The selected Type has no Metadata definition identity.");
         TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
@@ -116,8 +171,8 @@ internal static partial class ExactTypeInspectionQuery
             return new(
                 new(
                     new(ExactTypeInspectionOutcome.Ambiguous,
-                        requestedType, lookup.Match, null, null, null,
-                        [], [.. lookup.Suggestions], [], []),
+                        requestedType, matchedName, null, null, null,
+                        [], [.. suggestions], [], []),
                     [],
                     null),
                 null);
@@ -168,7 +223,7 @@ internal static partial class ExactTypeInspectionQuery
             new(
                 result with
                 {
-                    MatchedType = lookup.Match,
+                    MatchedType = matchedName,
                     RequestedAssembly = AssemblyIdentity(rootGroup, root),
                     ForwardingHops = ForwardingHops(resolved),
                 },

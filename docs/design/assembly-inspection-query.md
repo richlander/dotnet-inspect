@@ -1413,8 +1413,10 @@ process startup, acquisition, selection, execution, and output consumption.
 Exact CLI Type inspection over an already resolved managed Library uses the
 same `ExactTypeInspectionOperation` and detached result as retained Browser
 inspection. The source adapter supplies its resolved descriptor and authorized
-binding policy. The richer request retains its existing shared `TypeMatcher`
+binding policy. The richer request uses Metadata's shared `MetadataTypeLookup`
 selector over a source-authorized API catalog, including forwarded Types.
+Pattern presentation and typo suggestions retain the shared `TypeMatcher`;
+neither replaces exact Metadata selection.
 The operation settles the selected forwarding route through Metadata and
 projects the settled definition through the ordinary exact-Type core. Host syntax, source
 authorization, acquisition context, and rendering remain with their owners.

@@ -111,6 +111,7 @@ public sealed partial class ExactTypeInspectionOperationTests
     [InlineData("Missing.Type", ExactTypeInspectionOutcome.NotFound)]
     [InlineData("Missing.Type.More", ExactTypeInspectionOutcome.NotFound)]
     [InlineData("*TypeInspectionOperation", ExactTypeInspectionOutcome.Ambiguous)]
+    [InlineData("Available", ExactTypeInspectionOutcome.Ambiguous)]
     public async Task ResolvedAssembly_NonUniqueSelectionDoesNotLendATarget(
         string query, ExactTypeInspectionOutcome expected)
     {
@@ -135,5 +136,48 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Contains(
             result.Diagnostics,
             diagnostic => diagnostic.Severity == InspectionDiagnosticSeverity.Error);
+    }
+
+    [Theory]
+    [InlineData("Exact.Healthy", true)]
+    [InlineData("Exact.Forwarded", false)]
+    public async Task ResolvedAssembly_ScopesUnresolvedForwarderToItsSubject(
+        string query, bool expectedAvailable)
+    {
+        var identity = new AssemblyReferenceIdentity(
+            "Resolved.Mixed", new Version(1, 0, 0, 0), null, null);
+        byte[] image = BuildMetadataAssembly(
+            identity.Name,
+            Guid.NewGuid(),
+            true,
+            "Exact",
+            "Forwarded",
+            new("Missing.Supplier", new Version(1, 0, 0, 0), null, null),
+            definedTypeName: "Healthy");
+        ResolvedAssemblyReference assembly = ResolvedAssemblyReference.Create(
+            identity, null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("forwarded failure scope test"));
+
+        InspectionEnvelope<ExactTypeInspectionResult> result =
+            await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                assembly,
+                NoResolverAssemblyBindingPolicy.Instance,
+                query,
+                ApiSurfaceScope.Public,
+                (envelope, target, _, _) =>
+                {
+                    Assert.Equal(expectedAvailable, target is not null);
+                    return ValueTask.FromResult(envelope);
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(expectedAvailable, result.Content.IsAvailable);
+        if (!expectedAvailable)
+        {
+            Assert.Equal(
+                ExactTypeInspectionOutcome.Unavailable,
+                result.Content.Outcome);
+        }
     }
 }
