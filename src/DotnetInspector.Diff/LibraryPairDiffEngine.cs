@@ -19,6 +19,13 @@ internal static class LibraryPairDiffEngine
         DiffPairContent content,
         DiffComparisonReuse? reuse)
     {
+        if (reuse is not null && request.TypeSelection is not null)
+        {
+            throw new ArgumentException(
+                "A comparison narrowed by a Type selection cannot be reused.",
+                nameof(reuse));
+        }
+
         LibraryApiComparison Compute()
         {
             AssemblyContextApiComparisonResult result =
@@ -28,14 +35,26 @@ internal static class LibraryPairDiffEngine
                     pair.AfterGroup,
                     pair.After,
                     request.View,
-                    request.Bounds);
+                    request.Bounds,
+                    request.TypeSelection);
             return new(result, LibraryApiDiffPresentationAdapter.Create(result));
         }
 
         (AssemblyContextApiComparisonResult comparison, LibraryApiDiffOutcome libraryApi) =
             reuse is null ? Compute() : reuse(Compute);
+        if (request.Selection is not { } selection)
+        {
+            return DiffAnalysisInspection.LibraryApiOnly(
+                request.Name,
+                request.BeforeVersion,
+                request.AfterVersion,
+                request.Targets.Surface,
+                libraryApi);
+        }
+
         DiffAnalysisInput input = CreateInput(
             request,
+            selection,
             pair,
             content,
             comparison,
@@ -45,15 +64,16 @@ internal static class LibraryPairDiffEngine
                 request.Name,
                 request.BeforeVersion,
                 request.AfterVersion,
-                request.Catalog,
-                request.Selection,
+                request.Catalog!,
+                selection,
                 input,
                 request.Views,
-                libraryApi));
+                request.LibraryApi ? libraryApi : null));
     }
 
     static DiffAnalysisInput CreateInput(
         LibraryPairDiffRequest request,
+        AnalysisSetValidationResult.Accepted selection,
         DiffLibraryPair pair,
         DiffPairContent content,
         AssemblyContextApiComparisonResult comparison,
@@ -118,10 +138,10 @@ internal static class LibraryPairDiffEngine
         };
         DiffAnalysisHostUnavailability[] unavailableAnalyses =
         [
-            .. request.Selection.Analyses
+            .. selection.Analyses
                 .Where(analysis =>
-                    analysis.ParticipationFor(request.Selection.Operation)
-                        ?.For(request.Selection.Surface)
+                    analysis.ParticipationFor(selection.Operation)
+                        ?.For(selection.Surface)
                         ?.ProducerRoute
                     != DiffAnalysisCatalog.StringLiteralRoute)
                 .Select(analysis =>

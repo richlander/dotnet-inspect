@@ -257,6 +257,7 @@ public static partial class MetadataExports
                                     DiffAnalysisCapabilities,
                                     selection,
                                     ViewsOf(request.Views),
+                                    libraryApi: true,
                                     selection.Surface switch
                                     {
                                         AnalysisReportSurfaceKind.Library =>
