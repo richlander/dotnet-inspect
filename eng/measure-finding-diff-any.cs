@@ -246,8 +246,17 @@ using (var before = new PEReader(new MemoryStream(beforeBytes, writable: false))
 using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
 {
     FindingDiffAnyResult apiResult = null!;
-    double apiOnly = Median(() => Timed(() => apiResult = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api)));
-    Console.WriteLine($"api-only\tmedian={apiOnly:F2}\tapiSurfaces={apiResult.Receipt.ApiSurfacesBuilt}"
+    var apiSamples = new List<double>();
+    double apiOnly = Median(() =>
+    {
+        double elapsed = Timed(() => apiResult = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api));
+        apiSamples.Add(elapsed);
+        return elapsed;
+    });
+    // Median performs one warmup sample before the timed population.
+    double[] apiTimed = apiSamples.Skip(1).Order().ToArray();
+    double apiP95 = apiTimed[Math.Max(0, (int)Math.Ceiling(apiTimed.Length * 0.95) - 1)];
+    Console.WriteLine($"api-only\tmedian={apiOnly:F2}\tp95={apiP95:F2}\tapiSurfaces={apiResult.Receipt.ApiSurfacesBuilt}"
         + $"\tapiSurfaceBuild-ms={apiResult.Receipt.ApiSurfaceBuildTime.TotalMilliseconds:F2}");
     // Historical receipt adapters must keep the same result lifetime even
     // when they replace these counters with zero; retention changes GC work.
