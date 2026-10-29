@@ -50,14 +50,12 @@ second consumer. Workspace performs its exact-package or package-prefix scope
 test before invoking this query and retains candidate coalescing, Root
 capacity, Artifact preparation, publication, and closure.
 
-The current `DependencyResolutionService` is not an adapter consumer. It
-parses legacy `PackageDependency` values inside its recursive tree walk and
-does not possess owner-issued `PackageDependencyEvidenceDeclaration`
-identities. Synthesizing those identities in the CLI or resolving only the
-first edge through this query would create a second normalization path and
-leave transitive behavior inconsistent. The production `depends` adoption
-therefore occurs through the typed traversal sequence rather than a temporary
-legacy bridge.
+The retired `DependencyResolutionService` recursive tree walk parsed legacy
+`PackageDependency` values without owner-issued
+`PackageDependencyEvidenceDeclaration` identities. Production `depends`
+adoption uses the typed traversal sequence, and the unused recursive Services
+implementation has been removed. Its framework-group selection and
+version-range lower-bound helpers remain in use.
 
 The package-owned `PackageAcquisitionCandidate` currency is nevertheless used
 immediately by existing selected package acquisition. That production path
