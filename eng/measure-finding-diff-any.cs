@@ -249,6 +249,9 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
     double apiOnly = Median(() => Timed(() => apiResult = FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api)));
     Console.WriteLine($"api-only\tmedian={apiOnly:F2}\tapiSurfaces={apiResult.Receipt.ApiSurfacesBuilt}"
         + $"\tapiSurfaceBuild-ms={apiResult.Receipt.ApiSurfaceBuildTime.TotalMilliseconds:F2}");
+    // Historical receipt adapters must keep the same result lifetime even
+    // when they replace these counters with zero; retention changes GC work.
+    GC.KeepAlive(apiResult);
     foreach (double budgetMs in new[] { 0.5, 1.0 })
     {
         int steps = 0;
