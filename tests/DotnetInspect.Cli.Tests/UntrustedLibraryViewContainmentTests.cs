@@ -744,7 +744,7 @@ public class UntrustedPackageContainmentTests : IDisposable
     public UntrustedPackageContainmentTests()
     {
         Directory.CreateDirectory(_dir);
-        _path = Path.Combine(_dir, "Hostile.Pkg.1.0.0.nupkg");
+        _path = Path.Combine(_dir, "Pkg.INJECTEDPKGID.1.0.0.nupkg");
         WriteHostilePackage(_path);
     }
 
@@ -761,7 +761,7 @@ public class UntrustedPackageContainmentTests : IDisposable
             <?xml version="1.0" encoding="utf-8"?>
             <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
               <metadata>
-                <id>Pkg{Bidi}INJECTEDPKGID</id>
+                <id>Pkg.INJECTEDPKGID</id>
                 <version>1.0.0</version>
                 <authors>Auth{Bidi}INJECTEDAUTHOR</authors>
                 <description>Desc{Bidi}INJECTEDDESC here.</description>
@@ -777,7 +777,7 @@ public class UntrustedPackageContainmentTests : IDisposable
         using var archive = new System.IO.Compression.ZipArchive(
             File.Create(path), System.IO.Compression.ZipArchiveMode.Create);
 
-        Write(archive, "Hostile.Pkg.nuspec", nuspec);
+        Write(archive, "Pkg.INJECTEDPKGID.nuspec", nuspec);
         Write(archive, "lib/net8.0/Good.dll", "MZ");
         // The TFM is a folder name, so it is attacker-chosen too.
         Write(archive, "lib/net9.0\u000BINJECTEDTFM/Good.dll", "MZ");
@@ -849,7 +849,7 @@ public class UntrustedPackageContainmentTests : IDisposable
     }
 
     [Fact]
-    public async Task MultiPackageSignatureRows_WithHostilePackageId_RenderNoHazard()
+    public async Task MultiPackageSignatureRows_WithUntrustedPackageId_RenderNoHazard()
     {
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => PackageCommand.ExecuteAsync(new InspectionOptions
