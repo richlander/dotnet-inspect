@@ -5,10 +5,10 @@ using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
-namespace DotnetInspect.Web.Interop.CallGraph;
+namespace DotnetInspect.Web;
 
 [SupportedOSPlatform("browser")]
-internal static class RetainedCallGraphOperations
+internal static class BrowserRetainedCallGraphOperations
 {
     internal static async Task<
         InspectionEnvelope<
