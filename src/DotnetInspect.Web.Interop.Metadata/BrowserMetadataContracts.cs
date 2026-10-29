@@ -373,6 +373,58 @@ public sealed record BrowserMemberDocument(
     string Receiver,
     Wire.DocumentationQueryOutcome? Documentation);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeDocumentOutcome>))]
+public enum BrowserTypeDocumentOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserTypeDocumentDocumentationStatus>))]
+public enum BrowserTypeDocumentDocumentationStatus
+{
+    NotRequested,
+    Available,
+    Failed,
+    Unavailable,
+}
+
+public sealed record BrowserTypeDocumentInspection(
+    BrowserTypeDocumentOutcome Outcome,
+    string? Detail,
+    BrowserTypeDocument? Document,
+    InspectionShare Share,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserTypeDocument(
+    string TypeIdentity,
+    string Spelling,
+    string Accessibility,
+    BrowserTypeDocumentDocumentation Documentation,
+    BrowserTypeDocumentMember[] Members);
+
+public sealed record BrowserTypeDocumentDocumentation(
+    BrowserTypeDocumentDocumentationStatus Status,
+    string? Detail);
+
+public sealed record BrowserTypeDocumentMember(
+    string GroupKey,
+    string MemberName,
+    string Kind,
+    int MetadataToken,
+    int BaselineOrdinal,
+    string DisplaySignature,
+    string CanonicalSignature,
+    string StableSelector,
+    string Fingerprint,
+    string DocumentationId,
+    string Accessibility,
+    string Receiver,
+    Wire.DocumentationQueryOutcome? Documentation);
+
 public sealed record BrowserTypeMemberPopulationInspection(
     BrowserTypeMemberPopulationOutcome Outcome,
     string? Detail,
@@ -564,6 +616,7 @@ public sealed record BrowserParameterSurface(
 [JsonSerializable(typeof(BrowserMemberDeclaration))]
 [JsonSerializable(typeof(BrowserMemberGroupDocumentInspection))]
 [JsonSerializable(typeof(BrowserMemberDocumentInspection))]
+[JsonSerializable(typeof(BrowserTypeDocumentInspection))]
 [JsonSerializable(
     typeof(Wire.DocumentationQueryOutcome),
     TypeInfoPropertyName = "DocumentationQueryOutcome")]

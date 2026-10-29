@@ -1494,6 +1494,7 @@ test("unavailable exact Member populations omit selector counts", () => {
       {
         state,
         type: { api: [] },
+        typeMemberPopulationSource: "ordinary",
         MEMBER_TRAITS,
         memberKindCount,
         partitionGraphMembers: () => ({
@@ -1679,6 +1680,7 @@ test("unavailable exact Member populations omit selector counts", () => {
     `),
     {
       state: privateState,
+      typeMemberPopulationSource: "ordinary",
       type: {
         definitionId: "T:Receiver",
         api: [contextualExtension, internalContextualExtension],
@@ -1762,7 +1764,7 @@ test("member population status stays visible outside collapsed filters", () => {
     /Signature search unavailable:[\s\S]*Loading exact signature matches/);
 
   const status =
-    appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction memberPopulationSummary/)?.[0]
+    appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction renderTypeMemberDocumentStatus/)?.[0]
     ?? "";
   assert.match(
     status,
@@ -1790,6 +1792,100 @@ test("member population status stays visible outside collapsed filters", () => {
   assert.match(
     renderApi,
     /typeMemberPopulationPhase\(item\) === "failed"[\s\S]*Member population unavailable\./);
+});
+
+test("member content selection keeps compact groups cheap and exact rows explicit", () => {
+  const filters =
+    appSource.match(/function renderMemberFilterControls\([\s\S]*?\n}\n\nfunction renderTypeMemberPopulationStatus/)?.[0]
+    ?? "";
+  assert.match(
+    filters,
+    /data-member-content[\s\S]*value="groups"[\s\S]*value="members"[\s\S]*value="documented-members"/);
+  assert.match(
+    filters,
+    /contentSelectionAvailable[\s\S]*disabled[\s\S]*performance members/);
+
+  const status =
+    appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction renderTypeMemberDocumentStatus/)?.[0]
+    ?? "";
+  assert.match(
+    status,
+    /state\.memberContent === "members"[\s\S]*state\.memberContent === "documented-members"[\s\S]*return "";/);
+
+  const load =
+    appSource.match(/async function loadSelectedTypeMemberDocument\([\s\S]*?\n}\n\nfunction setTypeMemberPopulationIntent/)?.[0]
+    ?? "";
+  assert.match(
+    load,
+    /state\.memberContent === "groups"[\s\S]*return;/);
+  assert.match(
+    load,
+    /inspectUploadedLibraryTypeDocument[\s\S]*inspectPlatformTypeDocument[\s\S]*inspectTypeDocument/);
+  assert.match(
+    load,
+    /state\.memberContent === "documented-members"[\s\S]*"documented-members"[\s\S]*"members"/);
+
+  const groups =
+    appSource.match(/function declaredMemberGroups\([\s\S]*?\n}\n\nfunction memberGroups/)?.[0]
+    ?? "";
+  assert.match(
+    groups,
+    /state\.memberContent === "members"[\s\S]*state\.memberContent === "documented-members"[\s\S]*currentTypeDocumentGroups\(type\)/);
+
+  const entries =
+    appSource.match(/function visibleExactMemberEntries\([\s\S]*?\n}\n\n\/\/ Flattened/)?.[0]
+    ?? "";
+  assert.match(
+    entries,
+    /document\.members\.map[\s\S]*member\.stableSelector[\s\S]*sort\(\(left, right\) => left\.order - right\.order\)/);
+  const ordered: unknown = runInNewContext(
+    stripTypeScriptTypes(`${entries}
+      visibleExactMemberEntries({});
+    `),
+    {
+      currentTypeMemberDocument: () => ({
+        members: [
+          { stableSelector: "c" },
+          { stableSelector: "a" },
+          { stableSelector: "b" },
+        ],
+      }),
+      visibleMemberGroups: () => [
+        {
+          key: "method:M",
+          overloads: [
+            { stableSelector: "a" },
+            { stableSelector: "b" },
+          ],
+        },
+        {
+          key: "property:P",
+          overloads: [{ stableSelector: "c" }],
+        },
+      ],
+    });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(ordered)),
+    [
+      { kind: "overload", group: {
+        key: "property:P",
+        overloads: [{ stableSelector: "c" }],
+      }, index: 0 },
+      { kind: "overload", group: {
+        key: "method:M",
+        overloads: [
+          { stableSelector: "a" },
+          { stableSelector: "b" },
+        ],
+      }, index: 0 },
+      { kind: "overload", group: {
+        key: "method:M",
+        overloads: [
+          { stableSelector: "a" },
+          { stableSelector: "b" },
+        ],
+      }, index: 1 },
+    ]);
 });
 
 test("member API uses full-area overload and selected-member surfaces", () => {

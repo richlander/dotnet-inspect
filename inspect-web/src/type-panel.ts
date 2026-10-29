@@ -84,6 +84,7 @@ export interface TypeSummary {
 
 export interface MemberOverloadSummary {
   signature: string;
+  summary?: string | null;
   stableSelector?: string | null;
   anchorDigest?: string | null;
   graphOnly?: boolean;
@@ -370,6 +371,7 @@ export interface TypePanelBindingActions {
   onCopyTypeSource: () => void;
   onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
+  onExactMemberOpen: (memberKey: string, index: number) => void;
   onKindSelect: (kind: string) => void;
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
@@ -378,6 +380,7 @@ export interface TypePanelBindingActions {
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
+  onMemberContentSelect: (content: string | undefined) => void;
   onMemberSpellingSelect: (spelling: string | undefined) => void;
   onMemberBack: () => void;
   onMemberCompositionAccessibilitySelect: (accessibility: string) => void;
@@ -469,6 +472,12 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onMemberGroupOpen(button.dataset.member ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-exact-member]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onExactMemberOpen(
+        button.dataset.exactMember ?? "",
+        Number(button.dataset.exactOverload))));
   root.querySelectorAll<HTMLElement>("[data-overload]").forEach(button =>
     button.addEventListener(
       "click",
@@ -486,6 +495,11 @@ export function bindTypePanel(
       select.addEventListener(
         "change",
         () => actions.onMemberAccessibilityFilterSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-content]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberContentSelect(select.value)));
   root.querySelectorAll<HTMLSelectElement>("[data-member-spelling]")
     .forEach(select =>
       select.addEventListener(
@@ -848,12 +862,11 @@ export function renderMemberNav(options: MemberNavOptions): string {
     overloadHeat, familyHeatCue,
   } = options;
   const memberAchievements = options.memberAchievements;
-  const selectedGroup = entries.find(entry =>
-    entry.kind === "member"
-    && entry.group.key === selectedMemberKey)?.group;
   const selectedFamilyOpen =
-    memberGroupUsesFamilySurface(selectedGroup)
-    && selectedOverloadIndex != null;
+    selectedOverloadIndex != null
+    && entries.some(entry =>
+      entry.kind === "overload"
+      && entry.group.key === selectedMemberKey);
   const navigationSelection = selectedMemberKey
     ? (selectedFamilyOpen
       ? `overload:${selectedMemberKey}:${selectedOverloadIndex}`
@@ -937,9 +950,11 @@ export function renderMemberNav(options: MemberNavOptions): string {
           ];
           const achievementClasses =
             itemAchievementClassNames(achievements);
-          return `<button class="type-row overload-nav-row has-item-achievement-rail${heatClasses}${achievementClasses ? ` ${achievementClasses}` : ""} ${selected ? " selected" : ""}" data-nav-overload="${sourceIndex}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+          const documentation = overload.summary?.trim() ?? "";
+          return `<button class="type-row overload-nav-row has-item-achievement-rail${documentation ? " documented-member-row" : ""}${heatClasses}${achievementClasses ? ` ${achievementClasses}` : ""} ${selected ? " selected" : ""}" data-nav-overload="${sourceIndex}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             ${renderItemAchievementRail(achievements, escapeHtml)}
             <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>
+            ${documentation ? `<small class="member-documentation-summary">${escapeHtml(documentation)}</small>` : ""}
           </button>`;
         }).join("") || `<div class="empty-list">${escapeHtml(options.emptyMessage ?? "No members match these filters.")}</div>`}
       </div>

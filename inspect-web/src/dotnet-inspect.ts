@@ -369,6 +369,7 @@ import {
   type AppExplorerState,
 } from "./metadata-inspection.ts";
 import {
+  applyMemberDocumentationOutcome,
   cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
   type MemberFacts,
@@ -911,6 +912,8 @@ import type {
 import type {
   BrowserMemberDeclaration,
   BrowserMemberGroupDocumentInspection,
+  BrowserTypeDocumentInspection,
+  BrowserTypeDocumentMember,
   BrowserTypeOverviewInspection,
   BrowserTypeMemberPopulationInspection,
   BrowserTypeMetadata,
@@ -1016,6 +1019,8 @@ let inspectPerformanceTypeMemberPopulation:
   EngineClient["metadata"]["queryPerformanceTypeMemberPopulation"];
 let inspectTypeMemberPopulation:
   EngineClient["metadata"]["queryTypeMemberPopulation"];
+let inspectTypeDocument:
+  EngineClient["metadata"]["queryTypeDocument"];
 let inspectTypeOverviewDocument:
   EngineClient["metadata"]["queryTypeOverviewDocument"];
 let inspectPlatformMemberDeclaration:
@@ -1026,6 +1031,8 @@ let inspectPlatformPerformanceTypeMemberPopulation:
   EngineClient["metadata"]["queryPlatformPerformanceTypeMemberPopulation"];
 let inspectPlatformTypeMemberPopulation:
   EngineClient["metadata"]["queryPlatformTypeMemberPopulation"];
+let inspectPlatformTypeDocument:
+  EngineClient["metadata"]["queryPlatformTypeDocument"];
 let inspectPlatformTypeOverviewDocument:
   EngineClient["metadata"]["queryPlatformTypeOverviewDocument"];
 let inspectUploadedLibraryMemberGroupDocument:
@@ -1034,6 +1041,8 @@ let inspectUploadedLibraryPerformanceTypeMemberPopulation:
   EngineClient["metadata"]["queryUploadedLibraryPerformanceTypeMemberPopulation"];
 let inspectUploadedLibraryTypeMemberPopulation:
   EngineClient["metadata"]["queryUploadedLibraryTypeMemberPopulation"];
+let inspectUploadedLibraryTypeDocument:
+  EngineClient["metadata"]["queryUploadedLibraryTypeDocument"];
 let inspectUploadedLibraryTypeOverviewDocument:
   EngineClient["metadata"]["queryUploadedLibraryTypeOverviewDocument"];
 let inspectPackageHeapEntries:
@@ -1255,6 +1264,7 @@ async function loadEngineModule() {
       queryPerformanceTypeMemberPopulation:
         inspectPerformanceTypeMemberPopulation,
       queryTypeMemberPopulation: inspectTypeMemberPopulation,
+      queryTypeDocument: inspectTypeDocument,
       queryTypeOverviewDocument: inspectTypeOverviewDocument,
       queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
       queryPlatformMemberGroupDocument:
@@ -1263,6 +1273,8 @@ async function loadEngineModule() {
         inspectPlatformPerformanceTypeMemberPopulation,
       queryPlatformTypeMemberPopulation:
         inspectPlatformTypeMemberPopulation,
+      queryPlatformTypeDocument:
+        inspectPlatformTypeDocument,
       queryPlatformTypeOverviewDocument:
         inspectPlatformTypeOverviewDocument,
       queryUploadedLibraryMemberGroupDocument:
@@ -1271,6 +1283,8 @@ async function loadEngineModule() {
         inspectUploadedLibraryPerformanceTypeMemberPopulation,
       queryUploadedLibraryTypeMemberPopulation:
         inspectUploadedLibraryTypeMemberPopulation,
+      queryUploadedLibraryTypeDocument:
+        inspectUploadedLibraryTypeDocument,
       queryUploadedLibraryTypeOverviewDocument:
         inspectUploadedLibraryTypeOverviewDocument,
       queryPackageHeapEntries: inspectPackageHeapEntries,
@@ -1583,6 +1597,7 @@ const initialState = {
   memberSection: "overview" as const,
   memberKindFilter: "all",
   memberAccessibilityFilter: "public",
+  memberContent: "groups" as MemberContent,
   memberSpelling: "csharp" as "csharp" | "metadata",
   memberTraitFilter: "",
   memberTextFilter: "",
@@ -1597,6 +1612,10 @@ const initialState = {
   typeMemberPopulationLoading: false,
   typeMemberPopulationError: "",
   typeMemberPopulationKey: "",
+  typeMemberDocument: null as BrowserTypeDocumentInspection | null,
+  typeMemberDocumentLoading: false,
+  typeMemberDocumentError: "",
+  typeMemberDocumentKey: "",
   typeHeat: { status: "idle" } as TypeHeatState,
   typeMethodLeverage: { status: "idle" } as TypeMethodLeverageState,
   memberSource: { status: "idle" as const },
@@ -4812,6 +4831,7 @@ async function restoreOrdinaryMemberHistory(
   sourceView: string,
 ) {
   await loadSelectedTypeMemberPopulation();
+  await loadSelectedTypeMemberDocument();
   if (!navigationSequence.isCurrent(navigationSeq)
     || state.package !== pkg
     || selectedType()?.id !== type.id
@@ -7344,6 +7364,7 @@ function groupMembers(
   return [...groups.values()];
 }
 
+type MemberContent = "groups" | "members" | "documented-members";
 type TypeMemberPopulationSource = "ordinary" | "performance";
 let typeMemberPopulationSource: TypeMemberPopulationSource = "ordinary";
 
@@ -7414,6 +7435,153 @@ function currentTypeMemberPopulation(type: AppTypeSurface) {
     : inspection.population;
 }
 
+function typeMemberDocumentKey(type: AppTypeSurface) {
+  const pkg = state.package;
+  return memberRequestKey([
+    state.rootKind,
+    pkg?.id ?? "",
+    pkg?.version ?? "",
+    pkg?.activeFramework ?? "",
+    platformDemoContextIdFor(pkg ?? null) ?? "",
+    type.assemblyId,
+    type.definitionId ?? type.id,
+    state.memberSpelling,
+    state.memberAccessibilityFilter,
+    state.memberContent,
+  ]);
+}
+
+function currentTypeMemberDocumentInspection(type: AppTypeSurface) {
+  return state.typeMemberDocumentKey === typeMemberDocumentKey(type)
+    ? state.typeMemberDocument
+    : null;
+}
+
+function currentTypeMemberDocument(type: AppTypeSurface) {
+  const inspection = currentTypeMemberDocumentInspection(type);
+  return inspection?.outcome === "Available"
+    ? inspection.document
+    : null;
+}
+
+function typeMemberDocumentPhase(
+  type: AppTypeSurface,
+): "available" | "failed" | "loading" | "pending" {
+  if (state.memberContent !== "members"
+    && state.memberContent !== "documented-members"
+    || typeMemberPopulationSource !== "ordinary") {
+    return "available";
+  }
+  if (state.typeMemberDocumentKey !== typeMemberDocumentKey(type)) {
+    return "pending";
+  }
+  if (state.typeMemberDocumentLoading) return "loading";
+  if (state.typeMemberDocumentError) return "failed";
+  return currentTypeMemberDocument(type) ? "available" : "pending";
+}
+
+function typeDocumentSelectorToken(member: {
+  declarationMetadataToken?: number | null;
+  metadataToken?: number | null;
+}) {
+  return member.declarationMetadataToken ?? member.metadataToken ?? null;
+}
+
+function typeDocumentSelectorMap(type: AppTypeSurface) {
+  const selectors = new Map<number, AppMemberSurface | InspectedMemberSurface>();
+  for (const member of type.api) {
+    const token = typeDocumentSelectorToken(member);
+    if (token !== null) selectors.set(token, member);
+  }
+  const fallback = state.richMemberFallbackKey === typeMemberPopulationKey(type)
+    && state.richMemberFallback?.outcome === "Available"
+    ? state.richMemberFallback.population
+    : null;
+  for (const member of fallback?.groups.flatMap(group => group.members) ?? []) {
+    const token = typeDocumentSelectorToken(member);
+    if (token !== null) selectors.set(token, member);
+  }
+  return selectors;
+}
+
+function typeDocumentHasSelectors(
+  type: AppTypeSurface,
+  members: readonly BrowserTypeDocumentMember[],
+) {
+  const selectors = typeDocumentSelectorMap(type);
+  return members.every(member => selectors.has(member.metadataToken));
+}
+
+function cloneTypeDocumentSelector(
+  selector: AppMemberSurface | InspectedMemberSurface,
+): AppMemberSurface {
+  if (!("summary" in selector)) return createAppMemberSurface(selector);
+  return {
+    ...selector,
+    parameters: selector.parameters.map(parameter => ({ ...parameter })),
+    exceptions: selector.exceptions.map(exception => ({ ...exception })),
+  };
+}
+
+function typeDocumentMemberSurface(
+  selector: AppMemberSurface | InspectedMemberSurface,
+  member: BrowserTypeDocumentMember,
+): AppMemberSurface {
+  const selected = cloneTypeDocumentSelector(selector);
+  const surface: AppMemberSurface = {
+    ...selected,
+    name: member.memberName,
+    kind: member.kind,
+    signature: member.displaySignature,
+    accessibility: member.accessibility.toLowerCase(),
+    metadataToken: member.metadataToken,
+    declarationMetadataToken: member.metadataToken,
+    documentationId: member.documentationId,
+    stableSelector: member.stableSelector,
+    anchorDigest: member.fingerprint,
+    canonicalSignature: member.canonicalSignature,
+    baselineOrdinal: member.baselineOrdinal,
+    summary: null,
+    returns: null,
+    exceptions: [],
+    documentationLoaded: false,
+  };
+  if (member.documentation) {
+    const error =
+      applyMemberDocumentationOutcome(surface, member.documentation);
+    if (error) surface.summary = error;
+  }
+  return surface;
+}
+
+function currentTypeDocumentGroups(
+  type: AppTypeSurface,
+): AppMemberGroup[] | null {
+  const document = currentTypeMemberDocument(type);
+  if (!document) return null;
+  const selectors = typeDocumentSelectorMap(type);
+  const groups = new Map<string, AppMemberGroup>();
+  for (const member of document.members) {
+    const selector = selectors.get(member.metadataToken);
+    if (!selector) return null;
+    let group = groups.get(member.groupKey);
+    if (!group) {
+      group = {
+        key: member.groupKey,
+        name: member.memberName,
+        kind: member.kind,
+        overloads: [],
+        completeCount: 0,
+        completeCountStatus: "available",
+      };
+      groups.set(member.groupKey, group);
+    }
+    group.overloads.push(typeDocumentMemberSurface(selector, member));
+    group.completeCount++;
+  }
+  return [...groups.values()];
+}
+
 function typeMemberPopulationPhase(
   type: AppTypeSurface,
 ): "available" | "failed" | "loading" | "pending" {
@@ -7465,6 +7633,11 @@ function contextualExtensionAccessibilityCount(
 }
 
 function declaredMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
+  if ((state.memberContent === "members"
+      || state.memberContent === "documented-members")
+    && typeMemberPopulationSource === "ordinary") {
+    return currentTypeDocumentGroups(type) ?? [];
+  }
   const performancePopulation = currentPerformanceTypeMemberPopulation(type);
   if (performancePopulation) {
     return performancePopulation.groups.map(group => ({
@@ -7714,6 +7887,8 @@ function renderMethodLeverageStatus() {
 }
 
 function renderMemberFilterControls(type: AppTypeSurface) {
+  const contentSelectionAvailable =
+    typeMemberPopulationSource === "ordinary";
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
@@ -7734,6 +7909,13 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   const activeTrait = traits.find(
     ([value]) => value === state.memberTraitFilter)?.[1];
   const filterSummary = [
+    contentSelectionAvailable
+      ? state.memberContent === "members"
+        ? "exact members"
+        : state.memberContent === "documented-members"
+          ? "documented members"
+          : ""
+      : "performance members",
     state.memberTextFilter ? `text: ${state.memberTextFilter}` : "",
     state.memberKindFilter === "all"
       ? ""
@@ -7764,6 +7946,16 @@ function renderMemberFilterControls(type: AppTypeSurface) {
         <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
       </div>
       <div class="member-filter-selects">
+        <label class="member-filter-select">
+          <span>Content</span>
+          <select class="scope-select" data-member-content aria-label="Member content"${contentSelectionAvailable ? "" : " disabled"}>
+            ${contentSelectionAvailable
+              ? `<option value="groups" ${state.memberContent === "groups" ? "selected" : ""}>groups</option>
+                 <option value="members" ${state.memberContent === "members" ? "selected" : ""}>exact members</option>
+                 <option value="documented-members" ${state.memberContent === "documented-members" ? "selected" : ""}>documented members</option>`
+              : '<option value="performance" selected>performance members</option>'}
+          </select>
+        </label>
         <label class="member-filter-select">
           <span>Kind</span>
           <select class="scope-select" data-member-kind-filter aria-label="Member kind">
@@ -7804,6 +7996,11 @@ function renderMemberFilterControls(type: AppTypeSurface) {
 }
 
 function renderTypeMemberPopulationStatus(type: AppTypeSurface) {
+  if ((state.memberContent === "members"
+      || state.memberContent === "documented-members")
+    && typeMemberPopulationSource === "ordinary") {
+    return "";
+  }
   const phase = typeMemberPopulationPhase(type);
   if (phase === "loading") {
     return '<p class="inspection-note" role="status">Loading member population…</p>';
@@ -7814,23 +8011,63 @@ function renderTypeMemberPopulationStatus(type: AppTypeSurface) {
   return "";
 }
 
+function renderTypeMemberDocumentStatus(type: AppTypeSurface) {
+  if (state.memberContent !== "members"
+    && state.memberContent !== "documented-members"
+    || typeMemberPopulationSource !== "ordinary") return "";
+  const phase = typeMemberDocumentPhase(type);
+  if (phase === "loading" || phase === "pending") {
+    const content = state.memberContent === "documented-members"
+      ? "documented members"
+      : "exact members";
+    return `<p class="inspection-note" role="status">Loading ${content}…</p>`;
+  }
+  if (phase === "failed") {
+    return `<p class="inspection-error" role="alert">${escapeHtml(
+      state.typeMemberDocumentError)}</p>`;
+  }
+  const documentation =
+    currentTypeMemberDocument(type)?.documentation;
+  if (state.memberContent === "documented-members"
+    && documentation
+    && documentation.status !== "Available") {
+    const problem = documentation.detail
+      ?? `Documentation is ${String(documentation.status).toLowerCase()}.`;
+    return `<p class="${documentation.status === "Failed"
+      ? "inspection-error"
+      : "inspection-note"}" role="${documentation.status === "Failed"
+        ? "alert"
+        : "status"}">${escapeHtml(problem)}</p>`;
+  }
+  return "";
+}
+
 function memberPopulationSummary(
   type: AppTypeSurface,
   visibleMemberCount: number,
   memberCount: number,
 ) {
-  const phase = typeMemberPopulationPhase(type);
+  const exactContent = (state.memberContent === "members"
+      || state.memberContent === "documented-members")
+    && typeMemberPopulationSource === "ordinary";
+  const phase = exactContent
+    ? typeMemberDocumentPhase(type)
+    : typeMemberPopulationPhase(type);
   if (phase === "available") {
     return `${visibleMemberCount} of ${memberCount} members`;
   }
   if (phase === "failed") {
     return memberCount
-      ? `${visibleMemberCount} visible members <span>· complete population unavailable</span>`
-      : "Member population unavailable";
+      ? `${visibleMemberCount} visible members <span>· ${exactContent
+          ? "exact"
+          : "complete"} population unavailable</span>`
+      : `${exactContent ? "Exact Member" : "Member"} population unavailable`;
   }
   return memberCount
-    ? `${visibleMemberCount} visible members <span>· loading complete population</span>`
-    : "Loading member population…";
+    ? `${visibleMemberCount} visible members <span>· loading ${exactContent
+        ? "exact"
+        : "complete"} population</span>`
+    : `Loading ${exactContent ? "exact Member" : "member"} population…`;
 }
 
 function compositionFilterButton(
@@ -9371,16 +9608,52 @@ function applyMemberSection(id: MemberSection) {
   loadMemberSectionContent(id);
 }
 
+function visibleExactMemberEntries(
+  type: AppTypeSurface,
+): Extract<MemberNavEntry, { kind: "overload" }>[] {
+  const document = currentTypeMemberDocument(type);
+  if (!document) return [];
+  const declarationOrder = new Map(
+    document.members.map((member, index) =>
+      [member.stableSelector, index] as const),
+  );
+  return visibleMemberGroups(type)
+    .flatMap(group =>
+      group.overloads.map((overload, index) => {
+        const order =
+          declarationOrder.get(overload.stableSelector ?? "");
+        if (order === undefined) {
+          throw new Error(
+            `Exact Member '${overload.stableSelector ?? ""}' is absent `
+              + "from the shared Type document order.");
+        }
+        return {
+          kind: "overload" as const,
+          group,
+          index,
+          order,
+        };
+      }))
+    .sort((left, right) => left.order - right.order)
+    .map(({ kind, group, index }) => ({ kind, group, index }));
+}
+
 // Flattened, ordered nav rows for member mode: filtered public groups plus the selected
 // graph-only target, with active overloads nested beneath their group. This is the exact
 // list ↑/↓ walks.
 function memberNavEntries(type: AppTypeSurface): MemberNavEntry[] {
   const entries: MemberNavEntry[] = [];
+  const exactRows = (state.memberContent === "members"
+      || state.memberContent === "documented-members")
+    && typeMemberPopulationSource === "ordinary";
+  if (exactRows) entries.push(...visibleExactMemberEntries(type));
   for (const group of visibleMemberGroups(type)) {
+    if (exactRows) continue;
     entries.push({ kind: "member", group });
     if (group.key === state.selectedMemberKey
       && memberGroupUsesFamilySurface(group)) {
-      group.overloads.forEach((_, index) => entries.push({ kind: "overload", group, index }));
+      group.overloads.forEach(
+        (_, index) => entries.push({ kind: "overload", group, index }));
     }
   }
   const graphGroup = selectedGraphMemberGroup(type);
@@ -11280,7 +11553,10 @@ function renderMemberNavPane(type: AppTypeSurface) {
     visibleMemberCount: visibleGroups.reduce(
       (count, group) => count + memberGroupVisibleCount(group),
       0),
-    filterControlsHtml: renderMemberFilterControls(type),
+    filterControlsHtml:
+      renderTypeMemberPopulationStatus(type)
+      + renderTypeMemberDocumentStatus(type)
+      + renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,
     selectedOverloadIndex: state.selectedOverloadIndex,
     selectedAccessibility: state.memberAccessibilityFilter,
@@ -14153,11 +14429,70 @@ function renderApiLens(item: AppTypeSurface) {
   const populationSummary =
     memberPopulationSummary(item, visibleMemberCount, memberCount);
   const populationStatus =
-    renderTypeMemberPopulationStatus(item) + selectedTypeChangeStatus(item);
+    renderTypeMemberPopulationStatus(item)
+      + renderTypeMemberDocumentStatus(item)
+      + selectedTypeChangeStatus(item);
   const definingLibrary = typeQualifiedLibraryLabel(item);
   const definingLibraryHtml = definingLibrary
     ? `<span data-type-library>· ${escapeHtml(definingLibrary)}</span>`
     : "";
+  const exactMemberRows = (state.memberContent === "members"
+      || state.memberContent === "documented-members")
+    && typeMemberPopulationSource === "ordinary";
+  const memberRows = exactMemberRows
+    ? visibleExactMemberEntries(item)
+      .map(({ group, index }) => {
+        const overload = group.overloads[index];
+        if (!overload) {
+          throw new Error(
+            `Member group '${group.key}' has no overload ${index}.`);
+        }
+        const sourceIndex =
+          memberNavOverloadSourceIndex(group, index);
+        const achievements = [
+          ...methodLeverageAchievements(group, sourceIndex),
+          ...memberChangeAchievements(group, sourceIndex),
+        ];
+        const achievementClasses =
+          itemAchievementClassNames(achievements);
+        return `
+        <button class="api-row has-item-achievement-rail${achievementClasses ? ` ${achievementClasses}` : ""}" data-exact-member="${escapeHtml(group.key)}" data-exact-overload="${sourceIndex}">
+          ${renderItemAchievementRail(achievements, escapeHtml)}
+          <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
+          <code>${highlight(overload.signature)}</code>
+          <small>${escapeHtml(overload.summary?.trim() || group.kind)}</small>
+        </button>`;
+      })
+      .join("")
+    : visibleGroups.map(group => {
+      const overload = group.overloads[0];
+      const outsideMarker = familyOutsideMarkerHtml(
+        group,
+        state.memberAccessibilityFilter,
+        escapeHtml,
+        Boolean(state.memberTraitFilter));
+      const sourceOverloadCount =
+        group.sourceOverloadCount ?? group.overloads.length;
+      const achievements = [
+        ...methodLeverageAchievements(
+          group,
+          sourceOverloadCount === 1 ? 0 : null),
+        ...memberChangeAchievements(
+          group,
+          sourceOverloadCount === 1 ? 0 : null),
+      ];
+      const achievementClasses =
+        itemAchievementClassNames(achievements);
+      return `
+        <button class="api-row has-item-achievement-rail${achievementClasses ? ` ${achievementClasses}` : ""}" data-member="${escapeHtml(group.key)}">
+          ${renderItemAchievementRail(achievements, escapeHtml)}
+          <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
+          <code>${overload
+            ? highlight(overload.signature)
+            : escapeHtml(group.displayName ?? group.name)}</code>
+          <small>${sourceOverloadCount === 1 ? escapeHtml(group.kind) : `${sourceOverloadCount} overloads`}${outsideMarker}</small>
+        </button>`;
+    }).join("");
   if (state.memberBrowseTypeId === item.id) {
     return `
       <section class="member-surface member-empty-surface" aria-labelledby="member-surface-title">
@@ -14184,38 +14519,11 @@ function renderApiLens(item: AppTypeSurface) {
       </header>
       <div class="member-browser-controls api-surface-controls">${populationStatus}${renderMemberFilterControls(item)}</div>
       <div class="api-surface-scroll">
-        <div class="api-list api-surface-list">${visibleGroups.map(group => {
-        const overload = group.overloads[0];
-        const outsideMarker = familyOutsideMarkerHtml(
-          group,
-          state.memberAccessibilityFilter,
-          escapeHtml,
-          Boolean(state.memberTraitFilter));
-        const sourceOverloadCount =
-          group.sourceOverloadCount ?? group.overloads.length;
-        const achievements = [
-          ...methodLeverageAchievements(
-            group,
-            sourceOverloadCount === 1 ? 0 : null),
-          ...memberChangeAchievements(
-            group,
-            sourceOverloadCount === 1 ? 0 : null),
-        ];
-        const achievementClasses =
-          itemAchievementClassNames(achievements);
-        return `
-        <button class="api-row has-item-achievement-rail${achievementClasses ? ` ${achievementClasses}` : ""}" data-member="${escapeHtml(group.key)}">
-          ${renderItemAchievementRail(achievements, escapeHtml)}
-          <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-          <code>${overload
-            ? highlight(overload.signature)
-            : escapeHtml(group.displayName ?? group.name)}</code>
-          <small>${sourceOverloadCount === 1 ? escapeHtml(group.kind) : `${sourceOverloadCount} overloads`}${outsideMarker}</small>
-        </button>`;
-        }).join("") || `<div class="empty-list">${
+        <div class="api-list api-surface-list">${memberRows || `<div class="empty-list">${
           typeMemberPopulationPhase(item) === "failed"
             ? "Member population unavailable."
             : typeMemberPopulationPhase(item) === "available"
+              && typeMemberDocumentPhase(item) === "available"
               ? `No declared ${escapeHtml(state.memberAccessibilityFilter)} members match these filters.`
               : "Loading member population…"
         }</div>`}</div>
@@ -15100,6 +15408,10 @@ function bindTypePanelEvents() {
           "Opening annotated source");
       }
     },
+    onExactMemberOpen: (memberKey, index) => {
+      state.selectedMemberKey = memberKey;
+      openOverload(index);
+    },
     onKindSelect: kind => {
       state.kindFilter = kind;
       state.typeCursor = 0;
@@ -15152,6 +15464,11 @@ function bindTypePanelEvents() {
       observeAsync(
         selectTypeMemberPopulation(value ?? "public"),
         "Selecting the member accessibility population");
+    },
+    onMemberContentSelect: value => {
+      observeAsync(
+        selectTypeMemberContent(value ?? "groups"),
+        "Selecting Member content");
     },
     onMemberSpellingSelect: value => {
       observeAsync(
@@ -19417,6 +19734,7 @@ async function loadSelectionData() {
     return;
   }
   await loadSelectedTypeMemberPopulation();
+  await loadSelectedTypeMemberDocument();
   if (!state.selectedMemberKey) return;
   const member = selectedMember(selectedType());
   if (!member) return;
@@ -23368,6 +23686,7 @@ let typeMemberPopulationReceipt: TypeMemberPopulationReceipt | null = null;
 let typeMemberPopulationGeneration = 0;
 let typeMemberPopulationIntentGeneration = 0;
 let unsupportedMemberDeclarationsLoad: Promise<void> | null = null;
+let typeMemberDocumentLoad: Promise<void> | null = null;
 
 async function loadUnsupportedMemberDeclarations(): Promise<void> {
   const type = selectedType();
@@ -23571,6 +23890,111 @@ function loadSelectedTypeMemberPopulation(
   return load.promise;
 }
 
+function resetTypeMemberDocument() {
+  typeMemberDocumentLoad = null;
+  state.typeMemberDocument = null;
+  state.typeMemberDocumentLoading = false;
+  state.typeMemberDocumentError = "";
+  state.typeMemberDocumentKey = "";
+}
+
+async function loadSelectedTypeMemberDocument() {
+  const type = selectedType();
+  if (!type
+    || state.memberContent === "groups"
+    || typeMemberPopulationSource !== "ordinary") {
+    return;
+  }
+  const key = typeMemberDocumentKey(type);
+  if (state.typeMemberDocumentLoading
+    && state.typeMemberDocumentKey === key) {
+    if (typeMemberDocumentLoad) await typeMemberDocumentLoad;
+    return;
+  }
+  if (state.typeMemberDocument
+    && state.typeMemberDocumentKey === key) {
+    return;
+  }
+
+  state.typeMemberDocument = null;
+  state.typeMemberDocumentLoading = true;
+  state.typeMemberDocumentError = "";
+  state.typeMemberDocumentKey = key;
+  renderPreservingMemberFocus();
+  const pkg = currentPackage();
+  const content = state.memberContent === "documented-members"
+    ? "documented-members"
+    : "members";
+  const load = (async () => {
+    try {
+      const inspection = await (state.rootKind === "library"
+        ? inspectUploadedLibraryTypeDocument(
+            type.assemblyId,
+            type.definitionId ?? type.id,
+            state.memberSpelling,
+            state.memberAccessibilityFilter,
+            content)
+        : pkg.isRuntimePack
+        ? (() => {
+            const row = platformLibraryForRequest(pkg, type.assemblyId);
+            return inspectPlatformTypeDocument(
+              pkg.activeFramework,
+              pkg.version,
+              platformAssemblyRequest(row),
+              row.pack,
+              type.definitionId ?? type.id,
+              state.memberSpelling,
+              state.memberAccessibilityFilter,
+              content);
+          })()
+        : inspectTypeDocument(
+            pkg.id,
+            pkg.version,
+            pkg.activeFramework,
+            type.assembly,
+            type.definitionId ?? type.id,
+            state.memberSpelling,
+            state.memberAccessibilityFilter,
+            content,
+            pkg.runtimeIdentifier ?? null));
+      if (state.typeMemberDocumentKey !== key) return;
+      state.typeMemberDocument = inspection;
+      if (inspection.outcome !== "Available" || !inspection.document) {
+        state.typeMemberDocumentError = inspection.detail
+          ?? `Type document returned ${inspection.outcome}.`;
+        return;
+      }
+      if (!typeDocumentHasSelectors(type, inspection.document.members)) {
+        await loadUnsupportedMemberDeclarations();
+        if (state.typeMemberDocumentKey !== key) return;
+      }
+      if (!typeDocumentHasSelectors(type, inspection.document.members)) {
+        state.typeMemberDocumentError =
+          state.richMemberFallbackError
+            || "Exact Member selector enrichment did not match every "
+              + "shared Type document row.";
+      }
+    } catch (error) {
+      if (state.typeMemberDocumentKey === key) {
+        state.typeMemberDocumentError = errorMessage(error);
+      }
+    } finally {
+      if (state.typeMemberDocumentKey === key) {
+        state.typeMemberDocumentLoading = false;
+        normalizeMemberSelection();
+        renderPreservingMemberFocus();
+      }
+    }
+  })();
+  typeMemberDocumentLoad = load;
+  try {
+    await load;
+  } finally {
+    if (typeMemberDocumentLoad === load)
+      typeMemberDocumentLoad = null;
+  }
+}
+
 function setTypeMemberPopulationIntent(
   accessibility: MemberAccessibility,
   spelling: "csharp" | "metadata",
@@ -23591,6 +24015,7 @@ function setTypeMemberPopulationIntent(
   state.typeMemberPopulationLoading = false;
   state.typeMemberPopulationError = "";
   state.typeMemberPopulationKey = "";
+  resetTypeMemberDocument();
 }
 
 async function selectTypeMemberPopulation(
@@ -23605,6 +24030,27 @@ async function selectTypeMemberPopulation(
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   await loadSelectedTypeMemberPopulation();
+  await loadSelectedTypeMemberDocument();
+}
+
+async function selectTypeMemberContent(content: string) {
+  if (content !== "groups"
+    && content !== "members"
+    && content !== "documented-members") {
+    return;
+  }
+  if (state.memberContent === content) return;
+  state.memberContent = content;
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  resetMemberSectionState();
+  resetTypeMemberDocument();
+  if (content === "groups") {
+    normalizeMemberSelection();
+    renderPreservingMemberFocus();
+    return;
+  }
+  await loadSelectedTypeMemberDocument();
 }
 
 async function loadSelectedMemberGroupDocument() {
