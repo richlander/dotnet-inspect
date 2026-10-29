@@ -499,6 +499,7 @@ const corsHeaders: Readonly<Record<string, string>> = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, HEAD, OPTIONS",
   "access-control-allow-headers": "*",
+  "access-control-expose-headers": "Content-Range, Content-Length, Accept-Ranges, ETag",
 };
 
 async function installGalleryRoutes(
@@ -517,6 +518,29 @@ async function installGalleryRoutes(
     if (archive) {
       await beforeArchive(pathname);
       registry.recordDownload(pathname);
+      const range = /^bytes=(\d*)-(\d*)$/u.exec(request.headers().range ?? "");
+      if (range) {
+        const from = range[1] ?? "";
+        const to = range[2] ?? "";
+        const start = from === ""
+          ? Math.max(0, archive.length - Number(to))
+          : Number(from);
+        const end = from === "" || to === ""
+          ? archive.length - 1
+          : Math.min(Number(to), archive.length - 1);
+        await route.fulfill({
+          status: 206,
+          headers: {
+            ...corsHeaders,
+            "content-type": "application/octet-stream",
+            "content-range": `bytes ${start}-${end}/${archive.length}`,
+            "accept-ranges": "bytes",
+            etag: '"gallery-fixture"',
+          },
+          body: archive.subarray(start, end + 1),
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         headers: { ...corsHeaders, "content-type": "application/octet-stream" },
@@ -3111,8 +3135,11 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     );
     expect(withPredecessor).toEqual({
       versions: ["2.0.0", "1.0.0"],
+      unlistedVersions: [],
       currentVersionInsertionIndex: 0,
       previousVersion: "1.0.0",
+      supplyChainVersions: ["1.0.0"],
+      apiEvolutionVersions: ["1.0.0"],
     });
     const withoutPredecessor = await engine.queryVersions(
       healthy.packageId,
@@ -3120,7 +3147,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     );
     expect(withoutPredecessor).toEqual({
       versions: [healthy.version],
+      unlistedVersions: [],
       currentVersionInsertionIndex: 0,
+      supplyChainVersions: [],
+      apiEvolutionVersions: [],
     });
 
     // A terminal settlement failure crosses the same generated facade and
