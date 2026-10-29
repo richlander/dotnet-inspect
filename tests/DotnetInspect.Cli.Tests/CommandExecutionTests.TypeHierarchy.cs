@@ -2,6 +2,19 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public async Task TypeHierarchy_Mermaid_BareTypeUsesFindIfMiss()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Regex", "--mermaid");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith(
+            "graph TD\n  n0[\"class System.Text.RegularExpressions.Regex\"]",
+            output);
+        Assert.Contains("resolved via platform find", error);
+    }
+
     [Theory]
     [InlineData("System.Math")]
     [InlineData("Math")]
@@ -35,6 +48,7 @@ public partial class CommandExecutionTests
         Assert.Equal(normal.Output, explicitTree.Output);
         Assert.StartsWith("static class System.Math\n", normal.Output);
         Assert.Contains("Methods (", normal.Output);
+        Assert.Matches(@"─ Abs \([2-9][0-9]*\)", normal.Output);
         Assert.DoesNotContain("overloads", normal.Output);
         Assert.DoesNotContain("logical", normal.Output);
     }
@@ -57,7 +71,7 @@ public partial class CommandExecutionTests
             "static class System.Text.Json.JsonSerializer\n",
             shortName.Output,
             StringComparison.Ordinal);
-        Assert.Contains("─ Deserialize\n", shortName.Output, StringComparison.Ordinal);
+        Assert.Contains("─ Deserialize (", shortName.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("overloads", shortName.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("Inherits", shortName.Output, StringComparison.Ordinal);
     }
@@ -89,7 +103,6 @@ public partial class CommandExecutionTests
     [InlineData("System.Text.Json.Serialization", "--platform", "System.Text.Json", "--mermaid")]
     [InlineData("System.Math", "--mermaid", "--member", "Abs")]
     [InlineData("System.Math", "--mermaid", "--schema", "--discover")]
-    [InlineData("--platform", "System.Private.CoreLib", "--mermaid")]
     [InlineData("System.Math*", "--platform", "System.Private.CoreLib", "--mermaid")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--match")]
     [InlineData("System.Math", "--platform", "System.Private.CoreLib", "--mermaid", "--json")]

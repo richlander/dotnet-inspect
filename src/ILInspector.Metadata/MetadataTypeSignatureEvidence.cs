@@ -11,6 +11,7 @@ public sealed record MetadataTypeSignatureEvidence(
     MetadataTypeSignatureTypeEvidence? BaseType,
     ImmutableArray<MetadataTypeSignatureGenericParameterEvidence>
         GenericParameters,
+    bool AreEnclosingTypesExternallyReachable,
     int NestedTypeCount);
 
 /// <summary>One Type shape and the annotations consumed by Type spelling.</summary>
@@ -29,14 +30,16 @@ public sealed record MetadataTypeSignatureGenericParameterEvidence(
 /// </summary>
 public sealed record MetadataTypeSignatureConstraintEvidence(
     MetadataTypeSignatureType Type,
-    byte? NullableFlag);
+    byte? NullableFlag,
+    bool IsCoreLibraryPseudoConstraint);
 
 /// <summary>
 /// Detached, byte-backed structural Type spelling evidence.
 /// </summary>
 /// <remarks>
 /// Named Types retain metadata namespace and root-to-leaf Name components, not resolution
-/// scope. The shape owns presentation spelling, not cross-assembly Type identity.
+/// scope. Constraint evidence separately retains the narrow authenticated fact needed to
+/// distinguish runtime pseudo constraints from same-spelled user Types.
 /// </remarks>
 public abstract record MetadataTypeSignatureType
 {

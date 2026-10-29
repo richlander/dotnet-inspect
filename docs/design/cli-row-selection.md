@@ -821,14 +821,14 @@ rendered-line fallback for bare `-n`.
 ## Type catalog adoption
 
 An unambiguous explicit-source `type` catalog declares one semantic row per
-`ApiType`. This includes a catalog with no positional Type target, a positional
-Type glob, or a distinct `-t`/`--type` filter. Package, library, platform, or
+`ApiType`. This requires a positional Type glob or a distinct `-t`/`--type`
+filter; a source alone is not a Type selector. Package, library, platform, or
 project resolution and complete API extraction finish first. Type glob, kind,
 and unsafe filtering then establish the ordered catalog vector before
 Head/Tail or strict Window stages select from it.
 
 ```console
-$ dotnet-inspect type --platform System.Text.Json \
+$ dotnet-inspect type -t '*' --platform System.Text.Json \
     -n 1 --tail --json
 {
   ...
@@ -854,7 +854,7 @@ rejects explicit line selection before source resolution. One strict Window
 failure withholds every output shape:
 
 ```console
-$ dotnet-inspect type --platform System.Text.Json \
+$ dotnet-inspect type -t '*' --platform System.Text.Json \
     --rows 92..93 --json
 Error: Type row selection stage 1 requires row 93, but only 91 rows are available.
 ```

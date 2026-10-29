@@ -1,7 +1,10 @@
 using System.Collections.Immutable;
+using DotnetInspect.Cli.Options;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
+using ILInspector.Analysis;
+using QuerySpace;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -21,7 +24,8 @@ internal static class DiffAnalysisCommandCapability
     /// <summary>
     /// The <c>diff --analysis</c> command's binding to Diff's Compare
     /// inspection route. It selects every analysis the route's operation can
-    /// dispatch, and every analysis-set run executes through it.
+    /// dispatch; every analysis-set run executes that route through
+    /// <c>DiffOperation.ExecuteSurfaceSetAsync</c>.
     /// </summary>
     internal static InspectionConsumerBinding<
         DiffAnalysisInspectionRequest,
@@ -34,6 +38,15 @@ internal static class DiffAnalysisCommandCapability
                 "diff --analysis"),
             DiffAnalysisCatalog.Route,
             exposedQueryTerms: [],
+            inputRules:
+            [
+                "Selecting --analysis string-literals requires exactly one --where predicate.",
+                $"Use \"{StringLiteralComparisonQuery.LiteralKey} {RowPredicateSyntaxParser.Comparison(PortableQueryOperator.Contains)} value\""
+                    + $" or \"{StringLiteralComparisonQuery.LiteralKey} {RowPredicateSyntaxParser.Comparison(PortableQueryOperator.StartsWith)} value\".",
+                $"Supply a non-empty operand of at most {StringLiteralUsePredicate.MaximumLength} UTF-16 characters.",
+                "Pass the complete predicate as one shell argument; for example "
+                    + $"--where \"{StringLiteralComparisonQuery.LiteralKey} {RowPredicateSyntaxParser.Comparison(PortableQueryOperator.Contains)} https://\".",
+            ],
             exposedAnalyses:
             [
                 .. DiffAnalysisCatalog.Registrations

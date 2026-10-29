@@ -607,6 +607,14 @@ public static class ApiOutputFormatter
             new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
 
         var modifiers = projection.Identity.Modifiers;
+        TypeSignaturePresentation? signature =
+            options is TypeOptions
+            {
+                TypeSignatureInspection.Content:
+                    TypeSignatureInspectionOutcome.Available available,
+            }
+                ? ExactTypeInfoTsvPresentation.Project(available.Signature)
+                : null;
         string? baseType = projection.BaseType is { } rawBaseType
             ? CSharpIdentifier.ContainRenderedText(rawBaseType)
             : null;
@@ -674,6 +682,14 @@ public static class ApiOutputFormatter
         {
             Title = title,
             Description = description,
+            OverloadRows = options is MemberOptions overloadOptions
+                && options.IncludeSections?.Contains(SectionNames.Overloads) == true
+                    ? MemberGroupDocumentOutput.Rows(type, overloadOptions)
+                    : null,
+            DocumentedOverloadRows = options is MemberOptions documentedOptions
+                && options.IncludeSections?.Contains(SectionNames.DocumentedOverloads) == true
+                    ? MemberGroupDocumentOutput.DocumentedRows(type, documentedOptions)
+                    : null,
             Summary = memberDetail
                 ? BuildMemberDetailSummary(type, foundIn, packageName, packageVersion, apiSource, selectedTfm)
                 : null,
@@ -725,12 +741,20 @@ public static class ApiOutputFormatter
                     .ToList(),
             TypeInfo = memberDetail ? null : new TypeInfoSection
             {
-                Type = FormatGenericFullName(type),
-                Kind = type.Kind,
-                Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
-                BaseType = baseType,
-                TypeParameters = typeParamsSummary,
-                Interfaces = NullIfZero(type.Interfaces.Count),
+                Type = signature?.Type ?? FormatGenericFullName(type),
+                Kind = signature?.Kind ?? type.Kind,
+                Modifiers = signature is not null
+                    ? signature.Modifiers.Length > 0
+                        ? string.Join(", ", signature.Modifiers)
+                        : null
+                    : modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
+                BaseType = signature is not null ? signature.BaseType : baseType,
+                TypeParameters = signature is not null
+                    ? signature.TypeParameters
+                    : typeParamsSummary,
+                Interfaces = NullIfZero(signature?.InterfaceCount ?? type.Interfaces.Count),
+                NestedTypes = NullIfZero(
+                    signature?.NestedTypeCount ?? type.NestedTypeCount),
                 Assembly = foundIn,
                 Package = packageName,
                 Version = packageVersion,

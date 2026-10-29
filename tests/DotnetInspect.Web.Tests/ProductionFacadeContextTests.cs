@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using TsJsExport;
@@ -73,6 +74,7 @@ public sealed class ProductionFacadeContextTests
             "GetPackageDocument",
             "GetPlatformCatalog",
             "GetPlatformVersions",
+            "InspectPackageDependencies",
             "InspectPackageQueryFacets",
             "ListPackageActivityEcosystems",
             "LoadRuntimePack",
@@ -87,7 +89,6 @@ public sealed class ProductionFacadeContextTests
             "QueryMemberDocumentation",
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
-            "QueryPackageDependencies",
             "QueryPackageHierarchy",
             "QueryPackageIcon",
             "QueryPackageRoot",
@@ -228,6 +229,7 @@ public sealed class ProductionFacadeContextTests
             "ListHomeDemos",
             "ListLibraryViewFacets",
             "ListMemberViewFacets",
+            "ListPackageViewFacets",
             "ListTypeViewFacets",
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
@@ -287,7 +289,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(169, everyExport.Length);
+        Assert.Equal(170, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -367,6 +369,26 @@ public sealed class ProductionFacadeContextTests
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
         var sharedPackageContractTypes = new HashSet<Type>();
+        Collect(
+            typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),
+            sharedPackageContractTypes);
+        foreach (Type outcome in
+                 typeof(PackageDependencyInspectionOutcome).GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
+        foreach (Type outcome in
+                 typeof(PackageManifestDependencyFactsResult)
+                     .GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
+        foreach (Type outcome in
+                 typeof(PackageManifestFrameworkReferenceFactsResult)
+                     .GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
         Collect(
             typeof(InspectionEnvelope<LibraryReferenceInspectionOutcome>),
             sharedPackageContractTypes);

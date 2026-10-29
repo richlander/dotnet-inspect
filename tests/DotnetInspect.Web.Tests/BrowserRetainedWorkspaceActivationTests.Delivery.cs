@@ -112,7 +112,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         await using var owner = new BrowserRetainedWorkspaceActivationOwner(() => options);
         string packet = EncodeInventoryPacket(
             """
-            {"f":3,"t":[[":Platform","10.0.10","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+            {"f":3,"t":[[":Platform","10.0.14","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
             """);
         BrowserRetainedWorkspacePosting first = await ActivateAsync(owner, "a", packet);
         Assert.IsType<PlatformAdmission.Admitted>(

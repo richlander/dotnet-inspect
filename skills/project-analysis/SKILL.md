@@ -154,6 +154,19 @@ The bare `library --package Id@v` output is the namespace and type tree: the
 fastest view of the public surface. For a restored project, add
 `project <path> -S Skills` for skills its packages ship.
 
+To connect the main APIs, use `Member Index` to choose a member, then reuse its
+`Selector` to read the actual public declaration:
+
+```bash
+dnx dotnet-inspect -y -- member <Type> --package Id@v -S "Member Index"
+dnx dotnet-inspect -y -- member <Type> --package Id@v <Selector> -S Signature
+```
+
+The terse type tree and the index's `Canonical Signature` identify APIs; they
+do not establish return types. Before connecting a factory or builder to the
+object used for execution, verify that edge in `Signature`. If it remains
+unverified, label the relationship as inferred.
+
 **Thorough:**
 
 ```bash

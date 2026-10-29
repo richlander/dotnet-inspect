@@ -556,6 +556,8 @@ public static class ApiSectionDemandIndex
             "Properties",
             SectionNames.MethodGroups,
             SectionNames.Methods,
+            SectionNames.Overloads,
+            SectionNames.DocumentedOverloads,
             SectionNames.MemberIndex,
             SectionNames.Operators,
             SectionNames.ExplicitInterfaceImplementations,

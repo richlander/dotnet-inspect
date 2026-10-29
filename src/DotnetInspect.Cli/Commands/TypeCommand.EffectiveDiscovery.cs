@@ -44,6 +44,11 @@ public static partial class TypeCommand
             RequiresMemberApplicability(options);
         bool requiresExtensionPresence =
             RequiresExtensionPresence(options);
+        bool requiresCompleteTypeSignature =
+            options.Discover?.Contains(
+                SectionNames.TypeInfo,
+                StringComparer.OrdinalIgnoreCase)
+                == true;
         TypeMemberGroupPopulationRequest? declarations =
             requiresMemberApplicability
                 ? new(
@@ -58,7 +63,10 @@ public static partial class TypeCommand
             typeName,
             s_directExactTypeBounds,
             declarations,
-            new MetadataExactTypeInput(typeName));
+            new MetadataExactTypeInput(typeName),
+            requiresCompleteTypeSignature
+                ? TypeSubjectInspectionDemand.CompleteSignature
+                : TypeSubjectInspectionDemand.Declaration);
         ResolvedAssemblyReference assembly;
         try
         {
@@ -156,6 +164,9 @@ public static partial class TypeCommand
             available.Document.Subject,
             available.Document.BaseKind,
             available.Document.InterfaceCount,
+            available.Document.CompleteSignature
+                ?.NestedTypeCount
+                ?? 0,
             selectorCounts,
             hasExtensionMethods,
             assemblyPath);
@@ -195,7 +206,7 @@ public static partial class TypeCommand
             return null;
         }
 
-        var inspectionPlan = new TypeSubjectInspectionPlan(
+        var inspectionPlan = new TypeSignatureInspectionPlan(
             typeName,
             s_directExactTypeBounds,
             exactInput: new MetadataExactTypeInput(typeName));
@@ -220,23 +231,25 @@ public static partial class TypeCommand
         if (assembly.Path is not { } libraryPath)
             return null;
 
-        InspectionEnvelope<TypeSubjectInspectionOutcome> envelope =
-            TypeSubjectInspectionOperation.Execute(
+        InspectionEnvelope<TypeSignatureInspectionOutcome> envelope =
+            TypeSignatureInspectionOperation.Execute(
                 assembly,
                 inspectionPlan,
                 cancellationToken);
         if (envelope.Content
-            is TypeSubjectInspectionOutcome.Rejected
-            {
-                Reason:
-                    TypeSubjectInspectionRejection.TypeNotFound
-                    or TypeSubjectInspectionRejection.TypeAmbiguous,
-            })
+            is TypeSignatureInspectionOutcome.Rejected rejected)
         {
-            return null;
+            WriteInspectionDiagnostics(envelope.Diagnostics);
+            CommandError.Write(
+                rejected.Reason
+                    is TypeSubjectInspectionRejection
+                        .TypeAmbiguous
+                    ? "The exact Type Info request matched more than one Type."
+                    : "The exact Type Info Type was not found.");
+            return 1;
         }
         if (envelope.Content
-            is not TypeSubjectInspectionOutcome.Available available)
+            is not TypeSignatureInspectionOutcome.Available available)
         {
             WriteInspectionDiagnostics(envelope.Diagnostics);
             CommandError.Write(
@@ -244,21 +257,19 @@ public static partial class TypeCommand
             return 1;
         }
 
-        TypeSubjectInspectionContent document = available.Document;
-        if (!envelope.Diagnostics.IsEmpty
-            || !CanProjectDirectLibraryTypeInfo(
-                document.Subject,
-                options.IncludeAll)
-            || !CanWriteDirectTypeInfo(
-                document,
-                libraryPath,
-                out MetadataContainedTypeDefinitionName? displayType))
+        TypeSignature signature = available.Signature;
+        TypeSubject subject = signature.Subject;
+        if (!CanProjectDirectLibraryTypeInfo(
+                signature,
+                options.IncludeAll))
         {
-            return null;
+            WriteInspectionDiagnostics(envelope.Diagnostics);
+            CommandError.Write(
+                "The exact Type Info Type is outside the selected API scope.");
+            return 1;
         }
 
-        TypeSubject subject = document.Subject;
-        string kind = TypeKind(subject, document.BaseKind);
+        string kind = TypeKind(subject);
         TypeAttributes attributes = subject.Attributes;
         var modifierBasis = new ApiType
         {
@@ -278,19 +289,11 @@ public static partial class TypeCommand
             ILInspector.Research.ResearchViews.TypeModifiers(
                 modifierBasis);
         var presentation = new ExactTypeInfoTsvDocument(
-            displayType,
+            signature,
             kind,
             modifiers,
-            document.InterfaceCount,
             libraryPath,
-            SourceKind.Library)
-        {
-            TypeParameters = DirectTypeParameters(subject),
-            IntroducedTypeParameterCounts =
-                subject.Signature.GenericParameters.IsEmpty
-                    ? []
-                    : IntroducedTypeParameterCounts(subject),
-        };
+            SourceKind.Library);
 
         WriteInspectionDiagnostics(envelope.Diagnostics);
         writeUtf8(
@@ -298,7 +301,12 @@ public static partial class TypeCommand
                 output,
                 presentation,
                 showHeader: !options.NoHeader));
-        return 0;
+        return envelope.Diagnostics.Any(
+            static diagnostic =>
+                diagnostic.Severity
+                    == InspectionDiagnosticSeverity.Error)
+            ? 1
+            : 0;
     }
 
     static bool RequiresMemberApplicability(TypeOptions options) =>
@@ -366,6 +374,12 @@ public static partial class TypeCommand
         }
         if (type.Interfaces.Count > 0)
             manifest.RecordField(SectionNames.TypeInfo, "Interfaces");
+        if (type.NestedTypeCount > 0)
+        {
+            manifest.RecordField(
+                SectionNames.TypeInfo,
+                "Nested Types");
+        }
         if (acquisition.FoundIn is not null)
             manifest.RecordField(SectionNames.TypeInfo, "Library");
         if (acquisition.PackageName is not null)
@@ -530,121 +544,6 @@ public static partial class TypeCommand
         return true;
     }
 
-    static bool CanWriteDirectTypeInfo(
-        TypeSubjectInspectionContent document,
-        string assemblyPath,
-        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
-        out MetadataContainedTypeDefinitionName? displayType)
-    {
-        TypeSubject subject = document.Subject;
-        displayType = null;
-        if (document.BaseKind
-                is MetadataTypeDeclarationBaseKind.Other
-            || subject.DeclarationSignature is not { } signature
-            || !CanWriteDirectTypeParameters(subject, signature)
-            || !IsTsvField(assemblyPath))
-        {
-            return false;
-        }
-
-        List<int> introduced = IntroducedTypeParameterCounts(subject);
-        for (int i = 0; i < introduced.Count; i++)
-        {
-            string segment = subject.Type.Segments[i];
-            string display = introduced[i] > 0
-                && MetadataNameArity.OfSegment(segment) == introduced[i]
-                    ? MetadataNameArity.StripFromSegment(segment)
-                    : segment;
-            if (display.Contains('`'))
-                return false;
-        }
-
-        displayType = subject.ContainDisplayType();
-        return displayType is not null
-            && !displayType.Namespace.RequiredContainment
-            && displayType.Segments.All(
-                segment => !segment.RequiredContainment);
-    }
-
-    // Type Info lists the selected TypeDef's own GenericParam rows, which for a Type nested
-    // in a generic Type repeat the enclosing rows; the post retains the declaring owner's
-    // rows. Only parameters the leaf introduces are therefore the same rows. Constraint
-    // rows, non-canonical annotations, and names the constraint spelling would escape keep
-    // the established renderer.
-    static bool CanWriteDirectTypeParameters(
-        TypeSubject subject,
-        MetadataTypeDeclarationSignature signature)
-    {
-        int leaf = subject.Type.Segments.Length - 1;
-        foreach (MetadataTypeGenericParameterDeclarationEvidence parameter
-            in signature.GenericParameters)
-        {
-            if (parameter.DefinitionSegmentIndex != leaf
-                || parameter.ConstraintCount != 0
-                || !parameter.Annotations.IsCanonical
-                || IsConstraintKeyword(parameter.Name)
-                || parameter.Name.Contain(TextPolicy.Field)
-                    .RequiredContainment)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    // The established constraint spelling escapes a parameter name that is also a reserved
-    // keyword wherever that name appears in the constraint text.
-    static bool IsConstraintKeyword(MetadataUtf8Name name) =>
-        name.ValueTextEquals("class"u8)
-        || name.ValueTextEquals("struct"u8)
-        || name.ValueTextEquals("new"u8)
-        || name.ValueTextEquals("ref"u8)
-        || name.ValueTextEquals("unmanaged"u8)
-        || name.ValueTextEquals("notnull"u8)
-        || name.ValueTextEquals("allows"u8);
-
-    static List<ExactTypeInfoTsvTypeParameter> DirectTypeParameters(
-        TypeSubject subject)
-    {
-        ImmutableArray<MetadataTypeGenericParameterDeclarationEvidence>
-            parameters = subject.DeclarationSignature!.GenericParameters;
-        var result =
-            new List<ExactTypeInfoTsvTypeParameter>(parameters.Length);
-        foreach (MetadataTypeGenericParameterDeclarationEvidence parameter
-            in parameters)
-        {
-            GenericParameterAttributes attributes = parameter.Attributes;
-            List<string> constraints = [];
-            if (GenericConstraintKeywords.PrimaryKeyword(
-                    attributes,
-                    parameter.Annotations.NullableFlag,
-                    parameter.Annotations.IsUnmanaged)
-                is { } primary)
-            {
-                constraints.Add(primary);
-            }
-            if (GenericConstraintKeywords.NewConstraintKeyword(attributes)
-                is { } newConstraint)
-            {
-                constraints.Add(newConstraint);
-            }
-            if (GenericConstraintKeywords.AllowsRefStructKeyword(attributes)
-                is { } allowsRefStruct)
-            {
-                constraints.Add(allowsRefStruct);
-            }
-            result.Add(
-                new(
-                    GenericConstraintKeywords.VarianceKeyword(attributes),
-                    parameter.Name.Contain(TextPolicy.Field),
-                    constraints));
-        }
-        return result;
-    }
-
-    static bool IsTsvField(string value) =>
-        value.IndexOfAny('\t', '\r', '\n') < 0;
-
     static bool CanProjectDirectLibraryDiscovery(
         TypeSubject subject,
         bool includeAll) =>
@@ -661,20 +560,34 @@ public static partial class TypeCommand
                     == TypeAttributes.Public);
 
     static bool CanProjectDirectLibraryTypeInfo(
-        TypeSubject subject,
-        bool includeAll) =>
+        TypeSignature signature,
+        bool includeAll)
+    {
+        TypeSubject subject = signature.Subject;
+        return
         !subject.IsCompilerGenerated
         && (includeAll
             || !subject.IsHidden
-                && subject.DeclaringTypeDefinitionToken is null
-                && (subject.Attributes
-                    & TypeAttributes.VisibilityMask)
-                    == TypeAttributes.Public);
+                && signature
+                    .AreEnclosingTypesExternallyReachable
+                && IsPublicTypeVisibility(
+                    subject.Attributes
+                        & TypeAttributes.VisibilityMask));
+    }
+
+    static bool IsPublicTypeVisibility(
+        TypeAttributes visibility) =>
+        visibility
+            is TypeAttributes.Public
+                or TypeAttributes.NestedPublic
+                or TypeAttributes.NestedFamily
+                or TypeAttributes.NestedFamORAssem;
 
     static ApiType ProjectDirectLibraryDiscoveryType(
         TypeSubject subject,
         MetadataTypeDeclarationBaseKind baseKind,
         int interfaceCount,
+        int nestedTypeCount,
         TypeMemberSelectorCounts selectorCounts,
         bool hasExtensionMethods,
         string assemblyPath)
@@ -715,6 +628,7 @@ public static partial class TypeCommand
                 interfaceCount > 0
                     ? ["<interface>"]
                     : [],
+            NestedTypeCount = nestedTypeCount,
             TypeParameters =
             [
                 .. subject.Signature.GenericParameters.Select(
@@ -767,6 +681,24 @@ public static partial class TypeCommand
                 "Unsupported exact Type discovery declaration category."),
         };
     }
+
+    static string TypeKind(TypeSubject subject) =>
+        subject.DefinesCoreLibraryRoot
+            && subject.Type.ToMetadataFullName()
+                == "System.MulticastDelegate"
+            ? "delegate"
+            : subject.Category switch
+        {
+            MetadataTypeDeclarationCategory.Class => "class",
+            MetadataTypeDeclarationCategory.Interface =>
+                "interface",
+            MetadataTypeDeclarationCategory.Struct => "struct",
+            MetadataTypeDeclarationCategory.Enum => "enum",
+            MetadataTypeDeclarationCategory.Delegate =>
+                "delegate",
+            _ => throw new InvalidOperationException(
+                "Unsupported exact Type declaration category."),
+        };
 
     static List<int> IntroducedTypeParameterCounts(
         TypeSubject subject)

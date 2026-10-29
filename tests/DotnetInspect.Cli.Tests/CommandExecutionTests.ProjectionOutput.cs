@@ -364,7 +364,7 @@ public partial class CommandExecutionTests
         // then trip the audit (#3390); it now (#3386) rejects the projection up front with a
         // targeted message, before rendering, so the audit never has to fire a second line.
         var (exit, output, error) = await RunAppAsync(
-            "type", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
+            "type", "-t", "*", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -981,7 +981,7 @@ public partial class CommandExecutionTests
         // Two projections cannot both shape one payload, so honoring either one would
         // discard the other.
         var (exit, output, error) = await RunAppAsync(
-            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print");
+            "type", "-t", "*", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

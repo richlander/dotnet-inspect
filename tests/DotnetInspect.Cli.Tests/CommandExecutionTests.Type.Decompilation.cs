@@ -778,7 +778,7 @@ public partial class CommandExecutionTests
     public async Task TypeListing_NestedTypes_ShowDeclaringTypeContext()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Collections", "--table");
+            "type", "-t", "*", "--platform", "System.Collections", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -794,7 +794,7 @@ public partial class CommandExecutionTests
         TypeListing_NestedGenericDelegate_ShowsFullDeclaringTypeContext()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type",
+            "type", "-t", "*",
             "--platform",
             "System.Private.CoreLib");
 

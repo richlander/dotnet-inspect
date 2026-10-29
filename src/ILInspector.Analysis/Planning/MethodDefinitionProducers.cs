@@ -222,6 +222,12 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         return false;
     }
 
+    /// <summary>
+    /// Whether this producer's kernel records the pending all-definition
+    /// declared-source relation before completion.
+    /// </summary>
+    internal virtual bool SupportsPendingRelationKernel => false;
+
     /// <summary>Whether this producer declares a type-scope predicate.</summary>
     internal virtual bool HasTypeScope => false;
 
@@ -254,6 +260,9 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
 
     bool IMethodDefinitionProducer.SharesCalleeIdentities =>
         SharesCalleeIdentities;
+
+    bool IMethodDefinitionProducer.SupportsPendingRelationKernel =>
+        SupportsPendingRelationKernel;
 
     ImmutableArray<MethodBodyAnalyzerDeclaration>
         IMethodDefinitionProducer.InstructionAnalyzers =>
@@ -344,6 +353,8 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         /// <summary>Sets the folded accumulator; a kernel folds in its own loop.</summary>
         internal void SetAccumulator(TAccumulator accumulator) => _accumulator = accumulator;
 
+        internal TAccumulator Accumulator => _accumulator;
+
         public override bool ClassifiesUnits => _classifies;
 
         public override bool RetainsFacts => _keepCurrent || _factsByUnit is not null;
@@ -366,6 +377,9 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             MethodRowGate gate,
             out int unitsVisited) =>
             _producer.RunKernel(this, reader, peReader, lookup, gate, out unitsVisited);
+
+        public override bool SupportsPendingRelationKernel =>
+            _producer.SupportsPendingRelationKernel;
 
         public override bool Visit(scoped MethodDefinitionView view)
         {
@@ -440,6 +454,8 @@ internal interface IMethodDefinitionProducer
     SourceGateGuard? SourceGate { get; }
 
     bool SharesCalleeIdentities { get; }
+
+    bool SupportsPendingRelationKernel { get; }
 
     MethodDefinitionExecution.ProducerState CreateState(
         MethodDefinitionExecution execution,

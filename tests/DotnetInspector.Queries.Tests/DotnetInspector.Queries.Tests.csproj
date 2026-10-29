@@ -19,9 +19,9 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <PackageReference Include="xunit.v3" />
     <PackageDownload Include="Microsoft.NETCore.App.Ref"
-                     Version="[10.0.10];[11.0.0-preview.7.26381.103]" />
+                     Version="[10.0.14];[11.0.0-preview.7.26381.103]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
-                     Version="[10.0.10]" />
+                     Version="[10.0.14]" />
     <PackageDownload Include="Microsoft.Extensions.Http"
                      Version="[10.0.0]" />
     <PackageDownload Include="PCLStorage"
@@ -78,6 +78,9 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.OwnershipFlowFixtures\ILInspector.Analysis.OwnershipFlowFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V1\LibraryApiDiff.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V2\LibraryApiDiff.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Consumer\DotnetInspector.Services.RouteLearning.Consumer.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\UnsafeMemberDiffFixtures.V1\UnsafeMemberDiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\UnsafeMemberDiffFixtures.V2\UnsafeMemberDiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.LegacyUnsafe\ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" ReferenceOutputAssembly="false" />
@@ -106,11 +109,11 @@
     <None Include="$(NuGetPackageRoot)aspire.stackexchange.redis/13.6.3/aspire.stackexchange.redis.13.6.3.nupkg"
           Link="RealAssets/CompleteRestoration/aspire.stackexchange.redis.13.6.3.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/microsoft.netcore.app.ref.10.0.10.nupkg"
-          Link="RealAssets/CompleteRestoration/microsoft.netcore.app.ref.10.0.10.nupkg"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.14/microsoft.netcore.app.ref.10.0.14.nupkg"
+          Link="RealAssets/CompleteRestoration/microsoft.netcore.app.ref.10.0.14.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/10.0.10/microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"
-          Link="RealAssets/CompleteRestoration/microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/10.0.14/microsoft.netcore.app.runtime.linux-x64.10.0.14.nupkg"
+          Link="RealAssets/CompleteRestoration/microsoft.netcore.app.runtime.linux-x64.10.0.14.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CSharpText.MemberSlicing\MemberTextSlicer.cs"
           Link="RealAssets/LibraryAdapter/MemberTextSlicer.cs"

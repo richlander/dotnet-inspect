@@ -638,7 +638,7 @@ raw.githubusercontent.com
 > Goal: Use `--framework runtime@version` to inspect a platform library from a specific .NET version.
 
 ```bash
-dotnet-inspect type --platform System.Text.Json --framework runtime@8.0.0 -v:q
+dotnet-inspect type -t '*' --platform System.Text.Json --framework runtime@8.0.0 -v:q
 ```
 
 ```expect

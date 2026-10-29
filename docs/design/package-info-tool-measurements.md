@@ -102,7 +102,6 @@ slice from which a representative assembly could be chosen.
 | CLI `all`, one-download-per-invocation, and cold/warm adoption | `PackageCommand_DeclaredToolUsesAggregateToolMeasurementsColdAndWarm` |
 | CLI JSON outcomes | `PackageCommand_DeclaredToolJsonRetainsMeasuredAndNoApplicableOutcomes` |
 | Selected TFM containment | `PackageInfoEnvelopeMeasuresDeclaredToolPayload` and `PackageCommand_DeclaredToolSelectedFrameworkIsContainedAcrossOutputs` |
-| Direct RID dependency routing | `BuildPackageDependencyTreeAsync_RidToolPackageUsesNuspec` |
 | Shape alone is insufficient | `PackageCommand_UndeclaredToolShapeDoesNotAuthorizeToolMeasurements` |
 | PackageHouse Library-population adoption | `PackageLibraryPopulationSelectorTests.DeclaredToolPackageSelectsOneToolLibraryPopulation`, `PackageRangedRealizationTests.LibraryPopulation_DeclaredToolReadsOnlyTheSelectedToolLibraries`, and `ConfiguredPayloadAcquisitionTests.ExtractPinnedPackage_LibraryPopulationRetainsToolRealization` |
 
