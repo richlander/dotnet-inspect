@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using TsJsExport;
@@ -73,6 +74,7 @@ public sealed class ProductionFacadeContextTests
             "GetPackageDocument",
             "GetPlatformCatalog",
             "GetPlatformVersions",
+            "InspectPackageDependencies",
             "InspectPackageQueryFacets",
             "ListPackageActivityEcosystems",
             "LoadRuntimePack",
@@ -83,10 +85,10 @@ public sealed class ProductionFacadeContextTests
             "PrefetchPlatformPacks",
             "QueryLibraries",
             "QueryLibraryApi",
+            "QueryLibraryReferences",
             "QueryMemberDocumentation",
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
-            "QueryPackageDependencies",
             "QueryPackageHierarchy",
             "QueryPackageIcon",
             "QueryPackageRoot",
@@ -366,12 +368,42 @@ public sealed class ProductionFacadeContextTests
             typeof(InspectionEnvelope<ExactTypeInspectionResult>),
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
+        var sharedPackageContractTypes = new HashSet<Type>();
+        Collect(
+            typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),
+            sharedPackageContractTypes);
+        foreach (Type outcome in
+                 typeof(PackageDependencyInspectionOutcome).GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
+        foreach (Type outcome in
+                 typeof(PackageManifestDependencyFactsResult)
+                     .GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
+        foreach (Type outcome in
+                 typeof(PackageManifestFrameworkReferenceFactsResult)
+                     .GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
+        Collect(
+            typeof(InspectionEnvelope<LibraryReferenceInspectionOutcome>),
+            sharedPackageContractTypes);
+        foreach (Type outcome in
+                 typeof(LibraryReferenceInspectionOutcome).GetNestedTypes())
+        {
+            Collect(outcome, sharedPackageContractTypes);
+        }
         var sharedSourceContractTypes = new HashSet<Type>();
         Collect(typeof(InspectionEnvelope<TypeApiDeclarationResult>), sharedSourceContractTypes);
         foreach (Type derived in typeof(InspectionShare).Assembly.GetTypes()
                      .Where(type => type.BaseType == typeof(InspectionShare)))
         {
             Collect(derived, sharedContractTypes);
+            Collect(derived, sharedPackageContractTypes);
             Collect(derived, sharedSourceContractTypes);
         }
 
@@ -406,7 +438,9 @@ public sealed class ProductionFacadeContextTests
             foreach (Type type in closure)
             {
                 string declaring = AssemblyNameOf(type.Assembly);
-                if ((owner == MetadataAssembly && sharedContractTypes.Contains(type))
+                if ((owner == PackageAssembly
+                        && sharedPackageContractTypes.Contains(type))
+                    || (owner == MetadataAssembly && sharedContractTypes.Contains(type))
                     || (owner == SourceAssembly && sharedSourceContractTypes.Contains(type))
                     || (owner == CatalogAssembly && sharedCatalogContractTypes.Contains(type)))
                 {

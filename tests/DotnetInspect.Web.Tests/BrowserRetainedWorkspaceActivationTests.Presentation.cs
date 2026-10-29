@@ -116,7 +116,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         BrowserRetainedWorkspacePosting installation =
             await ActivateAsync(owner, "platform", EncodeInventoryPacket(
                 """
-                {"f":3,"t":[[":Platform","10.0.10","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+                {"f":3,"t":[[":Platform","10.0.14","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
                 """));
         CommittedScenarioDefinitionSet definition =
             Assert.IsType<CommittedScenarioDefinitionSet>(
@@ -1049,11 +1049,11 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             {
                 byte[] archive = await File.ReadAllBytesAsync(
                     Path.Combine(AppContext.BaseDirectory, "RealAssets",
-                        "FrameworkActivation", $"{id.ToLowerInvariant()}.10.0.10.nupkg"),
+                        "FrameworkActivation", $"{id.ToLowerInvariant()}.10.0.14.nupkg"),
                     TestContext.Current.CancellationToken);
                 await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
                     new BrowserPackage(
-                        id, "10.0.10", archive, fromCache: false,
+                        id, "10.0.14", archive, fromCache: false,
                         producerKey: NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json")));
             }
         }
@@ -1300,7 +1300,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     {
         Assert.Equal("runtime", platform.Family);
         Assert.Equal("Microsoft.NETCore.App", platform.Surface.Package);
-        Assert.Equal("10.0.10", platform.Surface.Version);
+        Assert.Equal("10.0.14", platform.Surface.Version);
         Assert.Equal("net10.0", platform.Surface.ActiveFramework);
         Assert.Single(platform.Surface.Assemblies);
         Assert.NotEmpty(platform.Surface.Types);
@@ -1316,7 +1316,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         int mixedIndex = reverseContexts ? 1 : 0;
         return EncodeInventoryPacket(
             $$$"""
-            {"f":3,"t":[[":Platform","10.0.10","net10.0","linux-x64"],["System.Text.Json","9.0.4","net10.0","linux-x64"],["System.Text.Json","9.0.4","net9.0",null]],"g":{{{contexts}}},"r":[],"a":1,"x":{{{mixedIndex}}},"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"package"},"u":{"k":"package"}},{"t":2,"r":{"k":"package"},"u":{"k":"package"}}]}
+            {"f":3,"t":[[":Platform","10.0.14","net10.0","linux-x64"],["System.Text.Json","9.0.4","net10.0","linux-x64"],["System.Text.Json","9.0.4","net9.0",null]],"g":{{{contexts}}},"r":[],"a":1,"x":{{{mixedIndex}}},"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"package"},"u":{"k":"package"}},{"t":2,"r":{"k":"package"},"u":{"k":"package"}}]}
             """);
     }
 
@@ -1337,10 +1337,10 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         {
             string assets = Path.Combine(AppContext.BaseDirectory,
                 "RealAssets", "FrameworkActivation");
-            await StorePackageAsync("Microsoft.NETCore.App.Ref", "10.0.10",
-                Path.Combine(assets, "microsoft.netcore.app.ref.10.0.10.nupkg"));
-            await StorePackageAsync("Microsoft.NETCore.App.Runtime.linux-x64", "10.0.10",
-                Path.Combine(assets, "microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"));
+            await StorePackageAsync("Microsoft.NETCore.App.Ref", "10.0.14",
+                Path.Combine(assets, "microsoft.netcore.app.ref.10.0.14.nupkg"));
+            await StorePackageAsync("Microsoft.NETCore.App.Runtime.linux-x64", "10.0.14",
+                Path.Combine(assets, "microsoft.netcore.app.runtime.linux-x64.10.0.14.nupkg"));
         }
         CompleteRestorationExecutionOptions options =
             BrowserCompleteRestorationOptions.Create();

@@ -27,6 +27,7 @@ public static partial class MemberCommand
         {
             SectionNames.IL,
             SectionNames.CustomAttributes,
+            SectionNames.DecompiledSource,
             SectionNames.ExceptionRegions,
         };
 

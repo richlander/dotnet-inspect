@@ -16,13 +16,13 @@ public partial class CommandExecutionTests
     {
         foreach (var target in new[]
         {
-            Array.Empty<string>(),
+            new[] { "-t", "*" },
             new[] { "System.Coll" },
         })
         {
             var (exit, output, error) = await RunAppAsync(
                 ["type", .. target,
-                    "--platform", target.Length == 0
+                    "--platform", target.Length == 2
                         ? "System.Text.Json"
                         : "System.Private.CoreLib",
                     "-S", "Classes,Structs",
@@ -166,6 +166,8 @@ public partial class CommandExecutionTests
         string[] args =
         [
             "type",
+            "-t",
+            "*",
             "--platform",
             "System.Text.Json",
             "-n",
@@ -296,7 +298,7 @@ public partial class CommandExecutionTests
     public async Task TypeListing_UnavailableWindowWithholdsOutput()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type",
+            "type", "-t", "*",
             "--platform",
             "System.Text.Json",
             "--rows",
@@ -365,6 +367,8 @@ public partial class CommandExecutionTests
         string[] mode = selectsSection
             ?
             [
+                "-t",
+                "*",
                 "--platform",
                 "System.Text.Json",
                 "-S",
@@ -618,7 +622,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_MarkdownUsesLfThroughout()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "-v:n");
+            "type", "-t", "*", "--platform", "System.Text.Json", "-v:n");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -985,7 +989,7 @@ public partial class CommandExecutionTests
     public async Task Type_ExactPlatformAssembly_DoesNotUseWidePlatformPrefixBrowse()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Collections", "--table");
+            "type", "System.Collections", "-t", "*", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1068,7 +1072,7 @@ public partial class CommandExecutionTests
             "System.Runtime is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
-            "type", "--platform", "System.Runtime");
+            "type", "-t", "*", "--platform", "System.Runtime");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);
@@ -1088,7 +1092,7 @@ public partial class CommandExecutionTests
         Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json");
+            "type", "-t", "*", "--platform", "System.Text.Json");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);

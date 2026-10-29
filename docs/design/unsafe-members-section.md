@@ -4,7 +4,8 @@ Status: Implemented for Library and Type scope. This is step 3 of
 [unsafe member findings](unsafe-member-findings.md#adoption-and-gates) for
 [#5254](https://github.com/richlander/dotnet-inspect/issues/5254), and it
 resolves [#9755](https://github.com/richlander/dotnet-inspect/issues/9755).
-`diff --analysis` participation is a separate follow-up slice.
+[Diff](#diff) participation through `diff --analysis unsafe-member` is
+implemented by [#10770](https://github.com/richlander/dotnet-inspect/issues/10770).
 
 ## Owner and claim
 
@@ -21,7 +22,8 @@ completeness. This document owns only the following:
 - which census each scope runs;
 - the row shape;
 - discovery;
-- how each outcome renders.
+- how each outcome renders;
+- how [Diff](#diff) compares two censuses.
 
 ## Why the rows change
 
@@ -156,12 +158,54 @@ finding. Discovery then advertises a section whose census is incomplete with
 no rows, and that case renders as an observed zero under the incomplete
 outcome.
 
+## Diff
+
+`diff --analysis unsafe-member` compares the census at two endpoints. It's one
+Compare participation in the
+[analysis catalog](command-transition-model.md#analysis-selection). Its
+descriptor is `analysis.unsafe-member`, and it reports at the Library and Type
+surfaces. Both surfaces declare the `Transitions` view. As the selection grammar
+owns, the identity has no aliases.
+
+- **Census per side.**
+  - At Library, each endpoint runs the Library census over each of its Library
+    assemblies. Assemblies pair by case-insensitive file name, as
+    `string-literals` pairs them. An assembly on only one side compares
+    against no members.
+  - At Type, each endpoint runs the Type census over the assembly that defines
+    the selected Type, found by its exact metadata definition name. A Type on
+    only one side compares against no members.
+- **Identity.** Findings match as an identity set of declared members, keyed
+  by the census's member identity: the shared signature fragment, which leaves
+  out module version, metadata token, and caller-unsafe mode.
+- **Value.**
+  - A matched member is `Changed` when its `UnsafeMemberFindingSummary`
+    differs. That summary is the row's value: exposure, explicit contract, and
+    each role in inventory order with its occurrence count, plus the distinct
+    callees of an explicit-contract call.
+  - Physical bodies, generated names, IL offsets, and metadata tokens are
+    provenance. A renumbered closure or state machine, or a shifted offset, is
+    therefore `Present`, and the row and the comparison can't disagree about a
+    change.
+  - Each transition row's `Old` and `New` show the summary, or `absent`.
+- **Incomplete or failed side.**
+  - An incomplete census on either side is never compared as complete. The
+    comparison fails with both sides' limitation counts and keeps both sides'
+    observed findings, so Diff discloses it and exits 1. The failure detail
+    names the incomplete side. The row's `old_inspection` and
+    `new_inspection` keep Diff's existing inspection states, which have no
+    incomplete state, so they read `complete` for the observed findings.
+  - A failed census fails the comparison the same way.
+  - A partial finding always carries a census limitation, so this rule covers
+    it too.
+- **Browser.** Browser Compare doesn't construct method-body inputs. Its
+  `unsafe-member` outcome is host-resolved `Unavailable`, as for the other
+  body analyses.
+
 ## Non-claims
 
-- **Diff.** `analysis.unsafe-member` participation in `diff --analysis` is a
-  separate slice. It compares findings by identity and treats provenance as
-  non-identifying, as the
-  [census adoption step](unsafe-member-findings.md#adoption-and-gates) states.
+- **Diff History.** `diff --history` doesn't correlate unsafe member findings
+  across more than two versions.
 - **Row selection.** The section adds no `--where` keys and no semantic row
   unit. The generic row window applies.
 - **Browser.** The Inspect Web Unsafe tab is step 4.
@@ -196,6 +240,29 @@ Focused Release gates in `UnsafeMembersSectionTests` cover the following:
 - **Discovery.** Discovery agrees with the rows on the census fixtures at both
   scopes. That includes an `unsafe` local function that is never called or is
   only made into a delegate.
+- **Diff.** `UnsafeMemberFindingsTests.Comparison` covers:
+  - added, removed, changed, and present members;
+  - provenance that is never a change;
+  - exposure and contract changes;
+  - an incomplete or failed side that fails the comparison;
+  - the summary text.
+
+  End-to-end gates run over the dedicated `UnsafeMemberDiffPair` fixture,
+  which is kept apart from the shared `DiffPair` so that pair's tokens and
+  member populations stay stable:
+  - `Diff_UnsafeMember_LibraryTransitionsClassifyEachMember` and
+    `Diff_UnsafeMember_TypeTransitionsAgreeWithLibrary` cover the same
+    transitions at Library and Type scope.
+  - `Diff_UnsafeMember_OneSidedTypeIsAllAddedOrRemoved` covers a Type present
+    at one endpoint only.
+  - `Diff_UnsafeMember_PackageAssemblyRenameReportsBothSides` covers a package
+    whose Library assembly is renamed: two subjects, all Removed and all
+    Added.
+  - `UnsafeMemberComparisonQueryTests` covers case-insensitive assembly
+    pairing, a one-sided assembly whose members are all Added, and agreement
+    between participant and path endpoints.
+  - `LibraryUnsafeMemberAnalysisIsHostUnavailable` covers the Browser's
+    host-resolved `Unavailable` outcome.
 - **Library empty state.** A complete Library census with no findings renders
   the empty state in table output. In JSON it gives empty `unsafeMembers` and
   `unsafeMembersComplete: true`.

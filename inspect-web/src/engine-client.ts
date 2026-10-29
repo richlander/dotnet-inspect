@@ -51,7 +51,8 @@ type PackageOperations =
   | "queryPackageIcon"
   | "queryPackageRoot"
   | "queryPackageSummary"
-  | "queryPackageDependencies"
+  | "inspectPackageDependencies"
+  | "queryLibraryReferences"
   | "queryReferencePackageSuppliers"
   | "queryPackageHierarchy"
   | "queryPackageVulnerabilities"
@@ -175,12 +176,14 @@ type CatalogOperations =
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
+  | "prepareProjectWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionFromRecords"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
   | "recordRetainedWorkspaceNavigationPosting"
   | "resolveHomeDemo"
   | "runHomeDemo"
+  | "selectProjectInspector"
   | "validateRetainedWorkspaceNavigationAuthority";
 
 export interface EngineClient {

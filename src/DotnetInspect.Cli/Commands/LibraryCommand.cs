@@ -1334,6 +1334,7 @@ public partial class LibraryCommand
                     return await LibraryTypeHierarchyCommand.ExecuteAsync(
                         resolvedPath!,
                         platformHierarchy,
+                        [new("source", SourceKind.Platform)],
                         cancellationToken);
                 }
 
@@ -1615,6 +1616,12 @@ public partial class LibraryCommand
                         return await LibraryTypeHierarchyCommand.ExecuteAsync(
                             assemblyPaths[0],
                             packageHierarchy,
+                            LibraryTypeHierarchyCommand.PackageProperties(
+                                assemblyPaths[0],
+                                extractPath,
+                                packageName,
+                                packageVersion,
+                                source.PackageTarget!.IsLocalFile),
                             cancellationToken);
                     }
                     if (packageHierarchy.Explicit)
@@ -2029,6 +2036,7 @@ public partial class LibraryCommand
                     return await LibraryTypeHierarchyCommand.ExecuteAsync(
                         assemblyPath,
                         fileHierarchy,
+                        [new("source", SourceKind.File)],
                         cancellationToken);
                 }
 

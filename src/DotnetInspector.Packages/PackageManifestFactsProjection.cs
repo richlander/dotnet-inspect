@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using NuGet.Frameworks;
 using NuGet.Versioning;
 using NuGetFetch;
@@ -24,7 +25,56 @@ public static class PackageManifestFactsProjection
         PackageSourceCoordinate expectedCoordinate)
     {
         ArgumentNullException.ThrowIfNull(expectedCoordinate);
-        return ExecuteCore(manifestBytes, expectedCoordinate);
+        return ExecuteCore(
+            manifestBytes,
+            expectedCoordinate,
+            retainDependencyFailure: false);
+    }
+
+    /// <summary>
+    /// Retains valid Package metadata when only the dependency section is
+    /// rejected.
+    /// </summary>
+    public static PackageManifestFactsResult ExecuteWithSectionFailures(
+        ReadOnlyMemory<byte> manifestBytes,
+        PackageSourceCoordinate expectedCoordinate)
+    {
+        ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        return ExecuteCore(
+            manifestBytes,
+            expectedCoordinate,
+            retainDependencyFailure: true);
+    }
+
+    /// <summary>
+    /// Retains valid Package metadata while projecting directly from one
+    /// bounded seekable manifest stream.
+    /// </summary>
+    public static PackageManifestFactsResult ExecuteWithSectionFailures(
+        Stream manifestStream,
+        PackageSourceCoordinate expectedCoordinate)
+    {
+        ArgumentNullException.ThrowIfNull(manifestStream);
+        ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        if (!manifestStream.CanSeek)
+        {
+            throw new ArgumentException(
+                "Direct manifest projection requires a seekable stream.",
+                nameof(manifestStream));
+        }
+
+        long remainingBytes = checked(
+            manifestStream.Length - manifestStream.Position);
+        if (remainingBytes < 0 || remainingBytes > MaxManifestBytes)
+        {
+            return Failed(
+                PackageManifestFailureReason.ConfiguredLimitExceeded);
+        }
+
+        return ExecuteCore(
+            manifestStream,
+            expectedCoordinate,
+            retainDependencyFailure: true);
     }
 
     /// <summary>
@@ -33,25 +83,93 @@ public static class PackageManifestFactsProjection
     /// </summary>
     public static PackageManifestFactsResult ExecuteSelfAttested(
         ReadOnlyMemory<byte> manifestBytes) =>
-        ExecuteCore(manifestBytes, expectedCoordinate: null);
+        ExecuteCore(
+            manifestBytes,
+            expectedCoordinate: null,
+            retainDependencyFailure: false);
+
+    /// <summary>
+    /// Retains valid Package metadata and uses the manifest's own validated
+    /// identity when only the dependency section is rejected.
+    /// </summary>
+    public static PackageManifestFactsResult
+        ExecuteSelfAttestedWithSectionFailures(
+            ReadOnlyMemory<byte> manifestBytes) =>
+        ExecuteCore(
+            manifestBytes,
+            expectedCoordinate: null,
+            retainDependencyFailure: true);
+
+    /// <summary>
+    /// Retains valid Package metadata while projecting a self-attested
+    /// identity directly from one bounded seekable manifest stream.
+    /// </summary>
+    public static PackageManifestFactsResult
+        ExecuteSelfAttestedWithSectionFailures(
+            Stream manifestStream)
+    {
+        ArgumentNullException.ThrowIfNull(manifestStream);
+        if (!manifestStream.CanSeek)
+        {
+            throw new ArgumentException(
+                "Direct manifest projection requires a seekable stream.",
+                nameof(manifestStream));
+        }
+
+        long remainingBytes = checked(
+            manifestStream.Length - manifestStream.Position);
+        if (remainingBytes < 0 || remainingBytes > MaxManifestBytes)
+        {
+            return Failed(
+                PackageManifestFailureReason.ConfiguredLimitExceeded);
+        }
+
+        return ExecuteCore(
+            manifestStream,
+            expectedCoordinate: null,
+            retainDependencyFailure: true);
+    }
 
     private static PackageManifestFactsResult ExecuteCore(
         ReadOnlyMemory<byte> manifestBytes,
-        PackageSourceCoordinate? expectedCoordinate)
+        PackageSourceCoordinate? expectedCoordinate,
+        bool retainDependencyFailure)
+    {
+        if (manifestBytes.Length > MaxManifestBytes)
+        {
+            return Failed(
+                PackageManifestFailureReason.ConfiguredLimitExceeded);
+        }
+
+        using MemoryStream buffer =
+            MemoryMarshal.TryGetArray(
+                manifestBytes,
+                out ArraySegment<byte> segment)
+            && segment.Array is not null
+                ? new MemoryStream(
+                    segment.Array,
+                    segment.Offset,
+                    segment.Count,
+                    writable: false,
+                    publiclyVisible: false)
+                : new MemoryStream(
+                    manifestBytes.ToArray(),
+                    writable: false);
+        return ExecuteCore(
+            buffer,
+            expectedCoordinate,
+            retainDependencyFailure);
+    }
+
+    private static PackageManifestFactsResult ExecuteCore(
+        Stream manifestStream,
+        PackageSourceCoordinate? expectedCoordinate,
+        bool retainDependencyFailure)
     {
         try
         {
-            if (manifestBytes.Length > MaxManifestBytes)
-            {
-                throw Failure(
-                    PackageManifestFailureReason.ConfiguredLimitExceeded);
-            }
-
-            using var buffer = new MemoryStream(
-                manifestBytes.ToArray(),
-                writable: false);
             NuspecData nuspec = NuspecParser.Parse(
-                buffer,
+                manifestStream,
                 MaxManifestCharacters);
             PackageSourceCoordinate coordinate;
             PackageManifestIdentityProvenance identityProvenance;
@@ -71,8 +189,37 @@ public static class PackageManifestFactsProjection
 
             ValidateScalarFacts(nuspec);
 
-            ImmutableArray<DeclaredPackageDependencyGroup> dependencyGroups =
-                ProjectDependencyGroups(nuspec.DependencyGroups);
+            PackageManifestDependencyFactsResult dependencyDeclarations;
+            ImmutableArray<PackageManifestDependencyIdentifierObservation>
+                dependencyIdentifierObservations = [];
+            ImmutableArray<DeclaredPackageDependencyGroup> dependencyGroups;
+            try
+            {
+                dependencyGroups =
+                    ProjectDependencyGroups(nuspec.DependencyGroups);
+                dependencyDeclarations =
+                    new PackageManifestDependencyFactsResult.Available(
+                        new PackageManifestDependencyFacts(
+                            dependencyGroups));
+            }
+            catch (ManifestValidationException exception) when (
+                retainDependencyFailure
+                && exception.Reason is
+                    PackageManifestFailureReason.InvalidDependencyContract
+                    or PackageManifestFailureReason.ConfiguredLimitExceeded)
+            {
+                dependencyGroups = [];
+                if (exception.Reason
+                    == PackageManifestFailureReason.InvalidDependencyContract)
+                {
+                    dependencyIdentifierObservations =
+                        ProjectDependencyIdentifierObservations(
+                            nuspec.DependencyGroups);
+                }
+                dependencyDeclarations =
+                    new PackageManifestDependencyFactsResult.Failed(
+                        new PackageManifestFailure(exception.Reason));
+            }
             PackageManifestFrameworkReferenceFactsResult frameworkReferences =
                 ProjectFrameworkReferences(nuspec.FrameworkReferenceGroups);
             return new PackageManifestFactsResult.Available(
@@ -91,6 +238,11 @@ public static class PackageManifestFactsProjection
                     nuspec.ReadmeFile,
                     dependencyGroups)
                 {
+                    DeclaredPackageId = nuspec.PackageName!,
+                    DeclaredPackageVersion = nuspec.Version!,
+                    DependencyDeclarations = dependencyDeclarations,
+                    DependencyIdentifierObservations =
+                        dependencyIdentifierObservations,
                     LicenseDeclaration = nuspec.LicenseDeclaration,
                     IconFile = nuspec.IconFile,
                     IconUrl = nuspec.IconUrl,
@@ -163,6 +315,46 @@ public static class PackageManifestFactsProjection
             throw Failure(
                 PackageManifestFailureReason.IdentityMismatch);
         }
+    }
+
+    private static ImmutableArray<
+        PackageManifestDependencyIdentifierObservation>
+        ProjectDependencyIdentifierObservations(
+            List<DependencyGroup>? groups)
+    {
+        if (groups is null)
+            return [];
+        if (groups.Count > MaxDependencyGroups)
+            return [];
+
+        var builder = ImmutableArray.CreateBuilder<
+            PackageManifestDependencyIdentifierObservation>();
+        int dependencyCount = 0;
+        for (int groupIndex = 0; groupIndex < groups.Count; groupIndex++)
+        {
+            List<PackageDependency> dependencies =
+                groups[groupIndex].Dependencies;
+            for (int dependencyIndex = 0;
+                dependencyIndex < dependencies.Count;
+                dependencyIndex++)
+            {
+                dependencyCount++;
+                if (dependencyCount > MaxDependencies)
+                    return builder.ToImmutable();
+
+                string id = dependencies[dependencyIndex].Id;
+                if (string.IsNullOrEmpty(id)
+                    || id.Length > MaxScalarCharacters)
+                    continue;
+                builder.Add(
+                    new PackageManifestDependencyIdentifierObservation(
+                        id,
+                        groupIndex,
+                        dependencyIndex));
+            }
+        }
+
+        return builder.ToImmutable();
     }
 
     private static ImmutableArray<DeclaredPackageDependencyGroup>

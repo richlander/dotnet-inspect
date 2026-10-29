@@ -1278,7 +1278,7 @@ test("production Integrations keeps deferred Library results out of the incoming
 async function openReferences(page: Page) {
   await page.goto(root);
   await selectLibrary(page, core.id);
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(inspectorTab(page, "data-library-lens", "references"))
     .toHaveAttribute("aria-selected", "true");
 }
@@ -1414,7 +1414,7 @@ test("production References retains a loading frame and does not show a previous
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Core.Dependency");
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
   await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await expect(page.locator(".library-references-surface")).not.toContainText("Example.Core");
@@ -1436,7 +1436,7 @@ test("production References shows an admitted package icon and opens its exact L
   }, [], "workspace-library");
   await page.goto(root);
   await selectLibrary(page, core.id);
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
 
   const referenceIcon = page.locator(
     '.reference-list-section [data-library-reference-icon="0"]');

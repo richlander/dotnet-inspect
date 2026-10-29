@@ -465,7 +465,7 @@ diff routes, such as the aggregate package, member-filter, Analysis Diff
 scope. A public to protected move is therefore an accessibility row on the
 selected-Library route and a removal on those routes. In Inspect Web, the
 other Diff analyses that share the Library comparison
-(`DiffAnalysisLibraryInspection.Execute`) receive the same API axis surfaces
+(`DiffOperation.ExecuteLibraryPair`) receive the same API axis surfaces
 ([Inspect Web Library API Diff](inspect-web-library-api-diff.md#managed-composition)).
 
 ### Per-side facts
@@ -683,18 +683,22 @@ producer evidence.
 
 ### Shared terminal and CLI consumer
 
-`LibraryApiDiffInspection.Execute` completes the selected-Library query and
-presentation projection, returning
-`InspectionEnvelope<LibraryApiDiffOutcome>`. Its Content is the owner-specific
-Outcome; Available carries the complete `LibraryApiDiffDocument`, while
+The [single-Library API Diff
+terminal](diff-system.md#single-library-api-diff-terminal),
+`DiffOperation.ExecuteLibraryPair`, completes the selected-Library query and
+presentation projection when its request asks for `LibraryApi`, returning the
+`LibraryApiDiffOutcome` as `DiffAnalysisDocument.LibraryApi`. That is the
+owner-specific Outcome; Available carries the complete
+`LibraryApiDiffDocument`, while
 Unavailable and Rejected retain their typed reasons and endpoint evidence.
 Endpoint inspection issues retain contained operation, token, mechanism,
 kind, detail, subject assembly, and dependency assembly evidence, not just a
 failure count.
 
-The terminal reports `Share.NonProjectable` at `comparison/endpoints`:
-Workspace Share does not yet represent the comparison's ordered endpoints and
-API scope. A host must not manufacture a replayable Share from one endpoint.
+The Library API Changes projections report `Share.NonProjectable` at
+`comparison/endpoints`: Workspace Share does not yet represent the
+comparison's ordered endpoints and API scope. A host must not manufacture a
+replayable Share from one endpoint.
 
 The selected-Library comparison uses Metadata's bounded metadata-only
 projection. Compatibility compares exact type- and method-parameter constraint
@@ -709,7 +713,9 @@ The CLI adopts the shared presentation for ordinary API diffs with exactly one a
 Library per endpoint, optionally narrowed by Type or compatibility
 classification. It delays legacy surface extraction so the adopted route does
 not build and compare a second surface. One command-scoped Workspace owns the
-two groups. Its representation demand follows the contract below.
+two groups, and `LibraryApiChangesDiffAdapter` asks the terminal for only
+`LibraryApi`, with the `-t` Type selection narrowing the comparison, so no
+analysis runs. Its representation demand follows the contract below.
 
 ### Section representations
 
@@ -847,7 +853,7 @@ source-diff path on demand. Clone uses the same Package target-setting
 experience but requires its own producer and payload adapter.
 
 The Release `LibraryApiDiffPresentationTests` gate covers the presentation's
-pathological cases. `LibraryApiDiffInspectionTests` gates equivalent detached
+pathological cases. `LibraryPairDiffTerminalTests` gates equivalent detached
 envelopes from path and pathless-memory images, successful empty results,
 independent endpoint truncation, logical-Library rejection, forwarded
 constraints without dependency resolution, and the zero inspection-failure

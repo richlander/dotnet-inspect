@@ -1107,6 +1107,8 @@ async function installFacades(
           },
           documents: surface.documents,
           defaultLibraryId: surface.defaultAssemblyId,
+          implementationComparisonRuntimeIdentifier: "linux-x64",
+          runtimePopulation: null,
           surface: {
           ...surfaceFor(id, version, framework),
           package: id,
@@ -1471,9 +1473,34 @@ async function installFacades(
           diagnostics: [],
         };
       }
-      export async function queryPackageDependencies(id, version, framework, asset) {
+      export async function inspectPackageDependencies(
+        id, version, framework, runtimeIdentifier
+      ) {
+        document.documentElement.dataset.packageDependenciesRequest =
+          JSON.stringify([id, version, framework, runtimeIdentifier]);
+        return {
+          inspection: {
+            content: {
+              kind: "available",
+              manifest: { coordinate: { packageId: id, version } },
+              dependencies: {
+                groups: [], requestedTargetFramework: framework,
+                selectedTargetFramework: null, selectedGroupIndex: null,
+                selectionStatus: 1, selectedGroup: null
+              }
+            },
+            share: {
+              kind: "nonProjectable", fullUrl: null, packet: null,
+              path: "", reason: "Package dependencies are not projectable."
+            },
+            diagnostics: []
+          },
+          platformReferences: [], defaultPlatformReference: null,
+          platformReferenceError: null
+        };
+      }
+      export async function queryLibraryReferences(id, version, framework, asset) {
         document.documentElement.dataset.referenceRequest = asset;
-        document.documentElement.dataset.packageDependenciesRequest = JSON.stringify([id, version, framework]);
         const surface = surfaceFor(id, version, framework);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
@@ -1483,29 +1510,41 @@ async function installFacades(
             "fixture-references-ready:" + asset, resolve, { once: true }));
         }
         if (scenario === "query-error") throw new Error("Reference query unavailable.");
+        const rows = scenario === "empty" ? [] : scenario === "workspace-library"
+          ? [{
+              name: "Reference.Target", version: "1.0.0.0",
+              culture: "neutral", publicKeyToken: null
+            }]
+          : scenario === "external-supplier"
+          ? [{
+              name: "Reference.Target", version: "1.0.0.0",
+              culture: "neutral", publicKeyToken: null
+            }]
+          : scenario === "long"
+          ? Array.from({ length: 80 }, (_, index) => ({
+              name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
+              version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
+              publicKeyToken: "0123456789abcdef"
+            }))
+          : [{
+              name: selected.name + ".Dependency", version: "1.0.0.0",
+              culture: null, publicKeyToken: null
+            }];
         return {
-          package: id, version, activeFramework: framework, assembly: selected.name,
-          dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
-          platformReferences: [], defaultPlatformReference: null, platformReferenceError: null,
-          assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
-            : { references: scenario === "empty" ? [] : scenario === "workspace-library"
-            ? [{
-                name: "Reference.Target", version: "1.0.0.0",
-                culture: "neutral", publicKeyToken: null
-              }]
-            : scenario === "external-supplier"
-            ? [{
-                name: "Reference.Target", version: "1.0.0.0",
-                culture: "neutral", publicKeyToken: null
-              }]
-            : scenario === "long"
-            ? Array.from({ length: 80 }, (_, index) => ({
-                name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
-                version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
-                publicKeyToken: "0123456789abcdef"
-              }))
-            : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
-          compileLibrary: surface.compileLibrary
+          content: scenario === "inspection-error"
+            ? {
+                outcome: "rejected",
+                reason: {
+                  kind: "InvalidImage",
+                  detail: "Cannot decode AssemblyRef."
+                }
+              }
+            : { outcome: "available", references: rows },
+          share: {
+            kind: "nonProjectable", fullUrl: null, packet: null, path: "",
+            reason: "Library reference inspection is not projectable."
+          },
+          diagnostics: []
         };
       }
       export async function queryReferencePackageSuppliers(id, version, framework, asset) {
@@ -4223,35 +4262,45 @@ async function installFacades(
         return {
           facets: [
             {
+              id: "type.overview",
+              kind: "Type",
+              title: "Overview",
+              summary:
+                "Declaration summary, metadata shape, and structural relationships for the active Type.",
+              order: 100,
+              role: "TypeOverview",
+            },
+            {
               id: "type.api",
               kind: "Type",
-              title: "Public API",
-              summary: "",
-              order: 100,
-              role: null,
+              title: "Members",
+              summary: "API shape and member inventory for the active Type.",
+              order: 200,
+              role: "TypeApi",
             },
             {
               id: "type.metadata",
               kind: "Type",
               title: "Metadata",
-              summary: "",
-              order: 200,
+              summary: "Legacy compatibility alias for the active Type Overview.",
+              order: 300,
               role: null,
             },
             {
               id: "type.source",
               kind: "Type",
               title: "Source",
-              summary: "",
-              order: 300,
+              summary: "Source or decompiled code for the active Type.",
+              order: 400,
               role: null,
             },
             {
               id: "type.compare",
               kind: "Type",
               title: "Compare",
-              summary: "",
-              order: 400,
+              summary:
+                "Diff and clone results organized by Member for the active Type.",
+              order: 500,
               role: null,
             },
           ],

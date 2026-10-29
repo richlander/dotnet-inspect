@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createPackageInspectionCoordinator,
+  projectPackageDependencyInspection,
   projectPackagePerformanceType,
   resolvePackagePerformanceMember,
   resolvePackagePerformanceType,
@@ -10,6 +11,7 @@ import {
   type PackageDependenciesState,
   type PackageInspectionDependencies,
   type PackageInspectionState,
+  type LibraryReferenceInspectionEnvelope,
   type PackageIntegrationsState,
   type PackageMetadataState,
   type PackageOpportunitiesState,
@@ -18,13 +20,13 @@ import {
   type PackageVulnerabilityState,
 } from "../src/package-inspection.ts";
 import {
-  packageQueryAssemblyId,
   type AppMemberSurface,
   type AppPackage,
   type AppTypeSurface,
 } from "../src/package-acquisition.ts";
 import type {
-  BrowserPackageDependencies,
+  AssemblyReferenceRow,
+  BrowserPackageDependencyInspection,
   BrowserPackageVulnerabilityResult,
 } from "../src/facades/inspect-web-package.d.ts";
 import type {
@@ -36,6 +38,7 @@ import type { PackageMetadata } from "../src/metadata-viewer.ts";
 import {
   dateTimeOffsetString,
 } from "./date-time-offset-string-fixture.ts";
+import { packageInertStringFixture } from "./inert-string-fixture.ts";
 
 const selectedCompileLibrary = {
   status: "Selected" as const,
@@ -81,6 +84,7 @@ function inspectionState(
     libraryLens: "overview",
     packageMetadataRoot: "cli",
     packageDependencies: { status: "idle" },
+    libraryReferences: { status: "idle" },
     packageVulnerabilities: { status: "idle" },
     workspaceDependencies: {},
     workspaceDependencyErrors: {},
@@ -112,26 +116,96 @@ function inspectionState(
 function dependencyResult(
   packageId = "Example.Package",
   error: string | null = null,
-): BrowserPackageDependencies {
-  return {
-    package: packageId,
-    version: "1.2.3",
-    activeFramework: "net10.0",
-    assembly: `${packageId}.dll`,
-    dependencyGroups: [{
-      index: 0,
-      framework: "net10.0",
-      isActive: true,
-      isComplete: true,
-      dependencies: [{ id: "Example.Dependency", versionRange: "[1.0.0,)" }],
+  groupFramework = "net10.0",
+): BrowserPackageDependencyInspection {
+  const groups = [{
+    targetFramework: groupFramework,
+    isImplicitManifestGroup: false,
+    dependencies: [{
+      id: "Example.Dependency",
+      versionRange: "[1.0.0,)",
     }],
+  }];
+  const selectedGroup = error ? null : groups[0] ?? null;
+  return {
+    inspection: {
+      content: {
+        kind: "available",
+        manifest: {
+          coordinate: { packageId, version: "1.2.3" },
+          manifestVersion: "1.0",
+          description: null,
+          authors: null,
+          repository: null,
+          repositoryType: null,
+          repositoryCommit: null,
+          license: null,
+          licenseUrl: null,
+          packageTypes: [],
+          isToolPackage: false,
+          readmeFile: null,
+          dependencyGroups: groups,
+          declaredPackageId: packageId,
+          declaredPackageVersion: "1.2.3",
+          dependencyDeclarations: {
+            outcome: "available",
+            value: { groups },
+          },
+          dependencyIdentifierObservations: [],
+          licenseDeclaration: null,
+          iconFile: null,
+          iconUrl: null,
+          identityProvenance: 0,
+          frameworkReferences: {
+            outcome: "available",
+            value: { groups: [] },
+          },
+        },
+        dependencies: {
+          groups,
+          requestedTargetFramework: "net10.0",
+          selectedTargetFramework: selectedGroup?.targetFramework ?? null,
+          selectedGroupIndex: selectedGroup ? 0 : null,
+          selectionStatus: selectedGroup ? 0 : 2,
+          selectedGroup,
+        },
+      },
+      share: {
+        kind: "nonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-dependencies/share",
+        reason: packageInertStringFixture(
+          "Package dependency inspection is not projectable."),
+      },
+      diagnostics: [],
+    },
     platformReferences: [],
     defaultPlatformReference: null,
-    declarationFailures: [],
-    assemblyReferences: { references: [] },
-    dependencyGroupError: error,
     platformReferenceError: null,
-    compileLibrary: selectedCompileLibrary,
+  };
+}
+
+function dependencyProjection(
+  result: BrowserPackageDependencyInspection = dependencyResult(),
+) {
+  return projectPackageDependencyInspection(result);
+}
+
+function libraryReferenceResult(
+  references: readonly AssemblyReferenceRow[] = [],
+): LibraryReferenceInspectionEnvelope {
+  return {
+    content: { outcome: "available", references },
+    share: {
+      kind: "nonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "",
+      reason: packageInertStringFixture(
+        "Library reference inspection is not projectable."),
+    },
+    diagnostics: [],
   };
 }
 
@@ -170,6 +244,69 @@ test("package dependency state rejects contradictory shapes at compile time", ()
     key: "current",
   };
   void [loadingWithResult, readyWithError, failedWithoutError];
+});
+
+test("dependency projection keeps source groups separate from logical selection", () => {
+  const result = dependencyResult();
+  if (result.inspection.content?.kind !== "available") {
+    throw new Error("Expected available dependency inspection.");
+  }
+  const groups = [
+    {
+      targetFramework: "any",
+      isImplicitManifestGroup: true,
+      dependencies: [{ id: "A", versionRange: "1" }],
+    },
+    {
+      targetFramework: "net10.0",
+      isImplicitManifestGroup: false,
+      dependencies: [{ id: "B", versionRange: "1" }],
+    },
+    {
+      targetFramework: "any",
+      isImplicitManifestGroup: true,
+      dependencies: [{ id: "C", versionRange: "1" }],
+    },
+  ];
+  const separated = {
+    ...result,
+    inspection: {
+      ...result.inspection,
+      content: {
+        ...result.inspection.content,
+        manifest: {
+          ...result.inspection.content.manifest,
+          dependencyGroups: groups,
+        },
+        dependencies: {
+          groups,
+          requestedTargetFramework: "net10.0",
+          selectedTargetFramework: "any",
+          selectedGroupIndex: 0,
+          selectionStatus: 0,
+          selectedGroup: {
+            targetFramework: "any",
+            isImplicitManifestGroup: true,
+            dependencies: [
+              groups[0]!.dependencies[0]!,
+              groups[2]!.dependencies[0]!,
+            ],
+          },
+        },
+      },
+    },
+  };
+
+  const projection = dependencyProjection(separated);
+
+  assert.deepEqual(
+    projection.dependencyGroups.map(group =>
+      group.dependencies.map(dependency => dependency.id)),
+    [["A"], ["B"], ["C"]]);
+  assert.deepEqual(
+    projection.selectedDependencyGroup?.dependencies.map(
+      dependency => dependency.id),
+    ["A", "C"]);
 });
 
 test("package integrations state rejects contradictory shapes at compile time", () => {
@@ -468,6 +605,7 @@ function inspectionDependencies(
   return {
     state,
     queryDependencies: async packageItem => dependencyResult(packageItem.id),
+    queryLibraryReferences: async () => libraryReferenceResult(),
     queryVulnerabilities: async () => vulnerabilityResult(),
     queryPackageIntegrations: async () => integrationsResult(),
     queryPlatformIntegrations: async () => integrationsResult(),
@@ -587,7 +725,7 @@ test("library metrics do not widen into dependency analysis", async () => {
 });
 
 test("Library References does not acquire other workspace dependencies", async () => {
-  const selected = packageModel();
+  const selected = packageModel({ runtimeIdentifier: "browser-wasm" });
   const other = packageModel({ id: "Other.Package" });
   const state = inspectionState({
     packages: [selected, other],
@@ -597,19 +735,69 @@ test("Library References does not acquire other workspace dependencies", async (
   const calls: string[] = [];
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
-      queryDependencies: async pkg => {
-        calls.push(`${pkg.id}#${pkg.assemblyId}`);
-        return dependencyResult(pkg.id);
+      queryLibraryReferences: async pkg => {
+        calls.push(
+          `${pkg.id}#${pkg.assemblyId}@${pkg.runtimeIdentifier ?? ""}`);
+        return libraryReferenceResult();
       },
     }));
-  await coordinator.loadDependencies(selected, "library:references");
-  assert.deepEqual(calls, ["Example.Package#example-package"]);
+  await coordinator.loadLibraryReferences(selected, "library:references");
+  assert.deepEqual(
+    calls,
+    ["Example.Package#example-package@browser-wasm"]);
+  assert.deepEqual(state.packageDependencies, { status: "idle" });
+  assert.deepEqual(state.workspaceDependencies, {});
 });
 
-test("dependency queries scope a truncated package to its selected compile asset", async () => {
-  // A surface truncated to no assembly keeps navigation at the package root
-  // (`assemblyId` is empty) but the engine's selected-library dependency query
-  // still needs the selected compile asset rather than a blank identity.
+test("Library References replaces retained rows before a new Library settles", async () => {
+  const first = deferred<LibraryReferenceInspectionEnvelope>();
+  const second = deferred<LibraryReferenceInspectionEnvelope>();
+  const requests = [first, second];
+  const selected = packageModel();
+  const state = inspectionState({ packages: [selected] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryLibraryReferences: async () => requests.shift()!.promise,
+    }));
+
+  const firstLoad =
+    coordinator.loadLibraryReferences(selected, "library:first");
+  assert.deepEqual(state.libraryReferences, {
+    status: "loading",
+    request: { key: "library:first" },
+  });
+
+  const secondLoad =
+    coordinator.loadLibraryReferences(selected, "library:second");
+  assert.deepEqual(state.libraryReferences, {
+    status: "loading",
+    request: { key: "library:second" },
+  });
+
+  const current = libraryReferenceResult([{
+    name: "Current.Reference",
+    version: "1.0.0.0",
+    culture: null,
+    publicKeyToken: null,
+  }]);
+  second.resolve(current);
+  await secondLoad;
+  first.resolve(libraryReferenceResult([{
+    name: "Retired.Reference",
+    version: "1.0.0.0",
+    culture: null,
+    publicKeyToken: null,
+  }]));
+  await firstLoad;
+
+  assert.deepEqual(state.libraryReferences, {
+    status: "ready",
+    key: "library:second",
+    result: current,
+  });
+});
+
+test("dependency queries do not require a selected Library or compile asset", async () => {
   const truncated = packageModel({
     id: "OpenAI",
     assemblyId: "",
@@ -628,8 +816,9 @@ test("dependency queries scope a truncated package to its selected compile asset
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
       queryDependencies: async pkg => {
-        // The engine adapter sends `packageQueryAssemblyId` of what the coordinator passes.
-        calls.push(`${pkg.id}#${packageQueryAssemblyId(pkg)}`);
+        calls.push(
+          `${pkg.id}@${pkg.version}/${pkg.activeFramework}`
+          + `#${pkg.runtimeIdentifier ?? ""}`);
         return dependencyResult(pkg.id);
       },
     }));
@@ -637,10 +826,9 @@ test("dependency queries scope a truncated package to its selected compile asset
   await coordinator.loadDependencies(truncated, "dependencies");
   await coordinator.ensureWorkspaceDependencies();
 
-  assert.equal(calls[0], "OpenAI#lib/net10.0/OpenAI.dll");
   assert.deepEqual(
     [...new Set(calls)].sort(),
-    ["OpenAI#lib/net10.0/OpenAI.dll", "Root.Only#"]);
+    ["OpenAI@1.2.3/net10.0#", "Root.Only@1.2.3/net10.0#"]);
 });
 
 type PackageInspectionCoordinator =
@@ -867,7 +1055,7 @@ test("workspace dependency keys normalize complete package coordinates", () => {
 
 test("dependency results cache for a resident package after the foreground lens moves", async () => {
   const packageItem = packageModel();
-  const request = deferred<BrowserPackageDependencies>();
+  const request = deferred<BrowserPackageDependencyInspection>();
   const events: string[] = [];
   const state = inspectionState({ packages: [packageItem] });
   const coordinator = createPackageInspectionCoordinator(
@@ -896,14 +1084,14 @@ test("dependency results cache for a resident package after the foreground lens 
     "net10.0");
   assert.equal(
     state.workspaceDependencyErrors[key],
-    "partial dependency data");
+    "The manifest declares no dependency group for the active target framework.");
   assert.deepEqual(events, ["render", "stats", "render"]);
 });
 
 test("newer same-coordinate dependency evidence owns foreground settlement", async () => {
-  const firstA = deferred<BrowserPackageDependencies>();
-  const packageB = deferred<BrowserPackageDependencies>();
-  const secondA = deferred<BrowserPackageDependencies>();
+  const firstA = deferred<BrowserPackageDependencyInspection>();
+  const packageB = deferred<BrowserPackageDependencyInspection>();
+  const secondA = deferred<BrowserPackageDependencyInspection>();
   const requests = [firstA, packageB, secondA];
   const state = inspectionState();
   let queries = 0;
@@ -978,23 +1166,10 @@ test("foreground dependency success refreshes cached groups and clears a prior e
   assert.equal(Object.hasOwn(state.workspaceDependencyErrors, key), false);
 });
 
-test("dependency normalization failures keep the workspace graph visibly partial", async () => {
+test("an unmatched shared dependency group keeps the workspace graph visibly partial", async () => {
   const packageItem = packageModel();
   const key = workspaceDependencyKey(packageItem);
-  const complete = dependencyResult();
-  const result: BrowserPackageDependencies = {
-    ...complete,
-    dependencyGroups: complete.dependencyGroups.map(group => ({
-      ...group,
-      dependencies: [],
-    })),
-    declarationFailures: [{
-      kind: "ConflictingPackageDeclaration",
-      framework: "net10.0",
-      package: "example.dependency",
-      sourceOccurrenceCount: 2,
-    }],
-  };
+  const result = dependencyResult(packageItem.id, "no matching group");
   const state = inspectionState({ packages: [packageItem] });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
@@ -1003,12 +1178,22 @@ test("dependency normalization failures keep the workspace graph visibly partial
 
   await coordinator.loadDependencies(packageItem, "current");
 
-  assert.match(
-    state.workspaceDependencyErrors[key] ?? "",
-    /incomplete \(1 failure\)/);
-  assert.deepEqual(
-    state.workspaceDependencies[key]?.dependencyGroups?.[0]?.dependencies,
-    []);
+  assert.equal(
+    state.workspaceDependencyErrors[key],
+    "The manifest declares no dependency group for the active target framework.");
+  assert.equal(
+    state.workspaceDependencies[key]?.dependencyGroups?.[0]?.dependencies?.[0]?.id,
+    "Example.Dependency");
+});
+
+test("unsafe shared dependency framework text fails Browser presentation visibly", () => {
+  const projection = dependencyProjection(
+    dependencyResult("Example.Package", null, "net10.0\u202e"));
+
+  assert.deepEqual(projection.dependencyGroups, []);
+  assert.equal(
+    projection.inspectionError,
+    "A dependency group framework identifier cannot be represented safely.");
 });
 
 test("package lens loaders reuse cached results without querying or clearing them", async () => {
@@ -1644,7 +1829,7 @@ test("invalidation clears package results, failures, keys, and loads without cha
   const key = workspaceDependencyKey(remaining);
   const workspaceDependencies = {
     [key]: {
-      dependencyGroups: dependencyResult().dependencyGroups,
+      dependencyGroups: dependencyProjection().dependencyGroups,
       dependencyGroupError: "retained partial data",
     },
   };
@@ -1749,7 +1934,7 @@ test("invalidated package completions cannot publish, render, or start follow-up
   for (const outcome of ["success", "failure"]) {
     const removed = packageModel();
     const remaining = packageModel({ id: "Example.Remaining" });
-    const dependencies = deferred<BrowserPackageDependencies>();
+    const dependencies = deferred<BrowserPackageDependencyInspection>();
     const vulnerabilities = deferred<BrowserPackageVulnerabilityResult>();
     const integrations = deferred<BrowserPackageIntegrations>();
     const opportunities = deferred<BrowserPackageOpportunities>();
@@ -1814,14 +1999,17 @@ test("invalidated workspace dependency loads cannot restore removed entries or c
     const queued = packageModel({ id: "Example.Queued" });
     const cached = packageModel({ id: "Example.Cached" });
     const key = workspaceDependencyKey(cached);
-    const request = deferred<BrowserPackageDependencies>();
+    const request = deferred<BrowserPackageDependencyInspection>();
     const events: string[] = [];
     const state = inspectionState({
       packages: [removed, queued, cached],
       atPackageRoot: true,
       packageLens: "dependencies",
       workspaceDependencies: {
-        [key]: { dependencyGroups: dependencyResult(cached.id).dependencyGroups },
+        [key]: {
+          dependencyGroups:
+            dependencyProjection(dependencyResult(cached.id)).dependencyGroups,
+        },
       },
       workspaceDependencyErrors: { [key]: "retained warning" },
     });
@@ -1872,9 +2060,10 @@ test("invalidated workspace completions cannot overwrite reopened results or rel
       const label = `${outcome}, ${completionOrder}`;
       const removed = packageModel();
       const key = workspaceDependencyKey(removed);
-      const stale = deferred<BrowserPackageDependencies>();
-      const current = deferred<BrowserPackageDependencies>();
+      const stale = deferred<BrowserPackageDependencyInspection>();
+      const current = deferred<BrowserPackageDependencyInspection>();
       const currentResult = dependencyResult(removed.id, "current warning");
+      const currentProjection = dependencyProjection(currentResult);
       let queries = 0;
       const events: string[] = [];
       const state = inspectionState({
@@ -1920,11 +2109,14 @@ test("invalidated workspace completions cannot overwrite reopened results or rel
         current.resolve(currentResult);
         await currentLoad;
       }
-      assert.deepEqual(state.workspaceDependencies[key], {
-        dependencyGroups: currentResult.dependencyGroups,
-        dependencyGroupError: currentResult.dependencyGroupError,
-      }, label);
-      assert.equal(state.workspaceDependencyErrors[key], "current warning", label);
+      assert.deepEqual(
+        state.workspaceDependencies[key],
+        currentProjection,
+        label);
+      assert.equal(
+        state.workspaceDependencyErrors[key],
+        "The manifest declares no dependency group for the active target framework.",
+        label);
       assert.equal(state.workspaceDependencyLoads.size, 0, label);
     }
   }
@@ -1983,10 +2175,10 @@ test("workspace dependency loading records failures and ignores runtime packs", 
   assert.ok(partialWorkspace);
   assert.equal(
     partialWorkspace.dependencyGroupError,
-    "no dependency group matches net10.0");
+    "The manifest declares no dependency group for the active target framework.");
   assert.equal(
     state.workspaceDependencyErrors[partialKey],
-    "no dependency group matches net10.0");
+    "The manifest declares no dependency group for the active target framework.");
   const failedWorkspace = state.workspaceDependencies[workspaceDependencyKey(bad)];
   assert.ok(failedWorkspace);
   assert.deepEqual(failedWorkspace.dependencyGroups, []);
@@ -2029,7 +2221,7 @@ test("workspace dependency loading skips keys already in flight", async () => {
 test("workspace dependency loading is sequential and only renders the active lens", async () => {
   const first = packageModel({ id: "Example.First" });
   const second = packageModel({ id: "Example.Second" });
-  const firstRequest = deferred<BrowserPackageDependencies>();
+  const firstRequest = deferred<BrowserPackageDependencyInspection>();
   const queries: string[] = [];
   let renders = 0;
   let stats = 0;
@@ -2081,7 +2273,7 @@ test("workspace dependency loading does not render an active library lens", asyn
 
 test("removed packages cannot publish an in-flight workspace dependency result", async () => {
   const packageItem = packageModel();
-  const request = deferred<BrowserPackageDependencies>();
+  const request = deferred<BrowserPackageDependencyInspection>();
   const state = inspectionState({ packages: [packageItem] });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
@@ -2101,7 +2293,7 @@ test("removed packages cannot publish an in-flight workspace dependency result",
 
 test("coordinate replacement cannot publish an in-flight workspace dependency result", async () => {
   const packageItem = packageModel();
-  const request = deferred<BrowserPackageDependencies>();
+  const request = deferred<BrowserPackageDependencyInspection>();
   const state = inspectionState({ packages: [packageItem] });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
@@ -2122,7 +2314,7 @@ test("coordinate replacement cannot publish an in-flight workspace dependency re
 test("packages removed before their workspace turn are not queried", async () => {
   const first = packageModel({ id: "Example.First" });
   const removed = packageModel({ id: "Example.Removed" });
-  const firstRequest = deferred<BrowserPackageDependencies>();
+  const firstRequest = deferred<BrowserPackageDependencyInspection>();
   const queries: string[] = [];
   const state = inspectionState({ packages: [first, removed] });
   const coordinator = createPackageInspectionCoordinator(
@@ -2148,7 +2340,7 @@ test("packages removed before their workspace turn are not queried", async () =>
 
 test("removed packages cannot publish rejected workspace dependency requests", async () => {
   const packageItem = packageModel();
-  const request = deferred<BrowserPackageDependencies>();
+  const request = deferred<BrowserPackageDependencyInspection>();
   const state = inspectionState({ packages: [packageItem] });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
@@ -2168,7 +2360,7 @@ test("removed packages cannot publish rejected workspace dependency requests", a
 
 test("removed packages cannot publish dependencies loaded by the foreground lens", async () => {
   const packageItem = packageModel();
-  const request = deferred<BrowserPackageDependencies>();
+  const request = deferred<BrowserPackageDependencyInspection>();
   const state = inspectionState({ packages: [packageItem] });
   const coordinator = createPackageInspectionCoordinator(
     inspectionDependencies(state, {
@@ -2323,7 +2515,7 @@ test("package lens results clear before a different request completes", async ()
   const packageItem = packageModel();
 
   {
-    const query = deferred<BrowserPackageDependencies>();
+    const query = deferred<BrowserPackageDependencyInspection>();
     const state = inspectionState({
       packageDependencies: {
         status: "ready",
