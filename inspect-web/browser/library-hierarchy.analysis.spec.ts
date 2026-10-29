@@ -1519,6 +1519,7 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await openAnalysis(page);
   await page.getByRole("tab", { name: "Unsafe", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Unsafe", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => new URL(page.url()).searchParams.get("analysis")).toBe("unsafe");
   // Library scope: counts and one row per declaring Type, with no evidence.
   const librarySurface = page.locator(".library-unsafe-surface");
   await expect(librarySurface.locator(".unsafe-counts dd")).toHaveText(["member", "public", "propagating", "safe boundary"]);
@@ -1527,9 +1528,12 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await expect(typeRow.locator(".unsafe-type-name")).toHaveText("Example.Widget");
   await expect(typeRow.locator(".unsafe-pill")).toHaveText(["1 public", "0 propagate", "1 safe boundary"]);
   await expect(librarySurface.locator(".unsafe-member, .unsafe-evidence-table")).toHaveCount(0);
-  // Type scope: the Type's Unsafe lens lists its members with their dimensions.
+  // Type scope: the Type's Analysis inspector opens on Unsafe and lists its
+  // members with their dimensions.
   await typeRow.locator("button.perf-row").click();
-  await expect(inspectorTab(page, "data-lens", "unsafe")).toHaveAttribute("aria-selected", "true");
+  await expect(inspectorTab(page, "data-lens", "analysis")).toHaveAttribute("aria-selected", "true");
+  const typeTab = page.locator('[data-analysis-scope="type"][data-analysis-mode="unsafe"]');
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
   const typeSurface = page.locator(".type-unsafe-surface");
   const member = typeSurface.locator(".unsafe-member");
   await expect(member).toHaveCount(1);
@@ -1538,17 +1542,40 @@ test("Unsafe discloses Library Types, then the Type's members, then a member's e
   await expect(member.locator(".unsafe-member-callees")).toHaveText("System.Runtime.CompilerServices.Unsafe::Add");
   await expect(member.locator(".unsafe-pill")).toHaveText(["Public", "safe boundary"]);
   await expect(typeSurface.locator(".unsafe-evidence-table")).toHaveCount(0);
-  // Member scope: the member's Unsafe section shows its dimensions and evidence.
+  // Unsafe is the Type's default mode, so the link omits the refinement, and
+  // a reload restores the Type Analysis Unsafe tab from the packet.
+  await expect.poll(() => new URL(page.url()).searchParams.has("analysis")).toBe(false);
+  const typeUrl = page.url();
+  await page.reload();
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  await expect(member).toHaveCount(1);
+  expect(page.url()).toBe(typeUrl);
+  // Member scope: the member's Analysis inspector opens on Unsafe with its
+  // dimensions and evidence.
   await member.locator("button.perf-row").click();
-  await expect(inspectorTab(page, "data-member-section", "unsafe")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#member-surface-title")).toHaveText("Run");
-  const finding = page.locator(".member-unsafe .unsafe-member-finding");
+  await expect(inspectorTab(page, "data-member-section", "analysis")).toHaveAttribute("aria-selected", "true");
+  const memberTab = page.locator('[data-analysis-scope="member"][data-analysis-mode="unsafe"]');
+  await expect(memberTab).toHaveAttribute("aria-selected", "true");
+  const memberSurface = page.locator(".member-unsafe-surface");
+  await expect(memberSurface.locator(".api-surface-head p")).toContainText("Run");
+  const finding = memberSurface.locator(".unsafe-member-finding");
   await expect(finding).toHaveCount(1);
   await expect(finding.locator(".unsafe-member-dimensions")).toContainText("safe boundary");
   const items = finding.locator(".unsafe-evidence-table");
   await expect(items).toBeVisible();
   await expect(items).toContainText("IL_0007");
   await expect(items).toContainText("<Run>b__0_0()");
+  await expect.poll(() => new URL(page.url()).searchParams.has("analysis")).toBe(false);
+  const memberUrl = page.url();
+  await page.reload();
+  await expect(memberTab).toHaveAttribute("aria-selected", "true");
+  await expect(memberSurface.locator(".unsafe-evidence-table")).toContainText("IL_0007");
+  expect(page.url()).toBe(memberUrl);
+  // The drills leave the Library's own Analysis selection unchanged.
+  await page.goBack();
+  await page.goBack();
+  await expect(page.getByRole("tab", { name: "Unsafe", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(librarySurface.locator(".unsafe-type")).toHaveCount(1);
 });
 
 test("Resource rows open member Resource Triage with detailed evidence and Explore", async ({ page }) => {

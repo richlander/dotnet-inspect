@@ -738,22 +738,22 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
       memberSectionIdsFor({ kind }, true),
       ["overview"]);
   }
-  // Unsafe presents the census, whose accessor findings anchor to their
+  // Analysis offers Unsafe, whose accessor findings anchor to their
   // property or event.
   for (const kind of ["property", "event"]) {
     assert.deepEqual(
       memberSectionIdsFor({ kind }),
-      ["overview", "unsafe", "compare"]);
+      ["overview", "analysis", "compare"]);
     assert.deepEqual(
       memberSectionIdsFor({ kind }, true),
-      ["overview", "unsafe"]);
+      ["overview", "analysis"]);
   }
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }),
-    ["overview", "call-graph", "facts", "resource-triage", "unsafe", "source", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "facts", "resource-triage", "unsafe", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source"]);
 });
 
 // Compare follows cross-Member navigation; exact method sections return to the

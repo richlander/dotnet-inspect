@@ -63,7 +63,7 @@ const memberSectionRoutes = [
   "call-graph",
   "facts",
   "resource-triage",
-  "unsafe",
+  "analysis",
   "source",
   "compare",
 ] as const;
@@ -76,7 +76,7 @@ type RegisteredTypeLens =
 
 // Browser-owned Type lenses present Browser analyses, not product view facets;
 // they follow the catalog lenses.
-const browserTypeLensRoutes = ["unsafe"] as const;
+const browserTypeLensRoutes = ["analysis"] as const;
 
 export type MemberSection = (typeof memberSectionRoutes)[number];
 
@@ -324,7 +324,7 @@ export function memberSectionDefinitions():
     if (route === "resource-triage") {
       return [route, "Resource Triage"] as const;
     }
-    if (route === "unsafe") return [route, "Unsafe"] as const;
+    if (route === "analysis") return [route, "Analysis"] as const;
     const title = titles.get(route);
     if (title === undefined) {
       throw new Error(
@@ -2009,14 +2009,14 @@ export function memberSectionIdsFor(
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
     // Compare is Diff-capable for every API member kind; only its Clone mode
-    // needs a method body, and the surface reports that itself. Unsafe
-    // presents the census, whose accessor findings anchor to their property
-    // or event.
-    const unsafe: MemberSection[] =
-      ["property", "event"].includes(member?.kind ?? "") ? ["unsafe"] : [];
+    // needs a method body, and the surface reports that itself. Analysis
+    // offers Unsafe, whose accessor findings anchor to their property or
+    // event.
+    const analysis: MemberSection[] =
+      ["property", "event"].includes(member?.kind ?? "") ? ["analysis"] : [];
     return isRuntimePack
-      ? ["overview", ...unsafe]
-      : ["overview", ...unsafe, "compare"];
+      ? ["overview", ...analysis]
+      : ["overview", ...analysis, "compare"];
   }
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
@@ -2037,14 +2037,14 @@ export function typeLensesFor(
   }
   if (pkg?.source?.kind === "file")
     return typeLenses.filter(([id]) => id === "overview" || id === "api");
-  // Unsafe presents the Library's unsafe member census, which package and
-  // Platform Libraries both issue.
-  const unsafe = [["unsafe", "Unsafe"]] as const;
+  // Analysis presents Library analyses at Type scope, such as the unsafe
+  // member census, which package and Platform Libraries both issue.
+  const analysis = [["analysis", "Analysis"]] as const;
   if (pkg?.isRuntimePack)
     return [
       ...typeLenses.filter(
         ([id]) => id === "overview" || id === "api" || id === "source"),
-      ...unsafe,
+      ...analysis,
     ];
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
@@ -2052,7 +2052,7 @@ export function typeLensesFor(
     ...pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
       ? typeLenses.filter(([id]) => id !== "compare")
       : typeLenses,
-    ...unsafe,
+    ...analysis,
   ];
 }
 

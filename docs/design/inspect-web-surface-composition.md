@@ -1211,6 +1211,26 @@ The Library inspector order is **Overview**, **References**, **Compare**,
 **Resource Triage**, and **Unsafe** tabs, following Compare's single-inspector
 mode composition. These modes are not separate persistent inspectors.
 
+Analysis is also a Browser-owned inspector at Type and Member scope, after
+the product-issued inspectors, so an analysis that discloses progressively
+stays in one inspector all the way down. Each scope lists only the modes it
+can render:
+
+| Scope | Analysis modes | Default |
+| --- | --- | --- |
+| Library | the seven above | Relationships |
+| Type | Unsafe | Unsafe |
+| Member | Unsafe | Unsafe |
+
+A Type or Member gains a mode only when that mode defines its scope there.
+The Type and Member Analysis inspectors are offered wherever their modes can
+render: for package and Platform Types, but not `file` sources or forwarded
+Types; for members with bodies, and for properties and events, whose accessor
+findings anchor to them. A drill from one scope's mode opens the next scope's
+Analysis inspector on the same mode. The
+[`analysis` refinement](inspect-web-navigation-consumer.md#canonical-location-and-refresh)
+deep-links the selected mode at every scope.
+
 Relationships is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
 starts its existing query work; cached results retain their existing
@@ -1311,19 +1331,23 @@ Member:   the member's dimensions | its contributing evidence
 
   Propagation is the explicit caller-unsafe contract. A propagator is never a
   safe boundary.
+Every scope is the **Unsafe** tab of that scope's
+[Analysis inspector](#library-analysis).
+
 - **Library scope.** The Library Analysis **Unsafe** tab shows the Library
   counts and one row per declaring Type with a finding, ordered by Type name.
   A row shows the Type, its member count, and its public, propagating, and
-  safe-boundary counts. Activating a row opens that Type with its **Unsafe**
-  lens.
-- **Type scope.** The Type **Unsafe** lens shows the Type's counts and one row
-  per member with a finding, in the
+  safe-boundary counts. Activating a row opens that Type's Analysis inspector
+  on **Unsafe**.
+- **Type scope.** The Type Analysis **Unsafe** tab shows the Type's counts and
+  one row per member with a finding, in the
   [Unsafe Members section](unsafe-members-section.md#rows) order. A row shows
   the member, its exposure, its propagation, its safe-boundary state, its
-  evidence summary, and a partial badge. Activating a row opens that member
-  with its **Unsafe** section. A Type without findings states that, unless
-  the census is incomplete, when it states that absence can't be established.
-- **Member scope.** The Member **Unsafe** section shows the member's
+  evidence summary, and a partial badge. Activating a row opens that member's
+  Analysis inspector on **Unsafe**. A Type without findings states that,
+  unless the census is incomplete, when it states that absence can't be
+  established.
+- **Member scope.** The Member Analysis **Unsafe** tab shows the member's
   dimensions and its contributing evidence items as a table of role, physical
   body, IL offset, and detail. A lambda, local-function, or state-machine body
   appears only as evidence of its declared member. When several declared
@@ -1341,9 +1365,9 @@ Member:   the member's dimensions | its contributing evidence
     non-public member is listed.
   - A Type or member the surface can't resolve renders without a link and
     keeps its finding.
-  - The Type lens and the Member section are Browser-owned. They're available
-    for package and Platform Libraries alike, because they present the
-    census, not Member Facts.
+  - The Type and Member Analysis inspectors are available for package and
+    Platform Libraries alike, because Unsafe presents the census, not Member
+    Facts.
 - **State.** All three scopes share the closed request state Resource Triage
   uses, for one exact Library and coordinate. Only the current request may
   publish; replacement and package invalidation retire it. Workspace

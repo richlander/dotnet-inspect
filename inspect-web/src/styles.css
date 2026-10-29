@@ -1551,7 +1551,7 @@ kbd {
 .detail-scroll.library-references-working-surface,
 .detail-scroll.library-integrations-working-surface,
 .detail-scroll.library-analysis-working-surface,
-.detail-scroll.type-unsafe-working-surface,
+.detail-scroll.type-analysis-working-surface,
 .detail-scroll.library-api-diff-working-surface,
 .detail-scroll.package-dependencies-working-surface,
 .detail-scroll.package-vulnerabilities-working-surface,
@@ -6779,7 +6779,6 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .unsafe-counts div { display: flex; align-items: baseline; gap: 6px; }
 .unsafe-counts dt { color: var(--text); font: 600 13px var(--mono); }
 .unsafe-counts dd { margin: 0; color: var(--dim); font-size: 12px; }
-.member-unsafe .unsafe-member-finding { padding: 0 0 20px; }
 .unsafe-member-dimensions dd { overflow-wrap: anywhere; }
 .unsafe-evidence-wrap { margin-top: 6px; overflow-x: auto; }
 .unsafe-evidence-table { border-collapse: collapse; font-size: 11px; }

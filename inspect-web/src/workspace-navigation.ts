@@ -32,9 +32,17 @@ import type {
   BrowserWorkspaceShareView,
 } from "./facades/inspect-web-catalog.d.ts";
 import {
+  analysisModeForScope,
+  analysisModeIsListed,
   defaultAnalysisMode,
+  defaultAnalysisModeFor,
+  defaultMemberAnalysisMode,
+  defaultTypeAnalysisMode,
   isAnalysisMode,
   type AnalysisMode,
+  type AnalysisScope,
+  type MemberAnalysisMode,
+  type TypeAnalysisMode,
 } from "./analysis-inspector.ts";
 
 // Owns navigation stacks and URL-backed workspace snapshots. The composition root remains
@@ -62,6 +70,8 @@ export interface WorkspaceView {
   packageLens: PackageLens;
   libraryLens: LibraryLens;
   analysisMode?: AnalysisMode;
+  typeAnalysisMode?: TypeAnalysisMode;
+  memberAnalysisMode?: MemberAnalysisMode;
   libraryScope: string[] | null;
   platformLibrary?: string | null;
   platformRootParent?: boolean;
@@ -93,6 +103,16 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     ll: view.libraryLens,
     am: view.atLibraryRoot && view.libraryLens === "analysis"
       ? view.analysisMode ?? defaultAnalysisMode
+      : null,
+    tam: !view.atPackageRoot && !view.atLibraryRoot && view.lens === "analysis"
+      ? view.typeAnalysisMode ?? defaultTypeAnalysisMode
+      : null,
+    mam: !view.atPackageRoot
+      && !view.atLibraryRoot
+      && view.lens === "api"
+      && view.selectedMemberKey
+      && view.memberSection === "analysis"
+      ? view.memberAnalysisMode ?? defaultMemberAnalysisMode
       : null,
     ls: view.libraryScope,
     platformLibrary: view.platformLibrary ?? null,
@@ -333,7 +353,9 @@ export interface WorkspaceUrlState {
   view: BrowserWorkspaceShareView;
   traversalTargetFramework: string | null;
   hierarchyWorkspacePacket?: string | null;
-  analysisMode?: AnalysisMode | null;
+  // The selected mode of the Analysis inspector the view resolves, at
+  // Library, Type, or Member scope.
+  analysisMode?: string | null;
 }
 
 export interface PackageRootUrlState {
@@ -1065,6 +1087,21 @@ function resolveWorkspaceLocation(
     && isAnalysisMode(requestedAnalysisMode)
       ? requestedAnalysisMode
       : defaultAnalysisMode;
+  // Each scope reads the refinement only while its Analysis inspector is the
+  // resolved view; a value it doesn't list selects its default.
+  const memberOpen = Boolean(member || memberAnchor || memberSignature);
+  const typeAnalysisMode = analysisModeForScope(
+    "type",
+    !view.atPackageRoot && !view.atLibraryRoot && type && !memberOpen
+      && view.lens === "analysis"
+      ? requestedAnalysisMode
+      : null);
+  const memberAnalysisMode = analysisModeForScope(
+    "member",
+    !view.atPackageRoot && !view.atLibraryRoot && memberOpen
+      && section === "analysis"
+      ? requestedAnalysisMode
+      : null);
   const platform = tabs[active]?.shareKind === "group"
     && tabs[active]?.shareSource === ":Platform";
   const atPlatformRoot = platform && !viewToken && !library && !type
@@ -1089,6 +1126,8 @@ function resolveWorkspaceLocation(
     packageLens: view.packageLens,
     libraryLens: view.libraryLens,
     analysisMode,
+    typeAnalysisMode,
+    memberAnalysisMode,
     tabs,
     active,
     contexts,
@@ -1203,13 +1242,27 @@ export async function buildWorkspaceStateUrlAsync(
   return url;
 }
 
+// The Analysis inspector a shared view resolves, if any.
+function analysisScopeOfView(
+  view: BrowserWorkspaceShareView,
+): AnalysisScope | null {
+  if (view.lens === "library:analysis") return "library";
+  if (view.memberAnchor || view.memberSignature) {
+    return view.section === "analysis" ? "member" : null;
+  }
+  return view.type && view.lens === "analysis" ? "type" : null;
+}
+
+// The refinement carries a mode only while an Analysis inspector is active and
+// only when that scope lists it; the scope's default is omitted.
 function appendAnalysisMode(
   params: URLSearchParams,
   state: WorkspaceUrlState,
 ): void {
-  if (state.view.lens === "library:analysis"
-    && state.analysisMode
-    && state.analysisMode !== defaultAnalysisMode) {
+  const scope = analysisScopeOfView(state.view);
+  if (scope === null || !state.analysisMode) return;
+  if (state.analysisMode === defaultAnalysisModeFor(scope)) return;
+  if (analysisModeIsListed(scope, state.analysisMode)) {
     params.set("analysis", state.analysisMode);
   }
 }

@@ -16,7 +16,7 @@ const escapeHtml = (value: unknown) => String(value).replaceAll("&", "&amp;").re
 const census = { fresh: true, loading: false, error: "", escapeHtml };
 const library = { ...census, assemblyIdentity: "Fixture", assetPath: "Fixture.dll", coordinate: "Fixture@1.0", pickerHtml: "", requireLibrary: false };
 const typeScope = { ...census, typeId: "Fixture.Sample", typeName: "Sample" };
-const memberScope = { ...census, typeId: "Fixture.Sample", stableSelector: "Read~abc" };
+const memberScope = { ...census, memberName: "Read", typeId: "Fixture.Sample", stableSelector: "Read~abc" };
 const member: BrowserUnsafeMember = {
   member: "Fixture.Sample.Read(Int32)",
   metadataToken: 0x06000001,
@@ -84,8 +84,8 @@ test("Type scope selects its Type group and shows each member's dimensions", () 
   const propagator = { ...member, member: "Fixture.Sample.Add()", stableSelector: "Add~ghi", exposure: "Public", explicitContract: true, safeBoundary: "not a safe boundary", partial: true };
   const data = result({ types: [group({ counts: counts({ members: 2, public: 1, propagating: 1 }), members: [member, propagator] }), group({ type: "Fixture.Other", typeId: "Fixture.Other", members: [other] })] });
   const html = renderTypeUnsafeMembersSurface({ ...typeScope, data });
-  assert.match(html, /<h1 id="type-unsafe-title">Unsafe<\/h1>/);
-  assert.match(html, /2 unsafe members<span>· Sample<\/span>/);
+  assert.match(html, /<h1 id="type-analysis-title">Analysis<\/h1>/);
+  assert.match(html, /<p title="Sample · 2 unsafe members">/);
   assert.match(html, /<dt>2<\/dt><dd>members<\/dd>/);
   assert.equal(html.match(/class="triage-item unsafe-member"/g)?.length, 2);
   assert.doesNotMatch(html, /Fixture.Other.Run/);
@@ -115,6 +115,20 @@ test("a Type absent from a complete census says it has no unsafe members", () =>
   assert.match(html, /No unsafe members in this type/);
   assert.match(html, /0 unsafe members/);
   assert.doesNotMatch(html, /Fixture.Sample.Read/);
+});
+
+test("Type and Member scopes are the Unsafe tab of their own Analysis inspector", () => {
+  for (const [scope, html] of [
+    ["type", renderTypeUnsafeMembersSurface({ ...typeScope, data: result() })],
+    ["member", renderMemberUnsafeMembersSurface({ ...memberScope, data: result() })],
+  ] as const) {
+    assert.match(html, new RegExp(`data-analysis-inspector="${scope}"`));
+    assert.equal(html.match(/role="tab"/g)?.length, 1);
+    assert.match(html, new RegExp(`id="analysis-mode-unsafe" data-analysis-scope="${scope}" data-analysis-mode="unsafe" aria-selected="true"`));
+    assert.match(html, /role="tabpanel" aria-labelledby="analysis-mode-unsafe"/);
+    assert.doesNotMatch(html, /Relationships|Performance Triage/);
+  }
+  assert.match(renderMemberUnsafeMembersSurface({ ...memberScope, data: result() }), /<p title="Read · 1 finding">/);
 });
 
 test("Member scope selects every finding anchored to the member, with its evidence", () => {

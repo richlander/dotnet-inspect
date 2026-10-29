@@ -26,6 +26,7 @@ export interface TypeUnsafeMembersOptions extends UnsafeCensusState {
 }
 
 export interface MemberUnsafeMembersOptions extends UnsafeCensusState {
+  memberName: string;
   typeId: string;
   stableSelector: string;
 }
@@ -197,7 +198,7 @@ export function renderLibraryUnsafeMembersSurface(options: UnsafeMembersOptions)
   return renderAnalysisInspector(options, "unsafe", status, content);
 }
 
-/** Type scope: the selected Type's counts and one row per member with a finding. */
+/** Type scope: the Type Analysis Unsafe tab, with the Type's counts and one row per member with a finding. */
 export function renderTypeUnsafeMembersSurface(options: TypeUnsafeMembersOptions): string {
   const escape = options.escapeHtml;
   const outcome = censusOutcome(options);
@@ -214,20 +215,16 @@ export function renderTypeUnsafeMembersSurface(options: TypeUnsafeMembersOptions
         ? `<p class="library-analysis-note">Members with unsafe evidence under the updated memory-safety rules, one row per declared member. The census reports evidence, not a verdict. Select a linked member for its evidence.</p>${renderCounts(type.counts, escape)}<div class="perf-list unsafe-member-list">${type.members.map(member => renderMember(member, data.assembly, escape)).join("")}</div>`
         : emptySection(partial, "No unsafe members in this type", escape));
   }
-  return `<section class="library-analysis-surface type-unsafe-surface" aria-labelledby="type-unsafe-title">
-    <header class="api-surface-head">
-      <h1 id="type-unsafe-title">Unsafe</h1>
-      <p title="${escape(status)}">${escape(status)}<span>· ${escape(options.typeName)}</span></p>
-    </header>
-    <div class="library-analysis-scroll type-unsafe-scroll">${content}</div>
-  </section>`;
+  return renderAnalysisInspector(options, "unsafe", `${options.typeName} · ${status}`, content, "type");
 }
 
-/** Member scope: every finding anchored to the member, with its evidence. */
+/** Member scope: the Member Analysis Unsafe tab, with every finding anchored to the member. */
 export function renderMemberUnsafeMembersSurface(options: MemberUnsafeMembersOptions): string {
   const escape = options.escapeHtml;
   const outcome = censusOutcome(options);
-  if (outcome.kind === "message") return `<div class="member-unsafe">${outcome.content}</div>`;
+  if (outcome.kind === "message") {
+    return renderAnalysisInspector(options, "unsafe", `${options.memberName} · ${outcome.status}`, outcome.content, "member");
+  }
   const { data, partial, warning } = outcome;
   // Several declared bodies, such as property accessors, can anchor to one
   // member; each keeps its own finding.
@@ -235,7 +232,8 @@ export function renderMemberUnsafeMembersSurface(options: MemberUnsafeMembersOpt
     ? data.types.find(candidate => candidate.typeId === options.typeId)?.members
       .filter(member => member.stableSelector === options.stableSelector) ?? []
     : [];
-  return `<div class="member-unsafe">${warning}${findings.length
+  const status = `${options.memberName} · ${plural(findings.length, "finding")}${partial ? " · incomplete" : ""}`;
+  return renderAnalysisInspector(options, "unsafe", status, warning + (findings.length
     ? findings.map(member => renderFinding(member, escape)).join("")
-    : emptySection(partial, "No unsafe evidence for this member", escape)}</div>`;
+    : emptySection(partial, "No unsafe evidence for this member", escape)), "member");
 }

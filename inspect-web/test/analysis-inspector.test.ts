@@ -6,7 +6,11 @@ import {
   setLibraryViewFacetCatalog,
 } from "../src/data.ts";
 import {
+  analysisModeForScope,
+  analysisModeIsListed,
+  analysisModesFor,
   defaultAnalysisMode,
+  defaultAnalysisModeFor,
   isAnalysisMode,
   renderAnalysisInspector,
   type AnalysisMode,
@@ -100,5 +104,35 @@ test("Performance and Resource Triage are direct Analysis tabs", () => {
     assert.match(html, />Resource Triage<\/button>/);
     assert.equal((html.match(/role="tablist"/g) ?? []).length, 1);
     assert.doesNotMatch(html, /data-triage-mode/);
+  }
+});
+
+test("each Analysis scope lists its own modes and default", () => {
+  assert.deepEqual(analysisModesFor("library").map(([mode]) => mode), [
+    "relationships", "dependencies", "complexity", "integrations",
+    "performance", "resource-triage", "unsafe",
+  ]);
+  assert.deepEqual(analysisModesFor("type"), [["unsafe", "Unsafe"]]);
+  assert.deepEqual(analysisModesFor("member"), [["unsafe", "Unsafe"]]);
+  assert.equal(defaultAnalysisModeFor("library"), "relationships");
+  assert.equal(defaultAnalysisModeFor("type"), "unsafe");
+  assert.equal(defaultAnalysisModeFor("member"), "unsafe");
+  assert.equal(analysisModeForScope("library", "performance"), "performance");
+  assert.equal(analysisModeForScope("type", "performance"), "unsafe");
+  assert.equal(analysisModeForScope("member", null), "unsafe");
+  assert.equal(analysisModeForScope("library", "unknown"), "relationships");
+  assert.equal(analysisModeIsListed("type", "unsafe"), true);
+  assert.equal(analysisModeIsListed("member", "relationships"), false);
+});
+
+test("Type and Member Analysis render the shared frame with their scope's tabs", () => {
+  for (const scope of ["type", "member"] as const) {
+    const html = renderAnalysisInspector({ escapeHtml: String }, "unsafe", "Ready", "<p>Rows</p>", scope);
+    assert.match(html, new RegExp(`<h1 id="${scope}-analysis-title">Analysis</h1>`));
+    assert.match(html, new RegExp(`data-analysis-inspector="${scope}"`));
+    assert.equal(html.match(/role="tab"/g)?.length, 1);
+    assert.match(html, new RegExp(`data-analysis-scope="${scope}" data-analysis-mode="unsafe" aria-selected="true"`));
+    assert.match(html, /role="tabpanel" aria-labelledby="analysis-mode-unsafe"/);
+    assert.doesNotMatch(html, /library-analysis-controls/);
   }
 });
