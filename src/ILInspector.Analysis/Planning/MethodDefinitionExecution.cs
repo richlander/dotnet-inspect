@@ -1425,14 +1425,30 @@ public sealed class MethodDefinitionExecution
             if (!ReadsRelation(state))
                 continue;
 
-            state.SourceBounded = true;
-            state.Failure =
-                new ProducerFailure(unit, GeneratedExpansionLabel, message);
-            state.SourceFailure = new MethodDefinitionSourceFailure(
-                unit,
-                GeneratedExpansionLabel,
-                message);
+            BoundRelationReader(state, unit, message);
         }
+    }
+
+    static void BoundRelationReader(
+        ProducerState state,
+        Exception error) =>
+        BoundRelationReader(
+            state,
+            0,
+            ProducerFailure.Describe(error));
+
+    static void BoundRelationReader(
+        ProducerState state,
+        int unit,
+        string message)
+    {
+        state.SourceBounded = true;
+        state.Failure =
+            new ProducerFailure(unit, GeneratedExpansionLabel, message);
+        state.SourceFailure = new MethodDefinitionSourceFailure(
+            unit,
+            GeneratedExpansionLabel,
+            message);
     }
 
     const string GeneratedExpansionLabel = "(generated body expansion)";
@@ -1982,7 +1998,12 @@ public sealed class MethodDefinitionExecution
             // completion, so the failure is its source failure too.
             foreach (ProducerState state in _states)
             {
-                if (ReadsRelation(state))
+                if (!ReadsRelation(state))
+                    continue;
+
+                if (state.RetainsResultOnGeneratedExpansionFailure)
+                    BoundRelationReader(state, ex);
+                else
                     FailSource(state, 0, GeneratedExpansionLabel, ex);
             }
         }
@@ -2767,6 +2788,10 @@ public sealed class MethodDefinitionExecution
             out int unitsVisited);
 
         public abstract bool SupportsPendingRelationKernel { get; }
+
+        public bool RetainsResultOnGeneratedExpansionFailure =>
+            ((IMethodDefinitionProducer)Producer)
+                .RetainsResultOnGeneratedExpansionFailure;
 
         public abstract bool Visit(scoped MethodDefinitionView view);
 

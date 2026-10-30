@@ -3236,18 +3236,43 @@ internal static class BrowserPackageWorkspace
     internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
         string packageId, string version, string targetFramework, string library,
         PackageAssetDemand assetDemand, CancellationToken cancellationToken = default) =>
-        OpenLibraryScopeAsync(packageId, version, targetFramework, library, assetDemand,
+        OpenLibraryScopeAsync(packageId, version, targetFramework,
+            runtimeIdentifier: null, library, assetDemand,
             Gallery, PackageOperationTimeout, cancellationToken);
 
-    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework,
+        string? runtimeIdentifier, string library,
+        PackageAssetDemand assetDemand, CancellationToken cancellationToken = default) =>
+        OpenLibraryScopeAsync(packageId, version, targetFramework,
+            runtimeIdentifier, library, assetDemand,
+            Gallery, PackageOperationTimeout, cancellationToken);
+
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
         string packageId, string version, string targetFramework, string library,
+        PackageAssetDemand assetDemand, IPackageSourceClient source,
+        TimeSpan operationTimeout, CancellationToken cancellationToken)
+        => OpenLibraryScopeAsync(
+            packageId,
+            version,
+            targetFramework,
+            runtimeIdentifier: null,
+            library,
+            assetDemand,
+            source,
+            operationTimeout,
+            cancellationToken);
+
+    internal static async Task<BrowserScopeLease<BrowserInspectionScope>> OpenLibraryScopeAsync(
+        string packageId, string version, string targetFramework,
+        string? runtimeIdentifier, string library,
         PackageAssetDemand assetDemand, IPackageSourceClient source,
         TimeSpan operationTimeout, CancellationToken cancellationToken)
     {
         var selector = new PackageLibrarySelector(library, PackageLibrarySelectionKind.AssetId);
         BrowserPackageRealization realization = await RunPackageOperationAsync(
             async deadline => RequireRealization(await RealizeCoreAsync(packageId, version,
-                targetFramework, runtimeIdentifier: null, source, deadline, librarySelector: selector,
+                targetFramework, runtimeIdentifier, source, deadline, librarySelector: selector,
                 assetDemand: assetDemand).ConfigureAwait(false), deadline),
             operationTimeout, cancellationToken).ConfigureAwait(false);
         return await OpenScopeAsync(realization, cancellationToken).ConfigureAwait(false);

@@ -195,7 +195,7 @@ amends its owner's document with its code.
    Aspire's core entries are already set members, and Runtime has no core. This lands before the data
    slice so AI's new roots match as soon as they exist.
 
-   **2b. `ecosystem=` population term.** `package query --where
+   **2b. `ecosystem=` population term.** `find --packages --where
    ecosystem=<id>` lists the packages in an Ecosystem: its core packages
    exactly plus every package under its recorded prefixes, under package
    query's ordinary candidate limits. Package query today requires exactly one

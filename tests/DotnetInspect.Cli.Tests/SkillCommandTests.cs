@@ -27,7 +27,7 @@ public class SkillCommandTests
         Assert.Contains("explain literal", output);
         Assert.Contains("explain <path>", output);
         Assert.Contains(
-            "package query Microsoft.Azure.SignalR "
+            "find --packages Microsoft.Azure.SignalR "
                 + "--where \"library-literal=https://\" "
                 + "--tfm net8.0 --json",
             output);
@@ -229,8 +229,8 @@ public class SkillCommandTests
             Assert.Contains("`--package", output);
             Assert.Contains("`--package-prefix", output);
             Assert.Contains("`--project", output);
-            Assert.Contains("package query", output);
-            Assert.Contains("library query", output);
+            Assert.Contains("find --packages", output);
+            Assert.Contains("find --libraries", output);
             Assert.Contains("types", output);
             Assert.Contains("members", output);
         }
