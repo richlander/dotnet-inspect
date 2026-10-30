@@ -72,6 +72,13 @@ internal sealed class ResolvedAssemblyApiCatalogExecution
                 group,
                 participant,
                 _scope);
+        if (entry
+            is AssemblyContextEntry<AssemblyApiSurface>.Available available
+            && supplier.Path is { } path)
+        {
+            available.Value.Surface
+                .SetInspectionSourceAssemblyPath(path);
+        }
         _projections.Add(supplier.Registration, entry);
         return entry;
     }
@@ -122,6 +129,8 @@ internal static class ResolvedAssemblyApiCatalogQuery
         }
 
         ApiSurface catalog = rootSurface.Value.Surface;
+        if (assembly.Path is { } rootPath)
+            catalog.SetInspectionSourceAssemblyPath(rootPath);
         var targets = new Dictionary<
             ApiType,
             ResolvedAssemblyApiCatalogTypeTarget>(

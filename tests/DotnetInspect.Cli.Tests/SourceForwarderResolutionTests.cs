@@ -682,6 +682,101 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public async Task
+        LibraryCatalogOperation_ScopesForwardedFailureAcrossTokenCollision()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath =
+                Path.Combine(directory, "Facade.dll");
+            string targetPath =
+                Path.Combine(directory, "Target.dll");
+            var targetIdentity =
+                new AssemblyReferenceIdentity(
+                    "Target",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null);
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    targetIdentity,
+                    definesType: true,
+                    typeNamespace: "N",
+                    typeName: "Type`1",
+                    definedTypeName: "Local",
+                    forwardedTypeName: "Type`1"));
+            File.WriteAllBytes(
+                targetPath,
+                BuildTargetWithMissingConstraint());
+            ResolvedAssemblyReference facade =
+                ResolvedAssemblyReference.CreateFromPath(
+                    facadePath,
+                    AssemblyResolutionProvenance.Local(
+                        "resolved catalog failure-scoping test"));
+            using var resolution =
+                new TypeDefinitionResolutionSession(
+                    facade,
+                    isPlatformAssembly: false,
+                    projectAssetsPath: null,
+                    targetFramework: null);
+            IAssemblyBindingPolicy policy =
+                resolution.BindingContext(
+                    AssemblyBindingOccurrence.Seed(facade))
+                    .Policy;
+
+            await LibraryApiCatalogInspectionOperation
+                .ExecuteWithLiveCatalogAsync(
+                    facade,
+                    policy,
+                    ApiSurfaceScope.Public,
+                    (envelope, target, _) =>
+                    {
+                        Assert.NotNull(target);
+                        Assert.Single(
+                            target.Surface.InspectionFailures);
+                        ApiType local = Assert.Single(
+                            target.Surface.Types,
+                            static type =>
+                                type.FullName == "N.Local");
+                        ApiType forwarded = Assert.Single(
+                            target.Surface.Types,
+                            static type =>
+                                type.FullName == "N.Type`1");
+                        Assert.Equal(
+                            local.MetadataToken,
+                            forwarded.MetadataToken);
+                        Assert.Equal(
+                            Path.GetFullPath(facadePath),
+                            local.SourceAssemblyPath);
+                        Assert.Equal(
+                            Path.GetFullPath(targetPath),
+                            forwarded.SourceAssemblyPath);
+
+                        ApiCommand.ApplySurfaceFilters(
+                            target.Surface,
+                            new ApiOptions(),
+                            "N.Local");
+
+                        Assert.Same(
+                            local,
+                            Assert.Single(
+                                target.Surface.Types));
+                        Assert.Empty(
+                            target.Surface.InspectionFailures);
+                        return ValueTask.FromResult(envelope);
+                    },
+                    TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ApiServices_ClassifiesConstraintsOnForwardedType()
     {
         string directory = CreateDirectory();
@@ -3824,7 +3919,9 @@ public class SourceForwarderResolutionTests
         bool definesType = false,
         string typeNamespace = "N",
         string typeName = "Type",
-        bool isModule = false)
+        bool isModule = false,
+        string? definedTypeName = null,
+        string? forwardedTypeName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -3856,7 +3953,8 @@ public class SourceForwarderResolutionTests
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString(typeNamespace),
-                metadata.GetOrAddString(typeName),
+                metadata.GetOrAddString(
+                    definedTypeName ?? typeName),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
@@ -3874,7 +3972,8 @@ public class SourceForwarderResolutionTests
             metadata.AddExportedType(
                 TypeAttributes.Public | Forwarder,
                 metadata.GetOrAddString(typeNamespace),
-                metadata.GetOrAddString(typeName),
+                metadata.GetOrAddString(
+                    forwardedTypeName ?? typeName),
                 target,
                 typeDefinitionId: 0);
         }
