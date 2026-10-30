@@ -1181,9 +1181,19 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     ?.IncludesInstructionShapeMetric == true;
             bool measureControlFlow =
                 implementationMetricPlan
-                    ?.IncludesControlFlowMetric == true;
+                    ?.IncludesControlFlowMetric == true
+                || plan.ProducesLibraryStructuralReport;
             MethodImplementationContextMeasurements?
                 contextMeasurements = null;
+            using ImplementationMetricExecutionRecorder.StageAttempt?
+                structuralScan =
+                    plan.ProducesLibraryStructuralReport
+                    && metricBodyAdmitted
+                        ? StartMetricStage(
+                            plan,
+                            ImplementationMetricWorkStage
+                                .StructuralInstructionScan)
+                        : null;
             if (metricBodyAdmitted
                 && (measureInstructionShape
                     || measureControlFlow))
@@ -1200,6 +1210,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                             implementationMetricPlan
                                 ?.IncludesCallSiteCountMetric
                                 == true);
+                structuralScan?.Complete();
             }
             if (implementationMetricPlan
                     is { IncludesFocusedContextMetrics: true }

@@ -307,6 +307,36 @@ public sealed class LibraryBodyAnalysisExecutionTests
 
     [Fact]
     public void
+        LibraryStructuralRequest_SharedMethodEvidencePublishesStructuralStage()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures
+                            .MethodEvidence)
+                    .WithLibraryStructuralReport()
+                    .WithStageParticipation());
+
+        Assert.NotEmpty(execution.StructuralMetrics.Bodies);
+        Assert.All(
+            execution.StructuralMetrics.Bodies,
+            static body => Assert.True(body.IsComplete));
+        ImplementationMetricParticipationReceipt participation =
+            Assert.IsType<ImplementationMetricParticipationReceipt>(
+                execution.ImplementationMetrics.Participation);
+        Assert.Contains(
+            participation.ActualStages,
+            static stage => stage.Stage
+                == ImplementationMetricWorkStage
+                    .StructuralInstructionScan
+                && stage.AttemptedBodies > 0
+                && stage.AttemptedBodies
+                    == stage.CompletedBodies);
+    }
+
+    [Fact]
+    public void
         LibraryStructuralRequest_PreservesMalformedAsyncAttributeDiagnostic()
     {
         LibraryBodyAnalysisExecution execution =
