@@ -157,8 +157,8 @@ M1 and M2 read one Member in each version. So:
   read each key's own diff; the paired comparison is presentation. T1 and T2 pair the addressed Type by its identity, not by pairing every
   Type of the two images.
 - **Reuse is optional.** A host may answer a request from a completed wider
-  result it already holds, such as a T1 row from a held T2 result or a
-  retained per-version map, when that result covers the narrower address.
+  result it already holds, such as a T1 row from a held T2 result, when that
+  result covers the narrower address.
   That is a cache of the provision that answers the address, never a
   requirement.
 - **No whole-Library reads.** A Type- or Member-addressed query performs none
@@ -377,8 +377,9 @@ offers:
 | Map diff | T2 and M1, and T1 as its projection | Produces both versions' [Annotated Type Map](annotated-type-map.md) entries for the address, in lockstep as that owner permits, and compares them by key: the addressed Type's entries for T1 and T2, and only the addressed key's entries for M1. For T1 it runs as Exists, comparing shape facts and stopping at each row's first difference, with no fact comparison. It has no text comparison and builds no Type-scope source view |
 | Complete | M2 | Builds the complete models of the addressed Member and explains every difference |
 
-A host that retains one version's map, built once, may compare two retained
-maps by key to answer T1 and T2 for a Type they cover. That is the map diff
+A one-version map holds only the Members its request implicates, so two of
+them never answer T1 or T2; the map diff provision reads both sides' shape
+facts for the address. A host may keep a map diff it produced as that
 provision's cache, which [Demand-shaped](#demand-shaped) allows: it is never a
 prerequisite of a Type- or Member-addressed request.
 
@@ -452,7 +453,6 @@ adoption step named:
 | [Annotated Type Map](annotated-type-map.md) | A Member's findings are the detail of its row, not a narrower scope; the map admits only Local instruction descriptors | M1, the map's Member scope, is a rung addressed directly; the map also admits API change kinds and declaration facts, each with per-side status facets | 6 |
 | [Diff system](diff-system.md#single-library-api-diff-terminal) | A single-Library request reads only its targeted Types in full, except every extension-declaring Type, every Type for an outcome counting unchanged subjects, every Type at a view the prefilter does not define, and a Member's API facts from the surface-wide comparison | Type- and Member-addressed section queries make none of those whole-Library reads; the terminal answers the Library scope and today's analysis set | 6 |
 | [Finding Diff Any](finding-diff-any.md#type) | The Type level pairs the Types of two images once | T1 pairs the addressed Type by its identity; pairing every Type remains L1's | 6 |
-| [Annotated Type Map](annotated-type-map.md) | A host may compare two retained one-version maps | A retained map is a host cache that may answer a Type it covers, never a prerequisite of a Type- or Member-addressed request | 6 |
 | [Annotated Source diff document](annotated-source-diff-document.md) | The CLI text host shows no facts, and no Markout lowering is claimed | M2 has Table and Document outputs, and both hosts can overlay M1's facts | 6 |
 | [Annotated Type Map](annotated-type-map.md) | Non-public declarations are Body rows ([#10350](https://github.com/richlander/dotnet-inspect/pull/10350)); admitted Members' implementation facts are not map facts; a declaration-fact row has no rung-4 view | Admitted Members' implementation facts join the map's Body facts when Finding Diff Any's census moves them; the declaration view presents both ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
 

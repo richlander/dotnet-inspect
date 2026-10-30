@@ -3,14 +3,16 @@
 ## Status and owner
 
 This document owns the **Annotated Type Map**: a host-neutral document that
-holds, for one Type at one version, the Type's shape and a keyed collection of
-its Members' findings; and the **map diff**, the same document across two
-versions, produced by comparing two maps with the same implementation. It
-owns:
+holds, for one Type at one version, the Type's coordinate and the Members its
+request implicates, keyed, each with its findings; and the **map diff**, the
+same document across two versions, holding the Members added, removed, or
+changed and their finding transitions, produced from the same families by the
+same implementation. It owns:
 
-- the map's entries: what a map holds for the Type and for each Member;
+- the map's coordinate and entries: what a map holds for the Type and for each
+  implicated Member;
 - its keyed collection and its Rows projection;
-- the map diff: how two maps join and compare, and what it holds;
+- the map diff: how two sides join and compare, and what it holds;
 - sparsity, listing, and what an absent key means;
 - which findings the map admits;
 - the map at Library, Type, and Member scope, and its terminals; and
@@ -75,24 +77,43 @@ form built separately from the one-version form is a second definition of
 "changed", and the two drift, as Finding Diff Any and the complete diffs did
 ([#10223](https://github.com/richlander/dotnet-inspect/issues/10223),
 [#9801](https://github.com/richlander/dotnet-inspect/issues/9801)). So the
-map diff is not its own producer: it is two maps, joined and compared.
+map diff is not its own producer: it reads the same registered families as
+the one-version map, joined by key on both sides and compared.
+
+A map answers its request and nothing else. Its Rows are the Members the
+request implicates, so its Count is their number: a request for unsafe Members
+counts the unsafe Members, and a request for what changed counts the changed
+ones. A complete Member listing is a different question, answered by a listing
+query from the map's coordinate.
 
 ## The map
 
 A map is about one Type at one version. It holds:
 
+- the Type's **coordinate**: its exact Library and fully qualified metadata
+  Type name, enough for a listing query to acquire every Member when a host
+  wants them;
 - the Type's **outcome**: `Complete`, or the typed reason the map is partial;
-- its **shape**: every Member's key and that Member's **shape facts**, the
-  facts that decide whether the Member changed, plus the Type's own shape
-  facts; and
+  and
 - its **annotations**: a keyed collection from Member key to that Member's
   admitted findings, plus the Type's own findings, with the outcome that
-  produced each Member's findings; and
+  produced each Member's findings, for exactly the Members and Type entries
+  the request implicates.
+
+A map with no implicated Member is its coordinate and outcome alone; that is
+the default document, the answer to a request that names no analysis.
+
+Two further inputs are read to produce maps but are not map content. The map
+diff reads them for every Member of both sides to decide which Members
+changed, and a document keeps only the rows they list:
+
+- the **shape facts** of every Member and of the Type, the facts that decide
+  whether the Member changed; and
 - for each method a Member owns, its **fact stream**: the keys of every fact in
   the method's fact census, admitted or not, in the order the
   [fact comparison](annotated-source-diff-document.md#fact-comparison)
   projects them. The comparison matches facts by their position in the whole
-  stream, so the map keeps the whole stream to reproduce it.
+  stream, so the map diff reads the whole stream of a listed Member's methods.
 
 A Member's key is its Finding Diff Any census key, with its accessors raised
 into its property or event and its generated code attached to it, as [Finding
@@ -135,9 +156,9 @@ Admission follows Finding Diff Any's partition. A Type public on either side
 partitions its facts as public on both, so a Type's visibility change is an API
 fact only, as [Finding Diff Any's Axes](finding-diff-any.md#axes) state; within
 that, each Member's declaration facts are API or Body by the Member's own
-accessibility on its side, as if the Type were public there. Each map therefore
-records every Member's declaration facts with its version's admission, and the
-comparison places them.
+accessibility on its side, as if the Type were public there. Each side's
+shape facts therefore record every Member's declaration facts with its
+version's admission, and the comparison places them.
 
 Those are Finding Diff Any's [Body axis](finding-diff-any.md#axes) facts at
 every accessibility. Every Member therefore owns shape facts on at least one
@@ -152,8 +173,8 @@ that at rung 4. Until that view lands, such a row has no rung-4 view, the
 interim exception Diff capabilities' adoption step 1 records.
 
 Each shape fact is a function of one version, and the axis a declaration fact
-compares on is settled across the pair as above, so two retained maps can be
-compared without reopening either image. The map adds no equality. Two API facts
+compares on is settled across the pair as above, so two sides' shape facts can
+be compared without reopening either image. The map adds no equality. Two API facts
 are equal exactly when the complete Public API comparison reports no change to
 the Member, which is Finding Diff Any's API axis, and two Body facts are equal
 exactly when Finding Diff Any's Body axis would call them equal. Finding Diff
@@ -177,8 +198,9 @@ Failed, Unavailable, or `Indeterminate`.
 
 In the one-version map, a key, or the Type, is listed exactly when it has an
 admitted finding or its analysis outcome is unsettled, so the annotations are
-the Members that the requested analyses mark. Shape facts are not annotations:
-every Member has them, and they are carried so two maps can be compared.
+the Members that the requested analyses mark. Shape facts are not
+annotations and are not one-version content: the one-version map reads only the
+requested analyses.
 
 A Member that is not listed has, with a `Complete` Type outcome, nothing to
 report. With a partial Type outcome, the map carries that outcome and makes no
@@ -186,8 +208,8 @@ claim about Members that are not listed.
 
 ## The map diff
 
-The map diff of a Type is computed from the Type's two maps, Before and After,
-by one rule:
+The map diff of a Type is computed from the Type's Before and After shape
+facts, fact streams, and findings, by one rule:
 
 1. **Join by key.** Each key is on both sides, After only, or Before only. The
    map does not pair Members across keys: a Member whose signature changed is
@@ -251,14 +273,12 @@ A host that needs the partition asks for the diff.
 
 ### Implementation
 
-Both forms are one implementation: a map producer, and a comparison over two
-maps. The map diff may compare two retained maps, or produce both maps in
-lockstep over an image pair and stop each comparison at its first difference
-when only Exists is asked; the result is the same. It never runs a separate
-walk that decides changes another way. A retained map holds every method's
-fact stream, so producing two maps censuses unchanged Members too; producing
-them in lockstep can census only the listed Members. Adoption steps 3 and 5
-measure both.
+Both forms are one implementation: the registered families, and a comparison
+over two sides' contributions. The map diff reads both sides' shape facts in
+lockstep over an image pair, stops at its first difference when only Exists is
+asked, and censuses fact streams only for the Members it lists. It never runs a
+separate walk that decides changes another way, and it never compares two
+one-version maps, which hold only their implicated Members.
 
 Finding Diff Any's census is a one-version table of shape facts per Type keyed
 by the census key, so the shape comparison is what Finding Diff Any computes.
@@ -367,8 +387,8 @@ Type and fetches source when the user opens a Member.
 The map and the map diff are result documents, lowered to JSON and Markout by
 Presentation as [Diff system](diff-system.md#markout) describes for diff
 documents. The JSON form is the keyed collection: an object from Member key,
-spelled as its anchor, to that Member's elements, beside the Type's entries
-and outcome. Markout renders the Rows projection as a table of Member rows with
+spelled as its anchor, to that Member's elements, beside the Type's
+coordinate, entries, and outcome. Markout renders the Rows projection as a table of Member rows with
 their tallies. The CLI writes both; Inspect Web presents the rows in Type
 Compare and looks Members up by key. Neither host computes findings itself.
 
@@ -403,7 +423,7 @@ complete diffs' own code
 ([evidence](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6252848264)).
 Its verdicts equalled the complete diffs on six pairs, but text identities
 (method keys, operands, and the API surface model) cost several times Finding
-Diff Any's symbolic census. A retained map's API facts are the Public API
+Diff Any's symbolic census. A side's API shape facts are the Public API
 surface projection, whose exact-Type cost is measured in
 [#10221](https://github.com/richlander/dotnet-inspect/issues/10221), and its
 Body facts use Finding Diff Any's symbolic identities; a Body fact for each
@@ -424,8 +444,8 @@ Each step is its own focused effort:
    Body fact per method under Finding Diff Any's Body equality, with NativeAOT
    cost per Type for each against Finding Diff Any's lockstep walk. Each is a
    registered family in
-   [Annotated Type Map planning](annotated-type-map-planning.md). A retained map
-   carries both; planning also serves a family contribution request for one
+   [Annotated Type Map planning](annotated-type-map-planning.md). The map diff
+   reads both; planning also serves a family contribution request for one
    family's facts outside a map, and each family's producer constructs only
    that family.
 3. **Fact census without text.** The Annotated Source owner produces one
@@ -437,8 +457,9 @@ Each step is its own focused effort:
    code's facts.
 4. **The one-version map** at Type scope, for the admitted analyses in
    [#10217](https://github.com/richlander/dotnet-inspect/issues/10217).
-5. **The map diff** at Type scope, over two maps from step 4's producer, with
-   its Library and Member scopes, terminals, and tallies.
+5. **The map diff** at Type scope, over the pair's shape facts and step 4's
+   finding families, with its Library and Member scopes, terminals, and
+   tallies.
 6. **CLI output** of both forms as JSON and Markout.
 7. **Inspect Web Type Compare** presents the map diff's rows, and its Type
    marks come from Exists per Type
@@ -451,9 +472,14 @@ implementation and, if adopted, of its QuerySpace operators.
 
 ## Gates
 
-- **One implementation:** for every fixture Type pair, the map diff computed
-  from two retained maps equals the map diff computed in lockstep, element for
-  element and outcome for outcome.
+- **One implementation:** for every fixture Type pair, each listed Member's
+  finding transitions are computed from the same finding families the
+  one-version map reads, and no map diff compares two one-version maps.
+- **Implicated Members:** a one-version map holds exactly its listed rows and
+  the coordinate, so a request for unsafe Members has one row per unsafe
+  Member and a Count equal to their number; a request naming no analysis is the
+  coordinate and outcome with no rows, Count zero, and Exists `false` with a
+  complete outcome.
 - **Agreement:** over the Finding Diff Any fixture pairs and the spike's
   pairs, each Member's API and Body transitions equal Finding Diff Any's states
   for that Member, where a one-sided key's `Added` or `Removed` is Finding Diff
@@ -492,9 +518,9 @@ implementation and, if adopted, of its QuerySpace operators.
   unresolved rows reported separately, and Exists is `true` with a changed row,
   undecided with only unresolved rows, and `false` with none and a complete
   outcome at that scope.
-- **Retained maps:** for every fixture Member with uncertain API facts, such
-  as an attribute blob or nullable context, comparing two retained maps gives
-  Finding Diff Any's API state without reopening an image.
+- **Detached shape facts:** for every fixture Member with uncertain API facts,
+  such as an attribute blob or nullable context, comparing the two sides' API
+  shape facts gives Finding Diff Any's API state without reopening an image.
 - **Keys:** the JSON keyed collection and the Rows projection hold the same
   Members and elements, and no two Members share a spelled key.
 - **No fact census at Library scope:** producing map diff Library Rows runs no

@@ -92,8 +92,8 @@ places them during the shape comparison. A declaration fact's recorded
 admission, for a Member's facts and the Type's own facts alike, is its API
 axis admission evaluated as if the declaring Type were public on that side:
 Finding Diff Any's census classification with the owner treated as visible, including an explicit interface implementation's
-effective access, which reads Type-level interface data. A retained map
-therefore places its facts without a reader. The Type's actual admission is
+effective access, which reads Type-level interface data. A side's
+contribution therefore places its facts without a reader. The Type's actual admission is
 recorded separately, in the API shape family.
 
 Every contribution records its focus and the Type's **presence** on its side. A Type absent
@@ -112,8 +112,9 @@ An unsettled entry carries no partial content.
 An API projection is detached and partial: a surface at the `ApiAxis`
 extraction scope, which keeps hidden Members and marks them, holding the Type
 row and the projected Members, with the Type context the complete API comparison's
-classifier reads, and no reader or image. Two retained maps therefore compare
-without reopening an image, as the map's Retained maps gate requires. The
+classifier reads, and no reader or image. Two sides' projections therefore
+compare without reopening an image, as the map's Detached shape facts gate
+requires. The
 status facts are the ones an ordinary consumer filters on, such as the diff
 ladder's ordinary population, so they are part of the content, not a later
 family.
@@ -163,12 +164,11 @@ A key present on one side of a pair is not absent: it joins as one-sided.
 
 ### One-version map
 
-- **Rows:** the map is the Type's outcome, its shape (both shape-fact
-  families' entries), its annotations (the selected finding families'
-  entries), and each method's fact stream. A key, or the Type, is listed
-  exactly when it has an admitted finding or an unsettled analysis outcome, the
-  map's one-version listing rule. Shape facts are carried for later
-  comparison and never list a key.
+- **Rows:** the map is the Type's coordinate and outcome and its annotations
+  (the selected finding families' entries) for the listed keys only. A key, or
+  the Type, is listed exactly when it has an admitted finding or an unsettled
+  analysis outcome, the map's one-version listing rule. A request naming no
+  finding family is the coordinate and outcome with no rows.
 - **Count and Exists:** from the selected finding families' entries only, by
   the same listing rule: Count reports changed rows and, separately,
   unresolved rows; Exists is `true` with a changed row, undecided with only
@@ -288,8 +288,9 @@ and none throws merely because it is not successful.
   declaration are unchanged.
 - **Listing:** the map owner's Listing, Exactness, Outcomes, and Symmetry gates,
   over settled contributions.
-- **Retained comparison:** comparing two settled one-version Rows maps gives
-  the same map diff as settling the pair, element for element.
+- **Implicated Members:** a one-version Rows map holds exactly its listed
+  keys, and a request naming no finding family settles to the coordinate and
+  outcome with no rows.
 - **Absent keys:** in a Member-scope pair request, a key present on one side
   only is `Added` or `Removed`, the same row as at Type focus. A key present on
   no requested side is an unresolved `Unavailable` row in a map at every
@@ -321,8 +322,8 @@ and none throws merely because it is not successful.
 - This owner does not define any shape fact, finding, equality, key, listing
   rule, terminal, or outcome; the map and its consumed owners do.
 - It does not execute producers, plan requests, or choose sources.
-- It does not decide whether a map diff is computed from retained maps or in
-  lockstep; the map admits both and its adoption steps measure both.
+- It does not compute a map diff from two one-version maps; the map diff
+  settles from the pair's contributions.
 - It does not define portable serialization, CLI or Browser rendering, or a
   host's retention.
 - It does not pair Members across keys; correspondence across keys belongs to
