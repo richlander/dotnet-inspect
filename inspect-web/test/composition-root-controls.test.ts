@@ -896,7 +896,10 @@ test("typed package view owns package navigation bindings", () => {
     /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*section,\s*resourceMethodToken,\s*usePerformanceBody\)/);
   assert.match(
     appSource,
-    /implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\)/);
+    /const implementationMember =\s*selectedMemberUsesImplementationDeclaration\(type, overload\)/);
+  assert.match(
+    appSource,
+    /memberDetailInspection\.loadDeclaration\(\{\s*signature: declarationSignature,[\s\S]*?implementationMember,/);
   assert.match(
     appSource,
     /performanceMemberBrowseContext\.populationReceipt\.key\s*=== typeMemberPopulationKey\(type, "performance"\)/);

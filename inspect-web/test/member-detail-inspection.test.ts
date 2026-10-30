@@ -580,6 +580,50 @@ test("selected declaration unavailability remains typed data", async () => {
   assert.equal(state.memberDeclarationError, "");
 });
 
+test("declaration completion from a previous participant remains stale", async () => {
+  const implementation = deferred<BrowserMemberDeclaration>();
+  const ordinary = deferred<BrowserMemberDeclaration>();
+  let participant: "ordinary" | "implementation" = "implementation";
+  const state = inspectionState();
+  const coordinator = createMemberDetailInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDeclaration: request =>
+        request.implementationMember
+          ? implementation.promise
+          : ordinary.promise,
+    }));
+
+  const implementationLoad = coordinator.loadDeclaration(declarationRequest({
+    signature: "declaration:implementation",
+    implementationMember: true,
+    isCurrent: () => participant === "implementation",
+  }));
+  participant = "ordinary";
+  const ordinaryLoad = coordinator.loadDeclaration(declarationRequest({
+    signature: "declaration:ordinary",
+    implementationMember: false,
+    isCurrent: () => participant === "ordinary",
+  }));
+  ordinary.resolve({
+    text: "public void Narrow(int source1, int source2)",
+    unavailable: null,
+    compatibility: false,
+  });
+  await ordinaryLoad;
+
+  implementation.resolve({
+    text: "public void Narrow(int low, int high)",
+    unavailable: null,
+    compatibility: false,
+  });
+  await implementationLoad;
+
+  assert.equal(state.memberDeclarationKey, "declaration:ordinary");
+  assert.equal(
+    state.memberDeclaration?.text,
+    "public void Narrow(int source1, int source2)");
+});
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
