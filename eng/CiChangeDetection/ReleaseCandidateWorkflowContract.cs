@@ -408,7 +408,6 @@ internal static class ReleaseCandidateWorkflowContract
             "tests/DotnetInspector.PerformanceOracles.Tests",
             "tests/Inspector.Text.Tests",
             "tests/DotnetInspector.SourceSelection.Tests",
-            "tests/DotnetInspector.SourceDelegation.Tests",
             "tests/DotnetInspector.SourceHouse.Tests",
             "tests/DotnetInspector.Sections.Tests",
             "tests/ILInspector.Instructions.Tests",
