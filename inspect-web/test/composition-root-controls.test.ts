@@ -71,6 +71,7 @@ import {
 setTypeViewFacetCatalog([
   { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
   { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.analysis", kind: "Type", title: "Analysis", order: 250 },
   { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
   { id: "type.source", kind: "Type", title: "Source", order: 400 },
   { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
@@ -1602,7 +1603,7 @@ test("typed scope bar owns its rendered control bindings", () => {
                     if: 'target === "type"',
                     whenTrue: [
                       {
-                        if: "!selectedType() && packageSurfaceCanLoadTypes(state.package)",
+                        if: "!selectedType() && packageSurfaceIsEligible(state.package)",
                         whenTrue: [
                           "call:observeAsync(enterTypeSubjectFromPackageSummary(state.package, navigationSeq), `Loading ${state.package.id} Type navigation`)",
                           "statement:ReturnStatement:return;",
@@ -2269,7 +2270,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function pickSpotlightMember\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
-    /async function pickSpotlight\([\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*packageSurfaceCanLoadTypes\(pkg\)[\s\S]*loadPackageSurface\(pkg\)[\s\S]*if \(!pkg \|\| !type\)[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
+    /async function pickSpotlight\([\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*packageSurfaceIsEligible\(pkg\)[\s\S]*loadPackageSurface\(pkg\)[\s\S]*if \(!pkg \|\| !type\)[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
     /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\([\s\S]*focusGeneration = documentFocusGeneration,[\s\S]*canRestoreWorkbenchFocus\(generation, focusGeneration\)/);

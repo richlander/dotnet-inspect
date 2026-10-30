@@ -84,7 +84,7 @@ public sealed record LibraryQueryOptions : IProjectionOptions
     ];
 
     public static string DiscoverySummary =>
-        "Use library query with repeated --where terms. "
+        "Use find --libraries with repeated --where terms. "
         + "references=<assembly simple name> matches a direct AssemblyRef; "
         + "repeated reference terms are ANDed. "
         + "--take bounds candidate Libraries; -n and --rows select final "
@@ -127,7 +127,7 @@ public sealed record LibraryQueryOptions : IProjectionOptions
                 plan = null;
                 error =
                     "Library Query terms currently support equality; run "
-                    + "'library query -Q Libraries' for keys and values.";
+                    + "'find --libraries -Q Libraries' for keys and values.";
                 return false;
             }
 
@@ -141,7 +141,7 @@ public sealed record LibraryQueryOptions : IProjectionOptions
                 plan = null;
                 error =
                     $"Library Query does not define term '{syntax.Field}'; "
-                    + "run 'library query -Q Libraries' for the current vocabulary.";
+                    + "run 'find --libraries -Q Libraries' for the current vocabulary.";
                 return false;
             }
 

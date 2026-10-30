@@ -120,7 +120,7 @@ dotnet-inspect explain <library-literal-resource-path>
 and can execute the established production scenario:
 
 ```console
-dotnet-inspect package query Microsoft.Azure.SignalR \
+dotnet-inspect find --packages Microsoft.Azure.SignalR \
   --where "library-literal=https://" --tfm net8.0 \
   -S "Literal Strings"
 ```

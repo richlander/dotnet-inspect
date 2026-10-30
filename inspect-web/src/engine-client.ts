@@ -28,6 +28,7 @@ type AsyncFacade<
 type PackageOperations =
   | "activatePlatformForwarder"
   | "activateWorkspacePackageOccurrence"
+  | "classifyEcosystemAssemblyNames"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "containPackageDocumentLeaves"
@@ -45,6 +46,7 @@ type PackageOperations =
   | "prefetchPlatformPacks"
   | "queryLibraries"
   | "queryLibraryApi"
+  | "queryLibrarySurface"
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackage"
@@ -72,6 +74,7 @@ type MetadataOperations =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
   | "findTypes"
+  | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
   | "queryMemberDeclaration"

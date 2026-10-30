@@ -1944,6 +1944,9 @@ test("Type Overview adopts the full-area metadata surface", () => {
   assert.match(
     renderLens,
     /case "metadata":\s*case "overview":\s*return renderTypeMetadataHtml\(item\);/);
+  assert.match(
+    appSource,
+    /function inspectSelectedTypeRelations\(\)[\s\S]*?const isCurrent = \(\) =>[\s\S]*?currentTypeMetadataSignature[\s\S]*?isCurrent,\s*isVisible: \(\) =>\s*scope\(\) === "type"\s*&& \(state\.lens === "analysis"\s*\|\| state\.lens === "overview"\s*\|\| state\.lens === "metadata"\)\s*&& isCurrent\(\)/);
   assert.doesNotMatch(
     renderLens,
     /case "metadata":[\s\S]*?typeHeadingHtml\(item\)/);
@@ -2088,10 +2091,10 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
-    6);
+    7);
   assert.match(
     appSource,
-    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, selectedGroupIndex\)/);
+    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, explicitGroupIndex\)/);
   assert.match(
     stylesSource,
     /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
@@ -2109,7 +2112,7 @@ test("Dependencies adopts the shared graph viewer without moving the package lis
     /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
   assert.match(
     appSource,
-    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{platformReferenceSection\}\$\{depList\}/);
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{selectedPlatformReferenceSection\}\$\{depList\}/);
   assert.match(
     appSource,
     /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);
