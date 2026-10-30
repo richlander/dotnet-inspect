@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Diff;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -263,26 +264,8 @@ public static partial class MetadataExports
 
         return outcome switch
         {
-            AssemblyContextFindingDiffAnyOutcome.Compared compared => new(
-                BrowserLibraryFindingDiffAnySchema.Version,
-                request,
-                BrowserLibraryFindingDiffAnyResultKind.Succeeded,
-                new BrowserLibraryFindingDiffAnyValue(
-                    target.Asset.Id,
-                    current.Asset.Id,
-                    compared.Result.Types.Length,
-                    [
-                        .. compared.Result.Types
-                            .Where(type => IsReported(type.Api) || IsReported(type.Body))
-                            .Select(type => new BrowserFindingDiffAnyType(
-                                type.Identifier,
-                                type.FullName,
-                                Project(type.Api),
-                                Project(type.Body))),
-                    ]),
-                Error: null,
-                Diagnostic: null,
-                Reason: null),
+            AssemblyContextFindingDiffAnyOutcome.Compared compared =>
+                ProjectFindingDiffAny(request, target, current, compared.Result),
             AssemblyContextFindingDiffAnyOutcome.Rejected rejected => new(
                 BrowserLibraryFindingDiffAnySchema.Version,
                 request,
@@ -293,6 +276,44 @@ public static partial class MetadataExports
                 Reason: null),
             _ => throw new InvalidOperationException("Unknown Finding Diff Any outcome."),
         };
+    }
+
+    /// <summary>
+    /// Projects a completed comparison through the Finding Diff Any route's
+    /// document, the export's binding to that route: its reported Types and
+    /// compared-Type count.
+    /// </summary>
+    static BrowserLibraryFindingDiffAnyResult ProjectFindingDiffAny(
+        BrowserLibraryFindingDiffAnyRequest request,
+        BrowserWorkspaceParticipant target,
+        BrowserWorkspaceParticipant current,
+        FindingDiffAnyResult result)
+    {
+        FindingDiffAnyLibraryDocument document = FindingDiffAnyLibraryInspection.Project(
+            new FindingDiffAnyLibraryComparison(
+                request.PackageId,
+                request.TargetVersion,
+                request.CurrentVersion,
+                Project(request.Axes)),
+            result).Content;
+        return new(
+            BrowserLibraryFindingDiffAnySchema.Version,
+            request,
+            BrowserLibraryFindingDiffAnyResultKind.Succeeded,
+            new BrowserLibraryFindingDiffAnyValue(
+                target.Asset.Id,
+                current.Asset.Id,
+                document.Receipt!.ComparedTypes,
+                [
+                    .. document.Rows.Select(static row => new BrowserFindingDiffAnyType(
+                        row.Identifier,
+                        row.Type,
+                        Project(row.Api),
+                        Project(row.Body))),
+                ]),
+            Error: null,
+            Diagnostic: null,
+            Reason: null);
     }
 
     static BrowserLibraryFindingDiffAnyResult MissingCounterpart(
@@ -321,9 +342,6 @@ public static partial class MetadataExports
                 missing.RuntimeIdentifier,
                 [.. missing.AvailableRuntimeIdentifiers]));
     }
-
-    static bool IsReported(FindingDiffAnyState state)
-        => state is FindingDiffAnyState.Changed or FindingDiffAnyState.Indeterminate;
 
     static BrowserFindingDiffAnyState Project(FindingDiffAnyState state) => state switch
     {
