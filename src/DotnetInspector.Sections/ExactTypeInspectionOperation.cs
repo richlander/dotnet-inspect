@@ -618,7 +618,8 @@ public static partial class ExactTypeInspectionOperation
             projectionLimits);
 
     static SelectedContextExactTypeLiveTarget? LiveTarget(
-        ExactTypeInspectionTarget? target) =>
+        ExactTypeInspectionTarget? target,
+        ImmutableArray<byte>? implementationPortablePdb = null) =>
         target is null
             ? null
             : new(
@@ -631,6 +632,8 @@ public static partial class ExactTypeInspectionOperation
                 target.PackageAssetPath,
                 target.PackageExtractPath)
             {
+                ImplementationPortablePdb =
+                    implementationPortablePdb,
                 OpenCompiledDocumentation =
                     target.OpenCompiledDocumentation,
             };
