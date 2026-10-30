@@ -153,9 +153,13 @@ subject: each Member keeps its own result and outcome. The set lets those
 questions share one plan and one typed-query demand; it introduces no scope.
 For a map request, each Member's answer follows the map's Member-scope row.
 
-A Member key embeds its declaring Type, so a key of another Type fails at the
-request boundary from the key alone, without opening an image. For a pair,
-keys are Finding Diff Any's side-independent keys.
+A Member key is a Finding Diff Any census key's exact bytes; for a pair, keys
+are Finding Diff Any's side-independent keys. The request boundary checks a
+key set for presence and repetition only, because no public key type exposes
+the declaring Type it embeds: that part of the census key grammar is internal
+to Finding Diff Any. The adapter that answers the questions reads the focus
+Type's census, so a key outside it is a typed failure of that Member's
+question, never a silent empty answer.
 
 ## Registration
 
@@ -253,10 +257,39 @@ Resolution returns one typed rejection for an unknown family, a family the
 map does not admit, a map-carried contribution selected in a map request, an
 unsupported focus, an unsupported form or terminal, or an adapter query
 absent from the supplied catalog. Invalid construction, such as a non-Type
-focus, an empty Member key set, a key of another Type, duplicate families, or
-a one-version map request with no finding family, fails at the request
+focus, an empty or repeated Member key set, duplicate families, a map request
+with no terminal, a family contribution request with a terminal or no family,
+or a one-version map request with no finding family, fails at the request
 boundary. Registration defects fail while forming the
 immutable catalog. None becomes an empty successful plan.
+
+## Traceability
+
+A hard-coded provider is traced by reading its code: a fact's field leads to
+the line that sets it. A registry replaces that with an open set of producers,
+so this owner keeps three trails instead.
+
+- **The family is the trail.** Every contribution carries its exact family
+  (`AnnotatedTypeMapContribution.Family`), and every plan records, in registry
+  order, each family, why it is there (selected, map-carried, or selected but
+  not demanded), and the adapter query it binds
+  (`AnnotatedTypeMapPlan.Trail`). Which producer supplied a fact is read from
+  the result and its plan, not searched for in code.
+- **The registry snapshot is pinned.** `AnnotatedTypeMapCatalog.Describe`
+  states each registration as one stable line: family, kind, classification,
+  focus support, and each result kind's adapter query. A gate test pins a
+  registry's snapshot, so adding or swapping a producer is a visible review
+  diff. The production registry's snapshot is pinned from the first
+  production registration, adoption step 4.
+- **The plan explains itself.** `AnnotatedTypeMapPlan.Explain` states the
+  result kind and one line per family with its reason and adapter. Hosts show
+  it as Debug evidence when they expose map requests, the map's adoption steps
+  6 and 7.
+
+A finding family declares its provenance classification when it is created,
+and registration admits only Local instruction. The provenance matrix does not
+yet type its classifications in code, so the declaration is the producer's,
+gated by the admission test.
 
 ## Gates
 
@@ -293,12 +326,21 @@ immutable catalog. None becomes an empty successful plan.
   selections.
 - **Determinism:** equal registry and request snapshots produce equal ordered
   family and query demands.
+- **Trail:** every resolved family appears in the plan's trail with its reason
+  and adapter, and a family selected but not demanded binds none.
+- **Snapshot:** a registry's `Describe` lines are pinned by a test.
+- **Explanation:** a plan's `Explain` lines are stable for equal registry and
+  request snapshots.
 
 ## Adoption
 
 1. Lock this planning owner. This documentation slice.
 2. Implement family registration and exact selection planning for both
-   request forms.
+   request forms, with the trail, snapshot, and explanation of
+   [Traceability](#traceability). `AnnotatedTypeMapPlanning.cs` in
+   `DotnetInspector.Sections` implements it, gated by
+   `AnnotatedTypeMapPlanningTests`; `AnnotatedTypeMapContribution` carries
+   only its family until step 3 defines its settled content.
 3. Implement contribution settlement and map generation, in a focused
    generation owner.
 4. Register the API shape-fact family over `ApiSurfaceExtractor` for Type
