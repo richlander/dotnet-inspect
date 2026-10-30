@@ -780,7 +780,7 @@ not adopted this transport.
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
 | Add structural format, shape, and cardinality details | `-D --details`, `-D <exact-name> --details` (library, package, type, member) |
-| Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
+| Discover query facets and operators | `-Q` on library/type/member/package/find/depends/diff; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
 | Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
@@ -874,7 +874,8 @@ requesting a single-result projection such as `--tree` or `--mermaid`.
 `explain <catalog>/sections/<section>` reports the same shape and cardinality
 for one section, beside its formats and members. The catalogs are `library`,
 `package`, `type` (the type listing), `member` (one type's members),
-`member-overload`, and `member-detail` (one exact member).
+`member-overload`, `member-detail` (one exact member), and `diff` (the
+comparison sections).
 
 For one library, its field-set records — `Library Info`,
 `SourceLink: Availability`, `SourceLink: Integrity`, `Symbols`, and
@@ -2474,6 +2475,20 @@ Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
 Diff` views. `Annotated Source Diff`, `Complexity Context`, `Structural
 Context`, `Summary`, and `Transitions` remain exact-name sections because
 their focused semantics do not compose with those comparison views.
+
+`explain diff` describes these sections without acquiring a package:
+`explain diff/sections/changes` states each section's shape, formats, and
+description, and `diff -D` lists the same paths. `-S Changes` keeps the
+complete population, including Other API Changes; `--breaking` and
+`--additive` are assessed subsets of it. `diff -Q` lists the one Diff query
+key, `Literal` on `Transitions`, which `--analysis string-literals` requires.
+`diff` does not admit `--explain`.
+
+```bash
+dotnet-inspect explain diff
+dotnet-inspect explain diff/sections/changes
+dotnet-inspect diff -Q Transitions
+```
 
 `--analysis` selects which keyed Finding comparisons a pairwise diff runs.
 It takes one or more analysis identities, comma-separated or repeated, and
