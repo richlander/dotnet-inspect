@@ -1,3 +1,5 @@
+using NuGetFetch;
+
 namespace DotnetInspector.Packages;
 
 /// <summary>
@@ -76,6 +78,16 @@ internal interface IPreparedPackageStore
         string sourceKey,
         PackageArchivePayload archive,
         CancellationToken cancellationToken = default);
+}
+
+/// <summary>Additional complete-cache tier requiring asynchronous storage I/O.</summary>
+internal interface IAsyncPackageCacheStore
+{
+    ValueTask<IPackageContent?> ReadCachedAsync(
+        PackageSourceCoordinate coordinate,
+        string producerKey,
+        PackagePayloadLimits limits,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
