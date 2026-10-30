@@ -135,6 +135,9 @@ public sealed class DeclaredJsonSchemaVocabularyDescriptorTests
         Assert.Equal(
             "package-query.durable-row",
             envelope.Content.Contract.Value);
+        Assert.Equal(
+            PackageQueryProgressiveJsonlContract.DescriptorIdentity,
+            envelope.Content.DescriptorIdentity.Value);
         Assert.Empty(envelope.Diagnostics);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
         var staleRequest = request with

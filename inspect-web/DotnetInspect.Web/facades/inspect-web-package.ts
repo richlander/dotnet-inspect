@@ -150,6 +150,10 @@ export type PackageManifestFrameworkReferenceFailureReason = number;
 
 export type PackageManifestIdentityProvenance = number;
 
+export type ProgressiveJsonlDirection = "serialize" | number;
+
+export type ProgressiveJsonlLineTerminator = "LF" | number;
+
 export type TextConcern = number;
 
 export type VisualForm = number;
@@ -1550,6 +1554,16 @@ export interface PackageManifestFrameworkReferenceGroup {
   readonly references: ReadonlyArray<PackageFrameworkReferenceIdentity>;
 }
 
+export interface ProgressiveJsonlProfile {
+  readonly formatVersion: number;
+  readonly contractIdentity: string;
+  readonly direction: ProgressiveJsonlDirection;
+  readonly descriptorIdentity: string;
+  readonly maximumBatchJsonCodeUnits: number;
+  readonly maximumRecordsPerBatch: number;
+  readonly lineTerminator: ProgressiveJsonlLineTerminator;
+}
+
 export interface Absent {
   readonly kind: "absent";
 }
@@ -1800,6 +1814,7 @@ type $ManagedExports = {
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
             readonly "InspectPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, runtimeIdentifier: string | null) => Promise<string>;
             readonly "InspectPackageQueryFacets.1310674786": () => string;
+            readonly "InspectPackageQueryProgressiveJsonlProfile.1310674786": () => string;
             readonly "ListPackageActivityEcosystems.1310674786": () => string;
             readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "LoadRuntimePackAssembly.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string) => Promise<string>;
@@ -2068,6 +2083,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "InspectPackageQueryFacets.1310674786");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.InspectPackageQueryFacets.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "InspectPackageQueryProgressiveJsonlProfile.1310674786");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.InspectPackageQueryProgressiveJsonlProfile.1310674786\u0027 is not callable.");
     }
   }
   {
@@ -2557,6 +2584,12 @@ export async function inspectPackageDependencies(packageId: string, version: str
 
 export function inspectPackageQueryFacets(): string {
   return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["InspectPackageQueryFacets.1310674786"]();
+}
+
+export function inspectPackageQueryProgressiveJsonlProfile(): InspectionEnvelope<ProgressiveJsonlProfile | null> {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["InspectPackageQueryProgressiveJsonlProfile.1310674786"]();
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as InspectionEnvelope<ProgressiveJsonlProfile | null>;
 }
 
 export function listPackageActivityEcosystems(): BrowserPackageChangesEcosystemCatalog {

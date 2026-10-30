@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -47,6 +48,128 @@ public sealed class BrowserPackageQueryOperationsTests
             identity =>
                 identity
                 == "package-query.term.library-literal");
+    }
+
+    [Fact]
+    public void ProgressiveJsonlProfileExportCarriesExactDescriptorAndBounds()
+    {
+        string json =
+            PackageExports.InspectPackageQueryProgressiveJsonlProfile();
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement content = document.RootElement.GetProperty("content");
+        Assert.Equal(1, content.GetProperty("formatVersion").GetInt32());
+        Assert.Equal(
+            PackageQueryDurableRowContract.ContractIdentity,
+            content.GetProperty("contractIdentity").GetString());
+        Assert.Equal(
+            PackageQueryDurableRowContract.Direction,
+            content.GetProperty("direction").GetString());
+        Assert.Equal(
+            PackageQueryProgressiveJsonlContract.DescriptorIdentity,
+            content.GetProperty("descriptorIdentity").GetString());
+        Assert.Equal(
+            PackageQueryProgressiveJsonlContract.MaximumBatchJsonCodeUnits,
+            content.GetProperty("maximumBatchJsonCodeUnits").GetInt32());
+        Assert.Equal(
+            PackageQueryProgressiveJsonlContract.MaximumRecordsPerBatch,
+            content.GetProperty("maximumRecordsPerBatch").GetInt32());
+        Assert.Equal("LF", content.GetProperty("lineTerminator").GetString());
+        Assert.Equal(
+            "nonProjectable",
+            document.RootElement
+                .GetProperty("share")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Empty(
+            document.RootElement
+                .GetProperty("diagnostics")
+                .EnumerateArray());
+    }
+
+    [Fact]
+    public void ProgressiveJsonlWriterUsesTheDeclaredThirteenSlotRow()
+    {
+        var row = new BrowserPackageQueryRow(
+            "Contoso.Package",
+            "1.2.3",
+            BrowserPackageQueryAcquisitionTier.PackageContent,
+            [
+                new(
+                    "license",
+                    "MIT",
+                    new("license", "=", "MIT")),
+            ],
+            [
+                new(
+                    "readme",
+                    BrowserPackageQueryEvidenceScope.Package,
+                    new(1, ["line\nbreak"]),
+                    [new("path", "README.md")],
+                    17),
+            ],
+            TotalDownloads: 42,
+            Verified: true,
+            Producer: "nuget.org",
+            Description: "BMP-\u00E9 astral-\U0001F600 line\nbreak",
+            RootRequest: "root/request")
+        {
+            Owners = ["owner-a", "owner-b"],
+            Manifest = new(
+                "Contoso.Package",
+                "1.2.3",
+                "1",
+                "manifest",
+                "Contoso",
+                Repository: null,
+                RepositoryType: null,
+                RepositoryCommit: null,
+                License: "MIT",
+                LicenseUrl: null,
+                PackageTypes: [],
+                IsToolPackage: false,
+                ReadmeFile: "README.md",
+                DependencyGroups: [],
+                IconFile: null,
+                IconUrl: null,
+                BrowserPackageQueryManifestIdentityProvenance.ExpectedCoordinate),
+            EcosystemAdmission = new(
+                "ecosystem.contoso",
+                "Prefix",
+                "contoso"),
+        };
+
+        var encoded =
+            Assert.IsType<ProgressiveJsonlRecordEncodingOutcome.Encoded>(
+                PackageQueryProgressiveJsonlRowWriter.Instance.Encode(row));
+
+        Assert.DoesNotContain("\r", encoded.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", encoded.Content, StringComparison.Ordinal);
+        using JsonDocument document = JsonDocument.Parse(encoded.Content);
+        JsonElement values = document.RootElement;
+        Assert.Equal(JsonValueKind.Array, values.ValueKind);
+        Assert.Equal(PackageQueryDurableRowContract.SlotCount, values.GetArrayLength());
+        Assert.Equal("Contoso.Package", values[0].GetString());
+        Assert.Equal("1.2.3", values[1].GetString());
+        Assert.Equal("PackageContent", values[2].GetString());
+        Assert.Equal("license", values[3][0].GetProperty("id").GetString());
+        Assert.Equal("readme", values[4][0].GetProperty("id").GetString());
+        Assert.Equal(42, values[5].GetInt64());
+        Assert.True(values[6].GetBoolean());
+        Assert.Equal("nuget.org", values[7].GetString());
+        Assert.Equal(
+            "BMP-\u00E9 astral-\U0001F600 line\nbreak",
+            values[8].GetString());
+        Assert.Equal("root/request", values[9].GetString());
+        Assert.Equal(["owner-a", "owner-b"], values[10]
+            .EnumerateArray()
+            .Select(value => value.GetString()));
+        Assert.Equal("README.md", values[11]
+            .GetProperty("readmeFile")
+            .GetString());
+        Assert.Equal(
+            "ecosystem.contoso",
+            values[12].GetProperty("ecosystemId").GetString());
     }
 
     [Fact]

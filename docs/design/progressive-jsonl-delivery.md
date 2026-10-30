@@ -5,7 +5,18 @@
 This document is the normative owner for **Progressive JSONL Delivery**,
 tracked by
 [#8595](https://github.com/richlander/dotnet-inspect/issues/8595).
-The pattern is designed but not yet implemented.
+The host-neutral profile, request validation, bounded batcher, Package Query
+positional writer, and generated profile facade are implemented by
+[#10883](https://github.com/richlander/dotnet-inspect/issues/10883).
+Package Query callback, Worker, page-decoding, and production-comparison
+adoption remain planned.
+
+The generated facade currently spells the envelope content as
+`ProgressiveJsonlProfile | null`. Runtime construction rejects null content;
+the wider TypeScript type reflects ts-jsexport's conservative treatment of
+signature-only generic reference arguments whose nested nullable annotations
+are not authenticated. A focused binding-fidelity successor should carry that
+nullability explicitly rather than introducing a Browser-only envelope.
 
 [JSON Schema Vocabulary Bindings](json-schema-vocabulary-bindings.md) supplies
 the exact output descriptor used to interpret every record. The
@@ -709,13 +720,13 @@ while preserving the former cost.
 
 This focused pattern has three counted steps:
 
-1. **Focused design - current.** Lock JSONL framing, string batching,
+1. **Focused design - complete.** Lock JSONL framing, string batching,
    descriptor join, currencies, failure, and adoption boundaries.
-2. **Host-neutral writer and generated contract.** Implement the positional row
+2. **Host-neutral writer and generated contract - implemented.** Implement the positional row
    writer, progressive batcher, profile, accounting, generated facade surface,
    and boundary gates after JSON Schema Vocabulary Bindings supplies the exact
    descriptor.
-3. **Package Query Browser adoption.** Add the compact managed callback route,
+3. **Package Query Browser adoption - planned.** Add the compact managed callback route,
    forward exact batches through the existing Worker event transport, decode
    them by descriptor bindings on the page, preserve credit and non-row events,
    return summary-only terminal content without duplicate Browser row
