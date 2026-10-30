@@ -307,22 +307,23 @@ Implementation Diff endpoints and pairs those observations by the existing
 stable member identity plus physical evidence-method identity. The typed result
 retains unchanged, changed, added, removed, and incomplete observations,
 including old/new values and completeness flags. If either endpoint did not request
-profiles, or requested them over a scoped (not whole-assembly) method-evidence
-population, the complexity lane is unavailable rather than silently treated as
-a complete comparison. Assemblies present on only one side of a multi-assembly
-comparison contribute Added/Removed rows for their own members rather than
-being dropped. When a logical member owns more than one physical evidence
-method - most commonly multiple lambda/state-machine bodies - the generated
-name's ordinal is not a stable cross-version correspondence key (it shifts
-when lambdas are inserted, removed, or reordered), so those observations report
-Incomplete instead of a possibly-wrong Changed/Added/Removed pairing. A
-recoverable per-method Analysis failure (surfaced as a receipt diagnostic)
-leaves a profile missing without distinguishing it from a genuine
-addition/removal, so any diagnostic on either endpoint makes the whole
-comparison unavailable rather than reporting a possibly-spurious
-Added/Removed row. Each retained change also carries the full paired
-`MethodImplementationProfile` (old/new, when available) behind its narrow
-complexity number - the same instruction, branch, switch, loop,
+profiles, or requested them over a scoped (not whole-assembly) profile
+population, the complexity lane is unavailable rather than silently treated
+as a complete comparison. Profile population coverage owns that admission;
+ordinary Method Evidence need not be requested. Assemblies present on only one
+side of a multi-assembly comparison contribute Added/Removed rows for their own
+members rather than being dropped. When a logical member owns more than one
+physical evidence method - most commonly multiple lambda/state-machine bodies -
+the generated name's ordinal is not a stable cross-version correspondence key
+(it shifts when lambdas are inserted, removed, or reordered), so those
+observations report Incomplete instead of a possibly-wrong
+Changed/Added/Removed pairing. A recoverable per-method Analysis failure
+(surfaced as a receipt diagnostic) leaves a profile missing without
+distinguishing it from a genuine addition/removal, so any diagnostic on either
+endpoint makes the whole comparison unavailable rather than reporting a
+possibly-spurious Added/Removed row. Each retained change also carries the
+full paired `MethodImplementationProfile` (old/new, when available) behind its
+narrow complexity number - the same instruction, branch, switch, loop,
 exception-region, call, allocation, and async/state-machine facts Analysis
 already collects per method - so later comparison-population or clustering
 work can build directly on this paired evidence instead of re-deriving

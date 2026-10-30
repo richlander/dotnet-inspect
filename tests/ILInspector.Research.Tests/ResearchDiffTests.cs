@@ -2206,6 +2206,37 @@ public class ResearchDiffTests
 
     [Fact]
     public void
+        ImplementationComplexityService_UnscopedNamedProfiles_AreAvailable()
+    {
+        LibraryImplementationProfileAnalysisResult oldProfiles =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile())
+                .ImplementationProfiles;
+        LibraryImplementationProfileAnalysisResult newProfiles =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.DiffPair.NewAssemblyPath(),
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile())
+                .ImplementationProfiles;
+
+        Assert.False(
+            oldProfiles.Receipt.HasFullMethodEvidenceScope);
+        Assert.True(
+            oldProfiles.Coverage.HasFullMethodEvidenceScope);
+        ImplementationComplexityDiff result =
+            ImplementationComplexityService.Execute(
+                new(
+                    [oldProfiles],
+                    [newProfiles]));
+
+        Assert.True(result.IsAvailable);
+        Assert.NotEmpty(result.Changes);
+    }
+
+    [Fact]
+    public void
         ImplementationComplexityService_FunctionPointerConventionOverloadsRemainDistinct()
     {
         TypeRef integer = TypeRef.CoreLib("System", "Int32");
