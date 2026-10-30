@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 using DotnetInspect.Cli.Commands;
@@ -67,6 +68,81 @@ public sealed class ExternalCallGraphCommandTests
                     installed,
                     package,
                     out _));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task InstalledAspNetPopulationAdmitsRuntimeBindingSupport()
+    {
+        var authorization = new UniformPackageSourceAuthorization([Source]);
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Realize,
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(1));
+        var packages = new PackageDependencyMemberCallGraphInspectionSource(
+            new PackageDependencyTraversalCandidateAdapter(authorization),
+            new AuthorizedPackageDependencyManifestSource(),
+            new PackageHouse(
+                authorization,
+                new PackagePayloadAcquisitionPlan(
+                    static (_, _) =>
+                        throw new InvalidOperationException(
+                            "Installed Platform admission must not acquire Package dependencies."))),
+            static (_, _) =>
+                throw new InvalidOperationException(
+                    "Installed Platform admission must not open a Package source operation."));
+        await using var continuation =
+            new PackageDependencyMemberCallGraphContinuationSource(
+                packages,
+                operation,
+                static () =>
+                    throw new InvalidOperationException(
+                        "Installed Platform admission must not fall back to a Package source."),
+                NuGetSourceOptions.Default);
+        var work = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 1,
+                maxAcquisitions: 0,
+                maxRealizedAssemblies: 4_096,
+                maxTransferBytes: 2L * 1024 * 1024 * 1024,
+                maxRetainedAssemblyBytes: 2L * 1024 * 1024 * 1024,
+                maxWorkspaceReplacements: 1,
+                deadline: DateTimeOffset.UtcNow.AddMinutes(1)));
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
+        var target = new PlatformFamilyTarget(
+            PlatformFamily.AspNetCore,
+            PlatformTargetFramework.Parse($"net{Environment.Version.Major}.0"),
+            PlatformVersion.Parse(
+                Path.GetFileName(
+                    RuntimeEnvironment.GetRuntimeDirectory().TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar))));
+
+        ImmutableArray<PackageAssemblyContextPlatformLibrary> libraries =
+            await continuation.AdmitPlatformPopulationAsync(
+                workspace,
+                registrations,
+                target,
+                work,
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            libraries,
+            library => library.Library.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
+                == "Microsoft.AspNetCore.SignalR.Core");
+        Assert.Contains(
+            libraries,
+            library => library.Library.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
+                == "System.Private.CoreLib");
+        Assert.Equal(
+            0,
+            work.GetRemainingAllowance(
+                AssemblyReferenceResolutionWorkKind.SourceOperation));
     }
 
     [Fact]

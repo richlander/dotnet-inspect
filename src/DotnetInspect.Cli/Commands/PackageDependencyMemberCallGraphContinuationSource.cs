@@ -414,7 +414,6 @@ internal sealed class
                         request,
                         success,
                         ImplementationWork(
-                            success.Value.Frameworks.Count,
                             success.Value.Libraries.Count,
                             success.Value.ConsumedBytes,
                             Stopwatch.GetElapsedTime(started)))
@@ -468,7 +467,6 @@ internal sealed class
                 request,
                 packageSuccess,
                 ImplementationWork(
-                    packageSuccess.Value.Frameworks.Length,
                     packageSuccess.Value.Libraries.Length,
                     packageSuccess.Value.ConsumedBytes,
                     Stopwatch.GetElapsedTime(packageStarted)))
@@ -544,12 +542,11 @@ internal sealed class
             maxDuration: TimeSpan.FromMinutes(10));
 
     static PlatformHouseConsumedWork ImplementationWork(
-        int frameworks,
         int assemblies,
         long bytes,
         TimeSpan elapsed) =>
         new(
-            frameworks,
+            sourceOperations: 1,
             targetCandidates: 0,
             assemblies,
             xmlDocuments: 0,
