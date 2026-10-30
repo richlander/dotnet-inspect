@@ -1163,9 +1163,48 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   assert.match(
     selection,
     /const sourceIndex =\s*memberNavOverloadSourceIndex\(entry\.group, entry\.index\)[\s\S]*openOverload\(sourceIndex\)/);
+  const overloadSelection =
+    appSource.match(/function selectMemberNavOverload\([\s\S]*?\n}\n\n\/\/ Switch the open member/)?.[0]
+    ?? "";
   assert.match(
-    appSource,
-    /onOverloadSelect: index => \{[\s\S]*memberNavOverloadVisibleIndex\(group, index\)[\s\S]*selectMemberNavEntry\(\s*\{ kind: "overload", group, index: visibleIndex \}/);
+    overloadSelection,
+    /memberGroupForCurrentFilters\(type, memberKey \?\? ""\)[\s\S]*memberNavOverloadVisibleIndex\(group, index\)[\s\S]*selectMemberNavEntry\(\s*\{ kind: "overload", group, index: visibleIndex \}/);
+  const targetGroup = {
+    key: "method:Target",
+    overloads: [{ stableSelector: "mss1:target" }],
+  };
+  const overloadCalls: unknown[] = [];
+  runInNewContext(
+    stripTypeScriptTypes(`${overloadSelection}
+      selectMemberNavOverload("method:Target", 4);
+    `),
+    {
+      selectedType: () => ({ id: "T:Example" }),
+      memberGroupForCurrentFilters: (_type: unknown, key: string) =>
+        key === targetGroup.key ? targetGroup : undefined,
+      showContentDetailAfterRender: () =>
+        overloadCalls.push("show"),
+      memberNavOverloadVisibleIndex: (group: unknown, index: number) => {
+        overloadCalls.push({ group, sourceIndex: index });
+        return 0;
+      },
+      selectMemberNavEntry: (entry: unknown, preserve: boolean) =>
+        overloadCalls.push({ entry, preserve }),
+    });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(overloadCalls)),
+    [
+      "show",
+      { group: targetGroup, sourceIndex: 4 },
+      {
+        entry: {
+          kind: "overload",
+          group: targetGroup,
+          index: 0,
+        },
+        preserve: false,
+      },
+    ]);
 
   const pane =
     appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]
@@ -1494,6 +1533,7 @@ test("unavailable exact Member populations omit selector counts", () => {
       {
         state,
         type: { api: [] },
+        typeMemberPopulationSource: "ordinary",
         MEMBER_TRAITS,
         memberKindCount,
         partitionGraphMembers: () => ({
@@ -1679,6 +1719,7 @@ test("unavailable exact Member populations omit selector counts", () => {
     `),
     {
       state: privateState,
+      typeMemberPopulationSource: "ordinary",
       type: {
         definitionId: "T:Receiver",
         api: [contextualExtension, internalContextualExtension],
@@ -1762,7 +1803,7 @@ test("member population status stays visible outside collapsed filters", () => {
     /Signature search unavailable:[\s\S]*Loading exact signature matches/);
 
   const status =
-    appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction memberPopulationSummary/)?.[0]
+    appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction renderTypeMemberDocumentStatus/)?.[0]
     ?? "";
   assert.match(
     status,
@@ -1773,10 +1814,10 @@ test("member population status stays visible outside collapsed filters", () => {
     ?? "";
   assert.match(
     summary,
-    /phase === "failed"[\s\S]*complete population unavailable[\s\S]*Member population unavailable/);
+    /phase === "failed"[\s\S]*exactContent[\s\S]*"exact"[\s\S]*"complete"[\s\S]*population unavailable[\s\S]*"Exact Member"[\s\S]*"Member"[\s\S]*population unavailable/);
   assert.match(
     summary,
-    /loading complete population[\s\S]*Loading member population/);
+    /loading \$\{exactContent[\s\S]*"exact"[\s\S]*"complete"[\s\S]*population[\s\S]*Loading \$\{exactContent[\s\S]*"exact Member"[\s\S]*"member"[\s\S]*population/);
 
   const renderApi =
     appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
@@ -1790,6 +1831,226 @@ test("member population status stays visible outside collapsed filters", () => {
   assert.match(
     renderApi,
     /typeMemberPopulationPhase\(item\) === "failed"[\s\S]*Member population unavailable\./);
+});
+
+test("member content selection keeps compact groups cheap and exact rows explicit", () => {
+  const filters =
+    appSource.match(/function renderMemberFilterControls\([\s\S]*?\n}\n\nfunction renderTypeMemberPopulationStatus/)?.[0]
+    ?? "";
+  assert.match(
+    filters,
+    /data-member-content[\s\S]*value="groups"[\s\S]*value="members"[\s\S]*value="documented-members"/);
+  assert.match(
+    filters,
+    /contentSelectionAvailable[\s\S]*disabled[\s\S]*performance members/);
+
+  const status =
+    appSource.match(/function renderTypeMemberPopulationStatus\([\s\S]*?\n}\n\nfunction renderTypeMemberDocumentStatus/)?.[0]
+    ?? "";
+  assert.match(
+    status,
+    /state\.memberContent === "members"[\s\S]*state\.memberContent === "documented-members"[\s\S]*return "";/);
+
+  const populationKey =
+    appSource.match(/function typeMemberPopulationKey\([\s\S]*?\n}\n\nfunction currentTypeMemberPopulationInspection/)?.[0]
+    ?? "";
+  assert.match(
+    populationKey,
+    /pkg\?\.activeFramework \?\? ""[\s\S]*pkg\?\.runtimeIdentifier \?\? ""/);
+
+  const key =
+    appSource.match(/function typeMemberDocumentKey\([\s\S]*?\n}\n\nfunction currentTypeMemberDocumentInspection/)?.[0]
+    ?? "";
+  assert.match(
+    key,
+    /pkg\?\.activeFramework \?\? ""[\s\S]*pkg\?\.runtimeIdentifier \?\? ""/);
+
+  const load =
+    appSource.match(/async function loadSelectedTypeMemberDocument\([\s\S]*?\n}\n\nfunction setTypeMemberPopulationIntent/)?.[0]
+    ?? "";
+  assert.match(
+    load,
+    /state\.memberContent === "groups"[\s\S]*return;/);
+  assert.match(
+    load,
+    /inspectUploadedLibraryTypeDocument[\s\S]*inspectPlatformTypeDocument[\s\S]*inspectTypeDocument/);
+  assert.match(
+    load,
+    /state\.memberContent === "documented-members"[\s\S]*"documented-members"[\s\S]*"members"/);
+
+  const groups =
+    appSource.match(/function declaredMemberGroups\([\s\S]*?\n}\n\nfunction memberGroups/)?.[0]
+    ?? "";
+  assert.match(
+    groups,
+    /state\.memberContent === "members"[\s\S]*state\.memberContent === "documented-members"[\s\S]*currentTypeDocumentGroups\(type\)/);
+  const portableGroups =
+    appSource.match(/function portableMemberGroups\([\s\S]*?\n}\n\nfunction portableMemberMatches\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  const pendingDocumentMatches: unknown = runInNewContext(
+    stripTypeScriptTypes(`${portableGroups}
+      portableMemberMatches(type, {
+        memberAnchor: "destination-anchor",
+        memberSignature: null,
+      });
+    `),
+    {
+      currentTypeDocumentGroups: () => null,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      groupMembers: (members: unknown[]) => members.length === 0
+        ? []
+        : [{
+            key: "method:Run",
+            overloads: [{
+              anchorDigest: "destination-anchor",
+              canonicalSignature: "void Destination.Run()",
+            }],
+          }],
+      searchableMemberGroups: (candidateGroups: unknown[]) => candidateGroups,
+      type: { api: [{}] },
+    });
+  assert.ok(Array.isArray(pendingDocumentMatches));
+  assert.equal(
+    pendingDocumentMatches.length,
+    1,
+    "portable identity must remain resolvable before the destination exact document loads");
+  const restorePortable =
+    appSource.match(/function selectPortableMember\([\s\S]*?\n}\n\nfunction restorePendingPortableMember\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  const pendingState = {
+    package: {},
+    pendingPortableMemberDeepLink: {
+      packageKey: "package-key",
+      documentKey: "document-key",
+      type: "T:Destination",
+      memberAnchor: "destination-anchor",
+      memberSignature: null,
+      section: "overview",
+    } as {
+      packageKey: string;
+      documentKey: string;
+      type: string;
+      memberAnchor: string | null;
+      memberSignature: string | null;
+      section: string | null;
+    } | null,
+    memberBrowseTypeId: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null as number | null,
+    memberSection: "overview",
+    selectedBodyTarget: null,
+  };
+  const exactGroups = [{
+    key: "method:Run",
+    overloads: [
+      {
+        anchorDigest: "other-anchor",
+        canonicalSignature: "void Destination.Run(int)",
+      },
+      {
+        anchorDigest: "destination-anchor",
+        canonicalSignature: "void Destination.Run()",
+      },
+    ],
+  }];
+  runInNewContext(
+    stripTypeScriptTypes(`${portableGroups}
+      ${restorePortable}
+      restorePendingPortableMember();
+    `),
+    {
+      state: pendingState,
+      selectedType: () => ({ id: "T:Destination", api: [] }),
+      packageIdentityKey: () => "package-key",
+      typeMemberDocumentKey: () => "document-key",
+      currentTypeDocumentGroups: () => exactGroups,
+      partitionGraphMembers: () => ({
+        publicMembers: [],
+        graphMembers: [],
+      }),
+      groupMembers: () => [],
+      searchableMemberGroups: (candidateGroups: unknown[]) => candidateGroups,
+      appendQueryNotice: () => assert.fail("matching exact member was rejected"),
+      solePortableBodyTarget: () => null,
+      isMemberSection: () => true,
+      memberSectionIdsFor: () => ["overview"],
+    });
+  assert.equal(pendingState.pendingPortableMemberDeepLink, null);
+  assert.equal(pendingState.selectedMemberKey, "method:Run");
+  assert.equal(pendingState.selectedOverloadIndex, 1);
+  assert.match(
+    appSource,
+    /canonicalViewRestorationFailure\([\s\S]*portableMemberMatches\(requestedType, deep\)/);
+  assert.match(
+    appSource,
+    /exactProjectionPending[\s\S]*pendingPortableMemberDeepLink = \{[\s\S]*documentKey: typeMemberDocumentKey\(type\)/);
+  assert.match(
+    appSource,
+    /await loadSelectedTypeMemberDocument\(\);\s*restorePendingPortableMember\(\);/);
+  const projection =
+    appSource.match(/function typeDocumentMemberSurface\([\s\S]*?\n}\n\nfunction currentTypeDocumentGroups/)?.[0]
+    ?? "";
+  assert.match(
+    projection,
+    /rehydrateMemberDocumentation\([\s\S]*memberRequestSignature\(type, surface\)[\s\S]*surface/);
+
+  const entries =
+    appSource.match(/function visibleExactMemberEntries\([\s\S]*?\n}\n\n\/\/ Flattened/)?.[0]
+    ?? "";
+  assert.match(
+    entries,
+    /document\.members\.map[\s\S]*member\.stableSelector[\s\S]*sort\(\(left, right\) => left\.order - right\.order\)/);
+  const ordered: unknown = runInNewContext(
+    stripTypeScriptTypes(`${entries}
+      visibleExactMemberEntries({});
+    `),
+    {
+      currentTypeMemberDocument: () => ({
+        members: [
+          { stableSelector: "c" },
+          { stableSelector: "a" },
+          { stableSelector: "b" },
+        ],
+      }),
+      visibleMemberGroups: () => [
+        {
+          key: "method:M",
+          overloads: [
+            { stableSelector: "a" },
+            { stableSelector: "b" },
+          ],
+        },
+        {
+          key: "property:P",
+          overloads: [{ stableSelector: "c" }],
+        },
+      ],
+    });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(ordered)),
+    [
+      { kind: "overload", group: {
+        key: "property:P",
+        overloads: [{ stableSelector: "c" }],
+      }, index: 0 },
+      { kind: "overload", group: {
+        key: "method:M",
+        overloads: [
+          { stableSelector: "a" },
+          { stableSelector: "b" },
+        ],
+      }, index: 0 },
+      { kind: "overload", group: {
+        key: "method:M",
+        overloads: [
+          { stableSelector: "a" },
+          { stableSelector: "b" },
+        ],
+      }, index: 1 },
+    ]);
 });
 
 test("member API uses full-area overload and selected-member surfaces", () => {

@@ -327,6 +327,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onExploreSource: () => {
       calls.push("explore-source");
     },
+    onExactMemberOpen: (key, index) =>
+      calls.push(`exact-member:${key}:${index}`),
     onKindSelect: value => calls.push(`kind:${value}`),
     onTypeAccessibilitySelect: value =>
       calls.push(`type-access:${value}`),
@@ -341,6 +343,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     },
     onMemberAccessibilityFilterSelect: value =>
       calls.push(`member-access:${value}`),
+    onMemberContentSelect: value =>
+      calls.push(`member-content:${value}`),
     onMemberSpellingSelect: value =>
       calls.push(`member-spelling:${value}`),
     onMemberBack: () => calls.push("member-back"),
@@ -366,7 +370,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onMemberSelect: value => calls.push(`member:${value}`),
     onMemberTraitFilterSelect: value => calls.push(`member-trait:${value}`),
     onNamespaceSelect: value => calls.push(`namespace:${value}`),
-    onOverloadSelect: value => calls.push(`overload:${value}`),
+    onOverloadSelect: (memberKey, value) =>
+      calls.push(`overload:${memberKey}:${value}`),
     onShowTypes: () => calls.push("types"),
     onTypeFilterChange: value => calls.push(`filter:${value}`),
     onTypeFilterDisclosureToggle: value =>
@@ -428,12 +433,15 @@ test("type panel bindings dispatch member filters and leverage retry", () => {
   kind.value = "method";
   const accessibility = new FakeElement();
   accessibility.value = "protected";
+  const content = new FakeElement();
+  content.value = "documented-members";
   const spelling = new FakeElement();
   spelling.value = "metadata";
   const trait = new FakeElement();
   trait.value = "static";
   root.addAll("[data-member-kind-filter]", kind);
   root.addAll("[data-member-access-filter]", accessibility);
+  root.addAll("[data-member-content]", content);
   root.addAll("[data-member-spelling]", spelling);
   root.addAll("[data-member-trait-filter]", trait);
   const leverageRetry = root.add(
@@ -445,6 +453,11 @@ test("type panel bindings dispatch member filters and leverage retry", () => {
     "[data-member-filter-disclosure]",
     new FakeElement());
   const clear = root.add("#clear-member-filter", new FakeElement());
+  const exactMember = new FakeElement({
+    exactMember: "method:Parse",
+    exactOverload: "2",
+  });
+  root.addAll("[data-exact-member]", exactMember);
   const calls: string[] = [];
 
   const keybindings = bindPanel(root, recordingActions(calls));
@@ -457,16 +470,24 @@ test("type panel bindings dispatch member filters and leverage retry", () => {
     "member-kind:method",
     "member-access:protected",
   ]);
+  content.dispatch("change");
+  assert.deepEqual(calls, [
+    "member-kind:method",
+    "member-access:protected",
+    "member-content:documented-members",
+  ]);
   spelling.dispatch("change");
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
+    "member-content:documented-members",
     "member-spelling:metadata",
   ]);
   trait.dispatch("change");
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
+    "member-content:documented-members",
     "member-spelling:metadata",
     "member-trait:static",
   ]);
@@ -477,9 +498,11 @@ test("type panel bindings dispatch member filters and leverage retry", () => {
   const arrow = keyboardEvent("ArrowDown");
   dispatchKey(keybindings, filter, arrow);
   clear.dispatch("click");
+  exactMember.dispatch("click");
   assert.deepEqual(calls, [
     "member-kind:method",
     "member-access:protected",
+    "member-content:documented-members",
     "member-spelling:metadata",
     "member-trait:static",
     "method-leverage-retry",
@@ -487,6 +510,7 @@ test("type panel bindings dispatch member filters and leverage retry", () => {
     "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
     "member-filter-clear",
+    "exact-member:method:Parse:2",
   ]);
 });
 
@@ -612,8 +636,14 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
   const root = new FakeRoot();
   const member = new FakeElement({ navMember: "M:Length" });
   const secondMember = new FakeElement({ navMember: "M:Count" });
-  const overload = new FakeElement({ navOverload: "2" });
-  const secondOverload = new FakeElement({ navOverload: "0" });
+  const overload = new FakeElement({
+    navOverloadMember: "M:Length",
+    navOverload: "2",
+  });
+  const secondOverload = new FakeElement({
+    navOverloadMember: "M:Count",
+    navOverload: "0",
+  });
   root.addAll("[data-nav-member]", member, secondMember);
   root.addAll("[data-nav-overload]", overload, secondOverload);
   const showTypes = root.add("#nav-to-types", new FakeElement());
@@ -631,8 +661,8 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
   assert.deepEqual(calls, [
     "member:M:Length",
     "member:M:Count",
-    "overload:2",
-    "overload:0",
+    "overload:M:Length:2",
+    "overload:M:Count:0",
     "types",
     "list:Home",
   ]);
@@ -1084,12 +1114,76 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(html, /id="nav-to-types"/);
   assert.match(
     html,
+    /<div class="member-nav-controls"><label id="member-filters">filters<\/label><\/div>/);
+  assert.match(
+    html,
     /id="type-list" data-nav-scope="members:System\.Text\.Json\.JsonSerializer"/);
   assert.match(
     html,
     /data-nav-selection="overload:method:Serialize:1"/);
   assert.match(html, /id="member-filters"/);
   assert.doesNotMatch(html, /pane-footer/);
+});
+
+test("the member nav renders documented exact rows without a group parent", () => {
+  const group = {
+    key: "method:Serialize",
+    name: "Serialize",
+    kind: "method",
+    overloads: [{
+      signature: "string Serialize<T>(T value)",
+      summary: "Serializes one value <safely>.",
+    }],
+  };
+
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [{ kind: "overload", group, index: 0 }],
+    memberCount: 1,
+    visibleMemberCount: 1,
+    filterControlsHtml: "",
+    selectedMemberKey: "method:Serialize",
+    selectedOverloadIndex: 0,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(html, /documented-member-row/);
+  assert.match(
+    html,
+    /data-nav-selection="overload:method:Serialize:0"/);
+  assert.match(
+    html,
+    /data-nav-overload-member="method:Serialize" data-nav-overload="0"/);
+  assert.match(
+    html,
+    /member-documentation-summary">Serializes one value &lt;safely&gt;\.<\/small>/);
+  assert.doesNotMatch(html, /data-nav-member=/);
+});
+
+test("the member nav keeps status and filters in one controls row", () => {
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [],
+    memberCount: 0,
+    visibleMemberCount: 0,
+    filterControlsHtml:
+      '<p class="inspection-error">Exact members failed.</p>'
+        + '<details class="member-filter-disclosure">'
+        + '<summary>Filters</summary></details>',
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(
+    html,
+    /<div class="member-nav-controls"><p class="inspection-error">Exact members failed\.<\/p><details class="member-filter-disclosure"><summary>Filters<\/summary><\/details><\/div>\s*<div class="type-list member-list"/);
 });
 
 test("the member nav renders one active declaration as an exact member", () => {

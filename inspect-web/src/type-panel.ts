@@ -84,6 +84,7 @@ export interface TypeSummary {
 
 export interface MemberOverloadSummary {
   signature: string;
+  summary?: string | null;
   stableSelector?: string | null;
   anchorDigest?: string | null;
   graphOnly?: boolean;
@@ -370,6 +371,7 @@ export interface TypePanelBindingActions {
   onCopyTypeSource: () => void;
   onTypeSourceViewSelect: (view: TypeSourceView) => void;
   onExploreSource: () => void;
+  onExactMemberOpen: (memberKey: string, index: number) => void;
   onKindSelect: (kind: string) => void;
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
@@ -379,6 +381,7 @@ export interface TypePanelBindingActions {
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
   onMemberAccessibilityFilterSelect: (accessibility: string | undefined) => void;
+  onMemberContentSelect: (content: string | undefined) => void;
   onMemberSpellingSelect: (spelling: string | undefined) => void;
   onMemberBack: () => void;
   onMemberCompositionAccessibilitySelect: (accessibility: string) => void;
@@ -395,7 +398,10 @@ export interface TypePanelBindingActions {
   onMemberSelect: (memberKey: string | undefined) => void;
   onMemberTraitFilterSelect: (trait: string | undefined) => void;
   onNamespaceSelect: (namespace: string) => void;
-  onOverloadSelect: (index: number) => void;
+  onOverloadSelect: (
+    memberKey: string | undefined,
+    index: number,
+  ) => void;
   onShowTypes: () => void;
   onTypeFilterChange: (value: string) => void;
   onTypeFilterDisclosureToggle: (expanded: boolean) => void;
@@ -450,7 +456,9 @@ export function bindTypePanel(
   root.querySelectorAll<HTMLElement>("[data-nav-overload]").forEach(button =>
     button.addEventListener(
       "click",
-      () => actions.onOverloadSelect(Number(button.dataset.navOverload))));
+      () => actions.onOverloadSelect(
+        button.dataset.navOverloadMember,
+        Number(button.dataset.navOverload))));
   root.querySelectorAll<HTMLElement>("[data-member-jump-kind]")
     .forEach(button =>
       button.addEventListener(
@@ -473,6 +481,12 @@ export function bindTypePanel(
     button.addEventListener(
       "click",
       () => actions.onMemberGroupOpen(button.dataset.member ?? "")));
+  root.querySelectorAll<HTMLElement>("[data-exact-member]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => actions.onExactMemberOpen(
+        button.dataset.exactMember ?? "",
+        Number(button.dataset.exactOverload))));
   root.querySelectorAll<HTMLElement>("[data-overload]").forEach(button =>
     button.addEventListener(
       "click",
@@ -490,6 +504,11 @@ export function bindTypePanel(
       select.addEventListener(
         "change",
         () => actions.onMemberAccessibilityFilterSelect(select.value)));
+  root.querySelectorAll<HTMLSelectElement>("[data-member-content]")
+    .forEach(select =>
+      select.addEventListener(
+        "change",
+        () => actions.onMemberContentSelect(select.value)));
   root.querySelectorAll<HTMLSelectElement>("[data-member-spelling]")
     .forEach(select =>
       select.addEventListener(
@@ -852,12 +871,11 @@ export function renderMemberNav(options: MemberNavOptions): string {
     overloadHeat, familyHeatCue,
   } = options;
   const memberAchievements = options.memberAchievements;
-  const selectedGroup = entries.find(entry =>
-    entry.kind === "member"
-    && entry.group.key === selectedMemberKey)?.group;
   const selectedFamilyOpen =
-    memberGroupUsesFamilySurface(selectedGroup)
-    && selectedOverloadIndex != null;
+    selectedOverloadIndex != null
+    && entries.some(entry =>
+      entry.kind === "overload"
+      && entry.group.key === selectedMemberKey);
   const navigationSelection = selectedMemberKey
     ? (selectedFamilyOpen
       ? `overload:${selectedMemberKey}:${selectedOverloadIndex}`
@@ -877,7 +895,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
         <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
         <small>types</small>
       </button>
-      ${filterControlsHtml}
+      <div class="member-nav-controls">${filterControlsHtml}</div>
       <div class="type-list member-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="members:${escapeHtml(type.id)}" data-nav-selection="${escapeHtml(navigationSelection)}">
         ${entries.map(entry => {
           if (entry.kind === "member") {
@@ -941,9 +959,11 @@ export function renderMemberNav(options: MemberNavOptions): string {
           ];
           const achievementClasses =
             itemAchievementClassNames(achievements);
-          return `<button class="type-row overload-nav-row has-item-achievement-rail${heatClasses}${achievementClasses ? ` ${achievementClasses}` : ""} ${selected ? " selected" : ""}" data-nav-overload="${sourceIndex}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+          const documentation = overload.summary?.trim() ?? "";
+          return `<button class="type-row overload-nav-row has-item-achievement-rail${documentation ? " documented-member-row" : ""}${heatClasses}${achievementClasses ? ` ${achievementClasses}` : ""} ${selected ? " selected" : ""}" data-nav-overload-member="${escapeHtml(entry.group.key)}" data-nav-overload="${sourceIndex}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             ${renderItemAchievementRail(achievements, escapeHtml)}
             <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>
+            ${documentation ? `<small class="member-documentation-summary">${escapeHtml(documentation)}</small>` : ""}
           </button>`;
         }).join("") || `<div class="empty-list">${escapeHtml(options.emptyMessage ?? "No members match these filters.")}</div>`}
       </div>
