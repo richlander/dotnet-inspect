@@ -74,6 +74,16 @@ public sealed record PackageVersionDiscoveryContract
             includeUnlisted: false,
             limit: null);
 
+    /// <summary>
+    /// The proven best dependency candidate, not complete listing coverage.
+    /// </summary>
+    public static PackageVersionDiscoveryContract DependencyCandidateResolution
+        { get; } = new(
+            contractVersion: 2,
+            includePrerelease: true,
+            includeUnlisted: false,
+            limit: null);
+
     public bool SupportsCompleteVersionEnumeration =>
         Equals(CompleteVersionEnumeration)
         || Equals(CompleteVersionEnumerationIncludingUnlisted);

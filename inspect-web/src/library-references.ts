@@ -102,6 +102,16 @@ export function resolveLibraryReferenceDestinations(
     destinations.get(assemblyReferenceIdentityKey(reference)) ?? null);
 }
 
+export function renderLibraryReferenceName(
+  name: string,
+  destination: LibraryReferenceDestination | null,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return destination
+    ? `<button type="button" class="dep-name as-link" data-library-reference-package="${escapeHtml(destination.packageKey)}" data-library-reference-library="${escapeHtml(destination.libraryId)}" title="Open ${escapeHtml(name)} Library">${escapeHtml(name)}</button>`
+    : `<span class="dep-name">${escapeHtml(name)}</span>`;
+}
+
 export function renderLibraryReferencesSurface(options: LibraryReferencesOptions): string {
   const {
     loading,
@@ -148,10 +158,9 @@ export function renderLibraryReferencesSurface(options: LibraryReferencesOptions
         <section class="document-section reference-list-section">
           <div class="section-title"><h2>Assembly references</h2><span>${references.length.toLocaleString()} direct reference${references.length === 1 ? "" : "s"}</span></div>
           <ul class="dep-list" aria-label="Assembly references">${references.map((reference, index) => {
-            const destination = options.referenceDestinations[index];
-            const name = destination
-              ? `<button type="button" class="dep-name as-link" data-library-reference-package="${escapeHtml(destination.packageKey)}" data-library-reference-library="${escapeHtml(destination.libraryId)}" title="Open ${escapeHtml(reference.name)} Library">${escapeHtml(reference.name)}</button>`
-              : `<span class="dep-name">${escapeHtml(reference.name)}</span>`;
+            const destination = options.referenceDestinations[index] ?? null;
+            const name = renderLibraryReferenceName(
+              reference.name, destination, escapeHtml);
             const icon = options.referenceIcons[index];
             return `<li>${icon ? `<img class="dep-icon" src="${escapeHtml(icon)}" alt="" data-package-icon data-library-reference-icon="${index}">` : ""}<span class="library-reference-name">${name}</span><code class="dep-version">${escapeHtml(`${reference.version} \u00b7 ${reference.culture || "neutral"} \u00b7 ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`;
           }).join("")}</ul>

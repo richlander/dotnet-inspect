@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Text;
 
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Views;
@@ -88,18 +87,7 @@ internal static class UnsafeMemberProjection
     }
 
     public static string LimitationText(UnsafeMemberLimitation limitation)
-    {
-        var text = new StringBuilder(limitation.Reason.ToString());
-        if (limitation.Body is { } body)
-            text.Append(" in ").Append(ApiOutputFormatter.FormatMethod(body));
-        else if (limitation.BodyToken is { } token)
-            text.Append($" in 0x{token:X8}");
-        if (limitation.DeclaredMember is { } member)
-            text.Append(" for ").Append(ApiOutputFormatter.FormatMethod(member));
-        if (limitation.Detail is { Length: > 0 } detail)
-            text.Append(": ").Append(detail);
-        return text.ToString();
-    }
+        => limitation.Describe(ApiOutputFormatter.FormatMethod);
 
     public static List<UnsafeMemberFindingJson>? Json(
         UnsafeMemberFindingInspection? inspection) =>

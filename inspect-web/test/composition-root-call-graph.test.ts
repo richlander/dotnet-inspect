@@ -553,7 +553,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "resource-triage", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {

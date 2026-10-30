@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import type {
+  BrowserPackageLibraryIdentity,
+} from "../src/facades/inspect-web-package.d.ts";
 import {
   subjectTab,
   inspectorTab,
@@ -17,6 +20,7 @@ import {
   releaseFacade,
   root,
   openPlatform,
+  unsafeMembersRequests,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
@@ -55,6 +59,7 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     "Integrations",
     "Performance Triage",
     "Resource Triage",
+    "Unsafe",
   ]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-analysis-mode="relationships"]'))
@@ -1462,6 +1467,99 @@ test("production References shows an admitted package icon and opens its exact L
     .toHaveText("Reference.Target");
 });
 
+const unloadedReferenceTarget = library("asset:reference-target", "Reference.Target", 1);
+const unloadedReferenceIdentity: BrowserPackageLibraryIdentity = {
+  id: unloadedReferenceTarget.id,
+  name: unloadedReferenceTarget.name,
+  version: unloadedReferenceTarget.version,
+  culture: unloadedReferenceTarget.culture,
+  publicKeyToken: unloadedReferenceTarget.publicKeyToken,
+};
+
+async function installUnloadedReferenceTarget(
+  page: Page,
+  identities: readonly BrowserPackageLibraryIdentity[] = [unloadedReferenceIdentity],
+  deferred = false,
+) {
+  await installFacades(page, surface, [], "workspace-library", "ready",
+    undefined, "ready", "ready", undefined, {}, {
+      libraryIdentities: identities,
+      unloadedLibraries: [unloadedReferenceTarget],
+      deferLibraryIdentities: deferred,
+      packageChildren: {
+        content: {
+          kind: "Libraries", status: "Available",
+          packageId: surface.package, packageVersion: surface.version,
+          targetFramework: surface.activeFramework,
+          libraries: [...surface.assemblies, unloadedReferenceTarget].map(assembly => ({
+            assetId: assembly.id, assetPath: assembly.asset,
+            assemblyName: assembly.name, role: "Library",
+          })),
+          runtimeIdentifierPackages: [], detail: null, isComplete: true,
+        },
+        share: {
+          kind: "NonProjectable", fullUrl: null, packet: null,
+          path: "package-children/share", reason: "Fixture.",
+        },
+        diagnostics: [],
+      },
+    });
+}
+
+test("same-Package icons and exact Library links do not need a sibling API surface or supplier completion", async ({ page }) => {
+  await installUnloadedReferenceTarget(page);
+  await openReferences(page);
+  const frame = page.locator(".library-references-surface");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reference-supplier-request", /Example.Package/);
+  const row = frame.locator(".dep-list > li");
+  await expect(row.locator("[data-library-reference-icon]")).toHaveCount(1);
+  await expect(frame.locator(
+    'g.node[id*="-flowchart-r1-"] image[data-reference-package-icon]')).toHaveCount(1);
+  await expect(page.locator("html")).toHaveAttribute("data-library-api-request", core.id);
+  const link = row.getByRole("button", { name: "Reference.Target", exact: true });
+  await expect(link).toHaveAttribute(
+    "data-library-reference-library", unloadedReferenceTarget.id);
+  await link.click();
+  await expect(page.locator(".library-overview-surface h1")).toHaveText("Reference.Target");
+});
+
+for (const [label, identities] of [
+  ["version mismatch", [{ ...unloadedReferenceIdentity, version: "2.0.0.0" }]],
+  ["filename-only match", [{ ...unloadedReferenceIdentity, name: "Different.Manifest.Name" }]],
+  ["unadmitted Library", [{ ...unloadedReferenceIdentity, id: "asset:unadmitted" }]],
+  ["ambiguous identity", [unloadedReferenceIdentity, { ...unloadedReferenceIdentity, id: other.id }]],
+] as const) {
+  test(`same-Package lookup does not invent ownership for ${label}`, async ({ page }) => {
+    await installUnloadedReferenceTarget(page, identities);
+    await openReferences(page);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-package-library-identities-completed", "1");
+    const row = page.locator(".reference-list-section .dep-list > li");
+    await expect(row).toContainText("Reference.Target");
+    await expect(row.locator("button, [data-library-reference-icon]")).toHaveCount(0);
+  });
+}
+
+test("a late same-Package lookup cannot annotate a different Library result", async ({ page }) => {
+  await installUnloadedReferenceTarget(page, [unloadedReferenceIdentity], true);
+  await openReferences(page);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-library-identity-request-count", "1");
+  await selectLibrary(page, other.id);
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-library-identity-request-count", "2");
+  await releaseFacade(page, "fixture-library-identities-ready:1");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-library-identities-completed", "1");
+  await expect(page.locator(".reference-list-section")
+    .locator("button, [data-library-reference-icon]")).toHaveCount(0);
+  await releaseFacade(page, "fixture-library-identities-ready:2");
+  await expect(page.locator(".reference-list-section [data-library-reference-icon]"))
+    .toHaveCount(1);
+});
+
 test("external supplier icon arrives after direct References and updates its graph node", async ({ page }, testInfo) => {
   await installFacades(page, surface, [], "external-supplier");
   await openReferences(page);
@@ -1582,6 +1680,90 @@ test("triage rows have no collapsed code control and preserve Library Analysis",
     .toHaveAttribute("aria-selected", "true");
 });
 
+
+test("Unsafe discloses Library Types, then the Type's members, then a member's evidence", async ({ page }) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.getByRole("tab", { name: "Unsafe", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Unsafe", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => new URL(page.url()).searchParams.get("analysis")).toBe("unsafe");
+  // Library scope: counts and one row per declaring Type, with no evidence.
+  const librarySurface = page.locator(".library-unsafe-surface");
+  await expect(librarySurface.locator(".unsafe-counts dd")).toHaveText(["member", "public", "propagating", "safe boundary"]);
+  const typeRow = librarySurface.locator(".unsafe-type");
+  await expect(typeRow).toHaveCount(1);
+  await expect(typeRow.locator(".unsafe-type-name")).toHaveText("Example.Widget");
+  await expect(typeRow.locator(".unsafe-pill")).toHaveText(["1 public", "0 propagate", "1 safe boundary"]);
+  await expect(librarySurface.locator(".unsafe-member, .unsafe-evidence-table")).toHaveCount(0);
+  // Type scope: the Type's Analysis inspector opens on Unsafe and lists its
+  // members with their dimensions.
+  await typeRow.locator("button.perf-row").click();
+  await expect(inspectorTab(page, "data-lens", "analysis")).toHaveAttribute("aria-selected", "true");
+  const typeTab = page.locator('[data-analysis-scope="type"][data-analysis-mode="unsafe"]');
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  const typeSurface = page.locator(".type-unsafe-surface");
+  const member = typeSurface.locator(".unsafe-member");
+  await expect(member).toHaveCount(1);
+  await expect(member.locator(".unsafe-member-evidence")).toHaveAttribute("title", "pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add");
+  await expect(member.locator(".unsafe-member-evidence .perf-shape")).toHaveText(["pointer dereference ×2", "explicit-contract call"]);
+  await expect(member.locator(".unsafe-member-callees")).toHaveText("System.Runtime.CompilerServices.Unsafe::Add");
+  await expect(member.locator(".unsafe-pill")).toHaveText(["Public", "safe boundary"]);
+  await expect(typeSurface.locator(".unsafe-evidence-table")).toHaveCount(0);
+  // The drill leaves the Library's own Analysis selection unchanged.
+  await chooseSubject(page, "library", "Library");
+  await expect(page.locator('[data-analysis-scope="library"][data-analysis-mode="unsafe"]')).toHaveAttribute("aria-selected", "true");
+  await expect(typeRow).toHaveCount(1);
+  await typeRow.locator("button.perf-row").click();
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  await expect(member).toHaveCount(1);
+  // The Library census answers the drilled Type: one Library request, and no
+  // Type or Member request.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "library", typeIdentity: "", stableSelector: "" },
+  ]);
+  // A package Type's Analysis defaults to Relationships, so the link carries
+  // the Unsafe refinement, and a reload restores the Type Analysis Unsafe tab.
+  await expect(page.locator('[data-analysis-scope="type"][data-analysis-mode="relationships"]')).toHaveAttribute("aria-selected", "false");
+  await expect.poll(() => new URL(page.url()).searchParams.get("analysis")).toBe("unsafe");
+  const typeUrl = page.url();
+  await page.reload();
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  await expect(member).toHaveCount(1);
+  expect(page.url()).toBe(typeUrl);
+  // A reload at Type runs only that Type's census.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "type", typeIdentity: "Example.Widget", stableSelector: "" },
+  ]);
+  // Member scope: the member's Analysis inspector opens on Unsafe with its
+  // dimensions and evidence.
+  await member.locator("button.perf-row").click();
+  await expect(inspectorTab(page, "data-member-section", "analysis")).toHaveAttribute("aria-selected", "true");
+  const memberTab = page.locator('[data-analysis-scope="member"][data-analysis-mode="unsafe"]');
+  await expect(memberTab).toHaveAttribute("aria-selected", "true");
+  const memberSurface = page.locator(".member-unsafe-surface");
+  await expect(memberSurface.locator(".api-surface-head p")).toContainText("Run");
+  const finding = memberSurface.locator(".unsafe-member-finding");
+  await expect(finding).toHaveCount(1);
+  await expect(finding.locator(".unsafe-member-dimensions")).toContainText("safe boundary");
+  const items = finding.locator(".unsafe-evidence-table");
+  await expect(items).toBeVisible();
+  await expect(items).toContainText("IL_0007");
+  await expect(items).toContainText("<Run>b__0_0()");
+  // The Type census answers the drilled member without another request.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "type", typeIdentity: "Example.Widget", stableSelector: "" },
+  ]);
+  await expect.poll(() => new URL(page.url()).searchParams.has("analysis")).toBe(false);
+  const memberUrl = page.url();
+  await page.reload();
+  await expect(memberTab).toHaveAttribute("aria-selected", "true");
+  await expect(memberSurface.locator(".unsafe-evidence-table")).toContainText("IL_0007");
+  expect(page.url()).toBe(memberUrl);
+  // A reload at Member runs only that member's census.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "member", typeIdentity: "Example.Widget", stableSelector: "Run" },
+  ]);
+});
 
 test("Resource rows open member Resource Triage with detailed evidence and Explore", async ({ page }) => {
   const stop = { ...run, name: "Stop", stableSelector: "Stop", graphSelectorKey: "Stop", signature: "void Stop()", documentationId: "M:Example.Widget.Stop" };

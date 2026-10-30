@@ -4617,6 +4617,39 @@ test.describe("bounded network-backed Worker smoke", () => {
     await page.screenshot({ path: testInfo.outputPath("platform-reference-icons-scrolled.png") });
   });
 
+  test("shows the real same-Package SignalR Common icon and exact Library link", async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 1600, height: 1400 });
+    await page.goto(`/?${signalRReferencesQuery}`, { waitUntil: "domcontentloaded" });
+    const frame = page.locator(".library-references-surface");
+    const rows = frame.locator(".dep-list > li");
+    await expect(rows).toHaveCount(40, { timeout: 120_000 });
+    const common = rows.filter({
+      has: page.getByText("Microsoft.Azure.SignalR.Common", { exact: true }),
+    });
+    await expect(common.locator("img.dep-icon"))
+      .toHaveAttribute("src", /^data:image\//, { timeout: 120_000 });
+    const icon = await common.locator("img.dep-icon").getAttribute("src") ?? "";
+    await expect(frame.locator(".reference-graph-section g.node")
+      .filter({ hasText: /^Microsoft\.Azure\.SignalR\.Common/ })
+      .locator("image[data-reference-package-icon]"))
+      .toHaveAttribute("href", icon);
+    const link = common.getByRole("button", {
+      name: "Microsoft.Azure.SignalR.Common", exact: true,
+    });
+    await expect(link).toHaveAttribute("data-library-reference-library",
+      "compile:lib/net8.0/Microsoft.Azure.SignalR.Common.dll");
+    await expect(rows.filter({
+      has: page.getByText("Microsoft.Azure.SignalR.Protocols", { exact: true }),
+    }).locator("button")).toHaveCount(0);
+    await common.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("signalr-same-package-reference.png") });
+    await link.click();
+    await expect(page.locator(".library-overview-surface h1"))
+      .toHaveText("Microsoft.Azure.SignalR.Common");
+  });
+
   test("shows real external Package icons in Library References", async ({
     page,
   }) => {

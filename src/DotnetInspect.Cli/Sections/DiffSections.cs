@@ -200,6 +200,9 @@ public static class DiffSections
     public sealed class Changes : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Changes";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.Changes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -212,6 +215,9 @@ public static class DiffSections
     public sealed class Summary : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Summary";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.Summary;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -224,6 +230,9 @@ public static class DiffSections
     public sealed class Transitions : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Transitions";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.Transitions;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -241,6 +250,9 @@ public static class DiffSections
     public sealed class AnalysisDiff : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Analysis Diff";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.AnalysisDiff;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -249,6 +261,9 @@ public static class DiffSections
     public sealed class ImplementationDiff : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Implementation Diff";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.ImplementationDiff;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -258,6 +273,9 @@ public static class DiffSections
         ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Annotated Source Diff";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.AnnotatedSourceDiff;
+        public static SectionShape? Shape => SectionShape.Text;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -266,6 +284,9 @@ public static class DiffSections
     public sealed class ComplexityContext : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Complexity Context";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.ComplexityContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;
@@ -274,6 +295,9 @@ public static class DiffSections
     public sealed class StructuralContext : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Structural Context";
+        public static SectionDescription? Description =>
+            DiffSectionDescriptions.StructuralContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;

@@ -3,7 +3,14 @@ using NuGetFetch;
 
 namespace DotnetInspector.Packages;
 
-internal sealed class PackageSourceDependencyVersionObservations
+internal sealed class PackageSourceDependencyVersionObservations :
+    PackageSourceDependencyVersionObservations<
+        PackageSourceOperationResult<PackageVersionResult>>
+{
+}
+
+internal class PackageSourceDependencyVersionObservations<TValue>
+    where TValue : class
 {
     private readonly object _gate = new();
     private readonly Dictionary<ObservationKey, Observation> _observations =
@@ -13,7 +20,7 @@ internal sealed class PackageSourceDependencyVersionObservations
         ConfiguredPackageAuthority authority,
         PackageSourceResultIdentity source,
         string packageId,
-        Func<Task<PackageSourceOperationResult<PackageVersionResult>>> acquire,
+        Func<Task<TValue>> acquire,
         out bool reused)
     {
         var key = new ObservationKey(authority, source, packageId);
@@ -84,10 +91,10 @@ internal sealed class PackageSourceDependencyVersionObservations
 
     internal sealed class Observation(
         ObservationKey key,
-        Func<Task<PackageSourceOperationResult<PackageVersionResult>>> acquire)
+        Func<Task<TValue>> acquire)
     {
         internal ObservationKey Key { get; } = key;
-        internal Lazy<Task<PackageSourceOperationResult<PackageVersionResult>>> Work { get; } =
+        internal Lazy<Task<TValue>> Work { get; } =
             new(acquire, LazyThreadSafetyMode.ExecutionAndPublication);
         internal int Participants { get; set; }
         internal bool Retained { get; set; }
