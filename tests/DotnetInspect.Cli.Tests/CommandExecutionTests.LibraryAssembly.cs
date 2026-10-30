@@ -617,6 +617,104 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Library_MissingPackageArchiveNamespacePreservesFileNotFound()
+    {
+        string missingPackagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Missing.dll",
+            "--package",
+            missingPackagePath,
+            "--tfm",
+            "net10.0",
+            "--namespace",
+            "DotnetInspect.Cli.Tests");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"File not found: {missingPackagePath}",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_RuntimeOnlyPackageNamespaceUsesCompatibilityPopulation()
+    {
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.RuntimeNamespace",
+            ("runtimes/win-x64/lib/net10.0/RuntimeOnly.dll",
+                TestAssemblyPath));
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "RuntimeOnly.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "--namespace",
+                "DotnetInspect.Cli.Tests");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "`DotnetInspect.Cli.Tests.CommandExecutionTests`",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_ImplementationPathNamespaceDoesNotAliasSurfaceAsset()
+    {
+        const string Library = "Selected.dll";
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.ImplementationNamespace",
+            ($"ref/net10.0/{Library}", TestAssemblyPath),
+            ($"lib/net10.0/{Library}",
+                typeof(ApiType).Assembly.Location));
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                $"lib/net10.0/{Library}",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "--namespace",
+                "ILInspector.Metadata");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Library 'lib/net10.0/Selected.dll' not found",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "ref/net10.0/Selected.dll",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
         Library_NamespaceMarkdownRejectsProjectionControls()
     {
         var (exit, output, error) = await RunAppAsync(

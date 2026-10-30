@@ -95,7 +95,7 @@ it:
 - for a package root, `--tfm` selects a dependency group by exact match, so a
   newer consumer framework can select nothing while Pruning reports `Complete`
   (#10071); prefer a restored project root;
-- treat a zero from `package query --where "library-literal=…"` as unverified
+- treat a zero from `find --packages --where "library-literal=…"` as unverified
   until the summary shows no `notApplicable` candidates (#10072); and
 - check that numbers are plausible for the subject's size and domain.
 

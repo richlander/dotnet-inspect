@@ -176,7 +176,7 @@ ecosystem.
 Type-search `find`, `implements`, and `extensions` use this normalization to
 select acquisition scope. `find PATTERN --package-prefix PREFIX` remains in
 that type/member search space. Package-row selection is owned by
-[`package query`](package-query-cli.md), which does not consume these API
+[`find --packages`](package-query-cli.md), which does not consume these API
 search scopes and rejects source overrides before acquisition.
 incompatible API-search scope before network access. It does not apply type
 search normalization or expand the prefix. `depends` uses
