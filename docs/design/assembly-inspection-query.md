@@ -1426,6 +1426,20 @@ multiple-match presentation without repeating exact selection. The
 descriptorless module compatibility path is unchanged. Existing cheap exact
 routes remain ahead of this richer source-authorized demand.
 
+Richer Library Type catalogs use that same resolved catalog projection as a
+completed host-neutral operation. The operation projects the root Library,
+resolves forwarded Type definitions, and retains each returned Type's source
+assembly and binding occurrence for documentation, source, and later exact
+inspection. Hosts continue to own filtering, prefix/glob discovery, and
+presentation over the returned catalog; they do not independently repeat
+root extraction or forwarder composition.
+
+This richer operation remains behind compact Library Type Count and Rows and
+the platform-summary route. Those narrower requests retain their established
+cost classes and do not widen to an `ApiSurface`. Descriptorless module
+compatibility also remains host-owned because it has no resolved assembly
+authority to admit the shared operation.
+
 `System.Text.Json@10.0.0` at normal/detailed verbosity and the pinned CoreLib
 generic Types are the production witnesses. Focused gates cover exact result
 agreement, forwarding, ambiguity, retained binding policy, and CLI projections.
