@@ -68,11 +68,9 @@ public static class LibraryTypeCatalogInspectionOperation
         ArgumentNullException.ThrowIfNull(bindingPolicy);
         ArgumentNullException.ThrowIfNull(use);
         cancellationToken.ThrowIfCancellationRequested();
-        await using var workspace = new InspectionWorkspace();
         var participant = new AssemblyContextParticipant(assembly, bindingPolicy);
-        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
         ResolvedLibraryTypeCatalogExecution execution =
-            ResolvedLibraryTypeCatalogQuery.Execute(group, participant, scope);
+            ResolvedLibraryTypeCatalogQuery.Execute(participant, scope);
         cancellationToken.ThrowIfCancellationRequested();
         return await use(Complete(execution.Result), execution.Sources, cancellationToken)
             .ConfigureAwait(false);

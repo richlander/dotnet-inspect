@@ -16,7 +16,6 @@ internal sealed record ResolvedLibraryTypeCatalogExecution(
 internal static class ResolvedLibraryTypeCatalogQuery
 {
     internal static ResolvedLibraryTypeCatalogExecution Execute(
-        AssemblyContextGroup group,
         AssemblyContextParticipant participant,
         ApiSurfaceScope scope)
     {
@@ -25,33 +24,40 @@ internal static class ResolvedLibraryTypeCatalogQuery
 
         var sources = new Dictionary<ApiType, LibraryTypeCatalogSource>(
             ReferenceEqualityComparer.Instance);
-        AssemblyContextEntry<AssemblyApiSurface> entry =
-            AssemblyContextQueryExecutor.ExecuteParticipantOverSnapshot(
-                group,
-                participant,
-                (_, snapshot) =>
-                {
-                    using var catalog = new TypeResolutionCatalog();
-                    catalog.RegisterRetainedSnapshot(participant.Assembly, snapshot);
-                    using AssemblyInspectionSession session =
-                        AssemblyInspectionSession.Open(snapshot);
-                    ApiSurface surface = session.CompatibilityApiSurface(
-                        participant.Assembly,
-                        catalog,
-                        participant.BindingPolicy,
-                        AssemblyContextApiSurfaceQuery.ExtractionScope(scope));
-                    if (participant.Assembly.Path is { } path)
-                        surface.SetInspectionSourceAssemblyPath(path);
-                    var rootSource = new LibraryTypeCatalogSource(
-                        participant.Assembly,
-                        AssemblyBindingOccurrence.Seed(participant.Assembly),
-                        participant.BindingPolicy);
-                    foreach (ApiType type in surface.Types)
-                        sources.Add(type, rootSource);
+        var subject = new AssemblyContextSubject(participant.Assembly);
+        AssemblyContextEntry<AssemblyApiSurface> entry;
+        try
+        {
+            using var catalog = new TypeResolutionCatalog();
+            ResolutionAwareApiSurfaceOutcome outcome = catalog.ExtractApiSurface(
+                participant.Assembly, participant.BindingPolicy,
+                includeAll: scope == ApiSurfaceScope.IncludeAll);
+            if (outcome is ResolutionAwareApiSurfaceOutcome.Rejected rejected)
+            {
+                entry = new AssemblyContextEntry<AssemblyApiSurface>.Rejected(
+                    subject, rejected.Failure);
+            }
+            else
+            {
+                ApiSurface surface = ((ResolutionAwareApiSurfaceOutcome.Read)outcome).Surface;
+                if (participant.Assembly.Path is { } path)
+                    surface.SetInspectionSourceAssemblyPath(path);
+                var rootSource = new LibraryTypeCatalogSource(
+                    participant.Assembly,
+                    AssemblyBindingOccurrence.Seed(participant.Assembly),
+                    participant.BindingPolicy);
+                foreach (ApiType type in surface.Types)
+                    sources.Add(type, rootSource);
 
-                    ResolveForwarders(surface, catalog, participant, scope, sources);
-                    return new AssemblyApiSurface(surface, [.. surface.InspectionFailures]);
-                });
+                ResolveForwarders(surface, catalog, participant, scope, sources);
+                entry = new AssemblyContextEntry<AssemblyApiSurface>.Available(
+                    subject, new(surface, [.. surface.InspectionFailures]));
+            }
+        }
+        catch (Exception failure) when (AssemblyContextQueryExecutor.IsArtifactFailure(failure))
+        {
+            entry = new AssemblyContextEntry<AssemblyApiSurface>.Failed(subject, failure);
+        }
         var assemblies = new AssemblyContextResult<AssemblyApiSurface>([entry]);
         return new(
             new(
