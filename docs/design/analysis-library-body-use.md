@@ -278,6 +278,10 @@ optimization evidence when typed operand resolution alone is sufficient. It
 does not add a second token decoder where an existing Analysis resolver owns
 the same semantics.
 
+Rows construction does not materialize an immutable occurrence population for
+each body. Per-body facts are transient batches that compose once into the
+whole-Library internal population before the required public projection.
+
 ## Consumer boundary
 
 The Research body Type-leverage pilot consumes the detached result and:
