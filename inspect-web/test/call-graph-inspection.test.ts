@@ -91,6 +91,7 @@ function memberRequest(
   return {
     signature: "member",
     isRuntimePack: false,
+    retainedPackage: null,
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
@@ -254,6 +255,50 @@ test("same-key requests in flight are not mistaken for cached results", async ()
   await Promise.all([firstLoad, secondLoad]);
 
   assert.equal(state.memberCallGraph?.mermaid, "current");
+});
+
+test("a predecessor realization cannot satisfy an equal-coordinate successor", async () => {
+  const first = deferred<BrowserCallGraph>();
+  const second = deferred<BrowserCallGraph>();
+  const authorities: string[] = [];
+  let firstCurrent = true;
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackage: request => {
+        const realization = request.retainedPackage?.realizationId
+          ?? "compatibility";
+        authorities.push(realization);
+        return realization === "a1" ? first.promise : second.promise;
+      },
+    }));
+
+  const firstLoad = coordinator.load(memberRequest({
+    signature: "member|retained:a:a1:t0",
+    retainedPackage: {
+      retainedDefinitionId: "a",
+      realizationId: "a1",
+      navigationId: "t0",
+    },
+    isCurrent: () => firstCurrent,
+  }));
+  firstCurrent = false;
+  const secondLoad = coordinator.load(memberRequest({
+    signature: "member|retained:a:a2:t0",
+    retainedPackage: {
+      retainedDefinitionId: "a",
+      realizationId: "a2",
+      navigationId: "t0",
+    },
+  }));
+
+  first.resolve(graph("predecessor"));
+  second.resolve(graph("successor"));
+  await Promise.all([firstLoad, secondLoad]);
+
+  assert.deepEqual(authorities, ["a1", "a2"]);
+  assert.equal(state.memberCallGraph?.mermaid, "successor");
+  assert.equal(state.memberCallGraphKey, "member|retained:a:a2:t0");
 });
 
 test("package call graphs load once with focus intact and forward traversal policy", async () => {

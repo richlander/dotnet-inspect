@@ -308,7 +308,13 @@ test("graph-only members open through the typed member surface", () => {
     /return callGraphInspection\.load\(\{[\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*traversalFramework/);
   assert.match(
     appSource,
-    /inspectMemberCallGraph\([\s\S]*platformRuntimePruningInventory\([\s\S]*request\.runtimeIdentifier\)/);
+    /const pruningInventory = platformRuntimePruningInventory\(/);
+  assert.match(
+    appSource,
+    /request\.retainedPackage !== null[\s\S]*inspectRetainedMemberCallGraph\([\s\S]*pruningInventory/);
+  assert.match(
+    appSource,
+    /return inspectMemberCallGraph\([\s\S]*pruningInventory,[\s\S]*request\.runtimeIdentifier\)/);
   assert.match(graphLegendsSource, /solid border: no platform lookup/);
   assert.match(
     graphLegendsSource,
@@ -2085,10 +2091,10 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
-    6);
+    7);
   assert.match(
     appSource,
-    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, selectedGroupIndex\)/);
+    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, explicitGroupIndex\)/);
   assert.match(
     stylesSource,
     /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
@@ -2106,7 +2112,7 @@ test("Dependencies adopts the shared graph viewer without moving the package lis
     /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
   assert.match(
     appSource,
-    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{platformReferenceSection\}\$\{depList\}/);
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{selectedPlatformReferenceSection\}\$\{depList\}/);
   assert.match(
     appSource,
     /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);

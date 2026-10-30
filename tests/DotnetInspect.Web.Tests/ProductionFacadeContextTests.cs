@@ -205,6 +205,7 @@ public sealed class ProductionFacadeContextTests
             "ExpandPlatformCallGraph",
             "QueryDirectUseClusters",
             "QueryMemberCallGraph",
+            "QueryRetainedMemberCallGraph",
         ],
         [CatalogAssembly] =
         [

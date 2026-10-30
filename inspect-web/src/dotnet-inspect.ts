@@ -394,6 +394,7 @@ import {
   type InspectedCallGraph,
   type InspectedCallGraphTarget,
   type PlatformStackEntry,
+  type RetainedPackageCallGraphAuthority,
 } from "./call-graph-inspection.ts";
 import {
   bindDirectUseClusterInspection,
@@ -1126,6 +1127,8 @@ let inspectExpandPlatformCallGraph:
   EngineClient["callGraph"]["expandPlatformCallGraph"];
 let inspectMemberCallGraph:
   EngineClient["callGraph"]["queryMemberCallGraph"];
+let inspectRetainedMemberCallGraph:
+  EngineClient["callGraph"]["queryRetainedMemberCallGraph"];
 let inspectDirectUseClusters:
   EngineClient["callGraph"]["queryDirectUseClusters"];
 let inspectDecodeWorkspaceShareState:
@@ -1341,6 +1344,7 @@ async function loadEngineModule() {
       expandPlatformCallGraph: inspectExpandPlatformCallGraph,
       queryDirectUseClusters: inspectDirectUseClusters,
       queryMemberCallGraph: inspectMemberCallGraph,
+      queryRetainedMemberCallGraph: inspectRetainedMemberCallGraph,
     } = engineClient.callGraph);
     ({
       decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
@@ -1989,6 +1993,8 @@ let retainedWorkspaceInitialDetailAuthority: {
 } | null = null;
 const retainedWorkspacePostings =
   new Map<string, BrowserRetainedWorkspacePosting>();
+const retainedPackageCallGraphAuthorities =
+  new WeakMap<AppPackage, RetainedPackageCallGraphAuthority>();
 const issuedManagedRetainedDefinitionIds = new Set<string>();
 let failedManagedRetainedDefinitionId: string | null = null;
 const retainedLocationIntents = createNavigationLocationIntentArbiter();
@@ -2039,6 +2045,11 @@ CanonicalWorkspaceRestoreSnapshot {
     if (!copy) throw new Error("Workspace snapshot lost a Package.");
     copies.set(original, copy);
     catalogRequests.copyPackage(original, copy);
+    copyRetainedPackageCallGraphAuthority(
+      activeRetainedWorkspacePosting,
+      original,
+      copy,
+    );
   }
   packageComparisonTargets.copyPackages(copies);
   memberBodyDiff.copyPackages(copies);
@@ -2241,6 +2252,10 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   state.workspaceOccurrenceError = "";
   navigationHistory.restore(snapshot.navigation);
   activeRetainedWorkspacePosting = snapshot.activeRetainedWorkspacePosting;
+  reassociateRetainedPackageCallGraphAuthorities(
+    activeRetainedWorkspacePosting,
+    state.packages,
+  );
   retainedWorkspacePresentation = snapshot.retainedWorkspacePresentation;
   retainedWorkspaceInitialDetailAuthority =
     snapshot.retainedWorkspaceInitialDetailAuthority;
@@ -2282,6 +2297,11 @@ function cloneCanonicalWorkspaceSnapshotForRetention(
     if (!copy) throw new Error("Retained Workspace snapshot lost a Package.");
     copies.set(original, copy);
     catalogRequests.copyPackage(original, copy);
+    copyRetainedPackageCallGraphAuthority(
+      snapshot.activeRetainedWorkspacePosting,
+      original,
+      copy,
+    );
   }
   packageComparisonTargets.copyPackages(copies);
   memberBodyDiff.copyPackages(copies);
@@ -2563,6 +2583,71 @@ BrowserRetainedWorkspacePosting | null {
   return activeDefinitionId === null || activeDefinitionId === undefined
     ? null
     : retainedWorkspacePostings.get(activeDefinitionId) ?? null;
+}
+
+function associateRetainedPackageCallGraphAuthority(
+  posting: BrowserRetainedWorkspacePosting,
+  navigationId: string,
+  packageModel: AppPackage,
+): void {
+  if (!posting.packages.some(
+    candidate => candidate.navigationId === navigationId)) {
+    throw new Error(
+      `The retained Package row '${navigationId}' is unavailable.`,
+    );
+  }
+  retainedPackageCallGraphAuthorities.set(packageModel, {
+    retainedDefinitionId: posting.retainedDefinitionId,
+    realizationId: posting.realizationId,
+    navigationId,
+  });
+}
+
+function copyRetainedPackageCallGraphAuthority(
+  posting: BrowserRetainedWorkspacePosting | null,
+  source: AppPackage,
+  target: AppPackage,
+): void {
+  const authority = retainedPackageCallGraphAuthorities.get(source);
+  if (authority !== undefined
+    && posting?.retainedDefinitionId === authority.retainedDefinitionId
+    && posting.realizationId === authority.realizationId
+    && posting.packages.some(
+      candidate => candidate.navigationId === authority.navigationId)) {
+    retainedPackageCallGraphAuthorities.set(target, authority);
+  }
+}
+
+function reassociateRetainedPackageCallGraphAuthorities(
+  posting: BrowserRetainedWorkspacePosting | null,
+  packageModels: readonly AppPackage[],
+): void {
+  for (const packageModel of packageModels) {
+    const authority =
+      retainedPackageCallGraphAuthorities.get(packageModel);
+    if (authority === undefined) continue;
+    if (posting === null) {
+      retainedPackageCallGraphAuthorities.delete(packageModel);
+      continue;
+    }
+    associateRetainedPackageCallGraphAuthority(
+      posting,
+      authority.navigationId,
+      packageModel,
+    );
+  }
+}
+
+function retainedPackageCallGraphAuthorityIsCurrent(
+  packageModel: AppPackage,
+  authority: RetainedPackageCallGraphAuthority,
+): boolean {
+  const posting = activeRetainedWorkspacePosting;
+  return retainedPackageCallGraphAuthorities.get(packageModel) === authority
+    && posting?.retainedDefinitionId === authority.retainedDefinitionId
+    && posting.realizationId === authority.realizationId
+    && posting.packages.some(
+      candidate => candidate.navigationId === authority.navigationId);
 }
 
 function parkActiveCompatibilityWorkspace(): void {
@@ -2860,6 +2945,13 @@ async function installRetainedWorkspacePosting(
           packageInventory.implementationComparisonRuntimeIdentifier,
           packageInventory.runtimeIdentifier)
         : null;
+      if (packageModel !== null && packageInventory !== undefined) {
+        associateRetainedPackageCallGraphAuthority(
+          posting,
+          packageInventory.navigationId,
+          packageModel,
+        );
+      }
       platformModel = admittedPlatform
         ? createRuntimePackageModel(admittedPlatform.surface)
         : null;
@@ -3009,6 +3101,11 @@ async function activateRetainedPackageAction(
       inventory.defaultLibrary,
       inventory.implementationComparisonRuntimeIdentifier,
       inventory.runtimeIdentifier);
+    associateRetainedPackageCallGraphAuthority(
+      posting,
+      inventory.navigationId,
+      packageModel,
+    );
   } catch (error) {
     const currentPresentation = retainedWorkspacePresentation;
     const currentPosting = activeRetainedWorkspacePosting;
@@ -4419,6 +4516,28 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
     state.platformIndex ??= await loadPlatformIndex();
     const target = state.platformIndex?.target(
       platformCatalogFramework(request.traversalFramework)) ?? null;
+    const pruningInventory = platformRuntimePruningInventory(
+      target,
+      request.traversalFramework);
+    if (request.retainedPackage !== null) {
+      return inspectRetainedMemberCallGraph(
+        request.retainedPackage.retainedDefinitionId,
+        request.retainedPackage.realizationId,
+        request.retainedPackage.navigationId,
+        {
+          packageId: request.packageId,
+          version: request.version,
+          targetFramework: request.framework,
+          assemblyName: request.assembly,
+          typeIdentity: request.typeIdentity,
+          memberName: request.member,
+          selectorKey: request.selectorKey,
+          metadataToken: request.metadataToken,
+          traversalTargetFramework: request.traversalFramework,
+          pruningInventory,
+          runtimeIdentifier: request.runtimeIdentifier,
+        });
+    }
     return inspectMemberCallGraph(
       request.packageId,
       request.version,
@@ -4431,9 +4550,7 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
       request.selectorKey,
       request.metadataToken,
       request.traversalFramework,
-      platformRuntimePruningInventory(
-        target,
-        request.traversalFramework),
+      pruningInventory,
       request.runtimeIdentifier);
   },
   queryPlatform: request =>
@@ -18344,6 +18461,11 @@ async function pickManagedSpotlightType(
             selected.navigation.posting,
           );
           retainedWorkspacePresentation = selected.navigation.presentation;
+          associateRetainedPackageCallGraphAuthority(
+            selected.navigation.posting,
+            selected.navigation.navigationId,
+            selected.pkg,
+          );
         }
         installManagedSpotlightType(selected.pkg, selected.type);
         render({ synchronizeUrl: false });
@@ -18488,6 +18610,7 @@ async function projectManagedSpotlightActivation(
   navigation: {
     posting: BrowserRetainedWorkspacePosting;
     presentation: NavigationDescriptorPresentation;
+    navigationId: string;
   } | null;
 }> {
   if (activation.status === "blocked") {
@@ -18549,6 +18672,7 @@ async function projectManagedNavigationType(
   navigation: {
     posting: BrowserRetainedWorkspacePosting;
     presentation: NavigationDescriptorPresentation;
+    navigationId: string;
   };
 }> {
   if (navigation.outcome.kind !== "Applied") {
@@ -18600,6 +18724,7 @@ async function projectManagedNavigationType(
     navigation: {
       posting: updatedPosting,
       presentation,
+      navigationId: inventory.navigationId,
     },
   };
 }
@@ -24905,16 +25030,30 @@ async function loadSelectedMemberCallGraph() {
   const traversalFramework = state.callGraphTraversalFramework;
   const memberSignature =
     memberRequestSignature(type, overload, true);
+  const pkg = currentPackage();
+  const retainedPackage = pkg.isRuntimePack
+    ? null
+    : retainedPackageCallGraphAuthorities.get(pkg) ?? null;
+  const retainedSignature = retainedPackage === null
+    ? ""
+    : JSON.stringify([
+      retainedPackage.retainedDefinitionId,
+      retainedPackage.realizationId,
+      retainedPackage.navigationId,
+    ]);
   const signature =
-    `${memberSignature}|traversal:${traversalFramework}`;
+    `${memberSignature}|traversal:${traversalFramework}`
+    + (retainedPackage === null
+      ? ""
+      : `|retained:${retainedSignature}`);
   if (state.memberCallGraphKey !== signature) {
     directUseClusterInspection.reset();
   }
-  const pkg = currentPackage();
   const platformAssembly = assemblyDescriptorForType(pkg.assemblies, type);
   return callGraphInspection.load({
     signature,
     isRuntimePack: Boolean(state.package?.isRuntimePack),
+    retainedPackage,
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
@@ -24940,7 +25079,11 @@ async function loadSelectedMemberCallGraph() {
     traversalFramework,
     isCurrent: () =>
       memberRequestIsCurrent(memberSignature, true)
-      && state.callGraphTraversalFramework === traversalFramework,
+      && state.callGraphTraversalFramework === traversalFramework
+      && (retainedPackage === null
+        || retainedPackageCallGraphAuthorityIsCurrent(
+          pkg,
+          retainedPackage)),
   });
 }
 
@@ -28899,6 +29042,13 @@ function installRetainedWorkspaceModels(
   }
 
   clearWorkspacePackages();
+  for (const item of models.packages) {
+    associateRetainedPackageCallGraphAuthority(
+      posting,
+      item.navigationId,
+      item.packageModel,
+    );
+  }
   for (const packageModel of allModels) retainPackageModel(packageModel);
   activeRetainedWorkspacePosting = posting;
   retainedWorkspacePresentation =

@@ -21,6 +21,53 @@ namespace DotnetInspect.Web.Interop.CallGraph;
 public static partial class CallGraphExports
 {
     /// <summary>
+    /// A dependency-aware member call graph rooted in one exact Package row
+    /// from the active retained Workspace realization.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryRetainedMemberCallGraph(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string requestJson)
+    {
+        BrowserRetainedMemberCallGraphRequest request =
+            JsonSerializer.Deserialize(
+                requestJson,
+                BrowserCallGraphJsonContext.Default
+                    .BrowserRetainedMemberCallGraphRequest)
+            ?? throw new ArgumentException(
+                "A retained member Call Graph request is required.",
+                nameof(requestJson));
+        ValidateRetainedRequest(request);
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+            await BrowserRetainedCallGraphOperations.QueryAsync(
+                retainedDefinitionId,
+                realizationId,
+                navigationId,
+                request.PackageId,
+                request.Version,
+                request.TargetFramework,
+                request.AssemblyName,
+                request.TypeIdentity,
+                request.MemberName,
+                request.SelectorKey,
+                request.MetadataToken,
+                request.TraversalTargetFramework,
+                request.RuntimeIdentifier,
+                ParsePruning(request.PruningInventory));
+        BrowserCallGraph graph = ProjectGraph(
+            envelope,
+            request.PackageId,
+            request.Version,
+            request.TargetFramework);
+        return JsonSerializer.Serialize(
+            graph,
+            BrowserCallGraphJsonContext.Default.BrowserCallGraph);
+    }
+
+    /// <summary>
     /// A dependency-aware member call graph over one exact root package and an independent
     /// traversal target.
     /// </summary>
@@ -48,20 +95,6 @@ public static partial class CallGraphExports
                 pruningInventoryJson,
                 BrowserCallGraphJsonContext.Default
                     .BrowserCallGraphPruningInventory);
-        PackageDependencyMemberCallGraphPlatformPruning? pruning =
-            pruningInventory is
-                {
-                    Version: { } targetVersion,
-                    Supplies: { } supplies,
-                }
-                ? BrowserPackageDependencyMemberCallGraphContinuationSource
-                    .CreateCurrentRuntimePruning(
-                        pruningInventory.Tfm,
-                        targetVersion,
-                        supplies.Select(
-                            static supply =>
-                                $"{supply.Package}|{supply.Version}"))
-                : null;
         InspectionEnvelope<
             PackageDependencyMemberCallGraphInspectionOutcome> envelope =
             await BrowserPackageWorkspace
@@ -79,7 +112,54 @@ public static partial class CallGraphExports
                 BrowserPackageWorkspace.ProductWorkspacePlan,
                 PackageSupplyChainBaseline
                     .SelfAndRegisteredEcosystems,
-                pruning);
+                ParsePruning(pruningInventory));
+        BrowserCallGraph graph = ProjectGraph(
+            envelope,
+            packageId,
+            version,
+            targetFramework);
+        return JsonSerializer.Serialize(
+            graph,
+            BrowserCallGraphJsonContext.Default.BrowserCallGraph);
+    }
+
+    static PackageDependencyMemberCallGraphPlatformPruning? ParsePruning(
+        BrowserCallGraphPruningInventory? pruningInventory) =>
+        pruningInventory is
+            {
+                Version: { } targetVersion,
+                Supplies: { } supplies,
+            }
+            ? BrowserPackageDependencyMemberCallGraphContinuationSource
+                .CreateCurrentRuntimePruning(
+                    pruningInventory.Tfm,
+                    targetVersion,
+                    supplies.Select(
+                        static supply =>
+                            $"{supply.Package}|{supply.Version}"))
+            : null;
+
+    static void ValidateRetainedRequest(
+        BrowserRetainedMemberCallGraphRequest request)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.PackageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.TargetFramework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.AssemblyName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.TypeIdentity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.MemberName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.SelectorKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(
+            request.TraversalTargetFramework);
+    }
+
+    static BrowserCallGraph ProjectGraph(
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope,
+        string packageId,
+        string version,
+        string targetFramework)
+    {
         if (envelope.Content
             is PackageDependencyMemberCallGraphInspectionOutcome
                 .Unavailable unavailable)
@@ -91,19 +171,13 @@ public static partial class CallGraphExports
         var available =
             (PackageDependencyMemberCallGraphInspectionOutcome.Available)
                 envelope.Content;
-        BrowserCallGraph graph =
-            BrowserCallGraphWireProjection.Project(
-                BrowserCallGraphProjection.Project(
-                    available.Document,
-                    packageId,
-                    version,
-                    targetFramework),
-                envelope.Diagnostics);
-
-        // Keep JSON return provenance outside async cleanup for the generated typed facade.
-        return JsonSerializer.Serialize(
-            graph,
-            BrowserCallGraphJsonContext.Default.BrowserCallGraph);
+        return BrowserCallGraphWireProjection.Project(
+            BrowserCallGraphProjection.Project(
+                available.Document,
+                packageId,
+                version,
+                targetFramework),
+            envelope.Diagnostics);
     }
 
     public static Task<string> QueryMemberCallGraph(
