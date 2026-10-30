@@ -20,6 +20,7 @@ import {
   releaseFacade,
   root,
   openPlatform,
+  unsafeMembersRequests,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
@@ -58,6 +59,7 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     "Integrations",
     "Performance Triage",
     "Resource Triage",
+    "Unsafe",
   ]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-analysis-mode="relationships"]'))
@@ -1678,6 +1680,90 @@ test("triage rows have no collapsed code control and preserve Library Analysis",
     .toHaveAttribute("aria-selected", "true");
 });
 
+
+test("Unsafe discloses Library Types, then the Type's members, then a member's evidence", async ({ page }) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.getByRole("tab", { name: "Unsafe", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Unsafe", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => new URL(page.url()).searchParams.get("analysis")).toBe("unsafe");
+  // Library scope: counts and one row per declaring Type, with no evidence.
+  const librarySurface = page.locator(".library-unsafe-surface");
+  await expect(librarySurface.locator(".unsafe-counts dd")).toHaveText(["member", "public", "propagating", "safe boundary"]);
+  const typeRow = librarySurface.locator(".unsafe-type");
+  await expect(typeRow).toHaveCount(1);
+  await expect(typeRow.locator(".unsafe-type-name")).toHaveText("Example.Widget");
+  await expect(typeRow.locator(".unsafe-pill")).toHaveText(["1 public", "0 propagate", "1 safe boundary"]);
+  await expect(librarySurface.locator(".unsafe-member, .unsafe-evidence-table")).toHaveCount(0);
+  // Type scope: the Type's Analysis inspector opens on Unsafe and lists its
+  // members with their dimensions.
+  await typeRow.locator("button.perf-row").click();
+  await expect(inspectorTab(page, "data-lens", "analysis")).toHaveAttribute("aria-selected", "true");
+  const typeTab = page.locator('[data-analysis-scope="type"][data-analysis-mode="unsafe"]');
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  const typeSurface = page.locator(".type-unsafe-surface");
+  const member = typeSurface.locator(".unsafe-member");
+  await expect(member).toHaveCount(1);
+  await expect(member.locator(".unsafe-member-evidence")).toHaveAttribute("title", "pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add");
+  await expect(member.locator(".unsafe-member-evidence .perf-shape")).toHaveText(["pointer dereference ×2", "explicit-contract call"]);
+  await expect(member.locator(".unsafe-member-callees")).toHaveText("System.Runtime.CompilerServices.Unsafe::Add");
+  await expect(member.locator(".unsafe-pill")).toHaveText(["Public", "safe boundary"]);
+  await expect(typeSurface.locator(".unsafe-evidence-table")).toHaveCount(0);
+  // The drill leaves the Library's own Analysis selection unchanged.
+  await chooseSubject(page, "library", "Library");
+  await expect(page.locator('[data-analysis-scope="library"][data-analysis-mode="unsafe"]')).toHaveAttribute("aria-selected", "true");
+  await expect(typeRow).toHaveCount(1);
+  await typeRow.locator("button.perf-row").click();
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  await expect(member).toHaveCount(1);
+  // The Library census answers the drilled Type: one Library request, and no
+  // Type or Member request.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "library", typeIdentity: "", stableSelector: "" },
+  ]);
+  // A package Type's Analysis defaults to Relationships, so the link carries
+  // the Unsafe refinement, and a reload restores the Type Analysis Unsafe tab.
+  await expect(page.locator('[data-analysis-scope="type"][data-analysis-mode="relationships"]')).toHaveAttribute("aria-selected", "false");
+  await expect.poll(() => new URL(page.url()).searchParams.get("analysis")).toBe("unsafe");
+  const typeUrl = page.url();
+  await page.reload();
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  await expect(member).toHaveCount(1);
+  expect(page.url()).toBe(typeUrl);
+  // A reload at Type runs only that Type's census.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "type", typeIdentity: "Example.Widget", stableSelector: "" },
+  ]);
+  // Member scope: the member's Analysis inspector opens on Unsafe with its
+  // dimensions and evidence.
+  await member.locator("button.perf-row").click();
+  await expect(inspectorTab(page, "data-member-section", "analysis")).toHaveAttribute("aria-selected", "true");
+  const memberTab = page.locator('[data-analysis-scope="member"][data-analysis-mode="unsafe"]');
+  await expect(memberTab).toHaveAttribute("aria-selected", "true");
+  const memberSurface = page.locator(".member-unsafe-surface");
+  await expect(memberSurface.locator(".api-surface-head p")).toContainText("Run");
+  const finding = memberSurface.locator(".unsafe-member-finding");
+  await expect(finding).toHaveCount(1);
+  await expect(finding.locator(".unsafe-member-dimensions")).toContainText("safe boundary");
+  const items = finding.locator(".unsafe-evidence-table");
+  await expect(items).toBeVisible();
+  await expect(items).toContainText("IL_0007");
+  await expect(items).toContainText("<Run>b__0_0()");
+  // The Type census answers the drilled member without another request.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "type", typeIdentity: "Example.Widget", stableSelector: "" },
+  ]);
+  await expect.poll(() => new URL(page.url()).searchParams.has("analysis")).toBe(false);
+  const memberUrl = page.url();
+  await page.reload();
+  await expect(memberTab).toHaveAttribute("aria-selected", "true");
+  await expect(memberSurface.locator(".unsafe-evidence-table")).toContainText("IL_0007");
+  expect(page.url()).toBe(memberUrl);
+  // A reload at Member runs only that member's census.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "member", typeIdentity: "Example.Widget", stableSelector: "Run" },
+  ]);
+});
 
 test("Resource rows open member Resource Triage with detailed evidence and Explore", async ({ page }) => {
   const stop = { ...run, name: "Stop", stableSelector: "Stop", graphSelectorKey: "Stop", signature: "void Stop()", documentationId: "M:Example.Widget.Stop" };
