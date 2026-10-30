@@ -637,12 +637,12 @@ public static class ApiOutputFormatter
 
         // Description (from docs) — suppressed at quiet
         string? description = null;
-        if (!memberDetail && options.Verbosity != Verbosity.Quiet && options.ShowDocs && type.Documentation.Summary != null)
+        if (!memberDetail && options.Verbosity != Verbosity.Quiet && ShowsCompiledDocumentation(options) && type.Documentation.Summary != null)
             description = type.Documentation.Summary;
 
         // Samples info (only with --docs/--samples)
         string? samplesInfo = null;
-        if ((options.ShowDocs || options.ShowSamples) && type.Documentation.Samples.Count > 0)
+        if ((ShowsCompiledDocumentation(options) || options.ShowSamples) && type.Documentation.Samples.Count > 0)
             samplesInfo = $"{type.Documentation.Samples.Count} available";
 
         // Type parameters table (pipeline controls visibility via IncludeSections)
@@ -833,7 +833,7 @@ public static class ApiOutputFormatter
         if (options.Limit.HasValue && options.Limit.Value < enumMembers.Count)
             enumMembers = enumMembers.Take(options.Limit.Value).ToList();
 
-        bool hasAnyDocs = options.ShowDocs && enumMembers.Any(m => m.Documentation.Summary != null);
+        bool hasAnyDocs = ShowsCompiledDocumentation(options) && enumMembers.Any(m => m.Documentation.Summary != null);
 
         var rows = enumMembers.Select(m => new EnumValueRow
         {
@@ -888,8 +888,9 @@ public static class ApiOutputFormatter
             .OrderBy(g => GetMemberSortOrder(g.Key))
             .ToList();
 
-        bool docsRequested = options.ShowDocs
-            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+        bool docsRequested = ShowsCompiledDocumentation(options)
+            || options is not MemberOptions
+                && options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
         bool hasDocs = docsRequested && allMembers.Any(m => m.Documentation.Summary != null);
         bool abbreviate = ShouldAbbreviateMemberSignatures(options);
         bool showSelect = false;
@@ -1032,8 +1033,9 @@ public static class ApiOutputFormatter
         }
         var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
 
-        var docsRequested = options.ShowDocs
-            || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
+        var docsRequested = ShowsCompiledDocumentation(options)
+            || options is not MemberOptions
+                && options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
         var description = docsRequested ? member.Documentation.Summary : null;
 
         view.SignatureRows =
@@ -1047,6 +1049,11 @@ public static class ApiOutputFormatter
                 unavailable)
         ];
     }
+
+    private static bool ShowsCompiledDocumentation(ApiOptions options) =>
+        options is MemberOptions memberOptions
+            ? MemberGroupDocumentOutput.RequestsCompatibilityDocumentation(memberOptions)
+            : options.ShowDocs;
 
     internal static void PopulateMemberIndex(MemberIndexView view, ApiType type, ApiOptions options)
     {

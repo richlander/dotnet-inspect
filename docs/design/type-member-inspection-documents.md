@@ -622,6 +622,29 @@ same final resolution while attaching one compiled-documentation outcome to
 each returned declaration. `MemberGroupDocumentInspectionOperation` and its
 transitional `MemberGroupDocument` content are retired.
 
+CLI Member adoption (#10805) makes the default exact-Member report an explicit
+declaration-plus-compiled-documentation request, including when a saved Member
+replays that report. Explicit `Signature` and `Overloads` remain metadata-only;
+`Documented Overloads` requests the shared attachment composition. Count never
+requests documentation. Formatting, column projection, verbosity, and the
+transitional `ShowDocs` flags do not select compiled-documentation Content.
+
+The operator approved retaining documentation as fixed Content of compatibility
+declaration sections, including `Methods`, `Properties`, and `Extension Methods`,
+rather than removing capabilities without documented replacements. Their
+existing documentation/source settlement and acquisition boundaries remain;
+this is not permission to add source retrieval or compiled documentation to the
+metadata-only PackageHouse route. Source-part requests keep their independently
+authorized source composition, and the shared authored-documentation
+authorization predicate is unchanged. Global flag retirement remains #10810.
+
+The pinned `System.Text.Json@10.0.0` `JsonSerializer.Serialize` population above
+remains the real-asset canary. CLI gates compare plain/documented rows and
+selectors, Count and bounded Rows, exact ordinal/digest reports, malformed and
+missing compiled documentation, and ordinary versus saved Member replay.
+Compatibility-section gates retain projected-extension and non-public
+declaration documentation while checking that presentation does not add demand.
+
 Browser package, Platform, and uploaded-Library family views now consume the
 same final resolution. The managed exports preserve the established
 `queryMemberGroupDocument` transport and project either final document into

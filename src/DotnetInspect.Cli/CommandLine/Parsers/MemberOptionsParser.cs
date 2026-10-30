@@ -692,8 +692,6 @@ public static class MemberOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
-            ShowDocs = true,  // Docs always on (local XML); use source command for SourceLink
-            DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
             JsonOutput = outputFormat == OutputFormat.Json,
             EnvelopeOutput = parseResult.GetValue(opts.Envelope),

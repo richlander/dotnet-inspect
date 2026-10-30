@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Models;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -512,13 +513,8 @@ public static partial class MemberCommand
                 selectedTfm,
                 MemberCodeSourceAssembly: sourceAssembly);
 
-            // Default --docs on for single-type view at Normal+ unless explicitly disabled
             MemberOptions contextualSubjectOptions = options;
             MemberOptions effectiveOptions = options;
-            if (allowImplicitDocumentation
-                && !options.DocsExplicitlySet
-                && options.Verbosity >= Verbosity.Normal)
-                effectiveOptions = options with { ShowDocs = true };
             if (effectiveOptions.HasCallerScope
                 && !ApiCommand.HasExactCallGraphDocumentSelection(
                     effectiveOptions))
@@ -821,6 +817,9 @@ public static partial class MemberCommand
                     packageName,
                     packageVersion,
                     context.HttpClient,
+                    allowImplicitDocumentation
+                        ? new(DocumentationDemand.CompiledXml)
+                        : null,
                     CancellationToken.None,
                     contextualExplanationResolution);
                 return WriteContextualCompanion(
@@ -1132,6 +1131,9 @@ public static partial class MemberCommand
                         packageName,
                         packageVersion,
                         context.HttpClient,
+                        allowImplicitDocumentation
+                            ? new(DocumentationDemand.CompiledXml)
+                            : null,
                         CancellationToken.None);
                     if (memberGroupExitCode == 0 && count > 1)
                         CommandError.WriteLine(
@@ -1225,15 +1227,13 @@ public static partial class MemberCommand
                 }
             }
 
-            // Enrich with local XML docs only (source info is in the source command)
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
                 if (dllPath != null
-                    && (effectiveOptions.IncludeSections is null
-                        || effectiveOptions.IncludeSections.Any(
-                            static section => section is not SectionNames.Overloads
-                                and not SectionNames.DocumentedOverloads))
-                    && (effectiveOptions.ShowDocs
+                    && !effectiveOptions.Count
+                    && (allowImplicitDocumentation
+                            && MemberGroupDocumentOutput
+                                .RequestsCompatibilityDocumentation(effectiveOptions)
                         || effectiveOptions.ShowSamples))
                     await DocumentationEnricher.EnrichAsync(
                         [apiType],
