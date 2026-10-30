@@ -1147,8 +1147,8 @@ reachable Package route evidence owned by
 [Package-origin AssemblyRef supply routing](package-origin-assemblyref-supply-routing.md).
 Only a terminal Package selection yields an exact package ID and version for
 the existing range-only icon request. A Platform supplier, incomplete or
-ambiguous association, and any unavailable or failed result leave the reference
-plain. This pass does not delay the direct reference rows or diagram, change
+ambiguous association, and any unavailable or failed result yield no Package
+icon. This pass does not delay the direct reference rows or diagram, change
 their navigation, or admit a supplier to the Workspace. A result may update the
 same reference row and diagram node only while the package, selected Library,
 and direct reference result remain current. The graph icon sits in space added
@@ -1169,7 +1169,7 @@ payload plan caused the semantic supplier query to fail, leaving only the
 same-package icon. The published-Wasm `package-adoption.spec.ts` scenario
 `shows real external Package icons in Library References` opens that exact
 Library through the production page and checks external icons in both rows and
-graph nodes, with Platform references left plain. It uses normal Gallery
+graph nodes, separately from ecosystem annotations. It uses normal Gallery
 acquisition rather than a stubbed supplier response; the existing fixture gate
 continues to cover deferred presentation separately.
 
@@ -1180,10 +1180,31 @@ the package's retained icon or the default icon for a known package source.
 For nuget.org coordinates, the existing exact-coordinate icon query may
 replace the default. Framework/runtime Libraries and absent or ambiguous
 Workspace matches receive no icon from this path. A local artifact
-without retained package-icon evidence also remains plain. Icon loading is
+without retained package-icon evidence also receives no Package icon. Icon loading is
 bounded and cannot change the direct AssemblyRef answer or a newer Library
-view. The graph remains an AssemblyRef diagram; icons annotate rows and nodes
+view. The graph remains an AssemblyRef diagram; Package icons annotate rows and nodes
 where package ownership is known.
+
+Independently of supplier acquisition, References may annotate a direct
+AssemblyRef with the existing product ecosystem icon when the resource-free
+[direct assembly-name claim](ecosystem-dependency-recognition.md#direct-assembly-name-claims)
+returns a first claimant eligible for Platform search. The catalog owns
+matching, precedence, and eligibility; the Browser does not reconstruct them.
+The icon's accessible label and tooltip identify ecosystem affiliation, not a
+resolved Platform supplier, Package ownership, or dependency recognition.
+Proven ordinary Package icons take precedence. Unknown names, ineligible
+claims, unavailable icons, and failed lookups remain unannotated by this path.
+Annotations apply to both rows and graph nodes, remain bound to the current
+Library reference result, and neither change navigation nor acquire or admit
+any artifact.
+
+The same SignalR asset motivates this extension: its `System.Runtime`,
+`Microsoft.AspNetCore.*`, and `Microsoft.Extensions.*` references currently lack
+icons despite existing product-authored ecosystem associations. Focused Browser
+gates cover the three platform ecosystem icons, unknown and ineligible
+neighbors, Package-icon precedence, and stale lookup completion. The
+published-Wasm gate exercises the normal assembly-name lookup on the exact
+SignalR Library rather than substituting classification results.
 
 The graph and list use the available width. The quiet header remains in place
 while the content scrolls; References has no bottom context row. This follows

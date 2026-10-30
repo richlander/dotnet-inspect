@@ -7,6 +7,16 @@ namespace DotnetInspector.Sections;
 
 public static class AnnotatedTypeRelationsJson
 {
+    public static JsonElement Project(
+        AnnotatedTypeRelationsDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return JsonSerializer.SerializeToElement(
+            AnnotatedTypeRelationsJsonDocument.From(document),
+            AnnotatedTypeRelationsDocumentJsonContext.Default
+                .AnnotatedTypeRelationsJsonDocument);
+    }
+
     public static void Write(
         Utf8JsonWriter writer,
         AnnotatedTypeRelationsDocument document)
