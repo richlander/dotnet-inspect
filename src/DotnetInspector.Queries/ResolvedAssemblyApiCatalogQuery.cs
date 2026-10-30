@@ -222,6 +222,13 @@ internal static class ResolvedAssemblyApiCatalogQuery
                             type.DefinitionName?.Equals(
                                 available.Definition.Type)
                             == true);
+                MergeSelectedInspectionFailures(
+                    catalog,
+                    projected.Value.Surface,
+                    forwardedType,
+                    forwardedRequest.Type,
+                    available.Definition.Address
+                        .Definition.Value);
                 if (forwardedType is null)
                     continue;
 
@@ -236,11 +243,6 @@ internal static class ResolvedAssemblyApiCatalogQuery
                     continue;
                 }
 
-                MergeSelectedInspectionFailures(
-                    catalog,
-                    projected.Value.Surface,
-                    forwardedType,
-                    forwardedRequest.Type);
                 if (!catalog.Types.Contains(forwardedType))
                 {
                     catalog.Types.Add(forwardedType);
@@ -272,18 +274,25 @@ internal static class ResolvedAssemblyApiCatalogQuery
     static void MergeSelectedInspectionFailures(
         ApiSurface destination,
         ApiSurface source,
-        ApiType selectedType,
-        MetadataTypeDefinitionName selectedDefinition)
+        ApiType? selectedType,
+        MetadataTypeDefinitionName selectedDefinition,
+        int selectedTypeToken)
     {
-        var selectedTokens = new HashSet<int>();
-        Add(selectedType.MetadataToken);
-        foreach (ApiMember member in selectedType.Members)
+        var selectedTokens = new HashSet<int>
         {
-            Add(member.MetadataToken);
-            Add(member.GetterToken);
-            Add(member.SetterToken);
-            Add(member.AdderToken);
-            Add(member.RemoverToken);
+            selectedTypeToken,
+        };
+        if (selectedType is not null)
+        {
+            Add(selectedType.MetadataToken);
+            foreach (ApiMember member in selectedType.Members)
+            {
+                Add(member.MetadataToken);
+                Add(member.GetterToken);
+                Add(member.SetterToken);
+                Add(member.AdderToken);
+                Add(member.RemoverToken);
+            }
         }
 
         destination.MergeInspectionFailuresFrom(

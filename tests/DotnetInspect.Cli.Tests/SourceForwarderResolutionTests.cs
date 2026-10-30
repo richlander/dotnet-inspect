@@ -1368,6 +1368,100 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task
+        LibraryCatalogOperation_ScopesMalformedForwardedTypeFailure(
+            bool requestedTypeIsMalformed)
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath =
+                Path.Combine(directory, "Facade.dll");
+            string targetPath =
+                Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Target",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+            File.WriteAllBytes(
+                targetPath,
+                BuildTargetWithMalformedType(
+                    requestedTypeIsMalformed));
+            ResolvedAssemblyReference facade =
+                ResolvedAssemblyReference.CreateFromPath(
+                    facadePath,
+                    AssemblyResolutionProvenance.Local(
+                        "resolved malformed catalog test"));
+            using var resolution =
+                new TypeDefinitionResolutionSession(
+                    facade,
+                    isPlatformAssembly: false,
+                    projectAssetsPath: null,
+                    targetFramework: null);
+            IAssemblyBindingPolicy policy =
+                resolution.BindingContext(
+                    AssemblyBindingOccurrence.Seed(facade))
+                    .Policy;
+
+            InspectionEnvelope<LibraryApiCatalogInspectionResult>
+                result =
+                await LibraryApiCatalogInspectionOperation
+                    .ExecuteWithLiveCatalogAsync(
+                        facade,
+                        policy,
+                        ApiSurfaceScope.Public,
+                        (envelope, target, _) =>
+                        {
+                            Assert.NotNull(target);
+                            if (requestedTypeIsMalformed)
+                            {
+                                Assert.Empty(
+                                    target.Surface.Types);
+                                ApiSurfaceInspectionFailure failure =
+                                    Assert.Single(
+                                        target.Surface
+                                            .InspectionFailures);
+                                Assert.Equal(
+                                    0x1B000001,
+                                    failure.SubjectToken);
+                                Assert.Equal(
+                                    0x02000002,
+                                    failure.OwningTypeToken);
+                            }
+                            else
+                            {
+                                Assert.True(
+                                    Assert.Single(
+                                        target.Surface.Types)
+                                        .IsForwarded);
+                                Assert.Empty(
+                                    target.Surface
+                                        .InspectionFailures);
+                            }
+
+                            return ValueTask.FromResult(envelope);
+                        },
+                        TestContext.Current.CancellationToken);
+
+            Assert.True(result.Content.IsAvailable);
+            Assert.Equal(
+                requestedTypeIsMalformed ? 1 : 0,
+                result.Content.Failures.Length);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void TypeCommand_PreservesOnlyFailuresForSelectedForwardedTypes()
     {
