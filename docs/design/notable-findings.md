@@ -674,8 +674,9 @@ chips, and the profile line, each as a separately staged slice below.
 - **Guidance delivery:** for a fixture Member with one admitted body
   finding that has a matching catalog row, the Findings row, the Annotated Source finding inspector, and
   the mark's tooltip each render that finding's catalog line and link, and
-  the Markout JSON and TSV lowerings of CLI Facts carry the same
-  URL as a field; for a fixture Member whose only finding is a Member-header
+  the Markout JSON and TSV lowerings of CLI Facts, requested with no
+  `--columns` or `--fields`, carry the same catalog line and URL as the
+  `guidance` and `link` fields; for a fixture Member whose only finding is a Member-header
   finding, the Findings row and tooltip render the catalog line and link,
   the row offers no Annotated Source action and says so, and the Current
   mark is still present; a finding without a matching catalog row, whether
