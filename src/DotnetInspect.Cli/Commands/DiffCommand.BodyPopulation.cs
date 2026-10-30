@@ -69,17 +69,14 @@ public partial class DiffCommand
                 | ILInspector.Analysis.LibraryBodyAnalysisFeatures.Allocations
                 | ILInspector.Analysis.LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities;
-            if (includeImplementationProfiles)
-            {
-                features |= ILInspector.Analysis.LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles;
-            }
             return MethodBodyInspectionSession.OpenWithPrefetchedImage(
                 SourcePath,
                 Image,
                 features,
                 Resolver,
-                Assembly);
+                Assembly,
+                includeImplementationProfiles:
+                    includeImplementationProfiles);
         }
     }
 

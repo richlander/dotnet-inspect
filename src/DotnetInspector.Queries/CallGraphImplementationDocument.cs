@@ -98,9 +98,7 @@ public sealed class CallGraphImplementationDocument
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(receipt);
         ArgumentNullException.ThrowIfNull(coverage);
-        if (!receipt.Features.HasFlag(
-                LibraryBodyAnalysisFeatures.ImplementationProfiles)
-            || !coverage.WasRequested)
+        if (!coverage.WasRequested)
         {
             throw new ArgumentException(
                 "A call-graph implementation document requires requested implementation-profile evidence.",

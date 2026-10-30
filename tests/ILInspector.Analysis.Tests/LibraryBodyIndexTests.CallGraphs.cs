@@ -405,11 +405,10 @@ public partial class LibraryBodyIndexTests
                 typeof(LibraryCallGraphAnalysisResult)));
         static LibraryBodyAnalysisExecution Exercised(string path)
         {
-            var index = BodyAnalysisTestExecution.Open(
+            var index = BodyAnalysisTestExecution
+                .OpenCompleteImplementationProfile(
                 path,
-                LibraryBodyAnalysisFeatures.Default
-                    | LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles);
+                LibraryBodyAnalysisFeatures.Default);
             int token = index.CallGraph.Methods.First().MetadataToken;
             index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);

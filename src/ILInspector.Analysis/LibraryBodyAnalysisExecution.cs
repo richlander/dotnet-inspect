@@ -327,12 +327,20 @@ public sealed class LibraryBodyAnalysisExecution
     {
         _moduleName = moduleName;
         _analysis = analysis;
+        ImmutableArray<AnalysisDiagnostic> receiptDiagnostics =
+            plan.ProducesCompleteImplementationProfile
+                ? AnalysisDiagnosticAggregation
+                    .MergeInMetadataOrder(
+                        analysis.Diagnostics,
+                        analysis.Methods
+                            .ImplementationMetricDiagnostics)
+                : analysis.Diagnostics;
         Receipt = new(
             sourceName,
             moduleIdentity,
             plan.Features,
             HasFullMethodEvidenceScope(plan),
-            analysis.Diagnostics)
+            receiptDiagnostics)
         {
             StageParticipation = stageParticipation,
         };
@@ -450,7 +458,6 @@ public sealed class LibraryBodyAnalysisExecution
                 BodySignals: new Dictionary<int, BodySignals>(),
                 ImplementationMetrics: [],
                 ImplementationMetricDiagnostics: [],
-                ImplementationProfiles: [],
                 InAssemblyTypeIsException:
                     new Dictionary<
                         (string Namespace, string Name),
@@ -635,9 +642,7 @@ public sealed class LibraryBodyAnalysisExecution
                     AddSiblingRelationshipParticipation(
                         actualStages,
                         bodies,
-                        plan.RequestedFeatures
-                            & LibraryBodyAnalysisFeatures
-                                .ImplementationProfiles);
+                        LibraryBodyAnalysisFeatures.None);
             }
         }
 
@@ -1063,17 +1068,9 @@ public sealed class LibraryBodyAnalysisExecution
             GeneratedFrameworkTypeSet generatedFrameworkTypes,
             LibraryBodyAnalysisPlan plan)
     {
-        bool legacyRequested =
-            receipt.Features.HasFlag(
-                LibraryBodyAnalysisFeatures.ImplementationProfiles);
         ImplementationMetricAnalysisPlan? metricPlan =
             plan.ImplementationMetrics;
-        bool focusedCompleteProfile =
-            !legacyRequested
-            && metricPlan?.RequestedMetrics
-                == ImplementationMetricAnalysisRequest
-                    .CompleteProfileV1;
-        if (!legacyRequested && !focusedCompleteProfile)
+        if (!plan.ProducesCompleteImplementationProfile)
         {
             return new(
                 receipt,
@@ -1086,89 +1083,55 @@ public sealed class LibraryBodyAnalysisExecution
                 []);
         }
 
-        if (focusedCompleteProfile)
-        {
-            ImmutableArray<AnalysisDiagnostic> metricDiagnostics =
-                AnalysisDiagnosticAggregation.MergeInMetadataOrder(
-                    analysis.Diagnostics,
-                    analysis.Methods
-                        .ImplementationMetricDiagnostics);
-            ImmutableArray<MethodImplementationMetricEvidence> bodies =
-                PublishSignalMetrics(
-                    analysis.Methods.ImplementationMetrics,
-                    callGraph.MethodSignals,
-                    metricPlan!);
-            bodies = PublishDirectCallMetrics(
-                bodies,
-                callGraph,
-                metricDiagnostics);
-            ImmutableArray<OverloadCallRelationship>
-                focusedRelationships =
-                MethodImplementationProfileAnalysis
-                    .CollectOverloadRelationships(
-                        callGraph.DeclaredMethods,
-                        callGraph.DirectCalls,
-                        callGraph.DeclaredMethodMap);
-            ImmutableArray<MethodImplementationProfile> profiles =
-                MethodImplementationProfileAnalysis
-                    .CollectFocusedCompleteProfiles(
-                        bodies,
-                        focusedRelationships,
-                        metricDiagnostics);
-            HashSet<int> profiledTokens =
-            [
-                .. profiles.Select(static profile =>
-                    profile.EvidenceMethod.MetadataToken),
-            ];
-            ImmutableArray<MethodIdentity> profiledBodies =
-            [
-                .. bodies
-                    .Where(body => profiledTokens.Contains(
-                        body.EvidenceMethod.MetadataToken))
-                    .Select(static body =>
-                        body.EvidenceMethod),
-            ];
-            return new(
-                receipt,
-                CreateImplementationProfileCoverage(
-                    receipt,
-                    analysis,
-                    wasRequested: true,
-                    profiledBodies,
-                    diagnostics: metricDiagnostics,
-                    hasFullScopeOverride: !plan.IsScoped),
-                profiles,
-                focusedRelationships,
-                generatedFrameworkTypes.Types);
-        }
-
+        ImmutableArray<AnalysisDiagnostic> metricDiagnostics =
+            AnalysisDiagnosticAggregation.MergeInMetadataOrder(
+                analysis.Diagnostics,
+                analysis.Methods
+                    .ImplementationMetricDiagnostics);
+        ImmutableArray<MethodImplementationMetricEvidence> bodies =
+            PublishSignalMetrics(
+                analysis.Methods.ImplementationMetrics,
+                callGraph.MethodSignals,
+                metricPlan!);
+        bodies = PublishDirectCallMetrics(
+            bodies,
+            callGraph,
+            metricDiagnostics);
         ImmutableArray<OverloadCallRelationship> relationships =
             MethodImplementationProfileAnalysis
                 .CollectOverloadRelationships(
                     callGraph.DeclaredMethods,
                     callGraph.DirectCalls,
                     callGraph.DeclaredMethodMap);
-
+        ImmutableArray<MethodImplementationProfile> profiles =
+            MethodImplementationProfileAnalysis
+                .CollectFocusedCompleteProfiles(
+                    bodies,
+                    relationships,
+                    metricDiagnostics);
+        HashSet<int> profiledTokens =
+        [
+            .. profiles.Select(static profile =>
+                profile.EvidenceMethod.MetadataToken),
+        ];
+        ImmutableArray<MethodIdentity> profiledBodies =
+        [
+            .. bodies
+                .Where(body => profiledTokens.Contains(
+                    body.EvidenceMethod.MetadataToken))
+                .Select(static body =>
+                    body.EvidenceMethod),
+        ];
         return new(
             receipt,
             CreateImplementationProfileCoverage(
                 receipt,
                 analysis,
-                wasRequested: true),
-            MethodImplementationProfileAnalysis.Collect(
-                analysis.Methods.ImplementationProfiles,
-                callGraph.DirectCalls,
-                callGraph.MethodSignals,
-                relationships,
-                callGraph.DeclaredMethodMap,
-                analysis.Methods.ImplementationMetrics
-                    .Where(static body =>
-                        body.DirectCallCount is not null)
-                    .ToDictionary(
-                        static body =>
-                            body.EvidenceMethod.MetadataToken,
-                        static body =>
-                            body.DirectCallCount!.Count)),
+                wasRequested: true,
+                profiledBodies,
+                diagnostics: metricDiagnostics,
+                hasFullScopeOverride: !plan.IsScoped),
+            profiles,
             relationships,
             generatedFrameworkTypes.Types);
     }
@@ -1240,12 +1203,9 @@ public sealed class LibraryBodyAnalysisExecution
 
         ImmutableArray<MethodIdentity> effectiveProfiledBodies =
             profiledBodies
-            ??
-            [
-                .. analysis.Methods.ImplementationProfiles
-                    .Select(static profile =>
-                        profile.EvidenceMethod),
-            ];
+            ?? throw new InvalidOperationException(
+                "Requested implementation-profile coverage requires "
+                    + "profiled body evidence.");
         HashSet<int> profiledTokens =
         [
             .. effectiveProfiledBodies.Select(
