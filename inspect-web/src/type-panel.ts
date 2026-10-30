@@ -376,6 +376,7 @@ export interface TypePanelBindingActions {
   onTypeAccessibilitySelect: (accessibility: string) => void;
   onTypeTraitSelect: (trait: string) => void;
   onTypeLeverageRetry: () => void;
+  onTypeAnalysisOpen: () => void;
   onTypeMembersOpen: () => void;
   onTypeNavBack: () => void;
   onListKeyDown: (event: KeyboardEvent) => boolean;
@@ -439,6 +440,9 @@ export function bindTypePanel(
   root.querySelector("[data-type-leverage-retry]")?.addEventListener(
     "click",
     actions.onTypeLeverageRetry);
+  root.querySelector("[data-type-analysis]")?.addEventListener(
+    "click",
+    actions.onTypeAnalysisOpen);
   root.querySelector("[data-type-members]")?.addEventListener(
     "click",
     actions.onTypeMembersOpen);
@@ -1038,6 +1042,7 @@ export interface RenderTypeMetadataOptions {
   metadataAvailable?: boolean;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
+  analysisSummaryHtml?: string;
   escapeHtml: EscapeHtml;
   highlightCSharp: (value: string) => string;
   relatedTypeChip: (
@@ -1052,6 +1057,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     item, packageContext, libraryIdentity, workspaceIdentity,
     metadataAvailable = true, metadataState,
     memberCompositionHtml,
+    analysisSummaryHtml = "",
     escapeHtml, highlightCSharp, relatedTypeChip, factRows,
   } = options;
   const current = typeMetadataSignature(
@@ -1105,7 +1111,10 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
             </div>
             <div class="subject-overview-summary-group type-overview-navigation">
               <span class="subject-overview-summary-label">Navigate</span>
-              <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
+              <div>
+                <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
+                ${analysisSummaryHtml}
+              </div>
             </div>
           </section>
           ${content}

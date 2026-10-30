@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using DotnetInspector.Packages;
@@ -118,6 +119,7 @@ public sealed class ProductionFacadeContextTests
             "CancelLibraryApiDiff",
             "CancelLibraryFindingDiffAny",
             "FindTypes",
+            "QueryAnnotatedTypeRelations",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
             "QueryLibraryFindingDiffAny",
@@ -231,6 +233,7 @@ public sealed class ProductionFacadeContextTests
             "ExplainVocabularies",
             "ExplainResources",
             "ExplainWorkspaceComponent",
+            "FindIndexedTypes",
             "ListEcosystems",
             "ListHomeDemos",
             "ListLibraryViewFacets",
@@ -241,12 +244,14 @@ public sealed class ProductionFacadeContextTests
             "ObserveRetainedWorkspaceSettlement",
             "PrepareEcosystemWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
+            "PrepareProjectWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinitionFromRecords",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",
             "RecordRetainedWorkspaceNavigationPosting",
             "ResolveHomeDemo",
             "RunHomeDemo",
+            "SelectProjectInspector",
             "ValidateRetainedWorkspaceNavigationAuthority",
         ],
     };
@@ -295,7 +300,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(170, everyExport.Length);
+        Assert.Equal(174, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -374,6 +379,7 @@ public sealed class ProductionFacadeContextTests
             typeof(InspectionEnvelope<ExactTypeInspectionResult>),
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
+        Collect(typeof(InspectionEnvelope<JsonElement>), sharedContractTypes);
         var sharedPackageContractTypes = new HashSet<Type>();
         Collect(
             typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),
@@ -418,6 +424,7 @@ public sealed class ProductionFacadeContextTests
         var sharedCatalogContractTypes = new HashSet<Type>();
         Collect(typeof(DotnetInspector.Queries.Definitions.WorkspacePackageComponentDescriptor),
             sharedCatalogContractTypes);
+        Collect(typeof(InspectionEnvelope<JsonElement>), sharedCatalogContractTypes);
         foreach (Type root in RootTypes())
         {
             Assembly assembly = root.Assembly;

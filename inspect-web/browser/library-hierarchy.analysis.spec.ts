@@ -1480,6 +1480,76 @@ test("external supplier icon arrives after direct References and updates its gra
   await page.screenshot({ path: testInfo.outputPath("external-reference-package-icon.png") });
 });
 
+for (const width of [1440, 390]) {
+  test(`platform ecosystem icons do not wait for suppliers and yield to Package icons at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page, surface, [], "ecosystem-icons");
+    await openReferences(page);
+    const frame = page.locator(".library-references-surface");
+    const rows = frame.locator(".dep-list > li");
+    await expect(rows).toHaveCount(7);
+    for (const [index, title] of [
+      [0, ".NET Runtime"], [1, "ASP.NET Core"], [2, "Microsoft.Extensions"],
+      [6, "Microsoft.Extensions"],
+    ] as const) {
+      const icon = rows.nth(index).getByRole("img", { name: `Ecosystem: ${title}`, exact: true });
+      await expect(icon).toBeVisible();
+      expect(await icon.evaluate(element => getComputedStyle(element).backgroundImage))
+        .toMatch(/^url\("data:image\/svg\+xml,/);
+      await expect(frame.locator(
+        `g.node[id*="-flowchart-r${index + 1}-"] image[data-reference-ecosystem-icon]`))
+        .toHaveAttribute("href", /^data:image\/svg\+xml,/);
+      await expect(rows.nth(index).locator("button")).toHaveCount(0);
+    }
+    for (const index of [3, 4, 5])
+      await expect(rows.nth(index).locator(".dep-icon")).toHaveCount(0);
+    await expect(frame.locator("[data-library-reference-icon]")).toHaveCount(0);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("platform-ecosystem-reference-icons.png") });
+
+    await releaseFacade(page, "fixture-reference-suppliers-ready");
+    await expect(rows.nth(0).locator("img[data-library-reference-icon]")).toHaveCount(1);
+    await expect(rows.nth(0).locator("[data-library-reference-ecosystem-icon]")).toHaveCount(0);
+    await expect(frame.locator(
+      'g.node[id*="-flowchart-r1-"] image[data-reference-package-icon]')).toHaveCount(1);
+    await expect(frame.locator(
+      'g.node[id*="-flowchart-r1-"] image[data-reference-ecosystem-icon]')).toHaveCount(0);
+    await expect(rows.nth(0).locator(".dep-icon")).toHaveCount(1);
+  });
+}
+
+test("admitted Package icons take precedence over platform ecosystem claims", async ({ page }) => {
+  const target = library("asset:runtime", "System.Runtime", 1);
+  const icon = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="blue"/></svg>').toString("base64");
+  await installFacades(page, {
+    ...surface, icon: { mediaType: "image/svg+xml", base64: icon },
+    assemblies: [...surface.assemblies, target],
+  }, [], "ecosystem-icons");
+  await openReferences(page);
+  const row = page.locator(".reference-list-section .dep-list > li").first();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reference-ecosystem-request", /System.Runtime/);
+  await expect(row.locator("[data-library-reference-icon]"))
+    .toHaveAttribute("src", `data:image/svg+xml;base64,${icon}`);
+  await expect(row.locator("[data-library-reference-ecosystem-icon]")).toHaveCount(0);
+});
+
+test("a late ecosystem lookup cannot annotate a different Library", async ({ page }) => {
+  await installFacades(page, surface, [], "ecosystem-deferred");
+  await openReferences(page);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reference-ecosystem-request", /System.Runtime/);
+  await chooseSubject(page, "package", "Package");
+  await selectLibrary(page, other.id);
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
+  const frame = page.locator(".library-references-surface");
+  await expect(frame).toContainText("Example.Other.Dependency");
+  await releaseFacade(page, "fixture-reference-ecosystems-ready");
+  await expect(frame).not.toContainText("System.Runtime");
+  await expect(frame.locator("[data-library-reference-ecosystem-icon]")).toHaveCount(0);
+});
+
 test("Library navigation exposes the complete long Library name on hover", async ({ page }) => {
   const longLibrary = {
     ...core,
