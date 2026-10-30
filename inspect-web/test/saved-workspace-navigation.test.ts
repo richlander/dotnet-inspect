@@ -16,6 +16,7 @@ import {
   retainWorkspacePackage,
   setTypeViewFacetCatalog,
   typeLensesFor,
+  typeRelationshipsOfferedFor,
 } from "../src/data.ts";
 import type {
   BrowserWorkspaceShareDecodeResult,
@@ -164,7 +165,7 @@ const hostNames = new Set([
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount", "packageHierarchyTargetFramework",
   "workspaceTraversalTargetFramework",
-  "selectedLibraryShareKey", "currentAnalysisInspectorMode", "packageDependenciesData",
+  "selectedLibraryShareKey", "currentAnalysisInspectorMode", "currentTypeAnalysisMode", "typeAnalysisContext", "packageDependenciesData",
   "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
   "navigateInAppUrl", "navigateWithinCurrentWorkspace",
@@ -706,6 +707,7 @@ function harness() {
     document,
     defaultAnalysisMode,
     analysisModeForScope,
+    typeRelationshipsOfferedFor,
     hierarchyShareTargetFramework,
     workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
@@ -1059,6 +1061,7 @@ function harness() {
 setTypeViewFacetCatalog([
   { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
   { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.analysis", kind: "Type", title: "Analysis", order: 250 },
   { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
   { id: "type.source", kind: "Type", title: "Source", order: 400 },
   { id: "type.compare", kind: "Type", title: "Compare", order: 500 },

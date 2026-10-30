@@ -258,7 +258,8 @@ Analysis inspector, at Library, Type, or Member scope, and only when that
 scope lists the mode
 ([Analysis modes](inspect-web-surface-composition.md#library-analysis)).
 Its absence, or a value the scope doesn't list, selects that scope's default:
-`relationships` for a Library and `unsafe` for a Type or Member. Canonical
+`relationships` for a Library and for a package-backed Type, and `unsafe`
+for a Platform Type or a Member. Canonical
 composition omits the default and removes the parameter outside Analysis.
 Each scope keeps its own selected mode, so drilling from a Library mode to a
 Type doesn't change the Library's selection. Selecting an Analysis mode

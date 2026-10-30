@@ -4,7 +4,11 @@ import type {
   BrowserUnsafeMembers,
   BrowserUnsafeType,
 } from "./facades/inspect-web-analysis.d.ts";
-import { renderAnalysisInspector, type AnalysisInspectorContext } from "./analysis-inspector.ts";
+import {
+  renderAnalysisInspector,
+  type AnalysisInspectorContext,
+  type AnalysisScopeContext,
+} from "./analysis-inspector.ts";
 import type { UnsafeCensusSource } from "./unsafe-members-scope.ts";
 
 // The census request state every Unsafe scope shares: one Library result for
@@ -22,6 +26,9 @@ interface UnsafeMembersOptions extends AnalysisInspectorContext, UnsafeCensusSta
 }
 
 export interface TypeUnsafeMembersOptions extends UnsafeCensusState {
+  // Whether the Type's Analysis also offers Relationships, which decides its
+  // tabs.
+  context: AnalysisScopeContext;
   typeId: string;
   typeName: string;
 }
@@ -219,7 +226,7 @@ export function renderTypeUnsafeMembersSurface(options: TypeUnsafeMembersOptions
         ? `<p class="library-analysis-note">Members with unsafe evidence under the updated memory-safety rules, one row per declared member. The census reports evidence, not a verdict. Select a linked member for its evidence.</p>${renderCounts(type.counts, escape)}<div class="perf-list unsafe-member-list">${type.members.map(member => renderMember(member, data.assembly, escape)).join("")}</div>`
         : emptySection(partial, "No unsafe members in this type", escape));
   }
-  return renderAnalysisInspector(options, "unsafe", `${options.typeName} · ${status}`, content, "type");
+  return renderAnalysisInspector(options, "unsafe", `${options.typeName} · ${status}`, content, "type", options.context);
 }
 
 /** Member scope: the Member Analysis Unsafe tab, with every finding anchored to the member. */

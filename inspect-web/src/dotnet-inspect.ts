@@ -74,7 +74,9 @@ import {
   spotlightCandidateKey,
   spotlightCandidateSignature,
   typeLensesFor,
+  typeRelationshipsOfferedFor,
   type DependencyGroupData,
+  type CallGraphTarget,
   type GraphMemberTarget,
   type GraphMemberShareIdentity,
   type PackageIdentity,
@@ -280,6 +282,7 @@ import {
   isProductEcosystemId,
   isProductEcosystemsPath,
   productEcosystemCatalog,
+  productEcosystemIconClass,
   productEcosystemsViewHtml,
   setProductEcosystemCatalog,
 } from "./product-ecosystems.ts";
@@ -372,6 +375,12 @@ import {
   type AppExplorerState,
 } from "./metadata-inspection.ts";
 import {
+  bindTypeRelations,
+  createTypeRelationsCoordinator,
+  renderTypeRelationshipsMode,
+  renderTypeRelationsSummary,
+} from "./type-relations.ts";
+import {
   cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
   type MemberFacts,
@@ -430,10 +439,11 @@ import {
   bindAnalysisTabs,
   defaultAnalysisMode,
   defaultMemberAnalysisMode,
-  defaultTypeAnalysisMode,
   isAnalysisMode,
   restoreAnalysisTabFocus,
   type MemberAnalysisMode,
+  renderAnalysisInspector,
+  type AnalysisScopeContext,
   type TypeAnalysisMode,
 } from "./analysis-inspector.ts";
 import { bindTriageCode, singlePerformanceBodyTarget, triageIssuePreview } from "./triage-code.ts";
@@ -1072,6 +1082,8 @@ let inspectPlatformMetadata:
 let inspectPlatformMetadataTable:
   EngineClient["metadata"]["queryPlatformMetadataTable"];
 let inspectTypeProjection: EngineClient["metadata"]["queryTypeProjection"];
+let inspectAnnotatedTypeRelations:
+  EngineClient["metadata"]["queryAnnotatedTypeRelations"];
 let cancelLibraryApiDiff:
   EngineClient["metadata"]["cancelLibraryApiDiff"];
 let inspectLibraryApiDiff:
@@ -1308,6 +1320,7 @@ async function loadEngineModule() {
       queryPlatformMetadata: inspectPlatformMetadata,
       queryPlatformMetadataTable: inspectPlatformMetadataTable,
       queryTypeProjection: inspectTypeProjection,
+      queryAnnotatedTypeRelations: inspectAnnotatedTypeRelations,
     } = engineClient.metadata);
     ({
       queryCloneCandidates: inspectCloneCandidates,
@@ -1648,6 +1661,14 @@ const initialState = {
   typeMetadataError: "",
   typeMetadataKey: "",
   typeMetadataGeneration: 0,
+  typeRelations: {
+    signature: "",
+    loading: false,
+    result: null,
+    error: "",
+    generation: 0,
+    selectedTargetTypeKey: null as string | null,
+  },
   libraryApiInspections:
     new Map<string, BrowserExactLibraryApiInspection>(),
   libraryApiLoads: new Set<string>(),
@@ -1742,7 +1763,8 @@ const initialState = {
   compareClone: { status: "idle" as const } as CompareCloneState,
   compareCloneSelectedRank: null as number | null,
   analysisMode: defaultAnalysisMode,
-  typeAnalysisMode: defaultTypeAnalysisMode as TypeAnalysisMode,
+  // Null selects the Type's default, which depends on its package.
+  typeAnalysisMode: null as TypeAnalysisMode | null,
   memberAnalysisMode: defaultMemberAnalysisMode as MemberAnalysisMode,
   workspaceOccurrences: null,
   workspaceOccurrenceSignature: "",
@@ -4322,6 +4344,20 @@ const metadataInspection = createMetadataInspectionCoordinator({
   renderPreservingMemberFocus,
   scrollExplorerToFocus: explorerScrollToFocus,
 });
+
+const typeRelationsInspection = createTypeRelationsCoordinator({
+  state: state.typeRelations,
+  query: request => inspectAnnotatedTypeRelations(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.typeDefinitionId,
+    request.runtimeIdentifier,
+    request.workspaceJson),
+  describeError: errorMessage,
+  render,
+});
 const memberDetailInspection = createMemberDetailInspectionCoordinator({
   state,
   queryDeclaration: request =>
@@ -4543,7 +4579,7 @@ function captureView(): WorkspaceView | null {
     ...(state.atLibraryRoot && state.libraryLens === "analysis"
       ? { analysisMode: state.analysisMode }
       : {}),
-    typeAnalysisMode: state.typeAnalysisMode,
+    ...(state.typeAnalysisMode ? { typeAnalysisMode: state.typeAnalysisMode } : {}),
     memberAnalysisMode: state.memberAnalysisMode,
     libraryScope: captureLibraryScope(state.libraryScope),
     platformLibrary: state.rootKind === "platform" && !state.atPackageRoot
@@ -4762,7 +4798,7 @@ function applyView(view: WorkspaceView) {
   if (view.atLibraryRoot && view.libraryLens === "analysis") {
     state.analysisMode = view.analysisMode ?? defaultAnalysisMode;
   }
-  state.typeAnalysisMode = analysisModeForScope("type", view.typeAnalysisMode);
+  state.typeAnalysisMode = view.typeAnalysisMode ?? null;
   state.memberAnalysisMode =
     analysisModeForScope("member", view.memberAnalysisMode);
   state.memberSource = { status: "idle" };
@@ -10187,10 +10223,9 @@ function renderCore(options: RenderOptions) {
     && (sourcePageSource !== null || typeCodeViewText(typeCodeView) !== null);
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
-  const typeAnalysisWorkingSurface =
-    activeScope === "type" && state.lens === "analysis";
   const metadataWorkingSurface =
-    activeScope === "type" && state.lens === "metadata";
+    activeScope === "type"
+    && (state.lens === "metadata" || state.lens === "analysis");
   const typeGraphWorkingSurface =
     activeScope === "type"
     && (state.lens === "overview" || state.lens === "metadata");
@@ -10246,7 +10281,6 @@ function renderCore(options: RenderOptions) {
       : navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
     !memberBodyWorkingSurface && (apiWorkingSurface
-    || typeAnalysisWorkingSurface
     || metadataWorkingSurface
     || overviewWorkingSurface
     || packageDependenciesWorkingSurface
@@ -10335,7 +10369,7 @@ function renderCore(options: RenderOptions) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${typeAnalysisWorkingSurface ? " type-analysis-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageVulnerabilitiesWorkingSurface ? " package-vulnerabilities-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
+          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageVulnerabilitiesWorkingSurface ? " package-vulnerabilities-working-surface" : ""}${compareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
               ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}" data-package-loading-coordinate="${escapeHtml(packageContentLoadingRuntimeIdentifier ?? state.requestedFramework)}"><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : packageContentLoadingRuntimeIdentifier ? `runtime ${escapeHtml(packageContentLoadingRuntimeIdentifier)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
@@ -11958,6 +11992,9 @@ function renderLibraryReferences() {
 const referenceSupplierRequests = new WeakMap<
   LibraryReferenceInspectionEnvelope,
   Promise<ReadonlyArray<BrowserReferencePackageSupplier>>>();
+const referenceEcosystemRequests = new WeakMap<
+  LibraryReferenceInspectionEnvelope,
+  ReturnType<EngineClient["package"]["classifyEcosystemAssemblyNames"]>>();
 
 async function renderLibraryReferenceIcons() {
   const container = document.querySelector<HTMLElement>(
@@ -12017,16 +12054,51 @@ async function renderLibraryReferenceIcons() {
   };
   const admittedIcons = Promise.all(Array.from(
     { length: Math.min(4, destinations.length) }, loadNext));
+  const ecosystemIcons = (async () => {
+    try {
+      let request = referenceEcosystemRequests.get(data);
+      if (!request) {
+        request = engineClient.package.classifyEcosystemAssemblyNames(
+          references.map(reference => ({ name: reference.name })));
+        referenceEcosystemRequests.set(data, request);
+      }
+      const claims = await request;
+      if (!isCurrent() || claims.length !== references.length) return;
+      const rows = [...container.querySelectorAll<HTMLLIElement>(".dep-list > li")];
+      claims.forEach((claim, index) => {
+        const row = rows[index];
+        if (!row || !claim.isPlatformSearchEligible
+          || !claim.ecosystemId || !claim.ecosystemTitle
+          || claim.name.toLowerCase() !== references[index]?.name.toLowerCase()
+          || row.querySelector(
+            "[data-library-reference-icon], [data-library-reference-ecosystem-icon]")) return;
+        const iconClass = productEcosystemIconClass(claim.ecosystemId);
+        const label = row.querySelector(".library-reference-name");
+        if (!iconClass || !label) return;
+        const icon = document.createElement("span");
+        icon.className = `dep-icon spotlight-ecosystem-icon ${iconClass}`;
+        icon.dataset.libraryReferenceEcosystemIcon = String(index);
+        icon.setAttribute("role", "img");
+        icon.setAttribute("aria-label", `Ecosystem: ${claim.ecosystemTitle}`);
+        icon.title = `${claim.ecosystemTitle} ecosystem (assembly-name association)`;
+        row.insertBefore(icon, label);
+        updateLibraryReferenceGraphEcosystemIcon(icon);
+      });
+    } catch {
+      // Ecosystem annotations are optional and never block direct references.
+    }
+  })();
+  const localIcons = Promise.all([admittedIcons, ecosystemIcons]);
 
   if (!isCurrent()
     || !destinations.some(destination => !destination)
     || currentPackage().source.kind !== "nuget.org") {
-    await admittedIcons;
+    await localIcons;
     return;
   }
   const currentLibrary = selectedLibrary();
   if (!currentLibrary) {
-    await admittedIcons;
+    await localIcons;
     return;
   }
   const pkg = currentPackage();
@@ -12069,6 +12141,7 @@ async function renderLibraryReferenceIcons() {
       image.alt = "";
       image.dataset.packageIcon = "";
       image.dataset.libraryReferenceIcon = String(index);
+      row.querySelector("[data-library-reference-ecosystem-icon]")?.remove();
       row.insertBefore(image, label);
       updateLibraryReferenceGraphIcon(index, image.src);
       return [{ image, id: supplier.packageId,
@@ -12109,7 +12182,7 @@ async function renderLibraryReferenceIcons() {
   } catch {
     // Supplier association is optional presentation; direct references remain.
   }
-  await admittedIcons;
+  await localIcons;
 }
 
 async function uniqueCompatiblePackage(
@@ -12960,7 +13033,7 @@ function currentAnalysisInspectorMode(): string | null {
     return state.libraryLens === "analysis" ? state.analysisMode : null;
   }
   switch (scope()) {
-    case "type": return state.lens === "analysis" ? state.typeAnalysisMode : null;
+    case "type": return state.lens === "analysis" ? currentTypeAnalysisMode() : null;
     case "member":
       return state.memberSection === "analysis" ? state.memberAnalysisMode : null;
     default: return null;
@@ -12977,18 +13050,33 @@ function unsafeMembersScopeIsVisible() {
   const activeScope = scope();
   return activeScope === "type"
       && state.lens === "analysis"
-      && state.typeAnalysisMode === "unsafe"
+      && currentTypeAnalysisMode() === "unsafe"
     || activeScope === "member"
       && state.memberSection === "analysis"
       && state.memberAnalysisMode === "unsafe";
 }
 
 // Type and Member Analysis start only the selected mode's work.
-function loadSelectedTypeAnalysisMode(): Promise<void> {
-  switch (state.typeAnalysisMode) {
+function loadSelectedTypeAnalysisMode(): Promise<void> | undefined {
+  const mode = currentTypeAnalysisMode();
+  switch (mode) {
+    case "relationships": return loadSelectedTypeAnalysis();
     case "unsafe": return loadPackageUnsafeMembers();
-    default: return assertNever(state.typeAnalysisMode, "Type analysis mode");
+    default: return assertNever(mode, "Type analysis mode");
   }
+}
+
+// Relationships is offered only for a package-backed Type, so the Type's
+// modes and default depend on its package.
+function typeAnalysisContext(): AnalysisScopeContext {
+  return {
+    relationshipsOffered: state.rootKind !== "library"
+      && typeRelationshipsOfferedFor(state.package),
+  };
+}
+
+function currentTypeAnalysisMode(): TypeAnalysisMode {
+  return analysisModeForScope("type", state.typeAnalysisMode, typeAnalysisContext());
 }
 
 function loadSelectedMemberAnalysisMode(): Promise<void> {
@@ -14449,19 +14537,45 @@ function renderGraphMemberPendingHtml(
 }
 
 function renderTypeMetadataHtml(item: AppTypeSurface) {
+  const pkg = currentPackage();
+  const signature = currentTypeMetadataSignature(
+    item,
+    pkg,
+    selectedTypeMetadataLibraryIdentity());
   return renderTypeMetadata({
     item,
-    packageContext: currentPackage(),
-    metadataAvailable: currentPackage().source.kind !== "file",
+    packageContext: pkg,
+    metadataAvailable: pkg.source.kind !== "file",
     libraryIdentity: selectedTypeMetadataLibraryIdentity(),
     workspaceIdentity: typeMetadataWorkspaceIdentity(),
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
+    analysisSummaryHtml: !pkg.isRuntimePack && state.rootKind !== "library"
+      ? renderTypeRelationsSummary({
+          signature,
+          state: state.typeRelations,
+          focusTypeName: typeDisplayName(item),
+          escapeHtml,
+        })
+      : "",
     escapeHtml,
     highlightCSharp,
     relatedTypeChip,
     factRows,
   });
+}
+
+function typeRelationsRenderOptions(item: AppTypeSurface) {
+  const pkg = currentPackage();
+  return {
+    signature: currentTypeMetadataSignature(
+      item,
+      pkg,
+      selectedTypeMetadataLibraryIdentity()),
+    state: state.typeRelations,
+    focusTypeName: typeDisplayName(item),
+    escapeHtml,
+  };
 }
 
 function renderTypeSourceHtml(item: AppTypeSurface) {
@@ -14571,17 +14685,31 @@ function renderLens(item: AppTypeSurface | null | undefined) {
   }
 }
 
+// Type Analysis is the catalog's `type.analysis` inspector. A package-backed
+// Type offers Relationships and Unsafe as tabs in the shared Analysis frame;
+// a Platform Type offers only Unsafe.
 function renderTypeAnalysis(item: AppTypeSurface) {
-  switch (state.typeAnalysisMode) {
+  const context = typeAnalysisContext();
+  const mode = currentTypeAnalysisMode();
+  switch (mode) {
+    case "relationships":
+      return renderAnalysisInspector(
+        { escapeHtml },
+        mode,
+        typeDisplayName(item),
+        renderTypeRelationshipsMode(typeRelationsRenderOptions(item)),
+        "type",
+        context);
     case "unsafe":
       return renderTypeUnsafeMembersSurface({
         ...unsafeCensusFor("type", unsafeTypeIdentity(item)).request,
         escapeHtml,
+        context,
         typeId: unsafeTypeIdentity(item),
         typeName: typeDisplayName(item),
       });
     default:
-      return assertNever(state.typeAnalysisMode, "Type analysis mode");
+      return assertNever(mode, "Type analysis mode");
   }
 }
 
@@ -15475,6 +15603,17 @@ function bindLibraryControlsEvents() {
 }
 
 function bindTypePanelEvents() {
+  bindTypeRelations(document, {
+    inspect: () => {
+      observeAsync(
+        inspectSelectedTypeRelations(),
+        "Inspecting Type relationships");
+    },
+    selectRelationship: targetTypeKey => {
+      state.typeRelations.selectedTargetTypeKey = targetTypeKey;
+    },
+    activateType: navigateToTypeRelationsTarget,
+  });
   const renderMemberFilterAndRestoreFocus = (selector = "") => {
     const preserved = captureMemberFocus(document);
     if (selector) {
@@ -15619,6 +15758,11 @@ function bindTypePanelEvents() {
       loadCurrentSelectionData("Loading the selected Type");
     },
     onTypeLeverageRetry: () => loadTypeLeverage(true),
+    onTypeAnalysisOpen: () => {
+      state.lens = "analysis";
+      render();
+      loadCurrentTypeLensData();
+    },
     onTypeMembersOpen: () => {
       state.lens = "api";
       render();
@@ -15920,7 +16064,7 @@ function bindAnalysisInspectorEvents() {
     const current: string = selection.scope === "library"
       ? state.analysisMode
       : selection.scope === "type"
-        ? state.typeAnalysisMode
+        ? currentTypeAnalysisMode()
         : state.memberAnalysisMode;
     if (current === selection.mode) return;
     switch (selection.scope) {
@@ -15930,6 +16074,13 @@ function bindAnalysisInspectorEvents() {
       default: assertNever(selection, "Analysis scope");
     }
     render();
+    // Type Relationships loads through its lens loader, not a render-time
+    // auto-load; Unsafe's auto-load also tolerates this call.
+    if (selection.scope === "type") {
+      observeAsync(
+        loadSelectedTypeAnalysisMode() ?? Promise.resolve(),
+        "Loading the selected Type Analysis mode");
+    }
   });
 }
 
@@ -19343,6 +19494,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
         ?? null
       : null,
     analysisMode: currentAnalysisInspectorMode(),
+    analysisContext: typeAnalysisContext(),
     view: {
       lens: workspaceSubjectOpen || platformRoot
         ? null
@@ -24459,6 +24611,58 @@ async function loadSelectedTypeMetadata() {
   });
 }
 
+async function inspectSelectedTypeRelations() {
+  const type = selectedType();
+  if (!type) return;
+  const pkg = currentPackage();
+  if (pkg.isRuntimePack || state.rootKind === "library") return;
+  const workspaceJson = typeMetadataWorkspaceIdentity();
+  const signature = currentTypeMetadataSignature(
+    type,
+    pkg,
+    selectedTypeMetadataLibraryIdentity());
+  const isCurrent = () => {
+    const currentType = selectedType();
+    return currentType != null
+      && currentTypeMetadataSignature(
+        currentType,
+        currentPackage(),
+        selectedTypeMetadataLibraryIdentity()) === signature;
+  };
+  return typeRelationsInspection.inspect({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
+    assembly: type.assembly,
+    typeDefinitionId: type.definitionId ?? type.id,
+    workspaceJson,
+    isCurrent,
+    isVisible: () =>
+      scope() === "type"
+      && (state.lens === "analysis"
+        || state.lens === "overview"
+        || state.lens === "metadata")
+      && isCurrent(),
+  });
+}
+
+function loadSelectedTypeAnalysis(): Promise<void> | undefined {
+  const type = selectedType();
+  if (!type) return undefined;
+  const signature = currentTypeMetadataSignature(
+    type,
+    currentPackage(),
+    selectedTypeMetadataLibraryIdentity());
+  const relations = state.typeRelations;
+  if (relations.signature === signature
+    && (relations.loading || relations.result !== null || relations.error)) {
+    return undefined;
+  }
+  return inspectSelectedTypeRelations();
+}
+
 async function renderMermaidDefinition(
   idPrefix: string,
   definition: string,
@@ -24586,6 +24790,26 @@ function navigateToTypeByName(fullName: string) {
       fullName);
   if (!candidate) return;
   navigateToWorkspaceType(candidate.pkg, candidate.type);
+}
+
+function navigateToTypeRelationsTarget(target: CallGraphTarget) {
+  const candidate =
+    resolveLoadedGraphTargetCandidate<AppPackage, AppTypeSurface>(
+      state.packages,
+      target);
+  if (candidate.status === "unique") {
+    navigateToWorkspaceType(candidate.pkg, candidate.type);
+    return;
+  }
+  const typeName = callGraphTargetTypeId(target) || "Type";
+  const reason = candidate.status === "ambiguous"
+    ? "matches multiple loaded assemblies"
+    : candidate.status === "skew"
+      ? "has a different loaded assembly identity"
+      : candidate.status === "resident"
+        ? "is not available in the loaded assembly surface"
+        : "is not loaded in the Workspace";
+  showToast(`${typeName} cannot be opened because it ${reason}.`);
 }
 
 function navigateToRelatedType(target: RelatedTypeNavigationTarget) {
@@ -24895,7 +25119,11 @@ async function renderPackageHierarchyGraph() {
   }
 }
 
-function updateLibraryReferenceGraphIcon(index: number, source: string) {
+function updateLibraryReferenceGraphIcon(
+  index: number,
+  source: string,
+  kind: "package" | "ecosystem" = "package",
+) {
   const svg = document.querySelector<SVGSVGElement>(
     "#library-reference-graph-diagram .graph-viewport svg");
   if (!svg) return;
@@ -24904,7 +25132,7 @@ function updateLibraryReferenceGraphIcon(index: number, source: string) {
   const shape = node?.querySelector<SVGRectElement>("rect");
   if (!node || !shape) return;
   let icon = node.querySelector<SVGImageElement>(
-    "image[data-reference-package-icon]");
+    "image[data-reference-icon]");
   if (!icon) {
     const bounds = shape.getBBox();
     shape.setAttribute("x", String(bounds.x - 32));
@@ -24915,14 +25143,17 @@ function updateLibraryReferenceGraphIcon(index: number, source: string) {
     icon.setAttribute("y", String(bounds.y + (bounds.height - 16) / 2));
     icon.setAttribute("width", "16");
     icon.setAttribute("height", "16");
-    icon.setAttribute("data-reference-package-icon", "");
+    icon.setAttribute("data-reference-icon", "");
     icon.style.pointerEvents = "none";
     icon.addEventListener("error", () => {
-      if (icon?.getAttribute("href") !== NUGET_DEFAULT_PACKAGE_ICON)
+      if (icon?.hasAttribute("data-reference-package-icon")
+        && icon.getAttribute("href") !== NUGET_DEFAULT_PACKAGE_ICON)
         icon?.setAttribute("href", NUGET_DEFAULT_PACKAGE_ICON);
     });
     node.appendChild(icon);
   }
+  icon.toggleAttribute("data-reference-package-icon", kind === "package");
+  icon.toggleAttribute("data-reference-ecosystem-icon", kind === "ecosystem");
   icon.setAttribute("href", source);
   if (!svg.dataset.referenceIconsPadded) {
     const viewBox = svg.viewBox.baseVal;
@@ -24930,6 +25161,14 @@ function updateLibraryReferenceGraphIcon(index: number, source: string) {
       `${viewBox.x - 36} ${viewBox.y} ${viewBox.width + 72} ${viewBox.height}`);
     svg.dataset.referenceIconsPadded = "true";
   }
+}
+
+function updateLibraryReferenceGraphEcosystemIcon(icon: HTMLElement) {
+  const index = Number(icon.dataset.libraryReferenceEcosystemIcon);
+  // Embed the existing CSS image so the standalone SVG retains its icon.
+  const source = getComputedStyle(icon).backgroundImage.match(/^url\("([^"]+)"\)$/)?.[1];
+  if (Number.isInteger(index) && index >= 0 && source)
+    updateLibraryReferenceGraphIcon(index, source, "ecosystem");
 }
 
 function applyLibraryReferenceGraphIcons() {
@@ -24942,6 +25181,9 @@ function applyLibraryReferenceGraphIcons() {
       if (Number.isInteger(index) && index >= 0)
         updateLibraryReferenceGraphIcon(index, image.src);
     });
+  document.querySelectorAll<HTMLElement>(
+    ".library-references-surface [data-library-reference-ecosystem-icon]")
+    .forEach(updateLibraryReferenceGraphEcosystemIcon);
 }
 
 async function renderLibraryReferenceGraph() {

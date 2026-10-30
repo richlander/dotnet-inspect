@@ -106,6 +106,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
+    classifyEcosystemAssemblyNames: () => unexpected("classifyEcosystemAssemblyNames"),
     classifyEcosystemPackages: () => unexpected("classifyEcosystemPackages"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
     getPlatformVersions: () => unexpected("getPlatformVersions"),
@@ -159,6 +160,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     cancelLibraryFindingDiffAny: () =>
       unexpected("cancelLibraryFindingDiffAny"),
     findTypes: () => unexpected("findTypes"),
+    queryAnnotatedTypeRelations: () =>
+      unexpected("queryAnnotatedTypeRelations"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
     queryLibraryFindingDiffAny: () =>
@@ -2722,6 +2725,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     package: [
       "activatePlatformForwarder",
       "activateWorkspacePackageOccurrence",
+      "classifyEcosystemAssemblyNames",
       "classifyEcosystemPackages",
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
@@ -2783,6 +2787,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMetadata",
       "queryPlatformMetadataTable",
       "queryTypeProjection",
+      "queryAnnotatedTypeRelations",
       "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
       "queryUploadedLibraryPerformanceTypeMemberPopulation",
@@ -2887,7 +2892,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 144);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 146);
+  assert.equal(
+    new Set(engineWorkerOrdinaryOperationKinds).size,
+    engineWorkerOrdinaryOperationKinds.length,
+    "every operation kind is distinct");
 
   const state = fixture();
   const groups = [

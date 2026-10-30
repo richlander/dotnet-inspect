@@ -25,6 +25,7 @@ const escapeHtml = (value: unknown) => String(value)
 setTypeViewFacetCatalog([
   { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
   { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.analysis", kind: "Type", title: "Analysis", order: 250 },
   { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
   { id: "type.source", kind: "Type", title: "Source", order: 400 },
   { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
@@ -62,7 +63,7 @@ test("forwarded Type rows have no invented kind or member cardinality", () => {
   assert.deepEqual(typeLensesFor({ isRuntimePack: true }, true),
     [["overview", "Overview"]]);
   assert.deepEqual(typeLensesFor({ isRuntimePack: true }),
-    [["overview", "Overview"], ["api", "Members"], ["source", "Source"], ["analysis", "Analysis"]]);
+    [["overview", "Overview"], ["api", "Members"], ["analysis", "Analysis"], ["source", "Source"]]);
 });
 
 test("forwarder filtering uses declaration text without a defining kind", () => {

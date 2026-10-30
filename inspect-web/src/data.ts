@@ -17,6 +17,7 @@ export function assertNever(value: never, vocabulary: string): never {
 const typeLensRouteByFacetId = {
   "type.overview": "overview",
   "type.api": "api",
+  "type.analysis": "analysis",
   "type.metadata": "metadata",
   "type.source": "source",
   "type.compare": "compare",
@@ -89,15 +90,9 @@ const packageLensRoutes = [
 ] as const;
 
 export type TypeLens =
-  RegisteredTypeLens | (typeof browserTypeLensRoutes)[number];
-
-type RegisteredTypeLens =
   (typeof typeLensRouteByFacetId)[keyof typeof typeLensRouteByFacetId];
 
-// Browser-owned Type lenses present Browser analyses, not product view facets;
-// they follow the catalog lenses.
-const browserTypeLensRoutes = ["analysis"] as const;
-
+type RegisteredTypeLens = TypeLens;
 export type MemberSection = (typeof memberSectionRoutes)[number];
 export type PackageLens = (typeof packageLensRoutes)[number];
 
@@ -195,8 +190,7 @@ export function isTypeLens(
   value: string | null | undefined,
 ): value is TypeLens {
   return typeof value === "string"
-    && (Object.values(typeLensRouteByFacetId).some(id => id === value)
-      || browserTypeLensRoutes.some(id => id === value));
+    && Object.values(typeLensRouteByFacetId).some(id => id === value);
 }
 
 export function canonicalTypeLens(value: TypeLens): TypeLens {
@@ -2122,23 +2116,24 @@ export function typeLensesFor(
   }
   if (pkg?.source?.kind === "file")
     return typeLenses.filter(([id]) => id === "overview" || id === "api");
-  // Analysis presents Library analyses at Type scope, such as the unsafe
-  // member census, which package and Platform Libraries both issue.
-  const analysis = [["analysis", "Analysis"]] as const;
+  // Platform Types keep Analysis for Unsafe, which Platform Libraries issue;
+  // Relationships stays package-backed.
   if (pkg?.isRuntimePack)
-    return [
-      ...typeLenses.filter(
-        ([id]) => id === "overview" || id === "api" || id === "source"),
-      ...analysis,
-    ];
+    return typeLenses.filter(
+      ([id]) => id === "overview" || id === "api" || id === "source"
+        || id === "analysis");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
-  return [
-    ...pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
-      ? typeLenses.filter(([id]) => id !== "compare")
-      : typeLenses,
-    ...analysis,
-  ];
+  return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
+    ? typeLenses.filter(([id]) => id !== "compare")
+    : typeLenses;
+}
+
+/** Type Analysis Relationships needs a package-backed Type. */
+export function typeRelationshipsOfferedFor(
+  pkg: { isRuntimePack?: boolean; source?: { kind: string } } | null | undefined,
+): boolean {
+  return Boolean(pkg) && !pkg?.isRuntimePack && pkg?.source?.kind !== "file";
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;

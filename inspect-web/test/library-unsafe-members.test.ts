@@ -15,7 +15,7 @@ import type {
 const escapeHtml = (value: unknown) => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const census = { fresh: true, loading: false, error: "", escapeHtml };
 const library = { ...census, assemblyIdentity: "Fixture", assetPath: "Fixture.dll", coordinate: "Fixture@1.0", pickerHtml: "", requireLibrary: false };
-const typeScope = { ...census, typeId: "Fixture.Sample", typeName: "Sample" };
+const typeScope = { ...census, context: { relationshipsOffered: true }, typeId: "Fixture.Sample", typeName: "Sample" };
 const memberScope = { ...census, source: "library" as const, memberName: "Read", typeId: "Fixture.Sample", stableSelector: "Read~abc" };
 const member: BrowserUnsafeMember = {
   member: "Fixture.Sample.Read(Int32)",
@@ -117,16 +117,22 @@ test("a Type absent from a complete census says it has no unsafe members", () =>
   assert.doesNotMatch(html, /Fixture.Sample.Read/);
 });
 
-test("Type and Member scopes are the Unsafe tab of their own Analysis inspector", () => {
+test("Type and Member scopes are the Unsafe mode of their own Analysis inspector", () => {
+  // A package Type's Analysis also offers Relationships, so Unsafe is a tab.
+  const packageType = renderTypeUnsafeMembersSurface({ ...typeScope, data: result() });
+  assert.match(packageType, /data-analysis-inspector="type"/);
+  assert.equal(packageType.match(/role="tab"/g)?.length, 2);
+  assert.match(packageType, />Relationships<\/button>/);
+  assert.match(packageType, /id="analysis-mode-unsafe" data-analysis-scope="type" data-analysis-mode="unsafe" aria-selected="true"/);
+  assert.match(packageType, /role="tabpanel" aria-labelledby="analysis-mode-unsafe"/);
+  // A Platform Type and a member have only Unsafe, so no tab strip.
   for (const [scope, html] of [
-    ["type", renderTypeUnsafeMembersSurface({ ...typeScope, data: result() })],
+    ["type", renderTypeUnsafeMembersSurface({ ...typeScope, context: { relationshipsOffered: false }, data: result() })],
     ["member", renderMemberUnsafeMembersSurface({ ...memberScope, data: result() })],
   ] as const) {
     assert.match(html, new RegExp(`data-analysis-inspector="${scope}"`));
-    assert.equal(html.match(/role="tab"/g)?.length, 1);
-    assert.match(html, new RegExp(`id="analysis-mode-unsafe" data-analysis-scope="${scope}" data-analysis-mode="unsafe" aria-selected="true"`));
-    assert.match(html, /role="tabpanel" aria-labelledby="analysis-mode-unsafe"/);
-    assert.doesNotMatch(html, /Relationships|Performance Triage/);
+    assert.doesNotMatch(html, /role="tab"|Relationships|Performance Triage/);
+    assert.match(html, /data-analysis-mode-panel="unsafe"/);
   }
   assert.match(renderMemberUnsafeMembersSurface({ ...memberScope, data: result() }), /<p title="Read · 1 finding">/);
 });

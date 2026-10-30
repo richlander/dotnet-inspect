@@ -520,6 +520,18 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query) =>
         Implementation.UseParticipant(participant, query);
 
+    internal TResult UseImplementationWorkspaceParticipant<TResult>(
+        BrowserWorkspaceParticipant participant,
+        Func<
+            InspectionWorkspace,
+            AssemblyContextGroup,
+            AssemblyContextParticipant,
+            TResult> operation) =>
+        Implementation.UseParticipant(
+            participant,
+            (group, selected) =>
+                operation(_workspace, group, selected));
+
     /// <summary>
     /// The coordinate this scope holds for one exact package/version/framework identity.
     /// Coordinates match by that identity rather than by object reference, because a reused scope

@@ -407,7 +407,7 @@ async function installFacades(
   page: Page,
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
-  references: "ready" | "workspace-library" | "external-supplier" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
+  references: "ready" | "workspace-library" | "external-supplier" | "ecosystem-icons" | "ecosystem-deferred" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
@@ -1499,6 +1499,31 @@ async function installFacades(
           platformReferenceError: null
         };
       }
+      const ecosystemReferenceNames = [
+        "System.Runtime", "Microsoft.AspNetCore.Http",
+        "Microsoft.Extensions.Logging.Abstractions", "Aspire.Hosting",
+        "Systematic.Runtime", "Example.Unknown", "Microsoft.Extensions.AI"
+      ];
+      export async function classifyEcosystemAssemblyNames(names) {
+        document.documentElement.dataset.referenceEcosystemRequest = JSON.stringify(names);
+        if (${JSON.stringify(references)} === "ecosystem-deferred")
+          await new Promise(resolve => document.addEventListener(
+            "fixture-reference-ecosystems-ready", resolve, { once: true }));
+        const claims = {
+          "System.Runtime": ["ecosystem.runtime", ".NET Runtime", true],
+          "Microsoft.AspNetCore.Http": ["ecosystem.aspnetcore", "ASP.NET Core", true],
+          "Microsoft.Extensions.Logging.Abstractions":
+            ["ecosystem.microsoft-extensions", "Microsoft.Extensions", true],
+          "Microsoft.Extensions.AI":
+            ["ecosystem.microsoft-extensions", "Microsoft.Extensions", true],
+          "Aspire.Hosting": ["ecosystem.aspire", "Aspire", false]
+        };
+        return names.map(({ name }) => ({
+          name, ecosystemId: claims[name]?.[0] ?? null,
+          ecosystemTitle: claims[name]?.[1] ?? null,
+          isPlatformSearchEligible: claims[name]?.[2] ?? false
+        }));
+      }
       export async function queryLibraryReferences(id, version, framework, asset) {
         document.documentElement.dataset.referenceRequest = asset;
         const surface = surfaceFor(id, version, framework);
@@ -1520,6 +1545,10 @@ async function installFacades(
               name: "Reference.Target", version: "1.0.0.0",
               culture: "neutral", publicKeyToken: null
             }]
+          : scenario.startsWith("ecosystem-") && asset === "asset:core"
+          ? ecosystemReferenceNames.map(name => ({
+              name, version: "1.0.0.0", culture: "neutral", publicKeyToken: null
+            }))
           : scenario === "long"
           ? Array.from({ length: 80 }, (_, index) => ({
               name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
@@ -1551,6 +1580,15 @@ async function installFacades(
         document.documentElement.dataset.referenceSupplierRequest =
           JSON.stringify([id, version, framework, asset]);
         const scenario = ${JSON.stringify(references)};
+        if (scenario === "ecosystem-icons" && asset === "asset:core") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-reference-suppliers-ready", resolve, { once: true }));
+          return ecosystemReferenceNames.map((name, index) => ({
+            name, version: "1.0.0.0", culture: "neutral", publicKeyToken: null,
+            packageId: index === 0 ? "Reference.Target" : null,
+            packageVersion: index === 0 ? "2.0.0" : null
+          }));
+        }
         if (scenario !== "external-supplier") return [];
         await new Promise(resolve => document.addEventListener(
           "fixture-reference-suppliers-ready", resolve, { once: true }));
@@ -4128,6 +4166,28 @@ async function installFacades(
       });
       export function listEcosystems() {
         return { ecosystems: productEcosystems };
+      }
+      export function listPackageViewFacets() {
+        return {
+          facets: [
+            {
+              id: "package.libraries", kind: "Package", title: "Libraries",
+              summary: "", order: 50, role: "PackageLibraries",
+            },
+            {
+              id: "package.overview", kind: "Package", title: "Overview",
+              summary: "", order: 100, role: "PackageOverview",
+            },
+            {
+              id: "package.dependencies", kind: "Package", title: "Dependencies",
+              summary: "", order: 200, role: null,
+            },
+            {
+              id: "package.dependency-hierarchy", kind: "Package",
+              title: "Dependency Hierarchy", summary: "", order: 300, role: null,
+            },
+          ],
+        };
       }
       export function listLibraryViewFacets() {
         return {

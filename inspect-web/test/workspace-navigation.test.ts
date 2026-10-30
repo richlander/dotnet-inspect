@@ -457,8 +457,11 @@ test("Library Analysis mode survives URL projection and restoration", () => {
 
 test("Type and Member Analysis modes are deep-linked per scope", () => {
   const baseline = workspaceState();
+  const packageType = { relationshipsOffered: true };
+  const platformType = { relationshipsOffered: false };
   const typeState = workspaceState({
     analysisMode: "unsafe",
+    analysisContext: packageType,
     view: {
       ...baseline.view,
       lens: "analysis",
@@ -471,51 +474,79 @@ test("Type and Member Analysis modes are deep-linked per scope", () => {
     analysisMode: "unsafe",
     view: { ...baseline.view, lens: "api", section: "analysis" },
   });
-  for (const [scope, state] of [["type", typeState], ["member", memberState]] as const) {
-    // Unsafe is the scope's default, so canonical composition omits it.
-    const url = buildWorkspaceStateUrl(
-      "https://inspect.example/?analysis=stale",
-      state,
-      () => encoded());
-    assert.equal(url.searchParams.has("analysis"), false, scope);
-    // A mode the scope doesn't list is never written for it.
-    const unlisted = buildWorkspaceStateUrl(
-      url.href,
-      { ...state, analysisMode: "performance" },
-      () => encoded());
-    assert.equal(unlisted.searchParams.has("analysis"), false, scope);
 
-    const explicit = new URL(url);
-    explicit.searchParams.set("analysis", "unsafe");
-    const parsed = parseWorkspaceLocation(
-      locationSnapshot(explicit),
-      () => decoded(state));
-    assert.equal(
-      scope === "type" ? parsed.typeAnalysisMode : parsed.memberAnalysisMode,
-      "unsafe");
-    // A Type or Member Analysis link never selects a Library mode.
-    assert.equal(parsed.analysisMode, "relationships");
+  // A package Type defaults to Relationships, so its Unsafe mode is written.
+  const typeUrl = buildWorkspaceStateUrl(
+    "https://inspect.example/?analysis=stale",
+    typeState,
+    () => encoded());
+  assert.equal(typeUrl.searchParams.get("analysis"), "unsafe");
+  const relationshipsUrl = buildWorkspaceStateUrl(
+    typeUrl.href,
+    { ...typeState, analysisMode: "relationships" },
+    () => encoded());
+  assert.equal(relationshipsUrl.searchParams.has("analysis"), false);
+  // A Platform Type lists only Unsafe, its default, so it's omitted, and a
+  // mode it doesn't list is never written.
+  for (const analysisMode of ["unsafe", "relationships", "performance"]) {
+    const platformUrl = buildWorkspaceStateUrl(
+      typeUrl.href,
+      { ...typeState, analysisMode, analysisContext: platformType },
+      () => encoded());
+    assert.equal(platformUrl.searchParams.has("analysis"), false, analysisMode);
+  }
+  const unlisted = buildWorkspaceStateUrl(
+    typeUrl.href,
+    { ...typeState, analysisMode: "performance" },
+    () => encoded());
+  assert.equal(unlisted.searchParams.has("analysis"), false);
 
-    for (const invalid of ["unknown", "performance"]) {
-      const malformed = new URL(url);
-      malformed.searchParams.set("analysis", invalid);
-      const defaulted = parseWorkspaceLocation(
-        locationSnapshot(malformed),
-        () => decoded(state));
-      assert.equal(defaulted.typeAnalysisMode, "unsafe");
-      assert.equal(defaulted.memberAnalysisMode, "unsafe");
-    }
+  const parsedType = parseWorkspaceLocation(
+    locationSnapshot(typeUrl),
+    () => decoded(typeState));
+  assert.equal(parsedType.typeAnalysisMode, "unsafe");
+  // A Type or Member Analysis link never selects a Library mode.
+  assert.equal(parsedType.analysisMode, "relationships");
+  // Absent or unknown, the Type's default applies once its package is known.
+  for (const value of [null, "unknown", "performance"]) {
+    const other = new URL(typeUrl);
+    if (value === null) other.searchParams.delete("analysis");
+    else other.searchParams.set("analysis", value);
+    assert.equal(parseWorkspaceLocation(
+      locationSnapshot(other),
+      () => decoded(typeState)).typeAnalysisMode, null, String(value));
+  }
+
+  // Unsafe is the Member's default, so canonical composition omits it.
+  const memberUrl = buildWorkspaceStateUrl(
+    "https://inspect.example/?analysis=stale",
+    memberState,
+    () => encoded());
+  assert.equal(memberUrl.searchParams.has("analysis"), false);
+  const explicit = new URL(memberUrl);
+  explicit.searchParams.set("analysis", "unsafe");
+  assert.equal(parseWorkspaceLocation(
+    locationSnapshot(explicit),
+    () => decoded(memberState)).memberAnalysisMode, "unsafe");
+  for (const invalid of ["unknown", "relationships"]) {
+    const malformed = new URL(memberUrl);
+    malformed.searchParams.set("analysis", invalid);
+    const defaulted = parseWorkspaceLocation(
+      locationSnapshot(malformed),
+      () => decoded(memberState));
+    assert.equal(defaulted.memberAnalysisMode, "unsafe");
+    assert.equal(defaulted.typeAnalysisMode, null);
   }
 
   // Outside Analysis the refinement is removed at every scope.
   const factsUrl = buildWorkspaceStateUrl(
     "https://inspect.example/?analysis=unsafe",
-    { ...memberState, analysisMode: "unsafe", view: { ...memberState.view, section: "facts" } },
+    { ...memberState, view: { ...memberState.view, section: "facts" } },
     () => encoded());
   assert.equal(factsUrl.searchParams.has("analysis"), false);
   const apiUrl = buildWorkspaceStateUrl(
     "https://inspect.example/?analysis=unsafe",
-    { ...typeState, analysisMode: "unsafe", view: { ...typeState.view, lens: "api" } },
+    { ...typeState, view: { ...typeState.view, lens: "api" } },
     () => encoded());
   assert.equal(apiUrl.searchParams.has("analysis"), false);
 });

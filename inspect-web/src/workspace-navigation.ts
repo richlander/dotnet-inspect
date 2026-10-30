@@ -37,10 +37,11 @@ import {
   defaultAnalysisMode,
   defaultAnalysisModeFor,
   defaultMemberAnalysisMode,
-  defaultTypeAnalysisMode,
   isAnalysisMode,
+  isTypeAnalysisMode,
   type AnalysisMode,
   type AnalysisScope,
+  type AnalysisScopeContext,
   type MemberAnalysisMode,
   type TypeAnalysisMode,
 } from "./analysis-inspector.ts";
@@ -105,7 +106,7 @@ export function workspaceViewSignature(view: WorkspaceView): string {
       ? view.analysisMode ?? defaultAnalysisMode
       : null,
     tam: !view.atPackageRoot && !view.atLibraryRoot && view.lens === "analysis"
-      ? view.typeAnalysisMode ?? defaultTypeAnalysisMode
+      ? view.typeAnalysisMode ?? null
       : null,
     mam: !view.atPackageRoot
       && !view.atLibraryRoot
@@ -356,6 +357,9 @@ export interface WorkspaceUrlState {
   // The selected mode of the Analysis inspector the view resolves, at
   // Library, Type, or Member scope.
   analysisMode?: string | null;
+  // The active scope's mode context: whether a Type's Analysis offers
+  // Relationships, which decides its listed modes and default.
+  analysisContext?: AnalysisScopeContext;
 }
 
 export interface PackageRootUrlState {
@@ -1090,12 +1094,14 @@ function resolveWorkspaceLocation(
   // Each scope reads the refinement only while its Analysis inspector is the
   // resolved view; a value it doesn't list selects its default.
   const memberOpen = Boolean(member || memberAnchor || memberSignature);
-  const typeAnalysisMode = analysisModeForScope(
-    "type",
+  // A Type's listed modes depend on its package, which only the loaded
+  // package establishes; null selects the Type's default there.
+  const typeAnalysisMode: TypeAnalysisMode | null =
     !view.atPackageRoot && !view.atLibraryRoot && type && !memberOpen
       && view.lens === "analysis"
+      && isTypeAnalysisMode(requestedAnalysisMode)
       ? requestedAnalysisMode
-      : null);
+      : null;
   const memberAnalysisMode = analysisModeForScope(
     "member",
     !view.atPackageRoot && !view.atLibraryRoot && memberOpen
@@ -1261,8 +1267,9 @@ function appendAnalysisMode(
 ): void {
   const scope = analysisScopeOfView(state.view);
   if (scope === null || !state.analysisMode) return;
-  if (state.analysisMode === defaultAnalysisModeFor(scope)) return;
-  if (analysisModeIsListed(scope, state.analysisMode)) {
+  const context = state.analysisContext ?? { relationshipsOffered: true };
+  if (state.analysisMode === defaultAnalysisModeFor(scope, context)) return;
+  if (analysisModeIsListed(scope, state.analysisMode, context)) {
     params.set("analysis", state.analysisMode);
   }
 }
