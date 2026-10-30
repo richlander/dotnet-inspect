@@ -341,8 +341,9 @@ gated by the admission test.
    `DotnetInspector.Sections` implements it, gated by
    `AnnotatedTypeMapPlanningTests`; `AnnotatedTypeMapContribution` carries
    only its family until step 3 defines its settled content.
-3. Implement contribution settlement and map generation, in a focused
-   generation owner.
+3. Implement contribution settlement and map generation, in the focused
+   generation owner
+   [Annotated Type Map generation](annotated-type-map-generation.md).
 4. Register the API shape-fact family over `ApiSurfaceExtractor` for Type
    focus and Member-scope questions, and route Finding Diff Any's API census
    settlement through a family contribution request over the version pair.
