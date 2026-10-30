@@ -651,11 +651,6 @@ public static class InspectionCommandDefinitions
                 assemblyCommand,
                 assemblyPathArg,
                 metadataRootOption));
-        assemblyCommand.Subcommands.Add(
-            LibraryQueryCommandDefinitions.Create(
-                opts,
-                assemblyCommand,
-                assemblyPathArg));
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {

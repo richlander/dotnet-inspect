@@ -408,7 +408,7 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API discovery | `type`, `member`, `find` | Type search, exact namespace discovery, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed Platform populations and adds exact prune-authorized package observations for namespace hits; add other package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
-| Package discovery | `package query` | Discover exact package IDs or terminal-star package-ID prefixes before inspecting a known package with `package`. |
+| Package discovery | `find --packages` | Discover exact package IDs or terminal-star package-ID prefixes before inspecting a known package with `package`. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL, selected-member authored-source, complexity, and structural-cohort context. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
@@ -423,7 +423,7 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library address "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition and exhaustive inventory | `workspace --package X --tfm TFM` | Author a portable Workspace packet without acquisition. Use `--json` for packet JSON or `--share url` for an activation URL. Add `--inventory` for live all-context inventory. Repeat `--package` and register Libraries, Package prefixes or ecosystems. Ordinary inspection commands accept admitted `--workspace` context. |
-| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `package "$package_ref"` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
+| Package Queries | `find --packages ID --where "library-literal=TEXT" --tfm TFM`, `package "$package_ref"` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -432,14 +432,14 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | Command | Purpose |
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
-| `package query X` | Discover exact package IDs or terminal-star package-ID prefixes, with optional metadata, dependency, ecosystem, and selected-Library qualification. |
+| `find --packages X` | Discover exact package IDs or terminal-star package-ID prefixes, with optional metadata, dependency, ecosystem, and selected-Library qualification. |
 | `package activity --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
-| `library query DIR` | Query a directory or `--platform` reference pack as a bounded Library population; `references=NAME` qualifies direct assembly references. |
+| `find --libraries DIR` | Query a directory or `--platform` reference pack as a bounded Library population; `references=NAME` qualifies direct assembly references. |
 | `type X` | Inspect a Type name or pattern; a source alone is not a Type selector. Use `library` to list a Library's Types. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
-| `find [X]` | Search for API types in installed .NET Runtime, ASP.NET Core, and .NET Standard populations by default. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names; add package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. Use `package query` to discover package IDs. |
+| `find [X]` | Search for API types in installed .NET Runtime, ASP.NET Core, and .NET Standard populations by default. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names; add package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. Use `find --packages` to discover package IDs. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
@@ -460,6 +460,17 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
+
+`find` is the population-search command. Its mutually exclusive `--packages`,
+`--libraries`, and `--members` selectors choose the result grain; without one,
+existing Type search and the leading-dot Member shorthand remain unchanged.
+Package grain accepts an exact ID, a terminal-star prefix, or one
+`--ecosystem`. Library grain requires a directory or an explicit
+`--platform runtime|aspnetcore|netstandard|family@version` population, not a
+Library-name pattern. `--where`, `-Q`, and `-D` use the selected grain's
+vocabulary and shape. Package and Library grains also support `-S` and
+`--envelope`; Type/Member Find does not. The former `package query` and
+`library query` command bindings are removed without aliases.
 
 Bare `type ... --count` follows the resolved subject: a Library subject counts
 Types, while a Type subject counts Members. Add `-S` to count a particular
@@ -951,7 +962,7 @@ dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
 dotnet-inspect package System.Text.Json@10.0.0 \
   --tfm netstandard2.0 -S "Dependency Hierarchy" --share url
-dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
+dotnet-inspect find --packages 'Azure.AI*' --take 100 --tsv
 ```
 
 Bare `package ID[@VERSION]` output and bare `--tree` render the Package's
@@ -1159,7 +1170,7 @@ the complete directed version Document. `--preview`, `--include-unlisted`,
 configured source options, and `--versions-with-feed` remain semantic
 population inputs.
 
-`package query --explain` returns installed query facets and CLI bindings as
+`find --packages --explain` returns installed query facets and CLI bindings as
 HAL JSON without contacting NuGet. `--json` is optional. This command-only
 terminal rejects package arguments, query/execution options, other output
 formats, and dotted projections. Process-wide controls such as `--offline`
@@ -1169,13 +1180,13 @@ focused dependency-facet response. See
 [Installed capability explanation](design/package-query-cli.md#installed-capability-explanation)
 for the worked workflow.
 
-`package query ID` selects one exact package ID. A single terminal `*` selects
+`find --packages ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before
 `-n` selects final package rows. Without explicit `--take`, a simple `-n N`
 also bounds direct package-row acquisition to N, up to the 1,000-candidate
 execution ceiling. Larger semantic heads remain valid and use that ceiling.
 
-`package query --ecosystem <id>`, or `--where "ecosystem=<id>"`, replaces the
+`find --packages --ecosystem <id>`, or `--where "ecosystem=<id>"`, replaces the
 package argument with one Ecosystem's population: its core packages in
 authored order, each resolved exactly, then every package under each recorded
 prefix, admitting each package once under the shared candidate bound. The
@@ -1184,8 +1195,8 @@ be combined with a package ID or prefix argument, and `ecosystem=` is the only
 population term `--where` admits:
 
 ```bash
-dotnet-inspect package query --ecosystem aspire -n 5
-dotnet-inspect package query --where "ecosystem=ai" --where "license=MIT"
+dotnet-inspect find --packages --ecosystem aspire -n 5
+dotnet-inspect find --packages --where "ecosystem=ai" --where "license=MIT"
 ```
 
 `find PATTERN --package-prefix PREFIX` remains API search across
@@ -1211,18 +1222,18 @@ against the ecosystem's core packages (matched exactly) and its package
 prefixes:
 
 ```bash
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection"
-dotnet-inspect package query 'Polly.*' \
+dotnet-inspect find --packages 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
-dotnet-inspect package query Microsoft.Extensions.Http \
+dotnet-inspect find --packages Microsoft.Extensions.Http \
   --where "depends starts-with Microsoft.Extensions." \
   --where "dependency-target=net10.0"
-dotnet-inspect package query Aspire.Hosting.PostgreSQL \
+dotnet-inspect find --packages Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
 
@@ -1233,7 +1244,7 @@ It requires one exact `dependency-target=<TFM>`; the expensive query is
 limited to five package candidates:
 
 ```bash
-dotnet-inspect package query Microsoft.Extensions.Http \
+dotnet-inspect find --packages Microsoft.Extensions.Http \
   --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
@@ -1252,7 +1263,7 @@ different first dot-delimited package-ID segment. It uses the same
 `dependency-target` scope and remains nuspec-only:
 
 ```bash
-dotnet-inspect package query 'Azure.*' \
+dotnet-inspect find --packages 'Azure.*' \
   --where "dependencies=cross-prefix"
 ```
 
@@ -1261,7 +1272,7 @@ or `lib/` assemblies declare that `AssemblyRef` across any target-framework
 group:
 
 ```bash
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
   --take 20 -n 5
 ```
@@ -1274,9 +1285,9 @@ Use the same key at Library grain to query top-level `*.dll` files in one
 directory, or one installed or explicitly acquired platform reference pack:
 
 ```bash
-dotnet-inspect library query ./artifacts/bin \
+dotnet-inspect find --libraries ./artifacts/bin \
   --where "references=System.Text.Json"
-dotnet-inspect library query --platform runtime \
+dotnet-inspect find --libraries --platform runtime \
   --where "references=System.Text.Json" --take 256 -n 10
 ```
 
@@ -1287,7 +1298,7 @@ afterward; a lone `-n` stops scanning at its Nth match. A reached explicit
 `--take` is the answer's scope: a note names it and the exit is 0. The default
 256-candidate limit that omits Libraries is a partial view: rows and `--count`
 print what was observed, with a warning and exit 1. Use
-`library query -Q Libraries` to discover the current vocabulary.
+`find --libraries -Q Libraries` to discover the current vocabulary.
 Native images beside managed Libraries in the directory are skipped; a
 directory with no managed Library is a failed source. Missing or malformed
 Metadata remains visible rather than silently becoming a nonmatch: rows and
@@ -1299,9 +1310,9 @@ without reading a license document: SPDX expressions match their exact
 expression, and `license=OSMF` recognizes a declared `OSMFEULA.*` file:
 
 ```bash
-dotnet-inspect package query wix \
+dotnet-inspect find --packages wix \
   --where "license=OSMF" --nuspec-only
-dotnet-inspect package query Newtonsoft.Json \
+dotnet-inspect find --packages Newtonsoft.Json \
   --where "license=MIT" --nuspec-only
 ```
 
@@ -1337,10 +1348,10 @@ query. Discovery also reports the product-owned execution class independently
 from the acquisition tier:
 
 ```bash
-dotnet-inspect package query -Q Packages
-dotnet-inspect package query Azure.Mcp \
+dotnet-inspect find --packages -Q Packages
+dotnet-inspect find --packages Azure.Mcp \
   --where "tool=true"
-dotnet-inspect package query 'Azure.Mcp*' \
+dotnet-inspect find --packages 'Azure.Mcp*' \
   --where "tool-format=v2" --take 20 -n 5 --jsonl
 ```
 
@@ -1376,7 +1387,7 @@ is invalid without a selector. Select `@Query` to compose
 one-section formats.
 
 **Breaking change:** `package search` and patternless
-`find --package-prefix PREFIX` have been removed. Use `package query` with an
+`find --package-prefix PREFIX` have been removed. Use `find --packages` with an
 exact package ID or an explicit terminal-star prefix.
 
 ### Exact Find handoff
@@ -1493,7 +1504,7 @@ order until the separately owned row-selection work adopts the unified stream.
 
 ### Package Query over selected implementation libraries
 
-`package query ... --where "library-literal=TEXT" --tfm TFM` adds decoded
+`find --packages ... --where "library-literal=TEXT" --tfm TFM` adds decoded
 string-literal qualification to the ordinary Package Query term plan. An exact
 package ID selects its latest eligible listed version. A terminal-star
 package-ID prefix evaluates at most five candidates; use `--take 1..5` to
@@ -1502,10 +1513,10 @@ the query evaluates each survivor's selected implementation libraries for the
 exact target framework.
 
 ```bash
-dotnet-inspect package query Newtonsoft.Json \
+dotnet-inspect find --packages Newtonsoft.Json \
   --where "library-literal=Unexpected end when reading JSON" --tfm net6.0
 
-dotnet-inspect package query 'Azure.Identity*' \
+dotnet-inspect find --packages 'Azure.Identity*' \
   --where "downloads=1m" \
   --where "library-literal=DefaultAzureCredential" \
   --tfm net8.0 --take 5
@@ -1543,7 +1554,7 @@ Each evaluated candidate carries an opaque, credential-free exact Package
 reference in `libraryLiteral.rootRequest`. Use it as ordinary source input:
 
 ```bash
-package_ref=$(dotnet-inspect package query Newtonsoft.Json \
+package_ref=$(dotnet-inspect find --packages Newtonsoft.Json \
   --where "library-literal=Unexpected end when reading JSON" --tfm net6.0 \
   --json | jq -r '.results[0].libraryLiteral.rootRequest')
 dotnet-inspect "$package_ref"

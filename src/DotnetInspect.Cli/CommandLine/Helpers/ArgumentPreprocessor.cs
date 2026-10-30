@@ -814,19 +814,27 @@ public static class ArgumentPreprocessor
         var commandIndex = FindSearchScopeCommandIndex(args);
         if (commandIndex < 0 || args.Length - commandIndex < 3)
             return args;
+        if (args[commandIndex] == "find"
+            && args.Skip(commandIndex + 1).TakeWhile(arg => arg != "--")
+                .Any(arg => arg is "--libraries" or "--libraries=true"))
+            return args;
 
         string[]? result = null;
         for (var i = commandIndex + 1; i < args.Length - 1; i++)
         {
-            if (!string.Equals(args[i], "--platform", StringComparison.Ordinal)
-                || args[i + 1].StartsWith("-", StringComparison.Ordinal)
-                || !ShouldTreatPlatformFollowerAsLibrary(args, commandIndex, i))
+            if (args[i] == "--")
+                break;
+            if (!string.Equals(args[i], "--platform", StringComparison.Ordinal))
             {
                 continue;
             }
 
             result ??= (string[])args.Clone();
-            result[i] = CommandLineHelpers.PlatformLibraryOptionName;
+            if (!args[i + 1].StartsWith("-", StringComparison.Ordinal)
+                && ShouldTreatPlatformFollowerAsLibrary(args, commandIndex, i))
+                result[i] = CommandLineHelpers.PlatformLibraryOptionName;
+            else if (args[commandIndex] == "find")
+                result[i] = "--platform=true";
         }
 
         return result ?? args;

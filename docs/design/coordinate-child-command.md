@@ -58,7 +58,7 @@ This yields four distinct CLI roles:
 | Address child | A required physical or document-local address within that subject |
 | Section or lens | Evidence or representation at the established request |
 
-`package query` is an operation child. `library address` is an address child.
+`find --packages` is an operation child. `library address` is an address child.
 Top-level `diff` is an operation command, and `member -S IL` remains a
 representation lens.
 

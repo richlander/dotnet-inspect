@@ -843,10 +843,6 @@ public static class CommandLineBuilder
         bool guarded = command.Name switch
         {
             "library" or "depends" or "diff" => true,
-            "query" => parseResult.CommandResult.Parent is CommandResult
-            {
-                Command.Name: "library",
-            },
             _ => false,
         };
         if (!guarded
@@ -1457,7 +1453,7 @@ public static class CommandLineBuilder
             static () =>
             [
                 new(PackageCommand.Name, "<package>", "inspect a NuGet package"),
-                new("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
+                new("find --packages", "<ID-or-prefix*>", "discover NuGet package IDs"),
                 new(TypeCommand.Name, "--package <package>", "discover types in package"),
                 new(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
                 new(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),
