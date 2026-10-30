@@ -29,8 +29,8 @@ public partial class CommandExecutionTests
                 "Contoso.Dependency");
 
             var result = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=system.runtime",
@@ -74,8 +74,8 @@ public partial class CommandExecutionTests
             // A population no larger than the default is evaluated
             // completely: the ceiling constrains nothing.
             var atBound = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -97,8 +97,8 @@ public partial class CommandExecutionTests
             // and Count print what was observed, warn, and exit nonzero
             // (cli-execution-bounds.md#disclosure).
             var rows = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -124,8 +124,8 @@ public partial class CommandExecutionTests
                 StringComparison.OrdinalIgnoreCase);
 
             var count = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -142,8 +142,8 @@ public partial class CommandExecutionTests
             // A lone Head stops evaluation at its Nth match inside the
             // default bound: the witnessed rows are the requested answer.
             var head = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -154,8 +154,8 @@ public partial class CommandExecutionTests
             Assert.Equal("2" + Environment.NewLine, head.Output);
             Assert.Empty(head.Error);
             var headSummary = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -179,8 +179,8 @@ public partial class CommandExecutionTests
             // The same population under an explicit --take is the request's
             // scope: exact for that population, exit zero.
             var taken = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -190,8 +190,8 @@ public partial class CommandExecutionTests
             Assert.Equal(0, taken.Exit);
             Assert.Equal(count.Output, taken.Output);
             var takenRows = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -220,8 +220,8 @@ public partial class CommandExecutionTests
                 Assert.True(summary.GetProperty("isComplete").GetBoolean());
             }
             var takenSummary = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -269,8 +269,8 @@ public partial class CommandExecutionTests
                 "System.Runtime");
 
             var boundedCount = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -294,8 +294,8 @@ public partial class CommandExecutionTests
                 boundedCount.Error);
 
             var closedHead = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=System.Runtime",
@@ -329,8 +329,8 @@ public partial class CommandExecutionTests
                 Path.Combine(tempDir, "Root.dll"));
 
             var result = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=Missing.Reference");
@@ -345,8 +345,8 @@ public partial class CommandExecutionTests
                 result.Error);
 
             var count = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 tempDir,
                 "--where",
                 "references=Missing.Reference",
@@ -390,8 +390,8 @@ public partial class CommandExecutionTests
                 Path.Combine(nativeDir, "Native.dll"));
 
             var mixed = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 mixedDir,
                 "--where",
                 "references=System.Runtime",
@@ -403,8 +403,8 @@ public partial class CommandExecutionTests
             // A directory with no managed library is a failed source: nothing
             // was evaluated, so Rows report the failure and Count is withheld.
             var native = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 nativeDir,
                 "--where",
                 "references=System.Runtime");
@@ -412,8 +412,8 @@ public partial class CommandExecutionTests
             Assert.Contains("contains no managed libraries", native.Error);
 
             var nativeCount = await RunAppAsync(
-                "library",
-                "query",
+                "find",
+                "--libraries",
                 nativeDir,
                 "--where",
                 "references=System.Runtime",
@@ -448,8 +448,8 @@ public partial class CommandExecutionTests
     public async Task LibraryQuery_DiscoveryRequiresNoPopulation()
     {
         var result = await RunAppAsync(
-            "library",
-            "query",
+            "find",
+            "--libraries",
             "/missing/library-query",
             "-D",
             "--json");
@@ -464,8 +464,8 @@ public partial class CommandExecutionTests
     public async Task LibraryQuery_PlatformRuntimeUsesSameReferenceFacet()
     {
         var result = await RunAppAsync(
-            "library",
-            "query",
+            "find",
+            "--libraries",
             "--platform",
             "runtime",
             "--where",
@@ -483,19 +483,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryQuery_RejectsParentInspectionOptions()
+    public async Task LibraryQuery_RejectsApiPopulationOptions()
     {
         var result = await RunAppAsync(
-            "library",
+            "find",
+            "--libraries",
             "--package",
             "System.Text.Json",
-            "query",
             ".");
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "--package is not available with library query",
+            "--package is not available with find --libraries",
             result.Error);
     }
 }

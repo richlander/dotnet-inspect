@@ -755,7 +755,20 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 .GetProperty("requested_path")
                 .GetString());
 
-        var pathless = await RunAsync("diff", "-D");
+        // Diff's comparison sections carry their catalog paths too.
+        var diff = await RunAsync("diff", "-D");
+
+        Assert.Equal(0, diff.ExitCode);
+        Assert.Empty(diff.Error);
+        Assert.Contains(
+            "| Changes | section | diff/sections/changes |",
+            diff.Output);
+        var diffExplanation = await RunAsync(
+            "explain", "diff/sections/changes", ".contract", "--json");
+        Assert.Equal(0, diffExplanation.ExitCode);
+
+        // A command without an explained catalog stays pathless.
+        var pathless = await RunAsync("depends", "-D");
 
         Assert.Equal(0, pathless.ExitCode);
         Assert.Empty(pathless.Error);
@@ -767,8 +780,8 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     public async Task PackageQueryFacetPath_CanBePassedUnchangedToExplain()
     {
         var discovery = await RunAsync(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             "--json");
@@ -1057,6 +1070,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         "unsafe",
         "member-detail/sections/unsafe-operations",
         "member -S")]
+    [InlineData("complexity", "diff/sections/complexity-context", "diff -S")]
     public async Task Search_AdmitsEveryExplainedStructuralCatalog(
         string text,
         string path,
@@ -1080,6 +1094,94 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(
             gesture,
             result.GetProperty("production_bindings")[0]
+                .GetProperty("gesture")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task Explain_Diff_ResolvesTheDiffCatalog()
+    {
+        // explain diff names the command's catalog exactly rather than
+        // searching for the word.
+        var result = await RunAsync("explain", "diff", ".contract", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        Assert.Equal("catalog", ResourceType(root));
+        Assert.Equal("diff", root.GetProperty("path").GetString());
+    }
+
+    [Theory]
+    [InlineData("changes", "table")]
+    [InlineData("analysis-diff", "table")]
+    [InlineData("implementation-diff", "table")]
+    [InlineData("complexity-context", "table")]
+    [InlineData("structural-context", "table")]
+    [InlineData("summary", "table")]
+    [InlineData("transitions", "table")]
+    [InlineData("annotated-source-diff", "text")]
+    public async Task Explain_DiffSection_ReportsDeclaredShapeAndDescription(
+        string section,
+        string shape)
+    {
+        var result = await RunAsync(
+            "explain",
+            $"diff/sections/{section}",
+            ".contract", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        Assert.Equal("structural-section", ResourceType(root));
+        Assert.Equal(shape, TextFact(root, "shape"));
+        string name = TextFact(root, "name");
+        foreach (string part in new[] { "summary", "basis", "empty" })
+        {
+            string text = TextFact(root, part);
+            Assert.False(string.IsNullOrWhiteSpace(text));
+            Assert.NotEqual(name, text);
+        }
+    }
+
+    [Fact]
+    public async Task Explain_DiffChanges_StatesTheAssessedSubsetsAndCompletePopulation()
+    {
+        // #10070: an agent learns from the installed product that
+        // --breaking and --additive are assessed subsets and that
+        // -S Changes keeps the complete population.
+        var result = await RunAsync(
+            "explain",
+            "diff/sections/changes",
+            ".contract", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        string boundary = TextFact(root, "boundary");
+        Assert.Contains("--breaking and --additive are assessed subsets", boundary);
+        Assert.Contains(
+            "-S Changes keeps the complete population, including Other API Changes",
+            boundary);
+    }
+
+    [Theory]
+    [InlineData("breaking changes between versions", "diff/sections/changes")]
+    [InlineData("complexity regressions between versions", "diff/sections/complexity-context")]
+    public async Task Phrase_RanksTheDiffSectionFirst(string text, string path)
+    {
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement first = document.RootElement.GetProperty("results")[0];
+        Assert.Equal(path, first.GetProperty("resource_path").GetString());
+        Assert.Equal(
+            "diff -S",
+            first.GetProperty("production_bindings")[0]
                 .GetProperty("gesture")
                 .GetString());
     }
@@ -1233,7 +1335,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(
             "role\tpath\tname\tpurpose\taccepts\tdestinations\tquestions",
             lines[0]);
-        Assert.Equal(10, lines.Length);
+        Assert.Equal(11, lines.Length);
         Assert.Contains(
             lines,
             static line => line.StartsWith(
@@ -1242,11 +1344,19 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 && line.Contains(
                     "\tlibrary, type, member\tdiff-analysis, analyses\t",
                     StringComparison.Ordinal));
+        Assert.Contains(
+            lines,
+            static line => line.StartsWith(
+                "operation\toperations/diff\tDiff\t",
+                StringComparison.Ordinal)
+                && line.Contains(
+                    "\tpackage, library, type, member\tdiff\t",
+                    StringComparison.Ordinal));
         Assert.DoesNotContain("# Explain", result.Output);
     }
 
     [Theory]
-    [InlineData("operations", "--jsonl", 3)]
+    [InlineData("operations", "--jsonl", 4)]
     [InlineData("subject-kinds/library", "--tsv", 2)]
     public async Task RootPathTableSelection_ListsTheEntriesThePathReaches(
         string path,
@@ -1344,7 +1454,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "root",
             document.RootElement.GetProperty("path").GetString());
         Assert.Equal(
-            9,
+            10,
             Regex.Matches(
                     result.Output,
                     "\"path\":\"((subject-kinds|operations|references)/[a-z-]+)\"")
@@ -1448,9 +1558,26 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 "subject-kinds/member",
                 "routing-destination-catalog"));
         Assert.Equal(
-            ["package-query", "package-files", "diff-analysis"],
+            ["package-query", "package-files", "diff-analysis", "diff"],
             Targets(composition.Catalog, "operations", "collection-routing-entry")
                 .Select(static path => path.Split('/')[^1]));
+        Assert.Equal(
+            ["diff"],
+            Targets(
+                composition.Catalog,
+                "operations/diff",
+                "routing-destination-catalog"));
+        Assert.Equal(
+            [
+                "subject-kinds/package",
+                "subject-kinds/library",
+                "subject-kinds/type",
+                "subject-kinds/member",
+            ],
+            Targets(
+                composition.Catalog,
+                "operations/diff",
+                "accepts-subject-kind"));
         Assert.Equal(
             ["package-query"],
             Targets(
@@ -1476,7 +1603,11 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 "operations/diff-analysis",
                 "accepts-subject-kind"));
         Assert.Equal(
-            ["operations/package-query", "operations/package-files"],
+            [
+                "operations/package-query",
+                "operations/package-files",
+                "operations/diff",
+            ],
             Targets(
                 composition.Catalog,
                 "subject-kinds/package",
@@ -1572,7 +1703,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "package-query/query/facets/library-literal",
             first.GetProperty("resource_path").GetString());
         Assert.Equal(
-            "package query",
+            "find --packages",
             first.GetProperty("production_bindings")[0]
                 .GetProperty("gesture")
                 .GetString());

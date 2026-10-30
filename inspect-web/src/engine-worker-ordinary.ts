@@ -42,6 +42,7 @@ type PackageOperationName =
   | "activatePlatformForwarder"
   | "closePlatformForwarderView"
   | "openPlatformForwarderView"
+  | "classifyEcosystemAssemblyNames"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "containPackageDocumentLeaves"
@@ -64,6 +65,7 @@ type PackageOperationName =
   | "getPackageDocument"
   | "queryLibraries"
   | "queryLibraryApi"
+  | "queryLibrarySurface"
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "inspectPackageDependencies"
@@ -81,6 +83,7 @@ type MetadataOperationName =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
   | "findTypes"
+  | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
   | "queryTypeProjection"
@@ -1070,6 +1073,12 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   package: {
+    classifyEcosystemAssemblyNames: valueOperation(
+      "ordinary-package-classify-ecosystem-assembly-names",
+      1,
+      (facades, ...args: Parameters<PackageFacade["classifyEcosystemAssemblyNames"]>) =>
+        facades.package.classifyEcosystemAssemblyNames(...args),
+    ),
     classifyEcosystemPackages: valueOperation(
       "ordinary-package-classify-ecosystem-packages",
       3,
@@ -1179,6 +1188,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryPackage"]>
       ) => facades.package.queryPackage(...args),
+    ),
+    queryLibrarySurface: valueOperation(
+      "ordinary-package-query-library-surface",
+      5,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryLibrarySurface"]>
+      ) => facades.package.queryLibrarySurface(...args),
     ),
     queryPackageRoot: valueOperation(
       "ordinary-package-query-package-root",
@@ -1681,6 +1698,16 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>
       ) => facades.metadata.queryTypeProjection(...args),
+    ),
+    queryAnnotatedTypeRelations: valueOperation(
+      "ordinary-metadata-query-annotated-type-relations",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryAnnotatedTypeRelations"]
+        >
+      ) => facades.metadata.queryAnnotatedTypeRelations(...args),
     ),
     queryPackageMetadataTable: valueOperation(
       "ordinary-metadata-query-package-table",
@@ -2589,6 +2616,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     package: {
+      classifyEcosystemAssemblyNames: bind(
+        engineWorkerOrdinaryOperations.package.classifyEcosystemAssemblyNames,
+      ),
       classifyEcosystemPackages: bind(
         engineWorkerOrdinaryOperations.package.classifyEcosystemPackages,
       ),
@@ -2631,6 +2661,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackage: bind(
         engineWorkerOrdinaryOperations.package.queryPackage,
+      ),
+      queryLibrarySurface: bind(
+        engineWorkerOrdinaryOperations.package.queryLibrarySurface,
       ),
       queryPackageRoot: bind(
         engineWorkerOrdinaryOperations.package.queryPackageRoot,
@@ -2784,6 +2817,10 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,
+      ),
+      queryAnnotatedTypeRelations: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryAnnotatedTypeRelations,
       ),
       queryPackageMetadataTable: bind(
         engineWorkerOrdinaryOperations.metadata

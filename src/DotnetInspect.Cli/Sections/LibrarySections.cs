@@ -495,9 +495,10 @@ public static class LibrarySections
     internal static TopLeverageResult ExecuteTopLeverageQuery(
         InspectionQueryContext context)
     {
-        TopLeverageResult result = ExecuteTopLeverageQuery(
-            context.MetadataContext?.HasMetadata != false,
-            () => context.BodyAnalysis().Leverage);
+        TopLeverageResult result =
+            context.MetadataContext?.HasMetadata == false
+                ? new TopLeverageResult.NoMetadata()
+                : context.TopLeverage();
         if (result is TopLeverageResult.Available)
             _ = context.DrillMap();
         return result;

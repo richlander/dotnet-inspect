@@ -967,8 +967,6 @@ public class CommandLineTests
     [InlineData("--explain", "depends", "--explain")]
     [InlineData("--explain", "depends", "--explain", ".tips")]
     [InlineData("--explain", "diff", "--explain")]
-    [InlineData("-Q", "diff", "-Q")]
-    [InlineData("--explain", "library", "query", "--explain")]
     public async Task UnadmittedOptionIsNotBoundAsPositionalInput(
         string option,
         params string[] tokens)
@@ -1785,7 +1783,9 @@ public class CommandLineTests
 
         var result = CommandLineBuilder.PreprocessArgs(args);
 
-        Assert.Same(args, result);
+        Assert.Equal(
+            ["find", "--platform=true", "JsonSerializer", "--tail", "false"],
+            result);
     }
 
     [Theory]

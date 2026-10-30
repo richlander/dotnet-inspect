@@ -111,7 +111,7 @@ base category. Its membership follows the resolved view: member-kind summaries
 for a type, the matching inventory for a member name, and signature plus local
 implementation evidence for one selected overload.
 
-The `package query` command uses `@Query` as its sole base category. It composes
+The `find --packages` command uses `@Query` as its sole base category. It composes
 the matched `Packages` rows with the `Query Summary` settlement row. Its
 ordinary adaptive output and exact selections remain command-owned projections
 over that catalog rather than automatic verbosity presets.
@@ -681,7 +681,9 @@ sections the shipped `project-analysis` skill relies on: `Library Metrics`,
 `P/Invoke Methods`, `Array Pool Escapes`, `Async Methods`, and the
 `Performance:` family. When Library coverage is complete, registration
 invariant 11 makes a description required for every selectable Library
-section. Other commands adopt in their own focused changes.
+section. Other commands adopt in their own focused changes; Diff has completed
+adoption for every selectable section of the pairwise `diff` catalog, and Diff History's
+sections have not adopted yet.
 
 ## Acquisition and network policy
 
@@ -1019,6 +1021,11 @@ because they are views of an analysis-set result selected with `--analysis`
 ([Analysis selection](command-transition-model.md#analysis-selection)) and do
 not compose with the comparison routes.
 
+Every selectable section of the pairwise `diff` catalog declares a
+[description](#description) and a [shape](section-shapes.md#production-adoption), and the sections form the
+`diff` structural catalog that `explain diff/sections/<section>` and `-D`
+paths address.
+
 ## Project category map
 
 The project command's current authored ownership is:
@@ -1076,7 +1083,7 @@ semantics; this document owns only their command catalog composition.
 
 ## Package Query category map
 
-The `package query` command's authored ownership is:
+The `find --packages` command's authored ownership is:
 
 | Category | Members |
 | --- | --- |
@@ -1138,7 +1145,10 @@ The section pipeline and derived catalog gates enforce these invariants:
     Basis, and Empty. After a command owner completes adoption, every
     selectable section of that command declares a description. The adoption
     gate for each command names the sections it covers; Library is the first,
-    gated by `LibraryDeclaresEverySelectableSectionDescription`.
+    gated by `LibraryDeclaresEverySelectableSectionDescription`, and the
+    pairwise `diff` catalog's sections follow, gated by
+    `DiffDeclaresEverySelectableSectionShapeAndDescription`; Diff History's
+    sections adopt separately.
 
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.
