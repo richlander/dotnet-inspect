@@ -21,6 +21,19 @@ public partial class LibraryCommand
                     + "Package in the selected Workspace context.");
             return 1;
         }
+        if (options.TypeNamespace is not null)
+        {
+            if (!LibraryNamespaceListingCommand.ValidateOptions(options))
+                return 1;
+
+            int? sharedNamespaceResult =
+                await TryExecutePackageNamespaceAsync(
+                        options,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            if (sharedNamespaceResult is not null)
+                return sharedNamespaceResult.Value;
+        }
         if (options.WorkspacePacket is not null
             && (options.PlatformAssembly is not null
                 || options.PlatformFramework is not null
