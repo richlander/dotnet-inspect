@@ -156,6 +156,7 @@ internal static class MemberCodeProvider
                 dllPath,
                 pdbPath,
                 selectedAssembly,
+                sourceBindingPolicy,
                 needsDirectDecompiledProjection,
                 ownerHandlesDirectInspection);
 
@@ -678,6 +679,7 @@ internal static class MemberCodeProvider
         string dllPath,
         string? pdbPath,
         ResolvedAssemblyReference? sourceAssembly,
+        IAssemblyBindingPolicy? sourceBindingPolicy,
         bool needsDirectDecompiledProjection,
         bool ownerHandlesDirectInspection)
     {
@@ -696,6 +698,15 @@ internal static class MemberCodeProvider
         {
             return null;
         }
+        if (sourceAssembly is not null
+            && sourceBindingPolicy is not null)
+        {
+            return Decompiler.Pipeline.MetadataSource.Open(
+                sourceAssembly,
+                pdbPath,
+                sourceBindingPolicy);
+        }
+
         IAssemblyReferenceResolver resolver = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(dllPath)
             {
