@@ -441,7 +441,7 @@ internal sealed class
                 request,
                 success,
                 new(
-                    success.Value.Frameworks.Length,
+                    sourceOperations: 1,
                     targetCandidates: 0,
                     success.Value.Libraries.Length,
                     xmlDocuments: 0,
