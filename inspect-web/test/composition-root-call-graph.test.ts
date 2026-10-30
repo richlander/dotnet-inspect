@@ -1163,9 +1163,48 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   assert.match(
     selection,
     /const sourceIndex =\s*memberNavOverloadSourceIndex\(entry\.group, entry\.index\)[\s\S]*openOverload\(sourceIndex\)/);
+  const overloadSelection =
+    appSource.match(/function selectMemberNavOverload\([\s\S]*?\n}\n\n\/\/ Switch the open member/)?.[0]
+    ?? "";
   assert.match(
-    appSource,
-    /onOverloadSelect: index => \{[\s\S]*memberNavOverloadVisibleIndex\(group, index\)[\s\S]*selectMemberNavEntry\(\s*\{ kind: "overload", group, index: visibleIndex \}/);
+    overloadSelection,
+    /memberGroupForCurrentFilters\(type, memberKey \?\? ""\)[\s\S]*memberNavOverloadVisibleIndex\(group, index\)[\s\S]*selectMemberNavEntry\(\s*\{ kind: "overload", group, index: visibleIndex \}/);
+  const targetGroup = {
+    key: "method:Target",
+    overloads: [{ stableSelector: "mss1:target" }],
+  };
+  const overloadCalls: unknown[] = [];
+  runInNewContext(
+    stripTypeScriptTypes(`${overloadSelection}
+      selectMemberNavOverload("method:Target", 4);
+    `),
+    {
+      selectedType: () => ({ id: "T:Example" }),
+      memberGroupForCurrentFilters: (_type: unknown, key: string) =>
+        key === targetGroup.key ? targetGroup : undefined,
+      showContentDetailAfterRender: () =>
+        overloadCalls.push("show"),
+      memberNavOverloadVisibleIndex: (group: unknown, index: number) => {
+        overloadCalls.push({ group, sourceIndex: index });
+        return 0;
+      },
+      selectMemberNavEntry: (entry: unknown, preserve: boolean) =>
+        overloadCalls.push({ entry, preserve }),
+    });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(overloadCalls)),
+    [
+      "show",
+      { group: targetGroup, sourceIndex: 4 },
+      {
+        entry: {
+          kind: "overload",
+          group: targetGroup,
+          index: 0,
+        },
+        preserve: false,
+      },
+    ]);
 
   const pane =
     appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\nfunction renderScopeBar/)?.[0]

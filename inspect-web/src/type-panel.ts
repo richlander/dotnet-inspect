@@ -397,7 +397,10 @@ export interface TypePanelBindingActions {
   onMemberSelect: (memberKey: string | undefined) => void;
   onMemberTraitFilterSelect: (trait: string | undefined) => void;
   onNamespaceSelect: (namespace: string) => void;
-  onOverloadSelect: (index: number) => void;
+  onOverloadSelect: (
+    memberKey: string | undefined,
+    index: number,
+  ) => void;
   onShowTypes: () => void;
   onTypeFilterChange: (value: string) => void;
   onTypeFilterDisclosureToggle: (expanded: boolean) => void;
@@ -449,7 +452,9 @@ export function bindTypePanel(
   root.querySelectorAll<HTMLElement>("[data-nav-overload]").forEach(button =>
     button.addEventListener(
       "click",
-      () => actions.onOverloadSelect(Number(button.dataset.navOverload))));
+      () => actions.onOverloadSelect(
+        button.dataset.navOverloadMember,
+        Number(button.dataset.navOverload))));
   root.querySelectorAll<HTMLElement>("[data-member-jump-kind]")
     .forEach(button =>
       button.addEventListener(
@@ -951,7 +956,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
           const achievementClasses =
             itemAchievementClassNames(achievements);
           const documentation = overload.summary?.trim() ?? "";
-          return `<button class="type-row overload-nav-row has-item-achievement-rail${documentation ? " documented-member-row" : ""}${heatClasses}${achievementClasses ? ` ${achievementClasses}` : ""} ${selected ? " selected" : ""}" data-nav-overload="${sourceIndex}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
+          return `<button class="type-row overload-nav-row has-item-achievement-rail${documentation ? " documented-member-row" : ""}${heatClasses}${achievementClasses ? ` ${achievementClasses}` : ""} ${selected ? " selected" : ""}" data-nav-overload-member="${escapeHtml(entry.group.key)}" data-nav-overload="${sourceIndex}" role="option" aria-selected="${selected}"${heatStyle}${heatDescription}>
             ${renderItemAchievementRail(achievements, escapeHtml)}
             <code>${overloadNavLabelHtml(entry.group.name, overload, escapeHtml, highlight)}</code>
             ${documentation ? `<small class="member-documentation-summary">${escapeHtml(documentation)}</small>` : ""}

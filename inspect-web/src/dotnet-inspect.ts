@@ -9588,6 +9588,22 @@ function openOverload(index: number) {
   loadMemberSectionContent(state.memberSection);
 }
 
+function selectMemberNavOverload(
+  memberKey: string | undefined,
+  index: number,
+) {
+  const type = selectedType();
+  const group =
+    memberGroupForCurrentFilters(type, memberKey ?? "");
+  if (!group) return;
+  showContentDetailAfterRender();
+  const visibleIndex =
+    memberNavOverloadVisibleIndex(group, index);
+  selectMemberNavEntry(
+    { kind: "overload", group, index: visibleIndex },
+    false);
+}
+
 // Switch the open member's section and kick off its lazy load. Shared by the scope-bar strip
 // click and the section shortcut. Exact-member sections select the first overload as needed.
 function applyMemberSection(id: MemberSection) {
@@ -15586,17 +15602,7 @@ function bindTypePanelEvents() {
       renderPreservingMemberFocus();
       loadCurrentSelectionData("Loading the selected Type");
     },
-    onOverloadSelect: index => {
-      const group = selectedMember(selectedType());
-      if (group) {
-        showContentDetailAfterRender();
-        const visibleIndex =
-          memberNavOverloadVisibleIndex(group, index);
-        selectMemberNavEntry(
-          { kind: "overload", group, index: visibleIndex },
-          false);
-      }
-    },
+    onOverloadSelect: selectMemberNavOverload,
     onShowTypes: exitMemberScope,
     onTypeFilterChange: value => {
       state.typeFilter = value;

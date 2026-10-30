@@ -369,7 +369,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onMemberSelect: value => calls.push(`member:${value}`),
     onMemberTraitFilterSelect: value => calls.push(`member-trait:${value}`),
     onNamespaceSelect: value => calls.push(`namespace:${value}`),
-    onOverloadSelect: value => calls.push(`overload:${value}`),
+    onOverloadSelect: (memberKey, value) =>
+      calls.push(`overload:${memberKey}:${value}`),
     onShowTypes: () => calls.push("types"),
     onTypeFilterChange: value => calls.push(`filter:${value}`),
     onTypeFilterDisclosureToggle: value =>
@@ -632,8 +633,14 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
   const root = new FakeRoot();
   const member = new FakeElement({ navMember: "M:Length" });
   const secondMember = new FakeElement({ navMember: "M:Count" });
-  const overload = new FakeElement({ navOverload: "2" });
-  const secondOverload = new FakeElement({ navOverload: "0" });
+  const overload = new FakeElement({
+    navOverloadMember: "M:Length",
+    navOverload: "2",
+  });
+  const secondOverload = new FakeElement({
+    navOverloadMember: "M:Count",
+    navOverload: "0",
+  });
   root.addAll("[data-nav-member]", member, secondMember);
   root.addAll("[data-nav-overload]", overload, secondOverload);
   const showTypes = root.add("#nav-to-types", new FakeElement());
@@ -651,8 +658,8 @@ test("type panel bindings dispatch the rendered member navigation controls", () 
   assert.deepEqual(calls, [
     "member:M:Length",
     "member:M:Count",
-    "overload:2",
-    "overload:0",
+    "overload:M:Length:2",
+    "overload:M:Count:0",
     "types",
     "list:Home",
   ]);
@@ -1141,6 +1148,9 @@ test("the member nav renders documented exact rows without a group parent", () =
   assert.match(
     html,
     /data-nav-selection="overload:method:Serialize:0"/);
+  assert.match(
+    html,
+    /data-nav-overload-member="method:Serialize" data-nav-overload="0"/);
   assert.match(
     html,
     /member-documentation-summary">Serializes one value &lt;safely&gt;\.<\/small>/);
