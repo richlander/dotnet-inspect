@@ -619,6 +619,11 @@ public static class SearchCommandDefinitions
             Description =
                 $"Exclusive bounded NuGet Gallery package root set ({DependencyEvidenceAcquisition.PackageProfileDefaultLimit} packages by default)"
         };
+        var projectDocumentOption = new Option<string?>("--project-document")
+        {
+            Description = "Inspect one supplied .csproj or project.assets.json without restored-assets lookup, evaluation, or acquisition.",
+            Arity = ArgumentArity.ExactlyOne,
+        };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var pruningPlatformFamilyOption =
             new Option<string?>("--platform-family")
@@ -673,6 +678,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(aspnetcoreOption);
         dependsCommand.Options.Add(projectOption);
         dependsCommand.Options.Add(packagePrefixOption);
+        dependsCommand.Options.Add(projectDocumentOption);
         dependsCommand.Options.Add(tfmOption);
         dependsCommand.Options.Add(pruningPlatformFamilyOption);
         dependsCommand.Options.Add(previewOption);
@@ -707,6 +713,28 @@ public static class SearchCommandDefinitions
 
         dependsCommand.Validators.Add(result =>
         {
+            if (result.GetResult(projectDocumentOption) is { Implicit: false })
+            {
+                if (!string.IsNullOrEmpty(result.GetValue(targetTypeArg)))
+                    result.AddError("--project-document cannot be combined with a positional type.");
+                HashSet<Option> allowed =
+                [
+                    projectDocumentOption, tfmOption, compactOption,
+                    opts.Json, opts.Envelope, opts.Markdown, opts.PlainText,
+                    opts.Table, opts.Tsv, opts.Jsonl, opts.NoHeaders,
+                    opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
+                ];
+                foreach (Option option in dependsCommand.Options)
+                {
+                    if (!allowed.Contains(option)
+                        && result.GetResult(option) is { Implicit: false })
+                    {
+                        result.AddError(
+                            $"{option.Name} is not supported with --project-document.");
+                    }
+                }
+                return;
+            }
             if (result.GetValue(opts.Tree)
                 && result.GetValue(opts.Mermaid))
             {
@@ -851,6 +879,27 @@ public static class SearchCommandDefinitions
 
         dependsCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetValue(projectDocumentOption) is { } documentPath)
+            {
+                return await DependsCommand.ExecuteProjectDocumentAsync(
+                    documentPath,
+                    new DependsOptions
+                    {
+                        Tfm = parseResult.GetValue(tfmOption),
+                        Format = opts.ResolveFormat(parseResult),
+                        OutputFormatExplicitlySet =
+                            opts.IsFormatFlagExplicitlySet(parseResult),
+                        EnvelopeOutput = parseResult.GetValue(opts.Envelope),
+                        CompactJson = parseResult.GetValue(compactOption),
+                        NoHeader = parseResult.GetValue(opts.NoHeaders),
+                        Verbosity = opts.ParseVerbosity(parseResult),
+                        Discover = opts.ParseDiscover(parseResult),
+                        Schema = opts.ParseSchema(parseResult),
+                        Select = opts.ParseSelect(parseResult),
+                        SelectDefault = opts.ParseSelectDefault(parseResult),
+                    },
+                    ct);
+            }
             var targetType = parseResult.GetValue(targetTypeArg);
             var packages = parseResult.GetValue(packageOption) ?? [];
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
