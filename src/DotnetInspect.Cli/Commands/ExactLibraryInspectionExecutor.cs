@@ -123,7 +123,9 @@ internal sealed class ExactLibraryInspectionSession(
             new(reference, plan, documentation), lease,
             (ids, demand, token) => DirectLibraryDocumentationQuery.ExecuteManyAsync(
                 reference, owner, ids, demand,
-                ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
+                plan.Accessibility == TypeMemberGroupAccessibilityFilter.All || plan.IncludeHidden
+                    ? ApiSurfaceExtractionScope.IncludeAll
+                    : ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
                 plan.Bounds, s_documentationLimits, TimeSpan.FromSeconds(10), plan.Type, token),
             cancellationToken).ConfigureAwait(false);
     }

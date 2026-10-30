@@ -6,12 +6,16 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
-    [Fact]
-    public async Task Type_MemberSections_KeepTheSameDeclarations()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Type_MemberSections_KeepTheSameDeclarations(bool includeAll)
     {
         string[] subject =
         ["type", "System.Text.Json.JsonSerializer", "--library",
             Path.Combine(AppContext.BaseDirectory, "RealAssets", "DiffAnalysis", "10.0.0", "System.Text.Json.dll")];
+        if (includeAll)
+            subject = [.. subject, "--all"];
         var plain = await RunAppAsync([.. subject, "-S", SectionNames.Members, "--jsonl"]);
         var documented = await RunAppAsync([.. subject, "-S", SectionNames.DocumentedMembers, "--jsonl"]);
         Assert.Equal(0, plain.Exit);
@@ -19,8 +23,12 @@ public partial class CommandExecutionTests
         JsonNode[] rows = JsonLines(plain.Output);
         JsonNode[] documentedRows = JsonLines(documented.Output);
         Assert.True(rows.Length > 15);
-        Assert.Equal(15, rows.Count(row => row["anchor"]!.GetValue<string>().StartsWith("Serialize~", StringComparison.Ordinal)));
+        if (!includeAll)
+            Assert.Equal(15, rows.Count(row => row["anchor"]!.GetValue<string>().StartsWith("Serialize~", StringComparison.Ordinal)));
         Assert.Equal(rows.Length, documentedRows.Length);
+        var count = await RunAppAsync([.. subject, "-S", SectionNames.DocumentedMembers, "--count"]);
+        Assert.Equal(0, count.Exit);
+        Assert.Equal(rows.Length.ToString(), count.Output.Trim());
         for (int index = 0; index < rows.Length; index++)
         {
             Assert.Null(rows[index]["description"]);
@@ -30,8 +38,11 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Type_MemberSections_MissingDocumentationKeepsDeclarations()
+    [Theory]
+    [InlineData(false, 4)]
+    [InlineData(true, 5)]
+    public async Task Type_MemberSections_MissingDocumentationKeepsDeclarations(
+        bool includeAll, int expectedCount)
     {
         string directory = Path.Combine(Path.GetTempPath(), "type-member-docs-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -41,13 +52,15 @@ public partial class CommandExecutionTests
         {
             string[] subject =
             ["type", typeof(TypeMemberSectionsFixture).FullName!, "--library", assembly];
+            if (includeAll)
+                subject = [.. subject, "--all"];
             var plain = await RunAppAsync([.. subject, "-S", SectionNames.Members, "--jsonl"]);
             var documented = await RunAppAsync([.. subject, "-S", SectionNames.DocumentedMembers, "--jsonl"]);
             Assert.Equal(0, plain.Exit);
             Assert.Equal(0, documented.Exit);
             JsonNode[] rows = JsonLines(plain.Output);
             JsonNode[] documentedRows = JsonLines(documented.Output);
-            Assert.Equal(4, rows.Length);
+            Assert.Equal(expectedCount, rows.Length);
             Assert.Equal(rows.Length, documentedRows.Length);
             Assert.All(documentedRows, row =>
                 Assert.Contains("documentation", row["description"]!.GetValue<string>(), StringComparison.OrdinalIgnoreCase));
@@ -58,7 +71,7 @@ public partial class CommandExecutionTests
             Assert.Contains("int value", replay.Output);
             var count = await RunAppAsync([.. subject, "-S", SectionNames.DocumentedMembers, "--count"]);
             Assert.Equal(0, count.Exit);
-            Assert.Equal("4", count.Output.Trim());
+            Assert.Equal(expectedCount.ToString(), count.Output.Trim());
         }
         finally
         {
@@ -124,4 +137,5 @@ public class TypeMemberSectionsFixture
     public int Value;
     public void Execute() { }
     public void Execute(int value) { Value = value; }
+    private void Reset() { Value = 0; }
 }
