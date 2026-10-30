@@ -93,7 +93,7 @@ The core does **not** own or claim:
 - direct member, whole-type, Research, CLI, or harness projection;
 - general CFG, CLR exception-flow, or behavioral-equivalence soundness;
 - runtime-async or iterator reconstruction; or
-- a new accepted classic recipe family.
+- acceptance beyond the explicitly proved recipe shells below.
 
 ## General inverse
 
@@ -391,8 +391,7 @@ The runtime witness remains reproducible with the pinned installed runtime
 11.0.0-rc.1.26425.128; its complete conditional-await reconstruction remains
 separate. The existing shared classic pass exposes admitted bodies through
 both CLI and browser/Wasm in one shared-core step, with no host adapter,
-new dependency, renderer or performance claim. This prerequisite makes
-thirteen currently planned slices under #9625.
+new dependency, renderer or performance claim. This prerequisite closes independently of the writer control proof under #9625.
 
 `ClassicInversePreservesAwaitFieldReset` gates Full plain and guarded output.
 `ClassicInverseAwaitFieldResetCannotBeHealed` gates raw/planning type, address,
@@ -472,6 +471,56 @@ operands/default-local initialization and visible budget failure.
 whole-member Exact results. RC1 DisposeAsync is a separate real witness:
 Full and compilable, with a retained OperandDiff for generated state-machine
 name numbering, not an Exact claim. FlushAsync remains outside this shell.
+
+## Two conditional void awaits with an alternative synchronous arm
+
+A closed classic-async shell may reproduce a reference-controlled two-arm
+branch whose first arm contains one optional void await followed by a second
+void await, and whose alternative arm contains optional synchronous effects.
+The outer predicate tests a reference; both inner predicates are Int32 nonzero
+tests.
+Only the Roslyn Release fifteen-block shell is admitted: two state-dispatch
+tests, the outer predicate, first-arm predicate, first await acquisition,
+suspension, resumption and continuation, second acquisition, suspension,
+resumption and continuation, alternative predicate and effects, and the common
+completion join. Every raw/planning edge, multiplicity and entry must agree;
+the unique success leave must reach the proved completion. Both resume paths
+bypass user predicates and prefix work. The corresponding positive conditions,
+then/else contexts and ordered semantic statement roots are reproduced.
+
+Prefix and branch effects may include calls, non-machine field stores, typed
+same-field default resets and simple property stores. A property store must
+retain the exact unconstrained accessor call, dispatch kind, receiver, index
+arguments and assigned value; it is semantic call work, never protocol. Raw
+setter calls and planning stores must agree on their instruction origin and
+operands. Getter calls retain their existing correspondence. Configured value-type awaited operands may retain a second private rvalue
+receiver temporary only when the producing call is adjacent, exactly typed,
+unnamed and used solely through its proved receiver addresses. The address is
+lowering storage; the producing call remains semantic work. The output plan
+captures both arms and property stores immutably. General CFG structuring,
+compound property updates, extra awaits, arbitrary predicate chains and
+unmodeled local ownership remain declines.
+
+The real witness is Utf8JsonWriter.FlushAsync in dotnet/runtime commit
+`ab19415702aa8139d5369e47c73edb47343c34ad`,
+`src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs`,
+observed in installed runtime 11.0.0-rc.1.26425.128. Its original source and raw
+execution IR are retained under the #9625 evidence. Independently compiled
+classic-async fixtures preserve the conditional Task/ValueTask awaits,
+property effects and before-await field reset for durable gates. The existing
+shared classic pass and MemberBodyProducer expose this one shared-core step
+through CLI and browser/Wasm; no host adapter, dependency, rendering path or
+architecture migration is introduced. No performance claim applies.
+
+`ClassicInversePreservesConditionalVoidPair` gates Task and ValueTask Full
+output with two awaits and both arms. `ClassicInverseConditionalVoidPairCannotBeHealed`
+gates raw/planning outer and inner targets, predicate, entry, reset type,
+property value/origin, effect order, completion and receiver escape boundaries.
+`ClassicInverseConditionalVoidPairPlanIsDetachedAndBudgeted` gates detached
+else arms/property stores and visible exhaustion. `ConditionalVoidPair_CompileBackExact`
+gates both immutable fixture whole members. The runtime writer's compile-back
+result remains independently reported; generated naming differences are not
+normalized into Exact.
 
 ## Demo
 
