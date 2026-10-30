@@ -73,6 +73,11 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 "tests/DotnetInspect.Web.Tests/BrowserEngineBoundaryTests.PackageVersionSettlement.cs",
                 ExplicitReferences: 3,
                 ImplicitReferences: 0),
+            new(
+                "#9262",
+                "eng/measure-workspace-extension-candidates.cs",
+                ExplicitReferences: 0,
+                ImplicitReferences: 7),
         ];
 
         string? error = MigrationSetError(expected, actual);
