@@ -384,15 +384,19 @@ public partial class LibraryBodyIndexTests
         Assert.Empty(index.ImplementationProfiles.OverloadRelationships);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(LibraryBodyAnalysisFeatures.None)]
+    [InlineData(LibraryBodyAnalysisFeatures.MethodEvidence)]
     public void
-        ImplementationProfiles_GuardRejectedLocalSignatureIsIncomplete()
+        ImplementationProfiles_GuardRejectedLocalSignatureIsIncomplete(
+            LibraryBodyAnalysisFeatures features)
     {
         LibraryBodyAnalysisExecution index =
             BodyAnalysisTestExecution
                 .OpenCompleteImplementationProfileFromPrefetchedImage(
                 "DeepLocal.dll",
-                EmitGuardRejectedLocalSignatureAssembly());
+                EmitGuardRejectedLocalSignatureAssembly(),
+                features);
 
         MethodImplementationProfile profile =
             Assert.Single(index.ImplementationProfiles.Profiles);

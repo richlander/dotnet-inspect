@@ -1211,7 +1211,12 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         result.ImplementationMetrics,
                         result.DeclaredMethod ?? caller,
                         caller,
-                        focusedMeasurements);
+                        focusedMeasurements) with
+                    {
+                        IncompleteReasons =
+                            MethodImplementationProfileAnalysis
+                                .IncompleteReasons(context),
+                    };
             }
             MethodAllocationFacts allocationFacts;
             ILibraryMethodAnalysisResolver methodAnalysisResolver;
