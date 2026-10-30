@@ -121,7 +121,7 @@ internal static class DiffSectionDescriptions
         + "versions, in selection order: added, removed, changed, and, for "
         + "analyses that report them, present Findings unchanged on both "
         + "sides, with old and new values and each side's inspection state, "
-        + "plus one status row for each unavailable, failed, or empty "
+        + "plus one status row for each unavailable or failed analysis or "
         + "comparison.",
         "The keyed Findings each analysis selected with --analysis issues "
         + "for " + BothVersions,
