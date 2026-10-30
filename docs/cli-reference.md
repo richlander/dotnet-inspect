@@ -978,6 +978,11 @@ dependency Libraries into one counted branch that names `-v:n` as the
 full-inventory gesture. Normal, Detailed, and explicit output formats list
 every Library.
 
+`package` accepts zero or one Package coordinate. A second positional Package
+is rejected before resolution or acquisition. Use Workspace or Package Query
+to select plural Package populations; those selectors do not add a
+cross-product Package column to unary Package inspection.
+
 Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
 all consume that same Package children document. The tree title prints the
 subject identity followed by the owner-issued properties of the displayed
@@ -1060,8 +1065,8 @@ availability and integrity sections, and the nuspec and README Text sections)
 have no rows: selecting one of them alone with `--count` or `--rows` fails
 before acquisition and names an inventory section as the alternative. A bare
 `-n` on such a section is the rendered-line window it is for `Library Info`,
-not a row terminal. Count maps over several sections, and multi-package counts,
-keep their existing per-section meaning.
+not a row terminal. Count maps over several sections keep their existing
+per-section meaning.
 
 ```bash
 dotnet-inspect package System.Text.Json -S "Target Frameworks"

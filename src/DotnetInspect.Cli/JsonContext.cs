@@ -94,7 +94,6 @@ public partial class JsonContext : JsonSerializerContext
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(PackageInspectionJson))]
-[JsonSerializable(typeof(PackageInspectionJson[]))]
 internal partial class PackageInspectionJsonContext : JsonSerializerContext
 {
 }
@@ -184,12 +183,6 @@ internal partial class CloneCandidateOutputCompactJsonContext : JsonSerializerCo
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(PackageFileJsonRow))]
 internal partial class PackageFileJsonRowContext : JsonSerializerContext
-{
-}
-
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
-[JsonSerializable(typeof(PackageFileMultiJsonRow))]
-internal partial class PackageFileMultiJsonRowContext : JsonSerializerContext
 {
 }
 
