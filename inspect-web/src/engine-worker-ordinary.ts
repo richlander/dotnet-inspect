@@ -42,6 +42,7 @@ type PackageOperationName =
   | "activatePlatformForwarder"
   | "closePlatformForwarderView"
   | "openPlatformForwarderView"
+  | "classifyEcosystemAssemblyNames"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "containPackageDocumentLeaves"
@@ -1071,6 +1072,12 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   package: {
+    classifyEcosystemAssemblyNames: valueOperation(
+      "ordinary-package-classify-ecosystem-assembly-names",
+      1,
+      (facades, ...args: Parameters<PackageFacade["classifyEcosystemAssemblyNames"]>) =>
+        facades.package.classifyEcosystemAssemblyNames(...args),
+    ),
     classifyEcosystemPackages: valueOperation(
       "ordinary-package-classify-ecosystem-packages",
       3,
@@ -2598,6 +2605,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     package: {
+      classifyEcosystemAssemblyNames: bind(
+        engineWorkerOrdinaryOperations.package.classifyEcosystemAssemblyNames,
+      ),
       classifyEcosystemPackages: bind(
         engineWorkerOrdinaryOperations.package.classifyEcosystemPackages,
       ),
