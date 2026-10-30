@@ -68,6 +68,7 @@ public sealed class ProductionFacadeContextTests
             "ActivateWorkspacePackageOccurrence",
             "CancelPackageActivity",
             "CancelPackageQuery",
+            "ClassifyEcosystemAssemblyNames",
             "ClassifyEcosystemPackages",
             "ClassifyPackageGraphIdentities",
             "ClearWorkspacePackageOccurrences",
@@ -123,6 +124,7 @@ public sealed class ProductionFacadeContextTests
             "CancelLibraryApiDiff",
             "CancelLibraryFindingDiffAny",
             "FindTypes",
+            "QueryAnnotatedTypeRelations",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
             "QueryLibraryFindingDiffAny",
@@ -300,7 +302,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(175, everyExport.Length);
+        Assert.Equal(177, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -380,6 +382,7 @@ public sealed class ProductionFacadeContextTests
             sharedContractTypes);
         Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
         Collect(typeof(TypeSignaturePresentation), sharedContractTypes);
+        Collect(typeof(InspectionEnvelope<JsonElement>), sharedContractTypes);
         var sharedPackageContractTypes = new HashSet<Type>();
         Collect(
             typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),

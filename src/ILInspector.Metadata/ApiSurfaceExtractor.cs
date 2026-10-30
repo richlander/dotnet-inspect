@@ -690,16 +690,6 @@ public static partial class ApiSurfaceExtractor
             constraintResolution: null);
 
     /// <summary>
-    /// Extracts declarations physically owned by the Types that
-    /// <paramref name="includeType"/> admits, at one explicit visibility scope.
-    /// </summary>
-    /// <remarks>
-    /// Types the predicate rejects are not decoded, so a caller that needs a
-    /// few Types does not pay for the whole image. Each admitted Type yields
-    /// the same declarations as a complete <see cref="ExtractDeclarations(PEReader, ApiSurfaceExtractionScope, bool, bool)"/>
-    /// walk; receiver-contextual extension members are not projected.
-    /// </remarks>
-    /// <summary>
     /// Extracts the admitted Types with only the facts the API comparison
     /// reads (<see cref="MetadataFindings.CompareApi"/>). Memory-safety facts
     /// and accessor semantics are not projected, so the image's memory-safety
@@ -726,6 +716,16 @@ public static partial class ApiSurfaceExtractor
             projectMemorySafety: false);
     }
 
+    /// <summary>
+    /// Extracts declarations physically owned by the Types that
+    /// <paramref name="includeType"/> admits, at one explicit visibility scope.
+    /// </summary>
+    /// <remarks>
+    /// Types the predicate rejects are not decoded, so a caller that needs a
+    /// few Types does not pay for the whole image. Each admitted Type yields
+    /// the same declarations as a complete <see cref="ExtractDeclarations(PEReader, ApiSurfaceExtractionScope, bool, bool)"/>
+    /// walk; receiver-contextual extension members are not projected.
+    /// </remarks>
     public static ApiSurface ExtractDeclarations(
         PEReader peReader,
         ApiSurfaceExtractionScope scope,

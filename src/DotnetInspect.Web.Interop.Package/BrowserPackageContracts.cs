@@ -483,6 +483,12 @@ public sealed record BrowserEcosystemPackageClassification(
     string Id, string? Version, string? EcosystemId, string? EcosystemTitle,
     string? PlatformLayer, bool? IsPruned, int? PlatformVersionComparison);
 
+public sealed record BrowserEcosystemAssemblyName(string Name);
+
+public sealed record BrowserEcosystemAssemblyNameClaim(
+    string Name, string? EcosystemId, string? EcosystemTitle,
+    bool IsPlatformSearchEligible);
+
 public sealed record BrowserPlatformCatalog(
     string Tfm,
     string Version,
@@ -1532,6 +1538,8 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserEcosystemPackageCandidate[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]
 [JsonSerializable(typeof(BrowserEcosystemPackageClassification[]))]
+[JsonSerializable(typeof(BrowserEcosystemAssemblyName[]))]
+[JsonSerializable(typeof(BrowserEcosystemAssemblyNameClaim[]))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryExplanationResult))]
 [JsonSerializable(typeof(BrowserPackageQueryTerm[]))]
