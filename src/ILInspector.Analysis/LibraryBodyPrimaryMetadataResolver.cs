@@ -852,7 +852,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         return result;
     }
 
-    bool? IsExactInAssemblyExceptionType(
+    internal bool? IsExactInAssemblyExceptionType(
         int operandToken,
         TypeRef type)
     {

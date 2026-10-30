@@ -1106,13 +1106,56 @@ public static partial class MemberCommand
                         "The exact member group's defining Library has no local inspection path.");
                     return 1;
                 }
-                int memberGroupExitCode =
-                    await MemberGroupDocumentOutput.WriteAsync(
+                int memberGroupExitCode;
+                if (MemberGroupDocumentOutput.IsDefaultReportSelected(
                         apiType,
                         effectiveOptions,
+                        executionPlan))
+                {
+                    string memberName =
+                        MemberGroupDocumentOutput.ResolveCanonicalMethodName(
+                            apiType,
+                            effectiveOptions.MemberFilter.Single())!;
+                    int count = GetCandidateMembers(
+                        apiType, effectiveOptions, memberName).Count;
+                    memberGroupExitCode = await MemberDocumentOutput.WriteAsync(
+                        apiType,
+                        effectiveOptions with { OverloadIndex = 1 },
                         memberGroupAssemblyPath,
-                        CancellationToken.None,
-                        contextualExplanationGroup);
+                        sourceAssembly,
+                        packageName,
+                        packageVersion,
+                        context.HttpClient,
+                        CancellationToken.None);
+                    if (memberGroupExitCode == 0 && count > 1)
+                        CommandError.WriteLine(
+                            $"Warning: {apiType.FullName}.{memberName} has "
+                                + $"{count} overloads; showing {memberName}:1. "
+                                + "Add --tree to list all overloads, or select "
+                                + $"another with {memberName}:N.");
+                }
+                else
+                {
+                    IReadOnlyList<ResultProperty> properties =
+                        source.PackageExtractPath is { } extractPath
+                            ? LibraryTypeHierarchyCommand.PackageProperties(
+                                memberGroupAssemblyPath,
+                                extractPath,
+                                packageName,
+                                packageVersion,
+                                File.Exists(source.ResolvedPackagePath))
+                            : source.ApiSource is { } sourceName
+                                ? [new("source", sourceName)]
+                                : [];
+                    memberGroupExitCode =
+                        await MemberGroupDocumentOutput.WriteAsync(
+                            apiType,
+                            effectiveOptions,
+                            memberGroupAssemblyPath,
+                            CancellationToken.None,
+                            contextualExplanationGroup,
+                            properties);
+                }
                 return WriteContextualCompanion(
                     memberGroupExitCode,
                     effectiveOptions,
@@ -1138,10 +1181,52 @@ public static partial class MemberCommand
                 return 1;
             }
 
+            if (MemberGroupDocumentOutput.RequestsOverloadSections(effectiveOptions))
+            {
+                if (effectiveOptions.Count)
+                {
+                    if (MemberGroupDocumentOutput.ResolveSubject(
+                            apiType, effectiveOptions) is null)
+                    {
+                        CommandError.Write(
+                            "Overload sections require one ordinary method-group name "
+                                + "without an ordinal or digest.");
+                        return 1;
+                    }
+                    effectiveOptions = effectiveOptions with
+                    {
+                        OverloadSectionCount = Math.Min(
+                            GetCandidateMembers(
+                                apiType,
+                                effectiveOptions,
+                                effectiveOptions.MemberFilter.Single()).Count,
+                            effectiveOptions.Limit ?? int.MaxValue),
+                    };
+                }
+                else
+                {
+                    MemberOptions? attached =
+                        await MemberGroupDocumentOutput.AttachSectionsAsync(
+                            apiType,
+                            effectiveOptions,
+                            apiType.SourceAssemblyPath
+                                ?? sourceAssembly?.Path
+                                ?? apiDllPath,
+                            CancellationToken.None);
+                    if (attached is null)
+                        return 1;
+                    effectiveOptions = attached;
+                }
+            }
+
             // Enrich with local XML docs only (source info is in the source command)
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
                 if (dllPath != null
+                    && (effectiveOptions.IncludeSections is null
+                        || effectiveOptions.IncludeSections.Any(
+                            static section => section is not SectionNames.Overloads
+                                and not SectionNames.DocumentedOverloads))
                     && (effectiveOptions.ShowDocs
                         || effectiveOptions.ShowSamples))
                     await DocumentationEnricher.EnrichAsync(
@@ -1217,6 +1302,13 @@ public static partial class MemberCommand
                     ApiCommand.GetRequestedMemberSections(
                         apiType,
                         effectiveOptions);
+                bool descriptorBackedDecompiledSource =
+                    sourceAssembly is not null
+                    && packageName is not null
+                    && packageVersion is not null
+                    && source.PackageExtractPath is null
+                    && requestedSourceSections.Contains(
+                        SectionNames.DecompiledSource);
                 if (requestedSourceSections.Contains(SectionNames.SourceDiff)
                     && sourceMember?.MetadataToken is not null)
                 {
@@ -1229,7 +1321,8 @@ public static partial class MemberCommand
                             publicOnly,
                             tokenOriginAssembly,
                             sourceMember.MetadataToken.Value,
-                            logger.Log);
+                            logger.Log,
+                            sourceAssembly);
                     ResolvedAssemblyReference comparisonAssembly =
                         sourceAssembly?.Path is { } sourceAssemblyPath
                         && LibraryMetadataService
@@ -1329,7 +1422,8 @@ public static partial class MemberCommand
                     };
                     if (effectiveOptions.PdbPath is null
                         && NeedsMemberPipelinePdbPath(
-                            requestedSourceSections))
+                            requestedSourceSections,
+                            descriptorBackedDecompiledSource))
                     {
                         string? pdbPath = sourceAssembly is null
                             ? await ApiCommand.TryAcquirePdbPathAsync(
@@ -1368,7 +1462,8 @@ public static partial class MemberCommand
                                 publicOnly,
                                 tokenOriginAssembly,
                                 sourceMemberToken,
-                                logger.Log);
+                                logger.Log,
+                                sourceAssembly);
                         if (selectedMemberHasBody == false)
                         {
                             effectiveOptions = effectiveOptions with
@@ -1496,7 +1591,8 @@ public static partial class MemberCommand
                     if (effectiveOptions.PdbPath is null
                         && selectedMemberHasBody != false
                         && NeedsMemberPipelinePdbPath(
-                            requestedSourceSections))
+                            requestedSourceSections,
+                            descriptorBackedDecompiledSource))
                     {
                         string? pdbPath = sourceAssembly is null
                             ? await ApiCommand.TryAcquirePdbPathAsync(
@@ -1584,6 +1680,8 @@ public static partial class MemberCommand
                         effectiveOptions,
                         apiDllPath,
                         sourceAssembly,
+                        loaded.TryGetBindingContext(apiType)?.Policy
+                            ?? loaded.RootBindingContext?.Policy,
                         context.HttpClient);
             }
 
@@ -2287,8 +2385,15 @@ public static partial class MemberCommand
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
 
     private static bool NeedsMemberPipelinePdbPath(
-        IReadOnlySet<string> sections)
-        => sections.Overlaps(MemberPipelinePdbPathSectionNames);
+        IReadOnlySet<string> sections,
+        bool descriptorBackedDecompiledSource = false) =>
+        MemberPipelinePdbPathSectionNames.Any(
+            section =>
+                sections.Contains(section)
+                && (!descriptorBackedDecompiledSource
+                    || !section.Equals(
+                        SectionNames.DecompiledSource,
+                        StringComparison.OrdinalIgnoreCase)));
 
     // Sections that read only the selected member's own declaration, body,
     // attributes, and source mapping. A request limited to these sections
@@ -2555,6 +2660,7 @@ public static partial class MemberCommand
             MemberOptions options,
             string apiDllPath,
             ResolvedAssemblyReference? sourceAssembly,
+            IAssemblyBindingPolicy? bindingPolicy,
             HttpClient httpClient)
     {
         ApiMember? selectedMember =
@@ -2583,7 +2689,8 @@ public static partial class MemberCommand
                 sourceAssembly,
                 options,
                 httpClient,
-                "member decompilation");
+                "member decompilation",
+                selectedBindingPolicy: bindingPolicy);
         AssemblyMemberSourceRequest request =
             ResolveMemberDecompilationRequest(
                 apiType,

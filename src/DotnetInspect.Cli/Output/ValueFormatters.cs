@@ -25,15 +25,6 @@ public class ByteSizeFormatter : IMarkoutValueFormatter<long>
 }
 
 /// <summary>
-/// Renders the shared "Source" column ("source@version", or just "source" when unversioned).
-/// </summary>
-public static class SourceColumn
-{
-    public static string Format(string? source, string? version)
-        => string.IsNullOrEmpty(version) ? source ?? "" : $"{source}@{version}";
-}
-
-/// <summary>
 /// Formats large numbers as compact strings (e.g., "5.1B", "1.2M", "3.4K").
 /// </summary>
 public class CompactNumberFormatter : IMarkoutValueFormatter<long>

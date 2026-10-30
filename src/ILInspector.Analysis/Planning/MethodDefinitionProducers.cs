@@ -222,6 +222,18 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         return false;
     }
 
+    /// <summary>
+    /// Whether this producer's kernel records the pending all-definition
+    /// declared-source relation before completion.
+    /// </summary>
+    internal virtual bool SupportsPendingRelationKernel => false;
+
+    /// <summary>
+    /// Whether complete visited facts remain publishable when generated
+    /// attribution fails at source completion.
+    /// </summary>
+    internal virtual bool RetainsResultOnGeneratedExpansionFailure => false;
+
     /// <summary>Whether this producer declares a type-scope predicate.</summary>
     internal virtual bool HasTypeScope => false;
 
@@ -254,6 +266,13 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
 
     bool IMethodDefinitionProducer.SharesCalleeIdentities =>
         SharesCalleeIdentities;
+
+    bool IMethodDefinitionProducer.SupportsPendingRelationKernel =>
+        SupportsPendingRelationKernel;
+
+    bool IMethodDefinitionProducer
+        .RetainsResultOnGeneratedExpansionFailure =>
+            RetainsResultOnGeneratedExpansionFailure;
 
     ImmutableArray<MethodBodyAnalyzerDeclaration>
         IMethodDefinitionProducer.InstructionAnalyzers =>
@@ -344,6 +363,8 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         /// <summary>Sets the folded accumulator; a kernel folds in its own loop.</summary>
         internal void SetAccumulator(TAccumulator accumulator) => _accumulator = accumulator;
 
+        internal TAccumulator Accumulator => _accumulator;
+
         public override bool ClassifiesUnits => _classifies;
 
         public override bool RetainsFacts => _keepCurrent || _factsByUnit is not null;
@@ -366,6 +387,9 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             MethodRowGate gate,
             out int unitsVisited) =>
             _producer.RunKernel(this, reader, peReader, lookup, gate, out unitsVisited);
+
+        public override bool SupportsPendingRelationKernel =>
+            _producer.SupportsPendingRelationKernel;
 
         public override bool Visit(scoped MethodDefinitionView view)
         {
@@ -440,6 +464,10 @@ internal interface IMethodDefinitionProducer
     SourceGateGuard? SourceGate { get; }
 
     bool SharesCalleeIdentities { get; }
+
+    bool SupportsPendingRelationKernel { get; }
+
+    bool RetainsResultOnGeneratedExpansionFailure { get; }
 
     MethodDefinitionExecution.ProducerState CreateState(
         MethodDefinitionExecution execution,
@@ -724,6 +752,7 @@ public readonly ref struct MethodDefinitionView
                     + "during a visit, but over all-definition breadth it "
                     + "settles at source completion.");
             }
+
             MethodDefinitionDeclaredSources sources =
                 execution.DeclaredSources
                 ?? throw new ProducerContractException(
@@ -733,6 +762,10 @@ public readonly ref struct MethodDefinitionView
             return sources.Of(_unit.MethodHandle);
         }
     }
+
+    internal bool HasDeclaredSourceRelation =>
+        Producer.Execution.DeclaredSources is not null
+        || Producer.Execution.DeclaredSourcesPending;
 
     /// <summary>The subject's metadata, for a domain-layer producer's own probes.</summary>
     internal MetadataReader Reader
@@ -1325,6 +1358,9 @@ public readonly ref struct MethodDefinitionCompletionView
     /// no source work.
     /// </summary>
     internal bool IsSourceBounded => _producer.SourceBounded;
+
+    internal bool HasDeclaredSources =>
+        _producer.Execution.DeclaredSources is not null;
 
     /// <summary>
     /// A visited unit's outcome in the settled declared-source relation.

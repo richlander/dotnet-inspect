@@ -95,7 +95,7 @@ it:
 - for a package root, `--tfm` selects a dependency group by exact match, so a
   newer consumer framework can select nothing while Pruning reports `Complete`
   (#10071); prefer a restored project root;
-- treat a zero from `package query --where "library-literal=…"` as unverified
+- treat a zero from `find --packages --where "library-literal=…"` as unverified
   until the summary shows no `notApplicable` candidates (#10072); and
 - check that numbers are plausible for the subject's size and domain.
 
@@ -153,6 +153,19 @@ dnx dotnet-inspect -y -- depends --package Id@v -S Dependencies
 The bare `library --package Id@v` output is the namespace and type tree: the
 fastest view of the public surface. For a restored project, add
 `project <path> -S Skills` for skills its packages ship.
+
+To connect the main APIs, use `Member Index` to choose a member, then reuse its
+`Selector` to read the actual public declaration:
+
+```bash
+dnx dotnet-inspect -y -- member <Type> --package Id@v -S "Member Index"
+dnx dotnet-inspect -y -- member <Type> --package Id@v <Selector> -S Signature
+```
+
+The terse type tree and the index's `Canonical Signature` identify APIs; they
+do not establish return types. Before connecting a factory or builder to the
+object used for execution, verify that edge in `Signature`. If it remains
+unverified, label the relationship as inferred.
 
 **Thorough:**
 

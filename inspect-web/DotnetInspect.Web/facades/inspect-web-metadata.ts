@@ -811,6 +811,8 @@ export interface BrowserTypeMetadata {
   readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
   readonly typeDependencyInspection: InspectionEnvelope<TypeDependencySectionResult>;
   readonly inspectionFailures: ReadonlyArray<string>;
+  readonly typeSignatureInspection: InspectionEnvelope<unknown> | null;
+  readonly typeSignaturePresentation: TypeSignaturePresentation | null;
 }
 
 export interface BrowserTypeOverview {
@@ -1142,6 +1144,18 @@ export interface TypeDependencyRowSelectionResult {
 export interface TypeDependencySectionResult {
   readonly queryResult: AssemblyContextTypeDependencyResult;
   readonly rowSelection: TypeDependencyRowSelectionResult;
+}
+
+export interface TypeSignaturePresentation {
+  readonly type: string;
+  readonly kind: string;
+  readonly modifiers: ReadonlyArray<string>;
+  readonly accessibility: string;
+  readonly namespace: string;
+  readonly baseType: string | null;
+  readonly typeParameters: string | null;
+  readonly interfaceCount: number;
+  readonly nestedTypeCount: number;
 }
 
 export interface type_0823c3ba {

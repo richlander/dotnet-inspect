@@ -335,8 +335,8 @@ completion, never successful exhaustion.
 
 Status: exact breadth implements roles, nested-type reach, unauthenticated
 candidates, and retained-prefix bounds. All-definition breadth implements the
-reverse lowering described below, with its own operand scan of each acquired
-body.
+reverse lowering described below, with relation-owned operand evidence for
+each acquired body.
 
 - `IncludeGeneratedExecutionBodies` takes the requested
   `MethodDefinitionGeneratedBodyRoles`, defaulting to Execution, and
@@ -454,10 +454,12 @@ other's cost class:
   relation itself. The receipt records both as relation work:
   `TraversalReferenceBodies`, `TraversalReferenceBodiesAcquired`, and
   `TraversalReferenceEncodedIlBytes`. Settling probes only bodies traversal
-  did not record, such as those after an early stop. The relation still scans
-  operands itself. Sharing a producer's instruction decode, so that a
-  producer that already decodes instructions adds no second operand pass, is
-  **unverified**.
+  did not record, such as those after an early stop. A producer may give the
+  relation complete resolved call and function-pointer evidence from its own
+  instruction pass; the relation derives the same called-definition,
+  referenced-definition, and member-reference facts without decoding that
+  body again. Incomplete or malformed producer evidence retains the
+  relation-owned body scan and its established failure behavior.
 
 Over all-definition breadth the relation is therefore a source-completion
 fact. A producer reads it in `Complete`, not during a unit visit. A producer

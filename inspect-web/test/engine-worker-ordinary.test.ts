@@ -105,6 +105,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
+    classifyEcosystemAssemblyNames: () => unexpected("classifyEcosystemAssemblyNames"),
     classifyEcosystemPackages: () => unexpected("classifyEcosystemPackages"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
     getPlatformVersions: () => unexpected("getPlatformVersions"),
@@ -130,12 +131,15 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("containPackageDocumentLeaves"),
     queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
+    queryLibrarySurface: () => unexpected("queryLibrarySurface"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
     queryPlatformMemberDocumentation: () =>
       unexpected("queryPlatformMemberDocumentation"),
-    queryPackageDependencies: () =>
-      unexpected("queryPackageDependencies"),
+    inspectPackageDependencies: () =>
+      unexpected("inspectPackageDependencies"),
+    queryLibraryReferences: () =>
+      unexpected("queryLibraryReferences"),
     queryReferencePackageSuppliers: () =>
       unexpected("queryReferencePackageSuppliers"),
     queryPackageHierarchy: () =>
@@ -2711,6 +2715,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     package: [
       "activatePlatformForwarder",
       "activateWorkspacePackageOccurrence",
+      "classifyEcosystemAssemblyNames",
       "classifyEcosystemPackages",
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
@@ -2727,10 +2732,12 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "prefetchPlatformPacks",
       "queryLibraries",
       "queryLibraryApi",
+      "queryLibrarySurface",
       "queryMemberDocumentation",
       "queryPlatformMemberDocumentation",
       "queryPackage",
-      "queryPackageDependencies",
+      "inspectPackageDependencies",
+      "queryLibraryReferences",
       "queryReferencePackageSuppliers",
       "queryPackageHierarchy",
       "queryPackageIcon",
@@ -2872,7 +2879,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 140);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 143);
 
   const state = fixture();
   const groups = [

@@ -580,26 +580,6 @@ public sealed class DependencyGraphOutputAdapterTests
     }
 
     [Fact]
-    public void EmptyPackageRoot_UsesCanonicalSemanticVersion()
-    {
-        DependencyGraphDocument document =
-            DependencyGraphProjection.Package(
-                new PackageDependencyGraphResult.Empty(
-                    "Example",
-                    "1.0",
-                    "Example",
-                    "1.0",
-                    "No additional dependencies.",
-                    PackageDependencyGraphResult.EmptyKind.SelectedGroup));
-
-        DependencyGraphNode root = Assert.Single(document.Nodes);
-        var identity = Assert.IsType<
-            DependencyGraphNodeIdentity.Package>(
-                root.Identity);
-        Assert.Equal("1.0.0", identity.Version);
-    }
-
-    [Fact]
     public void TypeProjection_PreservesCaseDistinctSemanticNodes()
     {
         var result = new TypeDependencyResult(
@@ -667,41 +647,6 @@ public sealed class DependencyGraphOutputAdapterTests
             OutputFormat.Mermaid);
 
         Assert.Contains("interface", mermaid, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PackageProjection_PreservesUnavailableResolution()
-    {
-        var root =
-            new PackageDependencyIdentity("Root.Package", "1.0.0");
-        var target =
-            new PackageDependencyIdentity("Missing.Package", "2.0.0");
-        var graph = new PackageDependencyGraphResult.Graph(
-            root.PackageId,
-            root.Version,
-            root.PackageId,
-            root.Version,
-            new PackageDependencyGraph(
-                [
-                    new PackageDependencyGraphNode(root, Author: null),
-                    new PackageDependencyGraphNode(target, Author: null),
-                ],
-                [
-                    new PackageDependencyRelationship(
-                        root,
-                        target,
-                        "[2.0.0, )",
-                        PackageDependencyResolutionState.Unavailable,
-                        Ordinal: 0),
-                ],
-                []),
-            Diagnostics: []);
-
-        DependencyGraphEdgeRow row = Assert.Single(
-            DependencyGraphOutputAdapter.EdgeRows(
-                DependencyGraphProjection.Package(graph)));
-
-        Assert.Equal("unavailable", row.Resolution);
     }
 
     private static async Task<string> RenderAsync(

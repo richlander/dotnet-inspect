@@ -334,6 +334,21 @@ supplies candidates from metadata, so the two issue the same target.
 
 The first production consumer is the Library Metrics relationship projection.
 Library Dependency Structure is the second.
+`AssemblyContextLibraryDependencyStructureQuery` acquires that complete
+focused result directly from its retained image snapshot, builds the detached
+Research document, and releases call-graph caches. It no longer opens
+`LibraryBodyAnalysisService` or constructs a reference-binding resolver; the
+published target origins and same-module resolution already contain every
+fact the document consumes.
+
+For complete `Rows` over all Method definitions, the call-graph producer owns
+a closed-query execution kernel. Assemblies with at least 200 methods run the
+existing per-method Method Evidence plan in parallel, then project and fold
+the results in metadata order. Finite terminal-work, row-limited, smaller, and
+scoped requests stay on the interpreted Method Query Source path; one valid
+method-evidence fact settles one requested row. The kernel carries
+declared-source ownership and exact source receipts, and does not reconstruct
+a library-wide analysis result or reopen `LibraryBodyAnalysisService`.
 
 `LibraryCallGraphAnalysisResult.ResolveDeclaredMethod(MethodIdentity)`
 publishes Analysis's declared-source association for any method, including

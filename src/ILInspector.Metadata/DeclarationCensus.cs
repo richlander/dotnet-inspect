@@ -32,6 +32,8 @@ public enum DeclarationFactKind
     GenericParameter,
     Constraint,
     Attribute,
+    /// <summary>A referenced literal needed to present a parameter default.</summary>
+    ApiDependency,
 }
 
 /// <summary>
@@ -348,6 +350,7 @@ public sealed class DeclarationCensusCursor : IFindingCursor<DeclarationFact>
             FindingDiffAnyPart.GenericParameterFact => DeclarationFactKind.GenericParameter,
             FindingDiffAnyPart.Constraint => DeclarationFactKind.Constraint,
             FindingDiffAnyPart.Attribute => DeclarationFactKind.Attribute,
+            FindingDiffAnyPart.ApiDependency => DeclarationFactKind.ApiDependency,
             _ => throw new UnreachableException($"Unknown census fact marker {marker}."),
         };
     }

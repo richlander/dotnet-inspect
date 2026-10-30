@@ -26,15 +26,15 @@ public sealed class LibraryApiDiffPresentationTests
             FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
         var selection = new LibraryApiChangesSelection(Rows: MarkoutRowWindow.Head(2));
         var types = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiTypeChangeRow>>.Available>(
-            LibraryApiChangesInspection.TypeTable(comparison, selection).Content).Content;
+            LibraryApiChangesInspection.TypeTable(LibraryApiDiffPresentationAdapter.Create(comparison), selection).Content).Content;
         var typeDocument = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeChangeRow>>.Available>(
-            LibraryApiChangesInspection.TypeDocument(comparison, selection).Content).Content;
+            LibraryApiChangesInspection.TypeDocument(LibraryApiDiffPresentationAdapter.Create(comparison), selection).Content).Content;
         var changes = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiChangeRow>>.Available>(
-            LibraryApiChangesInspection.ChangesTable(comparison, selection).Content).Content;
+            LibraryApiChangesInspection.ChangesTable(LibraryApiDiffPresentationAdapter.Create(comparison), selection).Content).Content;
         var changesDocument = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiChangeRow>>.Available>(
-            LibraryApiChangesInspection.ChangesDocument(comparison, selection).Content).Content;
+            LibraryApiChangesInspection.ChangesDocument(LibraryApiDiffPresentationAdapter.Create(comparison), selection).Content).Content;
         var complete = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiChangeRow>>.Available>(
-            LibraryApiChangesInspection.ChangesDocument(comparison, new()).Content).Content;
+            LibraryApiChangesInspection.ChangesDocument(LibraryApiDiffPresentationAdapter.Create(comparison), new()).Content).Content;
 
         Assert.Equal(2, types.Rows.Length);
         Assert.Equal(2, changes.Rows.Length);
@@ -62,7 +62,7 @@ public sealed class LibraryApiDiffPresentationTests
             new(name => name.EndsWith(".MethodConstraintChange", StringComparison.Ordinal)),
             [ChangeClassification.Breaking]);
         var document = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeChangeRow>>.Available>(
-            LibraryApiChangesInspection.TypeDocument(comparison, selection).Content).Content;
+            LibraryApiChangesInspection.TypeDocument(LibraryApiDiffPresentationAdapter.Create(comparison), selection).Content).Content;
         LibraryApiTypeChangeRow row = Assert.Single(document.Rows);
         Assert.NotNull(row.Before);
         Assert.NotNull(row.After);
@@ -77,10 +77,11 @@ public sealed class LibraryApiDiffPresentationTests
         Assert.False(json.RootElement.TryGetProperty("comparison", out _));
         JsonElement serializedRow = Assert.Single(json.RootElement.GetProperty("rows").EnumerateArray());
         Assert.False(serializedRow.TryGetProperty("comparison", out _));
+        Assert.False(serializedRow.TryGetProperty("members", out _));
         Assert.Single(serializedRow.GetProperty("changes").EnumerateArray());
 
         var changes = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiChangeRow>>.Available>(
-            LibraryApiChangesInspection.ChangesDocument(comparison, selection).Content).Content;
+            LibraryApiChangesInspection.ChangesDocument(LibraryApiDiffPresentationAdapter.Create(comparison), selection).Content).Content;
         Assert.Equal(document.Summary, changes.Summary);
         using JsonDocument detailedJson = JsonDocument.Parse(
             JsonSerializer.Serialize(changes, LibraryApiChangesJsonContext.Default.ChangesDocument));
@@ -94,8 +95,8 @@ public sealed class LibraryApiDiffPresentationTests
         FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         AssemblyContextApiComparisonResult comparison = await Compare(
             pair.OldAssemblyPath(), pair.NewAssemblyPath(), scope: ApiSurfaceScope.ApiAxis);
-        var table = LibraryApiChangesInspection.ChangesTable(comparison, new());
-        var document = LibraryApiChangesInspection.ChangesDocument(comparison, new());
+        var table = LibraryApiChangesInspection.ChangesTable(LibraryApiDiffPresentationAdapter.Create(comparison), new());
+        var document = LibraryApiChangesInspection.ChangesDocument(LibraryApiDiffPresentationAdapter.Create(comparison), new());
         var rows = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiChangeRow>>.Available>(
             table.Content).Content.Rows;
         Assert.Contains(table.Diagnostics, diagnostic => diagnostic.Code == "diff.outside-ordinary");
@@ -110,7 +111,7 @@ public sealed class LibraryApiDiffPresentationTests
             row => row.Change.State == LibraryApiChangeState.Hidden);
 
         var filtered = Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiChangeRow>>.Available>(
-            LibraryApiChangesInspection.ChangesTable(comparison,
+            LibraryApiChangesInspection.ChangesTable(LibraryApiDiffPresentationAdapter.Create(comparison),
                 new(new(name => name.EndsWith(".PublicToProtected", StringComparison.Ordinal)),
                     [ChangeClassification.Breaking])).Content).Content.Rows;
         Assert.NotEmpty(filtered);
@@ -134,22 +135,26 @@ public sealed class LibraryApiDiffPresentationTests
 
         foreach (AssemblyContextApiComparisonResult comparison in new[] { available, unavailable, rejected, empty })
         {
-            RoundTrip(LibraryApiChangesInspection.TypeTable(comparison, new()).Content,
+            RoundTrip(LibraryApiChangesInspection.TypeTable(LibraryApiDiffPresentationAdapter.Create(comparison), new()).Content,
                 LibraryApiChangesJsonContext.Default.TypeTableOutcome);
-            RoundTrip(LibraryApiChangesInspection.ChangesTable(comparison, new()).Content,
+            RoundTrip(LibraryApiChangesInspection.ChangesTable(LibraryApiDiffPresentationAdapter.Create(comparison), new()).Content,
                 LibraryApiChangesJsonContext.Default.ChangesTableOutcome);
-            RoundTrip(LibraryApiChangesInspection.TypeDocument(comparison, new()).Content,
+            RoundTrip(LibraryApiChangesInspection.TypeDocument(LibraryApiDiffPresentationAdapter.Create(comparison), new()).Content,
                 LibraryApiChangesJsonContext.Default.TypeDocumentOutcome);
-            RoundTrip(LibraryApiChangesInspection.ChangesDocument(comparison, new()).Content,
+            RoundTrip(LibraryApiChangesInspection.ChangesDocument(LibraryApiDiffPresentationAdapter.Create(comparison), new()).Content,
                 LibraryApiChangesJsonContext.Default.ChangesDocumentOutcome);
+            RoundTrip(
+                LibraryApiChangesInspection.TypeInventoryDocument(
+                    LibraryApiDiffPresentationAdapter.Create(comparison)).Content,
+                LibraryApiTypeInventoryJsonContext.Default.TypeInventoryDocumentOutcome);
         }
         Assert.Empty(Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiChangeRow>>.Available>(
-            LibraryApiChangesInspection.ChangesTable(empty, new()).Content).Content.Rows);
+            LibraryApiChangesInspection.ChangesTable(LibraryApiDiffPresentationAdapter.Create(empty), new()).Content).Content.Rows);
         Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiChangeRow>>.Unavailable>(
-            LibraryApiChangesInspection.ChangesTable(unavailable, new()).Content);
+            LibraryApiChangesInspection.ChangesTable(LibraryApiDiffPresentationAdapter.Create(unavailable), new()).Content);
         Assert.Equal(LibraryApiDiffRejectionKind.LogicalLibraryMismatch,
             Assert.IsType<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiChangeRow>>.Rejected>(
-                LibraryApiChangesInspection.ChangesTable(rejected, new()).Content).Failure.Kind);
+                LibraryApiChangesInspection.ChangesTable(LibraryApiDiffPresentationAdapter.Create(rejected), new()).Content).Failure.Kind);
 
         static void RoundTrip<T>(T content, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> info)
         {
@@ -157,6 +162,114 @@ public sealed class LibraryApiDiffPresentationTests
             T? restored = JsonSerializer.Deserialize(json, info);
             Assert.NotNull(restored);
             Assert.Equal(json, JsonSerializer.Serialize(restored, info));
+        }
+    }
+
+    [Theory]
+    [InlineData(ApiSurfaceScope.ApiAxis)]
+    [InlineData(ApiSurfaceScope.IncludeAll)]
+    public async Task TypeInventory_PreservesSharedSelectionSummaryAndMemberPopulation(ApiSurfaceScope scope)
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        AssemblyContextApiComparisonResult comparison = await Compare(
+            pair.OldAssemblyPath(), pair.NewAssemblyPath(), scope: scope);
+        var source = Assert.IsType<LibraryApiDiffOutcome.Available>(
+            LibraryApiDiffPresentationAdapter.Create(comparison));
+        var expected = LibraryApiChangesInspection.TypeDocument(source, new());
+        var actual = LibraryApiChangesInspection.TypeInventoryDocument(source);
+        var expectedDocument = Assert.IsType<
+            LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeChangeRow>>.Available>(
+                expected.Content).Content;
+        var inventory = Assert.IsType<
+            LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Available>(
+                actual.Content).Content;
+
+        Assert.Equal(expected.Share, actual.Share);
+        Assert.Equal(expected.Diagnostics, actual.Diagnostics);
+        Assert.Equal(expectedDocument.Before, inventory.Before);
+        Assert.Equal(expectedDocument.After, inventory.After);
+        Assert.Equal(expectedDocument.Summary, inventory.Summary);
+        Assert.Equal(expectedDocument.OutsideOrdinaryRowCount, inventory.OutsideOrdinaryRowCount);
+        Assert.Equal(
+            JsonSerializer.Serialize(expectedDocument, LibraryApiChangesJsonContext.Default.TypeDocument),
+            JsonSerializer.Serialize(
+                new(inventory.Before, inventory.After, inventory.Summary,
+                    [.. inventory.Rows.Select(row => row.Type)], inventory.OutsideOrdinaryRowCount),
+                LibraryApiChangesJsonContext.Default.TypeDocument));
+        Assert.NotEmpty(inventory.Rows.SelectMany(row => row.Members));
+        foreach (LibraryApiTypeInventoryRow row in inventory.Rows)
+        {
+            LibraryApiTypeDiff original = Assert.Single(
+                source.Document.Comparison.Subjects,
+                subject => subject.Identifier == row.Type.Identifier).Comparison;
+            Assert.Equal(original.TypeDefinitionChanged, row.TypeDefinitionChanged);
+            Assert.Equal(
+                original.Members.Where(member => scope != ApiSurfaceScope.ApiAxis || member.Relation.IsOrdinary),
+                row.Members);
+        }
+        Assert.Equal(
+            scope == ApiSurfaceScope.ApiAxis,
+            inventory.OutsideOrdinaryRowCount > 0);
+    }
+
+    [Fact]
+    public async Task TypeInventory_RetainsExactCrossTypeMemberRolesWithoutDoubleCounting()
+    {
+        var source = Assert.IsType<LibraryApiDiffOutcome.Available>(
+            LibraryApiDiffPresentationAdapter.Create(
+                await Compare(
+                    FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
+                    FixtureCatalog.LibraryApiDiffV2.AssemblyPath())));
+        var inventory = Assert.IsType<
+            LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Available>(
+                LibraryApiChangesInspection.TypeInventoryDocument(source).Content).Content;
+        LibraryApiMemberDiff receiver = Assert.Single(
+            Assert.Single(inventory.Rows,
+                row => row.Type.Display == "LibraryApiDiffFixture.ProjectionReceiver").Members);
+        LibraryApiMemberDiff extension = Assert.Single(
+            Assert.Single(inventory.Rows,
+                row => row.Type.Display == "LibraryApiDiffFixture.ProjectionExtensions").Members);
+        Assert.Same(receiver.Relation, extension.Relation);
+        Assert.Equal(LibraryApiMemberRelationRole.After, receiver.Role);
+        Assert.Equal(LibraryApiMemberRelationRole.Before, extension.Role);
+        Assert.NotNull(receiver.Relation.Before);
+        Assert.NotNull(receiver.Relation.After);
+        Assert.Equal(
+            inventory.Rows.SelectMany(row => row.Members)
+                .Select(member => member.Relation.Identifier).Distinct(StringComparer.Ordinal).Count(),
+            inventory.Summary.ChangedMemberCount);
+    }
+
+    [Fact]
+    public async Task TypeInventory_PreservesEmptyAndNonSuccessOutcomes()
+    {
+        foreach (AssemblyContextApiComparisonResult comparison in new[]
+        {
+            await Compare(FixtureCatalog.LibraryApiDiffV1.AssemblyPath(), FixtureCatalog.LibraryApiDiffV1.AssemblyPath()),
+            await Compare(FixtureCatalog.LibraryApiDiffV1.AssemblyPath(), FixtureCatalog.LibraryApiDiffV2.AssemblyPath(),
+                new(1, 1, 1_000_000, 1_000, 1_000_000, 10_000_000)),
+            await Compare(FixtureCatalog.DiffV1.AssemblyPath(), FixtureCatalog.LibraryApiDiffV2.AssemblyPath()),
+        })
+        {
+            LibraryApiDiffOutcome source = LibraryApiDiffPresentationAdapter.Create(comparison);
+            var actual = LibraryApiChangesInspection.TypeInventoryDocument(source).Content;
+            switch (source)
+            {
+                case LibraryApiDiffOutcome.Available:
+                    var document = Assert.IsType<
+                        LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Available>(actual).Content;
+                    Assert.Empty(document.Rows);
+                    Assert.Equal(0, document.Summary.ChangedMemberCount);
+                    break;
+                case LibraryApiDiffOutcome.Unavailable unavailable:
+                    Assert.Same(unavailable, Assert.IsType<
+                        LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Unavailable>(actual).Failure);
+                    break;
+                case LibraryApiDiffOutcome.Rejected rejected:
+                    Assert.Same(rejected, Assert.IsType<
+                        LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>.Rejected>(actual).Failure);
+                    break;
+            }
         }
     }
 

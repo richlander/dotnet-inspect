@@ -84,7 +84,7 @@ See [AGENTS.md](../AGENTS.md) for launch guidance,
 
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
-| NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
+| NuGet packages | `package System.Text.Json`, `type MarkoutWriter --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
 | Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S README` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Prefers installed packs when the requested version is available; otherwise uses package-backed Platform packs. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
@@ -214,7 +214,7 @@ dotnet-inspect library System.Text.Json
 ```
 
 ```text
-System.Text.Json 11.0.0.0
+System.Text.Json.dll (Platform)
 ├─ System.Runtime.CompilerServices (3 types)
 │  ├─ IsExternalInit (forwarded)
 │  └─ …
@@ -246,6 +246,16 @@ The suggested `package` command repeats `--tfm` and the NuGet source options
 that selected the Libraries. A package whose Libraries come only from a
 runtime-specific folder, which `package` does not list, gets the count
 without a suggestion.
+
+The title names the selected Library filename, not its assembly version.
+Package-backed titles include the resolved Package coordinate and the known
+source, target framework, and asset root in that order:
+
+```text
+Microsoft.Azure.SignalR.dll (Microsoft.Azure.SignalR@1.33.1; NuGet; net8.0; lib)
+```
+
+Assembly identity details remain available through `-S "Library Info"`.
 
 Sectioned views such as `-S "Library Info"` keep the multi-Library aggregate.
 Package-scoped Type lookup is also aggregate by default: it searches every
@@ -388,7 +398,7 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API discovery | `type`, `member`, `find` | Type search, exact namespace discovery, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, and IL. Unscoped `find` searches installed Platform populations and adds exact prune-authorized package observations for namespace hits; add other package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. |
-| Package discovery | `package query` | Discover exact package IDs or terminal-star package-ID prefixes before inspecting a known package with `package`. |
+| Package discovery | `find --packages` | Discover exact package IDs or terminal-star package-ID prefixes before inspecting a known package with `package`. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL, selected-member authored-source, complexity, and structural-cohort context. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
@@ -403,7 +413,7 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library address "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition and exhaustive inventory | `workspace --package X --tfm TFM` | Author a portable Workspace packet without acquisition. Use `--json` for packet JSON or `--share url` for an activation URL. Add `--inventory` for live all-context inventory. Repeat `--package` and register Libraries, Package prefixes or ecosystems. Ordinary inspection commands accept admitted `--workspace` context. |
-| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `package "$package_ref"` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
+| Package Queries | `find --packages ID --where "library-literal=TEXT" --tfm TFM`, `package "$package_ref"` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -412,14 +422,14 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | Command | Purpose |
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
-| `package query X` | Discover exact package IDs or terminal-star package-ID prefixes, with optional metadata, dependency, ecosystem, and selected-Library qualification. |
+| `find --packages X` | Discover exact package IDs or terminal-star package-ID prefixes, with optional metadata, dependency, ecosystem, and selected-Library qualification. |
 | `package activity --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
-| `library query DIR` | Query a directory or `--platform` reference pack as a bounded Library population; `references=NAME` qualifies direct assembly references. |
-| `type X` | Discover types or render a single type shape. |
+| `find --libraries DIR` | Query a directory or `--platform` reference pack as a bounded Library population; `references=NAME` qualifies direct assembly references. |
+| `type X` | Inspect a Type name or pattern; a source alone is not a Type selector. Use `library` to list a Library's Types. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
-| `find [X]` | Search for API types in installed .NET Runtime, ASP.NET Core, and .NET Standard populations by default. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names; add package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. Use `package query` to discover package IDs. |
+| `find [X]` | Search for API types in installed .NET Runtime, ASP.NET Core, and .NET Standard populations by default. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names; add package APIs through explicit `--package`, restored `--project`, or patterned `--package-prefix` scope. Use `find --packages` to discover package IDs. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
@@ -440,6 +450,17 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
+
+`find` is the population-search command. Its mutually exclusive `--packages`,
+`--libraries`, and `--members` selectors choose the result grain; without one,
+existing Type search and the leading-dot Member shorthand remain unchanged.
+Package grain accepts an exact ID, a terminal-star prefix, or one
+`--ecosystem`. Library grain requires a directory or an explicit
+`--platform runtime|aspnetcore|netstandard|family@version` population, not a
+Library-name pattern. `--where`, `-Q`, and `-D` use the selected grain's
+vocabulary and shape. Package and Library grains also support `-S` and
+`--envelope`; Type/Member Find does not. The former `package query` and
+`library query` command bindings are removed without aliases.
 
 Bare `type ... --count` follows the resolved subject: a Library subject counts
 Types, while a Type subject counts Members. Add `-S` to count a particular
@@ -777,6 +798,11 @@ answer the request. The
 [network policy](design/progressive-disclosure.md#network-policy) owns this
 rule and its adoption status.
 
+Detailed verbosity does not request authored-source documentation for package
+Type or Member inspection. Implicit documentation remains compiled XML. For
+an exact Member's authored XML comment, use `--print --part xml-docs`; see
+[the documentation adoption boundary](design/documentation-house.md#shared-package-adoption-boundary).
+
 For Library audit, `-v:d` alone does not request acquisition of a missing PDB.
 Select a PDB-dependent audit section, such as `-S Symbols` or `-S Signals`,
 for that request. Normal and Detailed retain embedded, adjacent, and cached
@@ -926,7 +952,7 @@ dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
 dotnet-inspect package System.Text.Json@10.0.0 \
   --tfm netstandard2.0 -S "Dependency Hierarchy" --share url
-dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
+dotnet-inspect find --packages 'Azure.AI*' --take 100 --tsv
 ```
 
 Bare `package ID[@VERSION]` output and bare `--tree` render the Package's
@@ -945,7 +971,7 @@ Unselected Markdown, plain text, JSON, envelope, table, TSV, and JSONL output
 all consume that same Package children document. The tree title prints the
 subject identity followed by the owner-issued properties of the displayed
 children — source, selected target, and asset root, as in
-`System.Text.Json 10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
+`System.Text.Json@10.0.12 (NuGet; net10.0; lib)` — and nothing else. JSON
 carries subject, completion, total and selected Counts, and typed child rows.
 Row formats expose the exact asset ID, asset path, target, and child role;
 they carry no replay command, because host navigation is not package content
@@ -1134,7 +1160,7 @@ the complete directed version Document. `--preview`, `--include-unlisted`,
 configured source options, and `--versions-with-feed` remain semantic
 population inputs.
 
-`package query --explain` returns installed query facets and CLI bindings as
+`find --packages --explain` returns installed query facets and CLI bindings as
 HAL JSON without contacting NuGet. `--json` is optional. This command-only
 terminal rejects package arguments, query/execution options, other output
 formats, and dotted projections. Process-wide controls such as `--offline`
@@ -1144,13 +1170,13 @@ focused dependency-facet response. See
 [Installed capability explanation](design/package-query-cli.md#installed-capability-explanation)
 for the worked workflow.
 
-`package query ID` selects one exact package ID. A single terminal `*` selects
+`find --packages ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before
 `-n` selects final package rows. Without explicit `--take`, a simple `-n N`
 also bounds direct package-row acquisition to N, up to the 1,000-candidate
 execution ceiling. Larger semantic heads remain valid and use that ceiling.
 
-`package query --ecosystem <id>`, or `--where "ecosystem=<id>"`, replaces the
+`find --packages --ecosystem <id>`, or `--where "ecosystem=<id>"`, replaces the
 package argument with one Ecosystem's population: its core packages in
 authored order, each resolved exactly, then every package under each recorded
 prefix, admitting each package once under the shared candidate bound. The
@@ -1159,8 +1185,8 @@ be combined with a package ID or prefix argument, and `ecosystem=` is the only
 population term `--where` admits:
 
 ```bash
-dotnet-inspect package query --ecosystem aspire -n 5
-dotnet-inspect package query --where "ecosystem=ai" --where "license=MIT"
+dotnet-inspect find --packages --ecosystem aspire -n 5
+dotnet-inspect find --packages --where "ecosystem=ai" --where "license=MIT"
 ```
 
 `find PATTERN --package-prefix PREFIX` remains API search across
@@ -1186,18 +1212,18 @@ against the ecosystem's core packages (matched exactly) and its package
 prefixes:
 
 ```bash
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection"
-dotnet-inspect package query 'Polly.*' \
+dotnet-inspect find --packages 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
-dotnet-inspect package query Microsoft.Extensions.Http \
+dotnet-inspect find --packages Microsoft.Extensions.Http \
   --where "depends starts-with Microsoft.Extensions." \
   --where "dependency-target=net10.0"
-dotnet-inspect package query Aspire.Hosting.PostgreSQL \
+dotnet-inspect find --packages Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
 
@@ -1208,7 +1234,7 @@ It requires one exact `dependency-target=<TFM>`; the expensive query is
 limited to five package candidates:
 
 ```bash
-dotnet-inspect package query Microsoft.Extensions.Http \
+dotnet-inspect find --packages Microsoft.Extensions.Http \
   --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
@@ -1227,7 +1253,7 @@ different first dot-delimited package-ID segment. It uses the same
 `dependency-target` scope and remains nuspec-only:
 
 ```bash
-dotnet-inspect package query 'Azure.*' \
+dotnet-inspect find --packages 'Azure.*' \
   --where "dependencies=cross-prefix"
 ```
 
@@ -1236,7 +1262,7 @@ or `lib/` assemblies declare that `AssemblyRef` across any target-framework
 group:
 
 ```bash
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
   --take 20 -n 5
 ```
@@ -1249,9 +1275,9 @@ Use the same key at Library grain to query top-level `*.dll` files in one
 directory, or one installed or explicitly acquired platform reference pack:
 
 ```bash
-dotnet-inspect library query ./artifacts/bin \
+dotnet-inspect find --libraries ./artifacts/bin \
   --where "references=System.Text.Json"
-dotnet-inspect library query --platform runtime \
+dotnet-inspect find --libraries --platform runtime \
   --where "references=System.Text.Json" --take 256 -n 10
 ```
 
@@ -1262,7 +1288,7 @@ afterward; a lone `-n` stops scanning at its Nth match. A reached explicit
 `--take` is the answer's scope: a note names it and the exit is 0. The default
 256-candidate limit that omits Libraries is a partial view: rows and `--count`
 print what was observed, with a warning and exit 1. Use
-`library query -Q Libraries` to discover the current vocabulary.
+`find --libraries -Q Libraries` to discover the current vocabulary.
 Native images beside managed Libraries in the directory are skipped; a
 directory with no managed Library is a failed source. Missing or malformed
 Metadata remains visible rather than silently becoming a nonmatch: rows and
@@ -1274,9 +1300,9 @@ without reading a license document: SPDX expressions match their exact
 expression, and `license=OSMF` recognizes a declared `OSMFEULA.*` file:
 
 ```bash
-dotnet-inspect package query wix \
+dotnet-inspect find --packages wix \
   --where "license=OSMF" --nuspec-only
-dotnet-inspect package query Newtonsoft.Json \
+dotnet-inspect find --packages Newtonsoft.Json \
   --where "license=MIT" --nuspec-only
 ```
 
@@ -1312,10 +1338,10 @@ query. Discovery also reports the product-owned execution class independently
 from the acquisition tier:
 
 ```bash
-dotnet-inspect package query -Q Packages
-dotnet-inspect package query Azure.Mcp \
+dotnet-inspect find --packages -Q Packages
+dotnet-inspect find --packages Azure.Mcp \
   --where "tool=true"
-dotnet-inspect package query 'Azure.Mcp*' \
+dotnet-inspect find --packages 'Azure.Mcp*' \
   --where "tool-format=v2" --take 20 -n 5 --jsonl
 ```
 
@@ -1351,7 +1377,7 @@ is invalid without a selector. Select `@Query` to compose
 one-section formats.
 
 **Breaking change:** `package search` and patternless
-`find --package-prefix PREFIX` have been removed. Use `package query` with an
+`find --package-prefix PREFIX` have been removed. Use `find --packages` with an
 exact package ID or an explicit terminal-star prefix.
 
 ### Exact Find handoff
@@ -1468,7 +1494,7 @@ order until the separately owned row-selection work adopts the unified stream.
 
 ### Package Query over selected implementation libraries
 
-`package query ... --where "library-literal=TEXT" --tfm TFM` adds decoded
+`find --packages ... --where "library-literal=TEXT" --tfm TFM` adds decoded
 string-literal qualification to the ordinary Package Query term plan. An exact
 package ID selects its latest eligible listed version. A terminal-star
 package-ID prefix evaluates at most five candidates; use `--take 1..5` to
@@ -1477,10 +1503,10 @@ the query evaluates each survivor's selected implementation libraries for the
 exact target framework.
 
 ```bash
-dotnet-inspect package query Newtonsoft.Json \
+dotnet-inspect find --packages Newtonsoft.Json \
   --where "library-literal=Unexpected end when reading JSON" --tfm net6.0
 
-dotnet-inspect package query 'Azure.Identity*' \
+dotnet-inspect find --packages 'Azure.Identity*' \
   --where "downloads=1m" \
   --where "library-literal=DefaultAzureCredential" \
   --tfm net8.0 --take 5
@@ -1518,7 +1544,7 @@ Each evaluated candidate carries an opaque, credential-free exact Package
 reference in `libraryLiteral.rootRequest`. Use it as ordinary source input:
 
 ```bash
-package_ref=$(dotnet-inspect package query Newtonsoft.Json \
+package_ref=$(dotnet-inspect find --packages Newtonsoft.Json \
   --where "library-literal=Unexpected end when reading JSON" --tfm net6.0 \
   --json | jq -r '.results[0].libraryLiteral.rootRequest')
 dotnet-inspect "$package_ref"
@@ -1893,15 +1919,17 @@ An exact `type` target with no competing operation or projection defaults to
 the compact public Type hierarchy; `--tree` explicitly selects the same Tree
 profile. A short name that platform find resolves to one exact Type, such as
 `type JsonSerializer`, renders the same Tree. The Tree lists one row per Member
-group under its category, and a category counts its Member groups. It shows no
-overload Counts; use `member <Type> <Name>` for a Member group's overloads.
+group under its category, and a category counts its Member groups. A group
+name carries its exact-overload Count when greater than one, such as
+`DeserializeAsync (10)`. Counts follow the selected visibility policy.
+Use `member <Type> <Name> --tree` for the overload signatures.
 
 ```text
 static class System.Text.Json.JsonSerializer
 ├─ Properties (1)
 │  └─ IsReflectionEnabledByDefault
 └─ Methods (10)
-   ├─ Deserialize
+   ├─ DeserializeAsync (10)
    └─ …
 ```
 
@@ -2003,7 +2031,7 @@ unchanged, and `-n` remains a rendered-line window.
 dotnet-inspect type string --tree
 dotnet-inspect member System.String.Trim:1 -S Source --count
 dotnet-inspect member System.String.Trim:1 -S Source --rows 2..3
-dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
+dotnet-inspect type -t '*' --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member --explain
@@ -2028,12 +2056,27 @@ dotnet-inspect library address 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
 
-A bare ordinary method name selects its MemberGroup. Its default output is a
-native Tree rooted at one compact identity line and containing every public,
-non-hidden exact overload; explicit `--tree` renders the same population.
-This remains a MemberGroup when the selected version has one overload.
-Use `--columns "Signature;Description"` to request compiled documentation for
-each returned exact overload and render the bounded population as a table.
+A bare ordinary method name defaults to the first public, non-hidden overload's
+Signature table and compiled documentation. When alternatives exist, a warning
+identifies the selected ordinal and total Count and names `--tree` as the
+gesture that lists them. Explicit formats, sections, and verbosity preserve
+their requested population instead of implicitly selecting one overload.
+
+Explicit `--tree` shows the parent Type with available acquisition properties,
+then the same-name MemberGroup and every overload's ordinal and signature.
+`-S Overloads --table` lists every overload with its ordinal selector, stable
+digest anchor, and signature. `-S "Documented Overloads" --table` requests the
+same ordered population with compiled documentation. Missing or failed
+documentation remains visible and does not remove declarations. Both sections
+also support Markdown, JSON, TSV, JSONL, column projection, row windows, and
+Count. Format and column projection do not request documentation.
+
+```bash
+dotnet-inspect member JsonSerializer.DeserializeAsync --package System.Text.Json --tree
+dotnet-inspect member JsonSerializer.DeserializeAsync --package System.Text.Json -S Overloads --table
+dotnet-inspect member JsonSerializer.DeserializeAsync --package System.Text.Json -S "Documented Overloads" --table
+```
+
 Select an exact Member with an ordinal or digest when the intended subject is
 one declaration rather than its overload family. Its native default is one
 singular Signature view containing the display signature, digest, and canonical
@@ -2651,6 +2694,41 @@ dotnet-inspect match System.String.IsNullOrEmpty --similar --library ./System.Ru
 
 Comparing candidates drawn from two different assemblies is not supported;
 inspect each side on its own.
+
+### Supplied Project documents
+
+```bash
+dotnet-inspect depends --project-document ./App.csproj
+dotnet-inspect depends --project-document ./App.csproj --envelope
+dotnet-inspect depends --project-document ./obj/project.assets.json \
+  --tfm net11.0 --json
+dotnet-inspect depends --project-document ./obj/project.assets.json \
+  -S "Restored Packages" --tsv
+dotnet-inspect depends --project-document ./App.csproj -D
+```
+
+`--project-document` reads only the named `.csproj` or `project.assets.json`.
+It does not look for adjacent assets, evaluate MSBuild, restore, or acquire
+dependencies. Authored constraints and versionless declarations remain syntax
+evidence, not resolved versions; central versions and imported properties
+can make that evidence incomplete. `--tfm` applies only to restored assets.
+Existing `depends --project <path>` retains its restored-assets lookup, and
+the `project` command still inspects package-authored documents.
+
+The default is the Dependencies table. Use `-S` or `-D` for Dependencies,
+Restored Packages, and Failures; Table, TSV, and JSONL require one section.
+Unprojected `--json` retains the complete shared Project input, including
+typed provider outcomes, original declarations, limitations, and failures.
+`--envelope` adds the nonprojectable Share outcome and diagnostics.
+Incomplete, unavailable, partial, and failed results retain usable output but
+return nonzero with a stderr diagnostic, regardless of selected section.
+This includes failed restored pruning even when the dependency graph completes;
+the failure remains available in the Failures section.
+Existing restored roots also retain this input failure and emit their ordinary
+typed-failure warning; their lookup and pruning policy decisions are unchanged.
+Authored files are bounded to 1 MiB and assets files to 4 MiB by their
+existing producers. Other roots, enrichment, traversal controls, row
+selection, Count, and Share cannot be combined with this gesture.
 
 ### Relationships and graphs
 

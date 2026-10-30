@@ -446,6 +446,28 @@ public sealed class MetadataTypeDeclarationEvidenceTests
     }
 
     [Fact]
+    public void CompleteSignatureRejectsUnrenderableArrayRank()
+    {
+        using Fixture fixture =
+            Fixture.CreateUnrenderableArrayConstraint();
+
+        var rejected = Assert.IsType<
+            MetadataTypeSignatureResult.Rejected>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Generic"]));
+
+        Assert.Equal(
+            MetadataTypeDeclarationFailureReason
+                .MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataTypeDeclarationStage
+                .SignatureConstraintProjection,
+            rejected.Failure.Stage);
+    }
+
+    [Fact]
     public void CompleteSignaturePostsNoBaseForSystemObject()
     {
         string path = typeof(object).Assembly.Location;
@@ -2886,6 +2908,51 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 new Dictionary<string, TypeDefinitionHandle>
                 {
                     ["Derived"] = derived,
+                });
+        }
+
+        internal static Fixture
+            CreateUnrenderableArrayConstraint()
+        {
+            var metadata = CreateBuilder(
+                "unrenderable-array-constraint.dll",
+                "UnrenderableArrayConstraint");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            AddModuleType(metadata);
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x14);
+            signature.WriteByte(0x08);
+            signature.WriteCompressedInteger(
+                ArrayShapeText.MaxRenderableRank + 1);
+            signature.WriteCompressedInteger(0);
+            signature.WriteCompressedInteger(0);
+            TypeSpecificationHandle array =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+            TypeDefinitionHandle type = AddType(
+                metadata,
+                "Generic`1",
+                TypeAttributes.Public,
+                @object);
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                array);
+            return Write(
+                metadata,
+                new Dictionary<string, TypeDefinitionHandle>
+                {
+                    ["Generic"] = type,
                 });
         }
 

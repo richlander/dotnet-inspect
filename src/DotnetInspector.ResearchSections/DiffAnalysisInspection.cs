@@ -372,10 +372,49 @@ public static class DiffAnalysisInspection
         DiffAnalysisResult result)
         => new(
             content,
-            new InspectionShare.NonProjectable(
-                "comparison/endpoints",
-                "No portable projection is available for an ordered Diff analysis endpoint pair."),
+            EndpointPairShare,
             [.. Diagnostics(result, ApiResult(result))]);
+
+    private static InspectionShare EndpointPairShare { get; } =
+        new InspectionShare.NonProjectable(
+            "comparison/endpoints",
+            "No portable projection is available for an ordered Diff analysis endpoint pair.");
+
+    /// <summary>
+    /// The document of a request that asks for no analysis outcomes, only
+    /// its Library API presentation
+    /// (diff-system.md#single-library-api-diff-terminal). No analysis runs,
+    /// so the document has no outcomes, views, or diagnostics.
+    /// </summary>
+    internal static InspectionEnvelope<DiffAnalysisDocument> LibraryApiOnly(
+        string name,
+        string beforeVersion,
+        string afterVersion,
+        AnalysisReportSurfaceKind surface,
+        LibraryApiDiffOutcome libraryApi)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(beforeVersion);
+        ArgumentNullException.ThrowIfNull(afterVersion);
+        ArgumentNullException.ThrowIfNull(libraryApi);
+        return new(
+            new DiffAnalysisDocument(
+                new DiffAnalysisComparisonContext(
+                    name,
+                    beforeVersion,
+                    afterVersion,
+                    surface,
+                    DiffAnalysisDocumentViews.None,
+                    [],
+                    []),
+                [],
+                changes: null,
+                summary: null,
+                transitions: null,
+                libraryApi: libraryApi),
+            EndpointPairShare,
+            []);
+    }
 
     private static InspectionEnvelope<DiffAnalysisDocument> ProjectDocument(
         DiffAnalysisInspectionRequest request,

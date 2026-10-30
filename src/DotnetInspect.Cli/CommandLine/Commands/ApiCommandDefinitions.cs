@@ -34,11 +34,11 @@ public static class ApiCommandDefinitions
         SharedOptions opts,
         out TypeOptionsParser.TypeCommandArgs structuralArgs)
     {
-        var typeCommand = new Command(TypeCommand.Name, "Discover types in a package or library (compact table output)");
+        var typeCommand = new Command(TypeCommand.Name, "Inspect a type or explicit type pattern");
 
         var argsArg = new Argument<string[]>("args")
         {
-            Description = "Package and type pattern. When no --package/--library/--platform is given, first arg is the package.",
+            Description = "Required type name or pattern, optionally preceded by a package. Source options alone do not select a type.",
             Arity = ArgumentArity.ZeroOrMore
         };
 
@@ -473,9 +473,7 @@ public static class ApiCommandDefinitions
                         sectionCategories: typePipeline.GetCategoryMap());
 
                 case TypeOptionsParser.ShowHelp:
-                    CommandError.Write("Type name, pattern, or source required.");
-                    CommandError.WriteLine("Run 'dotnet-inspect type --help' for usage.");
-                    return 1;
+                    return TypeCommand.WriteMissingTypeError();
 
                 case TypeOptionsParser.VersionError error:
                     CommandError.Write(error.Error);

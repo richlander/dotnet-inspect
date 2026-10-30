@@ -106,7 +106,7 @@ The first adoption uses the existing Package Query
 `Microsoft.Azure.SignalR@1.33.1` at `net8.0`:
 
 ```console
-dotnet-inspect package query Microsoft.Azure.SignalR \
+dotnet-inspect find --packages Microsoft.Azure.SignalR \
   --where "library-literal=https://" --tfm net8.0
 ```
 
@@ -145,7 +145,7 @@ skill-maintained facet inventory.
 The first required path uses the existing Package Query discovery gesture:
 
 ```console
-dotnet-inspect package query -Q Packages
+dotnet-inspect find --packages -Q Packages
 ```
 
 The effective Package Query registration supplies the `library-literal`
@@ -175,7 +175,7 @@ CLI and Browser bindings. It does not acquire a package or execute the query.
 The agent can then construct the production request:
 
 ```console
-dotnet-inspect package query Microsoft.Azure.SignalR \
+dotnet-inspect find --packages Microsoft.Azure.SignalR \
   --where "library-literal=https://" --tfm net8.0 \
   -S "Literal Strings"
 ```
@@ -209,7 +209,7 @@ The adoption state is explicit:
 
 | Step | Current state |
 | --- | --- |
-| `package query -Q Packages` discovers `library-literal` | Implemented |
+| `find --packages -Q Packages` discovers `library-literal` | Implemented |
 | `-Q` emits the canonical query-resource path | Planned in #8417 |
 | Exact `explain <path>` describes the facet and route | Planned Resource Explanation query adoption |
 | The `Microsoft.Azure.SignalR` literal query emits whole-string rows | Implemented |
@@ -451,7 +451,7 @@ A host binding selects registered resources and names the host's own gesture:
 
 | Binding | Selects | Example |
 | --- | --- | --- |
-| Route binding | A route, and the query facets it exposes | `package query` |
+| Route binding | A route, and the query facets it exposes | `find --packages` |
 | Operation analysis binding | The analyses it exposes on its route, under the selection rule below | `diff --analysis` |
 | Structural view binding | The sections and categories one structural view selects | `library -S`, `library address -S` |
 
@@ -479,6 +479,44 @@ operation, prevents construction.
 The owning route of an available resource is the route it belongs to. For a
 host-executed structural resource, it is its structural catalog's root. For
 an analysis, it is the routes of the operations whose bindings select it.
+
+### Browser binding admission
+
+[#10786](https://github.com/richlander/dotnet-inspect/issues/10786) completes
+current Browser admission through one Web Core capability composition. Its
+source witness is this repository at
+[`4a965c485`](https://github.com/richlander/dotnet-inspect/tree/4a965c4854c27fa2571ff793eb68e6cdab96fa47):
+`src/DotnetInspect.Web.Interop.Package/CapabilityCatalogSearchExports.cs`
+composes only Package Query, while
+`src/DotnetInspect.Web.Interop.Metadata/LibraryApiDiffExports.cs` executes
+registered Compare analyses without declaring its Browser binding.
+
+Web Core composes opaque contribution providers selected by the host's
+existing configuration path. Metadata owns the Compare binding and its
+producer availability; Core's existing dependency ceiling excludes Research
+Sections. The host installs one immutable provider list before readiness,
+without evaluating the providers. Search evaluates that list explicitly;
+ordinary requests retain their bounded catalogs. The configured contribution
+list is immutable, so its composed catalog and explanation snapshots are
+materialized lazily once per host configuration and reused by subsequent
+searches. Reconfiguration replaces that metadata snapshot. The snapshot owns
+only resource-free declarations, never inspection content or borrowed state. This is host configuration,
+not mutable per-resource registration or cross-facade dependency. Search projects the shared Analysis identities,
+paths, and bindings; Spotlight selects the existing Compare surface. This
+uses Compare's existing initial literal predicate for string-literal analysis,
+preserving the selected predicate when one already exists. This adds no
+inspector layout or analysis support. Body-signal and retained
+Research producers remain explicitly unavailable, and structural resources
+remain excluded until Browser installs actual structural view bindings.
+
+The durable gates cover real export wire results, producer-selection and
+unbound-resource exclusions, no acquisition during discovery, existing
+Compare behavior, generated facade compatibility, and published Wasm behavior.
+Exact NativeAOT base/head measurements check the existing Package Query
+population and the newly admitted Compare population separately. The current
+Package Query-only search composition retires in the same production slice;
+the specialized Package Query preparation explanation keeps its own bounded
+catalog and reading profile.
 
 ## Authority and knowledge direction
 
@@ -1061,8 +1099,12 @@ numbered as in that issue:
 4. Move the root's routing declarations from CLI code into a host-neutral
    module. **Complete.** Tracked by
    [#10771](https://github.com/richlander/dotnet-inspect/issues/10771).
-5. Let the Browser admit every resource its bindings select. Sections and
-   analyses join Browser search when Browser binds them.
+5. Let the Browser admit every resource its bindings select. **Complete for
+   installed Browser bindings**, tracked by
+   [#10786](https://github.com/richlander/dotnet-inspect/issues/10786). Package
+   Query and the executable Compare analyses share the Browser graph. Sections
+   join when Browser installs structural view bindings; no such binding is
+   currently installed.
 
 Each step lands with its production consumer. The CLI's search results stay
 equal to today's except where a step intends a change.

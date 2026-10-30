@@ -407,7 +407,7 @@ async function installFacades(
   page: Page,
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
-  references: "ready" | "workspace-library" | "external-supplier" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
+  references: "ready" | "workspace-library" | "external-supplier" | "ecosystem-icons" | "ecosystem-deferred" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
@@ -1108,6 +1108,7 @@ async function installFacades(
           documents: surface.documents,
           defaultLibraryId: surface.defaultAssemblyId,
           implementationComparisonRuntimeIdentifier: "linux-x64",
+          runtimePopulation: null,
           surface: {
           ...surfaceFor(id, version, framework),
           package: id,
@@ -1472,9 +1473,59 @@ async function installFacades(
           diagnostics: [],
         };
       }
-      export async function queryPackageDependencies(id, version, framework, asset) {
+      export async function inspectPackageDependencies(
+        id, version, framework, runtimeIdentifier
+      ) {
+        document.documentElement.dataset.packageDependenciesRequest =
+          JSON.stringify([id, version, framework, runtimeIdentifier]);
+        return {
+          inspection: {
+            content: {
+              kind: "available",
+              manifest: { coordinate: { packageId: id, version } },
+              dependencies: {
+                groups: [], requestedTargetFramework: framework,
+                selectedTargetFramework: null, selectedGroupIndex: null,
+                selectionStatus: 1, selectedGroup: null
+              }
+            },
+            share: {
+              kind: "nonProjectable", fullUrl: null, packet: null,
+              path: "", reason: "Package dependencies are not projectable."
+            },
+            diagnostics: []
+          },
+          platformReferences: [], defaultPlatformReference: null,
+          platformReferenceError: null
+        };
+      }
+      const ecosystemReferenceNames = [
+        "System.Runtime", "Microsoft.AspNetCore.Http",
+        "Microsoft.Extensions.Logging.Abstractions", "Aspire.Hosting",
+        "Systematic.Runtime", "Example.Unknown", "Microsoft.Extensions.AI"
+      ];
+      export async function classifyEcosystemAssemblyNames(names) {
+        document.documentElement.dataset.referenceEcosystemRequest = JSON.stringify(names);
+        if (${JSON.stringify(references)} === "ecosystem-deferred")
+          await new Promise(resolve => document.addEventListener(
+            "fixture-reference-ecosystems-ready", resolve, { once: true }));
+        const claims = {
+          "System.Runtime": ["ecosystem.runtime", ".NET Runtime", true],
+          "Microsoft.AspNetCore.Http": ["ecosystem.aspnetcore", "ASP.NET Core", true],
+          "Microsoft.Extensions.Logging.Abstractions":
+            ["ecosystem.microsoft-extensions", "Microsoft.Extensions", true],
+          "Microsoft.Extensions.AI":
+            ["ecosystem.microsoft-extensions", "Microsoft.Extensions", true],
+          "Aspire.Hosting": ["ecosystem.aspire", "Aspire", false]
+        };
+        return names.map(({ name }) => ({
+          name, ecosystemId: claims[name]?.[0] ?? null,
+          ecosystemTitle: claims[name]?.[1] ?? null,
+          isPlatformSearchEligible: claims[name]?.[2] ?? false
+        }));
+      }
+      export async function queryLibraryReferences(id, version, framework, asset) {
         document.documentElement.dataset.referenceRequest = asset;
-        document.documentElement.dataset.packageDependenciesRequest = JSON.stringify([id, version, framework]);
         const surface = surfaceFor(id, version, framework);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
@@ -1484,35 +1535,60 @@ async function installFacades(
             "fixture-references-ready:" + asset, resolve, { once: true }));
         }
         if (scenario === "query-error") throw new Error("Reference query unavailable.");
+        const rows = scenario === "empty" ? [] : scenario === "workspace-library"
+          ? [{
+              name: "Reference.Target", version: "1.0.0.0",
+              culture: "neutral", publicKeyToken: null
+            }]
+          : scenario === "external-supplier"
+          ? [{
+              name: "Reference.Target", version: "1.0.0.0",
+              culture: "neutral", publicKeyToken: null
+            }]
+          : scenario.startsWith("ecosystem-") && asset === "asset:core"
+          ? ecosystemReferenceNames.map(name => ({
+              name, version: "1.0.0.0", culture: "neutral", publicKeyToken: null
+            }))
+          : scenario === "long"
+          ? Array.from({ length: 80 }, (_, index) => ({
+              name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
+              version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
+              publicKeyToken: "0123456789abcdef"
+            }))
+          : [{
+              name: selected.name + ".Dependency", version: "1.0.0.0",
+              culture: null, publicKeyToken: null
+            }];
         return {
-          package: id, version, activeFramework: framework, assembly: selected.name,
-          dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
-          platformReferences: [], defaultPlatformReference: null, platformReferenceError: null,
-          assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
-            : { references: scenario === "empty" ? [] : scenario === "workspace-library"
-            ? [{
-                name: "Reference.Target", version: "1.0.0.0",
-                culture: "neutral", publicKeyToken: null
-              }]
-            : scenario === "external-supplier"
-            ? [{
-                name: "Reference.Target", version: "1.0.0.0",
-                culture: "neutral", publicKeyToken: null
-              }]
-            : scenario === "long"
-            ? Array.from({ length: 80 }, (_, index) => ({
-                name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
-                version: "1.2.3.4", culture: "x-" + Array(20).fill("private").join("-"),
-                publicKeyToken: "0123456789abcdef"
-              }))
-            : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
-          compileLibrary: surface.compileLibrary
+          content: scenario === "inspection-error"
+            ? {
+                outcome: "rejected",
+                reason: {
+                  kind: "InvalidImage",
+                  detail: "Cannot decode AssemblyRef."
+                }
+              }
+            : { outcome: "available", references: rows },
+          share: {
+            kind: "nonProjectable", fullUrl: null, packet: null, path: "",
+            reason: "Library reference inspection is not projectable."
+          },
+          diagnostics: []
         };
       }
       export async function queryReferencePackageSuppliers(id, version, framework, asset) {
         document.documentElement.dataset.referenceSupplierRequest =
           JSON.stringify([id, version, framework, asset]);
         const scenario = ${JSON.stringify(references)};
+        if (scenario === "ecosystem-icons" && asset === "asset:core") {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-reference-suppliers-ready", resolve, { once: true }));
+          return ecosystemReferenceNames.map((name, index) => ({
+            name, version: "1.0.0.0", culture: "neutral", publicKeyToken: null,
+            packageId: index === 0 ? "Reference.Target" : null,
+            packageVersion: index === 0 ? "2.0.0" : null
+          }));
+        }
         if (scenario !== "external-supplier") return [];
         await new Promise(resolve => document.addEventListener(
           "fixture-reference-suppliers-ready", resolve, { once: true }));
@@ -4069,6 +4145,28 @@ async function installFacades(
       export function listEcosystems() {
         return { ecosystems: productEcosystems };
       }
+      export function listPackageViewFacets() {
+        return {
+          facets: [
+            {
+              id: "package.libraries", kind: "Package", title: "Libraries",
+              summary: "", order: 50, role: "PackageLibraries",
+            },
+            {
+              id: "package.overview", kind: "Package", title: "Overview",
+              summary: "", order: 100, role: "PackageOverview",
+            },
+            {
+              id: "package.dependencies", kind: "Package", title: "Dependencies",
+              summary: "", order: 200, role: null,
+            },
+            {
+              id: "package.dependency-hierarchy", kind: "Package",
+              title: "Dependency Hierarchy", summary: "", order: 300, role: null,
+            },
+          ],
+        };
+      }
       export function listLibraryViewFacets() {
         return {
           facets: [
@@ -4208,35 +4306,45 @@ async function installFacades(
         return {
           facets: [
             {
+              id: "type.overview",
+              kind: "Type",
+              title: "Overview",
+              summary:
+                "Declaration summary, metadata shape, and structural relationships for the active Type.",
+              order: 100,
+              role: "TypeOverview",
+            },
+            {
               id: "type.api",
               kind: "Type",
-              title: "Public API",
-              summary: "",
-              order: 100,
-              role: null,
+              title: "Members",
+              summary: "API shape and member inventory for the active Type.",
+              order: 200,
+              role: "TypeApi",
             },
             {
               id: "type.metadata",
               kind: "Type",
               title: "Metadata",
-              summary: "",
-              order: 200,
+              summary: "Legacy compatibility alias for the active Type Overview.",
+              order: 300,
               role: null,
             },
             {
               id: "type.source",
               kind: "Type",
               title: "Source",
-              summary: "",
-              order: 300,
+              summary: "Source or decompiled code for the active Type.",
+              order: 400,
               role: null,
             },
             {
               id: "type.compare",
               kind: "Type",
               title: "Compare",
-              summary: "",
-              order: 400,
+              summary:
+                "Diff and clone results organized by Member for the active Type.",
+              order: 500,
               role: null,
             },
           ],

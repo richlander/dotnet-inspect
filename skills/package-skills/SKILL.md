@@ -14,14 +14,15 @@ Use this workflow to reach the right package-authored skill efficiently. Start
 by identifying what kind of result the user needs. If the intent or result
 space is unclear, use a bare target and let the router choose. Otherwise, enter
 the matching space directly: `find <pattern>` searches API types/members;
-`package query <exact-id>` or `package query '<prefix>*'` discovers package IDs;
-and `library query <pattern-or-scope>` discovers Libraries. Inspect known
+`find --packages <exact-id>` or `find --packages '<prefix>*'` discovers package IDs;
+and `find --libraries <directory>` or
+`find --libraries --platform runtime` discovers Libraries. Inspect known
 results with `package <exact-id>` or `library <source>`.
 Unscoped `find` searches installed .NET Runtime, ASP.NET Core, and .NET Standard
 platform populations, including Microsoft.Extensions assemblies shipped in the
 framework populations. Package APIs enter scope through explicit `--package`, a
 restored `--project`, or `--package-prefix` with a type/member pattern; discover
-package IDs with `package query`.
+package IDs with `find --packages`.
 
 ## Default: use skills without changing the repository
 
@@ -95,7 +96,7 @@ dnx dotnet-inspect -y -- package Markout@0.35.2 \
   -S Skills --print --row 1 --raw
 ```
 
-Do not use an unpinned package query when the repository consumes a specific
+Do not use an unpinned find --packages when the repository consumes a specific
 version.
 
 dotnet-inspect validates restored-project skill names and descriptions. In that

@@ -12,6 +12,11 @@ internal readonly record struct MethodDefinitionSharedExecution(
     ImmutableArray<MethodDefinitionExecution> Lanes,
     MethodDefinitionSourceCoverage PhysicalCoverage);
 
+internal readonly record struct MethodDefinitionKernelPartition<TAccumulator>(
+    TAccumulator Accumulator,
+    MethodDefinitionExecution.ProducerState State,
+    MethodDefinitionSourceCoverage Coverage);
+
 /// <summary>
 /// The interim serial reference executor for method-definition units. It runs
 /// a work description's passes over type definitions in metadata order and
@@ -24,8 +29,15 @@ internal readonly record struct MethodDefinitionSharedExecution(
 public sealed class MethodDefinitionExecution
 {
     readonly WorkDescription _description;
+    readonly string _sourceName;
     readonly MethodBodyAnalyzerPlan? _instructionPlan;
     readonly ProducerState[] _states;
+    readonly MethodDefinitionParallelExecution? _parallelExecution;
+    readonly bool _deferCompletion;
+    readonly Action<
+        MethodDefinitionHandle,
+        MethodDefinition,
+        MethodBodyBlock?>? _bodyObserver;
     MethodDefinitionSourceBreadth _breadth;
     readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
     MethodRowGate? _gate;
@@ -62,14 +74,28 @@ public sealed class MethodDefinitionExecution
 
     MethodDefinitionExecution(
         WorkDescription description,
+        string sourceName,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
         bool tracksSourceCoverage,
-        MethodBodyAnalyzerPlan? instructionPlan)
+        MethodBodyAnalyzerPlan? instructionPlan,
+        MethodDefinitionParallelExecution? parallelExecution,
+        bool deferCompletion,
+        Action<
+            MethodDefinitionHandle,
+            MethodDefinition,
+            MethodBodyBlock?>? bodyObserver)
     {
         _description = description;
+        _sourceName = sourceName;
         _instructionPlan = instructionPlan;
+        _parallelExecution = parallelExecution;
+        _deferCompletion = deferCompletion;
+        _bodyObserver = bodyObserver;
         _breadth = breadth;
+        HasUnboundedTerminalWork =
+            terminalWorkLimits
+                == MethodDefinitionTerminalWorkLimits.Unbounded;
         _sourceCoverage =
             new MethodDefinitionSourceCoverageBuilder(
                 tracksSourceCoverage,
@@ -81,6 +107,8 @@ public sealed class MethodDefinitionExecution
     }
 
     public WorkReceipt Receipt { get; private set; } = new(0, []);
+
+    internal bool HasUnboundedTerminalWork { get; }
 
     internal MethodDefinitionSourceCoverage SourceCoverage { get; private set; } =
         new(
@@ -100,6 +128,147 @@ public sealed class MethodDefinitionExecution
     internal LibraryMethodAnalysisRunner? Lookup => _lookup;
 
     internal MethodBodyAnalyzerPlan? InstructionPlan => _instructionPlan;
+
+    internal MethodDefinitionParallelExecution? ParallelExecution =>
+        _parallelExecution;
+
+    internal MethodDefinitionKernelPartition<TAccumulator>
+        ExecuteKernelPartition<TFact, TAccumulator, TResult>(
+            MethodDefinitionProducer<TFact, TAccumulator, TResult> producer,
+            PEReader peReader,
+            ImmutableArray<MethodDefinitionHandle> methods,
+            Action<
+                MethodDefinitionHandle,
+                MethodDefinition,
+                MethodBodyBlock?> bodyObserver,
+            MemorySafetyContractSupport? memorySafety)
+    {
+        ArgumentNullException.ThrowIfNull(producer);
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentNullException.ThrowIfNull(bodyObserver);
+        if (methods.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A Method-definition kernel partition cannot be empty.",
+                nameof(methods));
+        }
+
+        MethodDefinitionExecution partition = Execute(
+            _description,
+            _sourceName,
+            peReader,
+            MethodDefinitionSourceBreadth.ExactMethods(methods),
+            MethodDefinitionTerminalWorkLimits.Unbounded,
+            tracksSourceCoverage: true,
+            _instructionPlan,
+            referenceBinding: null,
+            parallelExecution: null,
+            deferCompletion: true,
+            bodyObserver,
+            memorySafety);
+        if (partition.Receipt.Critical is { } critical)
+            throw new ProducerAbortException(critical);
+        if (partition._states.Length != 1
+            || partition._states[0]
+                is not MethodDefinitionProducer<
+                    TFact,
+                    TAccumulator,
+                    TResult>.State state)
+        {
+            throw new ProducerContractException(
+                "A Method-definition kernel partition must execute the "
+                    + "same single producer as its parent pass.");
+        }
+
+        return new(
+            state.Accumulator,
+            state,
+            partition.SourceCoverage);
+    }
+
+    internal void RecordKernelRelationReference(
+        PEReader peReader,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock? body)
+    {
+        if (_pendingRelation is null)
+            return;
+
+        try
+        {
+            bool acquiredByRelation = false;
+            if (method.RelativeVirtualAddress != 0 && body is null)
+            {
+                body = peReader.GetMethodBody(
+                    method.RelativeVirtualAddress);
+                acquiredByRelation = true;
+            }
+            _pendingRelation.RecordTraversedBodyReferences(
+                methodHandle,
+                method,
+                body,
+                acquiredByRelation);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            // Settling probes the same unreadable body and owns the visible
+            // relation failure, matching interpreted execution.
+        }
+    }
+
+    internal void RecordKernelRelationReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock? body,
+        ImmutableArray<DirectCall> calls)
+    {
+        if (_pendingRelation is null)
+            return;
+
+        try
+        {
+            _pendingRelation.RecordTraversedCallReferences(
+                methodHandle,
+                method,
+                body,
+                calls);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            // The complete call evidence already resolved every operand. A
+            // later relation read replays any reference-identity failure.
+        }
+    }
+
+    internal ImmutableArray<MemorySafetyContractSupport>
+        CreateKernelMemorySafetyPartitions(int partitionCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            partitionCount,
+            1);
+        MemorySafetyContractSupport support =
+            _memorySafety ?? throw new ProducerContractException(
+                "A Method-definition kernel requested memory-safety "
+                    + "partitions without declaring that support.");
+        MemorySafetyContractLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _sourceCoverage.RecordMemorySafetyConstruction(
+                lookup.ConstructionWork);
+        }
+        var partitions =
+            ImmutableArray.CreateBuilder<MemorySafetyContractSupport>(
+                partitionCount);
+        for (int index = 0; index < partitionCount; index++)
+            partitions.Add(support.CreateReceiptedQueryView());
+        return partitions.MoveToImmutable();
+    }
 
     /// <summary>
     /// The declared-source outcome of each unit, present when the breadth
@@ -134,7 +303,10 @@ public sealed class MethodDefinitionExecution
             MethodDefinitionSourceBreadth.AllDefinitions,
             MethodDefinitionTerminalWorkLimits.Unbounded,
             tracksSourceCoverage: false,
-            MethodBodyAnalyzerPlanner.Plan(description));
+            MethodBodyAnalyzerPlanner.Plan(description),
+            parallelExecution: null,
+            deferCompletion: false,
+            bodyObserver: null);
 
     internal static MethodDefinitionExecution Execute(
         WorkDescription description,
@@ -142,7 +314,8 @@ public sealed class MethodDefinitionExecution
         PEReader peReader,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
-        AssemblyReferenceBindingAccess? referenceBinding = null)
+        AssemblyReferenceBindingAccess? referenceBinding = null,
+        MethodDefinitionParallelExecution? parallelExecution = null)
         => Execute(
             description,
             sourceName,
@@ -151,7 +324,10 @@ public sealed class MethodDefinitionExecution
             terminalWorkLimits,
             tracksSourceCoverage: true,
             MethodBodyAnalyzerPlanner.Plan(description),
-            referenceBinding);
+            referenceBinding,
+            parallelExecution,
+            deferCompletion: false,
+            bodyObserver: null);
 
     static MethodDefinitionExecution Execute(
         WorkDescription description,
@@ -161,7 +337,14 @@ public sealed class MethodDefinitionExecution
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
         bool tracksSourceCoverage,
         MethodBodyAnalyzerPlan? instructionPlan,
-        AssemblyReferenceBindingAccess? referenceBinding = null)
+        AssemblyReferenceBindingAccess? referenceBinding = null,
+        MethodDefinitionParallelExecution? parallelExecution = null,
+        bool deferCompletion = false,
+        Action<
+            MethodDefinitionHandle,
+            MethodDefinition,
+            MethodBodyBlock?>? bodyObserver = null,
+        MemorySafetyContractSupport? memorySafety = null)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
@@ -172,10 +355,14 @@ public sealed class MethodDefinitionExecution
         MethodDefinitionExecution execution =
             CreateExecution(
                 description,
+                sourceName,
                 breadth,
                 terminalWorkLimits,
                 tracksSourceCoverage,
-                instructionPlan);
+                instructionPlan,
+                parallelExecution,
+                deferCompletion,
+                bodyObserver);
         MetadataReader? exposureReader =
             peReader.HasMetadata ? peReader.GetMetadataReader() : null;
         if (execution._states.Any(
@@ -230,7 +417,8 @@ public sealed class MethodDefinitionExecution
         }
         execution._memorySafety =
             memorySafetyDeclared
-                ? new MemorySafetyContractSupport(reader)
+                ? memorySafety
+                    ?? new MemorySafetyContractSupport(reader)
                 : null;
         execution._callTargets =
             callTargetsDeclared
@@ -381,7 +569,9 @@ public sealed class MethodDefinitionExecution
                 if (visiting.Length != 1
                     || breadth.Kind
                         != MethodDefinitionSourceBreadthKind.AllDefinitions
-                    || execution._pendingRelation is not null
+                    || (execution._pendingRelation is not null
+                        && !visiting[0]
+                            .SupportsPendingRelationKernel)
                     || visiting[0].HasDependencies
                     || visiting[0].RetainsFacts
                     || !visiting[0].TryRunKernel(
@@ -404,7 +594,13 @@ public sealed class MethodDefinitionExecution
             if (execution._pendingRelation is not null)
                 execution.SettleAllDefinitionRelation(reader);
             foreach (int completion in pass.Completions)
-                execution.CompleteProducer(execution._states[completion]);
+            {
+                if (!execution._deferCompletion)
+                {
+                    execution.CompleteProducer(
+                        execution._states[completion]);
+                }
+            }
         }
         }
         catch (ProducerAbortException abort)
@@ -442,6 +638,14 @@ public sealed class MethodDefinitionExecution
             return methods.ToImmutable();
         }
 
+        if (execution._deferCompletion)
+        {
+            foreach (ProducerState state in execution._states)
+            {
+                state.Outcome ??= ProducerOutcome.Complete;
+                state.IsActive = false;
+            }
+        }
         execution.PropagateFailures();
         execution.Receipt = execution.CreateReceipt(unitsVisited, gate);
         execution.PublishSourceCoverage();
@@ -450,17 +654,28 @@ public sealed class MethodDefinitionExecution
 
     static MethodDefinitionExecution CreateExecution(
         WorkDescription description,
+        string sourceName,
         MethodDefinitionSourceBreadth breadth,
         MethodDefinitionTerminalWorkLimits terminalWorkLimits,
         bool tracksSourceCoverage,
-        MethodBodyAnalyzerPlan? instructionPlan)
+        MethodBodyAnalyzerPlan? instructionPlan,
+        MethodDefinitionParallelExecution? parallelExecution,
+        bool deferCompletion,
+        Action<
+            MethodDefinitionHandle,
+            MethodDefinition,
+            MethodBodyBlock?>? bodyObserver)
     {
         var execution = new MethodDefinitionExecution(
             description,
+            sourceName,
             breadth,
             terminalWorkLimits,
             tracksSourceCoverage,
-            instructionPlan);
+            instructionPlan,
+            parallelExecution,
+            deferCompletion,
+            bodyObserver);
         ImmutableArray<ProducerDeclaration> producers = description.Producers;
         for (int i = 0; i < producers.Length; i++)
         {
@@ -551,10 +766,14 @@ public sealed class MethodDefinitionExecution
             executions.Add(
                 CreateExecution(
                     description,
+                    sourceName,
                     breadth,
                     terminalWorkLimits[i],
                     tracksSourceCoverage: true,
-                    instructionPlan));
+                    instructionPlan,
+                    parallelExecution: null,
+                    deferCompletion: false,
+                    bodyObserver: null));
         }
 
         ImmutableArray<MethodDefinitionExecution> lanes =
@@ -1206,14 +1425,30 @@ public sealed class MethodDefinitionExecution
             if (!ReadsRelation(state))
                 continue;
 
-            state.SourceBounded = true;
-            state.Failure =
-                new ProducerFailure(unit, GeneratedExpansionLabel, message);
-            state.SourceFailure = new MethodDefinitionSourceFailure(
-                unit,
-                GeneratedExpansionLabel,
-                message);
+            BoundRelationReader(state, unit, message);
         }
+    }
+
+    static void BoundRelationReader(
+        ProducerState state,
+        Exception error) =>
+        BoundRelationReader(
+            state,
+            0,
+            ProducerFailure.Describe(error));
+
+    static void BoundRelationReader(
+        ProducerState state,
+        int unit,
+        string message)
+    {
+        state.SourceBounded = true;
+        state.Failure =
+            new ProducerFailure(unit, GeneratedExpansionLabel, message);
+        state.SourceFailure = new MethodDefinitionSourceFailure(
+            unit,
+            GeneratedExpansionLabel,
+            message);
     }
 
     const string GeneratedExpansionLabel = "(generated body expansion)";
@@ -1595,7 +1830,13 @@ public sealed class MethodDefinitionExecution
             SelectRequest(ref unit, methodHandle);
             visited++;
             PassUnitsVisited = visited;
-            if (!VisitPreparedUnit(visiting, ref unit, methodHandle))
+            bool anyActive =
+                VisitPreparedUnit(visiting, ref unit, methodHandle);
+            _bodyObserver?.Invoke(
+                methodHandle,
+                methodDefinition,
+                unit.AcquiredBody);
+            if (!anyActive)
                 return;
         }
     }
@@ -1757,7 +1998,12 @@ public sealed class MethodDefinitionExecution
             // completion, so the failure is its source failure too.
             foreach (ProducerState state in _states)
             {
-                if (ReadsRelation(state))
+                if (!ReadsRelation(state))
+                    continue;
+
+                if (state.RetainsResultOnGeneratedExpansionFailure)
+                    BoundRelationReader(state, ex);
+                else
                     FailSource(state, 0, GeneratedExpansionLabel, ex);
             }
         }
@@ -2540,6 +2786,12 @@ public sealed class MethodDefinitionExecution
             LibraryMethodAnalysisRunner? lookup,
             MethodRowGate gate,
             out int unitsVisited);
+
+        public abstract bool SupportsPendingRelationKernel { get; }
+
+        public bool RetainsResultOnGeneratedExpansionFailure =>
+            ((IMethodDefinitionProducer)Producer)
+                .RetainsResultOnGeneratedExpansionFailure;
 
         public abstract bool Visit(scoped MethodDefinitionView view);
 
