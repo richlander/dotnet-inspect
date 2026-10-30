@@ -26,6 +26,11 @@ public sealed record LibraryApiTypeChangeRow(
     ImmutableArray<LibraryApiCompatibilityChange> Changes,
     ImmutableArray<LibraryApiUnclassifiedEvidence> Unclassified);
 
+public sealed record LibraryApiTypeInventoryRow(
+    LibraryApiTypeChangeRow Type,
+    bool? TypeDefinitionChanged,
+    ImmutableArray<LibraryApiMemberDiff> Members);
+
 public sealed record LibraryApiChangedType(
     string Identifier,
     string Display,
@@ -71,6 +76,26 @@ public abstract record LibraryApiChangesOutcome<T>
 
 public static class LibraryApiChangesInspection
 {
+    public static InspectionEnvelope<LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>>
+        TypeInventoryDocument(LibraryApiDiffOutcome outcome)
+        => Execute(outcome, new(), static (before, after, evidence, rows, all, outside) =>
+        {
+            bool ordinaryOnly = Ordinary(before, after);
+            var comparisons = evidence.ToDictionary(type => type.Identifier, type => type.Comparison, StringComparer.Ordinal);
+            return new LibraryApiChangesDocument<LibraryApiTypeInventoryRow>(
+                before, after, Summarize(all, evidence, ordinaryOnly),
+                [
+                    .. rows.Select(type =>
+                    {
+                        LibraryApiTypeDiff comparison = comparisons[type.Identifier];
+                        return new LibraryApiTypeInventoryRow(
+                            type, comparison.TypeDefinitionChanged,
+                            [.. comparison.Members.Where(member => !ordinaryOnly || member.Relation.IsOrdinary)]);
+                    }),
+                ],
+                outside);
+        });
+
     public static InspectionEnvelope<LibraryApiChangesOutcome<LibraryApiChangesTable<LibraryApiTypeChangeRow>>>
         TypeTable(LibraryApiDiffOutcome outcome, LibraryApiChangesSelection selection)
         => Execute(outcome, selection, static (_, _, _, rows, _, _) =>

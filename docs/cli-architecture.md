@@ -272,6 +272,31 @@ rebuilt from help text or from a curated list of command names.
 
 Exact paths and search keep their existing neighbor tests.
 
+### Diff analysis input explanation
+
+The CLI's installed Diff analysis binding declares the inputs needed to execute
+its selected analysis, not only the `diff --analysis` gesture. For string-literal
+comparison this includes the mandatory predicate cardinality, admitted operators,
+operand bounds, and transport of the complete predicate as one shell argument.
+These are consumer-owned input rules under
+[Inspection Capability Composition](design/inspection-capability-composition.md#consumer-binding);
+[Resource Explanation](design/resource-explanation.md#product-role) projects them
+without package acquisition or inspection. The binding does not introduce a
+Query Space or change the analysis's predicate semantics.
+
+The motivating asset is Microsoft.Identity.Client **4.61.3 -> 4.92.0**, selecting
+`lib/netstandard2.0/Microsoft.Identity.Client.dll`. Its changed HTTPS-containing
+literal uses motivated the
+[matched supply-chain pilot](https://github.com/richlander/dotnet-inspect/issues/8151#issuecomment-6505279459):
+the installed binding exposed the analysis but no input rules, forcing the
+reader to obtain its required predicate from validation errors. The adjacent
+Serilog **4.3.0 -> 4.4.0** comparison supplies a completed no-change control.
+
+`DiffAnalysisBinding_ExplainsTheRequiredLiteralPredicateAndTransport` gates the
+actual installed explanation. Fresh matched readers over those pinned assets
+gate the agent handoff separately; explanation metadata tests alone do not
+establish that an unfamiliar agent will use it successfully.
+
 ### Vocabulary reading admission
 
 The CLI admits `-Q` / `--query-help` on an exact vocabulary root only with a
@@ -642,10 +667,119 @@ gates; this work does not redesign its UI. Runtime adoption must publish exact
 NativeAOT base/head evidence for every affected terminal and identify every
 unsupported saved binding before claiming #4647 complete.
 
+### Bare-target domain selection
+
+**Status: operator-approved design pivot, 2026-10-29; not yet implemented.**
+This section owns ordinary bare-target Router domain selection. The examples
+below specify the target contract, not syntax already available in every
+current command. Existing implementation and tests still contain cross-domain
+fallback and API discovery before domain selection; those are not compatibility
+requirements for this pivot.
+
+> Select one domain from explicit intent or Ecosystem configuration before
+> acquisition, then resolve only within that domain. Performance and
+> determinism take precedence over helpful inference.
+
+#### Classification before resolution
+
+Explicit commands and source intent take precedence over defaults. At the bare
+Router entrance, standalone `--platform` and `--package` disambiguate the
+positional target's domain. A `package` command or explicit package coordinate
+also selects Package. Existing valued source selectors retain their contracts:
+`type JsonSerializer --package System.Text.Json` still inspects a Type, not a
+Package. Conflicting explicit intent must fail
+before acquisition; option-value ownership must not depend on lookup results.
+Exact files, Package references and Workspace packets retain their separate
+admission paths.
+
+Without explicit intent, consume the resource-free
+[Ecosystem assembly-name claim](design/ecosystem-dependency-recognition.md#direct-assembly-name-claims)
+and its Platform-search eligibility. An eligible claim selects Platform;
+otherwise the default is Package. Ecosystems own claim precedence and
+associations. Router must not duplicate that policy with its own `System.*` or
+`Microsoft.*` rules.
+
+A claim is a routing default, not proof that the selected source supplies the
+subject. Runtime may claim `System.*` even when a particular name is available
+only as a NuGet package. No exact Platform-supply catalogue, assembly scan,
+Workspace realization, package search, or absence proof is required to choose
+the domain.
+
+| Target-contract input | Selected domain | Reason |
+| --- | --- | --- |
+| `System.Text.Json` | Platform | Runtime's configured claim |
+| `System.Text.Json.JsonSerializer` | Platform | The same default, followed by Platform subject resolution |
+| `System.String.ctor` | Platform | The same default, followed by Platform member resolution |
+| `newtonsoft.Json` | Package | No Platform-eligible claim |
+| `System.CommandLine` | Platform | Runtime's default applies even though a NuGet package exists |
+| `package System.CommandLine` | Package | Explicit subject command |
+| `System.CommandLine --package` | Package | Explicit domain override |
+| `System.Text.Json@10.0.0` | Package | Explicit package coordinate |
+| `List<T> --platform` | Platform | Explicit domain override |
+| `string.ctor --platform` | Platform | Explicit domain override |
+
+Unqualified API shorthand does not authorize implicit Platform discovery.
+Callers must select Platform when the Ecosystem default does not. Invalid
+Package syntax is not evidence that a token should be retried as a Type.
+
+#### One selected domain
+
+The selected domain's existing owners resolve the Library, Type, Member, or
+Package subject. A Platform miss, ambiguity, unavailable source, incomplete
+result, failure, or cancellation must not start a Package lookup. The reverse
+is equally prohibited. Do not silently add another Platform family, widen a
+Workspace, or use prefix/fuzzy discovery to find an alternative subject.
+The [Platform route adapter](design/cli-platform-type-routing.md) is a consumer
+of this decision, not a prerequisite for making it.
+
+For the same normalized input, explicit intent and Ecosystem configuration,
+cache contents, installed inventory, network availability and provider timing
+must not change the selected domain. This does not freeze package versions or
+guarantee that a selected subject exists: version and target resolution remain
+with their owners. A Package-backed Platform source remains Platform
+realization, not a fallback to inspecting a Package subject.
+
+Router opens an exact subject or reports a bounded non-success. Workspace
+symbol discovery belongs to [Find](design/find-workspace-scope.md); discovery
+across domains and selection among typed candidates belong to Spotlight.
+Router does not federate their searches or select whichever provider responds
+first. A hint may suggest an explicit override or a discovery command, but
+must not acquire additional sources or run that discovery to prepare the hint.
+
+#### Adoption and required evidence
+
+The motivating published assets are `System.Text.Json@10.0.0`,
+`Newtonsoft.Json@13.0.4` and `System.CommandLine@2.0.3`. Their overlapping
+Platform and Package spellings motivate an explicit policy rather than
+existence-sensitive routing. This documentation change approves no runtime
+implementation, performance result, or test-baseline update.
+
+Implementation must gate classification separately from subject resolution:
+
+- Prove that default and override classification perform no source discovery,
+  acquisition, metadata scan or Workspace realization.
+- Cover the table above, conflicting overrides, valued source-option binding,
+  explicit commands and the existing file/reference/packet entrances.
+- Vary cache state, source availability and response ordering without changing
+  the selected domain. On a selected-domain miss or failure, require zero
+  calls to the other domain and no scope expansion.
+- Measure cold and warm end-to-end resolution separately from classification;
+  an exact locator answer does not prove that realizing its population is
+  cheap. Do not claim a performance improvement from terminal correctness.
+
+Removing outcome-driven fallback and API discovery before domain selection is
+intentionally breaking under
+[CLI change classification](design/cli-change-classification.md).
+The implementation must update affected current guidance and disclose the
+replacement gestures. Migrate old shorthand/fallback tests to the selected
+domain contract; do not restore exploratory searches merely to turn them
+green. Find and Spotlight behavior is not redesigned by this pivot.
+
 ### Bare-target ecosystem explanation
 
-Ordinary commandless routing retains its existing noninteractive defaults.
-After the authoritative child parse succeeds, the CLI may add a short routing
+This implemented annotation consumes the selected route; it does not own
+domain selection. After the authoritative child parse succeeds, the CLI may
+add a short routing
 note to stderr for a whole-name platform Library selected by the Router or
 an ecosystem-owned Package target. It never asks the user to choose, changes
 the rewritten command, or mixes this prose into stdout or an output file.

@@ -1953,18 +1953,6 @@ public partial class FindCommand
         }
     }
 
-    private static bool WriteMemberCount(List<MemberFindResult> rawData, string title, FindOptions options)
-    {
-        var view = FindOutputFormatter.BuildMemberView(rawData, title);
-        return CountOutput.TryWriteProjected(
-            view,
-            SearchViewContext.Default,
-            "Members",
-            options.Columns,
-            options.Fields,
-            rows: null);
-    }
-
     private static bool WriteMemberCount(
         int count,
         string title,
