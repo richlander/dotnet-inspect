@@ -363,10 +363,7 @@ public static partial class CatalogExports
         TypeFindSemanticMatch match = type.Match;
         ExactLibrarySourceCoordinate source =
             match.Declaration.Source.Coordinate;
-        string identity = BrowserSpotlightTypeIdentity.TryCreate(
-                source,
-                match.Declaration.Name,
-                match.Declaration.ModuleVersionId)
+        string identity = BrowserSpotlightTypeIdentity.TryCreate(match)
             ?? throw new InvalidOperationException(
                 "Browser Type Find could not project stable identity.");
         return new(
@@ -375,9 +372,9 @@ public static partial class CatalogExports
             Reason: null,
             match.TypeName,
             match.Namespace,
-            source.LibraryIdentity.Identity.Name,
+            BrowserSpotlightTypeIdentity.AssemblyName(match),
             SourceLabel(source),
-            match.DeclarationKind.ToString());
+            BrowserSpotlightTypeIdentity.DeclarationKind(match));
     }
 
     static string SourceLabel(ExactLibrarySourceCoordinate source) =>

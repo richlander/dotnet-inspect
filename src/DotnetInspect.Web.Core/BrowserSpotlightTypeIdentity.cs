@@ -1,4 +1,5 @@
 using System.Text;
+using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
@@ -6,6 +7,28 @@ namespace DotnetInspect.Web;
 
 internal static class BrowserSpotlightTypeIdentity
 {
+    internal static string? TryCreate(TypeFindSemanticMatch match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        return TryCreate(
+            match.Declaration.Source.Coordinate,
+            match.Declaration.Name,
+            match.Declaration.ModuleVersionId);
+    }
+
+    internal static string DeclarationKind(TypeFindSemanticMatch match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        return match.DeclarationKind.ToString();
+    }
+
+    internal static string AssemblyName(TypeFindSemanticMatch match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        return match.Declaration.Source.Coordinate
+            .LibraryIdentity.Identity.Name;
+    }
+
     internal static string? TryCreate(
         ExactLibrarySourceCoordinate coordinate,
         MetadataTypeDefinitionName type,
