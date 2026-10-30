@@ -11870,8 +11870,6 @@ function libraryReferencePackageIcon(pkg: AppPackage | null | undefined): string
 
 function renderLibraryReferences() {
   const data = libraryReferenceInspectionData();
-  const library = selectedLibrary();
-  const pkg = currentPackage();
   const references = availableLibraryReferences() ?? [];
   const candidates = state.packages.flatMap(candidatePackage =>
     createWorkspaceLibraryReferenceCandidates(
@@ -11884,9 +11882,6 @@ function renderLibraryReferences() {
   const packagesByKey = new Map(state.packages.map(candidatePackage =>
     [packageIdentityKey(candidatePackage), candidatePackage]));
   return renderLibraryReferencesSurface({
-    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
-    assetPath: library?.asset ?? "",
-    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
     loading: libraryReferenceInspectionLoading(),
     error: libraryReferenceInspectionError(),
     data,
