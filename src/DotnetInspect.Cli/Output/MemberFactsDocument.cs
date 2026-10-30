@@ -28,7 +28,10 @@ internal sealed record MemberFactDocument(
     string Conditionality,
     string? CensusReceipt,
     int? InstanceKey,
-    MemberFactCalleeEvidenceDocument? CalleeEvidence)
+    MemberFactCalleeEvidenceDocument? CalleeEvidence,
+    string? Notable,
+    string? Guidance,
+    string? Link)
 {
     internal static MemberFactDocument Create(
         FactRow fact)
@@ -45,7 +48,10 @@ internal sealed record MemberFactDocument(
             fact.Evidence is null
                 ? null
                 : MemberFactCalleeEvidenceDocument.Create(
-                    fact.Evidence));
+                    fact.Evidence),
+            ApiOutputFormatter.NotableName(fact.Notable),
+            fact.Guidance?.Advice,
+            ApiOutputFormatter.GuidanceLinks(fact.Guidance));
 }
 
 internal sealed record MemberFactCalleeEvidenceDocument(

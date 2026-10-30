@@ -23,7 +23,7 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, bool FindingCensus = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null)
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, bool FindingCensus = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null, bool NotableFocus = false)
     {
         internal bool RequiresResearchProjection =>
             AnnotatedSource
@@ -311,6 +311,7 @@ internal static class MemberCodeProvider
                             ? renderOptions
                             : null,
                         CaretFocus: request.CaretFocus,
+                        NotableFocus: request.NotableFocus,
                         SourceDocument:
                             request.SourceDocument || request.FindingCensus,
                         Analysis: researchAnalysis,
@@ -322,7 +323,9 @@ internal static class MemberCodeProvider
                 if (researchProjection.UnmatchedFocusAlternatives is { Count: > 0 } alternatives)
                 {
                     CommandError.WriteNote(
-                        $"--focus '{request.CaretFocus}' matched no facts here; "
+                        (request.NotableFocus
+                            ? "--focus matched no notable facts here; "
+                            : $"--focus '{request.CaretFocus}' matched no facts here; ")
                         + $"available: {string.Join(", ", alternatives)}");
                 }
             }

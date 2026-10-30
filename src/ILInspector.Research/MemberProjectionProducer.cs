@@ -7,6 +7,7 @@ using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
 using Inspector.Findings;
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 using Inspector.Text;
 
 namespace ILInspector.Research;
@@ -59,7 +60,15 @@ public static class MemberProjectionProducer
             // The reporting half of the data/reporting split: facts are collected
             // once and describe, and this decides which of them this render
             // promotes to the caret gesture.
-            var gestures = AnnotationGestureSelector.Focus(request.CaretFocus);
+            var notable = request.FactRows || request.NotableFocus
+                ? NotableContext(request.Source, imported)
+                : NotableFindingContext.None;
+            var gestures = request.NotableFocus
+                ? AnnotationGestureSelector.Where(fact =>
+                    NotableFindingPreset.IsNotable(
+                        ResearchFactAnnotation.Unwrap(fact),
+                        notable))
+                : AnnotationGestureSelector.Focus(request.CaretFocus);
             var context = new ResearchFactContext(
                 request.Source,
                 imported,
@@ -224,7 +233,8 @@ public static class MemberProjectionProducer
                     imported,
                     factProjection,
                     headerFacts,
-                    request.Source);
+                    request.Source,
+                    notable);
 
             return new MemberProjectionResult(
                 annotatedSource,
@@ -232,7 +242,11 @@ public static class MemberProjectionProducer
                 semanticsOverlay,
                 factRows,
                 annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace,
-                UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts),
+                UnmatchedFocusAlternatives(
+                    request.NotableFocus
+                        || !string.IsNullOrWhiteSpace(request.CaretFocus),
+                    gestures,
+                    facts),
                 sourceDocument,
                 sourceDocumentFailure,
                 imported.MetadataToken,
@@ -276,11 +290,11 @@ public static class MemberProjectionProducer
     /// all; this is what lets a caller say so instead of leaving a typo silent.
     /// </summary>
     static IReadOnlyList<string>? UnmatchedFocusAlternatives(
-        string? focus,
+        bool focused,
         AnnotationGestureSelector gestures,
         IReadOnlyList<IAnnotation> facts)
     {
-        if (string.IsNullOrWhiteSpace(focus) || facts.Count == 0 || !gestures.AllSide(facts))
+        if (!focused || facts.Count == 0 || !gestures.AllSide(facts))
             return null;
 
         var families = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -381,7 +395,9 @@ public static class MemberProjectionProducer
             census.Receipt,
             census.Entries);
         var headerFacts = effectiveRegistry.CollectHeaderFacts(context);
-        return BuildFactRows(type, method, imported, facts, headerFacts, source);
+        return BuildFactRows(
+            type, method, imported, facts, headerFacts, source,
+            NotableContext(source, imported));
     }
 
     static DecompilerResult RenderMixedCore(
@@ -1249,7 +1265,8 @@ public static class MemberProjectionProducer
         IrFunction imported,
         ResearchFactProjection facts,
         IReadOnlyList<ResearchHeaderFact> headerFacts,
-        MetadataSource source)
+        MetadataSource source,
+        NotableFindingContext notable)
     {
         IReadOnlyList<IAnnotation> annotations = facts.Annotations;
         var linesByFact = CSharpLinesByFact(imported, annotations, source);
@@ -1266,7 +1283,9 @@ public static class MemberProjectionProducer
             facts.Receipt,
             fact.Entry.Key,
             ResearchFindingEvidence.Project(
-                fact.Entry.Finding.Payload)));
+                fact.Entry.Finding.Payload),
+            NotableFindingPreset.Classify(fact.Entry.Finding.Payload, notable).Criterion,
+            GuidanceCatalog.For(fact.Entry.Finding.Payload, notable)));
         var headerRows = headerFacts.Select(fact => new FactRow(
             member,
             ILOffset: null,
@@ -1277,8 +1296,26 @@ public static class MemberProjectionProducer
             fact.Detail,
             Conditionality: "Always",
             CensusReceipt: null,
-            InstanceKey: null));
+            InstanceKey: null,
+            Guidance: GuidanceCatalog.Find(fact.Descriptor.Id)));
         return [.. rows.Concat(headerRows)];
+    }
+
+    // The Member-level facts the notable preset and the guidance catalog read
+    // beside each finding: the Library's compilation profile and the
+    // state-machine kind this method's own attributes claim.
+    static NotableFindingContext NotableContext(MetadataSource source, IrFunction imported)
+    {
+        var reader = source.Reader;
+        var entity = MetadataTokens.EntityHandle(imported.MetadataToken);
+        StateMachineClaimKind? stateMachine = entity.Kind == HandleKind.MethodDefinition
+            ? MethodClassificationScanner.ClassifyStateMachine(
+                reader,
+                reader.GetMethodDefinition((MethodDefinitionHandle)entity))
+            : null;
+        return NotableFindingContext.For(
+            LibraryCompilationProfileScanner.Scan(reader),
+            stateMachine);
     }
 
     static FindingInstanceKey? InstanceKey(IAnnotation annotation)

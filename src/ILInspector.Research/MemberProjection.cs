@@ -17,7 +17,9 @@ public sealed record FactRow(
     string Conditionality,
     FindingCensusReceipt? CensusReceipt = null,
     FindingInstanceKey? InstanceKey = null,
-    ResearchFindingEvidence? Evidence = null);
+    ResearchFindingEvidence? Evidence = null,
+    NotableCriterion? Notable = null,
+    GuidanceEntry? Guidance = null);
 
 public sealed record AnnotatedSourceFactIdentity
 {
@@ -88,7 +90,14 @@ public sealed record MemberProjectionRequest(
     /// </summary>
     MemberProjectionAnalysisInput? Analysis = null,
     IReadOnlyList<DirectCall>? CallSites = null,
-    SelectedPropertyAccessorSource? PropertySource = null);
+    SelectedPropertyAccessorSource? PropertySource = null,
+
+    /// <summary>
+    /// Promotes the notable set to the caret gesture instead of the facts
+    /// <see cref="CaretFocus"/> names: the product's default focus, owned by
+    /// docs/design/notable-findings.md#hosts.
+    /// </summary>
+    bool NotableFocus = false);
 
 public sealed record MemberProjectionResult(
     DecompilerResult? AnnotatedSource,
