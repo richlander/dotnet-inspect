@@ -277,6 +277,7 @@ import {
   isProductEcosystemId,
   isProductEcosystemsPath,
   productEcosystemCatalog,
+  productEcosystemIconClass,
   productEcosystemsViewHtml,
   setProductEcosystemCatalog,
 } from "./product-ecosystems.ts";
@@ -11899,6 +11900,9 @@ function renderLibraryReferences() {
 const referenceSupplierRequests = new WeakMap<
   LibraryReferenceInspectionEnvelope,
   Promise<ReadonlyArray<BrowserReferencePackageSupplier>>>();
+const referenceEcosystemRequests = new WeakMap<
+  LibraryReferenceInspectionEnvelope,
+  ReturnType<EngineClient["package"]["classifyEcosystemAssemblyNames"]>>();
 
 async function renderLibraryReferenceIcons() {
   const container = document.querySelector<HTMLElement>(
@@ -11958,16 +11962,51 @@ async function renderLibraryReferenceIcons() {
   };
   const admittedIcons = Promise.all(Array.from(
     { length: Math.min(4, destinations.length) }, loadNext));
+  const ecosystemIcons = (async () => {
+    try {
+      let request = referenceEcosystemRequests.get(data);
+      if (!request) {
+        request = engineClient.package.classifyEcosystemAssemblyNames(
+          references.map(reference => ({ name: reference.name })));
+        referenceEcosystemRequests.set(data, request);
+      }
+      const claims = await request;
+      if (!isCurrent() || claims.length !== references.length) return;
+      const rows = [...container.querySelectorAll<HTMLLIElement>(".dep-list > li")];
+      claims.forEach((claim, index) => {
+        const row = rows[index];
+        if (!row || !claim.isPlatformSearchEligible
+          || !claim.ecosystemId || !claim.ecosystemTitle
+          || claim.name.toLowerCase() !== references[index]?.name.toLowerCase()
+          || row.querySelector(
+            "[data-library-reference-icon], [data-library-reference-ecosystem-icon]")) return;
+        const iconClass = productEcosystemIconClass(claim.ecosystemId);
+        const label = row.querySelector(".library-reference-name");
+        if (!iconClass || !label) return;
+        const icon = document.createElement("span");
+        icon.className = `dep-icon spotlight-ecosystem-icon ${iconClass}`;
+        icon.dataset.libraryReferenceEcosystemIcon = String(index);
+        icon.setAttribute("role", "img");
+        icon.setAttribute("aria-label", `Ecosystem: ${claim.ecosystemTitle}`);
+        icon.title = `${claim.ecosystemTitle} ecosystem (assembly-name association)`;
+        row.insertBefore(icon, label);
+        updateLibraryReferenceGraphEcosystemIcon(icon);
+      });
+    } catch {
+      // Ecosystem annotations are optional and never block direct references.
+    }
+  })();
+  const localIcons = Promise.all([admittedIcons, ecosystemIcons]);
 
   if (!isCurrent()
     || !destinations.some(destination => !destination)
     || currentPackage().source.kind !== "nuget.org") {
-    await admittedIcons;
+    await localIcons;
     return;
   }
   const currentLibrary = selectedLibrary();
   if (!currentLibrary) {
-    await admittedIcons;
+    await localIcons;
     return;
   }
   const pkg = currentPackage();
@@ -12010,6 +12049,7 @@ async function renderLibraryReferenceIcons() {
       image.alt = "";
       image.dataset.packageIcon = "";
       image.dataset.libraryReferenceIcon = String(index);
+      row.querySelector("[data-library-reference-ecosystem-icon]")?.remove();
       row.insertBefore(image, label);
       updateLibraryReferenceGraphIcon(index, image.src);
       return [{ image, id: supplier.packageId,
@@ -12050,7 +12090,7 @@ async function renderLibraryReferenceIcons() {
   } catch {
     // Supplier association is optional presentation; direct references remain.
   }
-  await admittedIcons;
+  await localIcons;
 }
 
 async function uniqueCompatiblePackage(
@@ -24471,7 +24511,11 @@ async function renderPackageHierarchyGraph() {
   }
 }
 
-function updateLibraryReferenceGraphIcon(index: number, source: string) {
+function updateLibraryReferenceGraphIcon(
+  index: number,
+  source: string,
+  kind: "package" | "ecosystem" = "package",
+) {
   const svg = document.querySelector<SVGSVGElement>(
     "#library-reference-graph-diagram .graph-viewport svg");
   if (!svg) return;
@@ -24480,7 +24524,7 @@ function updateLibraryReferenceGraphIcon(index: number, source: string) {
   const shape = node?.querySelector<SVGRectElement>("rect");
   if (!node || !shape) return;
   let icon = node.querySelector<SVGImageElement>(
-    "image[data-reference-package-icon]");
+    "image[data-reference-icon]");
   if (!icon) {
     const bounds = shape.getBBox();
     shape.setAttribute("x", String(bounds.x - 32));
@@ -24491,14 +24535,17 @@ function updateLibraryReferenceGraphIcon(index: number, source: string) {
     icon.setAttribute("y", String(bounds.y + (bounds.height - 16) / 2));
     icon.setAttribute("width", "16");
     icon.setAttribute("height", "16");
-    icon.setAttribute("data-reference-package-icon", "");
+    icon.setAttribute("data-reference-icon", "");
     icon.style.pointerEvents = "none";
     icon.addEventListener("error", () => {
-      if (icon?.getAttribute("href") !== NUGET_DEFAULT_PACKAGE_ICON)
+      if (icon?.hasAttribute("data-reference-package-icon")
+        && icon.getAttribute("href") !== NUGET_DEFAULT_PACKAGE_ICON)
         icon?.setAttribute("href", NUGET_DEFAULT_PACKAGE_ICON);
     });
     node.appendChild(icon);
   }
+  icon.toggleAttribute("data-reference-package-icon", kind === "package");
+  icon.toggleAttribute("data-reference-ecosystem-icon", kind === "ecosystem");
   icon.setAttribute("href", source);
   if (!svg.dataset.referenceIconsPadded) {
     const viewBox = svg.viewBox.baseVal;
@@ -24506,6 +24553,14 @@ function updateLibraryReferenceGraphIcon(index: number, source: string) {
       `${viewBox.x - 36} ${viewBox.y} ${viewBox.width + 72} ${viewBox.height}`);
     svg.dataset.referenceIconsPadded = "true";
   }
+}
+
+function updateLibraryReferenceGraphEcosystemIcon(icon: HTMLElement) {
+  const index = Number(icon.dataset.libraryReferenceEcosystemIcon);
+  // Embed the existing CSS image so the standalone SVG retains its icon.
+  const source = getComputedStyle(icon).backgroundImage.match(/^url\("([^"]+)"\)$/)?.[1];
+  if (Number.isInteger(index) && index >= 0 && source)
+    updateLibraryReferenceGraphIcon(index, source, "ecosystem");
 }
 
 function applyLibraryReferenceGraphIcons() {
@@ -24518,6 +24573,9 @@ function applyLibraryReferenceGraphIcons() {
       if (Number.isInteger(index) && index >= 0)
         updateLibraryReferenceGraphIcon(index, image.src);
     });
+  document.querySelectorAll<HTMLElement>(
+    ".library-references-surface [data-library-reference-ecosystem-icon]")
+    .forEach(updateLibraryReferenceGraphEcosystemIcon);
 }
 
 async function renderLibraryReferenceGraph() {
