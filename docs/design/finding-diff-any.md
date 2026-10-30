@@ -373,12 +373,27 @@ projection compares equal to the complete extraction, and member selection by
 name and accessor name.
 
 Module attribute descriptors are read once per image; owned constructor keys
-and blob handles are shared across Type censuses. Defaulted parameters of one method share its
-decoded signature dependencies, and the constant handle is read once per
-parameter. API facts fill their result list directly before the non-API facts
-are removed. These work reductions preserve the fact keys and their owners;
-the multiple-Type module and multiple-default/method cases in
-`CensusAndClosureHash_RespectCrossTypeDependencies` gate the sharing boundaries.
+and blob handles are shared across Type censuses. Only integral parameter
+constants can use enum literals in the complete comparison, so null and
+non-integral defaults do not scan literal dependencies. Defaulted parameters
+of one method share its decoded signature dependencies; the parameter constant
+is decoded once. API facts fill their result list without adding Body-only
+facts or collecting unused method keys.
+
+When API and Body are read together, the successful API census supplies its
+staged `beforefieldinit` fact to Body instead of rebuilding visible API facts
+and discarding them. That slot belongs to the current unit and is cleared at
+`EndUnit` before staging resets. A standalone Body census keeps its existing
+validation path. The remaining facts retain their keys and owners. The
+multiple-Type module and multiple-default/method cases in
+`CensusAndClosureHash_RespectCrossTypeDependencies`, the integral and
+non-integral default cases, and declaration-cursor/Library agreement gate the
+sharing boundaries.
+
+The API-only measurement keeps the receipt between samples, not the previous
+sample's Type-state graph. The latter is unrelated live data that changes GC
+behavior. Baseline adapters use the same harness and receipt lifetime, even
+when unavailable receipt counters are printed as zero.
 
 The census includes facts outside the selected Type when the API projection
 reads them: literal names and constants of local Types used by defaulted
