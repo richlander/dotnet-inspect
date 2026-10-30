@@ -110,6 +110,7 @@ type AnalysisOperations =
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageResourceTriage"
+  | "queryPackageUnsafeMembers"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
@@ -121,7 +122,8 @@ type AnalysisOperations =
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance"
-  | "queryPlatformResourceTriage";
+  | "queryPlatformResourceTriage"
+  | "queryPlatformUnsafeMembers";
 
 type SourceOperations =
   | "queryMemberBodyDiff"

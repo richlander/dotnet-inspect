@@ -74,6 +74,7 @@ import {
   spotlightCandidateKey,
   spotlightCandidateSignature,
   typeLensesFor,
+  typeRelationshipsOfferedFor,
   type DependencyGroupData,
   type CallGraphTarget,
   type GraphMemberTarget,
@@ -211,6 +212,9 @@ import {
   type LibraryReferenceInspectionState,
   type PackagePerformance,
   type PackageResourceTriage,
+  type PackageUnsafeMembers,
+  type PackageUnsafeMembersState,
+  type UnsafeMembersScope,
   type PackageIntegrationsState,
   type PackageMetadataState,
   type PackageOpportunitiesState,
@@ -373,7 +377,7 @@ import {
 import {
   bindTypeRelations,
   createTypeRelationsCoordinator,
-  renderTypeAnalysisPage,
+  renderTypeRelationshipsMode,
   renderTypeRelationsSummary,
 } from "./type-relations.ts";
 import {
@@ -433,13 +437,33 @@ import {
 } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
+  analysisModeForScope,
   bindAnalysisTabs,
   defaultAnalysisMode,
+  defaultMemberAnalysisMode,
   isAnalysisMode,
   restoreAnalysisTabFocus,
+  type MemberAnalysisMode,
+  renderAnalysisInspector,
+  type AnalysisScopeContext,
+  type TypeAnalysisMode,
 } from "./analysis-inspector.ts";
 import { bindTriageCode, singlePerformanceBodyTarget, triageIssuePreview } from "./triage-code.ts";
 import { renderLibraryResourceTriageSurface, renderMemberResourceTriageSurface } from "./library-resource-triage.ts";
+import {
+  renderLibraryUnsafeMembersSurface,
+  renderMemberUnsafeMembersSurface,
+  renderTypeUnsafeMembersSurface,
+} from "./library-unsafe-members.ts";
+import {
+  unsafeCensusRequestView,
+  unsafeCensusScope,
+  unsafeCensusSourceFor,
+  unsafeMemberCensusKey,
+  unsafeTypeCensusKey,
+  type UnsafeCensusRequestView,
+  type UnsafeCensusSource,
+} from "./unsafe-members-scope.ts";
 import { renderLibraryAnalysisSurface } from "./library-analysis.ts";
 import {
   bindLibraryMetricsInteractions,
@@ -927,7 +951,7 @@ import type {
   BrowserTypeMemberPopulationInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
-import type { BrowserPerformanceMember } from "./facades/inspect-web-analysis.d.ts";
+import type { BrowserPerformanceMember, BrowserPerformanceTypeSurface } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
   typeLeverageAchievements,
@@ -1086,6 +1110,8 @@ let inspectPackagePerformance:
   EngineClient["analysis"]["queryPackagePerformance"];
 let inspectPackageResourceTriage:
   EngineClient["analysis"]["queryPackageResourceTriage"];
+let inspectPackageUnsafeMembers:
+  EngineClient["analysis"]["queryPackageUnsafeMembers"];
 let inspectPackageLibraryDependencyStructure:
   EngineClient["analysis"]["queryPackageLibraryDependencyStructure"];
 let inspectPackageLibraryMetrics:
@@ -1114,6 +1140,8 @@ let inspectPlatformPerformance:
   EngineClient["analysis"]["queryPlatformPerformance"];
 let inspectPlatformResourceTriage:
   EngineClient["analysis"]["queryPlatformResourceTriage"];
+let inspectPlatformUnsafeMembers:
+  EngineClient["analysis"]["queryPlatformUnsafeMembers"];
 let cancelSourceInspection: EngineClient["source"]["cancelSourceQuery"];
 let cancelTypeSourceInspection:
   EngineClient["source"]["cancelTypeSourceQuery"];
@@ -1317,6 +1345,7 @@ async function loadEngineModule() {
       queryPackageOpportunities: inspectPackageOpportunities,
       queryPackagePerformance: inspectPackagePerformance,
       queryPackageResourceTriage: inspectPackageResourceTriage,
+      queryPackageUnsafeMembers: inspectPackageUnsafeMembers,
       queryPackageLibraryDependencyStructure:
         inspectPackageLibraryDependencyStructure,
       queryPackageLibraryMetrics: inspectPackageLibraryMetrics,
@@ -1339,6 +1368,7 @@ async function loadEngineModule() {
       queryPlatformOpportunities: inspectPlatformOpportunities,
       queryPlatformPerformance: inspectPlatformPerformance,
       queryPlatformResourceTriage: inspectPlatformResourceTriage,
+      queryPlatformUnsafeMembers: inspectPlatformUnsafeMembers,
     } = engineClient.analysis);
     ({
       cancelSourceQuery: cancelSourceInspection,
@@ -1695,6 +1725,12 @@ const initialState = {
   packageResourceTriageLoading: false,
   packageResourceTriageError: "",
   packageResourceTriageKey: "",
+  packageUnsafeMembers: null,
+  packageUnsafeMembersLoading: false,
+  packageUnsafeMembersError: "",
+  packageUnsafeMembersKey: "",
+  packageTypeUnsafeMembers: { status: "idle" } as PackageUnsafeMembersState,
+  packageMemberUnsafeMembers: { status: "idle" } as PackageUnsafeMembersState,
   packageLibraryMetrics: null,
   packageLibraryMetricsLoading: false,
   packageLibraryMetricsError: "",
@@ -1758,6 +1794,9 @@ const initialState = {
   compareClone: { status: "idle" as const } as CompareCloneState,
   compareCloneSelectedRank: null as number | null,
   analysisMode: defaultAnalysisMode,
+  // Null selects the Type's default, which depends on its package.
+  typeAnalysisMode: null as TypeAnalysisMode | null,
+  memberAnalysisMode: defaultMemberAnalysisMode as MemberAnalysisMode,
   workspaceOccurrences: null,
   workspaceOccurrenceSignature: "",
   workspaceOccurrenceLoading: false,
@@ -1871,6 +1910,7 @@ interface StateOverrides {
   packageOpportunities: PackageOpportunitiesState;
   packagePerformance: PackagePerformance | null;
   packageResourceTriage: PackageResourceTriage | null;
+  packageUnsafeMembers: PackageUnsafeMembers | null;
   packageMetadata: PackageMetadataState;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
@@ -2153,6 +2193,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
   const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
+  const packageUnsafeMembersLoading = snapshotState.packageUnsafeMembersLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
@@ -2177,6 +2218,11 @@ function normalizeWorkspaceAsyncSnapshotState(
     normalizePackageInspectionRequestSnapshot(snapshotState.packageOpportunities);
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
+  snapshotState.packageUnsafeMembersLoading = false;
+  snapshotState.packageTypeUnsafeMembers =
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageTypeUnsafeMembers);
+  snapshotState.packageMemberUnsafeMembers =
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageMemberUnsafeMembers);
   snapshotState.packageMetadata =
     normalizePackageInspectionRequestSnapshot(snapshotState.packageMetadata);
   snapshotState.memberCallGraphLoading = false;
@@ -2223,6 +2269,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
   if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
+  if (packageUnsafeMembersLoading) snapshotState.packageUnsafeMembersKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
   }
@@ -4564,6 +4611,8 @@ function captureView(): WorkspaceView | null {
     ...(state.atLibraryRoot && state.libraryLens === "analysis"
       ? { analysisMode: state.analysisMode }
       : {}),
+    ...(state.typeAnalysisMode ? { typeAnalysisMode: state.typeAnalysisMode } : {}),
+    memberAnalysisMode: state.memberAnalysisMode,
     libraryScope: captureLibraryScope(state.libraryScope),
     platformLibrary: state.rootKind === "platform" && !state.atPackageRoot
       ? selectedLibraryShareKey() || null
@@ -4781,6 +4830,9 @@ function applyView(view: WorkspaceView) {
   if (view.atLibraryRoot && view.libraryLens === "analysis") {
     state.analysisMode = view.analysisMode ?? defaultAnalysisMode;
   }
+  state.typeAnalysisMode = view.typeAnalysisMode ?? null;
+  state.memberAnalysisMode =
+    analysisModeForScope("member", view.memberAnalysisMode);
   state.memberSource = { status: "idle" };
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
@@ -5306,6 +5358,8 @@ if (initialLocation.atPackageRoot) {
   state.libraryLens = initialLocation.libraryLens || "overview";
   state.analysisMode = initialLocation.analysisMode;
 }
+state.typeAnalysisMode = initialLocation.typeAnalysisMode;
+state.memberAnalysisMode = initialLocation.memberAnalysisMode;
 
 function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
   return {
@@ -8936,7 +8990,8 @@ function memberSectionUsesWorkingSurface(section: MemberSection) {
   return section === "overview"
     || section === "call-graph"
     || section === "facts"
-    || section === "resource-triage";
+    || section === "resource-triage"
+    || section === "analysis";
 }
 
 function typeAnalysisWorkspaceGeneration(pkg: AppPackage) {
@@ -9547,6 +9602,8 @@ function loadMemberSectionContent(id: MemberSection) {
     observeAsync(loadSelectedMemberCallGraph(), "Loading the member call graph");
   else if (id === "facts" || id === "resource-triage")
     observeAsync(loadSelectedMemberAnalysisSurface(), "Loading member analysis");
+  else if (id === "analysis")
+    observeAsync(loadSelectedMemberAnalysisMode(), "Loading member analysis");
   else if (id === "overview")
     observeAsync(loadSelectedMemberOverview(), "Loading member overview");
   else if (id === "compare")
@@ -10759,6 +10816,7 @@ function renderCore(options: RenderOptions) {
     maybeAutoLoadPackageIntegrations();
     maybeAutoLoadPackagePerformance();
     maybeAutoLoadPackageResourceTriage();
+    maybeAutoLoadPackageUnsafeMembers();
     maybeAutoLoadPackageLibraryMetrics();
     maybeAutoLoadPackageLibraryDependencyStructure();
     maybeAutoLoadTypeLeverage();
@@ -11974,6 +12032,7 @@ function libraryLensBody() {
           return renderPackageLibraryDependencyStructure();
         case "performance": return renderPackagePerformance();
         case "resource-triage": return renderPackageResourceTriage();
+        case "unsafe": return renderPackageUnsafeMembers();
         case "integrations": return renderPackageIntegrations();
         default: return assertNever(state.analysisMode, "analysis mode");
       }
@@ -12726,6 +12785,13 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.version,
     packageModel.activeFramework,
     library),
+  queryPackageUnsafeMembers: (packageModel, library, censusScope) => inspectPackageUnsafeMembers(
+    packageModel.id,
+    packageModel.version,
+    packageModel.activeFramework,
+    library,
+    censusScope.typeIdentity,
+    censusScope.stableSelector),
   queryPackageLibraryDependencyStructure: (packageModel, library) =>
     inspectPackageLibraryDependencyStructure(
       packageModel.id,
@@ -12763,6 +12829,21 @@ const packageInspection = createPackageInspectionCoordinator({
         platformVersion,
         assemblyFileName,
         pack),
+  queryPlatformUnsafeMembers: (
+    framework,
+    platformVersion,
+    assemblyFileName,
+    pack,
+    typeIdentity,
+    stableSelector,
+  ) =>
+    inspectPlatformUnsafeMembers(
+      framework,
+      platformVersion,
+      assemblyFileName,
+      pack,
+      typeIdentity,
+      stableSelector),
   queryPlatformLibraryDependencyStructure: (
     framework,
     platformVersion,
@@ -13078,6 +13159,30 @@ function renderPackageResourceTriage() {
   });
 }
 
+function renderPackageUnsafeMembers() {
+  const pkg = currentPackage();
+  const library = selectedLibrary();
+  const scopedLib = scopedPlatformLibrary();
+  const current = unsafeMembersSignature();
+  return renderLibraryUnsafeMembersSurface({
+    assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
+    assetPath: library?.asset ?? "",
+    coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
+    requireLibrary: pkg.isRuntimePack && !scopedLib,
+    pickerHtml: pkg.isRuntimePack
+      ? platformLibrarySelectHtml({
+          dataAttr: "data-platform-analysis-library",
+          selected: scopedLib || "",
+        })
+      : "",
+    fresh: state.packageUnsafeMembersKey === current,
+    loading: state.packageUnsafeMembersLoading,
+    error: state.packageUnsafeMembersError,
+    data: state.packageUnsafeMembers,
+    escapeHtml,
+  });
+}
+
 function packageLibraryAnalysisOptions(): LibraryAnalysisOptions {
   const pkg = currentPackage();
   const library = selectedLibrary();
@@ -13169,6 +13274,164 @@ async function loadPackageResourceTriage() {
     pkg,
     packageScopeSignature(),
     scopedLib);
+}
+
+// The exact Library key every Unsafe census request extends. It names the
+// Library even when an aggregate package's Type or member is the subject, so
+// one Library's result never stands for another's.
+function unsafeMembersSignature() {
+  const pkg = currentPackage();
+  const lib = selectedLibraryShareKey() || selectedLibraryRequest();
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
+}
+
+interface UnsafeCensusSelection {
+  view: UnsafeCensusSource;
+  source: UnsafeCensusSource;
+  key: string;
+  scope: UnsafeMembersScope;
+  request: UnsafeCensusRequestView;
+}
+
+// The census that answers an Unsafe view: a fresh Library census covers
+// every scope, a fresh Type census covers its members, and otherwise the view
+// uses its own scope's request.
+function unsafeCensusFor(
+  view: UnsafeCensusSource,
+  typeIdentity = "",
+  stableSelector = "",
+): UnsafeCensusSelection {
+  const libraryCensusKey = unsafeMembersSignature();
+  const library: UnsafeCensusRequestView = {
+    fresh: state.packageUnsafeMembersKey === libraryCensusKey,
+    loading: state.packageUnsafeMembersLoading,
+    error: state.packageUnsafeMembersError,
+    data: state.packageUnsafeMembers,
+  };
+  const typeKey = unsafeTypeCensusKey(libraryCensusKey, typeIdentity);
+  const type = unsafeCensusRequestView(state.packageTypeUnsafeMembers, typeKey);
+  const source = unsafeCensusSourceFor(view, {
+    library: library.fresh,
+    type: view === "member" && type.fresh,
+  });
+  const censusScope = unsafeCensusScope(source, typeIdentity, stableSelector);
+  switch (source) {
+    case "library":
+      return { view, source, key: libraryCensusKey, scope: censusScope, request: library };
+    case "type":
+      return { view, source, key: typeKey, scope: censusScope, request: type };
+    case "member": {
+      const key = unsafeMemberCensusKey(libraryCensusKey, typeIdentity, stableSelector);
+      return {
+        view,
+        source,
+        key,
+        scope: censusScope,
+        request: unsafeCensusRequestView(state.packageMemberUnsafeMembers, key),
+      };
+    }
+    default:
+      return assertNever(source, "Unsafe census source");
+  }
+}
+
+function unsafeTypeIdentity(type: AppTypeSurface) {
+  return type.definitionId ?? type.id;
+}
+
+// The census the visible Unsafe view needs, or null when none is visible.
+function visibleUnsafeCensus(): UnsafeCensusSelection | null {
+  if (!unsafeMembersScopeIsVisible()) return null;
+  if (state.atLibraryRoot) return unsafeCensusFor("library");
+  const type = selectedType();
+  if (!type) return null;
+  if (scope() === "type") return unsafeCensusFor("type", unsafeTypeIdentity(type));
+  const selector = selectedMemberOverload(type, selectedMember(type))?.stableSelector;
+  return selector
+    ? unsafeCensusFor("member", unsafeTypeIdentity(type), selector)
+    : null;
+}
+
+// Loads only the visible view's own scope; a covering wider census, loading
+// or settled, answers it without a new request.
+async function loadPackageUnsafeMembers() {
+  const census = visibleUnsafeCensus() ?? unsafeCensusFor("library");
+  if (census.source !== census.view) return;
+  const pkg = currentPackage();
+  const scopedLib = selectedLibraryRequest() || null;
+  return packageInspection.loadUnsafeMembers(
+    pkg,
+    census.key,
+    scopedLib,
+    census.scope);
+}
+
+// The selected mode of the Analysis inspector the current view shows, at
+// Library, Type, or Member scope, for the `analysis` refinement.
+function currentAnalysisInspectorMode(): string | null {
+  if (state.atPackageRoot) return null;
+  if (state.atLibraryRoot) {
+    return state.libraryLens === "analysis" ? state.analysisMode : null;
+  }
+  switch (scope()) {
+    case "type": return state.lens === "analysis" ? currentTypeAnalysisMode() : null;
+    case "member":
+      return state.memberSection === "analysis" ? state.memberAnalysisMode : null;
+    default: return null;
+  }
+}
+
+function unsafeMembersScopeIsVisible() {
+  if (state.atPackageRoot) return false;
+  if (state.atLibraryRoot) {
+    return state.libraryLens === "analysis"
+      && !aggregateLibrarySubjectIsActive()
+      && state.analysisMode === "unsafe";
+  }
+  const activeScope = scope();
+  return activeScope === "type"
+      && state.lens === "analysis"
+      && currentTypeAnalysisMode() === "unsafe"
+    || activeScope === "member"
+      && state.memberSection === "analysis"
+      && state.memberAnalysisMode === "unsafe";
+}
+
+// Type and Member Analysis start only the selected mode's work.
+function loadSelectedTypeAnalysisMode(): Promise<void> | undefined {
+  const mode = currentTypeAnalysisMode();
+  switch (mode) {
+    case "relationships": return loadSelectedTypeAnalysis();
+    case "unsafe": return loadPackageUnsafeMembers();
+    default: return assertNever(mode, "Type analysis mode");
+  }
+}
+
+// Relationships is offered only for a package-backed Type, so the Type's
+// modes and default depend on its package.
+function typeAnalysisContext(): AnalysisScopeContext {
+  return {
+    relationshipsOffered: state.rootKind !== "library"
+      && typeRelationshipsOfferedFor(state.package),
+  };
+}
+
+function currentTypeAnalysisMode(): TypeAnalysisMode {
+  return analysisModeForScope("type", state.typeAnalysisMode, typeAnalysisContext());
+}
+
+function loadSelectedMemberAnalysisMode(): Promise<void> {
+  switch (state.memberAnalysisMode) {
+    case "unsafe": return loadPackageUnsafeMembers();
+    default: return assertNever(state.memberAnalysisMode, "Member analysis mode");
+  }
+}
+
+function maybeAutoLoadPackageUnsafeMembers() {
+  const census = visibleUnsafeCensus();
+  if (!census || census.source !== census.view || census.request.fresh) return;
+  if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
+  observeAsync(loadPackageUnsafeMembers(), "Loading unsafe members");
 }
 
 function maybeAutoLoadPackageResourceTriage() {
@@ -13703,9 +13966,12 @@ function selectedMemberUsesImplementationDeclaration(
         === typeMemberPopulationKey(type, "performance");
 }
 
+// An Analysis row names its declaring Type by assembly and definition id and
+// carries that Type's projection, so it opens even when the ordinary Type
+// list does not list the Type.
 function retainPerformanceNavigationType(
   pkg: AppPackage,
-  member: BrowserPerformanceMember,
+  member: Pick<BrowserPerformanceMember, "assembly" | "typeId" | "declaringType">,
 ): AppTypeSurface {
   const existing = resolvePackagePerformanceType(pkg, member);
   if (existing) return existing;
@@ -13738,7 +14004,106 @@ function drillToPerfMember(
     showToast("That ranked Member is no longer available.");
     return;
   }
-  const targetType = retainPerformanceNavigationType(pkg, ranked);
+  drillToAnalysisMember(
+    retainPerformanceNavigationType(pkg, ranked),
+    stableSelector,
+    resourceMethodToken === undefined ? "facts" : "resource-triage",
+    resourceMethodToken);
+}
+
+// The Type group a Library or Type Unsafe row drills from, in the census
+// that answers that Type.
+function currentUnsafeType(typeId: string) {
+  const { request } = unsafeCensusFor("type", typeId);
+  return request.fresh
+    ? request.data?.types.find(candidate => candidate.typeId === typeId)
+    : undefined;
+}
+
+// Unsafe rows name their Type by the Library's complete API surface, so they
+// open without any ranked Performance evidence. A Type the ordinary list omits
+// opens as a transient Type, as Performance rows do.
+function resolveUnsafeNavigationType(
+  pkg: AppPackage,
+  assembly: string,
+  typeId: string,
+  declaringType: BrowserPerformanceTypeSurface | null | undefined,
+) {
+  return declaringType
+    ? retainPerformanceNavigationType(pkg, { assembly, typeId, declaringType })
+    : resolvePackagePerformanceType(pkg, { assembly, typeId });
+}
+
+// A Library Unsafe Type row opens that Type's Analysis on Unsafe, widened to
+// its whole member population so a non-public member is listed.
+function drillToUnsafeType(assembly: string, typeId: string) {
+  performanceMemberBrowseContext = null;
+  const pkg = currentPackage();
+  const targetType = resolveUnsafeNavigationType(
+    pkg,
+    assembly,
+    typeId,
+    currentUnsafeType(typeId)?.declaringType);
+  if (!targetType) {
+    showToast("That unsafe Type is not in this Library's surface.");
+    return;
+  }
+  state.atPackageRoot = false;
+  state.atLibraryRoot = false;
+  state.libraryScope = new Set([libraryKey(targetType)]);
+  state.selectedTypeId = targetType.id;
+  reconcileAccessibilityFilter(targetType);
+  state.memberBrowseTypeId = "";
+  state.namespaceFilter = "";
+  resetMemberFilters();
+  setTypeMemberPopulationIntent("all", "csharp");
+  state.lens = "analysis";
+  state.typeAnalysisMode = "unsafe";
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  resetMemberSectionState();
+  state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === targetType.id);
+  render();
+  loadCurrentSelectionData("Loading the selected Type's unsafe members");
+}
+
+// A Type Unsafe member row opens that member's Analysis on Unsafe.
+function drillToUnsafeMember(
+  stableSelector: string,
+  assembly: string,
+  typeId: string,
+) {
+  performanceMemberBrowseContext = null;
+  const pkg = currentPackage();
+  const row = currentUnsafeType(typeId)?.members.find(candidate =>
+    candidate.stableSelector === stableSelector);
+  const targetType = resolveUnsafeNavigationType(
+    pkg,
+    assembly,
+    typeId,
+    row?.declaringType);
+  if (!targetType) {
+    showToast("That unsafe member's Type is not in this Library's surface.");
+    return;
+  }
+  state.memberAnalysisMode = "unsafe";
+  drillToAnalysisMember(
+    targetType,
+    stableSelector,
+    "analysis",
+    undefined,
+    false);
+}
+
+// Every Analysis drill widens to the Type's whole member population, so a
+// non-public member is listed.
+function drillToAnalysisMember(
+  targetType: AppTypeSurface,
+  stableSelector: string,
+  section: MemberSection,
+  resourceMethodToken?: number,
+  usePerformanceBody = true,
+) {
   const publication = ++performanceMemberNavigationSequence;
 
   state.atPackageRoot = false;
@@ -13770,7 +14135,9 @@ function drillToPerfMember(
       expectedPopulationKey,
       expectedPopulationIntent,
       publication,
-      resourceMethodToken),
+      section,
+      resourceMethodToken,
+      usePerformanceBody),
     "Loading the ranked Member");
 }
 
@@ -13780,7 +14147,9 @@ async function selectPerformanceMember(
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
   publication: number,
+  section: MemberSection,
   resourceMethodToken?: number,
+  usePerformanceBody = true,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation(true);
   if (viewSignature() !== expectedView) return;
@@ -13807,7 +14176,7 @@ async function selectPerformanceMember(
       typeId: type.id,
       populationReceipt,
     };
-    const ranked = state.packagePerformanceKey === packageScopeSignature()
+    const ranked = usePerformanceBody && state.packagePerformanceKey === packageScopeSignature()
       ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
           && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
       : null;
@@ -13817,10 +14186,14 @@ async function selectPerformanceMember(
       const selector = group.overloads[overloadIndex]?.bodySelectors.find(candidateBody => candidateBody.token === resourceMethodToken);
       if (selector) state.selectedBodyTarget = { memberName: selector.memberName, selectorKey: selector.selectorKey, metadataToken: selector.token };
     }
-    state.memberSection = resourceMethodToken === undefined ? "facts" : "resource-triage";
+    state.memberSection = section;
     completePerformanceMemberNavigationPublication(publication);
     render();
-    await loadSelectedMemberAnalysisSurface();
+    // Member Analysis starts only its selected mode's work; Facts and
+    // Resource Triage load the member's analysis surface.
+    await (section === "analysis"
+      ? loadSelectedMemberAnalysisMode()
+      : loadSelectedMemberAnalysisSurface());
     return;
   }
   showToast("That ranked Member is no longer loaded in the selected Type.");
@@ -14533,9 +14906,9 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
   });
 }
 
-function renderTypeAnalysisHtml(item: AppTypeSurface) {
+function typeRelationsRenderOptions(item: AppTypeSurface) {
   const pkg = currentPackage();
-  return renderTypeAnalysisPage({
+  return {
     signature: currentTypeMetadataSignature(
       item,
       pkg,
@@ -14543,7 +14916,7 @@ function renderTypeAnalysisHtml(item: AppTypeSurface) {
     state: state.typeRelations,
     focusTypeName: typeDisplayName(item),
     escapeHtml,
-  });
+  };
 }
 
 function renderTypeSourceHtml(item: AppTypeSurface) {
@@ -14637,8 +15010,6 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     escapeHtml);
   if (!item) return "";
   switch (state.lens) {
-    case "analysis":
-      return renderTypeAnalysisHtml(item);
     case "source":
       return renderTypeSourceHtml(item);
     case "metadata":
@@ -14648,8 +15019,62 @@ function renderLens(item: AppTypeSurface | null | undefined) {
       return renderCompareSurface();
     case "api":
       return renderApiLens(item);
+    case "analysis":
+      return renderTypeAnalysis(item);
     default:
       return assertNever(state.lens, "type lens");
+  }
+}
+
+// Type Analysis is the catalog's `type.analysis` inspector. A package-backed
+// Type offers Relationships and Unsafe as tabs in the shared Analysis frame;
+// a Platform Type offers only Unsafe.
+function renderTypeAnalysis(item: AppTypeSurface) {
+  const context = typeAnalysisContext();
+  const mode = currentTypeAnalysisMode();
+  switch (mode) {
+    case "relationships":
+      return renderAnalysisInspector(
+        { escapeHtml },
+        mode,
+        typeDisplayName(item),
+        renderTypeRelationshipsMode(typeRelationsRenderOptions(item)),
+        "type",
+        context);
+    case "unsafe":
+      return renderTypeUnsafeMembersSurface({
+        ...unsafeCensusFor("type", unsafeTypeIdentity(item)).request,
+        escapeHtml,
+        context,
+        typeId: unsafeTypeIdentity(item),
+        typeName: typeDisplayName(item),
+      });
+    default:
+      return assertNever(mode, "Type analysis mode");
+  }
+}
+
+function renderMemberAnalysis(
+  type: AppTypeSurface,
+  member: AppMemberGroup,
+  overload: AppMemberSurface | undefined,
+) {
+  switch (state.memberAnalysisMode) {
+    case "unsafe": {
+      const typeId = unsafeTypeIdentity(type);
+      const stableSelector = overload?.stableSelector ?? "";
+      const census = unsafeCensusFor("member", typeId, stableSelector);
+      return renderMemberUnsafeMembersSurface({
+        ...census.request,
+        escapeHtml,
+        source: census.source,
+        memberName: member.name,
+        typeId,
+        stableSelector,
+      });
+    }
+    default:
+      return assertNever(state.memberAnalysisMode, "Member analysis mode");
   }
 }
 
@@ -15114,6 +15539,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         }, resourceCandidates)
       : "")
       + renderMemberFacts(state, !currentPackage().isRuntimePack);
+  } else if (state.memberSection === "analysis") {
+    // Member Analysis is the shared Analysis inspector frame, not a member
+    // surface.
+    return renderMemberAnalysis(type, member, selectedOverload);
   } else if (state.memberSection === "source") {
     content = renderMemberSourceHtml();
   } else if (state.memberSection === "compare") {
@@ -15341,6 +15770,15 @@ const packageViewActions: PackageViewBindingActions = {
       target.assembly,
       target.typeId, target.resourceMethodToken);
   },
+  onUnsafeTypeSelect: target => {
+    drillToUnsafeType(target.assembly, target.typeId);
+  },
+  onUnsafeMemberSelect: target => {
+    drillToUnsafeMember(
+      target.stableSelector,
+      target.assembly,
+      target.typeId);
+  },
 };
 
 interface NoticeRetryState {
@@ -15485,6 +15923,7 @@ async function openPlatformLensLibrary(
   normalizeLibrarySelection();
   if (lens === "analysis") {
     if (state.analysisMode === "resource-triage") await loadPackageResourceTriage();
+    else if (state.analysisMode === "unsafe") await loadPackageUnsafeMembers();
     else if (state.analysisMode === "performance") await loadPackagePerformance();
     else if (state.analysisMode === "integrations")
       await loadPackageIntegrations();
@@ -15992,10 +16431,28 @@ function bindSettingsPanelEvents() {
 }
 
 function bindAnalysisInspectorEvents() {
-  bindAnalysisTabs(document, mode => {
-    if (state.analysisMode === mode) return;
-    state.analysisMode = mode;
+  // Each scope keeps its own selected mode.
+  bindAnalysisTabs(document, selection => {
+    const current: string = selection.scope === "library"
+      ? state.analysisMode
+      : selection.scope === "type"
+        ? currentTypeAnalysisMode()
+        : state.memberAnalysisMode;
+    if (current === selection.mode) return;
+    switch (selection.scope) {
+      case "library": state.analysisMode = selection.mode; break;
+      case "type": state.typeAnalysisMode = selection.mode; break;
+      case "member": state.memberAnalysisMode = selection.mode; break;
+      default: assertNever(selection, "Analysis scope");
+    }
     render();
+    // Type Relationships loads through its lens loader, not a render-time
+    // auto-load; Unsafe's auto-load also tolerates this call.
+    if (selection.scope === "type") {
+      observeAsync(
+        loadSelectedTypeAnalysisMode() ?? Promise.resolve(),
+        "Loading the selected Type Analysis mode");
+    }
   });
 }
 
@@ -19348,6 +19805,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     }
     if (state.memberSection !== "overview"
       && state.memberSection !== "compare"
+      && state.memberSection !== "analysis"
       && overload.bodySelectors.length > 1) {
       throw new Error(
         "This accessor-specific section cannot be shared until workspace packets carry portable body identity.");
@@ -19407,9 +19865,8 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
         ?? basis?.hierarchyWorkspacePacket
         ?? null
       : null,
-    analysisMode: librarySubjectOpen && state.libraryLens === "analysis"
-      ? state.analysisMode
-      : null,
+    analysisMode: currentAnalysisInspectorMode(),
+    analysisContext: typeAnalysisContext(),
     view: {
       lens: workspaceSubjectOpen || platformRoot
         ? null
@@ -20000,11 +20457,11 @@ function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
           "Loading Type Overview metadata");
       }
       return undefined;
-    case "analysis": return loadSelectedTypeAnalysis();
     case "source": return loadSelectedTypeSource();
     case "metadata": return loadSelectedTypeMetadata();
     // Compare work is reconciled by render() from the retained Package mode.
     case "compare": return undefined;
+    case "analysis": return loadSelectedTypeAnalysisMode();
     case "api": return "member";
   }
   return assertNever(state.lens, "type lens");
@@ -20052,6 +20509,7 @@ async function loadSelectionData() {
     case "call-graph": await loadSelectedMemberCallGraph(); return;
     case "facts":
     case "resource-triage": await loadSelectedMemberAnalysisSurface(); return;
+    case "analysis": await loadSelectedMemberAnalysisMode(); return;
     case "compare": return;
     default: return assertNever(state.memberSection, "member section");
   }
@@ -29255,6 +29713,8 @@ function applyLocationView(loc: ParsedLocation) {
   state.packageLens = loc.packageLens || "overview";
   state.libraryLens = loc.libraryLens || "overview";
   state.analysisMode = loc.analysisMode;
+  state.typeAnalysisMode = loc.typeAnalysisMode;
+  state.memberAnalysisMode = loc.memberAnalysisMode;
 }
 
 function workspaceFeedActivationCoordinator():

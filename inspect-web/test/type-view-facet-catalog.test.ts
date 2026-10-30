@@ -4,6 +4,7 @@ import {
   canonicalTypeLens,
   setTypeViewFacetCatalog,
   typeLensesFor,
+  typeRelationshipsOfferedFor,
 } from "../src/data.ts";
 
 const descriptors = [
@@ -25,6 +26,11 @@ test("Type inspectors hide the legacy Metadata alias", () => {
     ["source", "Source"],
     ["compare", "Compare"],
   ]);
+  // Platform Types keep Analysis for Unsafe; file sources don't offer it.
+  assert.deepEqual(typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
+    ["overview", "api", "analysis", "source"]);
+  assert.deepEqual(typeLensesFor({ source: { kind: "file" } }).map(([id]) => id),
+    ["overview", "api"]);
   assert.equal(canonicalTypeLens("metadata"), "overview");
   assert.equal(canonicalTypeLens("source"), "source");
 });
@@ -47,4 +53,14 @@ test("Type inspector bindings reject product drift instead of hiding it", () => 
       descriptors[3],
     ]),
     /product-issued finite ascending order/);
+});
+
+// Relationships is offered only for package-backed Types; a Platform Type's
+// Analysis offers Unsafe alone.
+test("Type Relationships is offered only for package-backed Types", () => {
+  assert.equal(typeRelationshipsOfferedFor({ source: { kind: "nuget.org" } }), true);
+  assert.equal(typeRelationshipsOfferedFor({ source: { kind: "feed" } }), true);
+  assert.equal(typeRelationshipsOfferedFor({ isRuntimePack: true, source: { kind: "nuget.org" } }), false);
+  assert.equal(typeRelationshipsOfferedFor({ source: { kind: "file" } }), false);
+  assert.equal(typeRelationshipsOfferedFor(null), false);
 });

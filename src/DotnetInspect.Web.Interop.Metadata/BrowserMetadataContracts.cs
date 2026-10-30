@@ -86,6 +86,17 @@ public sealed record BrowserTypeFindResult(
     BrowserTypeFindOperationResult? Operation,
     string? Reason);
 
+public sealed record BrowserTypeSignaturePresentation(
+    string Type,
+    string Kind,
+    string[] Modifiers,
+    string Accessibility,
+    string Namespace,
+    string? BaseType,
+    string? TypeParameters,
+    int InterfaceCount,
+    int NestedTypeCount);
+
 /// <summary>
 /// One Browser type experience composed from the unchanged exact-Type
 /// inspection envelope and Browser-specific relationship results.
@@ -99,7 +110,7 @@ public sealed record BrowserTypeMetadata(
     string[] InspectionFailures)
 {
     public InspectionEnvelope<JsonElement>? TypeSignatureInspection { get; init; }
-    public TypeSignaturePresentation? TypeSignaturePresentation { get; init; }
+    public BrowserTypeSignaturePresentation? TypeSignaturePresentation { get; init; }
 }
 
 [JsonConverter(
