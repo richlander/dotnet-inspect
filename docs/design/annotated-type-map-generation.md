@@ -89,14 +89,14 @@ entries and outcomes. Each family kind has one content shape:
 Declaration facts carry their admission, not a fixed axis, because the axis a
 fact compares on is settled across the pair, as the map states; generation
 places them during the shape comparison. A declaration fact's recorded
-admission is the API axis's Member admission evaluated as if the declaring
-Type were public on that side: Finding Diff Any's census classification with
-the owner treated as visible, including an explicit interface implementation's
+admission, for a Member's facts and the Type's own facts alike, is its API
+axis admission evaluated as if the declaring Type were public on that side:
+Finding Diff Any's census classification with the owner treated as visible, including an explicit interface implementation's
 effective access, which reads Type-level interface data. A retained map
 therefore places its facts without a reader. The Type's actual admission is
 recorded separately, in the API shape family.
 
-Every contribution records the Type's **presence** on its side. A Type absent
+Every contribution records its focus and the Type's **presence** on its side. A Type absent
 from a side contributes no Member keys and no Type entries on that side.
 
 Every Member entry and the Type's own entry carry an outcome. The outcomes
@@ -177,7 +177,8 @@ result-kind table.
   on its side, as if the Type were public there, which is each fact's recorded
   admission. A Type admitted on one side only makes its residual and every
   Member API-placed on the side where the Type is admitted API `Changed`,
-  Finding Diff Any's rule, without a surface comparison.
+  Finding Diff Any's rule, without a surface comparison. A Type public on
+  neither side places every declaration fact on Body.
 - **Shape comparison:** for a key on both sides whose Type is admitted on both
   sides, the API transition is the complete API comparison over the two
   detached projections. The Body transition is Finding Diff Any's Body
@@ -186,12 +187,16 @@ result-kind table.
   shape facts. Only an unsettled entry makes that key's shape comparison
   unsettled; a settled entry with no applicable input, such as the Body entry
   of an abstract Member the surface admits, compares as an empty answer.
+  The Type's own entries compare the same way: its row projection through the
+  complete API comparison when the Type is admitted on both sides, and its
+  own body identities and Body-placed declaration facts, such as
+  `beforefieldinit` or a static constructor, through Body equality.
 - **Count and Exists:** from the shape comparison only. Exists stops at the
   first shape transition. No fact stream or finding is read.
 - **Rows:** a key, or the Type, is listed exactly when it has a shape
-  transition or an unsettled shape comparison. For each listed key, and only
-  for listed keys, each owned method's fact streams are compared by the fact
-  comparison: a method on both sides compares its two streams, and a one-sided
+  transition or an unsettled shape comparison. For each listed key, and for
+  the Type's own methods when the Type row is listed, and only for those, each
+  method's fact streams are compared by the fact comparison: a method on both sides compares its two streams, and a one-sided
   key or method compares its one present stream, so each of its facts is
   `Added` or `Removed`. The transitions are then filtered to the selected
   finding families' descriptors. Each listed row also carries its annotation
@@ -249,7 +254,9 @@ merely because they are not successful.
   either form.
 - **No new equality:** the API transition equals the complete API comparison
   over the two projections, and the Body transition equals Finding Diff Any's
-  Body state, for every Member of the Finding Diff Any fixture pairs.
+  Body state, for every Member of the Finding Diff Any fixture pairs and for
+  each Type's own entries, including a base Type change and a static
+  constructor IL change on a Type public on both sides.
 - **Status facts:** an API shape entry carries accessibility, hidden, and
   obsolete status, and a change to any of them alone is an API transition.
 - **Visibility change:** for a Type going from `internal` to `public`, and
