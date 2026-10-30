@@ -4,7 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
-import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
+import { analysisModeForScope, defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
@@ -16,6 +16,7 @@ import {
   retainWorkspacePackage,
   setTypeViewFacetCatalog,
   typeLensesFor,
+  typeRelationshipsOfferedFor,
 } from "../src/data.ts";
 import type {
   BrowserWorkspaceShareDecodeResult,
@@ -164,7 +165,7 @@ const hostNames = new Set([
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount", "packageHierarchyTargetFramework",
   "workspaceTraversalTargetFramework",
-  "selectedLibraryShareKey", "packageDependenciesData",
+  "selectedLibraryShareKey", "currentAnalysisInspectorMode", "currentTypeAnalysisMode", "typeAnalysisContext", "packageDependenciesData",
   "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
   "navigateInAppUrl", "navigateWithinCurrentWorkspace",
@@ -705,6 +706,8 @@ function harness() {
     history,
     document,
     defaultAnalysisMode,
+    analysisModeForScope,
+    typeRelationshipsOfferedFor,
     hierarchyShareTargetFramework,
     workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
