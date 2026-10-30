@@ -157,9 +157,10 @@ A Member key is a Finding Diff Any census key's exact bytes; for a pair, keys
 are Finding Diff Any's side-independent keys. The request boundary checks a
 key set for presence and repetition only, because no public key type exposes
 the declaring Type it embeds: that part of the census key grammar is internal
-to Finding Diff Any. The adapter that answers the questions reads the focus
-Type's census, so a key outside it is a typed failure of that Member's
-question, never a silent empty answer.
+to Finding Diff Any. The adapter reads the focus Type's census and contributes
+only the requested keys present on its side; a key absent from a side is
+absent there, and the generation owner settles a key present on no requested
+side as that question's `Unavailable` outcome, never a silent empty answer.
 
 ## Registration
 
@@ -269,8 +270,8 @@ A hard-coded provider is traced by reading its code: a fact's field leads to
 the line that sets it. A registry replaces that with an open set of producers,
 so this owner keeps three trails instead.
 
-- **The family is the trail.** Every contribution carries its exact family
-  (`AnnotatedTypeMapContribution.Family`), and every plan records, in registry
+- **The family is the trail.** Every contribution names the exact families it
+  holds (`AnnotatedTypeMapContribution`), and every plan records, in registry
   order, each family, why it is there (selected, map-carried, or selected but
   not demanded), and the adapter query it binds
   (`AnnotatedTypeMapPlan.Trail`). Which producer supplied a fact is read from

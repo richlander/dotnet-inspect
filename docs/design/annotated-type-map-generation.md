@@ -81,10 +81,14 @@ entries and outcomes. Each family kind has one content shape:
 
 | Family | Per Member key | Type's own entries |
 | --- | --- | --- |
-| API shape facts | The Member's projection in the API surface of its version, the input the complete API comparison reads, including its status facts: accessibility, hidden, and obsolete status | The Type row's projection |
-| Body shape facts | Finding Diff Any's Body facts for the Member: each owned method's body identity under Body equality, and the declaration facts of a Member the API surface does not admit | The residual's Body facts |
+| API shape facts | When the API surface of its version admits the Member, its projection in that surface, the input the complete API comparison reads, including its status facts: accessibility, hidden, and obsolete status | The Type's admission on that side, and its row's projection when admitted |
+| Body shape facts | Each owned method's body identity under Finding Diff Any's Body equality, and every declaration fact of the Member and of the generated code it owns, each with that side's admission | The residual's body identities and declaration facts, each with its admission |
 | Fact stream | For each owned method, the keys of every fact in its fact census in stream order | The residual's methods' streams |
 | Finding family | The Member's admitted findings of the family's descriptors | The residual's admitted findings |
+
+Declaration facts carry their admission, not a fixed axis, because the axis a
+fact compares on is settled across the pair, as the map states; generation
+places them during the shape comparison.
 
 Every contribution records the Type's **presence** on its side. A Type absent
 from a side contributes no Member keys and no Type entries on that side.
@@ -99,8 +103,9 @@ divide as the map divides them:
 
 An unsettled entry carries no partial content.
 
-An API projection is detached and partial: a surface holding the Type row and
-the projected Members, with the Type context the complete API comparison's
+An API projection is detached and partial: a surface at the `ApiAxis`
+extraction scope, which keeps hidden Members and marks them, holding the Type
+row and the projected Members, with the Type context the complete API comparison's
 classifier reads, and no reader or image. Two retained maps therefore compare
 without reopening an image, as the map's Retained maps gate requires. The
 status facts are the ones an ordinary consumer filters on, such as the diff
@@ -159,9 +164,17 @@ result-kind table.
   and every Member of its present side one-sided. In a Member-scope request, a
   key present on one side is one-sided like any other; a key present on
   neither side is its question's `Unavailable` outcome, an unresolved row.
-- **Shape comparison:** for a key on both sides, the API transition is the
-  complete API comparison over the two detached projections, and the Body
-  transition is Finding Diff Any's Body equality over the two sides' Body
+- **Placement:** before comparing, declaration facts are placed on an axis by
+  Finding Diff Any's [Axes](finding-diff-any.md#axes) partition. A Type public
+  on either side partitions its facts as public on both, and within that each
+  Member's declaration facts are API or Body by the Member's own accessibility
+  on its side, as if the Type were public there. A Type admitted on one side
+  only makes its residual and every API-placed Member API `Changed`, Finding
+  Diff Any's rule, without a surface comparison.
+- **Shape comparison:** for a key on both sides whose Type is admitted on both
+  sides, the API transition is the complete API comparison over the two
+  detached projections. The Body transition is Finding Diff Any's Body
+  equality over the two sides' body identities and Body-placed declaration
   facts. A one-sided key is `Added` or `Removed` on each axis where it owns
   shape facts. Only an unsettled entry makes that key's shape comparison
   unsettled; a settled entry with no applicable input, such as the Body entry
@@ -232,6 +245,10 @@ merely because they are not successful.
   Body state, for every Member of the Finding Diff Any fixture pairs.
 - **Status facts:** an API shape entry carries accessibility, hidden, and
   obsolete status, and a change to any of them alone is an API transition.
+- **Visibility change:** for a Type going from `internal` to `public`, and
+  back, with unchanged Members, each Member's API and Body transitions equal
+  Finding Diff Any's states: API `Changed` and Body `Unchanged` for a public
+  method whose IL and declaration are unchanged.
 - **Listing:** the map owner's Listing, Exactness, Outcomes, and Symmetry gates,
   over settled contributions.
 - **Retained comparison:** comparing two settled one-version Rows maps gives
