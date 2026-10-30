@@ -192,16 +192,19 @@ inside the protocol try).
 | Housekeeping clear | `field = null` or `default` for a hoisted field where the store is provably unobservable: inside the completion catch or tail; a store to a field no source statement can name (`<>7__wrapN`, `<>s__N`, and the display-class environment `<>8__N`, whose scope-end clear Roslyn emits like a local's) from which no read of that field is reachable before another store to it; or the second of two clears of one field that are adjacent statements of the same basic block, a redundant store of the value the location already holds whether Roslyn's scope-end clear or, under Release field reuse, a user's `t = null` initializer that follows it (the Lean adjacent-store lemma does not depend on authorship); a clear that is a branch target is a join, not adjacent, because the field need not hold the value on every path into it. A compiler-temporary store that a read can reach is state, not a clear, whichever arm would otherwise match it: the await-in-`catch`/`finally` lowering resets its pending-branch selector and pending-exception holder at every loop iteration, and those stores are carried. Removals are decided one at a time against the already-reduced body, each arm's premise re-checked after every removal, so two clears that each justify the other's removal (a construct's final clear of a reused temporary followed by the next construct's reset of it) lose exactly one | removed |
 | Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back. For a hoisted `using` variable the carried store makes `UsingStatementPass` keep the try/finally form, which is valid. For a hoisted `foreach` iteration variable the carried store makes every `foreach` raise in `ForeachStatementPass` whose iteration variable can hold a managed type (enumerator, pattern, array, rectangular array, and `await foreach`; the string raise's `char` variable has no clear) keep its lowered form, or, for the enumerator raise, fall back to a fresh foreach variable the body copies from; [#10577](https://github.com/richlander/dotnet-inspect/issues/10577) (merged in #10606) made those raises decline an item local stored outside the header, which was the stage 2 prerequisite. A later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
 
-Class-constrained generic awaiters (the boxed awaiter form), `async void`,
-`ValueTask`, and custom builders are the same roles with different member
-identities. Debug lowering adds spill locals, re-reads, and a `stateMachine`
+`async void`, `ValueTask`, and custom builders are the same roles with
+different member identities. A reference-type awaiter (a class awaiter or a
+class-constrained generic awaiter) reads `IsCompleted` and `GetResult` through
+the awaiter local by value rather than by address; the suspension-site
+recognizer requires the address form, so those sites decline visibly until a
+fixture admits them. Debug lowering adds spill locals, re-reads, and a `stateMachine`
 copy local at each suspension site; it is unmeasured, and no claim covers it
 until a compiler-produced Debug fixture does. An await inside a user `catch`
 lowers to a pending-catch selector and a hoisted exception object, with the
 handler body moved after the try and a rethrow spelled through
 `ExceptionDispatchInfo`; the inverse carries that lowered form as ordinary user
-code with the selector and object as hoisted locals, and the form is not fully
-raised. Whether a carried form is valid C# is judged by compile-back like every
+code with the selector and object as hoisted locals, and the form is not raised
+to its source form. Whether a carried form is valid C# is judged by compile-back like every
 other body. One part of it never is: a rethrow (`throw;`) leaves Roslyn's
 `throw obj;` over the `object`-typed exception object, which C# cannot spell,
 so post-pipeline validation declines any surviving throw of an `object`-typed
@@ -338,14 +341,15 @@ retire. Nothing in this slice adds a cross-layer reference.
    role rests on the completion role, not on these lemmas. All prove facts
    about the model; the fixture family and compile-back remain the evidence
    that the roles are Roslyn's.
-   Stage 2 landed (2026-10-25, #10190 slice 2): on the pinned real-world
-   baseline the state-machine headline moved from 60 to 258 of 540 fully
-   raised (11.11% to 47.78%), the 335 classic kickoffs from 12 to 210 `Full`,
-   branching 23,132 to 23,133 and public API 19,860 to 19,902 against a clean
-   base census at the same commit; the remaining 125 classic kickoffs decline
-   visibly (structurer residue, exception regions the structuring pass keeps
-   flat, the await-in-`finally` form, and the 14 recipe-matched declines that
-   wait for stage 3). The fixture family and the two models are in place; the
+   Stage 2 landed (#10190 slice 2): on the pinned real-world baseline the
+   state-machine headline moved from 60 to 253 of 540 fully raised (11.11% to
+   46.85%), the 335 classic kickoffs from 12 to 205 `Full`, branching 23,132
+   to 23,133 and public API 19,860 to 19,902 against a clean base census at
+   `527db69d5` (2026-10-29, head `f706f99e4`); the remaining 130 classic
+   kickoffs decline visibly (structurer residue, exception regions the
+   structuring pass keeps flat, the await-in-`finally` form, an address
+   `await` operand, an `object`-typed rethrow, and the 14 recipe-matched
+   declines that wait for stage 3). The fixture family and the two models are in place; the
    foreach prerequisite #10577 landed as #10606.
 3. **Recipes retire.** The inverse runs first; a recipe is consulted only when
    the inverse declines. Each recipe whose accepted population the inverse
