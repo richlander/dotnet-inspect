@@ -1489,7 +1489,40 @@ public static class ApiOutputFormatter
         string? pdbPath = null,
         IReadOnlySet<string>? explicitSections = null,
         ApiOptions? options = null,
-        ResolvedAssemblyReference? sourceAssembly = null)
+        ResolvedAssemblyReference? sourceAssembly = null,
+        IAssemblyBindingPolicy? sourceBindingPolicy = null,
+        ImmutableArray<byte>? sourcePortablePdb = null) =>
+        PopulateIndexSectionsWithCancellation(
+            view,
+            type,
+            methods,
+            dllPath,
+            overloadIndex,
+            requestedSections,
+            analysisInspection,
+            pdbPath,
+            explicitSections,
+            options,
+            sourceAssembly,
+            sourceBindingPolicy,
+            sourcePortablePdb,
+            CancellationToken.None);
+
+    internal static void PopulateIndexSectionsWithCancellation(
+        TypeView view,
+        ApiType type,
+        List<ApiMember> methods,
+        string dllPath,
+        int? overloadIndex,
+        IReadOnlySet<string> requestedSections,
+        ApiMemberAnalysisInspection analysisInspection,
+        string? pdbPath,
+        IReadOnlySet<string>? explicitSections,
+        ApiOptions? options,
+        ResolvedAssemblyReference? sourceAssembly,
+        IAssemblyBindingPolicy? sourceBindingPolicy,
+        ImmutableArray<byte>? sourcePortablePdb,
+        CancellationToken cancellationToken)
     {
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
@@ -1785,7 +1818,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        foreach (var (member, code) in MemberCodeProvider.Collect(
+        foreach (var (member, code) in MemberCodeProvider.CollectWithCancellation(
             type,
             bodyMethods,
             dllPath,
@@ -1799,7 +1832,10 @@ public static class ApiOutputFormatter
                 ? analysisInspection.ResearchAnalysis
                 : null,
             (options as MemberOptions)?
-                .MemberDecompilationInspection))
+                .MemberDecompilationInspection,
+            sourceBindingPolicy,
+            sourcePortablePdb,
+            cancellationToken))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {
