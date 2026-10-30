@@ -226,7 +226,7 @@ test("failure text is escaped", () => {
     escapeHtml,
   });
 
-  assert.doesNotMatch(html, /<script>/);
+  assert.ok(!html.includes("<script>"));
   assert.match(html, /&lt;\/div&gt;&lt;script&gt;/);
 });
 
@@ -303,7 +303,7 @@ test("the document title and subtitle are escaped", () => {
     escapeHtml,
   });
 
-  assert.doesNotMatch(html, /<script>/);
+  assert.ok(!html.includes("<script>"));
   assert.doesNotMatch(html, /<b>path<\/b>/);
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /&lt;b&gt;path&lt;\/b&gt;/);
