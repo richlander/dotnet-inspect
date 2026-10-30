@@ -32,6 +32,9 @@ public sealed class ClassicGeneralInverseTests
     [InlineData(ReaderType, "SkipAsync", 2, "if (IsStart)", "depth = Depth;")]
     [InlineData(HolderType, "GetAsync", 2, "await Task.Yield();", "return Value;")]
     [InlineData(LoopFixtureType, "UsingVar", 1, "using (StringWriter writer = new StringWriter())", "writer.Write(value);")]
+    [InlineData(LoopFixtureType, "HoistedStructAwaitable", 2, "await Task.Yield();", "return await pending;")]
+    [InlineData(LoopFixtureType, "StructParameterAfterYield", 2, "await Task.Yield();", "return await pending;")]
+    [InlineData(LoopFixtureType, "HoistedYieldAwaitable", 2, "await first.Invoke();", "await yielded;")]
     public void GeneralInverseReconstructsTheRoleWitness(
         string typeName,
         string methodName,
@@ -146,6 +149,25 @@ public sealed class ClassicGeneralInverseTests
     }
 
     [Fact]
+    public void AwaitInsideRethrowingCatchDeclinesVisibly()
+    {
+        // The lowering keeps the pending exception in an `object` local and
+        // rethrows it with `throw obj;`, which C# cannot spell.
+        using MetadataSource source = OpenFixture();
+        IrFunction function = ImportAndRaise(source, LoopFixtureType, "AwaitInCatchRethrow");
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.False(result.RequiresAsyncBodyModifier);
+        Assert.Contains(".Start<", result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            function.Diagnostics,
+            diagnostic => diagnostic.Id == DiagnosticIds.UnsupportedConstruct
+                && diagnostic.Message.Contains("object-typed", StringComparison.Ordinal));
+        Assert.DoesNotContain(function.Diagnostics, diagnostic => diagnostic.Id == DiagnosticIds.InternalError);
+    }
+
+    [Fact]
     public void LocalFunctionKickoffReconstructs()
     {
         // The certificate, not the `<M>d__N` spelling, identifies the machine
@@ -188,7 +210,7 @@ public sealed class ClassicGeneralInverseTests
         var results = FidelityCheck.Evaluate(
             FixtureCatalog.DecompilerClassicAsync.AssemblyPath(),
             type => type is FixtureType or LoopFixtureType or ReaderType or HolderType,
-            method => method.Method is not ("AwaitInCatchAndFinallyLoop" or "AwaitInFinallyOnly" or "Lambda" or "WithLocalFunction"));
+            method => method.Method is not ("AwaitInCatchAndFinallyLoop" or "AwaitInFinallyOnly" or "AwaitInCatchRethrow" or "Lambda" or "WithLocalFunction"));
         Assert.NotEmpty(results);
         Assert.All(results, result => Assert.True(
             result.Status is FidelityCheck.CompileBackStatus.Exact

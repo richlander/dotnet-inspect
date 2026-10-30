@@ -182,7 +182,7 @@ inside the protocol try).
 | State load | the entry block's `V_state = this.<>1__state` | removed |
 | `this` copy | `V_this = this.<>4__this` in the entry block, or `<>4__this` reads at each use | `this` |
 | Dispatch | any branch whose condition depends only on `V_state` and constants: `brfalse`/`==`/`!=` chains, `switch (V_state)`, the `V_state != 0` guards Roslyn places around user prologue before a nested exception region, and the re-dispatch at that region's entry | evaluated under `V_state = -1`; the taken edge stays, the other edges go |
-| Suspension site | `V_aw = GetAwaiter(op)`; `if (V_aw.IsCompleted) goto K`; then `V_state = N; this.<>1__state = N; this.<>u__k = V_aw; this.<>t__builder.Await[Unsafe]OnCompleted(ref V_aw, ref this); return` | the three blocks collapse to the edge into `K`; `GetResult(ref V_aw)` in `K` becomes `await op` |
+| Suspension site | `V_aw = GetAwaiter(op)`; `if (V_aw.IsCompleted) goto K`; then `V_state = N; this.<>1__state = N; this.<>u__k = V_aw; this.<>t__builder.Await[Unsafe]OnCompleted(ref V_aw, ref this); return` | the three blocks collapse to the edge into `K`; `GetResult(ref V_aw)` in `K` becomes `await op`, where a struct `op` Roslyn passes by address (a spill local, or a hoisted local or parameter field) is awaited by value |
 | Resume landing | the dispatch target for `N`: `V_aw = this.<>u__k; this.<>u__k = default; V_state = -1; this.<>1__state = -1`, falling into `K` | removed; reachable only through dispatch |
 | Completion catch | the outer `catch (Exception V_ex) { this.<>1__state = -2; clears; this.<>t__builder.SetException(V_ex); return; }` | removed |
 | Completion tail | `this.<>1__state = -2; clears; this.<>t__builder.SetResult([V_result]); return` after the try | removed; every `leave` to it is `return [V_result]` |
@@ -197,14 +197,20 @@ Class-constrained generic awaiters (the boxed awaiter form), `async void`,
 identities. Debug lowering adds spill locals, re-reads, and a `stateMachine`
 copy local at each suspension site; it is unmeasured, and no claim covers it
 until a compiler-produced Debug fixture does. An await inside a user `catch`
-lowers to a pending-catch selector with the handler body moved after the try
-and the rethrow spelled through `ExceptionDispatchInfo`; the inverse carries
-that lowered form as ordinary user code with the selector as a hoisted local
-(valid C#, not fully raised). An await inside a user `finally` lowers to a
-`catch (object)` handler that stores the pending exception for a rethrow after
-the finally body; C# cannot spell a used `catch (object e)`, so the inverse
-declines that form visibly (`AwaitInFinallyOnly`, `AwaitInCatchAndFinallyLoop`
-in the fixture family). A later slice owns both raises.
+lowers to a pending-catch selector and a hoisted exception object, with the
+handler body moved after the try and a rethrow spelled through
+`ExceptionDispatchInfo`; the inverse carries that lowered form as ordinary user
+code with the selector and object as hoisted locals, and the form is not fully
+raised. Whether a carried form is valid C# is judged by compile-back like every
+other body. One part of it never is: a rethrow (`throw;`) leaves Roslyn's
+`throw obj;` over the `object`-typed exception object, which C# cannot spell,
+so post-pipeline validation declines any surviving throw of an `object`-typed
+value (`AwaitInCatchRethrow` in the fixture family). An await inside a user
+`finally` lowers to a `catch (object)` handler that stores the pending
+exception for a rethrow after the finally body; C# cannot spell a used
+`catch (object e)`, so the inverse declines that form visibly
+(`AwaitInFinallyOnly`, `AwaitInCatchAndFinallyLoop` in the fixture family). A
+later slice owns both raises.
 
 ### Proof obligations
 
@@ -232,8 +238,9 @@ in the fixture family). A later slice owns both raises.
    completion tail becomes `return` of the result local, folded into the
    immediately preceding store when that store ends the same block. Output
    validity is judged after the full pipeline: no machine field, builder
-   member, awaiter member, state local, or residual transfer survives, and
-   the `await` count equals the proven suspension count.
+   member, awaiter member, state local, or residual transfer survives, no
+   `await` operand is an address, no throw of an `object`-typed value
+   survives, and the `await` count equals the proven suspension count.
 4. **Compile-back.** The raised body recompiles to a new kickoff and
    `MoveNext`; opcode fidelity against the kickoff MethodDef is the wrong
    subject, as #4472 records. Evidence is the whole-fixture recompile in the
@@ -244,7 +251,8 @@ Decline boundary: a state-local read that does not fold under `-1`; a
 dispatch-only block with a non-protocol node; a state constant without its
 pair; an unproven builder or awaiter use; more than one completion catch,
 `SetResult`, or `SetException`, or a filter on the completion catch; a
-residual transfer, machine field, or await-count mismatch after the pipeline;
+residual transfer, machine field, address `await` operand, `object`-typed
+throw, or await-count mismatch after the pipeline;
 the existing unsafe-context decline. Each decline names its reason and
 preserves the kickoff. Budget exhaustion remains `Failed`. Falsifier: a
 compiler-produced or corpus method whose raised body passes every check above

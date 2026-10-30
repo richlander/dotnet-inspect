@@ -321,4 +321,41 @@ public static class GeneralInverseLoopFixtures
         writer.Write(value);
         return writer.ToString().Length;
     }
+
+    /// <summary>A struct awaitable local hoisted across an earlier await: Roslyn awaits it through the hoisted field's address.</summary>
+    public static async Task<int> HoistedStructAwaitable(Func<ValueTask<int>> start)
+    {
+        ValueTask<int> pending = start();
+        await Task.Yield();
+        return await pending;
+    }
+
+    /// <summary>A struct awaitable parameter awaited after an earlier await: the hoisted parameter field's address is the operand.</summary>
+    public static async Task<int> StructParameterAfterYield(ValueTask<int> pending)
+    {
+        await Task.Yield();
+        return await pending;
+    }
+
+    /// <summary>A stored <c>YieldAwaitable</c> awaited after an earlier await.</summary>
+    public static async Task HoistedYieldAwaitable(Func<Task> first)
+    {
+        var yielded = Task.Yield();
+        await first();
+        await yielded;
+    }
+
+    /// <summary>Decline witness: an await inside a <c>catch</c> that rethrows keeps the pending exception as <c>object</c> and throws it.</summary>
+    public static async Task AwaitInCatchRethrow(Func<Task> body, Func<Task> report)
+    {
+        try
+        {
+            await body();
+        }
+        catch (InvalidOperationException)
+        {
+            await report();
+            throw;
+        }
+    }
 }

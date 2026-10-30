@@ -53,11 +53,17 @@ internal static class ClassicGeneralInverse
             return new Outcome.Declined($"a transfer survived the pipeline ({transfer.Describe()} in {transfer.Parent?.Describe()})", work);
         if (work.Descendants.Any(node => IsMachineFieldAccess(node, machine)))
             return new Outcome.Declined("a state-machine field survived the pipeline", work);
+        if (work.Descendants.OfType<AwaitExpression>().FirstOrDefault(static node => node.Operand.ResultType?.Kind == TypeRefKind.ByRef) is { } byRef)
+            return new Outcome.Declined($"an await operand is an address ({byRef.Operand.Describe()})", work);
+        if (work.Descendants.OfType<Throw>().FirstOrDefault(static thrown => ObjectType.Equals(thrown.Value.ResultType)) is { } untyped)
+            return new Outcome.Declined($"a throw of an object-typed value survived ({untyped.Value.Describe()}): an await inside a catch that rethrows keeps the pending exception as object", work);
         int awaits = work.Descendants.OfType<AwaitExpression>().Count();
         if (awaits != transform.SuspensionCount)
             return new Outcome.Declined($"{awaits} awaits survived for {transform.SuspensionCount} proven suspensions");
         return new Outcome.Reconstructed(work, awaits);
     }
+
+    static readonly TypeRef ObjectType = TypeRef.CoreLib("System", "Object");
 
     static bool IsUnstructured(IrNode node)
         => node is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter or UnsupportedNode;
@@ -168,7 +174,9 @@ internal static class ClassicGeneralInverse
             };
 
         // Over-approximates successors (every handler and finally is reachable
-        // from every point of its try), so a `true` result is a sound deadness
+        // from every point of its try: the walk enters each enclosing try's
+        // handlers and finally from the store, and a try statement it reaches
+        // later is read as a whole), so a `true` result is a sound deadness
         // proof and a `false` result only keeps the clear.
         bool IsDeadStore(Block block, int index, FieldRef field)
         {
@@ -178,6 +186,24 @@ internal static class ClassicGeneralInverse
             var visited = new HashSet<(Block, int)>();
             var pending = new Stack<(Block Block, int Index)>();
             pending.Push((block, index + 1));
+            for (IrNode? node = block.Parent; node is not null; node = node.Parent)
+            {
+                if (node is not BlockContainer body)
+                    continue;
+                if (body.Parent is TryCatch tryCatch && ReferenceEquals(tryCatch.TryBody, body))
+                {
+                    foreach (CatchClause clause in tryCatch.Clauses)
+                    {
+                        if (clause.Filter is { } filter && ReadsField(filter, field))
+                            return false;
+                        EnqueueEntry(clause.Body);
+                    }
+                }
+                else if (body.Parent is TryFinally tryFinally && ReferenceEquals(tryFinally.TryBody, body))
+                {
+                    EnqueueEntry(tryFinally.FinallyBody);
+                }
+            }
             while (pending.Count > 0)
             {
                 (Block current, int start) = pending.Pop();
@@ -688,6 +714,15 @@ internal static class ClassicGeneralInverse
             else if (operand is LoadLocalAddress local)
             {
                 operand = new LoadLocal(local.Index, local.Type);
+            }
+            else if (operand is LoadFieldAddress { Instance: LoadArgument { Index: 0 } receiver } hoisted
+                && ClassicInverseNodeFacts.IsMachineField(hoisted.Field, _machine))
+            {
+                // A struct awaitable hoisted across an earlier await (a local or
+                // a parameter) is awaited through its field's address; the await
+                // takes the value, which RebindStorage then binds.
+                receiver.Detach();
+                operand = new LoadField(hoisted.Field, receiver);
             }
 
             // The continuation's GetResult(ref awaiter) becomes the await.

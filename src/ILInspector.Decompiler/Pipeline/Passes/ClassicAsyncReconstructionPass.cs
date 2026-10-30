@@ -316,9 +316,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         var stateMachineType = function.Locals[stateMachineAddress.Index];
-        // The certificate decides which local is the machine; the generated-name
-        // test only covers the `<Method>d__N` spelling, not local functions
-        // and lambdas (`<<Outer>g__Local|N_M>d`).
+        // The certified machine type identifies the local; the generated-name
+        // test also admits the `<Method>d__N` spelling, which misses local
+        // functions and lambdas (`<<Outer>g__Local|N_M>d`). Request validation
+        // rejects an execution body that does not belong to the kickoff's
+        // machine, so this test only selects the candidate local.
         if (MatchesStateMachine(stateMachineType, certifiedStateMachine)
             || IsStateMachineType(stateMachineType))
         {
