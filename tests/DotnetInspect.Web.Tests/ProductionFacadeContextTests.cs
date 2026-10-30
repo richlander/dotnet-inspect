@@ -65,6 +65,7 @@ public sealed class ProductionFacadeContextTests
             "ActivateWorkspacePackageOccurrence",
             "CancelPackageActivity",
             "CancelPackageQuery",
+            "ClassifyEcosystemAssemblyNames",
             "ClassifyEcosystemPackages",
             "ClassifyPackageGraphIdentities",
             "ClearWorkspacePackageOccurrences",
@@ -86,6 +87,7 @@ public sealed class ProductionFacadeContextTests
             "QueryLibraries",
             "QueryLibraryApi",
             "QueryLibraryReferences",
+            "QueryLibrarySurface",
             "QueryMemberDocumentation",
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
@@ -215,6 +217,7 @@ public sealed class ProductionFacadeContextTests
             "AdmitRetainedWorkspacePackage",
             "AdmitRetainedWorkspacePlatform",
             "CancelRetainedWorkspaceActivation",
+            "CancelSpotlightTypeFind",
             "CaptureCompleteWorkspaceShareState",
             "CanonicalizeWorkspaceSharePacket",
             "CommitRetainedWorkspaceActivation",
@@ -229,6 +232,7 @@ public sealed class ProductionFacadeContextTests
             "ExplainResources",
             "ExplainWorkspaceComponent",
             "FindIndexedTypes",
+            "FindSpotlightTypes",
             "ListEcosystems",
             "ListHomeDemos",
             "ListLibraryViewFacets",
@@ -237,6 +241,7 @@ public sealed class ProductionFacadeContextTests
             "ListTypeViewFacets",
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
+            "PrepareProjectWorkspaceDefinition",
             "PrepareEcosystemWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
@@ -245,6 +250,7 @@ public sealed class ProductionFacadeContextTests
             "RecordRetainedWorkspaceNavigationPosting",
             "ResolveHomeDemo",
             "RunHomeDemo",
+            "SelectProjectInspector",
             "ValidateRetainedWorkspaceNavigationAuthority",
         ],
     };
@@ -293,7 +299,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(171, everyExport.Length);
+        Assert.Equal(177, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

@@ -13,18 +13,33 @@ internal static class BrowserSpotlightTypeIdentity
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(type);
-        if (coordinate is not ExactLibrarySourceCoordinate.Package package)
-            return null;
 
-        AssemblyReferenceIdentity library = package.LibraryIdentity.Identity;
-        var identity = new StringBuilder("package-type:");
+        AssemblyReferenceIdentity library = coordinate.LibraryIdentity.Identity;
+        var identity = new StringBuilder(coordinate switch
+        {
+            ExactLibrarySourceCoordinate.Package => "package-type:",
+            ExactLibrarySourceCoordinate.Platform => "platform-type:",
+            ExactLibrarySourceCoordinate.Project => "project-type:",
+            ExactLibrarySourceCoordinate.Local => "local-type:",
+            _ => throw new InvalidOperationException(
+                "Type Find returned an unsupported source coordinate."),
+        });
+        if (coordinate is ExactLibrarySourceCoordinate.Package package)
+        {
+            Append(
+                identity,
+                package.PackageCoordinate.PackageId.ToLowerInvariant());
+            Append(
+                identity,
+                package.PackageCoordinate.Version.ToLowerInvariant());
+        }
+        else if (coordinate is ExactLibrarySourceCoordinate.Platform platform)
+        {
+            Append(identity, platform.Population.Family.ToString());
+        }
         Append(
             identity,
-            package.PackageCoordinate.PackageId.ToLowerInvariant());
-        Append(
-            identity,
-            package.PackageCoordinate.Version.ToLowerInvariant());
-        Append(identity, library.Name.ToLowerInvariant());
+            library.Name.ToLowerInvariant());
         Append(identity, library.Version?.ToString() ?? "");
         Append(identity, NormalizeCulture(library.Culture));
         Append(identity, library.PublicKeyToken?.ToLowerInvariant() ?? "");

@@ -65,6 +65,49 @@ internal sealed class BrowserIndexedTypeFindOperation
         int maximumRows,
         long resultGeneration,
         CancellationToken cancellationToken = default)
+        => ExecuteCore(
+            operation,
+            artifacts,
+            retainedDefinitionId,
+            realizationId,
+            text,
+            maximumRows,
+            resultGeneration,
+            resultSession: null,
+            cancellationToken);
+
+    internal BrowserIndexedTypeFindExecutionResult Execute(
+        WorkspaceRealizationOperationLease operation,
+        IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
+        string retainedDefinitionId,
+        string realizationId,
+        string text,
+        int maximumRows,
+        long resultGeneration,
+        FindSemanticResultSession resultSession,
+        CancellationToken cancellationToken = default)
+        => ExecuteCore(
+            operation,
+            artifacts,
+            retainedDefinitionId,
+            realizationId,
+            text,
+            maximumRows,
+            resultGeneration,
+            resultSession
+                ?? throw new ArgumentNullException(nameof(resultSession)),
+            cancellationToken);
+
+    BrowserIndexedTypeFindExecutionResult ExecuteCore(
+        WorkspaceRealizationOperationLease operation,
+        IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
+        string retainedDefinitionId,
+        string realizationId,
+        string text,
+        int maximumRows,
+        long resultGeneration,
+        FindSemanticResultSession? resultSession,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(artifacts);
@@ -157,15 +200,26 @@ internal sealed class BrowserIndexedTypeFindOperation
         }
 
         InspectionEnvelope<EcosystemFindIndexedIntegrationResult.Type> find =
-            EcosystemFindIndexedTypeInspection.Execute(
-                admittedArtifacts,
-                demands,
-                TypeFindQuestion.Create(
-                    [text],
-                    FindVisibility.Public,
-                    maximumRows),
-                maximumRows,
-                cancellationToken: cancellationToken);
+            resultSession is null
+                ? EcosystemFindIndexedTypeInspection.Execute(
+                    admittedArtifacts,
+                    demands,
+                    TypeFindQuestion.Create(
+                        [text],
+                        FindVisibility.Public,
+                        maximumRows),
+                    maximumRows,
+                    cancellationToken: cancellationToken)
+                : EcosystemFindIndexedTypeInspection.Execute(
+                    admittedArtifacts,
+                    demands,
+                    TypeFindQuestion.Create(
+                        [text],
+                        FindVisibility.Public,
+                        maximumRows),
+                    maximumRows,
+                    resultSession,
+                    cancellationToken: cancellationToken);
         ImmutableArray<BrowserIndexedTypeFindActivationAssociation> activations =
             CreateActivations(
                 operation,

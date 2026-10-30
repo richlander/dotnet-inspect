@@ -668,10 +668,6 @@ import {
   type ManagedSpotlightTypeCandidate,
 } from "./spotlight-type-find.ts";
 import {
-  composeSpotlightTypeCandidates,
-  createSpotlightIndexedTypeFind,
-} from "./spotlight-indexed-type-find.ts";
-import {
   createSpotlightCapabilitySearch,
   normalizeSpotlightCapabilitySearchSnapshot,
   spotlightCapabilitySearchMessage,
@@ -5420,35 +5416,26 @@ const spotlightPackageSearch = createSpotlightPackageSearch({
   updateResults: () => spotlight.updateResults(),
 });
 const spotlightTypeFind = createSpotlightTypeFind({
+  createOperationId: () => crypto.randomUUID(),
   findTypes: (
-    retainedDefinitionId,
-    realizationId,
-    resultGeneration,
-    text,
-  ) => engineClient.metadata.findTypes(
-    retainedDefinitionId,
-    realizationId,
-    resultGeneration,
-    text,
-  ),
-  schedule: (callback, delay) => setTimeout(callback, delay),
-  cancelScheduled: handle => clearTimeout(handle),
-  updateResults: () => spotlight.updateResults(),
-});
-const spotlightIndexedTypeFind = createSpotlightIndexedTypeFind({
-  findTypes: (
+    operationId,
     retainedDefinitionId,
     realizationId,
     resultGeneration,
     text,
     maximumRows,
-  ) => engineClient.catalog.findIndexedTypes(
+    eventSink,
+  ) => engineClient.catalog.findSpotlightTypes(
+    operationId,
     retainedDefinitionId,
     realizationId,
     resultGeneration,
     text,
     maximumRows,
+    eventSink,
   ),
+  cancelTypes: (operationId, reason) =>
+    engineClient.catalog.cancelSpotlightTypeFind(operationId, reason),
   schedule: (callback, delay) => setTimeout(callback, delay),
   cancelScheduled: handle => clearTimeout(handle),
   updateResults: () => spotlight.updateResults(),
@@ -5619,10 +5606,7 @@ const spotlight = createSpotlight({
   prepareResults: prepareSpotlightResults,
   schedulePackageFetch: () => spotlightPackageSearch.schedule(),
   resetPackageSearch: () => spotlightPackageSearch.reset(),
-  resetTypeSearch: () => {
-    spotlightIndexedTypeFind.reset();
-    spotlightTypeFind.reset();
-  },
+  resetTypeSearch: () => spotlightTypeFind.reset(),
   packageSearchLoading: () =>
     spotlightPackageSearchIsLoading(state.spotlightPackageSearch),
   packageSearchError: () =>
@@ -5630,16 +5614,9 @@ const spotlight = createSpotlight({
   openPackageQuery: query => { openPackageQueryRoute(query); },
   packageSearchNotice: () => state.spotlightQuery.includes("*")
     ? `Package prefix search · up to ${SPOTLIGHT_PACKAGE_PREFIX_LIMIT} matches` : "",
-  typeSearchLoading: () =>
-    spotlightIndexedTypeFind.loading() || spotlightTypeFind.loading(),
-  typeSearchError: () => [
-    spotlightIndexedTypeFind.error(),
-    spotlightTypeFind.error(),
-  ].filter(Boolean).join(" "),
-  typeSearchNotice: () => [
-    spotlightIndexedTypeFind.notice(),
-    spotlightTypeFind.notice(),
-  ].filter(Boolean).join(" "),
+  typeSearchLoading: () => spotlightTypeFind.loading(),
+  typeSearchError: () => spotlightTypeFind.error(),
+  typeSearchNotice: () => spotlightTypeFind.notice(),
   scheduleCapabilitySearch: () => state.spotlightQuery.includes("*")
     ? spotlightCapabilitySearch.reset() : spotlightCapabilitySearch.schedule(),
   resetCapabilitySearch: () => spotlightCapabilitySearch.reset(),
@@ -17174,17 +17151,10 @@ function spotlightResults(): SpotlightResult[] {
     spotlightAllScopeLimit(initialLimit, spotlight.allScopeResultPage());
   const prefixQuery = (all || spotlightScope === "packages") && query.includes("*");
   const requestsTypes = (all && !prefixQuery) || spotlightScope === "types";
-  spotlightIndexedTypeFind.schedule(
-    activeRetainedWorkspacePosting,
-    query,
-    state.spotlightOpen && requestsTypes,
-  );
   spotlightTypeFind.schedule(
     activeRetainedWorkspacePosting,
     query,
-    state.spotlightOpen
-      && requestsTypes
-      && spotlightIndexedTypeFind.complete(),
+    state.spotlightOpen && requestsTypes,
   );
   const results: SpotlightResult[] = [];
 
@@ -17266,10 +17236,7 @@ function spotlightResults(): SpotlightResult[] {
   }
   if (requestsTypes && activeRetainedWorkspacePosting !== null) {
     const typeCandidates: readonly ManagedSpotlightTypeCandidate[] =
-      composeSpotlightTypeCandidates(
-        spotlightIndexedTypeFind.results(),
-        spotlightTypeFind.results(),
-      );
+      spotlightTypeFind.results();
     for (const candidate of spotlightTypeCandidatesForScope(
       typeCandidates,
       all,

@@ -167,7 +167,7 @@ type CatalogOperations =
   | "explainResources"
   | "describeWorkspaceComponents"
   | "explainWorkspaceComponent"
-  | "findIndexedTypes"
+  | "findSpotlightTypes"
   | "inspectVocabulary"
   | "listEcosystems"
   | "listHomeDemos"
@@ -263,7 +263,11 @@ export interface EngineClient {
     ): void;
   };
   readonly callGraph: AsyncFacade<CallGraphFacade, CallGraphOperations>;
-  readonly catalog: AsyncFacade<CatalogFacade, CatalogOperations>;
+  readonly catalog: AsyncFacade<CatalogFacade, CatalogOperations> & {
+    cancelSpotlightTypeFind(
+      ...args: Parameters<CatalogFacade["cancelSpotlightTypeFind"]>
+    ): void;
+  };
   /** Outstanding ordinary-Worker requests; background work waits for idle. */
   readonly activity: {
     outstanding(): number;

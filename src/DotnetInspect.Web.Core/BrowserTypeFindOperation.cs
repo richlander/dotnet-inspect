@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using QuerySpace.Rows;
 
@@ -161,6 +162,47 @@ internal sealed class BrowserTypeFindOperation : IDisposable
         string text,
         long resultGeneration,
         CancellationToken cancellationToken = default)
+        => await ExecuteCoreAsync(
+                operation,
+                navigation,
+                preparation,
+                retainedDefinitionId,
+                text,
+                resultGeneration,
+                resultSession: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal async ValueTask<BrowserTypeFindExecutionResult> ExecuteAsync(
+        WorkspaceRealizationOperationLease operation,
+        BrowserNavigationStateSlot navigation,
+        BrowserRetainedNavigationPreparation preparation,
+        string retainedDefinitionId,
+        string text,
+        long resultGeneration,
+        FindSemanticResultSession resultSession,
+        CancellationToken cancellationToken = default)
+        => await ExecuteCoreAsync(
+                operation,
+                navigation,
+                preparation,
+                retainedDefinitionId,
+                text,
+                resultGeneration,
+                resultSession
+                    ?? throw new ArgumentNullException(nameof(resultSession)),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    async ValueTask<BrowserTypeFindExecutionResult> ExecuteCoreAsync(
+        WorkspaceRealizationOperationLease operation,
+        BrowserNavigationStateSlot navigation,
+        BrowserRetainedNavigationPreparation preparation,
+        string retainedDefinitionId,
+        string text,
+        long resultGeneration,
+        FindSemanticResultSession? resultSession,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(navigation);
@@ -250,7 +292,10 @@ internal sealed class BrowserTypeFindOperation : IDisposable
         TypeDeclarationLocatorInspectionExecution execution =
             await TypeDeclarationLocatorInspection.ExecuteWithResultAsync(
                     workspace,
-                    [new TypeDeclarationLocatorRequest.Pattern(text)],
+                    [
+                        new TypeDeclarationLocatorRequest.Pattern(
+                            resultSession is null ? text : "*"),
+                    ],
                     new TypeDeclarationLocatorSectionPlan(
                         RowSelectionIntent<string>.Empty,
                         TypeDeclarationVisibilityPlan.Default),
@@ -271,6 +316,39 @@ internal sealed class BrowserTypeFindOperation : IDisposable
 
         ImmutableArray<WorkspaceDeclarationContext> contexts =
             workspace.GetDeclarationContextsSnapshot();
+        HashSet<BrowserTypeFindSemanticIdentity>? admittedFindings = null;
+        if (resultSession is not null)
+        {
+            TypeFindQuestion question = TypeFindQuestion.Create(
+                [text],
+                FindVisibility.Public);
+            TypeFindSemanticPopulation population =
+                TypeFindSourceEvaluator.EvaluateLocatorCensus(
+                    question,
+                    locator);
+            TypeFindBlock block =
+                FindSemanticReducer.ReduceType(question, population);
+            admittedFindings = [];
+            foreach (TypeFindSemanticMatch match in block.Matches)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                FindSemanticFindingPublication findingPublication =
+                    resultSession.Publish(match);
+                if (findingPublication
+                    is FindSemanticFindingPublication.RowLimitReached)
+                {
+                    break;
+                }
+                if (findingPublication
+                    is FindSemanticFindingPublication.Published)
+                {
+                    admittedFindings.Add(new(
+                        match.Declaration.Source.Coordinate,
+                        match.Declaration.Name,
+                        match.Declaration.ModuleVersionId));
+                }
+            }
+        }
         ImmutableArray<SourcePackageBinding> sourcePackages =
             ResolveSourcePackageBindings(operation, contexts);
         var pendingFramework =
@@ -293,6 +371,14 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     answer.Candidates[candidateIndex];
                 TypeDeclarationLocatorCandidate rawCandidate =
                     ResolveRawCandidate(rawAnswer, candidate);
+                if (admittedFindings is not null
+                    && !admittedFindings.Contains(new(
+                        rawCandidate.Coordinate,
+                        candidate.Name,
+                        candidate.ModuleVersionId)))
+                {
+                    continue;
+                }
                 var reference = new BrowserTypeFindCandidateReference(
                     answer.Identity.Ordinal,
                     candidateIndex + 1);
@@ -1392,6 +1478,11 @@ internal sealed class BrowserTypeFindOperation : IDisposable
         WorkspaceContextMember? Library,
         BrowserTypeFindActivationStatus Status,
         string? Reason);
+
+    sealed record BrowserTypeFindSemanticIdentity(
+        ExactLibrarySourceCoordinate Source,
+        MetadataTypeDefinitionName Declaration,
+        Guid ModuleVersionId);
 }
 
 internal sealed partial class BrowserRetainedWorkspaceActivationOwner
@@ -1404,6 +1495,39 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
         string text,
         long resultGeneration,
         CancellationToken cancellationToken = default)
+        => await FindTypesCoreAsync(
+                retainedDefinitionId,
+                realizationId,
+                text,
+                resultGeneration,
+                resultSession: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal async ValueTask<BrowserTypeFindExecutionResult> FindTypesAsync(
+        string retainedDefinitionId,
+        string realizationId,
+        string text,
+        long resultGeneration,
+        FindSemanticResultSession resultSession,
+        CancellationToken cancellationToken = default)
+        => await FindTypesCoreAsync(
+                retainedDefinitionId,
+                realizationId,
+                text,
+                resultGeneration,
+                resultSession
+                    ?? throw new ArgumentNullException(nameof(resultSession)),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    async ValueTask<BrowserTypeFindExecutionResult> FindTypesCoreAsync(
+        string retainedDefinitionId,
+        string realizationId,
+        string text,
+        long resultGeneration,
+        FindSemanticResultSession? resultSession,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
@@ -1446,15 +1570,26 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
             }
         }
 
-        return await typeFind.ExecuteAsync(
-                operation,
-                posting.NavigationState,
-                posting.NavigationPreparation,
-                posting.RetainedDefinitionId,
-                text,
-                resultGeneration,
-                cancellationToken)
-            .ConfigureAwait(false);
+        return resultSession is null
+            ? await typeFind.ExecuteAsync(
+                    operation,
+                    posting.NavigationState,
+                    posting.NavigationPreparation,
+                    posting.RetainedDefinitionId,
+                    text,
+                    resultGeneration,
+                    cancellationToken)
+                .ConfigureAwait(false)
+            : await typeFind.ExecuteAsync(
+                    operation,
+                    posting.NavigationState,
+                    posting.NavigationPreparation,
+                    posting.RetainedDefinitionId,
+                    text,
+                    resultGeneration,
+                    resultSession,
+                    cancellationToken)
+                .ConfigureAwait(false);
     }
 
     internal ValueTask<BrowserTypeFindActivationResult>

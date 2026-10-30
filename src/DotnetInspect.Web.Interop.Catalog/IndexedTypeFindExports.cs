@@ -179,6 +179,29 @@ internal static partial class BrowserRetainedWorkspaceActivationService
             int maximumRows,
             long resultGeneration,
             CancellationToken cancellationToken = default)
+        => await FindIndexedTypesAsync(
+                owner,
+                retainedDefinitionId,
+                realizationId,
+                artifacts,
+                text,
+                maximumRows,
+                resultGeneration,
+                resultSession: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal static async ValueTask<BrowserIndexedTypeFindExecutionResult>
+        FindIndexedTypesAsync(
+            BrowserRetainedWorkspaceActivationOwner owner,
+            string retainedDefinitionId,
+            string realizationId,
+            IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
+            string text,
+            int maximumRows,
+            long resultGeneration,
+            FindSemanticResultSession? resultSession,
+            CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
@@ -199,15 +222,26 @@ internal static partial class BrowserRetainedWorkspaceActivationService
         }
 
         using WorkspaceRealizationOperationLease operation = admitted.Lease;
-        return IndexedTypeFind.Execute(
-            operation,
-            artifacts,
-            retainedDefinitionId,
-            realizationId,
-            text,
-            maximumRows,
-            resultGeneration,
-            cancellationToken);
+        return resultSession is null
+            ? IndexedTypeFind.Execute(
+                operation,
+                artifacts,
+                retainedDefinitionId,
+                realizationId,
+                text,
+                maximumRows,
+                resultGeneration,
+                cancellationToken)
+            : IndexedTypeFind.Execute(
+                operation,
+                artifacts,
+                retainedDefinitionId,
+                realizationId,
+                text,
+                maximumRows,
+                resultGeneration,
+                resultSession,
+                cancellationToken);
     }
 
     internal static ValueTask<BrowserTypeFindActivationResult?>

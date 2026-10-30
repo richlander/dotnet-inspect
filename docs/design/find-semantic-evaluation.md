@@ -441,21 +441,26 @@ TypeFindBlock block = FindSemanticReducer.ReduceType(
     [source]);
 ```
 
-The first Browser call remains behind a .NET operation:
+The Browser call remains one managed .NET operation:
 
 ```typescript
-const session = await spotlightFind.start({
-  text: "IList<T>",
-  kind: "types",
-  maximumMatches: 20
-});
-installFindBlocks(session.blocks);
+await engine.catalog.findSpotlightTypes(
+  operationId,
+  retainedDefinitionId,
+  realizationId,
+  generation,
+  "IList<T>",
+  20,
+  findingSink);
 ```
 
-The Browser adapter receives transported blocks and activation associations.
+The Browser adapter receives each admitted finding as a durable event and the
+same ordered findings with finalized activation associations at terminal
+completion. Indexed and resident producers share the managed result session;
+TypeScript does not invoke, gate, compose, or observe producer phases.
 Constructing a `FindQuestion`, classifying matches, joining declaration
-identity, or filtering a realized Ecosystem population in TypeScript is outside
-this contract.
+identity, or filtering a realized Ecosystem population in TypeScript is
+outside this contract.
 
 ## Evidence and acceptance
 
