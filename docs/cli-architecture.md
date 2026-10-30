@@ -189,8 +189,8 @@ correspondence; and
 `PackageCommand_LiteralFile_AcquisitionFailureDoesNotRetryExtractor` gates
 terminal acquisition failure.
 
-Local/offline, unpinned, TFM-filtered, scoped-content, row-selected,
-multi-Package, alias, glob, and directory requests retain their existing routes.
+Local/offline, unpinned, TFM-filtered, scoped-content, row-selected, alias,
+glob, and directory requests retain their existing routes.
 Extensionless files also remain there because their Markdown role may require
 manifest interpretation. A tool wrapper retains its existing redirect route.
 Recognizing those distinct requests is not an extractor retry after an exact
