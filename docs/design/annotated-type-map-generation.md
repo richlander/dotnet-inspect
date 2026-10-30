@@ -54,8 +54,8 @@ storage. Generation reads each adapter result with
 contribution through reflection, casts, string ids, or a universal result
 interface is invalid.
 
-Every contribution carries its exact family, so a settled entry traces back to
-the plan trail line that bound it.
+Every contribution names the exact families it holds, so a settled entry
+traces back to the plan trail line that bound it.
 
 ## Inputs
 
@@ -73,30 +73,44 @@ through typed result access.
 
 ## Contribution content
 
-A contribution holds one family's settled results for one version side, for
-the plan's focus and Member keys. Each family kind has one content shape:
+A contribution is one adapter query's result for one version side: a content
+set keyed by family, holding exactly the families the plan's trail binds to
+that query, each once. A query bound to one family holds one family's
+content; a query several families share holds each of theirs, with its own
+entries and outcomes. Each family kind has one content shape:
 
 | Family | Per Member key | Type's own entries |
 | --- | --- | --- |
-| API shape facts | The Member's detached projection in the API surface of its version, the input the complete API comparison reads, including its status facts: accessibility, hidden, and obsolete status | The Type row's projection |
+| API shape facts | The Member's projection in the API surface of its version, the input the complete API comparison reads, including its status facts: accessibility, hidden, and obsolete status | The Type row's projection |
 | Body shape facts | Finding Diff Any's Body facts for the Member: each owned method's body identity under Body equality, and the declaration facts of a Member the API surface does not admit | The residual's Body facts |
 | Fact stream | For each owned method, the keys of every fact in its fact census in stream order | The residual's methods' streams |
 | Finding family | The Member's admitted findings of the family's descriptors | The residual's admitted findings |
 
-Every Member entry and the Type's own entry carry an outcome: `Complete`, no
-applicable input on that side, `Failed`, `Unavailable`, or `Indeterminate`.
-An entry whose outcome is not `Complete` carries no partial content.
+Every contribution records the Type's **presence** on its side. A Type absent
+from a side contributes no Member keys and no Type entries on that side.
 
-A projection is detached: it holds no reader or image, so two retained maps
-compare without reopening an image, as the map's Retained maps gate requires.
-The API shape facts' status facts are the ones an ordinary consumer filters
-on, such as the diff ladder's ordinary population, so they are part of the
-content, not a later family.
+Every Member entry and the Type's own entry carry an outcome. The outcomes
+divide as the map divides them:
 
-A Member-scope plan's contributions hold exactly the requested keys. A
-requested key absent from the focus Type's census on that side is that key's
-`Unavailable` outcome with that reason, never an omitted key and never a
-silently empty answer.
+- **settled:** `Complete`, or no applicable input on that side, such as a
+  method with no body for a Body fact or a body analysis; a settled outcome
+  with no element is an empty answer; and
+- **unsettled:** `Failed`, `Unavailable`, or `Indeterminate`.
+
+An unsettled entry carries no partial content.
+
+An API projection is detached and partial: a surface holding the Type row and
+the projected Members, with the Type context the complete API comparison's
+classifier reads, and no reader or image. Two retained maps therefore compare
+without reopening an image, as the map's Retained maps gate requires. The
+status facts are the ones an ordinary consumer filters on, such as the diff
+ladder's ordinary population, so they are part of the content, not a later
+family.
+
+A Member-scope plan's contributions hold the requested keys present in that
+side's census. A requested key absent from a side is absent there, exactly as
+a Member missing from that side at Type focus; generation never invents an
+entry for it.
 
 Contributions contain settled domain results. They expose no execution
 callback, source choice, decoded body, or retained producer intermediate.
@@ -107,12 +121,11 @@ A side's contributions are accepted only when:
 
 - there is exactly one contribution for each adapter query in the plan's
   demand, read with that exact query;
-- each contribution's family is one the plan's trail binds to that query, and
-  every family the trail demands has exactly one contribution;
-- a family bound to a shared adapter appears once per contribution that the
-  shared query returns, with its own entries and outcomes;
-- its focus is the plan's exact focus, and its keys are the plan's Member keys
-  when the plan has them; and
+- each contribution holds exactly the families the trail binds to its query,
+  each once, so every family the trail demands is held by exactly one
+  contribution;
+- its focus is the plan's exact focus, and its keys are among the plan's
+  Member keys when the plan has them; and
 - a pair's two sides carry the same families.
 
 A family the trail records as selected but not demanded has no contribution.
@@ -130,7 +143,9 @@ result-kind table.
   entries), and each method's fact stream. A key, or the Type, is listed
   exactly when it has an admitted finding or an unsettled analysis outcome, the
   map's one-version listing rule. Shape facts are carried for later
-  comparison and never list a key.
+  comparison and never list a key. In a Member-scope request, a requested key
+  absent from the version is its question's `Unavailable` outcome, an
+  unresolved row.
 - **Count and Exists:** from the selected finding families' entries only, by
   the same listing rule: Count reports changed rows and, separately,
   unresolved rows; Exists is `true` with a changed row, undecided with only
@@ -139,21 +154,31 @@ result-kind table.
 ### Map diff
 
 - **Join:** keys join by Finding Diff Any's Member key across the two sides,
-  on both sides, After only, or Before only. The Type row joins by the focus.
+  on both sides, After only, or Before only. The Type row joins by the Type's
+  presence: on both sides, or `Added` or `Removed`, which makes the Type row
+  and every Member of its present side one-sided. In a Member-scope request, a
+  key present on one side is one-sided like any other; a key present on
+  neither side is its question's `Unavailable` outcome, an unresolved row.
 - **Shape comparison:** for a key on both sides, the API transition is the
   complete API comparison over the two detached projections, and the Body
   transition is Finding Diff Any's Body equality over the two sides' Body
   facts. A one-sided key is `Added` or `Removed` on each axis where it owns
-  shape facts. An entry whose outcome is not `Complete` makes that key's shape
-  comparison unsettled.
+  shape facts. Only an unsettled entry makes that key's shape comparison
+  unsettled; a settled entry with no applicable input, such as the Body entry
+  of an abstract Member the surface admits, compares as an empty answer.
 - **Count and Exists:** from the shape comparison only. Exists stops at the
   first shape transition. No fact stream or finding is read.
 - **Rows:** a key, or the Type, is listed exactly when it has a shape
   transition or an unsettled shape comparison. For each listed key, and only
-  for listed keys, each owned method's two fact streams are compared by the
-  fact comparison, and the transitions are then filtered to the selected
-  finding families' descriptors. With no finding family selected, no fact
-  stream was demanded and a listed row carries only its shape transitions.
+  for listed keys, each owned method's fact streams are compared by the fact
+  comparison: a method on both sides compares its two streams, and a one-sided
+  key or method compares its one present stream, so each of its facts is
+  `Added` or `Removed`. The transitions are then filtered to the selected
+  finding families' descriptors. Each listed row also carries its annotation
+  outcome, read from the selected finding families' entries on each side; that
+  outcome never lists or unlists a row. With no finding family selected, no
+  fact stream or finding was demanded and a listed row carries only its shape
+  transitions.
 
 Generation adds no equality of its own. It compares API facts only through the
 complete API comparison, Body facts only through Finding Diff Any's Body
@@ -178,12 +203,13 @@ identity; portable projection belongs to a later owner.
 ## Failure contract
 
 Generation throws a contract exception for a missing result, a foreign focus,
-a missing or extra contribution, a contribution for a family the trail does
-not bind to its query, keys outside the plan's Member keys, mismatched sides,
-or content whose shape does not match its family kind.
+a missing or extra contribution, a contribution holding a family the trail
+does not bind to its query or omitting one it does, keys outside the plan's
+Member keys, mismatched sides, or content whose shape does not match its
+family kind.
 
-Producer unavailability, a key absent from the census, failures, and
-`Indeterminate` comparisons are data in entry outcomes. They do not throw
+Producer unavailability, failures, and `Indeterminate` comparisons are data in
+entry outcomes, and a key absent from a side is a one-sided key. They do not throw
 merely because they are not successful.
 
 ## Gates
@@ -192,10 +218,15 @@ merely because they are not successful.
   `InspectionQuery<AnnotatedTypeMapContribution>` results through typed access;
   general query infrastructure is unchanged.
 - **Correspondence:** a missing, extra, foreign-focus, foreign-key, or
-  mismatched-side contribution fails as a contract exception.
+  mismatched-side contribution fails as a contract exception, and two
+  families sharing one adapter settle from that adapter's one contribution.
 - **Settled kinds:** each result kind reads only its row of the result-kind
   table; a map-diff Count or Exists settles with no fact-stream or finding
-  contribution present.
+  contribution present, and map-diff Rows reads finding entries only for
+  listed rows' annotation outcomes.
+- **Settled outcomes:** an entry with no applicable input is settled; an
+  unchanged abstract or interface Member the surface admits is not listed in
+  either form.
 - **No new equality:** the API transition equals the complete API comparison
   over the two projections, and the Body transition equals Finding Diff Any's
   Body state, for every Member of the Finding Diff Any fixture pairs.
@@ -205,14 +236,19 @@ merely because they are not successful.
   over settled contributions.
 - **Retained comparison:** comparing two settled one-version Rows maps gives
   the same map diff as settling the pair, element for element.
-- **Absent keys:** a Member-scope request with a key absent on one side
-  settles that key's outcome as `Unavailable`, not an omitted key.
+- **Absent keys:** in a Member-scope pair request, a key present on one side
+  only is `Added` or `Removed`, the same row as at Type focus, and a key
+  present on neither side is an unresolved `Unavailable` row.
+- **One-sided Type:** a Type present on one side settles its Type row and
+  every Member of its present side as one-sided.
 
 ## Adoption
 
 1. Lock this generation owner. This documentation slice.
 2. Implement contribution content, correspondence, and settlement for every
-   result kind and the family contribution request, over test adapters.
+   result kind and the family contribution request, over test adapters,
+   widening `AnnotatedTypeMapContribution` from one family to the
+   family-keyed content set.
 3. Planning step 4 registers the API shape-fact family over
    `ApiSurfaceExtractor` and routes Finding Diff Any's API census settlement
    through a family contribution request, settled here.
