@@ -69,7 +69,8 @@ Generation consumes:
 
 It does not accept producer-native context, acquisition services, execution
 delegates, planners, or an inspection query catalog. A missing result fails
-through typed result access.
+through typed result access, `InspectionQueryException`, before correspondence
+runs.
 
 ## Contribution content
 
@@ -81,7 +82,7 @@ entries and outcomes. Each family kind has one content shape:
 
 | Family | Per Member key | Type's own entries |
 | --- | --- | --- |
-| API shape facts | When the API surface of its version admits the Member, its projection in that surface, the input the complete API comparison reads, including its status facts: accessibility, hidden, and obsolete status | The Type's admission on that side, and its row's projection when admitted |
+| API shape facts | When the API surface of its version admits the Member, its projection in that surface, the input the complete API comparison reads, including its status facts: accessibility, hidden, and obsolete status; otherwise no applicable input | The Type's admission on that side, and its row's projection when admitted |
 | Body shape facts | Each owned method's body identity under Finding Diff Any's Body equality, and every declaration fact of the Member and of the generated code it owns, each with that side's admission | The residual's body identities and declaration facts, each with its admission |
 | Fact stream | For each owned method, the keys of every fact in its fact census in stream order | The residual's methods' streams |
 | Finding family | The Member's admitted findings of the family's descriptors | The residual's admitted findings |
@@ -136,8 +137,11 @@ A side's contributions are accepted only when:
 - each contribution holds exactly the families the trail binds to its query,
   each once, so every family the trail demands is held by exactly one
   contribution;
-- its focus is the plan's exact focus, and its keys are among the plan's
-  Member keys when the plan has them; and
+- its focus is the plan's exact focus for that side, and its keys are among
+  the plan's Member keys when the plan has them;
+- every family on the side holds the same key set: a family with no facts for
+  a Member holds a settled entry with no applicable input, never an absence;
+  and
 - a pair's two sides carry the same families.
 
 A family the trail records as selected but not demanded has no contribution.
@@ -248,11 +252,11 @@ identity; portable projection belongs to a later owner.
 
 ## Failure contract
 
-Generation throws a contract exception for a missing result, a foreign focus,
-a missing or extra contribution, a contribution holding a family the trail
-does not bind to its query or omitting one it does, keys outside the plan's
-Member keys, mismatched sides, or content whose shape does not match its
-family kind.
+A missing result fails through typed result access. Generation throws a
+contract exception for a foreign focus, a contribution holding a family the
+trail does not bind to its query or omitting one it does, keys outside the
+plan's Member keys, families of one side holding different key sets,
+mismatched sides, or content whose shape does not match its family kind.
 
 Producer unavailability, failures, and `Indeterminate` comparisons are data in
 entry outcomes. A key absent from one side of a pair is a one-sided key, and a
@@ -264,7 +268,8 @@ and none throws merely because it is not successful.
 - **Follow the T:** generation reads only
   `InspectionQuery<AnnotatedTypeMapContribution>` results through typed access;
   general query infrastructure is unchanged.
-- **Correspondence:** a missing, extra, foreign-focus, foreign-key, or
+- **Correspondence:** a missing result fails through typed result access; an
+  extra-family, missing-family, foreign-focus, foreign-key, unequal-key-set, or
   mismatched-side contribution fails as a contract exception, and two
   families sharing one adapter settle from that adapter's one contribution.
 - **Settled kinds:** each result kind reads only its row of the result-kind
@@ -314,7 +319,10 @@ and none throws merely because it is not successful.
       Exists, Placement, the Type's own entries, and the fact comparison.
 3. Planning step 4 registers the API shape-fact family over
    `ApiSurfaceExtractor` and routes Finding Diff Any's API census settlement
-   through a family contribution request, settled here.
+   through a family contribution request, settled here, as
+   [Annotated Type Map API shape family](annotated-type-map-api-family.md)
+   owns. It precedes slice 2, whose fact comparison waits on the fact-stream
+   content of the map's adoption step 3.
 
 ## Non-claims
 

@@ -145,7 +145,10 @@ Finding Diff Any's API census settlement, owns that comparison.
 
 ## Focus
 
-Both forms take one exact Type focus authority. For Member scope, a request
+Both forms take one exact Type focus authority per version side: one for a
+one-version request, and Before and After authorities naming one metadata Type
+name for a pair, because an acquired Type authority is bound to one
+registration. For Member scope, a request
 may carry a non-empty set of that Type's Finding Diff Any Member keys. The set
 is a set of Member-scope questions, one per key, as
 [Scope symmetry](scope-symmetry.md) frames each scope as one owner-issued
@@ -191,7 +194,8 @@ with no adapter query or no supported focus.
 One planning request carries:
 
 - the request form, and for a map request, its terminal;
-- one exact Type focus authority, and optionally a non-empty Member key set;
+- one exact Type focus authority per version side, and optionally a non-empty
+  Member key set;
 - one image, or an ordered image pair; and
 - the selected families: finding families for a map request, any non-empty
   family set for a family contribution request.
@@ -351,6 +355,8 @@ gated by the admission test.
    Settlement moves from extracting the selected Type to asking for the API
    shape facts of the Members that own uncertain differences, or of the whole
    Type when the Type itself owns one.
+   [Annotated Type Map API shape family](annotated-type-map-api-family.md)
+   owns this step.
 5. Register the Body shape-fact family over the map's Body fact per method
    from its adoption step 2, the fact-stream contribution over the method fact
    census of the map's adoption step 3, and the admitted Local-instruction
