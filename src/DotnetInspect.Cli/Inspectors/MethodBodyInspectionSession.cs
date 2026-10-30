@@ -161,16 +161,18 @@ public sealed class MethodBodyInspectionSession
         IAssemblyBindingPolicy bindingPolicy,
         Analysis.LibraryBodyAnalysisFeatures features,
         IReadOnlySet<int>? bodyScope = null,
-        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
+        bool includeImplementationProfiles = false)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         Analysis.LibraryBodyAnalysisRequest request =
-            Analysis.LibraryBodyAnalysisRequest.Create(
+            CreateAnalysisRequest(
                 features,
                 bodyScope,
-                bodyTypeScope);
+                bodyTypeScope,
+                includeImplementationProfiles);
         using Stream stream = assembly.OpenRead();
         using var imageStream = new MemoryStream();
         stream.CopyTo(imageStream);
