@@ -10,6 +10,10 @@ import {
 import type {
   BrowserTypeFindResult,
 } from "../src/facades/inspect-web-metadata.d.ts";
+import type {
+  BrowserSpotlightTypeFindCandidate,
+  BrowserSpotlightTypeFindResult,
+} from "../src/facades/inspect-web-catalog.d.ts";
 import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
 function candidate(
@@ -86,6 +90,7 @@ function result(
           answerOrdinal: 1,
           candidateOrdinal: 1,
         },
+        identity: "exact-package-type",
         source: "Package",
         status: "Available",
         action,
@@ -98,12 +103,11 @@ function result(
 
 test("projects candidates with their exact opaque actions", () => {
   const wire = result();
-  const wireCandidate = candidate();
   const projection = projectSpotlightTypeFindResult(wire);
   const [projected] = projection.candidates;
 
   assert.deepEqual(projected, {
-    identity: JSON.stringify(wireCandidate),
+    identity: "exact-package-type",
     action: "type-action",
     reason: null,
     name: "JsonSerializer",
@@ -285,17 +289,67 @@ test("delayed acknowledgement cannot replay an older selection", async () => {
   assert.equal(selected, "new");
 });
 
-test("new requests retire stale async results", async () => {
+function spotlightCandidate(
+  action: string | null,
+): BrowserSpotlightTypeFindCandidate {
+  return {
+    identity: "package-type:System.Text.Json",
+    action,
+    reason: null,
+    name: "JsonSerializer",
+    namespace: "System.Text.Json",
+    library: "System.Text.Json",
+    source: "System.Text.Json 10.0.0",
+    declarationKind: "Class",
+  };
+}
+
+function spotlightResult(action: string): BrowserSpotlightTypeFindResult {
+  return {
+    kind: "Succeeded",
+    inspection: {
+      candidates: [spotlightCandidate(action)],
+      completion: "Exhausted",
+      failures: [],
+      unsearched: [],
+    },
+    failureKind: null,
+    error: null,
+    diagnostic: null,
+    reason: null,
+  };
+}
+
+test("new requests cancel and retire stale streamed results", async () => {
   const requests: Array<{
+    readonly operationId: string;
     readonly generation: number;
     readonly text: string;
-    resolve(value: BrowserTypeFindResult): void;
+    readonly eventSink: unknown;
+    resolve(value: BrowserSpotlightTypeFindResult): void;
   }> = [];
+  const canceled: string[] = [];
   const scheduled: Array<() => void> = [];
+  let operation = 0;
   let updates = 0;
   const coordinator = createSpotlightTypeFind({
-    findTypes: (_definition, _realization, generation, text) =>
-      new Promise(resolve => requests.push({ generation, text, resolve })),
+    createOperationId: () => `find-${++operation}`,
+    findTypes: (
+      operationId,
+      _definition,
+      _realization,
+      generation,
+      text,
+      _maximumRows,
+      eventSink,
+    ) => new Promise(resolve => requests.push({
+      operationId,
+      generation,
+      text,
+      eventSink,
+      resolve,
+    })),
+    cancelTypes: operationId => { canceled.push(operationId); },
     schedule: callback => {
       scheduled.push(callback);
       return scheduled.length;
@@ -316,29 +370,51 @@ test("new requests retire stale async results", async () => {
     requests.map(request => [request.generation, request.text]),
     [[1, "Json"], [2, "JsonSerializer"]],
   );
+  assert.deepEqual(canceled, ["find-1"]);
 
-  requests[0]?.resolve(result("stale"));
+  Reflect.set(
+    requests[0]?.eventSink ?? {},
+    "event",
+    JSON.stringify({
+      kind: "Finding",
+      candidate: spotlightCandidate(null),
+    }),
+  );
+  requests[0]?.resolve(spotlightResult("stale"));
   await Promise.resolve();
   assert.deepEqual(coordinator.results(), []);
   assert.equal(updates, 0);
 
-  requests[1]?.resolve(result("current"));
+  Reflect.set(
+    requests[1]?.eventSink ?? {},
+    "event",
+    JSON.stringify({
+      kind: "Finding",
+      candidate: spotlightCandidate(null),
+    }),
+  );
+  assert.equal(coordinator.results()[0]?.action, null);
+  assert.equal(updates, 1);
+
+  requests[1]?.resolve(spotlightResult("current"));
   await Promise.resolve();
   assert.equal(coordinator.results()[0]?.action, "current");
   assert.equal(coordinator.loading(), false);
   assert.equal(coordinator.error(), "");
   assert.equal(coordinator.notice(), "");
-  assert.equal(updates, 1);
+  assert.equal(updates, 2);
 });
 
-test("empty text retires prior rows without presenting rejection as failure", async () => {
+test("empty text does not start Type Find", () => {
   const scheduled: Array<() => void> = [];
+  let started = false;
   const coordinator = createSpotlightTypeFind({
-    findTypes: async () => ({
-      status: "Rejected",
-      operation: null,
-      reason: "Type Find text must not be empty.",
-    }),
+    createOperationId: () => "find",
+    findTypes: async () => {
+      started = true;
+      return spotlightResult("unused");
+    },
+    cancelTypes: () => {},
     schedule: callback => {
       scheduled.push(callback);
       return scheduled.length;
@@ -351,28 +427,27 @@ test("empty text retires prior rows without presenting rejection as failure", as
     retainedDefinitionId: "definition",
     realizationId: "realization",
   }, "", true);
-  scheduled.shift()?.();
-  await Promise.resolve();
 
+  assert.equal(started, false);
+  assert.deepEqual(scheduled, []);
   assert.deepEqual(coordinator.results(), []);
   assert.equal(coordinator.loading(), false);
   assert.equal(coordinator.error(), "");
 });
 
-test("malformed managed content becomes a visible coordinator failure", async () => {
+test("managed failure becomes a visible coordinator failure", async () => {
   const scheduled: Array<() => void> = [];
-  const value = result();
   const coordinator = createSpotlightTypeFind({
+    createOperationId: () => "find",
     findTypes: async () => ({
-      ...value,
-      operation: value.operation && {
-        ...value.operation,
-        find: {
-          ...value.operation.find,
-          content: { kind: "evaluated" },
-        },
-      },
+      kind: "Failed",
+      inspection: null,
+      failureKind: "Unexpected",
+      error: "Type Find failed.",
+      diagnostic: "fixture failure",
+      reason: null,
     }),
+    cancelTypes: () => {},
     schedule: callback => {
       scheduled.push(callback);
       return scheduled.length;
@@ -391,6 +466,6 @@ test("malformed managed content becomes a visible coordinator failure", async ()
 
   assert.deepEqual(coordinator.results(), []);
   assert.equal(coordinator.loading(), false);
-  assert.match(coordinator.error(), /invalid locator result/);
+  assert.equal(coordinator.error(), "Type Find failed.");
   assert.equal(coordinator.notice(), "");
 });

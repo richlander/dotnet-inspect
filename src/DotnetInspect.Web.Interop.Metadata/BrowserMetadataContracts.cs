@@ -72,6 +72,7 @@ public sealed record BrowserTypeFindCandidateReference(
 
 public sealed record BrowserTypeFindCandidateActivation(
     BrowserTypeFindCandidateReference Candidate,
+    string? Identity,
     BrowserTypeFindActivationSource Source,
     BrowserTypeFindActivationStatus Status,
     string? Action,

@@ -289,7 +289,10 @@ public static partial class CatalogExports
         string action)
     {
         BrowserTypeFindActivationResult result =
-            await BrowserRetainedWorkspaceActivationRegistry.Owner
+            await BrowserRetainedWorkspaceActivationService
+                .TryActivateIndexedTypeFindActionAsync(action)
+                .ConfigureAwait(false)
+            ?? await BrowserRetainedWorkspaceActivationRegistry.Owner
                 .ActivateTypeFindActionAsync(action)
                 .ConfigureAwait(false);
         BrowserSpotlightActionResult wire = result switch

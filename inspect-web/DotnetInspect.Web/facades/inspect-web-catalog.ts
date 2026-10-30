@@ -1,14 +1,16 @@
 import { dotnet } from "./runtime-loader.js";
 
-declare const inertStringBrand: unique symbol;
-
-export type InertString = string & {
-  readonly [inertStringBrand]: "InertString";
-};
-
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserIndexedTypeFindActivationStatus = "Available" | "Unavailable" | "Stale" | "Ambiguous" | "Refused" | "Failed" | number;
+
 export type BrowserIndexedTypeFindResultStatus = "Completed" | "Rejected" | "Unavailable" | "Stale" | number;
+
+export type BrowserSpotlightTypeFindCompletion = "Exhausted" | "LimitReached" | "Partial" | number;
+
+export type BrowserSpotlightTypeFindFailureKind = "Expected" | "Unexpected" | number;
+
+export type BrowserSpotlightTypeFindResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
 export type BrowserVocabularyDiagnosticSeverity = "Information" | "Warning" | "Error" | number;
 
@@ -21,8 +23,6 @@ export type BrowserVocabularyMapCoverage = "Complete" | "Partial" | number;
 export type BrowserVocabularyScalarKind = "Text" | "Integer" | "Boolean" | number;
 
 export type BrowserWorkspacePackageSourceAuthentication = "Anonymous" | "AuthenticationRequired" | number;
-
-export type InspectionDiagnosticSeverity = number;
 
 export type JsonValueKind = number;
 
@@ -245,8 +245,23 @@ export interface BrowserHomeDemoView {
   readonly section: string | null;
 }
 
+export interface BrowserIndexedTypeFindCandidateActivation {
+  readonly matchOrdinal: number;
+  readonly identity: string | null;
+  readonly status: BrowserIndexedTypeFindActivationStatus;
+  readonly action: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserIndexedTypeFindInspectionEnvelope {
+  readonly content: unknown;
+  readonly share: BrowserVocabularyInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserVocabularyInspectionDiagnostic>;
+}
+
 export interface BrowserIndexedTypeFindOperationResult {
-  readonly find: InspectionEnvelope<unknown>;
+  readonly find: BrowserIndexedTypeFindInspectionEnvelope;
+  readonly activations: ReadonlyArray<BrowserIndexedTypeFindCandidateActivation>;
 }
 
 export interface BrowserIndexedTypeFindResult {
@@ -830,6 +845,43 @@ export interface BrowserSpotlightActionResult {
   readonly reason: string | null;
 }
 
+export interface BrowserSpotlightTypeFindCancellation {
+  readonly status: string;
+  readonly reason: string | null;
+}
+
+export interface BrowserSpotlightTypeFindCandidate {
+  readonly identity: string;
+  readonly action: string | null;
+  readonly reason: string | null;
+  readonly name: string;
+  readonly namespace: string;
+  readonly library: string;
+  readonly source: string;
+  readonly declarationKind: string;
+}
+
+export interface BrowserSpotlightTypeFindFailure {
+  readonly source: string;
+  readonly message: string;
+}
+
+export interface BrowserSpotlightTypeFindInspection {
+  readonly candidates: ReadonlyArray<BrowserSpotlightTypeFindCandidate>;
+  readonly completion: BrowserSpotlightTypeFindCompletion;
+  readonly failures: ReadonlyArray<BrowserSpotlightTypeFindFailure>;
+  readonly unsearched: ReadonlyArray<string>;
+}
+
+export interface BrowserSpotlightTypeFindResult {
+  readonly kind: BrowserSpotlightTypeFindResultKind;
+  readonly inspection: BrowserSpotlightTypeFindInspection | null;
+  readonly failureKind: BrowserSpotlightTypeFindFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
 export interface BrowserSpotlightTypeSelection {
   readonly definitionId: string;
   readonly assemblyName: string;
@@ -1057,19 +1109,6 @@ export interface BrowserWorkspaceShareView {
   readonly comparison: BrowserWorkspaceDiffShare | null;
 }
 
-export interface InspectionDiagnostic {
-  readonly code: string;
-  readonly severity: InspectionDiagnosticSeverity;
-  readonly summary: InertString;
-  readonly correspondence: InertString | null;
-}
-
-export interface InspectionEnvelope<T0> {
-  readonly content: T0;
-  readonly share: InspectionShare;
-  readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
-}
-
 export interface BrowserVocabularyAvailableShare {
   readonly kind: "available";
   readonly fullUrl: string;
@@ -1131,22 +1170,6 @@ export interface BrowserVocabularyLocalTermSetReference {
 
 export type BrowserVocabularyTermSetReference = BrowserVocabularyLocalTermSetReference | BrowserVocabularyExternalTermSetReference;
 
-export interface Available {
-  readonly kind: "available";
-  readonly fullUrl: string;
-  readonly packet: string;
-}
-
-export interface NonProjectable {
-  readonly kind: "nonProjectable";
-  readonly fullUrl: string | null;
-  readonly packet: string | null;
-  readonly path: string;
-  readonly reason: InertString;
-}
-
-export type InspectionShare = Available | NonProjectable;
-
 type $ManagedExports = {
   readonly "DotnetInspect": {
     readonly "Web": {
@@ -1162,6 +1185,7 @@ type $ManagedExports = {
             readonly "AdmitRetainedWorkspacePackage.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "AdmitRetainedWorkspacePlatform.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "CancelRetainedWorkspaceActivation.976702342": (receipt: string) => Promise<string>;
+            readonly "CancelSpotlightTypeFind.271973316": (operationId: string, reason: string) => string;
             readonly "CanonicalizeWorkspaceSharePacket.304094707": (encoded: string) => string;
             readonly "CaptureCompleteWorkspaceShareState.304094707": (stateJson: string) => string;
             readonly "CommitRetainedWorkspaceActivation.976702342": (receipt: string) => Promise<string>;
@@ -1176,6 +1200,7 @@ type $ManagedExports = {
             readonly "ExplainVocabularies.1772831633": (path: string, depth: number, valueIds: string[] | null) => string;
             readonly "ExplainWorkspaceComponent.1537767637": (json: string, parentPacket: string | null, projection: string) => string;
             readonly "FindIndexedTypes.72069702": (retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number) => Promise<string>;
+            readonly "FindSpotlightTypes.2105594833": (operationId: string, retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number, eventSink: unknown) => Promise<string>;
             readonly "InspectVocabulary.1310674786": () => string;
             readonly "ListEcosystems.1310674786": () => string;
             readonly "ListHomeDemos.1310674786": () => string;
@@ -1359,6 +1384,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "CancelSpotlightTypeFind.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.CancelSpotlightTypeFind.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
     value = $ownDataProperty(value, "CanonicalizeWorkspaceSharePacket.304094707");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.CanonicalizeWorkspaceSharePacket.304094707\u0027 is not callable.");
@@ -1518,6 +1555,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "FindIndexedTypes.72069702");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.FindIndexedTypes.72069702\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "FindSpotlightTypes.2105594833");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.FindSpotlightTypes.2105594833\u0027 is not callable.");
     }
   }
   {
@@ -1849,6 +1898,12 @@ export async function cancelRetainedWorkspaceActivation(receipt: string): Promis
   return $parsed as BrowserRetainedWorkspaceActivationResult;
 }
 
+export function cancelSpotlightTypeFind(operationId: string, reason: string): BrowserSpotlightTypeFindCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["CancelSpotlightTypeFind.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserSpotlightTypeFindCancellation;
+}
+
 export function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["CanonicalizeWorkspaceSharePacket.304094707"](encoded);
   const $parsed: unknown = JSON.parse($result);
@@ -1931,6 +1986,12 @@ export async function findIndexedTypes(retainedDefinitionId: string, realization
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["FindIndexedTypes.72069702"](retainedDefinitionId, realizationId, resultGeneration, text, maximumRows);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserIndexedTypeFindResult;
+}
+
+export async function findSpotlightTypes(operationId: string, retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number, eventSink: unknown): Promise<BrowserSpotlightTypeFindResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["FindSpotlightTypes.2105594833"](operationId, retainedDefinitionId, realizationId, resultGeneration, text, maximumRows, eventSink);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserSpotlightTypeFindResult;
 }
 
 export function inspectVocabulary(): BrowserVocabularyInspection {

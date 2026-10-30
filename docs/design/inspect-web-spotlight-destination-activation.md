@@ -36,9 +36,11 @@ and [#7030](https://github.com/richlander/dotnet-inspect/issues/7030);
 [#6686](https://github.com/richlander/dotnet-inspect/issues/6686) remains the
 final thin Browser integration and acceptance slice.
 The focused package-backed indexed Type extension is tracked by
-[#10560](https://github.com/richlander/dotnet-inspect/issues/10560). Its
-contract is proposed here but not yet implemented. Package-backed Member
-activation remains a separate later owner effort.
+[#10560](https://github.com/richlander/dotnet-inspect/issues/10560); its
+projection and execution contract is implemented. Indexed Type Spotlight
+adoption is tracked by
+[#10778](https://github.com/richlander/dotnet-inspect/issues/10778).
+Package-backed Member activation remains a separate later owner effort.
 
 This document is the normative owner of **Spotlight destination activation**.
 It owns exact-candidate classification, the Browser activation plan,
@@ -605,10 +607,11 @@ package-Type request. Stage 7 is implemented by the closed
 `AddCurrentPackageType`, and `RestoreExternalPackageTypeWorkspace` arms.
 Current admission retains committed Package membership independently from
 later Type focus; fresh publication validates the Definitions-issued exact
-selected-Type preparation before cutover. Ecosystem Find index admission and
-evaluation, managed Browser transport, Spotlight phase composition and
-presentation, published Firefox/Wasm acceptance, and Member activation remain
-the separately counted successors in
+selected-Type preparation before cutover. Indexed Type Spotlight composition
+now retains current package-scope Navigation evidence and submits only the
+opaque action associated with the exact indexed package, Library, and Type.
+Published Firefox/Wasm acceptance, complete Ecosystem Find continuation, and
+Member activation remain the separately counted successors in
 [#10090](https://github.com/richlander/dotnet-inspect/issues/10090).
 
 Each implementation stage receives its own focused issue and PR. This design
