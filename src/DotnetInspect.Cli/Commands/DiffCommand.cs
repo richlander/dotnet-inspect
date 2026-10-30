@@ -181,7 +181,10 @@ public partial class DiffCommand
                 catalogHiddenSections:
                     options.Schema ? null : pipeline.GetCatalogHiddenSections(),
                 listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                exactOnlySections: DiffSections.ExactOnlySections);
+                exactOnlySections: DiffSections.ExactOnlySections,
+                resourceCatalog: StructuralCatalogPaths.Name(
+                    InspectionCatalogIdentity.Diff),
+                resourceCapabilities: DiffOutputCapabilities.Catalog);
             if (discovered == 0
                 && options.Discover.Length == 0
                 && !options.Jsonl
