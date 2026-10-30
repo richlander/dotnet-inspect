@@ -192,6 +192,20 @@ public static class GeneralInverseFixtures
         }
     }
 
+    /// <summary>A synchronous method whose slow path is an async local function: the raised local function keeps its <c>async</c> modifier.</summary>
+    public static Task<int> SyncParentAsyncLocalFunction(ValueTask<int> pending)
+    {
+        if (pending.IsCompletedSuccessfully)
+            return Task.FromResult(pending.Result);
+        return Slow(pending);
+
+        static async Task<int> Slow(ValueTask<int> pending)
+        {
+            int value = await pending.ConfigureAwait(false);
+            return value + 1;
+        }
+    }
+
     /// <summary>An async lambda: the kickoff is an instance method of a display class.</summary>
     public static Func<Task<int>> Lambda(Task<int> a)
         => async () =>

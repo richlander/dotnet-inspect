@@ -183,6 +183,22 @@ public sealed class ClassicGeneralInverseTests
     }
 
     [Fact]
+    public void RaisedAsyncLocalFunctionKeepsItsAsyncModifier()
+    {
+        // The local function's body is reconstructed before LocalFunctionRaisingPass
+        // inlines it; its awaits need `async` on the declaration even when the
+        // enclosing method is synchronous.
+        using MetadataSource source = OpenFixture();
+        IrFunction function = ImportAndRaise(source, FixtureType, "SyncParentAsyncLocalFunction");
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.False(result.RequiresAsyncBodyModifier);
+        Assert.Contains("static async Task<int> Slow(", result.Output, StringComparison.Ordinal);
+        Assert.Contains("=> await pending.ConfigureAwait(false) + 1;", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RecipeAcceptancePopulationIsUnchanged()
     {
         // Stage 2 runs behind the recipe index: every request a recipe accepts
@@ -206,7 +222,10 @@ public sealed class ClassicGeneralInverseTests
     {
         // The raised body recompiles to a new kickoff and MoveNext, so opcode
         // fidelity against the kickoff is the wrong subject (#4472); the gate is
-        // that every reconstructed positive compiles back at all.
+        // that every reconstructed positive compiles back at all. The declines
+        // are excluded, and so is WithLocalFunction, whose async host keeps the
+        // call to the unspellable `<WithLocalFunction>g__Inner|N_M` (Partial,
+        // DEC0009) as the base did.
         var results = FidelityCheck.Evaluate(
             FixtureCatalog.DecompilerClassicAsync.AssemblyPath(),
             type => type is FixtureType or LoopFixtureType or ReaderType or HolderType,
