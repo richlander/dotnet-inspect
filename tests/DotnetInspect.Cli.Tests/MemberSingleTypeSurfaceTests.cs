@@ -6,6 +6,8 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -86,6 +88,77 @@ public class MemberSingleTypeSurfaceTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain("forwarded types", result.Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberInventory_UsesSelectedTypeDeclarations(bool count)
+    {
+        string[] terminal = count
+            ? ["-S", SectionNames.Overloads, "--count"]
+            : ["--json"];
+        var result = await RunCliAsync(
+            [
+                "member",
+                typeof(SingleTypeSurfaceFixture).FullName!,
+                "--library",
+                typeof(SingleTypeSurfaceFixture).Assembly.Location,
+                "-m",
+                nameof(SingleTypeSurfaceFixture.Overloaded),
+                .. terminal,
+                "--verbose",
+            ]);
+        var complete = AssemblyReader.ExtractApiSurface(
+            typeof(SingleTypeSurfaceFixture).Assembly.Location)!;
+        var expected = complete.Types
+            .Single(type => type.FullName == typeof(SingleTypeSurfaceFixture).FullName)
+            .Members.Where(member => member.Name == nameof(SingleTypeSurfaceFixture.Overloaded))
+            .Select(member => member.MetadataToken)
+            .Order()
+            .ToArray();
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("forwarded types", result.Error);
+        if (count)
+        {
+            Assert.Equal(expected.Length.ToString(), result.Output.Trim());
+        }
+        else
+        {
+            using var document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                expected,
+                document.RootElement.GetProperty("members")
+                    .EnumerateArray()
+                    .Select(member => (int?)member.GetProperty("metadata_token").GetInt32())
+                    .Order()
+                    .ToArray());
+        }
+    }
+
+    [Fact]
+    public async Task JsonInventory_ExtensionMemberKeepsCompleteSurface()
+    {
+        var result = await RunCliAsync(
+            [
+                "member",
+                typeof(SingleTypeSurfaceReceiver).FullName!,
+                "--library",
+                typeof(SingleTypeSurfaceReceiver).Assembly.Location,
+                "-m",
+                "SurfaceExtension",
+                "--json",
+                "--verbose",
+            ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("forwarded types", result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        var member = Assert.Single(
+            document.RootElement.GetProperty("members").EnumerateArray());
+        Assert.Equal("SurfaceExtension", member.GetProperty("name").GetString());
+        Assert.Equal("extension-method", member.GetProperty("kind").GetString());
     }
 
     [Fact]
@@ -417,4 +490,11 @@ public static class ArityWidget
 public static class ArityWidget<T>
 {
     public static string Go() => typeof(T).Name;
+}
+
+public sealed class SingleTypeSurfaceReceiver;
+
+public static class SingleTypeSurfaceExtensions
+{
+    public static int SurfaceExtension(this SingleTypeSurfaceReceiver receiver) => 7;
 }

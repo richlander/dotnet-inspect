@@ -2414,6 +2414,7 @@ public static partial class MemberCommand
         SectionNames.ExceptionRegions,
         SectionNames.SourceLocations,
         SectionNames.FidelityCauses,
+        SectionNames.Overloads,
     ];
 
     // Returns a selector that limits API extraction to the requested Type, or
@@ -2431,8 +2432,10 @@ public static partial class MemberCommand
             || options.EffectiveDiscovery
             || options.HasCallerScope
             || options.MemberFilter.Count != 1
-            || options.IncludeSections is not { Count: > 0 } sections
-            || !sections.All(SingleTypeSurfaceSections.Contains))
+            || !(options.IncludeSections is { Count: > 0 } sections
+                ? sections.All(SingleTypeSurfaceSections.Contains)
+                : options.JsonOutput && !options.Count
+                    && options.IncludeSections is null))
         {
             return null;
         }
@@ -2449,7 +2452,15 @@ public static partial class MemberCommand
             {
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Open(assemblyPath);
-                if (session.MethodBodies.FindUniqueLookupTypeToken(typeName) is not { } token
+                int? selectedToken =
+                    options.ResolvedRouterTarget is { } resolved
+                        ? session.ProbeDeclaration(resolved.Type)
+                            is TypeDeclarationResult.Defined definition
+                                ? definition.Definition.Value
+                                : null
+                        : session.MethodBodies.FindUniqueLookupTypeToken(
+                            typeName);
+                if (selectedToken is not { } token
                     || session.MethodBodies.DeclaresExtensionMethod(memberName))
                 {
                     return null;
