@@ -4180,28 +4180,6 @@ async function installFacades(
       export function listEcosystems() {
         return { ecosystems: productEcosystems };
       }
-      export function listPackageViewFacets() {
-        return {
-          facets: [
-            {
-              id: "package.libraries", kind: "Package", title: "Libraries",
-              summary: "", order: 50, role: "PackageLibraries",
-            },
-            {
-              id: "package.overview", kind: "Package", title: "Overview",
-              summary: "", order: 100, role: "PackageOverview",
-            },
-            {
-              id: "package.dependencies", kind: "Package", title: "Dependencies",
-              summary: "", order: 200, role: null,
-            },
-            {
-              id: "package.dependency-hierarchy", kind: "Package",
-              title: "Dependency Hierarchy", summary: "", order: 300, role: null,
-            },
-          ],
-        };
-      }
       export function listLibraryViewFacets() {
         return {
           facets: [
@@ -4398,6 +4376,14 @@ async function installFacades(
               summary: "API shape and member inventory for the active Type.",
               order: 200,
               role: "TypeApi",
+            },
+            {
+              id: "type.analysis",
+              kind: "Type",
+              title: "Analysis",
+              summary: "Binary-derived analysis for the active Type.",
+              order: 250,
+              role: null,
             },
             {
               id: "type.metadata",
