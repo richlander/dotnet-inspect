@@ -42,7 +42,6 @@ internal sealed record MethodBodyAnalysisResult(
         ImplementationMetrics,
     ImmutableArray<AnalysisDiagnostic>
         ImplementationMetricDiagnostics,
-    ImmutableArray<MethodBodyImplementationMetrics> ImplementationProfiles,
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
     IReadOnlyDictionary<int, MethodIdentity> DeclaredSources,
