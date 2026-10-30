@@ -371,6 +371,64 @@ public sealed partial class PackageRangedRealizationTests
             complete.Payload.Content.EnumerateEntries());
     }
 
+    [Fact]
+    public async Task
+        EndpointScope_NamedImplementationCompanionReadsOnlyListedPortablePdb()
+    {
+        byte[] assembly =
+            await File.ReadAllBytesAsync(
+                typeof(PackageRangedRealizationTests)
+                    .Assembly.Location,
+                TestContext.Current.CancellationToken);
+        byte[] archive = CreateAddressArchive(assembly);
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageEndpointScopeRequest request =
+            PackageEndpointScopeRequest.ForCompileLibraries(
+                PackageSourceCoordinate.Create(
+                    AddressPackageId,
+                    AddressPackageVersion),
+                "net10.0",
+                PackageAssetDemand.SurfaceAndImplementation,
+                [Path.GetFileName(AddressImplementationPath)],
+                PackageHouseLibraryCompanionDemand
+                    .ImplementationPortablePdb);
+        Assert.Equal(
+            PackageHouseLibraryCompanionDemand
+                .ImplementationPortablePdb,
+            request.CompanionDemand);
+
+        await using PackageEndpointScope scope =
+            AssertOpened(
+                await OpenSemanticEndpointAsync(
+                    environment,
+                    new InMemoryPackageStore(),
+                    request));
+
+        Assert.Single(scope.ImplementationParticipants);
+        Assert.Equal(
+            PackageHouseLibraryCompanionDemand
+                .ImplementationPortablePdb,
+            scope.Contribution.Result.Request
+                .LibraryCompanionDemand);
+        Assert.True(
+            scope.Contribution.Result.Request
+                .IsCompileLibraries);
+        Assert.Equal(
+            PackageAssetDemand.SurfaceAndImplementation,
+            scope.Contribution.Result.Request.AssetDemand);
+        Assert.Contains(
+            AddressPortablePdbPath,
+            scope.Payload.Content.EnumerateEntries());
+        Assert.DoesNotContain(
+            AddressPortablePdbNeighborPath,
+            scope.Payload.Content.EnumerateEntries());
+    }
+
     /// <summary>
     /// Gate 2: a <c>SurfaceAndImplementation</c> endpoint also exposes one
     /// implementation participant per realized implementation asset, each
