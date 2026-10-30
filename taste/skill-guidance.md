@@ -57,10 +57,10 @@ this strategy. Do not require a pilot for every CLI command, section or
 capability, or a fresh pilot for every skill edit or recipe removal. The
 discoverability and correctness requirements above still apply.
 
-When an observed task has outlier discovery or recovery cost, use a targeted
-pilot to understand the challenge before deciding whether to improve the
-evidence path or retain a recipe. Do not expand the evaluation campaign merely
-to fill the capability inventory.
+An observed task with outlier discovery or recovery cost may justify a
+targeted pilot to understand the challenge and inform whether to improve the
+evidence path or retain a recipe; it is not an automatic prerequisite. Do not
+expand the evaluation campaign merely to fill the capability inventory.
 
 ## Current guidance is the compatibility layer
 
