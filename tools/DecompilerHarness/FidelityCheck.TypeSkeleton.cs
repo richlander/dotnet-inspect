@@ -72,7 +72,11 @@ static partial class FidelityCheck
         // keeps the legacy EmitMethod path. WholeMemberNamespaces are the imports
         // the render shortened against, hoisted into the compile-back unit usings.
         string? WholeMember = null,
-        IReadOnlySet<string>? WholeMemberNamespaces = null);
+        IReadOnlySet<string>? WholeMemberNamespaces = null,
+        // The body carries await syntax (an async local function inside a
+        // synchronous method), so neither it nor its type may be emitted in a
+        // method-wide unsafe context (CS4004).
+        bool ContainsAwait = false);
 
     public sealed record PrimaryConstructorShape(
         string Parameters,
@@ -599,6 +603,7 @@ static partial class FidelityCheck
                 hasTarget ? target.Body : null,
                 hasTarget ? target.Chain : null,
                 hasTarget && target.RequiresAsync,
+                hasTarget && target.ContainsAwait,
                 accessibility,
                 sb, pad + "    ");
         }
@@ -646,7 +651,7 @@ static partial class FidelityCheck
         {
             foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
                 if (targets.TryGetValue(methodHandle, out var target)
-                    && target.RequiresAsync)
+                    && (target.RequiresAsync || target.ContainsAwait))
                 {
                     return true;
                 }
@@ -1474,7 +1479,7 @@ static partial class FidelityCheck
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle mh, string? realBody, string? realChain, bool realRequiresAsync,
-        SignatureSpellability accessibility, StringBuilder sb, string pad)
+        bool realContainsAwait, SignatureSpellability accessibility, StringBuilder sb, string pad)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(mh);
@@ -1537,7 +1542,7 @@ static partial class FidelityCheck
         string asyncModifier = realBody is not null && realRequiresAsync && CanBeAsync(returnType)
             ? "async "
             : "";
-        string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
+        string unsafeModifier = asyncModifier.Length == 0 && !(realBody is not null && realContainsAwait) ? "unsafe " : "";
         string slotModifier = StructObjectOverrideModifier(reader, typeDef, method, name, returnType, sig.ParameterTypes.Length);
         // A same-type call to a source-declarable new-slot virtual method binds as
         // callvirt only when the reconstructed sibling keeps that declaration.

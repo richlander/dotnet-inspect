@@ -15,8 +15,10 @@ Implemented recipes under
 [general inverse](#general-inverse) that replaces them is designed under
 [#4472](https://github.com/richlander/dotnet-inspect/issues/4472) for
 [#10190](https://github.com/richlander/dotnet-inspect/issues/10190) slice 2
-and is not yet implemented. The recipe sections below remain the contract of
-the shipped recipes until the staged retirement in that section removes them.
+with its stage 2 implemented (the inverse behind the recipe index, its fixture
+family, census, and models; see [Staging and retirement](#staging-and-retirement)).
+The recipe sections below remain the contract of the shipped recipes until the
+staged retirement in that section removes them.
 
 The focused composition clarification is tracked in
 [#6178](https://github.com/richlander/dotnet-inspect/issues/6178). It changes
@@ -180,7 +182,7 @@ inside the protocol try).
 | State load | the entry block's `V_state = this.<>1__state` | removed |
 | `this` copy | `V_this = this.<>4__this` in the entry block, or `<>4__this` reads at each use | `this` |
 | Dispatch | any branch whose condition depends only on `V_state` and constants: `brfalse`/`==`/`!=` chains, `switch (V_state)`, the `V_state != 0` guards Roslyn places around user prologue before a nested exception region, and the re-dispatch at that region's entry | evaluated under `V_state = -1`; the taken edge stays, the other edges go |
-| Suspension site | `V_aw = GetAwaiter(op)`; `if (V_aw.IsCompleted) goto K`; then `V_state = N; this.<>1__state = N; this.<>u__k = V_aw; this.<>t__builder.Await[Unsafe]OnCompleted(ref V_aw, ref this); return` | the three blocks collapse to the edge into `K`; `GetResult(ref V_aw)` in `K` becomes `await op` |
+| Suspension site | `V_aw = GetAwaiter(op)`; `if (V_aw.IsCompleted) goto K`; then `V_state = N; this.<>1__state = N; this.<>u__k = V_aw; this.<>t__builder.Await[Unsafe]OnCompleted(ref V_aw, ref this); return` | the three blocks collapse to the edge into `K`; `GetResult(ref V_aw)` in `K` becomes `await op`, where a struct `op` Roslyn passes by address (a spill local, or a hoisted local or parameter field) is awaited by value |
 | Resume landing | the dispatch target for `N`: `V_aw = this.<>u__k; this.<>u__k = default; V_state = -1; this.<>1__state = -1`, falling into `K` | removed; reachable only through dispatch |
 | Completion catch | the outer `catch (Exception V_ex) { this.<>1__state = -2; clears; this.<>t__builder.SetException(V_ex); return; }` | removed |
 | Completion tail | `this.<>1__state = -2; clears; this.<>t__builder.SetResult([V_result]); return` after the try | removed; every `leave` to it is `return [V_result]` |
@@ -188,20 +190,30 @@ inside the protocol try).
 | Hoisted local | `<name>5__N`, `<>7__wrapN`, `<>s__N`, `<>8__N` fields on the machine | fresh local; `name` where the field carries one |
 | Hoisted parameter | a machine field the kickoff stores one parameter into; Roslyn names it after that parameter, but the kickoff store is the binding | that parameter |
 | Housekeeping clear | `field = null` or `default` for a hoisted field where the store is provably unobservable: inside the completion catch or tail; a store to a field no source statement can name (`<>7__wrapN`, `<>s__N`, and the display-class environment `<>8__N`, whose scope-end clear Roslyn emits like a local's) from which no read of that field is reachable before another store to it; or the second of two clears of one field that are adjacent statements of the same basic block, a redundant store of the value the location already holds whether Roslyn's scope-end clear or, under Release field reuse, a user's `t = null` initializer that follows it (the Lean adjacent-store lemma does not depend on authorship); a clear that is a branch target is a join, not adjacent, because the field need not hold the value on every path into it. A compiler-temporary store that a read can reach is state, not a clear, whichever arm would otherwise match it: the await-in-`catch`/`finally` lowering resets its pending-branch selector and pending-exception holder at every loop iteration, and those stores are carried. Removals are decided one at a time against the already-reduced body, each arm's premise re-checked after every removal, so two clears that each justify the other's removal (a construct's final clear of a reused temporary followed by the next construct's reset of it) lose exactly one | removed |
-| Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back. For a hoisted `using` variable the carried store makes `UsingStatementPass` keep the try/finally form, which is valid. For a hoisted `foreach` iteration variable the carried store must make every `foreach` raise in `ForeachStatementPass` whose iteration variable can hold a managed type (enumerator, pattern, array, rectangular array, and `await foreach`; the string raise's `char` variable has no clear) keep its lowered form; today those raises check only their scaffold locals and would produce a `foreach` whose variable is assigned (CS1656 at Full), so [#10577](https://github.com/richlander/dotnet-inspect/issues/10577) is a stage 2 prerequisite. A later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
+| Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back. For a hoisted `using` variable the carried store makes `UsingStatementPass` keep the try/finally form, which is valid. For a hoisted `foreach` iteration variable the carried store makes every `foreach` raise in `ForeachStatementPass` whose iteration variable can hold a managed type (enumerator, pattern, array, rectangular array, and `await foreach`; the string raise's `char` variable has no clear) keep its lowered form, or, for the enumerator raise, fall back to a fresh foreach variable the body copies from; [#10577](https://github.com/richlander/dotnet-inspect/issues/10577) (merged in #10606) made those raises decline an item local stored outside the header, which was the stage 2 prerequisite. A later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
 
-Class-constrained generic awaiters (the boxed awaiter form), `async void`,
-`ValueTask`, and custom builders are the same roles with different member
-identities. Debug lowering adds spill locals, re-reads, and a `stateMachine`
+`async void`, `ValueTask`, and custom builders are the same roles with
+different member identities. A reference-type awaiter (a class awaiter or a
+class-constrained generic awaiter) reads `IsCompleted` and `GetResult` through
+the awaiter local by value rather than by address; the suspension-site
+recognizer requires the address form, so those sites decline visibly until a
+fixture admits them. Debug lowering adds spill locals, re-reads, and a `stateMachine`
 copy local at each suspension site; it is unmeasured, and no claim covers it
 until a compiler-produced Debug fixture does. An await inside a user `catch`
-or `finally` lowers to a pending-exception selector and a hoisted exception
-object with the handler body moved after the try and the rethrow spelled
-through `ExceptionDispatchInfo`; the inverse carries that lowered form as
-ordinary user code with the selector and object as hoisted locals. Whether
-the carried form is valid C# is judged by compile-back like every other body,
-it is not fully raised, and a later slice owns the `catch`- and
-`finally`-with-await raise.
+lowers to a pending-catch selector and a hoisted exception object, with the
+handler body moved after the try and a rethrow spelled through
+`ExceptionDispatchInfo`; the inverse carries that lowered form as ordinary user
+code with the selector and object as hoisted locals, and the form is not raised
+to its source form. Whether a carried form is valid C# is judged by compile-back like every
+other body. One part of it never is: a rethrow (`throw;`) leaves Roslyn's
+`throw obj;` over the `object`-typed exception object, which C# cannot spell,
+so post-pipeline validation declines any surviving throw of an `object`-typed
+value (`AwaitInCatchRethrow` in the fixture family). An await inside a user
+`finally` lowers to a `catch (object)` handler that stores the pending
+exception for a rethrow after the finally body; C# cannot spell a used
+`catch (object e)`, so the inverse declines that form visibly
+(`AwaitInFinallyOnly`, `AwaitInCatchAndFinallyLoop` in the fixture family). A
+later slice owns both raises.
 
 ### Proof obligations
 
@@ -229,8 +241,9 @@ it is not fully raised, and a later slice owns the `catch`- and
    completion tail becomes `return` of the result local, folded into the
    immediately preceding store when that store ends the same block. Output
    validity is judged after the full pipeline: no machine field, builder
-   member, awaiter member, state local, or residual transfer survives, and
-   the `await` count equals the proven suspension count.
+   member, awaiter member, state local, or residual transfer survives, no
+   `await` operand is an address, no throw of an `object`-typed value
+   survives, and the `await` count equals the proven suspension count.
 4. **Compile-back.** The raised body recompiles to a new kickoff and
    `MoveNext`; opcode fidelity against the kickoff MethodDef is the wrong
    subject, as #4472 records. Evidence is the whole-fixture recompile in the
@@ -241,7 +254,8 @@ Decline boundary: a state-local read that does not fold under `-1`; a
 dispatch-only block with a non-protocol node; a state constant without its
 pair; an unproven builder or awaiter use; more than one completion catch,
 `SetResult`, or `SetException`, or a filter on the completion catch; a
-residual transfer, machine field, or await-count mismatch after the pipeline;
+residual transfer, machine field, address `await` operand, `object`-typed
+throw, or await-count mismatch after the pipeline;
 the existing unsafe-context decline. Each decline names its reason and
 preserves the kickoff. Budget exhaustion remains `Failed`. Falsifier: a
 compiler-produced or corpus method whose raised body passes every check above
@@ -327,6 +341,22 @@ retire. Nothing in this slice adds a cross-layer reference.
    role rests on the completion role, not on these lemmas. All prove facts
    about the model; the fixture family and compile-back remain the evidence
    that the roles are Roslyn's.
+   Stage 2 landed (#10190 slice 2): on the pinned real-world baseline the
+   state-machine headline moved from 60 to 253 of 540 fully raised (11.11% to
+   46.85%), the 335 classic kickoffs from 12 to 205 `Full`, branching 23,132
+   to 23,133 and public API 19,860 to 19,902 against a clean base census at
+   `527db69d5` (2026-10-29, head `f706f99e4`). The remaining 130 classic
+   kickoffs are not `Full` for two different reasons. Some decline visibly
+   with `DEC0004` and keep their kickoff: structurer residue, exception
+   regions the structuring pass keeps flat, the await-in-`finally` form, an
+   address `await` operand, an `object`-typed rethrow, and the 14
+   recipe-matched declines that wait for stage 3. The others reconstruct, and
+   the raised body stays Partial for a cause outside the inverse: a
+   display-class, local-function, generated-method, or lambda-holder name, an
+   unspellable local name, or one `DEC0008`. The PR 10647 round 3 review
+   counted 71 visible declines and 59 such Partial reconstructions; the card
+   does not emit that split. The fixture family and the two models are in
+   place; the foreach prerequisite #10577 landed as #10606.
 3. **Recipes retire.** The inverse runs first; a recipe is consulted only when
    the inverse declines. Each recipe whose accepted population the inverse
    covers is deleted with its tests; the body node algebra, accountant, and

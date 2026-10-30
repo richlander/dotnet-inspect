@@ -1,0 +1,6 @@
+name = "classic-async-splice"
+version = "0.1.0"
+defaultTargets = ["ClassicAsyncSplice"]
+
+[[lean_lib]]
+name = "ClassicAsyncSplice"
