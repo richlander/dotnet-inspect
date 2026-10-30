@@ -101,6 +101,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     openUploadedLibrary: () => unexpected("openUploadedLibrary"),
   },
   package: {
+    queryPackageLibraryIdentities: () => unexpected("queryPackageLibraryIdentities"),
     openPlatformForwarderView: () => unexpected("openPlatformForwarderView"),
     activatePlatformForwarder: () => unexpected("activatePlatformForwarder"),
     closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
@@ -2745,6 +2746,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryReferencePackageSuppliers",
       "queryPackageHierarchy",
       "queryPackageIcon",
+      "queryPackageLibraryIdentities",
       "queryPackageVulnerabilities",
       "queryPackageRoot",
       "queryPackageSummary",
@@ -2883,7 +2885,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 143);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 144);
 
   const state = fixture();
   const groups = [

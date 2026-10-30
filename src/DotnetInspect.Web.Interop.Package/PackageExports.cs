@@ -733,6 +733,58 @@ public static partial class PackageExports
     }
 
     /// <summary>
+    /// Retained Metadata identities for the selected Package's Libraries,
+    /// without inspecting their public API surfaces.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageLibraryIdentities(
+        string packageId,
+        string version,
+        string targetFramework,
+        string? runtimeIdentifier)
+    {
+        BrowserPackageLibraryIdentity[] identities =
+            await PackageLibraryIdentitiesAsync(
+                packageId, version, targetFramework, runtimeIdentifier);
+        return JsonSerializer.Serialize(
+            identities,
+            BrowserPackageJsonContext.Default.BrowserPackageLibraryIdentityArray);
+    }
+
+    private static async Task<BrowserPackageLibraryIdentity[]>
+        PackageLibraryIdentitiesAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string? runtimeIdentifier)
+    {
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier);
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                CancellationToken.None);
+        // Rejection-carrier descriptors have no decoded AssemblyDef version.
+        return
+        [
+            .. scopeLease.Scope.SurfaceParticipants
+                .Where(participant =>
+                    participant.Assembly.Identity.Version is not null)
+                .Select(participant =>
+                    new BrowserPackageLibraryIdentity(
+                        participant.Asset.Id,
+                        participant.Assembly.Identity.Name,
+                        participant.Assembly.Identity.Version?.ToString() ?? "",
+                        participant.Assembly.Identity.Culture,
+                        participant.Assembly.Identity.PublicKeyToken)),
+        ];
+    }
+
+    /// <summary>
     /// Returns the shared direct-reference inspection for one exact admitted
     /// Library in the retained Browser Workspace.
     /// </summary>

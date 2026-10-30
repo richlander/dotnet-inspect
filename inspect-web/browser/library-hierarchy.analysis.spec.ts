@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import type {
+  BrowserPackageLibraryIdentity,
+} from "../src/facades/inspect-web-package.d.ts";
 import {
   subjectTab,
   inspectorTab,
@@ -1460,6 +1463,99 @@ test("production References shows an admitted package icon and opens its exact L
     "true");
   await expect(page.locator(".library-overview-surface h1"))
     .toHaveText("Reference.Target");
+});
+
+const unloadedReferenceTarget = library("asset:reference-target", "Reference.Target", 1);
+const unloadedReferenceIdentity: BrowserPackageLibraryIdentity = {
+  id: unloadedReferenceTarget.id,
+  name: unloadedReferenceTarget.name,
+  version: unloadedReferenceTarget.version,
+  culture: unloadedReferenceTarget.culture,
+  publicKeyToken: unloadedReferenceTarget.publicKeyToken,
+};
+
+async function installUnloadedReferenceTarget(
+  page: Page,
+  identities: readonly BrowserPackageLibraryIdentity[] = [unloadedReferenceIdentity],
+  deferred = false,
+) {
+  await installFacades(page, surface, [], "workspace-library", "ready",
+    undefined, "ready", "ready", undefined, {}, {
+      libraryIdentities: identities,
+      unloadedLibraries: [unloadedReferenceTarget],
+      deferLibraryIdentities: deferred,
+      packageChildren: {
+        content: {
+          kind: "Libraries", status: "Available",
+          packageId: surface.package, packageVersion: surface.version,
+          targetFramework: surface.activeFramework,
+          libraries: [...surface.assemblies, unloadedReferenceTarget].map(assembly => ({
+            assetId: assembly.id, assetPath: assembly.asset,
+            assemblyName: assembly.name, role: "Library",
+          })),
+          runtimeIdentifierPackages: [], detail: null, isComplete: true,
+        },
+        share: {
+          kind: "NonProjectable", fullUrl: null, packet: null,
+          path: "package-children/share", reason: "Fixture.",
+        },
+        diagnostics: [],
+      },
+    });
+}
+
+test("same-Package icons and exact Library links do not need a sibling API surface or supplier completion", async ({ page }) => {
+  await installUnloadedReferenceTarget(page);
+  await openReferences(page);
+  const frame = page.locator(".library-references-surface");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reference-supplier-request", /Example.Package/);
+  const row = frame.locator(".dep-list > li");
+  await expect(row.locator("[data-library-reference-icon]")).toHaveCount(1);
+  await expect(frame.locator(
+    'g.node[id*="-flowchart-r1-"] image[data-reference-package-icon]')).toHaveCount(1);
+  await expect(page.locator("html")).toHaveAttribute("data-library-api-request", core.id);
+  const link = row.getByRole("button", { name: "Reference.Target", exact: true });
+  await expect(link).toHaveAttribute(
+    "data-library-reference-library", unloadedReferenceTarget.id);
+  await link.click();
+  await expect(page.locator(".library-overview-surface h1")).toHaveText("Reference.Target");
+});
+
+for (const [label, identities] of [
+  ["version mismatch", [{ ...unloadedReferenceIdentity, version: "2.0.0.0" }]],
+  ["filename-only match", [{ ...unloadedReferenceIdentity, name: "Different.Manifest.Name" }]],
+  ["unadmitted Library", [{ ...unloadedReferenceIdentity, id: "asset:unadmitted" }]],
+  ["ambiguous identity", [unloadedReferenceIdentity, { ...unloadedReferenceIdentity, id: other.id }]],
+] as const) {
+  test(`same-Package lookup does not invent ownership for ${label}`, async ({ page }) => {
+    await installUnloadedReferenceTarget(page, identities);
+    await openReferences(page);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-package-library-identities-completed", "1");
+    const row = page.locator(".reference-list-section .dep-list > li");
+    await expect(row).toContainText("Reference.Target");
+    await expect(row.locator("button, [data-library-reference-icon]")).toHaveCount(0);
+  });
+}
+
+test("a late same-Package lookup cannot annotate a different Library result", async ({ page }) => {
+  await installUnloadedReferenceTarget(page, [unloadedReferenceIdentity], true);
+  await openReferences(page);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-library-identity-request-count", "1");
+  await selectLibrary(page, other.id);
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-library-identity-request-count", "2");
+  await releaseFacade(page, "fixture-library-identities-ready:1");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-library-identities-completed", "1");
+  await expect(page.locator(".reference-list-section")
+    .locator("button, [data-library-reference-icon]")).toHaveCount(0);
+  await releaseFacade(page, "fixture-library-identities-ready:2");
+  await expect(page.locator(".reference-list-section [data-library-reference-icon]"))
+    .toHaveCount(1);
 });
 
 test("external supplier icon arrives after direct References and updates its graph node", async ({ page }, testInfo) => {

@@ -9,6 +9,7 @@ import type {
   BrowserAssemblySurface,
   BrowserMemberSurface,
   BrowserPackageChildrenInspection,
+  BrowserPackageLibraryIdentity,
   BrowserPackageSurface,
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -385,6 +386,9 @@ interface PackageLoadingFixture {
   versions?: readonly string[];
   activityCatalogFailure?: boolean;
   packageChildren?: BrowserPackageChildrenInspection;
+  libraryIdentities?: readonly BrowserPackageLibraryIdentity[];
+  unloadedLibraries?: readonly BrowserAssemblySurface[];
+  deferLibraryIdentities?: boolean;
 }
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
@@ -1405,13 +1409,16 @@ async function installFacades(
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
       }
       export async function queryLibraryApi(id, version, framework, asset) {
+        document.documentElement.dataset.libraryApiRequest = asset;
         document.documentElement.dataset.libraryApiAttempts =
           String(++libraryApiAttempts);
         if (diagnosticsOptions.libraryApiFailure) {
           throw new Error("Library API inspection failed.");
         }
         const surface = surfaceFor(id, version, framework);
-        const selected = surface.assemblies.find(item => item.id === asset);
+        const selected = surface.assemblies.find(item => item.id === asset)
+          ?? ${JSON.stringify(packageLoading.unloadedLibraries ?? [])}
+            .find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const types = surface.types.filter(type => type.assemblyId === asset);
         const typeKinds = [...new Set(types.map(type => type.kindFacetId))].map((id, index) => ({
@@ -1524,6 +1531,21 @@ async function installFacades(
           isPlatformSearchEligible: claims[name]?.[2] ?? false
         }));
       }
+      let packageLibraryIdentityRequestCount = 0;
+      export async function queryPackageLibraryIdentities(id, version, framework, runtimeIdentifier) {
+        const attempt = ++packageLibraryIdentityRequestCount;
+        document.documentElement.dataset.packageLibraryIdentityRequestCount = String(attempt);
+        document.documentElement.dataset.packageLibraryIdentitiesRequest =
+          JSON.stringify([id, version, framework, runtimeIdentifier]);
+        const options = ${JSON.stringify(packageLoading)};
+        if (options.deferLibraryIdentities)
+          await new Promise(resolve => document.addEventListener(
+            "fixture-library-identities-ready:" + attempt, resolve, { once: true }));
+        document.documentElement.dataset.packageLibraryIdentitiesCompleted = String(attempt);
+        return options.libraryIdentities ?? surfaceFor(id, version, framework).assemblies.map(
+          ({ id, name, version, culture, publicKeyToken }) =>
+            ({ id, name, version, culture, publicKeyToken }));
+      }
       export async function queryLibraryReferences(id, version, framework, asset) {
         document.documentElement.dataset.referenceRequest = asset;
         const surface = surfaceFor(id, version, framework);
@@ -1580,6 +1602,12 @@ async function installFacades(
         document.documentElement.dataset.referenceSupplierRequest =
           JSON.stringify([id, version, framework, asset]);
         const scenario = ${JSON.stringify(references)};
+        if (scenario === "workspace-library"
+          && ${JSON.stringify(packageLoading.libraryIdentities !== undefined)}) {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-reference-suppliers-ready", resolve, { once: true }));
+          return [];
+        }
         if (scenario === "ecosystem-icons" && asset === "asset:core") {
           await new Promise(resolve => document.addEventListener(
             "fixture-reference-suppliers-ready", resolve, { once: true }));
