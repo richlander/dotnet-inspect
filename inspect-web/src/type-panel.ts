@@ -891,7 +891,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
         <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
         <small>types</small>
       </button>
-      ${filterControlsHtml}
+      <div class="member-nav-controls">${filterControlsHtml}</div>
       <div class="type-list member-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="members:${escapeHtml(type.id)}" data-nav-selection="${escapeHtml(navigationSelection)}">
         ${entries.map(entry => {
           if (entry.kind === "member") {

@@ -1111,6 +1111,9 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(html, /id="nav-to-types"/);
   assert.match(
     html,
+    /<div class="member-nav-controls"><label id="member-filters">filters<\/label><\/div>/);
+  assert.match(
+    html,
     /id="type-list" data-nav-scope="members:System\.Text\.Json\.JsonSerializer"/);
   assert.match(
     html,
@@ -1155,6 +1158,29 @@ test("the member nav renders documented exact rows without a group parent", () =
     html,
     /member-documentation-summary">Serializes one value &lt;safely&gt;\.<\/small>/);
   assert.doesNotMatch(html, /data-nav-member=/);
+});
+
+test("the member nav keeps status and filters in one controls row", () => {
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [],
+    memberCount: 0,
+    visibleMemberCount: 0,
+    filterControlsHtml:
+      '<p class="inspection-error">Exact members failed.</p>'
+        + '<details class="member-filter-disclosure">'
+        + '<summary>Filters</summary></details>',
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.match(
+    html,
+    /<div class="member-nav-controls"><p class="inspection-error">Exact members failed\.<\/p><details class="member-filter-disclosure"><summary>Filters<\/summary><\/details><\/div>\s*<div class="type-list member-list"/);
 });
 
 test("the member nav renders one active declaration as an exact member", () => {

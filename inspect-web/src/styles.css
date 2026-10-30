@@ -1452,6 +1452,7 @@ kbd {
   font: 10px/1.4 var(--sans);
 }
 .member-nav { grid-template-rows: var(--content-heading-height) 34px auto minmax(0, 1fr); }
+.member-nav-controls { min-width: 0; }
 .filter-disclosure { min-width: 0; }
 .filter-disclosure summary { min-width: 0; height: 30px; display: grid; grid-template-columns: 12px max-content minmax(0, 1fr); gap: 7px; align-items: center; padding: 0 10px; cursor: pointer; list-style: none; color: var(--dim); font: 10px var(--mono); }
 .filter-disclosure summary::-webkit-details-marker { display: none; }
