@@ -88,7 +88,13 @@ entries and outcomes. Each family kind has one content shape:
 
 Declaration facts carry their admission, not a fixed axis, because the axis a
 fact compares on is settled across the pair, as the map states; generation
-places them during the shape comparison.
+places them during the shape comparison. A declaration fact's recorded
+admission is the API axis's Member admission evaluated as if the declaring
+Type were public on that side: Finding Diff Any's census classification with
+the owner treated as visible, including an explicit interface implementation's
+effective access, which reads Type-level interface data. A retained map
+therefore places its facts without a reader. The Type's actual admission is
+recorded separately, in the API shape family.
 
 Every contribution records the Type's **presence** on its side. A Type absent
 from a side contributes no Member keys and no Type entries on that side.
@@ -168,9 +174,10 @@ result-kind table.
   Finding Diff Any's [Axes](finding-diff-any.md#axes) partition. A Type public
   on either side partitions its facts as public on both, and within that each
   Member's declaration facts are API or Body by the Member's own accessibility
-  on its side, as if the Type were public there. A Type admitted on one side
-  only makes its residual and every API-placed Member API `Changed`, Finding
-  Diff Any's rule, without a surface comparison.
+  on its side, as if the Type were public there, which is each fact's recorded
+  admission. A Type admitted on one side only makes its residual and every
+  Member API-placed on the side where the Type is admitted API `Changed`,
+  Finding Diff Any's rule, without a surface comparison.
 - **Shape comparison:** for a key on both sides whose Type is admitted on both
   sides, the API transition is the complete API comparison over the two
   detached projections. The Body transition is Finding Diff Any's Body
@@ -248,7 +255,8 @@ merely because they are not successful.
 - **Visibility change:** for a Type going from `internal` to `public`, and
   back, with unchanged Members, each Member's API and Body transitions equal
   Finding Diff Any's states: API `Changed` and Body `Unchanged` for a public
-  method whose IL and declaration are unchanged.
+  method and for an explicit interface implementation whose IL and
+  declaration are unchanged.
 - **Listing:** the map owner's Listing, Exactness, Outcomes, and Symmetry gates,
   over settled contributions.
 - **Retained comparison:** comparing two settled one-version Rows maps gives
