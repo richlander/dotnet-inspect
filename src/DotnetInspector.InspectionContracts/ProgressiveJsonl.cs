@@ -304,13 +304,13 @@ public sealed class ProgressiveJsonlBatcher<TRow>
         ProgressiveJsonlRecordEncodingOutcome encoded =
             _writer.Encode(row);
         if (encoded is ProgressiveJsonlRecordEncodingOutcome.Failed failed)
-            return new ProgressiveJsonlAppendOutcome.Rejected(failed.Failure);
+            return RejectAfterFlush(failed.Failure);
 
         string record =
             ((ProgressiveJsonlRecordEncodingOutcome.Encoded)encoded).Content;
         if (!IsValidRecord(record))
         {
-            return new ProgressiveJsonlAppendOutcome.Rejected(
+            return RejectAfterFlush(
                 new(ProgressiveJsonlFailureKind.InvalidRecordContent));
         }
 
@@ -318,8 +318,7 @@ public sealed class ProgressiveJsonlBatcher<TRow>
         ProgressiveJsonlProfile profile = _session.Profile;
         if (framedLength > profile.MaximumBatchJsonCodeUnits)
         {
-            Flush();
-            return new ProgressiveJsonlAppendOutcome.Rejected(
+            return RejectAfterFlush(
                 new(
                     ProgressiveJsonlFailureKind.RecordTooLarge,
                     framedLength,
@@ -348,6 +347,13 @@ public sealed class ProgressiveJsonlBatcher<TRow>
         }
 
         return new ProgressiveJsonlAppendOutcome.Appended();
+    }
+
+    private ProgressiveJsonlAppendOutcome.Rejected RejectAfterFlush(
+        ProgressiveJsonlFailure failure)
+    {
+        Flush();
+        return new(failure);
     }
 
     public void Flush()

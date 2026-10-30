@@ -226,6 +226,53 @@ public sealed class ProgressiveJsonlTests
     }
 
     [Fact]
+    public void WriterFailureFlushesEarlierBufferedRowsBeforeRejection()
+    {
+        var batches = new List<ProgressiveJsonlBatch>();
+        var batcher = new ProgressiveJsonlBatcher<string>(
+            Session(),
+            new FailOnSentinelWriter(),
+            batches.Add);
+        batcher.Append(@"""0""");
+        batches.Clear();
+        batcher.Append(@"""a""");
+
+        var rejected =
+            Assert.IsType<ProgressiveJsonlAppendOutcome.Rejected>(
+                batcher.Append("failed"));
+
+        ProgressiveJsonlBatch earlier = Assert.Single(batches);
+        Assert.Equal("\"a\"\n", earlier.Content);
+        Assert.Equal(
+            ProgressiveJsonlFailureKind.RecordSerializationFailed,
+            rejected.Failure.Kind);
+        Assert.Equal(2, batcher.Accounting.PublishedRecordCount);
+        Assert.False(batcher.HasBufferedRecords);
+    }
+
+    [Fact]
+    public void InvalidRecordContentFlushesEarlierBufferedRowsBeforeRejection()
+    {
+        var batches = new List<ProgressiveJsonlBatch>();
+        var batcher = Batcher(batches.Add);
+        batcher.Append(@"""0""");
+        batches.Clear();
+        batcher.Append(@"""a""");
+
+        var rejected =
+            Assert.IsType<ProgressiveJsonlAppendOutcome.Rejected>(
+                batcher.Append(" null"));
+
+        ProgressiveJsonlBatch earlier = Assert.Single(batches);
+        Assert.Equal("\"a\"\n", earlier.Content);
+        Assert.Equal(
+            ProgressiveJsonlFailureKind.InvalidRecordContent,
+            rejected.Failure.Kind);
+        Assert.Equal(2, batcher.Accounting.PublishedRecordCount);
+        Assert.False(batcher.HasBufferedRecords);
+    }
+
+    [Fact]
     public void CallbackFailureLeavesRejectedBatchOutOfAccounting()
     {
         var batcher = Batcher(
@@ -298,5 +345,16 @@ public sealed class ProgressiveJsonlTests
             new ProgressiveJsonlRecordEncodingOutcome.Failed(
                 new(
                     ProgressiveJsonlFailureKind.RecordSerializationFailed));
+    }
+
+    private sealed class FailOnSentinelWriter
+        : IProgressiveJsonlRecordWriter<string>
+    {
+        public ProgressiveJsonlRecordEncodingOutcome Encode(string row) =>
+            row == "failed"
+                ? new ProgressiveJsonlRecordEncodingOutcome.Failed(
+                    new(
+                        ProgressiveJsonlFailureKind.RecordSerializationFailed))
+                : new ProgressiveJsonlRecordEncodingOutcome.Encoded(row);
     }
 }
