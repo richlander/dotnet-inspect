@@ -1366,7 +1366,9 @@ public sealed record BrowserPackageHierarchyRow(
     int Depth,
     string Label,
     string Disposition,
-    string Resolution);
+    string Resolution,
+    string? EcosystemId,
+    string? EcosystemTitle);
 
 public sealed record BrowserPackageHierarchy(
     string Package,

@@ -499,6 +499,7 @@ import {
 import {
   callGraphLegendHtml,
   dependencyGraphLegendHtml,
+  packageHierarchyEcosystemLegendHtml,
   packageHierarchyGraphLegendHtml,
 } from "./graph-legends.ts";
 import { bindGraphExplore, createGraphExplorer } from "./graph-explorer.ts";
@@ -11917,6 +11918,7 @@ function renderPackageHierarchy() {
         <div class="section-title"><h2>Dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
         <div id="package-hierarchy-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
         ${packageHierarchyGraphLegendHtml()}
+        <div data-package-hierarchy-ecosystems></div>
       </section>
       <section class="document-section package-hierarchy-diagnostics">${completion}${failures}</section>
     </div>`;
@@ -25148,7 +25150,10 @@ async function renderPackageHierarchyGraph() {
     container.innerHTML = '<p class="graph-empty">No hierarchy occurrences were returned.</p>';
     return;
   }
-  const signature = `${state.theme}:${built.definition}`;
+  const signature = JSON.stringify([
+    state.theme, built.definition,
+    built.shownRows.map(row => [row.ecosystemId, row.ecosystemTitle]),
+  ]);
   if (container.dataset.graphDef === signature
     && container.querySelector(".graph-viewport")) return;
   const pending = createDependencyGraphPendingState(container.dataset);
@@ -25180,6 +25185,32 @@ async function renderPackageHierarchyGraph() {
     const viewport = container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
+    const legend = container.parentElement?.querySelector(
+      "[data-package-hierarchy-ecosystems]");
+    const graphSvg = viewport.querySelector<SVGSVGElement>("svg");
+    if (legend && graphSvg) {
+      legend.innerHTML =
+        packageHierarchyEcosystemLegendHtml(built.shownRows, escapeHtml);
+      for (const row of built.shownRows) {
+        if (!row.ecosystemId || !row.ecosystemTitle) continue;
+        const icon = legend.querySelector<HTMLElement>(
+          `[data-package-hierarchy-ecosystem="${CSS.escape(row.ecosystemId)}"]`);
+        const source = icon && getComputedStyle(icon).backgroundImage
+          .match(/^url\("([^"]+)"\)$/)?.[1];
+        if (!source) continue;
+        const image = updateDependencyGraphNodeIcon(
+          graphSvg, `h${row.id}`, source, "ecosystem");
+        if (image) {
+          image.setAttribute("role", "img");
+          image.setAttribute("aria-label", `Ecosystem: ${row.ecosystemTitle}`);
+          image.style.pointerEvents = "auto";
+          const title = document.createElementNS(
+            "http://www.w3.org/2000/svg", "title");
+          title.textContent = `${row.ecosystemTitle} ecosystem (package association)`;
+          image.appendChild(title);
+        }
+      }
+    }
     container.dataset.graphDef = signature;
     bindGraphPanZoom(container, viewport, { keybindings });
   } catch (error) {
@@ -25200,10 +25231,19 @@ function updateLibraryReferenceGraphIcon(
   const svg = document.querySelector<SVGSVGElement>(
     "#library-reference-graph-diagram .graph-viewport svg");
   if (!svg) return;
+  updateDependencyGraphNodeIcon(svg, `r${index + 1}`, source, kind);
+}
+
+function updateDependencyGraphNodeIcon(
+  svg: SVGSVGElement,
+  nodeId: string,
+  source: string,
+  kind: "package" | "ecosystem",
+): SVGImageElement | null {
   const node = svg.querySelector<SVGGElement>(
-    `g.node[id*="-flowchart-r${index + 1}-"]`);
+    `g.node[id*="-flowchart-${nodeId}-"]`);
   const shape = node?.querySelector<SVGRectElement>("rect");
-  if (!node || !shape) return;
+  if (!node || !shape) return null;
   let icon = node.querySelector<SVGImageElement>(
     "image[data-reference-icon]");
   if (!icon) {
@@ -25234,6 +25274,7 @@ function updateLibraryReferenceGraphIcon(
       `${viewBox.x - 36} ${viewBox.y} ${viewBox.width + 72} ${viewBox.height}`);
     svg.dataset.referenceIconsPadded = "true";
   }
+  return icon;
 }
 
 function updateLibraryReferenceGraphEcosystemIcon(icon: HTMLElement) {

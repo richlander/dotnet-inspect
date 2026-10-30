@@ -1551,6 +1551,8 @@ test.describe("Package Query website over real Wasm", () => {
       .toContainText(references.packageId.toLowerCase(), { timeout: 180_000 });
     await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toContainText(declaredDependency.id.toLowerCase());
+    await expect(page.locator("#package-hierarchy-graph-diagram image"))
+      .toHaveCount(0);
     await expect(page.locator(".package-hierarchy-diagnostics"))
       .toContainText("Traversal partial", { timeout: 180_000 });
     await expect(page.locator(".package-hierarchy-diagnostics details"))
@@ -1562,6 +1564,62 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toBeVisible();
   });
+
+  for (const theme of ["dark", "light"]) {
+    test(`hierarchy ecosystem icons preserve labels and partial evidence in ${theme} mode`, async ({ page, context }, testInfo) => {
+      const packageId = "Microsoft.Extensions.Hosting";
+      const dependency = { id: "Microsoft.Extensions.Options", versionRange: "[2.0.0]" };
+      await installGalleryRoutes(context, new GalleryFixtureRegistry([{
+        packageId,
+        version,
+        archive: manifestBackedNupkg(
+          healthyAssembly, healthyAssemblyFileName, packageId, version, dependency),
+      }]));
+      await page.addInitScript(value => localStorage.setItem("inspect-theme", value), theme);
+      const packet = Buffer.from(JSON.stringify({
+        f: 1, t: [[packageId.toLowerCase(), version, fixtureFramework, null]],
+        g: [[0]], a: 0, x: 0, v: "hierarchy",
+      })).toString("base64url");
+      await page.goto(`/?w=${packet}`);
+
+      const graph = page.locator("#package-hierarchy-graph-diagram svg");
+      await expect(graph).toBeVisible({ timeout: 180_000 });
+      await expect(graph.getByRole("img", { name: "Ecosystem: Microsoft.Extensions", exact: true }))
+        .toHaveCount(2);
+      await expect(graph).toContainText(packageId.toLowerCase());
+      await expect(graph).toContainText(dependency.id.toLowerCase());
+      await expect(page.locator('[aria-label="Ecosystem affiliations"]'))
+        .toContainText("package associations; not supplier or pruning evidence");
+      await expect(page.locator("[data-package-hierarchy-ecosystem]")).toHaveCount(1);
+      await expect(page.locator(".package-hierarchy-diagnostics"))
+        .toContainText("Traversal partial");
+      await expect(graph.locator("g.node.inspected")).toHaveCount(1);
+      await expect(graph.locator("g.node.reference")).toHaveCount(1);
+      for (const node of await graph.locator("g.node").all()) {
+        await expect(node.locator("image")).toHaveAttribute("href", /^data:image\/svg\+xml,/);
+        const layout = await node.evaluate(element => {
+          const icon = element.querySelector<SVGImageElement>("image")!.getBBox();
+          const label = element.querySelector<SVGGraphicsElement>(".label")!.getBBox();
+          const shape = element.querySelector<SVGRectElement>("rect")!.getBBox();
+          return {
+            iconInside: icon.x >= shape.x && icon.x + icon.width <= shape.x + shape.width,
+            spaceForLabel: shape.width >= label.width + icon.width,
+          };
+        });
+        expect(layout).toEqual({ iconInside: true, spaceForLabel: true });
+      }
+      const standalone = await graph.evaluate(element => new XMLSerializer().serializeToString(element));
+      expect(standalone.match(/href="data:image\/svg\+xml,/g)).toHaveLength(2);
+      await page.screenshot({ path: testInfo.outputPath(`hierarchy-ecosystems-${theme}.png`) });
+      await page.locator("#dependency-graph-explore").click();
+      const explorer = page.getByRole("dialog", { name: "Dependency hierarchy" });
+      await expect(explorer.getByRole("img", { name: "Ecosystem: Microsoft.Extensions", exact: true }))
+        .toHaveCount(2);
+      await page.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(graph.getByRole("img", { name: "Ecosystem: Microsoft.Extensions", exact: true }))
+        .toHaveCount(2);
+    });
+  }
 
   test("opens a coordinate result through retained definition activation", async ({
     page,
@@ -4283,6 +4341,27 @@ test.describe("deterministic two-host Workspace demo", () => {
 
 test.describe("bounded network-backed Worker smoke", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("annotates the real Microsoft.Extensions.Hosting hierarchy with ecosystem icons", async ({ page }) => {
+    const packet = Buffer.from(JSON.stringify({
+      f: 1, t: [["microsoft.extensions.hosting", "10.0.0", "net10.0", null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+    await page.goto(`/?w=${packet}`);
+    const graph = page.locator("#package-hierarchy-graph-diagram svg");
+    await expect(graph).toBeVisible({ timeout: 180_000 });
+    await expect(graph).toContainText("microsoft.extensions.hosting 10.0.0");
+    await expect(graph).toContainText("microsoft.extensions.dependencyinjection");
+    expect(await graph.getByRole("img", {
+      name: "Ecosystem: Microsoft.Extensions", exact: true,
+    }).count()).toBeGreaterThan(1);
+    await expect(graph.locator('g.node.inspected image'))
+      .toHaveAttribute("aria-label", "Ecosystem: Microsoft.Extensions");
+    const qualified = graph.locator("g.node.qualified");
+    expect(await qualified.locator("image").count()).toBeGreaterThan(0);
+    await expect(qualified.first().locator("rect.label-container"))
+      .toHaveCSS("stroke-dasharray", "4px, 3px");
+  });
 
   // PR-fast published-browser gate: immutable runtime XML assets, actual UI.
   test("renders the real XML facade and navigates two immediate Type destinations", async ({ page }) => {
