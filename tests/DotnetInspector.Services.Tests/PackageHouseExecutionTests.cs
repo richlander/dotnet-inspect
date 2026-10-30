@@ -687,36 +687,43 @@ public sealed partial class PackageHouseExecutionTests
     [Fact]
     public async Task VersionPopulationOperationTimeoutRetainsEnumeratedVersions()
     {
-        const int versionCount = 8_000;
+        CancellationToken operationToken = default;
         await using HouseEnvironment environment = HouseEnvironment.Create(
-            new SourceBehavior(VersionPopulation(versionCount)));
+            new SourceBehavior(["1.0.0", "2.0.0"]),
+            new SourceBehavior(
+                ["3.0.0"],
+                BeforeVersions: async (_, _) =>
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                        () => Task.Delay(
+                            Timeout.InfiniteTimeSpan,
+                            operationToken))));
         PackageHouseVersionPopulationRequest request =
             PopulationRequest(
-                $"1.0.0..1.0.{versionCount - 1}",
-                operationTimeout: TimeSpan.FromMilliseconds(150));
+                "1.0.0..2.0.0",
+                operationTimeout: TimeSpan.FromSeconds(1));
+        PackageHouse house = environment.CreateHouse();
+        PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                request.Operation.RequestTimeout,
+                request.Operation.OperationTimeout);
+        operationToken = operation.OperationCancellationToken;
 
         PackageHouseVersionPopulationResult result =
-            await environment.CreateHouse()
-                .SettleVersionPopulationAsync(
-                    request,
-                    environment.Root.IssueOperationLease(
-                        TestContext.Current.CancellationToken,
-                        request.Operation.RequestTimeout,
-                        request.Operation.OperationTimeout));
+            await house.SettleVersionPopulationAsync(request, operation);
 
         Assert.IsType<PackageHouseVersionPopulationResult.Failed>(
             result);
         PackageVersionDiscoveryResult discovery =
             Assert.IsType<PackageVersionDiscoveryResult>(
                 result.Evidence.Discovery);
-        // The deadline can be observed by discovery's final check or by the
-        // population's final check; both must retain the completed evidence.
-        Assert.True(
-            discovery.State is PackageVersionDiscoveryState.Authoritative
-                or PackageVersionDiscoveryState.Failed);
+        Assert.Equal(PackageVersionDiscoveryState.Failed, discovery.State);
         Assert.Equal(
-            versionCount,
-            discovery.Versions.Count);
+            ["2.0.0", "1.0.0"],
+            discovery.Versions);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(1, client.VersionRequests));
         PackageHouseFailure.Timeout timeout =
             Assert.IsType<PackageHouseFailure.Timeout>(
                 result.Evidence.Failures.Last());
@@ -804,17 +811,22 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
-    public async Task VersionPopulationCallerCancellationDuringVectorConstructionRemainsCancellation()
+    public async Task VersionPopulationCallerCancellationAfterVersionEnumerationRemainsCancellation()
     {
-        const int versionCount = 8_000;
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
-        cancellation.CancelAfter(TimeSpan.FromMilliseconds(150));
         await using HouseEnvironment environment = HouseEnvironment.Create(
-            new SourceBehavior(VersionPopulation(versionCount)));
+            new SourceBehavior(["1.0.0", "2.0.0"]),
+            new SourceBehavior(
+                ["3.0.0"],
+                BeforeVersions: (_, _) =>
+                {
+                    cancellation.Cancel();
+                    return Task.CompletedTask;
+                }));
         PackageHouseVersionPopulationRequest request =
-            PopulationRequest($"1.0.0..1.0.{versionCount - 1}");
+            PopulationRequest("1.0.0..2.0.0");
 
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -827,6 +839,9 @@ public sealed partial class PackageHouseExecutionTests
                             request.Operation.OperationTimeout)));
 
         Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(1, client.VersionRequests));
         await environment.AssertRootSettledAsync();
     }
 
@@ -1130,6 +1145,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             "linux-x64",
             contribution.Binding.Root.RequestedRuntimeIdentifier);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Same(
             realization.Selection.DefaultAsset,
             contribution.Binding.Root.AssetSelection.DefaultAsset);
@@ -1200,6 +1216,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal("net10.0", rootRequest.RequestedTargetFramework);
         Assert.True(rootRequest.AllowsCompatibleTargetSelection);
         Assert.True(rootRequest.UsesCompatibleImplementationSelection);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Equal(
             "net8.0",
             contribution.Binding.Root.AssetSelection.TargetFramework);
@@ -1636,6 +1653,7 @@ public sealed partial class PackageHouseExecutionTests
                 PackageHouseRootContributionAdapter.Create(
                     settlement)).Contribution;
         Assert.Same(realization, contribution.Realization);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             contribution.Binding.Root.AssetSelection.Status);
@@ -1712,6 +1730,7 @@ public sealed partial class PackageHouseExecutionTests
                     settlement)).Contribution;
         Assert.Same(noMatch, contribution.Result);
         Assert.Same(realization, contribution.Realization);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Equal(
             PackageCompileAssetSelectionStatus
                 .NoMatchingTargetFramework,
@@ -3507,12 +3526,6 @@ public sealed partial class PackageHouseExecutionTests
                 operationTimeout: operationTimeout),
             includePrerelease,
             includeUnlisted);
-
-    private static string[] VersionPopulation(int count) =>
-    [
-        .. Enumerable.Range(0, count).Select(
-            index => $"1.0.{index}"),
-    ];
 
     private static PackageAcquisitionCandidate ResolveCandidate(
         HouseEnvironment environment,

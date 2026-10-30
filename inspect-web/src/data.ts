@@ -15,26 +15,136 @@ export function assertNever(value: never, vocabulary: string): never {
 }
 
 const typeLensRouteByFacetId = {
+  "type.overview": "overview",
   "type.api": "api",
+  "type.analysis": "analysis",
   "type.metadata": "metadata",
   "type.source": "source",
   "type.compare": "compare",
 } as const;
 
+const libraryLensRouteByFacetId = {
+  "library.references": "references",
+  "library.compare": "compare",
+  "library.metadata": "metadata",
+} as const;
+
+const memberSectionRouteByFacetId = {
+  "member.overview": "overview",
+  "member.call-graph": "call-graph",
+  "member.facts": "facts",
+  "member.source": "source",
+  "member.compare": "compare",
+} as const;
+
+const packageLensRouteByFacetId = {
+  "package.overview": "overview",
+  "package.dependencies": "dependencies",
+  "package.dependency-hierarchy": "hierarchy",
+} as const;
+
+const requiredLibraryViewFacetIds = [
+  "library.references",
+  "library.compare",
+  "library.metadata",
+] as const satisfies readonly (keyof typeof libraryLensRouteByFacetId)[];
+
+const requiredMemberViewFacetIds = [
+  "member.overview",
+  "member.call-graph",
+  "member.facts",
+  "member.source",
+  "member.compare",
+] as const satisfies readonly (keyof typeof memberSectionRouteByFacetId)[];
+
+const requiredPackageViewFacetIds = [
+  "package.overview",
+  "package.dependencies",
+  "package.dependency-hierarchy",
+] as const satisfies readonly (keyof typeof packageLensRouteByFacetId)[];
+
+const libraryLensRoutes = [
+  "overview",
+  "references",
+  "compare",
+  "analysis",
+  "metadata",
+] as const;
+
+const memberSectionRoutes = [
+  "overview",
+  "call-graph",
+  "facts",
+  "resource-triage",
+  "analysis",
+  "source",
+  "compare",
+] as const;
+
+const packageLensRoutes = [
+  "overview",
+  "compare",
+  "dependencies",
+  "hierarchy",
+  "vulnerabilities",
+] as const;
+
 export type TypeLens =
-  (typeof typeLensRouteByFacetId)[keyof typeof typeLensRouteByFacetId]
-  | "overview";
+  (typeof typeLensRouteByFacetId)[keyof typeof typeLensRouteByFacetId];
 
-type RegisteredTypeLens = Exclude<TypeLens, "overview">;
+type RegisteredTypeLens = TypeLens;
+export type MemberSection = (typeof memberSectionRoutes)[number];
+export type PackageLens = (typeof packageLensRoutes)[number];
 
-export interface TypeViewFacetDescriptor {
+function isTypeViewFacetId(
+  value: string,
+): value is keyof typeof typeLensRouteByFacetId {
+  return Object.hasOwn(typeLensRouteByFacetId, value);
+}
+
+function isLibraryViewFacetId(
+  value: string,
+): value is keyof typeof libraryLensRouteByFacetId {
+  return Object.hasOwn(libraryLensRouteByFacetId, value);
+}
+
+function isMemberViewFacetId(
+  value: string,
+): value is keyof typeof memberSectionRouteByFacetId {
+  return Object.hasOwn(memberSectionRouteByFacetId, value);
+}
+
+function isPackageViewFacetId(
+  value: string,
+): value is keyof typeof packageLensRouteByFacetId {
+  return Object.hasOwn(packageLensRouteByFacetId, value);
+}
+
+export interface ViewFacetDescriptor {
   readonly id: string;
   readonly kind: string;
   readonly title: string;
   readonly order: number;
 }
 
+export type TypeViewFacetDescriptor = ViewFacetDescriptor;
+export type LibraryViewFacetDescriptor = ViewFacetDescriptor;
+export type MemberViewFacetDescriptor = ViewFacetDescriptor;
+export type PackageViewFacetDescriptor = ViewFacetDescriptor;
+
 let typeLenses: readonly (readonly [RegisteredTypeLens, string])[] | null = null;
+type RegisteredLibraryLens =
+  (typeof libraryLensRouteByFacetId)[keyof typeof libraryLensRouteByFacetId];
+let libraryViewFacetTitles:
+  ReadonlyMap<RegisteredLibraryLens, string> | null = null;
+type RegisteredMemberSection =
+  (typeof memberSectionRouteByFacetId)[keyof typeof memberSectionRouteByFacetId];
+let memberViewFacetTitles:
+  ReadonlyMap<RegisteredMemberSection, string> | null = null;
+type RegisteredPackageLens =
+  (typeof packageLensRouteByFacetId)[keyof typeof packageLensRouteByFacetId];
+let packageViewFacetTitles:
+  ReadonlyMap<RegisteredPackageLens, string> | null = null;
 
 export function setTypeViewFacetCatalog(
   descriptors: readonly TypeViewFacetDescriptor[],
@@ -45,7 +155,7 @@ export function setTypeViewFacetCatalog(
   let previousOrder = Number.NEGATIVE_INFINITY;
   const projected: (readonly [RegisteredTypeLens, string])[] = [];
   for (const descriptor of typeDescriptors) {
-    if (!(descriptor.id in typeLensRouteByFacetId)) {
+    if (!isTypeViewFacetId(descriptor.id)) {
       throw new Error(
         `Type view facet '${descriptor.id}' has no Browser renderer binding.`);
     }
@@ -61,12 +171,12 @@ export function setTypeViewFacetCatalog(
     }
     seen.add(descriptor.id);
     previousOrder = descriptor.order;
-    projected.push([
-      typeLensRouteByFacetId[
-        descriptor.id as keyof typeof typeLensRouteByFacetId
-      ],
-      descriptor.title,
-    ]);
+    if (descriptor.id !== "type.metadata") {
+      projected.push([
+        typeLensRouteByFacetId[descriptor.id],
+        descriptor.title,
+      ]);
+    }
   }
   for (const id of Object.keys(typeLensRouteByFacetId)) {
     if (!seen.has(id)) {
@@ -80,17 +190,12 @@ export function isTypeLens(
   value: string | null | undefined,
 ): value is TypeLens {
   return typeof value === "string"
-    && (value === "overview"
-      || Object.values(typeLensRouteByFacetId).some(id => id === value));
+    && Object.values(typeLensRouteByFacetId).some(id => id === value);
 }
 
-export const packageLenses = [
-  ["overview", "Overview"],
-  ["compare", "Compare"],
-  ["dependencies", "References"],
-  ["hierarchy", "Dependency Hierarchy"],
-  ["vulnerabilities", "Vulnerabilities"],
-] as const;
+export function canonicalTypeLens(value: TypeLens): TypeLens {
+  return value === "metadata" ? "overview" : value;
+}
 
 interface PackageInspectorContext {
   isRuntimePack?: boolean;
@@ -102,8 +207,72 @@ export function isEmptyPackageFramework(pkg: PackageInspectorContext | null): bo
   return pkg?.packageChildren?.content.status === "SelectedEmpty";
 }
 
+export function setPackageViewFacetCatalog(
+  descriptors: readonly PackageViewFacetDescriptor[],
+): void {
+  const seen = new Set<string>();
+  const titles = new Map<RegisteredPackageLens, string>();
+  let previousOrder = Number.NEGATIVE_INFINITY;
+  for (const descriptor of descriptors) {
+    if (descriptor.kind !== "Package") continue;
+    if (seen.has(descriptor.id)) {
+      throw new Error(`Package view facet '${descriptor.id}' is duplicated.`);
+    }
+    if (!descriptor.title.trim()) {
+      throw new Error(`Package view facet '${descriptor.id}' has no title.`);
+    }
+    if (!Number.isFinite(descriptor.order) || descriptor.order < previousOrder) {
+      throw new Error(
+        "Package view facets must retain product-issued finite ascending order.");
+    }
+    seen.add(descriptor.id);
+    previousOrder = descriptor.order;
+    if (isPackageViewFacetId(descriptor.id)) {
+      titles.set(
+        packageLensRouteByFacetId[descriptor.id],
+        descriptor.title);
+    }
+  }
+  for (const id of requiredPackageViewFacetIds) {
+    const route = packageLensRouteByFacetId[id];
+    if (!titles.has(route)) {
+      throw new Error(`Required Package view facet '${id}' is missing.`);
+    }
+  }
+  packageViewFacetTitles = titles;
+}
+
+export function packageLensDefinitions():
+  readonly (readonly [PackageLens, string])[] {
+  const titles = packageViewFacetTitles;
+  if (titles === null) {
+    throw new Error("The product Package view-facet catalog is unavailable.");
+  }
+  return packageLensRoutes.map(route => {
+    switch (route) {
+      case "overview":
+      case "hierarchy": {
+        const title = titles.get(route);
+        if (title === undefined) {
+          throw new Error(
+            `The Package view-facet title for '${route}' is unavailable.`);
+        }
+        return [route, title] as const;
+      }
+      case "compare":
+        return [route, "Compare"] as const;
+      case "dependencies":
+        return [route, "References"] as const;
+      case "vulnerabilities":
+        return [route, "Vulnerabilities"] as const;
+      default:
+        return assertNever(route, "Package lens");
+    }
+  });
+}
+
 export function packageLensesFor(pkg: PackageInspectorContext | null) {
-  return packageLenses.filter(([id]) => {
+  return packageLensDefinitions().filter(([id]) => {
     if (pkg?.isRuntimePack || isEmptyPackageFramework(pkg)) return id === "overview";
     if (id === "hierarchy") return false;
     if (id === "vulnerabilities") return pkg?.source.kind === "nuget.org";
@@ -111,48 +280,145 @@ export function packageLensesFor(pkg: PackageInspectorContext | null) {
   });
 }
 
-export const libraryLenses = [
-  ["overview", "Overview"],
-  ["references", "References"],
-  ["compare", "Compare"],
-  ["analysis", "Analysis"],
-  ["metadata", "Metadata"]
-] as const;
-
-export type PackageLens = (typeof packageLenses)[number][0];
-
 export function isPackageLens(
   value: string | null | undefined,
 ): value is PackageLens {
   return typeof value === "string"
-    && packageLenses.some(([id]) => id === value);
+    && packageLensRoutes.some(id => id === value);
 }
 
-export type LibraryLens = (typeof libraryLenses)[number][0];
+export type LibraryLens = (typeof libraryLensRoutes)[number];
+
+export function setLibraryViewFacetCatalog(
+  descriptors: readonly LibraryViewFacetDescriptor[],
+): void {
+  const seen = new Set<string>();
+  const titles = new Map<RegisteredLibraryLens, string>();
+  let previousOrder = Number.NEGATIVE_INFINITY;
+  for (const descriptor of descriptors) {
+    if (descriptor.kind !== "Library") continue;
+    if (seen.has(descriptor.id)) {
+      throw new Error(`Library view facet '${descriptor.id}' is duplicated.`);
+    }
+    if (!descriptor.title.trim()) {
+      throw new Error(`Library view facet '${descriptor.id}' has no title.`);
+    }
+    if (!Number.isFinite(descriptor.order) || descriptor.order < previousOrder) {
+      throw new Error(
+        "Library view facets must retain product-issued finite ascending order.");
+    }
+    seen.add(descriptor.id);
+    previousOrder = descriptor.order;
+    if (isLibraryViewFacetId(descriptor.id)) {
+      titles.set(
+        libraryLensRouteByFacetId[descriptor.id],
+        descriptor.title);
+    }
+  }
+  for (const id of requiredLibraryViewFacetIds) {
+    const route = libraryLensRouteByFacetId[id];
+    if (!titles.has(route)) {
+      throw new Error(`Required Library view facet '${id}' is missing.`);
+    }
+  }
+  libraryViewFacetTitles = titles;
+}
+
+export function libraryLensDefinitions():
+  readonly (readonly [LibraryLens, string])[] {
+  const titles = libraryViewFacetTitles;
+  if (titles === null) {
+    throw new Error("The product Library view-facet catalog is unavailable.");
+  }
+  return libraryLensRoutes.map(route => {
+    switch (route) {
+      case "overview":
+        return [route, "Overview"] as const;
+      case "analysis":
+        return [route, "Analysis"] as const;
+      case "references":
+      case "compare":
+      case "metadata": {
+        const title = titles.get(route);
+        if (title === undefined) {
+          throw new Error(
+            `The Library view-facet title for '${route}' is unavailable.`);
+        }
+        return [route, title] as const;
+      }
+      default:
+        return assertNever(route, "Library lens");
+    }
+  });
+}
 
 export function isLibraryLens(
   value: string | null | undefined,
 ): value is LibraryLens {
   return typeof value === "string"
-    && libraryLenses.some(([id]) => id === value);
+    && libraryLensRoutes.some(id => id === value);
 }
 
-export const memberSectionDefinitions = [
-  ["overview", "Overview"],
-  ["call-graph", "Call graph"],
-  ["facts", "Analysis"],
-  ["resource-triage", "Resource Triage"],
-  ["source", "Source"],
-  ["compare", "Compare"],
-] as const;
+export function setMemberViewFacetCatalog(
+  descriptors: readonly MemberViewFacetDescriptor[],
+): void {
+  const seen = new Set<string>();
+  const titles = new Map<RegisteredMemberSection, string>();
+  let previousOrder = Number.NEGATIVE_INFINITY;
+  for (const descriptor of descriptors) {
+    if (descriptor.kind !== "Member") continue;
+    if (seen.has(descriptor.id)) {
+      throw new Error(`Member view facet '${descriptor.id}' is duplicated.`);
+    }
+    if (!descriptor.title.trim()) {
+      throw new Error(`Member view facet '${descriptor.id}' has no title.`);
+    }
+    if (!Number.isFinite(descriptor.order) || descriptor.order < previousOrder) {
+      throw new Error(
+        "Member view facets must retain product-issued finite ascending order.");
+    }
+    seen.add(descriptor.id);
+    previousOrder = descriptor.order;
+    if (isMemberViewFacetId(descriptor.id)) {
+      titles.set(
+        memberSectionRouteByFacetId[descriptor.id],
+        descriptor.title);
+    }
+  }
+  for (const id of requiredMemberViewFacetIds) {
+    const route = memberSectionRouteByFacetId[id];
+    if (!titles.has(route)) {
+      throw new Error(`Required Member view facet '${id}' is missing.`);
+    }
+  }
+  memberViewFacetTitles = titles;
+}
 
-export type MemberSection = (typeof memberSectionDefinitions)[number][0];
+export function memberSectionDefinitions():
+  readonly (readonly [MemberSection, string])[] {
+  const titles = memberViewFacetTitles;
+  if (titles === null) {
+    throw new Error("The product Member view-facet catalog is unavailable.");
+  }
+  return memberSectionRoutes.map(route => {
+    if (route === "resource-triage") {
+      return [route, "Resource Triage"] as const;
+    }
+    if (route === "analysis") return [route, "Analysis"] as const;
+    const title = titles.get(route);
+    if (title === undefined) {
+      throw new Error(
+        `The Member view-facet title for '${route}' is unavailable.`);
+    }
+    return [route, title] as const;
+  });
+}
 
 export function isMemberSection(
   value: string | null | undefined,
 ): value is MemberSection {
   return typeof value === "string"
-    && memberSectionDefinitions.some(([id]) => id === value);
+    && memberSectionRoutes.some(id => id === value);
 }
 
 const workspaceScopes = [
@@ -638,8 +904,11 @@ interface DependencyGroupDependency {
   versionRange?: string;
 }
 
-export interface DependencyGroupData {
-  dependencyGroups?: readonly DependencyGroup[];
+export interface DependencyGroupData<
+  TGroup extends DependencyGroup = DependencyGroup,
+> {
+  dependencyGroups?: readonly TGroup[];
+  selectedDependencyGroup?: TGroup | null;
   dependencyGroupError?: string | null;
   platformReferences?: readonly {
     family: string;
@@ -656,26 +925,22 @@ export function dependencyGroupSelectionMessage(data: DependencyGroupData | null
   return data?.dependencyGroupError || "";
 }
 
-export function dependencyGraphGroupSelectionIndex(
-  data: DependencyGroupData | null | undefined,
-  selectedGroupIndex: number | null,
-  resolvedGroupIndex: number | null,
-): number | null {
-  return data?.dependencyGroupError
-    ? selectedGroupIndex
-    : resolvedGroupIndex;
-}
-
-export function selectedDependencyGroup(
-  data: DependencyGroupData | null | undefined,
+export function selectedDependencyGroup<
+  TGroup extends DependencyGroup = DependencyGroup,
+>(
+  data: DependencyGroupData<TGroup> | null | undefined,
   selectedGroupIndex: number | null = null,
-): DependencyGroup | null {
+): TGroup | null {
   const groups = data?.dependencyGroups || [];
   if (!groups.length) return null;
-  const selected = groups.find(group => group.index === selectedGroupIndex);
-  if (selected) return selected;
+  if (selectedGroupIndex !== null) {
+    const selected = groups.find(group => group.index === selectedGroupIndex);
+    if (selected) return selected;
+  }
   if (data?.dependencyGroupError) return null;
-  return groups.find(group => group.isActive) || null;
+  return data?.selectedDependencyGroup
+    ?? groups.find(group => group.isActive)
+    ?? null;
 }
 
 export function spotlightCandidateKey(pkg: PackageIdentity, typeId: string): string {
@@ -1809,12 +2074,8 @@ export interface SectionableMember {
   overloads?: readonly unknown[];
 }
 
-// The full roster is derived from the catalog rather than restated, so a new section is
-// offered as soon as it is defined. Restating it was the durable defect: the compiler
-// rejects a *removal* from the catalog, because the literal would stop being assignable,
-// but nothing caught an *addition*, which silently never reached the UI at all.
 const allMemberSections: readonly MemberSection[] =
-  memberSectionDefinitions.map(([id]) => id);
+  memberSectionRoutes;
 
 const packageOnlyMemberSections: ReadonlySet<MemberSection> =
   new Set<MemberSection>(["compare"]);
@@ -1827,8 +2088,14 @@ export function memberSectionIdsFor(
   if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
     && !hasSelectedBody) {
     // Compare is Diff-capable for every API member kind; only its Clone mode
-    // needs a method body, and the surface reports that itself.
-    return isRuntimePack ? ["overview"] : ["overview", "compare"];
+    // needs a method body, and the surface reports that itself. Analysis
+    // offers Unsafe, whose accessor findings anchor to their property or
+    // event.
+    const analysis: MemberSection[] =
+      ["property", "event"].includes(member?.kind ?? "") ? ["analysis"] : [];
+    return isRuntimePack
+      ? ["overview", ...analysis]
+      : ["overview", ...analysis, "compare"];
   }
   const sections = isRuntimePack
     ? allMemberSections.filter(section => !packageOnlyMemberSections.has(section))
@@ -1848,14 +2115,25 @@ export function typeLensesFor(
     throw new Error("The product Type view-facet catalog is unavailable.");
   }
   if (pkg?.source?.kind === "file")
-    return typeLenses.filter(([id]) => id === "api");
+    return typeLenses.filter(([id]) => id === "overview" || id === "api");
+  // Platform Types keep Analysis for Unsafe, which Platform Libraries issue;
+  // Relationships stays package-backed.
   if (pkg?.isRuntimePack)
-    return typeLenses.filter(([id]) => id === "api" || id === "source");
+    return typeLenses.filter(
+      ([id]) => id === "overview" || id === "api" || id === "source"
+        || id === "analysis");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
   return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
     ? typeLenses.filter(([id]) => id !== "compare")
     : typeLenses;
+}
+
+/** Type Analysis Relationships needs a package-backed Type. */
+export function typeRelationshipsOfferedFor(
+  pkg: { isRuntimePack?: boolean; source?: { kind: string } } | null | undefined,
+): boolean {
+  return Boolean(pkg) && !pkg?.isRuntimePack && pkg?.source?.kind !== "file";
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;

@@ -11,8 +11,15 @@ namespace ILInspector.Analysis.Tests;
 
 public sealed partial class MethodDefinitionRequestSetTests
 {
+    sealed class ProjectionMalformedException : IOException
+    {
+    }
+
+    static object CreateProjectionMalformedException() =>
+        new ProjectionMalformedException();
+
     [Fact]
-    public void ExactMethodAnalysis_PreservesIndependentEvidenceWhenCallsFail()
+    public void MethodAnalysis_PreservesIndependentEvidenceWhenCallsFail()
     {
         byte[] image = File.ReadAllBytes(
             typeof(ExactMethodAnalysisFixture).Assembly.Location);
@@ -52,6 +59,7 @@ public sealed partial class MethodDefinitionRequestSetTests
                 fieldToken);
         }
 
+        ImmutableArray<byte> input = ImmutableArray.Create(image);
         MethodDefinitionSourceAssociation association =
             Association(
                 ExactMethodAnalysisProducer.Instance,
@@ -63,7 +71,7 @@ public sealed partial class MethodDefinitionRequestSetTests
         MethodDefinitionSourceRequestSetExecution execution =
             Execute(
                 AcceptedPlan([association]),
-                ImmutableArray.Create(image));
+                input);
         ExactMethodAnalysisBody result = Assert.Single(
             ResultOf<ExactMethodAnalysisProducerResult>(
                 execution,
@@ -83,5 +91,211 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Contains(
             result.SafetyEvidence,
             evidence => evidence.Detail == "localloc");
+
+        MethodDefinitionSourceAssociation callGraphAssociation =
+            Association(
+                LibraryCallGraphProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth
+                    .AllDefinitions
+                    .IncludeGeneratedExecutionBodies());
+        MethodDefinitionSourceRequestSetExecution callGraphExecution =
+            Execute(
+                AcceptedPlan([callGraphAssociation]),
+                input);
+        LibraryCallGraphProducerResult produced =
+            Assert.IsType<LibraryCallGraphProducerResult>(
+                ResultOf<LibraryCallGraphProducerResult>(
+                    callGraphExecution,
+                    callGraphAssociation).Value);
+        MethodDefinitionSourceRequestResult sourceResult =
+            callGraphExecution.ResultOf(callGraphAssociation);
+        LibraryCallGraphAnalysisResult graph =
+            LibraryCallGraphAnalysisResult.FromProducer(
+                "malformed call fixture",
+                produced,
+                sourceResult.SourceReceipt,
+                sourceResult.WorkReceipt);
+        try
+        {
+            Assert.Contains(
+                graph.Diagnostics,
+                diagnostic => diagnostic.Message.Contains(
+                    "call operand is a FieldDefinition",
+                    StringComparison.Ordinal));
+            MethodSignals signals =
+                graph.MethodSignals[MetadataTokens.GetToken(method)];
+            Assert.True(signals.Catches > 0);
+        }
+        finally
+        {
+            graph.ReleaseCaches();
+        }
+    }
+
+    [Fact]
+    public void
+        LibraryCallGraphKernel_RecordsRecoverableBodyAttemptWithoutAcquisition()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ExactMethodAnalysisFixture).Assembly.Location);
+        MethodDefinitionHandle method;
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            method = FindMethod(
+                reader,
+                nameof(MethodDefinitionRequestSetTests),
+                nameof(
+                    LibraryCallGraphKernel_RecordsRecoverableBodyAttemptWithoutAcquisition));
+            MethodDefinition definition =
+                reader.GetMethodDefinition(method);
+            int bodyOffset = RvaToFileOffset(
+                pe.PEHeaders,
+                definition.RelativeVirtualAddress);
+            Assert.Equal(3, image[bodyOffset] & 3);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(bodyOffset + 4, sizeof(int)),
+                0x7F000000);
+        }
+
+        MethodDefinitionSourceAssociation association =
+            Association(
+                LibraryCallGraphProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.AllDefinitions);
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([association]),
+                ImmutableArray.Create(image));
+        LibraryCallGraphProducerResult produced =
+            Assert.IsType<LibraryCallGraphProducerResult>(
+                ResultOf<LibraryCallGraphProducerResult>(
+                    execution,
+                    association).Value);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+        int methodToken = MetadataTokens.GetToken(method);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            receipt.Completion);
+        Assert.True(
+            receipt.DefinitionsVisited
+                >= LibraryMethodAnalysisRunner.ParallelMethodThreshold);
+        Assert.False(receipt.Coverage.MethodAnalysis.Constructed);
+        Assert.True(receipt.Coverage.BodiesAttempted.Contains(method));
+        Assert.False(receipt.Coverage.BodiesAcquired.Contains(method));
+        Assert.Contains(
+            produced.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken == methodToken
+                && diagnostic.Message.Contains(
+                    nameof(BadImageFormatException),
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void
+        LibraryCallGraphKernel_RecordsRecoverableProjectionFailure()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(ExactMethodAnalysisFixture).Assembly.Location);
+        MethodDefinitionHandle method;
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            method = FindMethod(
+                reader,
+                nameof(MethodDefinitionRequestSetTests),
+                nameof(CreateProjectionMalformedException));
+            TypeDefinitionHandle type = reader.TypeDefinitions.Single(
+                handle => reader.StringComparer.Equals(
+                    reader.GetTypeDefinition(handle).Name,
+                    nameof(ProjectionMalformedException)));
+            int rowSize =
+                reader.GetTableRowSize(TableIndex.TypeDef);
+            int stringIndexSize =
+                reader.GetHeapSize(HeapIndex.String)
+                    > ushort.MaxValue
+                ? sizeof(uint)
+                : sizeof(ushort);
+            int fieldIndexSize =
+                reader.GetTableRowCount(TableIndex.Field)
+                    > ushort.MaxValue
+                ? sizeof(uint)
+                : sizeof(ushort);
+            int methodIndexSize =
+                reader.GetTableRowCount(TableIndex.MethodDef)
+                    > ushort.MaxValue
+                ? sizeof(uint)
+                : sizeof(ushort);
+            int extendsSize =
+                rowSize
+                - sizeof(uint)
+                - (2 * stringIndexSize)
+                - fieldIndexSize
+                - methodIndexSize;
+            int extendsOffset =
+                pe.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(TableIndex.TypeDef)
+                + (MetadataTokens.GetRowNumber(type) - 1)
+                    * rowSize
+                + sizeof(uint)
+                + (2 * stringIndexSize);
+            if (extendsSize == sizeof(uint))
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    image.AsSpan(extendsOffset, extendsSize),
+                    0xFFFFFFFC);
+            }
+            else
+            {
+                Assert.Equal(sizeof(ushort), extendsSize);
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    image.AsSpan(extendsOffset, extendsSize),
+                    0xFFFC);
+            }
+        }
+
+        MethodDefinitionSourceAssociation association =
+            Association(
+                LibraryCallGraphProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.AllDefinitions);
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([association]),
+                ImmutableArray.Create(image));
+        LibraryCallGraphProducerResult produced =
+            Assert.IsType<LibraryCallGraphProducerResult>(
+                ResultOf<LibraryCallGraphProducerResult>(
+                    execution,
+                    association).Value);
+        MethodDefinitionSourceReceipt receipt =
+            execution.ResultOf(association).SourceReceipt;
+        int methodToken = MetadataTokens.GetToken(method);
+
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.Exhausted,
+            receipt.Completion);
+        Assert.True(
+            receipt.DefinitionsVisited
+                >= LibraryMethodAnalysisRunner.ParallelMethodThreshold);
+        Assert.False(receipt.Coverage.MethodAnalysis.Constructed);
+        Assert.Contains(
+            produced.DirectCalls,
+            call =>
+                call.Caller.MetadataToken == methodToken
+                && call.Kind == CallKind.NewObject);
+        Assert.Contains(
+            produced.Diagnostics,
+            diagnostic =>
+                diagnostic.MethodToken == methodToken
+                && diagnostic.Message.Contains(
+                    nameof(BadImageFormatException),
+                    StringComparison.Ordinal));
     }
 }

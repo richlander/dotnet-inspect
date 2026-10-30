@@ -1,9 +1,12 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
+using DotnetInspect.Web.Interop.Catalog;
 using Catalog = DotnetInspect.Web.Interop.Catalog;
 using Metadata = DotnetInspect.Web.Interop.Metadata;
 using TypeFindPlan =
@@ -17,6 +20,260 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
+    [Fact]
+    public async Task ManagedIndexedTypeFind_UsesRetainedEcosystemAndExactIdentity()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateEcosystemAsync(
+                owner,
+                "aspire-indexed-type-find",
+                EcosystemPackIds.Aspire);
+        EcosystemFindIndexArtifact aspire = LoadFindIndex("aspire.json");
+        EcosystemFindIndexArtifact extensions =
+            LoadFindIndex("microsoft-extensions.json");
+
+        BrowserIndexedTypeFindExecutionResult.Completed completed =
+            Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .FindIndexedTypesAsync(
+                    owner,
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    [aspire, extensions],
+                    "Aspire.Hosting.ApplicationModel.RedisResource",
+                    maximumRows: 5000,
+                    resultGeneration: 1,
+                    TestContext.Current.CancellationToken));
+        EcosystemFindIndexedIntegrationResult.Type content =
+            completed.Result.Find.Content;
+        TypeFindSemanticMatch match = Assert.Single(
+            content.Matches,
+            candidate => candidate.FullName
+                == "Aspire.Hosting.ApplicationModel.RedisResource");
+        Assert.Equal(
+            "Aspire.Hosting.ApplicationModel.RedisResource",
+            match.FullName);
+        var source = Assert.IsType<ExactLibrarySourceCoordinate.Package>(
+            match.Declaration.Source.Coordinate);
+        Assert.Equal(
+            "aspire.hosting.redis",
+            source.PackageCoordinate.PackageId);
+        Assert.Equal(
+            "13.6.3",
+            source.PackageCoordinate.Version);
+        Assert.Equal(
+            "Aspire.Hosting.Redis",
+            source.LibraryIdentity.Identity.Name);
+        Assert.Equal(
+            ["RedisResource"],
+            match.Declaration.Name.Segments);
+        Assert.Equal(
+            EcosystemFindIndexedIntegrationCompletion.Exhausted,
+            content.Completion);
+        Assert.Equal(
+            EcosystemPackIds.Aspire,
+            Assert.Single(content.Coverage).Source.Ecosystem);
+        Assert.IsType<InspectionShare.NonProjectable>(
+            completed.Result.Find.Share);
+        Assert.Empty(completed.Result.Find.Diagnostics);
+
+        Catalog.BrowserIndexedTypeFindOperationResult projected =
+            Catalog.CatalogExports.ProjectIndexedTypeFindOperation(
+                completed.Result);
+        Assert.Same(
+            completed.Result.Find.Share,
+            projected.Find.Share);
+        Assert.Equal(
+            completed.Result.Find.Diagnostics,
+            projected.Find.Diagnostics);
+        JsonElement wireMatch = projected.Find.Content
+            .GetProperty("matches")
+            .EnumerateArray()
+            .Single(candidate =>
+                candidate.GetProperty("fullName").GetString()
+                    == "Aspire.Hosting.ApplicationModel.RedisResource");
+        Assert.Equal(
+            "Aspire.Hosting.ApplicationModel",
+            wireMatch.GetProperty("declaration")
+                .GetProperty("name")
+                .GetProperty("namespace")
+                .GetString());
+        Assert.Equal(
+            "aspire.hosting.redis",
+            wireMatch.GetProperty("declaration")
+                .GetProperty("source")
+                .GetProperty("coordinate")
+                .GetProperty("packageCoordinate")
+                .GetProperty("packageId")
+                .GetString());
+
+        BrowserIndexedTypeFindExecutionResult.Completed nonAdmitted =
+            Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .FindIndexedTypesAsync(
+                    owner,
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    [aspire, extensions],
+                    "Microsoft.Extensions.Logging.ILogger",
+                    maximumRows: 5000,
+                    resultGeneration: 2,
+                    TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(
+            nonAdmitted.Result.Find.Content.Matches,
+            match => match.FullName == "Microsoft.Extensions.Logging.ILogger");
+        Assert.All(
+            nonAdmitted.Result.Find.Content.Matches,
+            match => Assert.StartsWith(
+                "aspire.",
+                Assert.IsType<ExactLibrarySourceCoordinate.Package>(
+                    match.Declaration.Source.Coordinate)
+                    .PackageCoordinate.PackageId,
+                StringComparison.Ordinal));
+        Assert.All(
+            nonAdmitted.Result.Find.Content.Coverage,
+            coverage => Assert.Equal(
+                EcosystemPackIds.Aspire,
+                coverage.Source.Ecosystem));
+
+        BrowserIndexedTypeFindExecutionResult.Completed limited =
+            Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .FindIndexedTypesAsync(
+                    owner,
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    [aspire, extensions],
+                    "*",
+                    maximumRows: 1,
+                    resultGeneration: 3,
+                    TestContext.Current.CancellationToken));
+        Assert.Single(limited.Result.Find.Content.Matches);
+        Assert.Equal(
+            EcosystemFindIndexedIntegrationCompletion.RowLimitReached,
+            limited.Result.Find.Content.Completion);
+
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+        using WorkspaceRealizationOperationLease operation =
+            await EnterAsync(owner, posting.RetainedDefinitionId);
+        var indexedTypeFind = new BrowserIndexedTypeFindOperation();
+        BrowserIndexedTypeFindExecutionResult.Completed canceledResult =
+            Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+                indexedTypeFind.Execute(
+                    operation,
+                    [aspire, extensions],
+                    posting.RealizationId,
+                    "*",
+                    maximumRows: 25,
+                    resultGeneration: 0,
+                    canceled.Token));
+        Assert.Equal(
+            EcosystemFindIndexedIntegrationCompletion.Canceled,
+            canceledResult.Result.Find.Content.Completion);
+
+        Assert.IsType<BrowserIndexedTypeFindExecutionResult.Rejected>(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
+                posting.RetainedDefinitionId,
+                posting.RealizationId,
+                [aspire, extensions],
+                "RedisResource",
+                maximumRows: 0,
+                resultGeneration: 4,
+                TestContext.Current.CancellationToken));
+        Assert.IsType<BrowserIndexedTypeFindExecutionResult.Stale>(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
+                posting.RetainedDefinitionId,
+                posting.RealizationId,
+                [aspire, extensions],
+                "RedisResource",
+                maximumRows: 25,
+                resultGeneration: 3,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ManagedIndexedTypeFind_ReplacementResetsAuthority()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        EcosystemFindIndexArtifact aspire = LoadFindIndex("aspire.json");
+        BrowserRetainedWorkspacePosting first =
+            await ActivateEcosystemAsync(
+                owner,
+                "first-indexed-type-find",
+                EcosystemPackIds.Aspire);
+        Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
+                first.RetainedDefinitionId,
+                first.RealizationId,
+                [aspire],
+                "RedisResource",
+                maximumRows: 25,
+                resultGeneration: 1,
+                TestContext.Current.CancellationToken));
+
+        BrowserRetainedWorkspacePosting replacement =
+            await ActivateEcosystemAsync(
+                owner,
+                "replacement-indexed-type-find",
+                EcosystemPackIds.Aspire);
+
+        Assert.IsType<BrowserIndexedTypeFindExecutionResult.Unavailable>(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
+                first.RetainedDefinitionId,
+                first.RealizationId,
+                [aspire],
+                "RedisResource",
+                maximumRows: 25,
+                resultGeneration: 2,
+                TestContext.Current.CancellationToken));
+        Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                owner,
+                replacement.RetainedDefinitionId,
+                replacement.RealizationId,
+                [aspire],
+                "RedisResource",
+                maximumRows: 25,
+                resultGeneration: 1,
+                TestContext.Current.CancellationToken));
+
+        BrowserRetainedWorkspacePosting narrowed =
+            await ActivateEcosystemAsync(
+                owner,
+                "narrowed-indexed-type-find",
+                EcosystemPackIds.Aspire,
+                includePackagePrefixes: false);
+        BrowserIndexedTypeFindExecutionResult.Completed noPrefix =
+            Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+                await Catalog.BrowserRetainedWorkspaceActivationService
+                    .FindIndexedTypesAsync(
+                    owner,
+                    narrowed.RetainedDefinitionId,
+                    narrowed.RealizationId,
+                    [aspire],
+                    "RedisResource",
+                    maximumRows: 25,
+                    resultGeneration: 1,
+                    TestContext.Current.CancellationToken));
+        Assert.Empty(noPrefix.Result.Find.Content.Matches);
+        Assert.Empty(noPrefix.Result.Find.Content.Coverage);
+    }
+
     [Fact]
     public async Task MetadataFacade_TypeFindReturnsSharedEnvelopeAndExactActions()
     {
@@ -530,5 +787,65 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             await Catalog.BrowserRetainedWorkspaceActivationService
                 .ResetForTestsAsync();
         }
+    }
+
+    static async Task<BrowserRetainedWorkspacePosting>
+        ActivateEcosystemAsync(
+            BrowserRetainedWorkspaceActivationOwner owner,
+            string retainedDefinitionId,
+            EcosystemPackId ecosystem,
+            bool includePackagePrefixes = true)
+    {
+        WorkspacePlan catalogPlan =
+            EcosystemPackCatalog.CreateWorkspacePlan([ecosystem]);
+        WorkspaceRegistration.Ecosystem registration =
+            Assert.Single(
+                catalogPlan.Registrations
+                    .OfType<WorkspaceRegistration.Ecosystem>(),
+                candidate => candidate.Declaration.Id.Value
+                    == ecosystem.Value);
+        if (!includePackagePrefixes)
+        {
+            WorkspaceEcosystemRegistrationDeclaration declaration =
+                registration.Declaration;
+            registration = new WorkspaceRegistration.Ecosystem(
+                new WorkspaceEcosystemRegistrationDeclaration(
+                    declaration.Id,
+                    declaration.NamespaceRoots,
+                    declaration.CorePackages,
+                    declaration.Populations.Where(population =>
+                        population is not
+                            WorkspaceEcosystemPopulationDeclaration
+                                .PackagePrefix),
+                    declaration.IntegrationScanner));
+        }
+        var plan = new WorkspacePlan([registration]);
+        var request = new BrowserRetainedWorkspaceActivationRequest(
+            retainedDefinitionId,
+            retainedDefinitionId,
+            $"/ecosystems/{ecosystem.Value}",
+            new CompleteRestorationRequestBasis
+                .RegistrationOnlyEcosystemInput(
+                    plan,
+                    registration.Declaration.Id,
+                    new ViewFacetId("ecosystem.overview")));
+        return Assert.IsType<
+            BrowserRetainedWorkspaceActivationResult.Activated>(
+                await owner.ActivateAsync(
+                    request,
+                    TestContext.Current.CancellationToken)).Posting;
+    }
+
+    static EcosystemFindIndexArtifact LoadFindIndex(string fileName)
+    {
+        byte[] bytes = File.ReadAllBytes(
+            Path.Combine(
+                FindRepositoryRoot(),
+                "src",
+                "DotnetInspector.Ecosystems",
+                "FindIndexes",
+                fileName));
+        return Assert.IsType<EcosystemFindIndexLoadResult.Available>(
+            EcosystemFindIndexJson.Load(bytes)).Artifact;
     }
 }

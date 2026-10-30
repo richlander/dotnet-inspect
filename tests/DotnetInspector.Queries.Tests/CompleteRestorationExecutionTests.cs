@@ -1,11 +1,19 @@
 using System.IO.Compression;
 using System.Net;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
+using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
@@ -146,6 +154,547 @@ public sealed partial class CompleteRestorationExecutionTests
                 contribution.Ecosystem.Identity,
                 subject.Occurrence));
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyPackageType_PreparesExactType()
+    {
+        PackageFixture package = await AspireRedisPackageAsync();
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        ExactLibrarySourceCoordinate.Package library =
+            AspireRedisLibraryCoordinate();
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Microsoft.Extensions.Hosting",
+                    ["AspireRedisExtensions"]))
+                .Name;
+        var request = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                plan,
+                registration.Declaration.Id,
+                library,
+                type);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer
+                    .PrepareEcosystemPackageTypeRestoration(
+                        request,
+                        authority,
+                        TestContext.Current.CancellationToken));
+        Assert.Empty(plan.Contexts);
+        Assert.Single(preparation.Plan.WorkspacePlan.Contexts);
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+        CompleteRestorationReadyProjection? readyProjection = null;
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreWithProjectionAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, package.Store),
+                (_, projection, _) =>
+                {
+                    readyProjection = projection;
+                    return ValueTask.CompletedTask;
+                },
+                TestContext.Current.CancellationToken);
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
+        Assert.Same(request, activated.Workspace.Request);
+        Assert.Single(activated.Workspace.Snapshot.Contexts);
+        Assert.Single(activated.Workspace.Snapshot.Scope.Packages);
+        Assert.IsType<CompleteRestorationProjection.NonProjectable>(
+            activated.Workspace.Projection);
+        var resolved = Assert.IsType<CompleteRestorationResolvedState
+            .RegistrationOnlyEcosystemPackageType>(
+                activated.Workspace.Snapshot.Resolved);
+        Assert.Equal(library, resolved.Library);
+        Assert.Equal(type, resolved.Type);
+        CompleteRestorationReadyPackage readyPackage =
+            Assert.Single(readyProjection!.Packages);
+        Assert.Equal(
+            "registration-only-package-type",
+            readyPackage.NavigationId);
+        Assert.Equal(library.PackageCoordinate.PackageId,
+            readyPackage.Binding.Coordinate.PackageId);
+        Assert.Same(
+            Assert.Single(activated.Workspace.Snapshot.Scope.Packages),
+            readyPackage.Evaluation.Occurrence);
+
+        NavigationWorkspaceSnapshot snapshot =
+            activated.Workspace.Snapshot.Navigation.State.CurrentSnapshot;
+        var subject =
+            Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
+                snapshot.ActiveSubject);
+        Assert.Equal(type, subject.Identity.Type);
+        Assert.Equal(
+            library.LibraryIdentity.Identity,
+            subject.Library.Identity.Assembly,
+            AssemblyReferenceIdentity.EquivalentComparer);
+        Assert.Equal(
+            StructuralSubjectKind.Type,
+            snapshot.LensOutcome.EffectiveLens!.Subject.Kind);
+        Assert.True(
+            activated.Workspace.HasPreparedPackageType(library, type));
+        Assert.False(
+            activated.Workspace.HasPreparedPackageType(
+                library,
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Microsoft.Extensions.Hosting",
+                        ["OtherAspireRedisExtensions"]))
+                    .Name));
+        var selected = Assert.IsType<
+            CompleteRestorationSubjectResult<MetadataTypeDefinitionName>
+                .Completed>(
+            await CompleteRestorationSelectedSubjectOperation.ExecuteAsync(
+                activated.Activation,
+                activated.Workspace,
+                (target, _) =>
+                {
+                    var selectedType = Assert.IsType<
+                        CompleteRestorationSelectedSubject.Type>(target);
+                    Assert.Same(
+                        Assert.Single(
+                            activated.Workspace.Snapshot.Scope.Packages),
+                        selectedType.Occurrence);
+                    Assert.Equal(
+                        library.PackageCoordinate.PackageId,
+                        selectedType.Root.Coordinate.PackageId);
+                    Assert.Equal(
+                        library.PackageCoordinate.Version,
+                        selectedType.Root.Coordinate.Version);
+                    Assert.Same(
+                        selectedType.Subject.Library.Identity.Registration,
+                        NavigationRegistrationIdentity.From(
+                            selectedType.DefiningLibrary.Library.Participant
+                                .Assembly.Registration));
+                    Assert.Empty(selectedType.Queries);
+                    Assert.Empty(selectedType.QueryLibraries);
+                    return ValueTask.FromResult(
+                        selectedType.Subject.Identity.Type);
+                },
+                TestContext.Current.CancellationToken));
+        Assert.Equal(type, selected.Content);
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RegistrationOnlyPackageType_RejectsMissingExactIdentity(
+        bool missingLibrary)
+    {
+        PackageFixture package = await AspireRedisPackageAsync();
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        ExactLibrarySourceCoordinate.Package realLibrary =
+            AspireRedisLibraryCoordinate();
+        ExactLibrarySourceCoordinate.Package library = missingLibrary
+            ? new(
+                realLibrary.PackageCoordinate,
+                new ManagedMetadataIdentity.Assembly(
+                    new AssemblyReferenceIdentity(
+                        "Missing.Library",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)))
+            : realLibrary;
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    missingLibrary
+                        ? "Microsoft.Extensions.Hosting"
+                        : "Definitely.Missing",
+                    [missingLibrary ? "AspireRedisExtensions" : "Type"]))
+                .Name;
+        var request = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                plan,
+                registration.Declaration.Id,
+                library,
+                type);
+        var authority = new TestIntentAuthority();
+        CompleteRestorationPreparationResult preparation =
+            WorkspaceDefinitionConsumer
+                .PrepareEcosystemPackageTypeRestoration(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken);
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        var failed = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Failed>(
+                await WorkspaceDefinitionConsumer.RestoreAsync(
+                    preparation,
+                    authority,
+                    host,
+                    Options(client, package.Store),
+                    TestContext.Current.CancellationToken));
+
+        if (missingLibrary)
+        {
+            var selection = Assert.IsType<CompleteRestorationFailure
+                .PackageTypeSelectionFailed>(failed.Failure);
+            Assert.Equal(
+                CompleteRestorationFailure
+                    .PackageTypeSelectionFailureKind.LibraryMissing,
+                selection.Kind);
+        }
+        else
+        {
+            var selection = Assert.IsType<CompleteRestorationFailure
+                .PackageTypeSelectionFailed>(failed.Failure);
+            Assert.Equal(
+                CompleteRestorationFailure
+                    .PackageTypeSelectionFailureKind.TypeMissing,
+                selection.Kind);
+        }
+        Assert.True(host.CloseReport!.Succeeded);
+    }
+
+    [Theory]
+    [InlineData(CompleteRestorationIntentStatus.Expired)]
+    [InlineData(CompleteRestorationIntentStatus.Cancelled)]
+    [InlineData(CompleteRestorationIntentStatus.Superseded)]
+    public async Task RegistrationOnlyPackageType_RejectsStaleConstruction(
+        CompleteRestorationIntentStatus status)
+    {
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Microsoft.Extensions.Hosting",
+                    ["AspireRedisExtensions"]))
+                .Name;
+        var request = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                plan,
+                registration.Declaration.Id,
+                AspireRedisLibraryCoordinate(),
+                type);
+        var authority = new TestIntentAuthority();
+        CompleteRestorationPreparationResult preparation =
+            WorkspaceDefinitionConsumer
+                .PrepareEcosystemPackageTypeRestoration(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken);
+        var host = new TestHost
+        {
+            BeforePreparation = () => authority.Status = status,
+        };
+        using var client = new HttpClient(new RejectingHandler());
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, []),
+                TestContext.Current.CancellationToken);
+
+        if (status == CompleteRestorationIntentStatus.Superseded)
+        {
+            Assert.IsType<
+                CompleteRestorationResult<InspectionWorkspace>.Superseded>(
+                    result);
+        }
+        else
+        {
+            var failed = Assert.IsType<
+                CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
+            var unavailable = Assert.IsType<
+                CompleteRestorationFailure.AuthorityUnavailable>(
+                    failed.Failure);
+            Assert.Equal(status, unavailable.Status);
+        }
+        Assert.True(host.CloseReport!.Succeeded);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyPackageType_RejectsReplacedEcosystem()
+    {
+        PackageFixture package = await AspireRedisPackageAsync();
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Microsoft.Extensions.Hosting",
+                    ["AspireRedisExtensions"]))
+                .Name;
+        var request = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                plan,
+                registration.Declaration.Id,
+                AspireRedisLibraryCoordinate(),
+                type);
+        var authority = new TestIntentAuthority();
+        CompleteRestorationPreparationResult preparation =
+            WorkspaceDefinitionConsumer
+                .PrepareEcosystemPackageTypeRestoration(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken);
+        TestHost? host = null;
+        host = new TestHost
+        {
+            BeforePreparation = () =>
+            {
+                WorkspaceRegistrationRevision current =
+                    Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                        host!.Workspace!.GetRegistrationSnapshot()).Revision;
+                WorkspaceEcosystemRegistrationDeclaration original =
+                    registration.Declaration;
+                var replacement =
+                    new WorkspaceEcosystemRegistrationDeclaration(
+                        original.Id,
+                        original.NamespaceRoots,
+                        original.CorePackages,
+                        original.Populations,
+                        original.IntegrationScanner);
+                WorkspaceRegistrationOperationResult replaced =
+                    host.Workspace.ReplaceRegistrations(
+                        current,
+                        [
+                            .. current.Registrations.Select(item =>
+                                item is WorkspaceRegistration.Ecosystem ecosystem
+                                    && ReferenceEquals(
+                                        ecosystem.Declaration,
+                                        original)
+                                    ? (WorkspaceRegistration)new
+                                        WorkspaceRegistration.Ecosystem(
+                                            replacement)
+                                    : item),
+                        ]);
+                Assert.IsType<
+                    WorkspaceRegistrationOperationResult.Committed>(replaced);
+            },
+        };
+        using var client = new HttpClient(new RejectingHandler());
+
+        var failed = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Failed>(
+                await WorkspaceDefinitionConsumer.RestoreAsync(
+                    preparation,
+                    authority,
+                    host,
+                    Options(client, package.Store),
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<
+            CompleteRestorationFailure.EcosystemResolutionFailed>(
+                failed.Failure);
+        Assert.True(host.CloseReport!.Succeeded);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyPackageType_RejectsIncompleteInventory()
+    {
+        PackageFixture package = await AspireRedisPackageAsync();
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Microsoft.Extensions.Hosting",
+                    ["AspireRedisExtensions"]))
+                .Name;
+        var request = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                plan,
+                registration.Declaration.Id,
+                AspireRedisLibraryCoordinate(),
+                type);
+        var authority = new TestIntentAuthority();
+        CompleteRestorationPreparationResult preparation =
+            WorkspaceDefinitionConsumer
+                .PrepareEcosystemPackageTypeRestoration(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken);
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+        CompleteRestorationExecutionOptions options =
+            Options(client, package.Store) with
+            {
+                PackageSurfaceLimits = new ApiSurfaceProjectionLimits(
+                    maxParticipants: 1,
+                    maxTypes: 100,
+                    maxMembers: 1000,
+                    maxInspectionFailures: 10,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 0,
+                    maxRetainedTextCharacters: 100_000),
+            };
+
+        var failed = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Failed>(
+                await WorkspaceDefinitionConsumer.RestoreAsync(
+                    preparation,
+                    authority,
+                    host,
+                    options,
+                    TestContext.Current.CancellationToken));
+
+        var selection = Assert.IsType<CompleteRestorationFailure
+            .PackageTypeSelectionFailed>(failed.Failure);
+        Assert.Equal(
+            CompleteRestorationFailure
+                .PackageTypeSelectionFailureKind.IncompleteInventory,
+            selection.Kind);
+        Assert.True(host.CloseReport!.Succeeded);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyPackageType_IgnoresSameNamedNeighbor()
+    {
+        const string packageId = "Neighbor.Aspire";
+        const string version = "1.0.0";
+        const string source = "https://api.nuget.org/v3/index.json";
+        byte[] archive = Archive(
+            ("lib/net10.0/Aspire.StackExchange.Redis.dll",
+                AspireRedisLibraryImage()),
+            ("lib/net10.0/Neighbor.Aspire.Redis.dll",
+                CompileNeighborAspireRedisLibrary()));
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            packageId,
+            version,
+            NuGetCache.GetSourceKey(source),
+            new MemoryStream(archive, writable: false),
+            TestContext.Current.CancellationToken);
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        ExactLibrarySourceCoordinate.Package aspire =
+            AspireRedisLibraryCoordinate();
+        var exactLibrary = new ExactLibrarySourceCoordinate.Package(
+            PackageSourceCoordinate.Create(packageId, version),
+            aspire.LibraryIdentity);
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Microsoft.Extensions.Hosting",
+                    ["AspireRedisExtensions"]))
+                .Name;
+        var request = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                plan,
+                registration.Declaration.Id,
+                exactLibrary,
+                type);
+        var authority = new TestIntentAuthority();
+        CompleteRestorationPreparationResult preparation =
+            WorkspaceDefinitionConsumer
+                .PrepareEcosystemPackageTypeRestoration(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken);
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(
+                await WorkspaceDefinitionConsumer.RestoreAsync(
+                    preparation,
+                    authority,
+                    host,
+                    Options(client, store),
+                    TestContext.Current.CancellationToken));
+
+        NavigationWorkspaceSnapshot snapshot =
+            activated.Workspace.Snapshot.Navigation.State.CurrentSnapshot;
+        var subject = Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
+            snapshot.ActiveSubject);
+        Assert.Equal(
+            aspire.LibraryIdentity.Identity,
+            subject.Library.Identity.Assembly,
+            AssemblyReferenceIdentity.EquivalentComparer);
+        Assert.Equal(2, snapshot.Inventory!.Libraries.Length);
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    public async Task RegistrationOnlyPackageType_RejectsAmbiguousTypeBinding()
+    {
+        const string packageId = "Ambiguous.Aspire";
+        const string version = "1.0.0";
+        const string source = "https://api.nuget.org/v3/index.json";
+        byte[] libraryImage = AmbiguousAspireRedisLibraryImage();
+        byte[] archive = Archive((
+            "lib/net10.0/Ambiguous.Aspire.dll",
+            libraryImage));
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            packageId,
+            version,
+            NuGetCache.GetSourceKey(source),
+            new MemoryStream(archive, writable: false),
+            TestContext.Current.CancellationToken);
+        WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+            [EcosystemPackIds.Aspire]);
+        WorkspaceRegistration.Ecosystem registration =
+            EcosystemRegistration(plan, EcosystemPackIds.Aspire);
+        ExactLibrarySourceCoordinate.Package exactLibrary =
+            PackageLibraryCoordinate(packageId, version, libraryImage);
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Microsoft.Extensions.Hosting",
+                    ["AspireRedisExtensions"]))
+                .Name;
+        var request = new CompleteRestorationRequestBasis
+            .RegistrationOnlyEcosystemPackageTypeInput(
+                plan,
+                registration.Declaration.Id,
+                exactLibrary,
+                type);
+        var authority = new TestIntentAuthority();
+        CompleteRestorationPreparationResult preparation =
+            WorkspaceDefinitionConsumer
+                .PrepareEcosystemPackageTypeRestoration(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken);
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+
+        var failed = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Failed>(
+                await WorkspaceDefinitionConsumer.RestoreAsync(
+                    preparation,
+                    authority,
+                    host,
+                    Options(client, store),
+                    TestContext.Current.CancellationToken));
+
+        var selection = Assert.IsType<CompleteRestorationFailure
+            .PackageTypeSelectionFailed>(failed.Failure);
+        Assert.Equal(
+            CompleteRestorationFailure
+                .PackageTypeSelectionFailureKind.TypeAmbiguous,
+            selection.Kind);
+        Assert.True(host.CloseReport!.Succeeded);
     }
 
     [Fact]
@@ -1562,6 +2111,146 @@ public sealed partial class CompleteRestorationExecutionTests
             TestContext.Current.CancellationToken);
         return new(store);
     }
+
+    private static async Task<PackageFixture> AspireRedisPackageAsync()
+    {
+        const string url = "https://api.nuget.org/v3/index.json";
+        string path = AspireRedisPackagePath();
+        byte[] content = await File.ReadAllBytesAsync(
+            path,
+            TestContext.Current.CancellationToken);
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            "Aspire.StackExchange.Redis",
+            "13.6.3",
+            NuGetCache.GetSourceKey(url),
+            new MemoryStream(content, writable: false),
+            TestContext.Current.CancellationToken);
+        return new(store);
+    }
+
+    private static ExactLibrarySourceCoordinate.Package
+        AspireRedisLibraryCoordinate()
+    {
+        return PackageLibraryCoordinate(
+            "Aspire.StackExchange.Redis",
+            "13.6.3",
+            AspireRedisLibraryImage());
+    }
+
+    private static ExactLibrarySourceCoordinate.Package
+        PackageLibraryCoordinate(
+            string packageId,
+            string version,
+            byte[] libraryImage)
+    {
+        using var image = new MemoryStream(libraryImage, writable: false);
+        using var pe = new PEReader(image);
+        MetadataReader reader = pe.GetMetadataReader();
+        return new ExactLibrarySourceCoordinate.Package(
+            PackageSourceCoordinate.Create(packageId, version),
+            new ManagedMetadataIdentity.Assembly(
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader)));
+    }
+
+    private static byte[] AspireRedisLibraryImage()
+    {
+        using ZipArchive archive = ZipFile.OpenRead(
+            AspireRedisPackagePath());
+        ZipArchiveEntry entry = archive.GetEntry(
+            "lib/net10.0/Aspire.StackExchange.Redis.dll")
+            ?? throw new InvalidOperationException(
+                "The Aspire Redis fixture lacks its net10.0 library.");
+        using Stream content = entry.Open();
+        using var image = new MemoryStream();
+        content.CopyTo(image);
+        return image.ToArray();
+    }
+
+    private static byte[] CompileNeighborAspireRedisLibrary()
+    {
+        SyntaxTree syntax = CSharpSyntaxTree.ParseText(
+            """
+            namespace Microsoft.Extensions.Hosting;
+
+            public static class AspireRedisExtensions
+            {
+            }
+            """);
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "Neighbor.Aspire.Redis",
+            [syntax],
+            [
+                MetadataReference.CreateFromFile(
+                    typeof(object).Assembly.Location),
+            ],
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        var result = compilation.Emit(image);
+        Assert.True(
+            result.Success,
+            string.Join(
+                Environment.NewLine,
+                result.Diagnostics.Select(static diagnostic =>
+                    diagnostic.ToString())));
+        return image.ToArray();
+    }
+
+    private static byte[] AmbiguousAspireRedisLibraryImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Ambiguous.Aspire.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Ambiguous.Aspire"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0; index < 2; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("Microsoft.Extensions.Hosting"),
+                metadata.GetOrAddString("AspireRedisExtensions"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    private static string AspireRedisPackagePath() =>
+        Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "CompleteRestoration",
+            "aspire.stackexchange.redis.13.6.3.nupkg");
 
     private static byte[] Archive(
         params (string Path, byte[] Content)[] entries)

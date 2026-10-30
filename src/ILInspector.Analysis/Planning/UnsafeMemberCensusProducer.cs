@@ -50,7 +50,7 @@ public sealed class UnsafeMemberCensusProducer
     UnsafeMemberCensusProducer()
         : base(
             "UnsafeMemberCensus",
-            version: 1,
+            version: 2,
             tier: 0,
             MethodDefinitionLayers.Body
                 | MethodDefinitionLayers.Calls
@@ -74,12 +74,12 @@ public sealed class UnsafeMemberCensusProducer
         MetadataReader reader = view.Reader;
         MethodDefinition definition = view.MethodDefinition;
         ExtensionDeclarationShape extensionShape =
-            LibraryMethodAnalysisRunner.ClassifyExtensionDeclaration(
+            MethodDefinitionShapes.ClassifyExtensionDeclaration(
                 reader,
                 view.TypeDefinition,
                 definition);
         MethodBodyAvailability availability =
-            LibraryMethodAnalysisRunner.ClassifyBodyAvailability(definition);
+            MethodDefinitionShapes.ClassifyBodyAvailability(definition);
         MethodIdentity identity;
         bool requiresOwnerByShape;
         try
@@ -100,11 +100,7 @@ public sealed class UnsafeMemberCensusProducer
             }
 
             requiresOwnerByShape =
-                LibraryMethodAnalysisRunner
-                    .IsDeclaredInNestedCompilerGeneratedType(
-                        reader,
-                        view.TypeDefinition)
-                || extensionShape == ExtensionDeclarationShape.Unconfirmed;
+                RequiresOwnerByShape(view, extensionShape);
         }
         catch (Exception exception)
             when (IsRecoverable(exception))
@@ -115,16 +111,7 @@ public sealed class UnsafeMemberCensusProducer
         ImmutableArray<UnsafeMemberUseEvidence> evidence;
         try
         {
-            evidence =
-                availability == MethodBodyAvailability.Present
-                && view.HasManagedBody
-                    ? BodyEvidence(view, identity)
-                    : UnsafeMemberUseRules
-                        .CollectEvidence(
-                            identity.CallerUnsafeMode,
-                            [],
-                            [],
-                            []);
+            evidence = Evidence(view, identity, availability);
         }
         catch (Exception exception)
             when (IsRecoverable(exception))
@@ -140,6 +127,20 @@ public sealed class UnsafeMemberCensusProducer
                 requiresOwnerByShape);
         }
 
+        UnsafeMemberModuleRules rules = UnsafeMemberModuleRules.NotRead;
+        if (HasInnerUnsafeEvidence(evidence))
+        {
+            try
+            {
+                rules = ModuleRules(view.GetMemorySafetyRules());
+            }
+            catch (Exception exception)
+                when (IsRecoverable(exception))
+            {
+                rules = UnsafeMemberModuleRules.Unknown;
+            }
+        }
+
         return new(
             Facts(
                 token,
@@ -147,9 +148,31 @@ public sealed class UnsafeMemberCensusProducer
                 extensionShape,
                 availability,
                 failureDetail: null,
-                evidence),
+                evidence) with { ModuleRules = rules },
             requiresOwnerByShape);
     }
+
+    // Any role but the member's own contract is evidence of an unsafe context
+    // the body used.
+    static bool HasInnerUnsafeEvidence(ImmutableArray<UnsafeMemberUseEvidence> evidence)
+    {
+        foreach (UnsafeMemberUseEvidence item in evidence)
+        {
+            if (item.Kind != UnsafeMemberUseKind.ExplicitContract)
+                return true;
+        }
+        return false;
+    }
+
+    static UnsafeMemberModuleRules ModuleRules(MemorySafetyRulesResult rules) =>
+        rules switch
+        {
+            MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Updated } =>
+                UnsafeMemberModuleRules.Updated,
+            MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Legacy } =>
+                UnsafeMemberModuleRules.Legacy,
+            _ => UnsafeMemberModuleRules.Unknown,
+        };
 
     internal override List<UnsafeMemberCensusBodyFact> Seed() => [];
 
@@ -232,6 +255,143 @@ public sealed class UnsafeMemberCensusProducer
             attributionBounded: completion.IsSourceBounded);
     }
 
+    /// <summary>
+    /// Whether one method definition has a positive census role: the visit's
+    /// evidence rule without its fold. An extension-block declaration copy is
+    /// ignored, as the census ignores it; a body that cannot be read throws.
+    /// </summary>
+    internal static bool HasEvidence(scoped MethodDefinitionView view)
+    {
+        MethodDefinition definition = view.MethodDefinition;
+        ExtensionDeclarationShape extensionShape =
+            MethodDefinitionShapes.ClassifyExtensionDeclaration(
+                view.Reader,
+                view.TypeDefinition,
+                definition);
+        if (extensionShape == ExtensionDeclarationShape.Skeleton)
+            return false;
+
+        MethodIdentity identity = view.SemanticIdentity switch
+        {
+            MethodSemanticIdentityResult.Decoded decoded =>
+                Compose(view, decoded.Identity),
+            MethodSemanticIdentityResult.SignatureBoundExceeded bounded =>
+                Compose(view, bounded.Identity),
+            MethodSemanticIdentityResult.Malformed malformed =>
+                throw new BadImageFormatException(malformed.Reason),
+            _ => throw new InvalidOperationException(
+                "Unknown semantic-identity outcome."),
+        };
+        ImmutableArray<UnsafeMemberUseEvidence> evidence =
+            Evidence(
+                view,
+                identity,
+                MethodDefinitionShapes.ClassifyBodyAvailability(definition));
+        bool ownContract = false;
+        foreach (UnsafeMemberUseEvidence item in evidence)
+        {
+            if (item.Kind != UnsafeMemberUseKind.ExplicitContract)
+                return true;
+            ownContract = true;
+        }
+
+        // The census confers an explicit contract only on the body that is
+        // its own declared member, so a contract on a body that needs a
+        // declared owner by shape is not a role.
+        return ownContract
+            && !RequiresOwnerByShape(view, extensionShape)
+            && !CompilerGeneratedNames.RequiresDeclaredOwner(identity);
+    }
+
+    // A body needs an authenticated owner whatever its declared source when
+    // its type is a nested compiler-generated type or it is an unconfirmed
+    // extension declaration.
+    static bool RequiresOwnerByShape(
+        scoped MethodDefinitionView view,
+        ExtensionDeclarationShape extensionShape) =>
+        MethodDefinitionShapes.IsDeclaredInNestedCompilerGeneratedType(
+            view.Reader,
+            view.TypeDefinition)
+        || extensionShape == ExtensionDeclarationShape.Unconfirmed;
+
+    /// <summary>
+    /// The role scan's verdict on one present body, checked against the full
+    /// rule when the scan decides it: the unit of
+    /// <see cref="UnsafeMemberRoleScanAgreementProducer"/>. A body the scan
+    /// decides agrees only when the full rule completes with the same evidence.
+    /// </summary>
+    internal static UnsafeMemberRoleScanVerdict CheckRoleScan(
+        scoped MethodDefinitionView view)
+    {
+        MethodDefinition definition = view.MethodDefinition;
+        if (MethodDefinitionShapes.ClassifyExtensionDeclaration(
+                view.Reader,
+                view.TypeDefinition,
+                definition)
+                == ExtensionDeclarationShape.Skeleton
+            || MethodDefinitionShapes.ClassifyBodyAvailability(definition)
+                != MethodBodyAvailability.Present
+            || !view.HasManagedBody)
+        {
+            return UnsafeMemberRoleScanVerdict.NotApplicable;
+        }
+
+        MethodIdentity identity;
+        try
+        {
+            identity = view.SemanticIdentity switch
+            {
+                MethodSemanticIdentityResult.Decoded decoded =>
+                    Compose(view, decoded.Identity),
+                MethodSemanticIdentityResult.SignatureBoundExceeded bounded =>
+                    Compose(view, bounded.Identity),
+                _ => throw new BadImageFormatException(
+                    "The semantic identity is malformed."),
+            };
+            if (!UnsafeMemberRoleScan.ProvablyRoleFree(view))
+                return UnsafeMemberRoleScanVerdict.Deferred;
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            // The census fails this body before the scan can decide it.
+            return UnsafeMemberRoleScanVerdict.NotApplicable;
+        }
+
+        ImmutableArray<UnsafeMemberUseEvidence> decided =
+            UnsafeMemberUseRules.CollectEvidence(identity.CallerUnsafeMode, [], [], []);
+        try
+        {
+            ImmutableArray<UnsafeMemberUseEvidence> full = BodyEvidence(view, identity);
+            return full.SequenceEqual(decided)
+                ? UnsafeMemberRoleScanVerdict.Agreed
+                : UnsafeMemberRoleScanVerdict.Disagree(
+                    string.Join(
+                        "; ",
+                        full.Select(static evidence => $"{evidence.Kind} {evidence.Detail}")));
+        }
+        catch (Exception ex) when (IsRecoverable(ex))
+        {
+            return UnsafeMemberRoleScanVerdict.Disagree(
+                $"the full rule failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    // A body the role scan proves role-free has only the member's own
+    // contract; every other present body takes the full rule.
+    static ImmutableArray<UnsafeMemberUseEvidence> Evidence(
+        scoped MethodDefinitionView view,
+        MethodIdentity identity,
+        MethodBodyAvailability availability) =>
+        availability == MethodBodyAvailability.Present
+        && view.HasManagedBody
+        && !UnsafeMemberRoleScan.ProvablyRoleFree(view)
+            ? BodyEvidence(view, identity)
+            : UnsafeMemberUseRules.CollectEvidence(
+                identity.CallerUnsafeMode,
+                [],
+                [],
+                []);
+
     static MethodIdentity Compose(
         scoped MethodDefinitionView view,
         MethodSemanticIdentity identity) =>
@@ -248,62 +408,6 @@ public sealed class UnsafeMemberCensusProducer
         MethodInstructions instructions =
             view.MaterializeInstructions(out MethodBodyData bodyData);
         MethodCallSites calls = view.GetCalls(instructions);
-        MethodLocalSignature locals = view.GetLocalSignature();
-        MethodBodyAnalysisContext context =
-            MethodBodyAnalysisContext.Create(
-                identity,
-                bodyData,
-                instructions,
-                locals.Types,
-                locals.DeclaredCount,
-                locals.IncompleteReason,
-                view.GetBody().LocalVariablesInitialized);
-
-        var callees = new Dictionary<int, MemberRef>();
-        foreach (MethodCallSite site in calls.Sites)
-            callees.TryAdd(site.OperandToken, site.Callee);
-        MemberRef ResolveMember(int operandToken) =>
-            callees.TryGetValue(operandToken, out MemberRef? callee)
-                ? callee
-                : throw new BadImageFormatException(
-                    $"Operand 0x{operandToken:X8} is not a resolved call site.");
-
-        ImmutableArray<UnsafetyOccurrence> unsafety =
-            MethodSafetyAnalysis.CollectOccurrences(
-                context,
-                operandToken =>
-                    callees.TryGetValue(operandToken, out MemberRef? signature)
-                        ? signature.ReturnType.ToDisplayString()
-                        : null,
-                ResolveMember);
-
-        // Field operands are resolved only for the ldsflda sites the
-        // constant-data recognizer asks about.
-        var rvaFields = new Dictionary<int, bool>();
-        foreach (DecodedInstruction instruction in instructions.Instructions)
-        {
-            if (instruction.OpCode != ILOpCode.Ldsflda)
-                continue;
-            int operandToken =
-                MethodInstructionFacts.OperandInt32(instruction);
-            if (rvaFields.ContainsKey(operandToken))
-                continue;
-            rvaFields[operandToken] =
-                (operandToken >> 24) == 0x04
-                && view.ResolveFieldOperand(operandToken)
-                    is MethodFieldOperand.Resolved
-                    {
-                        CurrentModuleDefinitionToken: not null,
-                        HasRva: true,
-                    };
-        }
-        ImmutableHashSet<int> constantDataSpans =
-            SpanStackAllocations.RecognizeConstantDataSpans(
-                context,
-                ResolveMember,
-                operandToken =>
-                    rvaFields.TryGetValue(operandToken, out bool hasRva)
-                    && hasRva);
 
         bool updatedRules =
             view.GetMemorySafetyRules()
@@ -337,6 +441,81 @@ public sealed class UnsafeMemberCensusProducer
                     updatedRules);
             if (contractSource is not null)
                 explicitCalls.Add((site.ILOffset, site.Callee, contractSource));
+        }
+
+        // Without an occurrence opcode or an explicit-contract call, only the
+        // member's own contract can be a role, so the stack model and span
+        // lowering recognition are skipped.
+        if (!MethodSafetyAnalysis.MayHaveOccurrences(instructions)
+            && explicitCalls.Count == 0)
+        {
+            return UnsafeMemberUseRules.CollectEvidence(
+                identity.CallerUnsafeMode,
+                [],
+                [],
+                []);
+        }
+
+        MethodLocalSignature locals = view.GetLocalSignature();
+        MethodBodyAnalysisContext context =
+            MethodBodyAnalysisContext.Create(
+                identity,
+                bodyData,
+                instructions,
+                locals.Types,
+                locals.DeclaredCount,
+                locals.IncompleteReason,
+                view.GetBody().LocalVariablesInitialized);
+
+        var callees = new Dictionary<int, MemberRef>();
+        foreach (MethodCallSite site in calls.Sites)
+            callees.TryAdd(site.OperandToken, site.Callee);
+        MemberRef ResolveMember(int operandToken) =>
+            callees.TryGetValue(operandToken, out MemberRef? callee)
+                ? callee
+                : throw new BadImageFormatException(
+                    $"Operand 0x{operandToken:X8} is not a resolved call site.");
+
+        ImmutableArray<UnsafetyOccurrence> unsafety =
+            MethodSafetyAnalysis.CollectOccurrences(
+                context,
+                operandToken =>
+                    callees.TryGetValue(operandToken, out MemberRef? signature)
+                        ? signature.ReturnType.ToDisplayString()
+                        : null,
+                ResolveMember);
+
+        // Constant-data span lowering explains only explicit-contract calls,
+        // and field operands are resolved only for the ldsflda sites the
+        // recognizer asks about.
+        ImmutableHashSet<int> constantDataSpans = [];
+        if (explicitCalls.Count > 0)
+        {
+            var rvaFields = new Dictionary<int, bool>();
+            foreach (DecodedInstruction instruction in instructions.Instructions)
+            {
+                if (instruction.OpCode != ILOpCode.Ldsflda)
+                    continue;
+                int operandToken =
+                    MethodInstructionFacts.OperandInt32(instruction);
+                if (rvaFields.ContainsKey(operandToken))
+                    continue;
+                rvaFields[operandToken] =
+                    (operandToken >> 24) == 0x04
+                    && view.ResolveFieldOperand(operandToken)
+                        is MethodFieldOperand.Resolved
+                        {
+                            CurrentModuleDefinitionToken: not null,
+                            HasRva: true,
+                        };
+            }
+            constantDataSpans =
+                SpanStackAllocations.RecognizeConstantDataSpans(
+                    context,
+                    ResolveMember,
+                    operandToken =>
+                        rvaFields.TryGetValue(operandToken, out bool hasRva)
+                        && hasRva);
         }
 
         return UnsafeMemberUseRules.CollectEvidence(
@@ -401,7 +580,7 @@ public sealed class UnsafeMemberCensusProducer
 
     static bool IsRecoverable(Exception exception) =>
         exception is not MethodDefinitionTerminalWorkLimitExceededException
-        && LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(exception);
+        && AnalysisMethodFailures.IsRecoverable(exception);
 
     static string Describe(Exception exception) =>
         $"{exception.GetType().Name}: {exception.Message}";
@@ -423,6 +602,33 @@ public static class UnsafeMemberCensusAnalysis
             ? accepted.Description
             : throw new InvalidOperationException(
                 "The unsafe member census request must plan.");
+
+    /// <summary>
+    /// Member-scope breadth: one declared member's method definitions with the
+    /// generated bodies authenticated to them in every role. It reaches no
+    /// nested type, so it has no unauthenticated candidates.
+    /// </summary>
+    public static MethodDefinitionSourceBreadth MemberScope(
+        IEnumerable<MethodDefinitionHandle> methods,
+        MethodDefinitionGeneratedExpansionLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(methods);
+        return MethodDefinitionSourceBreadth
+            .ExactMethods(methods.ToImmutableArray())
+            .IncludeGeneratedExecutionBodies(
+                limits,
+                MethodDefinitionGeneratedBodyRoles.All);
+    }
+
+    /// <summary>The census request over one declared member's definitions.</summary>
+    public static MethodDefinitionSourceRequest<UnsafeMemberCensus>
+        ForMethods(
+            IEnumerable<MethodDefinitionHandle> methods,
+            MethodDefinitionGeneratedExpansionLimits? limits = null) =>
+        MethodDefinitionSourceRequest<UnsafeMemberCensus>.Create(
+            Description,
+            UnsafeMemberCensusProducer.Instance,
+            MemberScope(methods, limits));
 
     /// <summary>
     /// Type-scope breadth: the selected types' methods with their generated

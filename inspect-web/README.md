@@ -1,6 +1,6 @@
 # Inspect Web
 
-Inspect Web is the Library-first, keyboard-driven browser experience for
+Inspect Web is the keyboard-driven browser experience for
 `dotnet-inspect`. Its organising rule is:
 
 > **Every interaction that inspects an assembly runs inside a workspace, through
@@ -9,16 +9,17 @@ Inspect Web is the Library-first, keyboard-driven browser experience for
 > never answered by opening a session, a metadata source, an analysis index,
 > or a retained image descriptor.
 
-Opening a package without an explicit destination starts at Library Overview
-using the product-selected First Library. `All libraries` is an explicit
-opt-in; Package remains available one level up with its complete Library
-inventory. The initial package Summary reads directory inventory, and Library
-Overview then requests only that exact Library, so ranged acquisition need not
-fetch sibling Library bodies. A later `All libraries` or Package-wide Type
-gesture may explicitly request the broad surface.
+Opening a package without an explicit destination starts at Package Overview
+with its complete Library inventory. Library navigation is explicit and uses
+the product-selected First Library when no exact Library is specified.
+`All libraries` is an explicit opt-in. The initial package Summary reads
+directory inventory, and an exact Library Overview requests only that Library,
+so ranged acquisition need not fetch sibling Library bodies. A later
+`All libraries` or Package-wide Type gesture may explicitly request the broad
+surface.
 
 Explicit links and restored workspace history keep their selected subjects and
-inspectors. A failed First Library remains selected with its failure visible
+inspectors. A failed selected Library remains selected with its failure visible
 rather than silently selecting a sibling. Packages with no admitted Libraries
 remain at Package with the reason visible.
 Selecting an explicitly empty compile framework opens Package Overview and
@@ -29,13 +30,61 @@ explicitly declare an empty compile group. Reproduce by opening that version
 and selecting `netcoreapp2.1`. Frontend tests gate inspector availability;
 the empty-compile browser case gates Package Overview and refresh behavior.
 
-**Open Library** and page-level file drop accept one managed `.dll` or `.exe`
+**Open file** and page-level file drop accept one managed `.dll` or `.exe`
 up to 32 MiB and open it directly as a transient Library subject. Picker, drop,
 and focused clipboard-file paste use the same admission path. The Browser
 passes immutable bytes to the host-neutral embedded-Library operation; it does
 not synthesize a local path or package coordinate. Uploaded Libraries expose
 Library Overview and API navigation through Type and Member, while package-
 dependent inspectors, persistence, restoration, and sharing remain unavailable.
+
+## Local Project input
+
+The Browser host owns admission and presentation of local `*.csproj` and
+`project.assets.json` files alongside managed Libraries through the existing
+Open picker, page drop, and focused clipboard-file paste. One non-empty file
+uses the existing 32 MiB browser preflight; shared inspection remains the
+authoritative format and resource-limit gate.
+
+Project opening consumes
+`ProjectInputInspection`'s completed `InspectionEnvelope<ProjectInputDocument>`
+and the
+[retained activation owner's local Project profile](../docs/design/inspect-web-retained-workspace-realization.md#local-project-input).
+The module-local wire preserves input kind, contained declared name,
+declarations and their limitations, exact restored coordinates and selected
+target, completion/failure evidence, nonprojectable Share, and diagnostics.
+Versionless or unresolved declarations remain visible; authored constraints
+are not resolved Package versions.
+The Browser renders the typed projection as HTML to bind explicit Package
+gestures; it does not parse rendered CLI or Markout text.
+
+The Project subject consumes product-issued Navigation and Overview and
+Dependencies inspectors. Package inspection is an explicit user action;
+opening a Project does not acquire Packages, evaluate or restore MSBuild, read
+neighboring files, or use uploaded paths or feeds as acquisition authority.
+Inactive Project selection constructs fresh Workspace and Project identities
+through the existing activation transaction. Local input remains tab-local
+and is not placed in a URL or Share packet; refresh cannot restore its bytes.
+Existing Library opening retains its transient behavior.
+
+The motivating authored asset is
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at
+`c24c00af4af604b803125ecc12b77358c882017f`, whose central-version declarations
+exercise the need to preserve versionless evidence. Managed restored controls
+use `Newtonsoft.Json@13.0.3`; the real Firefox/Wasm scenario uses the existing
+`InspectWeb.Adoption.Healthy@1.0.0` Gallery fixture for deterministic explicit
+acquisition. `BrowserRetainedWorkspaceActivationTests` gates shared/wire
+outcomes and actual facade activation and inspector selection.
+`test/project-input.test.ts` gates versionless and unavailable-graph
+presentation. The `local Project uploads` case in
+`browser/package-adoption.spec.ts`, run by
+`eng/test-inspect-web-package-adoption-gate.sh`, gates production file
+admission, Project navigation, zero dependency transfers before explicit
+Package inspection, Back to Project, malformed-input preservation, and
+subsequent Library opening. This is #10517, slice 5 of 6 in #10478; the
+independent CLI document slice remains #10515.
+
+## Catalogs and Browser architecture
 
 Demos has its own `/demos` page, linked from Home and the shared data bar.
 Workspace lists the active inspection's coordinates and saved workspaces,
@@ -71,6 +120,19 @@ maps those results to its wire DTOs; Core contains no `[JSExport]` method or
 generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_OwnsSharedWorkspaceState`, and
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
+
+Web Core also owns the Browser's capability composition. Host configuration
+selects lazy contribution providers from the facades; Compare registration
+stays with Metadata and its existing dependencies. Package Query and Compare
+provide bindings to shared registered resources; Spotlight search
+reads their combined graph and follows the binding to the existing inspector.
+Compare exposes API, API-attribute, and string-literal analyses; its existing
+body-based unavailability remains visible. Package Query preparation and
+Compare execution retain separate bounded catalogs, so ordinary requests do
+not initialize the other capability family. Browser installs no structural
+view bindings yet, so structural sections and categories remain excluded.
+See [Browser binding admission](../docs/design/inspection-capability-composition.md#browser-binding-admission)
+and [#10786](https://github.com/richlander/dotnet-inspect/issues/10786).
 
 This boundary is enforced by the compiler, not by a convention.
 The `inspect-web-executable-stays-at-host-boundary` dependency-policy rule
@@ -772,7 +834,7 @@ Release to `artifacts/inspect-web-publish`.
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryMethodBodyComparisonTargets` | one already-retained package or platform implementation assembly | bounded API surface and `AssemblyContextMethodAddressQuery.ExecuteParticipant(...)` |
 | `QueryMethodBodyComparison` | two selected methods in that implementation assembly | `DirectMemberComparisonQuery.Execute(...)` |
-| `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
+| `InspectPackageDependencies` | one package/version/framework/runtime | `PackageDependencyInspectionOperation` plus Browser-owned platform-reference presentation |
 | `QueryPackageIntegrations` | one exact library in a package/version/framework | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
 | `QueryPackageOpportunities` | one exact library in a package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
 | `QueryPackagePerformance` | one exact library in a package/version/framework | `AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)` |
@@ -1107,20 +1169,17 @@ Analysis-only `QueryMemberFacts` payload remains separate. Browser selection
 and stale-result behavior follow under #5517 rather than entering this
 transport operation.
 
-`QueryPackageDependencies` asks the package-content query for every dependency
-group in manifest order and its compatible target-framework selection, then
-passes that exact owner-issued result through
-`PackageDependencyEvidenceQuery`. The Browser projects its groups and source
-spellings from the normalized evidence rather than parsing the nuspec or
-creating another dependency model. A missing matching group remains visible
-while the UI permits inspecting the groups that were actually declared.
-Typed normalization failures also cross the boundary, so conflicting or
-invalid declarations remain visible instead of becoming successful empty
-groups. The
-dependency list and graph both follow that explicit UI selection for the active
-package; other open packages use their product-selected groups. The selected
-compile participant's direct references come from the assembly-context query;
-the browser does not open another assembly session.
+`InspectPackageDependencies` issues one shared
+`InspectionEnvelope<PackageDependencyInspectionOutcome>` for the exact Package
+coordinate. The Browser projects the owner-issued manifest groups and logical
+selection without parsing the nuspec, normalizing declarations again, or
+creating a second dependency model. Declaration order, duplicate rows, and
+case-distinct identifiers remain visible. A missing matching group remains
+visible while the UI permits inspecting the groups that were actually
+declared. The dependency list and graph both follow that explicit UI selection
+for the active package; other open packages use their product-selected groups.
+Package Dependency Inspection does not select a Library, open an assembly
+session, or carry direct assembly references.
 
 Package References combines the selected NuGet dependency group with platform
 references projected from the same exact PackageHouse realization.
@@ -1138,7 +1197,9 @@ evidence. Explicit platform references remain visible across dependency-group
 selection; the default appears only for a successfully normalized empty
 selected group, consistently in the list, status, and graph. Library References
 continues to show only the selected Library's assembly references.
-Internal `dependencies` route and contract identities remain unchanged.
+The internal dependency request identity is the Package ID, version, active
+framework, and runtime identifier; selected Library identity is not part of
+that request.
 
 Each NuGet dependency row displays the package's embedded icon when its exact
 version resolves and the icon passes the existing package-icon bounds.
@@ -1341,6 +1402,64 @@ selection protection, detail, and focus-target identities; and
 focus restoration, and layered Escape. A payload the portable model rejects
 remains a visible failure rather than rendering success-shaped empty output.
 
+## Continuous resource explanation
+
+The Workspace page offers explicit catalog exploration and declaration
+explanation. These gestures use the Catalog facade and shared Resource
+Explanation operation; they do not activate a Workspace, settle versions or
+acquire Package content. The Browser publishes a root over the vocabulary and
+component-contract resources its Catalog facade admits. The existing shared
+reachability gate withholds that root if any admitted resource is unreachable.
+Coverage describes this host's registrations rather than implying complete
+explanation of every Browser inspector.
+
+Catalog links identify resources independently of representation.
+`catalog.explainResources(path, projection)` accepts a plain installed path or
+`inspect-resource:/` address and an explicit `hal`, `data` or `contract`
+reading. Root/component-contract readings consume the shared completed Document;
+vocabulary roots use their shared closed reading profile and other vocabulary
+resources use the shared Document projection.
+The Browser does not construct a second description model. The Workspace view
+renders locally available data and offers links for explicit selection rather
+than fetching linked resources for verification. Its interactive HTML renderer
+consumes the shared JSON reading directly: Browser buttons and local async
+state belong to the host, while Markout remains the CLI presentation path.
+
+For Workspace declarations, the UI captures a canonical packet through the
+existing complete-share capture path, without changing saved definitions or
+the URL. `catalog.describeWorkspaceComponents(packet)` decodes that immutable
+packet and projects Workspace-owned Package descriptors. The UI retains each
+owner-produced declaration intact and passes it to
+`catalog.explainWorkspaceComponent(json, parentPacket, projection)`.
+The validating owner supplies the exact typed input to the existing shared
+detached operation. A standalone request leaves parent facts unavailable;
+supplying the actual packet qualifies correspondence, context and focus.
+Packet-local paths do not become installed resource identity.
+
+Unknown kinds/versions, malformed declarations/packets and unsupported readings
+remain typed visible refusals without search or activation fallback.
+Successful explanation preserves shared Content, Share and diagnostics through
+the existing Catalog envelope projection. UI transport failures and diagnostics
+remain visible. An async result for an older Workspace/navigation cannot
+replace the current reading. Browser transport owns neither packet grammar,
+component validity, resource identity nor realization authority.
+
+The real witness is System.Text.Json 10.0.0/net10.0: its
+[extracted declaration](../docs/examples/workspace-package-component.json) and
+[saved Package packet](../docs/examples/workspace-package-replay.json) motivate
+the same standalone and parent-qualified questions as CLI `explain`.
+Managed facade tests compare the existing direct/HAL captures and gate owner
+failures, root reachability, envelope preservation and zero Package requests.
+Frontend tests exercise explicit reading/navigation, stale-result suppression,
+diagnostic rendering and escaped data. Generated-facade and published Wasm
+gates exercise the actual C#/TypeScript boundary.
+
+This is step 21 of the 23-step continuous-discovery plan in #10132, after CLI
+component admission #10140 / PR #10604. Scoped relations (#10142) and agent
+trials (#10143) remain separate. No previous Browser component/root description
+path exists to retire. Vocabulary native-value selection retains its current
+specialized entrance below; this adoption does not change its contract.
+
 ## Browser vocabulary explanation admission
 
 `catalog.explainVocabularies(path, depth, valueIds)` reads installed vocabulary
@@ -1439,11 +1558,10 @@ modules after derivation; deleting a stale ignored module therefore cannot
 leave a dangling static-web-asset item. The SDK declaration is copied only
 into a temporary compiler workspace and is never published.
 
-The package facade's assembly-reference result adopts a native C# union through
-this generated handoff. The Library References view consumes an available list
-or failure message rather than parallel list/error fields, while its request
-lifecycle stays separate. The focused contract and outcome gates live in
-[Package reference result](../docs/design/inspect-web-package-reference-result.md).
+The package facade's Library Reference Inspection result crosses this generated
+handoff as one shared envelope, while its request lifecycle stays separate.
+The focused contract and outcome gates live in
+[Library Reference Inspection](../docs/design/library-reference-inspection.md).
 
 PR CI uses `--fast-check` for ordinary browser changes. It regenerates the
 canonical sources from current C#, keeps the complete transient artifact

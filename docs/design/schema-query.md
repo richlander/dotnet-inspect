@@ -42,6 +42,47 @@ compare structural requests with actual rendering.
 
 ## Model
 
+### Shared structural declaration construction
+
+`StructuralDiscoveryFactory` in Presentation constructs structural resource
+declarations and canonical paths from the owner's generated or composed
+Markout schema. `StructuralDiscoveryProjection`, category vocabulary, and
+output capabilities live in Sections without a Markout dependency. Generated
+schema remains authoritative; extraction does not introduce a second section
+or column inventory. Owner-issued additional items preserve their item kind
+and owning section alongside generated columns.
+
+The CLI adapter supplies its existing schema and section-policy declarations,
+then resolves selectors and renders diagnostics. Shared construction does not
+parse CLI options, emit diagnostics, inspect a subject, or execute producers.
+The schema providers and command-specific selection policy remain with their
+current owners; sharing construction does not claim their migration.
+
+Tracked by [#10743](https://github.com/richlander/dotnet-inspect/issues/10743),
+this is the first of two user-approved focused slices within
+[#10700](https://github.com/richlander/dotnet-inspect/issues/10700):
+
+1. Share structural declaration construction, with the existing CLI discovery,
+   search, and exact-explanation callers as production consumers.
+2. Capability Composition consumes those declarations as registered structural
+   catalogs and view bindings, then retires search's structural population.
+
+The Browser can consume the same construction and declarations when its
+structural explanation consumer supplies an owner-issued schema and bindings;
+that production adoption remains step 5 of #10700. This slice adds no Browser
+interaction or alternate rendering path. Existing Markout rendering remains.
+
+The motivating real source is
+[`ResourceExplanationCommand.cs` at `cf596f988`](https://github.com/richlander/dotnet-inspect/blob/cf596f988/src/DotnetInspect.Cli/Commands/ResourceExplanationCommand.cs),
+whose `CreateStructuralProjection` and `CreateStructuralSearchCatalogs`
+construct the CLI's six structural catalogs, including Library across direct
+and coordinate views. It demonstrates the host-local construction that
+prevents another host from reusing declarations. Existing complete-catalog
+and view-scoped CLI gates preserve that production population. Direct
+`StructuralDiscoveryFactoryTests` enforce shared resource identity, canonical
+paths, additional-item kinds, and visible failure for invalid cardinality
+declarations.
+
 A structural schema describes the stable addressable vocabulary of one
 document:
 
@@ -369,7 +410,9 @@ a structural catalog root:
 | `member` | `member-overload`, `member-detail` | One member, or one overload of it |
 
 Each declaration also carries an owner-written purpose, representative
-questions, and scope, in `StructuralRoutingDeclarations`. The
+questions, and scope, in the shared `DotnetInspector.Sections` module
+`StructuralRoutingDeclarations.Module`. `StructuralCatalogPaths` supplies the
+same typed catalog-to-path mapping used by CLI execution and explanation. The
 `workspace` and `ecosystem` subject kinds have no installed catalog, so
 Schema Query issues no declaration for them yet. This adds no command, path,
 or section; the declarations only route to the catalogs above.

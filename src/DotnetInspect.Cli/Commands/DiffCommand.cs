@@ -2,8 +2,10 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Diff;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -179,7 +181,10 @@ public partial class DiffCommand
                 catalogHiddenSections:
                     options.Schema ? null : pipeline.GetCatalogHiddenSections(),
                 listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                exactOnlySections: DiffSections.ExactOnlySections);
+                exactOnlySections: DiffSections.ExactOnlySections,
+                resourceCatalog: StructuralCatalogPaths.Name(
+                    InspectionCatalogIdentity.Diff),
+                resourceCapabilities: DiffOutputCapabilities.Catalog);
             if (discovered == 0
                 && options.Discover.Length == 0
                 && !options.Jsonl
@@ -222,6 +227,9 @@ public partial class DiffCommand
                 && !options.Tabular && !options.Tsv && !options.Jsonl)
                 options = options with { Tabular = true, Tsv = true };
         }
+        if (analysisPlan is null && hasLibrary && UsesSharedLibraryApiDiff(1, 1, options)
+            && !ValidateLibraryApiChangesFormat(options))
+            return 1;
 
         string? transportOption = options.EnvelopeOutput ? "--envelope"
             : options.CompactJson ? "--compact" : null;
@@ -446,46 +454,8 @@ public partial class DiffCommand
                 }
                 if (UsesSharedLibraryApiDiff(inputs, options))
                 {
-                    if (options.IsContentJson && options.HasRenderedLineWindow)
-                    {
-                        CommandError.Write(
-                            "Unprojected Library API diff --json cannot be combined with rendered-line clipping.");
-                        return 1;
-                    }
-                    // The output keeps only Types the filter admits, so the
-                    // comparison extracts only those Types on each side.
-                    ApiTypeSelection? typeSelection = options.TypeFilter.Count > 0
-                        ? new ApiTypeSelection(name =>
-                            MatchesAnyDiffTypeFilter(name, options.TypeFilter))
-                        : null;
-                    var comparison =
-                        inputs.From.PackageScope is { } beforeScope
-                        && inputs.To.PackageScope is { } afterScope
-                            ? await LibraryApiDiffRunner.ExecuteAsync(
-                                beforeScope,
-                                afterScope,
-                                options.IncludeAll,
-                                typeSelection,
-                                cancellationToken)
-                            : await LibraryApiDiffRunner.ExecuteAsync(
-                                inputs.From.AssemblySet.Assemblies[0],
-                                inputs.To.AssemblySet.Assemblies[0],
-                                options.IncludeAll,
-                                typeSelection);
-                    int written = LibraryApiDiffOutput.Write(
-                        comparison,
-                        inputs.Name,
-                        inputs.FromVersion,
-                        inputs.ToVersion,
-                        options,
-                        hasPackage ? inputs.From.Framework : null,
-                        hasPackage ? inputs.To.Framework : null);
-                    return PublishAcquisitionEvidence(
-                        inputs,
-                        options,
-                        comparison,
-                        LibraryApiDiffOutput.JsonContract,
-                        written);
+                    return await ExecuteLibraryApiChangesAsync(
+                        inputs, options, hasPackage, cancellationToken);
                 }
                 if (options.EvidenceEnvelopePath is not null)
                 {
@@ -977,6 +947,88 @@ public partial class DiffCommand
 #else
         return exitCode;
 #endif
+    }
+
+    static async Task<int> ExecuteLibraryApiChangesAsync(
+        DiffInputs inputs, DiffOptions options, bool hasPackage, CancellationToken cancellationToken)
+    {
+        if (!ValidateLibraryApiChangesFormat(options))
+            return 1;
+        if (!options.FormatExplicitlySet && !options.JsonOutput && !options.EnvelopeOutput
+            && !options.Tabular && !options.Tsv && !options.Jsonl)
+            options = options with { Tabular = true, Tsv = true };
+
+        ApiTypeSelection? typeSelection = options.TypeFilter.Count > 0
+            ? new(name => MatchesAnyDiffTypeFilter(name, options.TypeFilter)) : null;
+        var selection = new LibraryApiChangesSelection(
+            typeSelection,
+            [
+                .. options.Breaking ? new[] { ChangeClassification.Breaking } : [],
+                .. options.Additive ? new[] { ChangeClassification.Additive } : [],
+            ],
+            RowWindow.ToMarkout(options.Rows));
+        bool detailed = !options.NameOnly && options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
+        if ((options.Tabular || options.Tsv || options.Jsonl || options.NameOnly)
+            && !options.JsonOutput && !options.EnvelopeOutput)
+        {
+            if (detailed)
+                return await Complete(
+                    outcome => LibraryApiChangesInspection.ChangesTable(outcome, selection),
+                    LibraryApiDiffOutput.ChangesTableContract,
+                    table => LibraryApiDiffOutput.WriteChangesRows(table, options));
+            return await Complete(
+                outcome => LibraryApiChangesInspection.TypeTable(outcome, selection),
+                LibraryApiDiffOutput.TypeTableContract,
+                table => LibraryApiDiffOutput.WriteTypeRows(table, options));
+        }
+        if (detailed)
+            return await Complete(
+                outcome => LibraryApiChangesInspection.ChangesDocument(outcome, selection),
+                LibraryApiDiffOutput.ChangesDocumentContract,
+                document => LibraryApiDiffOutput.WriteChangesDocument(
+                    document, inputs.Name, inputs.FromVersion, inputs.ToVersion, options,
+                    hasPackage ? inputs.From.Framework : null, hasPackage ? inputs.To.Framework : null));
+        return await Complete(
+            outcome => LibraryApiChangesInspection.TypeDocument(outcome, selection),
+            LibraryApiDiffOutput.TypeDocumentContract,
+            document => LibraryApiDiffOutput.WriteTypeDocument(
+                document, inputs.Name, inputs.FromVersion, inputs.ToVersion, options,
+                hasPackage ? inputs.From.Framework : null, hasPackage ? inputs.To.Framework : null));
+
+        async Task<int> Complete<T>(
+            Func<LibraryApiDiffOutcome, InspectionEnvelope<LibraryApiChangesOutcome<T>>> project,
+            InspectionEnvelopeJsonContract<LibraryApiChangesOutcome<T>> contract,
+            Action<T> render)
+        {
+            var request = LibraryApiChangesDiffAdapter.CreateRequest(
+                inputs.Name, inputs.FromVersion, inputs.ToVersion, options.IncludeAll, typeSelection);
+            LibraryApiDiffOutcome outcome = inputs.From.PackageScope is { } beforeScope
+                && inputs.To.PackageScope is { } afterScope
+                    ? await LibraryApiChangesDiffAdapter.ExecuteAsync(
+                        request, beforeScope, afterScope, cancellationToken)
+                    : await LibraryApiChangesDiffAdapter.ExecuteAsync(
+                        request, inputs.From.AssemblySet.Assemblies[0], inputs.To.AssemblySet.Assemblies[0]);
+            var envelope = project(outcome);
+            int written = LibraryApiDiffOutput.Write(envelope, contract, inputs.Name, options, render);
+            return PublishAcquisitionEvidence(inputs, options, envelope, contract, written);
+        }
+    }
+
+    static bool ValidateLibraryApiChangesFormat(DiffOptions options)
+    {
+        if (options.Tree)
+        {
+            CommandError.Write("Library API Changes does not offer a Hierarchy representation.");
+            return false;
+        }
+        if (options.JsonOutput && (options.HasRenderedLineWindow
+                || options.Columns is not null || options.Fields is not null))
+        {
+            CommandError.Write(
+                "Structured Library API Changes --json does not support rendered-line clipping or column/field projections.");
+            return false;
+        }
+        return true;
     }
 
     static bool UsesSharedLibraryApiDiff(DiffInputs inputs, DiffOptions options)
@@ -1929,7 +1981,7 @@ public partial class DiffCommand
         List<ComparisonMemberSelection> selections = [];
         foreach (string rawTarget in options.MemberFilter)
         {
-            ParsedDiffMemberTarget parsed = ParseDiffMemberTarget(
+            DiffParsedMemberTarget parsed = DiffMemberTargetResolver.Parse(
                 rawTarget,
                 fromSurface,
                 toSurface,
@@ -1960,7 +2012,7 @@ public partial class DiffCommand
     static void ValidateMethodLikeSelection(
         ApiSurface fromSurface,
         ApiSurface toSurface,
-        ParsedDiffMemberTarget parsed,
+        DiffParsedMemberTarget parsed,
         string rawTarget,
         string targetContext)
     {
@@ -1968,7 +2020,7 @@ public partial class DiffCommand
         bool bodyFound = false;
         foreach (ApiSurface surface in new[] { fromSurface, toSurface })
         {
-            ApiType? type = FindSelectedType(
+            ApiType? type = DiffMemberTargetResolver.FindSelectedType(
                 surface,
                 parsed.TypeName,
                 out string? typeError);
@@ -2431,13 +2483,13 @@ public partial class DiffCommand
         ApiSurface toSurface,
         DiffOptions options)
     {
-        var parsed = ParseDiffMemberTarget(
+        var parsed = DiffMemberTargetResolver.Parse(
             options.MemberFilter.Single(), fromSurface, toSurface, options.TypeFilter);
         AssemblyMemberSourcePairRequest? request = null;
         bool unsupported = false;
         foreach (var surface in new[] { fromSurface, toSurface })
         {
-            var type = FindSelectedType(surface, parsed.TypeName, out string? error);
+            var type = DiffMemberTargetResolver.FindSelectedType(surface, parsed.TypeName, out string? error);
             if (error is not null)
                 throw new InvalidOperationException(error);
             if (type is null)
@@ -2446,7 +2498,7 @@ public partial class DiffCommand
             if (resolution.Target is not { } target)
             {
                 if (resolution.Diagnostic is { } diagnostic
-                    && IsFatalTargetDiagnostic(diagnostic.Kind))
+                    && DiffMemberTargetResolver.IsFatal(diagnostic.Kind))
                     throw new InvalidOperationException(diagnostic.Message);
                 continue;
             }
@@ -3240,7 +3292,7 @@ public partial class DiffCommand
         if (options.MemberFilter.Count == 0)
             return diff;
 
-        var targets = ResolveMemberTargetIdentities(fromSurface, toSurface, options.MemberFilter, options.TypeFilter);
+        var targets = DiffMemberTargetResolver.Resolve(fromSurface, toSurface, options.MemberFilter, options.TypeFilter);
         List<TypeDiff> filtered = [];
         foreach (var typeDiff in diff.TypeDiffs)
         {
@@ -3275,11 +3327,7 @@ public partial class DiffCommand
                 + "use Markdown or JSON output for failure details.");
     }
 
-    sealed record ResolvedDiffMemberTargets(
-        HashSet<string> MemberIdentities,
-        HashSet<string> TypeNames);
-
-    static bool MatchesMemberTarget(string typeFullName, ApiChange change, ResolvedDiffMemberTargets targets)
+    static bool MatchesMemberTarget(string typeFullName, ApiChange change, DiffResolvedMemberTargets targets)
         => change.Subject?.Kind == ApiChangeSubjectKind.Member
             ? MatchesHandle(change.Subject?.OldMember, targets.MemberIdentities)
               || MatchesHandle(change.Subject?.NewMember, targets.MemberIdentities)
@@ -3290,105 +3338,6 @@ public partial class DiffCommand
            && ((handle.StableSelector is { } stable && targetIdentities.Contains(stable))
                || (handle.CanonicalSignature is { } canonical && targetIdentities.Contains(canonical))
                || targetIdentities.Contains(handle.Identity));
-
-    static ResolvedDiffMemberTargets ResolveMemberTargetIdentities(
-        ApiSurface fromSurface,
-        ApiSurface toSurface,
-        IReadOnlyCollection<string> memberTargets,
-        IReadOnlyCollection<string> typeFilters)
-    {
-        HashSet<string> identities = new(StringComparer.Ordinal);
-        HashSet<string> typeNames = new(StringComparer.Ordinal);
-        foreach (var rawTarget in memberTargets)
-        {
-            var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
-            foreach (string typeName in ResolveFindingTypeNames(
-                fromSurface,
-                toSurface,
-                [parsed.TypeName]))
-            {
-                typeNames.Add(typeName);
-            }
-
-            var found = false;
-            MemberTargetDiagnostic? diagnostic = null;
-            MemberTargetDiagnostic? nonFatalDiagnostic = null;
-            ApiType? oldType = FindSelectedType(
-                fromSurface,
-                parsed.TypeName,
-                out string? oldTypeError);
-            ApiType? newType = FindSelectedType(
-                toSurface,
-                parsed.TypeName,
-                out string? newTypeError);
-            if (oldTypeError is not null || newTypeError is not null)
-            {
-                throw new InvalidOperationException(
-                    oldTypeError ?? newTypeError);
-            }
-
-            if (oldType is not null)
-            {
-                var oldResult = AddResolvedIdentities(
-                    oldType,
-                    parsed.Selector,
-                    identities);
-                found |= oldResult.Found;
-                if (oldResult.Diagnostic is { } oldDiagnostic)
-                {
-                    if (IsFatalTargetDiagnostic(oldDiagnostic.Kind))
-                        diagnostic ??= oldDiagnostic;
-                    else
-                        nonFatalDiagnostic ??= oldDiagnostic;
-                }
-                if (oldResult.Found)
-                    typeNames.Add(oldType.FullName);
-            }
-            if (newType is not null)
-            {
-                var newResult = AddResolvedIdentities(
-                    newType,
-                    parsed.Selector,
-                    identities);
-                found |= newResult.Found;
-                if (newResult.Diagnostic is { } newDiagnostic)
-                {
-                    if (IsFatalTargetDiagnostic(newDiagnostic.Kind))
-                        diagnostic ??= newDiagnostic;
-                    else
-                        nonFatalDiagnostic ??= newDiagnostic;
-                }
-                if (newResult.Found)
-                    typeNames.Add(newType.FullName);
-            }
-
-            if (diagnostic is not null)
-                throw new InvalidOperationException(diagnostic.Message);
-            if (!found)
-                throw new InvalidOperationException(nonFatalDiagnostic?.Message ?? $"Member target '{rawTarget}' did not resolve in either diff input.");
-        }
-
-        return new ResolvedDiffMemberTargets(
-            identities,
-            typeNames);
-    }
-
-    static (
-        bool Found,
-        MemberTargetDiagnostic? Diagnostic)
-        AddResolvedIdentities(
-            ApiType type,
-            MemberTargetSelector selector,
-            HashSet<string> identities)
-    {
-        var resolution = MemberTargetResolver.Resolve(type, selector);
-        if (!resolution.Found)
-            return (false, resolution.Diagnostic);
-
-        identities.Add(resolution.Target!.Anchor.StableSelector);
-        identities.Add(resolution.Target.Anchor.CanonicalSignature);
-        return (true, null);
-    }
 
     /// <summary>
     /// Whether a package request may take the workspace implementation
@@ -3856,7 +3805,7 @@ public partial class DiffCommand
             string selectedTypeName)
     {
         foreach (int boundary
-            in TopLevelDotPositionsFromRight(
+            in DiffMemberTargetResolver.TopLevelDotPositionsFromRight(
                 memberSelector))
         {
             string qualifier =
@@ -3875,11 +3824,6 @@ public partial class DiffCommand
 
         return memberSelector;
     }
-
-    static bool IsFatalTargetDiagnostic(MemberTargetDiagnosticKind kind)
-        => kind is MemberTargetDiagnosticKind.AmbiguousMember
-            or MemberTargetDiagnosticKind.DigestAmbiguous
-            or MemberTargetDiagnosticKind.ConflictingSelectors;
 
     sealed record WorkspaceImplementationTarget(
         MetadataTypeDefinitionName DeclaringType,
@@ -3901,182 +3845,6 @@ public partial class DiffCommand
     sealed record WorkspaceImplementationTypeCandidate(
         MetadataTypeDefinitionName DefinitionName,
         string MatchName);
-
-    sealed record ParsedDiffMemberTarget(string TypeName, MemberTargetSelector Selector);
-
-    static ParsedDiffMemberTarget ParseDiffMemberTarget(
-        string rawTarget,
-        ApiSurface fromSurface,
-        ApiSurface toSurface,
-        IReadOnlyCollection<string> typeFilters)
-    {
-        if (TrySplitTypeQualifiedMemberTarget(rawTarget, fromSurface, toSurface, out var typeName, out var memberSelector))
-            return new ParsedDiffMemberTarget(typeName, MemberTargetSelector.Parse(memberSelector));
-
-        var typeContext = ResolveTypeContext(fromSurface, toSurface, typeFilters, out var contextError);
-        if (contextError is { Length: > 0 })
-            throw new InvalidOperationException(contextError);
-        if (typeContext is null)
-            throw new InvalidOperationException($"--member '{rawTarget}' requires exactly one --type filter or a type-qualified selector.");
-
-        return new ParsedDiffMemberTarget(typeContext, MemberTargetSelector.Parse(rawTarget));
-    }
-
-    static bool TrySplitTypeQualifiedMemberTarget(
-        string rawTarget,
-        ApiSurface fromSurface,
-        ApiSurface toSurface,
-        out string typeName,
-        out string memberSelector)
-    {
-        foreach (var marker in (ReadOnlySpan<string>)[".operator:", ".explicit:", ".extension:"])
-        {
-            var markerIndex = rawTarget.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            if (markerIndex > 0)
-            {
-                var candidate = rawTarget[..markerIndex];
-                if (TryFindSingleType(fromSurface, toSurface, candidate, out typeName, out _))
-                {
-                    memberSelector = rawTarget[(markerIndex + 1)..];
-                    return true;
-                }
-            }
-        }
-
-        foreach (var dot in TopLevelDotPositionsFromRight(rawTarget))
-        {
-            var candidate = rawTarget[..dot];
-            if (TryFindSingleType(fromSurface, toSurface, candidate, out typeName, out _))
-            {
-                memberSelector = rawTarget[(dot + 1)..];
-                return true;
-            }
-        }
-
-        typeName = "";
-        memberSelector = rawTarget;
-        return false;
-    }
-
-    static IEnumerable<int> TopLevelDotPositionsFromRight(string value)
-    {
-        var depth = 0;
-        for (var i = value.Length - 1; i >= 0; i--)
-        {
-            var ch = value[i];
-            if (ch == '>')
-                depth++;
-            else if (ch == '<')
-                depth--;
-            else if (ch == '.' && depth == 0)
-                yield return i;
-        }
-    }
-
-    static string? ResolveTypeContext(
-        ApiSurface fromSurface,
-        ApiSurface toSurface,
-        IReadOnlyCollection<string> typeFilters,
-        out string? error)
-    {
-        error = null;
-        if (typeFilters.Count != 1)
-            return null;
-
-        var query = typeFilters.First();
-        if (TryFindSingleType(fromSurface, toSurface, query, out var typeName, out error))
-            return typeName;
-
-        return null;
-    }
-
-    static bool TryFindSingleType(ApiSurface fromSurface, ApiSurface toSurface, string query, out string typeName, out string? error)
-    {
-        string? oldTypeName = SelectTypeName(
-            fromSurface,
-            query,
-            out string? oldError);
-        string? newTypeName = SelectTypeName(
-            toSurface,
-            query,
-            out string? newError);
-        error = oldError ?? newError;
-        if (error is not null
-            || oldTypeName is null && newTypeName is null)
-        {
-            typeName = "";
-            return false;
-        }
-
-        typeName = query;
-        return true;
-    }
-
-    static IReadOnlyList<string> ResolveFindingTypeNames(
-        ApiSurface fromSurface,
-        ApiSurface toSurface,
-        IReadOnlyCollection<string> typeFilters)
-    {
-        var names = typeFilters
-            .SelectMany(filter => ResolveFindingTypeNames(fromSurface, filter)
-                .Concat(ResolveFindingTypeNames(toSurface, filter))
-                .DefaultIfEmpty(filter))
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        return names;
-    }
-
-    static IEnumerable<string> ResolveFindingTypeNames(
-        ApiSurface surface,
-        string filter)
-    {
-        string[] matches = DiffAnalysisTypeFilter.EnumerateResolvable(surface)
-            .Where(typeName =>
-                TypeMatcher.MatchesTypeFilter(typeName, filter))
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        string? exact = matches.FirstOrDefault(typeName =>
-            typeName.Equals(filter, StringComparison.Ordinal));
-        return exact is null ? matches : [exact];
-    }
-
-    static ApiType? FindSelectedType(
-        ApiSurface surface,
-        string query,
-        out string? error)
-    {
-        string? selectedName = SelectTypeName(
-            surface,
-            query,
-            out error);
-        if (selectedName is null)
-            return null;
-
-        return surface.Types.FirstOrDefault(type =>
-            type.FullName.Equals(
-                selectedName,
-                StringComparison.Ordinal));
-    }
-
-    static string? SelectTypeName(
-        ApiSurface surface,
-        string query,
-        out string? error)
-    {
-        string[] matches = ResolveFindingTypeNames(surface, query)
-            .ToArray();
-        if (matches.Length > 1)
-        {
-            error = $"Type target '{query}' is ambiguous. Use one of: "
-                + $"{string.Join(", ", matches)}.";
-            return null;
-        }
-
-        error = null;
-        return matches.SingleOrDefault();
-    }
 
     static bool IsWholeTypeChange(ChangeKind kind)
         => kind is ChangeKind.TypeAdded or ChangeKind.TypeRemoved;

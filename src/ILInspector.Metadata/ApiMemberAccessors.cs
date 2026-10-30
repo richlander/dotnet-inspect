@@ -82,7 +82,9 @@ public static class ApiMemberAccessors
         ApiSignature? ownerModel = owner.SignatureModel;
         ApiAccessor? accessorEntry =
             ownerModel?.Accessors.FirstOrDefault(
-                accessor => accessor.Kind == accessorKind);
+                accessor => accessor.Kind == accessorKind
+                    || accessorKind == "set"
+                        && ApiAccessor.IsSetterKind(accessor.Kind));
         string name = string.IsNullOrEmpty(accessorEntry?.Name)
             ? fallbackName
             : accessorEntry.Name;

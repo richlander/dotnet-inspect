@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
@@ -28,13 +30,18 @@ internal static class ApiServices
         SelectedTypeBindingContext? RootBindingContext = null,
         IReadOnlyDictionary<
             ApiType,
-            SelectedTypeBindingContext>? BindingContexts = null)
+            SelectedTypeBindingContext>? BindingContexts = null,
+        string? LibraryAssetPath = null,
+        IReadOnlyDictionary<
+            ApiType,
+            ImmutableArray<byte>>? PortablePdbImages = null)
     {
         internal string GetLibraryAssetPath(string? packageExtractPath) =>
-            packageExtractPath is null
+            LibraryAssetPath
+            ?? (packageExtractPath is null
                 ? Path.GetFullPath(ApiDllPath)
                 : Path.GetRelativePath(packageExtractPath, ApiDllPath)
-                    .Replace(Path.DirectorySeparatorChar, '/');
+                    .Replace(Path.DirectorySeparatorChar, '/'));
 
         internal ResolvedAssemblyReference GetSourceAssembly(
             ApiType type)
@@ -65,6 +72,18 @@ internal static class ApiServices
             return BindingContexts is not null
                 && BindingContexts.TryGetValue(type, out var context)
                     ? context
+                    : null;
+        }
+
+        internal ImmutableArray<byte>? TryGetPortablePdbImage(
+            ApiType type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            return PortablePdbImages is not null
+                && PortablePdbImages.TryGetValue(
+                    type,
+                    out ImmutableArray<byte> image)
+                    ? image
                     : null;
         }
     }
@@ -244,7 +263,7 @@ internal static class ApiServices
             BindingContexts: bindingContexts);
     }
 
-    static ResolvedAssemblyReference? SelectRootAssembly(
+    internal static ResolvedAssemblyReference? SelectRootAssembly(
         string assemblyPath,
         AssemblyResolutionProvenance provenance) =>
         ResolvedAssemblyReference.SelectFromPath(assemblyPath, provenance)
@@ -312,7 +331,7 @@ internal static class ApiServices
         }
     }
 
-    static AssemblyResolutionProvenance CreateRootProvenance(
+    internal static AssemblyResolutionProvenance CreateRootProvenance(
         string? apiSource,
         string? apiVersion,
         string? packageName,

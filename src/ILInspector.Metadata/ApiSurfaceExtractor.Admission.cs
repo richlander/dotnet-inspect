@@ -7,7 +7,8 @@ namespace ILInspector.Metadata;
 // One home for each rule that admits a Type's metadata record as an API
 // declaration. API-surface extraction, the compact public Member Count, and the
 // declarable field surface call these rules instead of repeating them, so a
-// Count and the Rows it counts cannot drift apart.
+// Count and the Rows it counts cannot drift apart. The unchanged prefilter's
+// closure hash (ApiTypeClosureHash) admits API-axis members through them too.
 public static partial class ApiSurfaceExtractor
 {
     /// <summary>
@@ -16,7 +17,7 @@ public static partial class ApiSurfaceExtractor
     /// or the population is the API axis and its effective access is in the
     /// <c>protected</c> bucket and reachable from another assembly.
     /// </summary>
-    static bool AdmitsMethodAccess(
+    internal static bool AdmitsMethodAccess(
         MethodAttributes effectiveAccess,
         bool includeAll,
         bool apiAxis = false)
@@ -32,6 +33,42 @@ public static partial class ApiSurfaceExtractor
     /// </summary>
     static bool IsApiAxisProtectedAccess(MethodAttributes access)
         => access is MethodAttributes.Family or MethodAttributes.FamORAssem;
+
+    /// <summary>
+    /// The Public scope admits a Type by accessibility when its own row and every
+    /// enclosing Type's row is public or nested public
+    /// (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
+    /// A public nested Type of a non-public Type is not admitted: no other
+    /// assembly can reach it. Nor is one nested in a protected Type, which only a
+    /// derived Type can reach.
+    /// Type discovery's public surface applies the same rule, and every other
+    /// reader that means "public Type" calls this one (Type counts and lookups,
+    /// the integration, hierarchy, and dependency scanners, and the extension
+    /// scan's declaring Type). A malformed nesting graph is admitted here so
+    /// the Type identity read that follows rejects the row with its typed
+    /// relationship failure.
+    /// </summary>
+    public static bool AdmitsPublicScopeType(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        TypeDefinition typeDef)
+    {
+        if (!typeDef.IsPublic)
+            return false;
+
+        TypeDefinitionHandle declaringType = typeDef.GetDeclaringType();
+        if (declaringType.IsNil)
+            return true;
+
+        try
+        {
+            return MetadataVisibility.IsExternallyVisible(reader, declaringType);
+        }
+        catch (BadImageFormatException)
+        {
+            return true;
+        }
+    }
 
     /// <summary>
     /// The API axis admits a Type, as Finding Diff Any does, when its own row and
@@ -52,16 +89,16 @@ public static partial class ApiSurfaceExtractor
             && MetadataVisibility.AreEnclosingTypesExternallyReachable(reader, handle);
 
     /// <summary>
-    /// Whether every Type enclosing <paramref name="handle"/> is in the ordinary population
-    /// (docs/design/library-api-diff-presentation.md#per-side-facts): public or nested public,
-    /// and not hidden by <c>EditorBrowsable(Never)</c>, the rule <see cref="ApiType.IsHidden"/>
-    /// records. A top-level Type has no enclosing Type. Read from metadata, so the answer does
-    /// not depend on which Types a selection projects.
+    /// Whether every Type enclosing <paramref name="handle"/> has the ordinary population's
+    /// reach (docs/design/library-api-diff-presentation.md#per-side-facts): public or nested
+    /// public. Hidden status is a fact of each declaration, so an enclosing Type's
+    /// <c>EditorBrowsable(Never)</c> does not hide the Types it nests. A top-level Type has no
+    /// enclosing Type. Read from metadata, so the answer does not depend on which Types a
+    /// selection projects.
     /// </summary>
     static bool AreEnclosingTypesOrdinary(
         MetadataReader reader,
-        TypeDefinitionHandle handle,
-        Action<int>? beforeMaterialize)
+        TypeDefinitionHandle handle)
     {
         int remaining = reader.GetTableRowCount(TableIndex.TypeDef);
         TypeDefinitionHandle current =
@@ -76,11 +113,7 @@ public static partial class ApiSurfaceExtractor
 
             TypeDefinition definition = reader.GetTypeDefinition(current);
             if ((definition.Attributes & TypeAttributes.VisibilityMask)
-                    is not (TypeAttributes.Public or TypeAttributes.NestedPublic)
-                || AttributeReader.HasEditorBrowsableNeverAttribute(
-                    reader,
-                    definition.GetCustomAttributes(),
-                    beforeMaterialize))
+                is not (TypeAttributes.Public or TypeAttributes.NestedPublic))
             {
                 return false;
             }
@@ -216,7 +249,7 @@ public static partial class ApiSurfaceExtractor
     /// The Type definition a MemberRef parent names in this assembly, or null
     /// when it names a Type in another assembly.
     /// </summary>
-    static TypeDefinitionHandle? DeclaringTypeDefinition(
+    internal static TypeDefinitionHandle? DeclaringTypeDefinition(
         MetadataReader reader,
         EntityHandle parent)
     {
@@ -390,6 +423,25 @@ public static partial class ApiSurfaceExtractor
             && IsHiddenMember(reader, attributes, beforeMaterialize);
 
     /// <summary>
+    /// A property or event accessor's own <c>[Obsolete]</c>, other than the compiler's
+    /// compatibility marker, or null when the accessor is absent or not obsolete
+    /// (docs/design/api-status-analysis.md#status-facts).
+    /// </summary>
+    internal static ApiObsoleteStatus? ReadAccessorObsolete(
+        MetadataReader reader,
+        MethodDefinitionHandle accessor,
+        Action<int>? beforeMaterialize = null)
+        => !accessor.IsNil
+            && AttributeReader.TryGetObsoleteAttribute(
+                reader,
+                reader.GetMethodDefinition(accessor).GetCustomAttributes(),
+                out string? message,
+                out bool isError,
+                beforeMaterialize)
+            ? new ApiObsoleteStatus(message, isError)
+            : null;
+
+    /// <summary>
     /// A hidden (<c>EditorBrowsable(Never)</c>) property or event is omitted
     /// from the public-facing population. An explicit implementation, one whose
     /// present accessors are all private MethodImpl bodies, is exempt, as its
@@ -444,7 +496,7 @@ public static partial class ApiSurfaceExtractor
     /// A property's access is the join of its accessors' effective access, so
     /// an explicit implementation's property takes its interface's bucket.
     /// </summary>
-    static MethodAttributes PropertyAccess(
+    internal static MethodAttributes PropertyAccess(
         MetadataReader reader,
         PropertyAccessors accessors,
         Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
@@ -462,7 +514,7 @@ public static partial class ApiSurfaceExtractor
     /// An event's access is the join of its adder's and remover's effective
     /// access; an event without an adder is not an API declaration.
     /// </summary>
-    static MethodAttributes? EventAccess(
+    internal static MethodAttributes? EventAccess(
         MetadataReader reader,
         EventAccessors accessors,
         Dictionary<MethodDefinitionHandle, InterfaceImplementationAccess>
@@ -517,7 +569,7 @@ public static partial class ApiSurfaceExtractor
     /// A field passes the access rule as a method does; field and method
     /// access share their encoding.
     /// </summary>
-    static bool AdmitsFieldAccess(
+    internal static bool AdmitsFieldAccess(
         FieldAttributes access,
         bool includeAll,
         bool apiAxis)

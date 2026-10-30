@@ -34,8 +34,8 @@ public sealed record ExactMethodAnalysisProducerResult(
     ImmutableArray<ExactMethodAnalysisBody> Bodies);
 
 /// <summary>
-/// Produces the exact-member facts whose semantic inputs are owned by Method
-/// Query Source. Broader body-analysis products remain on their legacy owner.
+/// Adds exact-target declared-source attribution to reusable physical Method
+/// evidence.
 /// </summary>
 public sealed class ExactMethodAnalysisProducer :
     MethodDefinitionProducer<
@@ -43,26 +43,171 @@ public sealed class ExactMethodAnalysisProducer :
         ImmutableArray<ExactMethodAnalysisBody>.Builder,
         ExactMethodAnalysisProducerResult>
 {
-    public static readonly ExactMethodAnalysisProducer Instance = new();
-
     ExactMethodAnalysisProducer()
         : base(
             "Exact Method Analysis",
             version: 1,
             tier: 0,
+            MethodDefinitionLayers.MethodAnalysis,
+            dependencies: static () =>
+            [
+                new(
+                    PhysicalMethodAnalysisProducer.Instance,
+                    ProducerDependencyKind.VisitNeedsVisit),
+            ])
+    {
+    }
+
+    public static ExactMethodAnalysisProducer Instance { get; } = new();
+
+    internal override ExactMethodAnalysisBody Visit(
+        scoped MethodDefinitionView view)
+    {
+        ExactMethodAnalysisBody analysis =
+            view.FactOf(PhysicalMethodAnalysisProducer.Instance);
+        if (analysis.Method is not { } method)
+            return analysis;
+
+        ExactMethodDeclaredSource declaredSource =
+            view.ResolveDeclaredSource(method);
+        ImmutableArray<AnalysisDiagnostic> diagnostics =
+            declaredSource.IsAuthenticated
+                ? analysis.Diagnostics
+                :
+                [
+                    new(
+                        analysis.MethodToken,
+                        MethodLabel(method),
+                        declaredSource.Failure
+                            ?? "Declared owner resolution failed."),
+                    .. analysis.Diagnostics,
+                ];
+        return analysis with
+        {
+            Diagnostics = diagnostics,
+            DeclaredOwner = declaredSource.Owner,
+            DeclaredOwnerSuppressesOpportunities =
+                declaredSource.SuppressesOpportunities,
+        };
+    }
+
+    internal override ImmutableArray<ExactMethodAnalysisBody>.Builder
+        Seed() =>
+        ImmutableArray.CreateBuilder<ExactMethodAnalysisBody>();
+
+    internal override ImmutableArray<ExactMethodAnalysisBody>.Builder
+        Accumulate(
+            ImmutableArray<ExactMethodAnalysisBody>.Builder accumulator,
+            ExactMethodAnalysisBody fact)
+    {
+        accumulator.Add(fact);
+        return accumulator;
+    }
+
+    internal override ExactMethodAnalysisProducerResult Complete(
+        ImmutableArray<ExactMethodAnalysisBody>.Builder accumulator,
+        MethodDefinitionCompletionView completion) =>
+        new(accumulator.ToImmutable());
+
+    internal static MethodIdentity ToMethodIdentity(
+        MethodSemanticIdentityResult semanticIdentity,
+        CallerUnsafeMode callerUnsafeMode) =>
+        PhysicalMethodAnalysisProducer.ToMethodIdentity(
+            semanticIdentity,
+            callerUnsafeMode);
+
+    internal static CallerUnsafeMode ToCallerUnsafeMode(
+        MemorySafetyMethodContract contract) =>
+        PhysicalMethodAnalysisProducer.ToCallerUnsafeMode(contract);
+
+    internal static string MethodLabel(MethodIdentity method) =>
+        PhysicalMethodAnalysisProducer.MethodLabel(method);
+
+    internal static ImmutableArray<DirectCall> CollectDirectCalls(
+        ExactMethodAnalysisBody method,
+        MethodAllocationFacts? facts,
+        out IReadOnlyDictionary<int, CallReceiverSource> receiverSources) =>
+        PhysicalMethodAnalysisProducer.CollectDirectCalls(
+            method,
+            facts,
+            out receiverSources);
+
+    internal static ImmutableArray<DirectCall> CollectDirectCalls(
+        MethodBodyAnalysisContext context,
+        MethodCallSites callSites) =>
+        PhysicalMethodAnalysisProducer.CollectDirectCalls(
+            context,
+            callSites);
+
+    internal static ImmutableArray<DirectCall> CollectDirectCalls(
+        MethodBodyAnalysisContext context,
+        MethodCallOperandSites callSites)
+    {
+        var calls =
+            ImmutableArray.CreateBuilder<DirectCall>(
+                callSites.Sites.Length);
+        foreach (MethodCallOperandSite site in callSites.Sites)
+        {
+            calls.Add(
+                new(
+                    context.Method,
+                    site.Callee,
+                    site.ILOffset,
+                    site.OperandToken,
+                    site.DefinitionToken,
+                    site.Kind,
+                    context.IsInLoopRegion(site.ILOffset))
+                {
+                    Opcode = site.Kind switch
+                    {
+                        CallKind.CallVirtual => "callvirt",
+                        CallKind.NewObject => "newobj",
+                        CallKind.LoadFunction => "ldftn",
+                        CallKind.LoadVirtualFunction =>
+                            "ldvirtftn",
+                        CallKind.CallIndirect => "calli",
+                        _ => "call",
+                    },
+                    ReturnAddress = site.ReturnAddress,
+                });
+        }
+        return calls.MoveToImmutable();
+    }
+}
+
+/// <summary>
+/// Produces reusable physical Method facts whose semantic inputs are owned by
+/// Method Query Source. Consumers add their breadth-specific attribution.
+/// </summary>
+internal sealed class PhysicalMethodAnalysisProducer :
+    MethodDefinitionProducer<
+        ExactMethodAnalysisBody,
+        ImmutableArray<ExactMethodAnalysisBody>.Builder,
+        ExactMethodAnalysisProducerResult>
+{
+    PhysicalMethodAnalysisProducer()
+        : base(
+            "Physical Method Analysis",
+            version: 1,
+            tier: 0,
             MethodDefinitionLayers.SemanticIdentity
                 | MethodDefinitionLayers.MemorySafetyContracts
                 | MethodDefinitionLayers.Calls
-                | MethodDefinitionLayers.LocalSignature
-                | MethodDefinitionLayers.MethodAnalysis)
+                | MethodDefinitionLayers.LocalSignature)
     {
     }
+
+    internal static PhysicalMethodAnalysisProducer Instance { get; } = new();
 
     internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
         InstructionAnalyzers =>
         [
             MethodBodyAnalyzerDeclarations.ResolvedCalls,
         ];
+
+    // Every body's direct calls stay in the result, so one identity per
+    // callee replaces a MemberRef graph per call site.
+    internal override bool SharesCalleeIdentities => true;
 
     internal override ExactMethodAnalysisBody Visit(
         scoped MethodDefinitionView view)
@@ -93,18 +238,6 @@ public sealed class ExactMethodAnalysisProducer :
                 ToCallerUnsafeMode(
                     view.GetMemorySafetyMethodContract(
                         MetadataTokens.MethodDefinitionHandle(token))));
-        ExactMethodDeclaredSource declaredSource =
-            view.ResolveDeclaredSource(method);
-        if (!declaredSource.IsAuthenticated)
-        {
-            diagnostics.Add(
-                new(
-                    token,
-                    MethodLabel(method),
-                    declaredSource.Failure
-                        ?? "Declared owner resolution failed."));
-        }
-
         ImmutableArray<UnsafeEvidence>.Builder safety =
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
         ImmutableArray<UnsafetyOccurrence> unsafeOccurrences = [];
@@ -118,11 +251,15 @@ public sealed class ExactMethodAnalysisProducer :
 
         if (!view.HasManagedBody)
         {
-            return Empty(
+            return new(
                 token,
                 method,
-                hasManagedBody: false,
-                diagnostics);
+                HasManagedBody: false,
+                safety.ToImmutable(),
+                UnsafeOccurrences: [],
+                ExceptionRegions: [],
+                ExceptionRegionError: null,
+                diagnostics.ToImmutable());
         }
 
         try
@@ -231,10 +368,6 @@ public sealed class ExactMethodAnalysisProducer :
                 Context = context,
                 CallSites = callSites,
                 TargetModes = targetModes,
-                DeclaredOwner = declaredSource.Owner,
-                DeclaredOwnerSuppressesOpportunities =
-                    declaredSource
-                        .SuppressesOpportunities,
             };
         }
         catch (Exception ex)
@@ -260,10 +393,6 @@ public sealed class ExactMethodAnalysisProducer :
                 diagnostics.ToImmutable())
             {
                 Context = context,
-                DeclaredOwner = declaredSource.Owner,
-                DeclaredOwnerSuppressesOpportunities =
-                    declaredSource
-                        .SuppressesOpportunities,
             };
         }
     }
@@ -418,6 +547,29 @@ public sealed class ExactMethodAnalysisProducer :
 
     internal static string MethodLabel(MethodIdentity method) =>
         $"{method.DeclaringType}.{method.Name}";
+
+    internal static ImmutableArray<DirectCall>
+        CollectDirectCalls(
+            MethodBodyAnalysisContext context,
+            MethodCallSites callSites)
+    {
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        try
+        {
+            MethodCallAnalysis.CollectCompleteDirectCalls(
+                context,
+                new OwnerIssuedCallResolver(
+                    callSites,
+                    failOnUnknown: true),
+                calls);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+        }
+        return calls.ToImmutable();
+    }
 
     internal static ImmutableArray<DirectCall>
         CollectDirectCalls(

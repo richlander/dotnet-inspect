@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -19,6 +20,19 @@ public partial class LibraryCommand
                 "--workspace on library requires --package to identify one "
                     + "Package in the selected Workspace context.");
             return 1;
+        }
+        if (options.TypeNamespace is not null)
+        {
+            if (!LibraryNamespaceListingCommand.ValidateOptions(options))
+                return 1;
+
+            int? sharedNamespaceResult =
+                await TryExecutePackageNamespaceAsync(
+                        options,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            if (sharedNamespaceResult is not null)
+                return sharedNamespaceResult.Value;
         }
         if (options.WorkspacePacket is not null
             && (options.PlatformAssembly is not null
@@ -51,11 +65,15 @@ public partial class LibraryCommand
             options.NamesakeLibrary
                 ? new PackageLibraryTarget.Namesake()
                 : options.FirstLibrary
-                    ? new PackageLibraryTarget.First()
-                : string.IsNullOrWhiteSpace(options.AssemblyName)
-                    ? new PackageLibraryTarget.Aggregate()
-                    : new PackageLibraryTarget.Exact(
-                        options.AssemblyName);
+                    ? new PackageLibraryTarget.First(Implicit: false)
+                : !string.IsNullOrWhiteSpace(options.AssemblyName)
+                    ? new PackageLibraryTarget.Exact(
+                        options.AssemblyName)
+                // The Type hierarchy describes one Library, so an unnarrowed
+                // Package selects the same Library as --first-library.
+                : options.CommandPlan is LibraryCommandPlan.TypeHierarchy
+                    ? new PackageLibraryTarget.First(Implicit: true)
+                    : new PackageLibraryTarget.Aggregate();
         if (options.TypeNamespace is not null
             && selection is PackageLibraryTarget.Aggregate)
         {
@@ -132,6 +150,8 @@ public partial class LibraryCommand
                 selection is PackageLibraryTarget.Namesake,
             FirstLibrary =
                 selection is PackageLibraryTarget.First,
+            ReportUnnamedLibrarySelection =
+                selection is PackageLibraryTarget.First { Implicit: true },
             TypeNamespace = options.TypeNamespace,
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
@@ -223,7 +243,10 @@ public partial class LibraryCommand
 
         internal sealed record Namesake : PackageLibraryTarget;
 
-        internal sealed record First : PackageLibraryTarget;
+        /// <param name="Implicit">
+        /// The Library was not named, so the selection is reported.
+        /// </param>
+        internal sealed record First(bool Implicit) : PackageLibraryTarget;
 
         internal sealed record Exact(string Library) : PackageLibraryTarget;
     }

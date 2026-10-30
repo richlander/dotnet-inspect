@@ -21,9 +21,11 @@ dnx dotnet-inspect -y -- <command>
 
 ## Command conventions
 
-This skill names every command a review needs. Use them as written; reach for
-`<command> -D` (sections and fields) or `<command> -Q "<Section>"` (filter keys
-and operators) only to look up an exact name the skill does not give.
+Use these recipes as productive starts, not an exhaustive command inventory.
+For unfamiliar evidence, use `explain <task-text>` and follow the returned
+capability and CLI binding for required inputs and limits. Use `<command> -D`
+for sections and fields or `<command> -Q "<Section>"` for filter keys and
+operators.
 
 - `Id@v` is an exact package coordinate. For a package, add
   `--namesake-library` to `library` to select its main assembly; the
@@ -70,7 +72,7 @@ and clustering wait for a thorough review; they are only worth doing well.
 | Removable references | `depends --project <path> --tfm <restored-tfm> -S Pruning` |
 | Far behind upstream | `-S "Latest Versions"` in the same `depends` call |
 | Breaks between current and latest | `diff --package Id@current..latest --breaking`, per retained dependency |
-| Changed URLs in literals | `diff --package Id@current..latest --analysis string-literals --where "Literal contains http"` |
+| Changed URLs in literals | `explain "compare string literals"`, then follow the returned analysis and CLI binding for predicate requirements and limits |
 | Known vulnerabilities | `package Id@current -S Signals`: the `Known vulnerabilities` row is a checked count with its source; `-S Vulnerabilities` lists advisories only when there are some |
 | Unsafe in dependencies (context, not a verdict) | `library --package Id@current --namesake-library -S Signals`, plus `-S "Unsafe Members" --count` |
 | Concerning patterns in the target | `library <target> -S "Unsafe Members"`, `-S "Resource Triage"`, and `-S "Performance:*" --where "Priority>=high" --top 10`, each in its own call so one failure cannot mask the others |
@@ -95,7 +97,7 @@ it:
 - for a package root, `--tfm` selects a dependency group by exact match, so a
   newer consumer framework can select nothing while Pruning reports `Complete`
   (#10071); prefer a restored project root;
-- treat a zero from `package query --where "library-literal=…"` as unverified
+- treat a zero from `find --packages --where "library-literal=…"` as unverified
   until the summary shows no `notApplicable` candidates (#10072); and
 - check that numbers are plausible for the subject's size and domain.
 
@@ -154,6 +156,19 @@ The bare `library --package Id@v` output is the namespace and type tree: the
 fastest view of the public surface. For a restored project, add
 `project <path> -S Skills` for skills its packages ship.
 
+To connect the main APIs, use `Member Index` to choose a member, then reuse its
+`Selector` to read the actual public declaration:
+
+```bash
+dnx dotnet-inspect -y -- member <Type> --package Id@v -S "Member Index"
+dnx dotnet-inspect -y -- member <Type> --package Id@v <Selector> -S Signature
+```
+
+The terse type tree and the index's `Canonical Signature` identify APIs; they
+do not establish return types. Before connecting a factory or builder to the
+object used for execution, verify that edge in `Signature`. If it remains
+unverified, label the relationship as inferred.
+
 **Thorough:**
 
 ```bash
@@ -194,10 +209,12 @@ dnx dotnet-inspect -y -- depends --project <path> --tfm <restored-tfm> \
 dnx dotnet-inspect -y -- diff --package Id@current..latest --breaking
 dnx dotnet-inspect -y -- diff --package Id@current..latest -S Changes
 dnx dotnet-inspect -y -- diff --package Id@current..latest -S "Analysis Diff"
-dnx dotnet-inspect -y -- diff --package Id@current..latest \
-  --analysis string-literals --where "Literal contains http"
 dnx dotnet-inspect -y -- package Id@current -S Signals
 ```
+
+For changed endpoint text, discover the literal comparison with `explain` and
+read its CLI binding before executing it. Preserve added/removed direction and
+completion evidence; changed strings do not prove actual network behavior.
 
 Load `skill compatibility` for diff and history, and `skill signals` for
 provenance, signatures, and vulnerabilities.

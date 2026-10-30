@@ -60,6 +60,68 @@ public sealed partial class UnsafeMemberFindingsTests
                 && evidence.Body.Name.Contains("g__Read", StringComparison.Ordinal));
     }
 
+    // A safe boundary uses an unsafe context without propagating it, which
+    // only the updated rules define; a propagator never is one.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SafeBoundaryIsDecidedOnlyUnderTheUpdatedRules(bool legacy)
+    {
+        UnsafeMemberCensus census = OpenCensus(legacy);
+
+        Assert.All(
+            census.Members.Where(static finding => finding.HasExplicitUnsafeContract),
+            static finding => Assert.Equal(UnsafeMemberSafeBoundary.No, finding.SafeBoundary));
+        UnsafeMemberSafeBoundary unmarked = legacy
+            ? UnsafeMemberSafeBoundary.NotApplicable
+            : UnsafeMemberSafeBoundary.Yes;
+        Assert.All(
+            census.Members.Where(static finding => !finding.HasExplicitUnsafeContract),
+            finding => Assert.Equal(unmarked, finding.SafeBoundary));
+
+        // A lambda's inner unsafe block makes its declared member the boundary.
+        Assert.Equal(
+            unmarked,
+            Single(census, "PointerVariableUpdateSamples", "CaptureLocal").SafeBoundary);
+        if (!legacy)
+        {
+            Assert.Equal(
+                UnsafeMemberSafeBoundary.No,
+                Single(census, "UnsafeExtensionMembers", "ExtensionContract").SafeBoundary);
+        }
+    }
+
+    // Type groups partition the census in its order, and each Type's counts
+    // are the counts of its own findings.
+    [Fact]
+    public void TypeGroupsPartitionTheCensusWithTheirCounts()
+    {
+        UnsafeMemberCensus census = OpenCensus(legacy: false);
+        ImmutableArray<UnsafeMemberTypeGroup> groups = UnsafeMemberTypeGroup.Group(census.Members);
+
+        Assert.Equal(census.Members, groups.SelectMany(static group => group.Members).OrderBy(census.Members.IndexOf));
+        Assert.Equal(groups.Length, groups.Select(static group => group.DeclaringType).Distinct().Count());
+        Assert.All(groups, static group =>
+        {
+            Assert.All(group.Members, member => Assert.Equal(group.DeclaringType, member.Member.DeclaringType));
+            Assert.Equal(UnsafeMemberCounts.Of(group.Members), group.Counts);
+        });
+
+        UnsafeMemberCounts total = UnsafeMemberCounts.Of(census.Members);
+        Assert.Equal(census.Members.Length, total.Members);
+        Assert.Equal(groups.Sum(static group => group.Counts.SafeBoundaries), total.SafeBoundaries);
+        Assert.Equal(census.Members.Count(static member => member.PropagatesUnsafe), total.Propagating);
+        Assert.Equal(
+            census.Members.Count(static member => member.Exposure == UnsafeMemberExposure.Public),
+            total.Public);
+        Assert.Equal(0, total.SafeBoundaryUndecided);
+
+        // Under the legacy rules every non-propagating member is undecided.
+        UnsafeMemberCounts legacy = UnsafeMemberCounts.Of(OpenCensus(legacy: true).Members);
+        Assert.Equal(legacy.Members - legacy.Propagating, legacy.SafeBoundaryUndecided);
+        Assert.Equal(0, legacy.SafeBoundaries);
+    }
+
     // The grouping-type declaration copy duplicates the implementation's
     // contract and has a throwing body, so it is ignored.
     [Theory]

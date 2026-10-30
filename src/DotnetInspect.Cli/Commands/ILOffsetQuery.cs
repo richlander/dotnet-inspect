@@ -17,10 +17,11 @@ internal sealed record ILOffsetAnalysisPreparation(
     ILOffsetAnalysisInput? Input,
     ILOffsetAllocationAnalysisInput? AllocationInput,
     ILOffsetSafetyAnalysisInput? SafetyInput,
+    ILOffsetCostAnalysisInput? CostInput,
     string? Failure)
 {
     internal static ILOffsetAnalysisPreparation None { get; } =
-        new(null, null, null, null);
+        new(null, null, null, null, null);
 }
 
 internal static class ILOffsetQuery
@@ -151,7 +152,8 @@ internal static class ILOffsetQuery
             AllowNonBoundaryContextAbsence:
                 allowNonBoundaryContextAbsence,
             SafetyAnalysis: analysis.SafetyInput,
-            AllocationAnalysis: analysis.AllocationInput));
+            AllocationAnalysis: analysis.AllocationInput,
+            CostAnalysis: analysis.CostInput));
         if (!outcome.Succeeded)
         {
             var failure = outcome.Failure!;
@@ -184,9 +186,7 @@ internal static class ILOffsetQuery
 
         ILOffsetProjectionCapabilities capabilities =
             ProjectionCapabilities(options);
-        Analysis.LibraryBodyAnalysisFeatures features =
-            AnalysisFeatures(capabilities);
-        if (features == Analysis.LibraryBodyAnalysisFeatures.None)
+        if (!RequiresSemanticAnalysis(capabilities))
             return ILOffsetAnalysisPreparation.None;
 
         HashSet<int> bodyScope = [.. methodTokens];
@@ -196,53 +196,21 @@ internal static class ILOffsetQuery
         try
         {
             PdbContext context = service.Context;
-            if (RequiresOnlyAllocation(capabilities))
-            {
-                using AssemblyInspectionSession session =
-                    AssemblyInspectionSession.Borrow(context);
-                return new(
-                    Input: null,
-                    ILOffsetAllocationAnalysis.Execute(
-                        session,
-                        context.AssemblyPathOrNull
-                            ?? "IL-offset assembly",
-                        context.ModuleVersionId(),
-                        bodyScope),
-                    SafetyInput: null,
-                    Failure: null);
-            }
-
-            if (RequiresOnlySafety(capabilities))
-            {
-                using AssemblyInspectionSession session =
-                    AssemblyInspectionSession.Borrow(context);
-                return new(
-                    Input: null,
-                    AllocationInput: null,
-                    ILOffsetSafetyAnalysis.Execute(
-                        session,
-                        context.AssemblyPathOrNull
-                            ?? "IL-offset assembly",
-                        context.ModuleVersionId(),
-                        bodyScope),
-                    Failure: null);
-            }
-
-            Analysis.LibraryBodyAnalysisExecution execution =
-                Analysis.LibraryBodyAnalysisService.ExecuteImage(
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Borrow(context);
+            ILOffsetSemanticAnalysisResult semantic =
+                ILOffsetSemanticAnalysis.Execute(
+                    session,
                     context.AssemblyPathOrNull
                         ?? "IL-offset assembly",
-                    context.GetPrefetchedImage(),
-                    Analysis.LibraryBodyAnalysisRequest.Create(
-                        features,
-                        bodyScope));
+                    context.ModuleVersionId(),
+                    bodyScope,
+                    capabilities);
             return new(
-                new ILOffsetAnalysisInput(
-                    execution.Allocations,
-                    execution.Safety,
-                    execution.CallGraph),
-                AllocationInput: null,
-                SafetyInput: null,
+                Input: null,
+                AllocationInput: semantic.Allocation,
+                SafetyInput: semantic.Safety,
+                CostInput: semantic.Cost,
                 Failure: null);
         }
         catch (Exception ex) when (ex is BadImageFormatException
@@ -255,7 +223,8 @@ internal static class ILOffsetQuery
                 Input: null,
                 AllocationInput: null,
                 SafetyInput: null,
-                $"IL-offset semantic analysis unavailable: "
+                CostInput: null,
+                Failure: $"IL-offset semantic analysis unavailable: "
                     + $"{ex.GetType().Name}: {ex.Message}");
         }
     }
@@ -264,9 +233,8 @@ internal static class ILOffsetQuery
         LibraryOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return AnalysisFeatures(
-                ProjectionCapabilities(options))
-            != Analysis.LibraryBodyAnalysisFeatures.None;
+        return RequiresSemanticAnalysis(
+            ProjectionCapabilities(options));
     }
 
     internal static string FormatFailure(ILOffsetProjectionFailure? failure)
@@ -307,42 +275,12 @@ internal static class ILOffsetQuery
         return capabilities;
     }
 
-    static Analysis.LibraryBodyAnalysisFeatures AnalysisFeatures(
-        ILOffsetProjectionCapabilities capabilities)
-    {
-        Analysis.LibraryBodyAnalysisFeatures features =
-            Analysis.LibraryBodyAnalysisFeatures.None;
-        if ((capabilities
-                & ILOffsetProjectionCapabilities.AllocationContext)
-            != 0)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
-        }
-        if ((capabilities
-                & (ILOffsetProjectionCapabilities.SafetyContext
-                    | ILOffsetProjectionCapabilities.CostContext))
-            != 0)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
-        }
-        return features;
-    }
-
-    static bool RequiresOnlySafety(
+    static bool RequiresSemanticAnalysis(
         ILOffsetProjectionCapabilities capabilities) =>
         (capabilities
-            & ILOffsetProjectionCapabilities.SafetyContext) != 0
-        && (capabilities
             & (ILOffsetProjectionCapabilities.AllocationContext
-                | ILOffsetProjectionCapabilities.CostContext)) == 0;
-
-    static bool RequiresOnlyAllocation(
-        ILOffsetProjectionCapabilities capabilities) =>
-        (capabilities
-            & ILOffsetProjectionCapabilities.AllocationContext) != 0
-        && (capabilities
-            & (ILOffsetProjectionCapabilities.SafetyContext
-                | ILOffsetProjectionCapabilities.CostContext)) == 0;
+                | ILOffsetProjectionCapabilities.SafetyContext
+                | ILOffsetProjectionCapabilities.CostContext)) != 0;
 
     static void WriteError(bool enabled, string message)
     {

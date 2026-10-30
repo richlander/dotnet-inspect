@@ -101,6 +101,12 @@ public record InspectionOptions : IProjectionOptions
     /// </summary>
     public bool FirstLibrary { get; init; }
 
+    /// <summary>
+    /// The First Library was selected because no Library was named, so a
+    /// Package with several Libraries reports that only one is shown.
+    /// </summary>
+    internal bool ReportUnnamedLibrarySelection { get; init; }
+
     internal string? TypeNamespace { get; init; }
 
     internal bool IncludeNamespaceChildren { get; init; }
@@ -167,11 +173,6 @@ public record InspectionOptions : IProjectionOptions
     /// <c>first</c> returns the first matching selector's first result per package.
     /// </summary>
     public string PathMatchMode { get; init; } = "all";
-
-    /// <summary>
-    /// In multi-package row output, omit packages whose selected Files section is empty.
-    /// </summary>
-    public bool SkipEmpty { get; init; }
 
     /// <summary>
     /// List target frameworks in the package, one per line.

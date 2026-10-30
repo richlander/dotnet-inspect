@@ -41,16 +41,18 @@ public static class LibraryInfoLanes
 
     /// <summary>
     /// Extension Methods, type half: a static (sealed abstract) TypeDef carrying
-    /// <c>[Extension]</c> and not hidden, as <c>ExtensionMethodScanner.FindAllExtensions</c>
-    /// selects it with <c>includeAll: false</c>.
+    /// <c>[Extension]</c>, not hidden, and public through every enclosing type,
+    /// as <c>ExtensionMethodScanner.FindAllExtensions</c> selects it with
+    /// <c>includeAll: false</c>.
     /// </summary>
-    public static bool IsExtensionType(MetadataReader reader, TypeDefinition type)
+    public static bool IsExtensionType(MetadataReader reader, TypeDefinitionHandle handle, TypeDefinition type)
     {
         TypeAttributes attributes = type.Attributes;
         if ((attributes & TypeAttributes.Sealed) == 0 || (attributes & TypeAttributes.Abstract) == 0)
             return false;
         return AttributeReader.HasExtensionAttribute(reader, type.GetCustomAttributes())
-            && !AttributeReader.HasHiddenAttribute(reader, type.GetCustomAttributes());
+            && !AttributeReader.HasHiddenAttribute(reader, type.GetCustomAttributes())
+            && ApiSurfaceExtractor.AdmitsPublicScopeType(reader, handle, type);
     }
 
     /// <summary>
@@ -157,8 +159,8 @@ public static class LibraryInfoCounts
             .Count(row => MethodClassificationGate.MethodInScope(reader, row.Method)
                 && MethodClassificationTests.Classify(ClassificationPopulation.Async, state, row.Method) is not null);
         int extension = reader.TypeDefinitions
+            .Where(handle => LibraryInfoLanes.IsExtensionType(reader, handle, reader.GetTypeDefinition(handle)))
             .Select(reader.GetTypeDefinition)
-            .Where(type => LibraryInfoLanes.IsExtensionType(reader, type))
             .SelectMany(type => type.GetMethods().Select(handle => (Type: type, Method: reader.GetMethodDefinition(handle))))
             .Count(row => LibraryInfoLanes.IsExtensionMethod(reader, row.Type, row.Method));
         int union = reader.TypeDefinitions
@@ -211,7 +213,7 @@ public static class LibraryInfoCounts
             {
                 _seen = true;
                 _lastType = row.TypeHandle;
-                _lastTypeSelected = LibraryInfoLanes.IsExtensionType(row.Reader, row.Type);
+                _lastTypeSelected = LibraryInfoLanes.IsExtensionType(row.Reader, row.TypeHandle, row.Type);
             }
 
             return _lastTypeSelected && LibraryInfoLanes.IsExtensionMethod(row.Reader, row.Type, row.Method);
@@ -239,7 +241,7 @@ public static class LibraryInfoCounts
             if (LibraryInfoLanes.IsUnionType(reader, type))
                 union++;
             bool asyncScope = MethodClassificationGate.TypeInScope(reader, type);
-            bool extensionType = LibraryInfoLanes.IsExtensionType(reader, type);
+            bool extensionType = LibraryInfoLanes.IsExtensionType(reader, row.Handle, type);
             if (asyncScope || extensionType)
             {
                 foreach (MethodDefinitionHandle handle in type.GetMethods())

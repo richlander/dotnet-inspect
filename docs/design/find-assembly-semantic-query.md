@@ -121,7 +121,7 @@ failure to a process exit code.
 The package-grain production route is the first production witness:
 
 ```console
-dotnet-inspect package query Newtonsoft.Json \
+dotnet-inspect find --packages Newtonsoft.Json \
   --where "library-literal=Unexpected end when reading JSON" --tfm net6.0
 ```
 
@@ -133,7 +133,7 @@ same Result preserves the exact Root reopening request.
 The bounded prefix form is:
 
 ```console
-dotnet-inspect package query 'Azure.Identity*' \
+dotnet-inspect find --packages 'Azure.Identity*' \
   --where "library-literal=DefaultAzureCredential" --take 5 --tfm net8.0 -n 2
 ```
 
@@ -395,8 +395,8 @@ package-grain CLI adoption is:
 
 | Gesture | Meaning |
 | --- | --- |
-| `package query ID --where "library-literal=TEXT" --tfm TFM` | The latest eligible listed exact package candidate. |
-| `package query 'PREFIX*' --where "library-literal=TEXT" --tfm TFM --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
+| `find --packages ID --where "library-literal=TEXT" --tfm TFM` | The latest eligible listed exact package candidate. |
+| `find --packages 'PREFIX*' --where "library-literal=TEXT" --tfm TFM --take N` | At most the first `N` source-selected exact package candidates, where `N` is 1-5. |
 | `-n N` | Semantic Head over matched package Results in the admitted population; a lone Head may stop evaluation at the Nth match. |
 | `--count` | Count of the selected package Result set. It is exact only when population formation and semantic evaluation are complete; otherwise it is the observed count, with the same incompleteness disclosure as the rows. |
 
@@ -485,7 +485,7 @@ occurrence-oriented presentation, but it must not:
 - run a second semantic evaluator.
 
 The CLI adoption moved to the composable
-`package query --where "library-literal=TEXT" --tfm TFM` vocabulary. The shared
+`find --packages --where "library-literal=TEXT" --tfm TFM` vocabulary. The shared
 Package Query operation binds `-n` and Count to matched package Results, keeps
 occurrences as package evidence, and returns the same `PackageQueryDocument`
 that other Package Query terms use.

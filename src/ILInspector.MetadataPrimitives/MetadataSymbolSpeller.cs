@@ -12,8 +12,9 @@ namespace ILInspector.Metadata;
 /// resolved before the referring key opens; a Type a signature names is
 /// resolved when it is embedded, while the referring key is open, so the
 /// consumer spells Type-level rows into a builder other than the one a member
-/// key is written in. <see cref="Embed"/> copies a resolved row's bytes as a
-/// nested Key part into an open key.
+/// key is written in. <see cref="Embed"/> writes a resolved row into an open
+/// key in the form the consumer chooses: a nested Key part of its bytes, or
+/// the Ref of an id its interning table issued.
 /// </summary>
 public interface IMetadataRowKeys<TDomain, TRow>
     where TDomain : unmanaged, Enum
@@ -29,7 +30,7 @@ public interface IMetadataRowKeys<TDomain, TRow>
     /// <summary>The consumer's key for a primitive type, which signatures name far more often than any row.</summary>
     TRow Primitive(PrimitiveTypeCode typeCode);
 
-    /// <summary>Embeds a resolved row's key as a nested Key part of the key open in <paramref name="into"/>.</summary>
+    /// <summary>Embeds a resolved row's key into the key open in <paramref name="into"/>, as a nested Key part or as a Ref.</summary>
     void Embed(SymbolKeyBuilder<TDomain> into, TRow row);
 
     /// <summary>
@@ -438,6 +439,22 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         }
     }
 
+    /// <summary>A guarded method signature; the consumer calls Discard after reading it.</summary>
+    public MethodSignature<MetadataSignatureKey> DecodeMethod(MethodDefinition method)
+    {
+        Enter();
+        try
+        {
+            Guard(method.Signature, SignatureBlobGuard.Kind.Method);
+            return method.DecodeSignature(_provider, null);
+        }
+        catch
+        {
+            Exit();
+            throw;
+        }
+    }
+
     /// <summary>
     /// Writes a decoded signature's parameter types, the Vararg marker at the
     /// sentinel, and the Return marker and type, into the open key.
@@ -455,7 +472,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         Embed(into, signature.ReturnType);
     }
 
-    /// <summary>Embeds a signature type, a row or primitive the consumer resolves or a scratch composite, as a nested Key part.</summary>
+    /// <summary>Embeds a signature type: a row or primitive in the consumer's form, a scratch composite as a nested Key part.</summary>
     public void Embed(SymbolKeyBuilder<TDomain> into, MetadataSignatureKey key)
     {
         if (key.IsRow)
@@ -466,7 +483,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             into.Key(ScratchKey(key));
     }
 
-    /// <summary>Ends the spelling <see cref="DecodeProperty"/> opened, once the consumer has embedded its signature.</summary>
+    /// <summary>Ends the spelling DecodeProperty or DecodeMethod opened, once the consumer has read or embedded its signature.</summary>
     public void Discard() => Exit();
 
     // A definition's name is the consumer's to write; a member reference's

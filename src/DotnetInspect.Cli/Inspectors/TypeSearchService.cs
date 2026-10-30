@@ -623,7 +623,7 @@ internal static class TypeSearchService
                 || (!includeAll
                     && candidate.DeclarationKind
                         is AssemblyTypeDeclarationKind.Definition
-                    && candidate.IsDefinitionPublic is not true)
+                    && !candidate.IsPublicSurface)
                 || (!includeAll
                 && attributes
                     is { IsEditorBrowsableNever: true }
@@ -672,23 +672,6 @@ internal static class TypeSearchService
             _ => throw new InvalidOperationException(
                 "Unknown assembly type-definition kind."),
         };
-
-    private static void AddClassifiedResults(
-            List<TypeFindResult> results,
-            string pattern,
-            TypeFindMatchKind match,
-            IEnumerable<TypeSearchResult> candidates)
-    {
-        foreach (TypeSearchResult candidate in candidates)
-        {
-            results.Add(
-                ToFindResult(
-                    pattern,
-                    match,
-                    similarity: 1.0,
-                    candidate));
-        }
-    }
 
     private static TypeFindResult ToFindResult(
             string pattern,
@@ -1332,20 +1315,6 @@ internal static class TypeSearchService
             sourceComplete: true,
             intent: options.TypeMatchIntent);
     }
-
-    private static TypeSearchResult ToSearchResult(
-        TypeFindResult result) =>
-        new()
-        {
-            TypeName = result.Type,
-            Namespace = result.Namespace,
-            FullName = result.FullName,
-            Kind = result.Kind,
-            Assembly = result.Library,
-            Source = result.Source,
-            SourceVersion = result.SourceVersion,
-            Location = result.Location,
-        };
 
     private static async Task<List<TypeFindResult>> FindSinglePatternAsync(
         string pattern,

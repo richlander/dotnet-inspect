@@ -1,5 +1,6 @@
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using QuerySpace.Rows;
 using ILInspector.Analysis;
@@ -163,6 +164,74 @@ public static class DiffOperation
                     cancellationToken)
                 .ConfigureAwait(false);
         return new(inspection, recorder.ToEvidence());
+    }
+
+    /// <summary>
+    /// Runs a single-Library pair request over a host-opened Library pair
+    /// (diff-system.md#single-library-api-diff-terminal).
+    /// </summary>
+    /// <param name="reuse">
+    /// Lets a host return a previously completed comparison of the same
+    /// endpoint pair, view, and bounds instead of computing it.
+    /// </param>
+    public static InspectionEnvelope<DiffAnalysisDocument> ExecuteLibraryPair(
+        LibraryPairDiffRequest request,
+        DiffLibraryPair pair,
+        DiffPairContent content,
+        DiffComparisonReuse? reuse = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(pair);
+        ArgumentNullException.ThrowIfNull(content);
+        return LibraryPairDiffEngine.Execute(request, pair, content, reuse);
+    }
+
+    /// <summary>
+    /// Runs an analysis-set request over host-opened API surfaces, one
+    /// Library or a multi-Library Package or Platform assembly set, through
+    /// the same input builder as <see cref="ExecuteLibraryPair"/>
+    /// (diff-system.md#single-library-api-diff-terminal). Target resolution
+    /// and the host's implementation comparison run, and may throw,
+    /// before this method returns; the analyses then run through Diff's
+    /// Compare route.
+    /// </summary>
+    public static ValueTask<InspectionEnvelope<DiffAnalysisDocument>>
+        ExecuteSurfaceSetAsync(
+            SurfaceSetDiffRequest request,
+            DiffSurfaceSet surfaces,
+            DiffPairContent content,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(surfaces);
+        ArgumentNullException.ThrowIfNull(content);
+        DiffAnalysisTargets targets = DiffAnalysisTargets.Resolve(
+            request.Targets,
+            request.Selection.Surface,
+            surfaces.Before,
+            surfaces.After);
+        DiffAnalysisInput input = DiffAnalysisInputBuilder.Create(
+            request.Selection,
+            new DiffAnalysisApiSource.Available(
+                surfaces.Before,
+                surfaces.After,
+                PrecomputedComparison: null),
+            surfaces.BeforePaths,
+            surfaces.AfterPaths,
+            targets,
+            request.StringLiteralQuery,
+            content,
+            sourceStringLiterals: null);
+        return DiffAnalysisCatalog.Route.ExecuteAsync(
+            new DiffAnalysisInspectionRequest(
+                request.Name,
+                request.BeforeVersion,
+                request.AfterVersion,
+                request.Catalog,
+                request.Selection,
+                input,
+                request.Views),
+            cancellationToken);
     }
 }
 

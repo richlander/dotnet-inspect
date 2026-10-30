@@ -1,0 +1,86 @@
+[
+  {
+    "schemaVersion": 4,
+    "kind": "workspace",
+    "id": "package-methods-workspace",
+    "title": "package Methods",
+    "description": "Typed product demo",
+    "contexts": [
+      {
+        "name": "demo",
+        "framework": "net10.0",
+        "members": [
+          {
+            "kind": "package",
+            "id": "Peer.Package",
+            "version": "1.0.0",
+            "framework": "net10.0"
+          },
+          {
+            "kind": "package",
+            "id": "Example.Package",
+            "version": "1.0.0",
+            "framework": "net10.0"
+          }
+        ]
+      }
+    ],
+    "registrations": []
+  },
+  {
+    "schemaVersion": 4,
+    "kind": "navigation",
+    "id": "package-methods-navigation",
+    "tabs": [
+      {
+        "id": "t0",
+        "coordinate": {
+          "kind": "package",
+          "id": "Peer.Package",
+          "version": "1.0.0",
+          "framework": "net10.0"
+        }
+      },
+      {
+        "id": "t1",
+        "coordinate": {
+          "kind": "package",
+          "id": "Example.Package",
+          "version": "1.0.0",
+          "framework": "net10.0"
+        }
+      }
+    ],
+    "focus": null
+  },
+  {
+    "schemaVersion": 4,
+    "kind": "view",
+    "id": "package-methods-view",
+    "states": [
+      {
+        "navigation": null,
+        "subject": {
+          "kind": "workspace"
+        }
+      },
+      {
+        "navigation": "t0"
+      },
+      {
+        "navigation": "t1"
+      }
+    ]
+  },
+  {
+    "schemaVersion": 4,
+    "kind": "scenario",
+    "id": "package-methods",
+    "title": "package Methods",
+    "description": "Typed product demo",
+    "workspace": "package-methods-workspace",
+    "context": "demo",
+    "view": "package-methods-view",
+    "navigation": "package-methods-navigation"
+  }
+]

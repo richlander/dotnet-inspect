@@ -2985,8 +2985,9 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
         Assert.StartsWith(
-            "method System.Text.Json.JsonSerializer.Deserialize (",
+            "## Signature",
             routed.Output);
+        Assert.Contains("showing Deserialize:1", routed.Error);
         Assert.DoesNotContain("## Methods", routed.Output);
     }
 
@@ -3421,8 +3422,12 @@ public partial class CommandExecutionTests
     {
         SkipUnlessAspNetCoreAvailable();
 
+        // PooledBuffer is a public nested Type of the internal
+        // ArrayPoolBufferAdapter, so it is outside the ordinary public API and
+        // resolving it as a root requires --all
+        // (docs/design/api-population-scope.md).
         var (exit, output, error) = await RunAppAsync(
-            target, "--markdown");
+            target, "--markdown", "--all");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
@@ -3584,7 +3589,7 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync("-S", "Methods", "--help");
 
         Assert.Equal(0, exit);
-        Assert.Contains("Discover types in a package or library", output);
+        Assert.Contains("Inspect a type or explicit type pattern", output);
         Assert.DoesNotContain("interpreting bare token '-S'", error);
     }
 
@@ -4215,7 +4220,7 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
         Assert.Contains(
-            "Multiple package output requires --json or a row format",
+            $"Unrecognized command or argument '{version}'",
             routed.Error);
         Assert.DoesNotContain("Type Info", routed.Error);
     }

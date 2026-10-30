@@ -17,6 +17,7 @@ import {
   releaseFacade,
   root,
   openPlatform,
+  unsafeMembersRequests,
 } from "./library-hierarchy.support.ts";
 
 test.use({ viewport: { width: 900, height: 900 } });
@@ -55,6 +56,7 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     "Integrations",
     "Performance Triage",
     "Resource Triage",
+    "Unsafe",
   ]);
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-analysis-mode="relationships"]'))
@@ -1410,7 +1412,7 @@ test("production Integrations keeps deferred Library results out of the incoming
 async function openReferences(page: Page) {
   await page.goto(root);
   await selectLibrary(page, core.id);
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(inspectorTab(page, "data-library-lens", "references"))
     .toHaveAttribute("aria-selected", "true");
 }
@@ -1546,7 +1548,7 @@ test("production References retains a loading frame and does not show a previous
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Core.Dependency");
   await chooseSubject(page, "package", "Package");
   await selectLibrary(page, other.id);
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
   await expect(page.locator(".library-references-surface")).toContainText("Reading direct AssemblyRef rows");
   await expect(page.locator("#inspector-panel > section > footer")).toHaveCount(0);
   await expect(page.locator(".library-references-surface")).not.toContainText("Example.Core");
@@ -1568,7 +1570,7 @@ test("production References shows an admitted package icon and opens its exact L
   }, [], "workspace-library");
   await page.goto(root);
   await selectLibrary(page, core.id);
-  await chooseInspector(page, "data-library-lens", "references", "References");
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
 
   const referenceIcon = page.locator(
     '.reference-list-section [data-library-reference-icon="0"]');
@@ -1612,6 +1614,76 @@ test("external supplier icon arrives after direct References and updates its gra
   await page.screenshot({ path: testInfo.outputPath("external-reference-package-icon.png") });
 });
 
+for (const width of [1440, 390]) {
+  test(`platform ecosystem icons do not wait for suppliers and yield to Package icons at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page, surface, [], "ecosystem-icons");
+    await openReferences(page);
+    const frame = page.locator(".library-references-surface");
+    const rows = frame.locator(".dep-list > li");
+    await expect(rows).toHaveCount(7);
+    for (const [index, title] of [
+      [0, ".NET Runtime"], [1, "ASP.NET Core"], [2, "Microsoft.Extensions"],
+      [6, "Microsoft.Extensions"],
+    ] as const) {
+      const icon = rows.nth(index).getByRole("img", { name: `Ecosystem: ${title}`, exact: true });
+      await expect(icon).toBeVisible();
+      expect(await icon.evaluate(element => getComputedStyle(element).backgroundImage))
+        .toMatch(/^url\("data:image\/svg\+xml,/);
+      await expect(frame.locator(
+        `g.node[id*="-flowchart-r${index + 1}-"] image[data-reference-ecosystem-icon]`))
+        .toHaveAttribute("href", /^data:image\/svg\+xml,/);
+      await expect(rows.nth(index).locator("button")).toHaveCount(0);
+    }
+    for (const index of [3, 4, 5])
+      await expect(rows.nth(index).locator(".dep-icon")).toHaveCount(0);
+    await expect(frame.locator("[data-library-reference-icon]")).toHaveCount(0);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("platform-ecosystem-reference-icons.png") });
+
+    await releaseFacade(page, "fixture-reference-suppliers-ready");
+    await expect(rows.nth(0).locator("img[data-library-reference-icon]")).toHaveCount(1);
+    await expect(rows.nth(0).locator("[data-library-reference-ecosystem-icon]")).toHaveCount(0);
+    await expect(frame.locator(
+      'g.node[id*="-flowchart-r1-"] image[data-reference-package-icon]')).toHaveCount(1);
+    await expect(frame.locator(
+      'g.node[id*="-flowchart-r1-"] image[data-reference-ecosystem-icon]')).toHaveCount(0);
+    await expect(rows.nth(0).locator(".dep-icon")).toHaveCount(1);
+  });
+}
+
+test("admitted Package icons take precedence over platform ecosystem claims", async ({ page }) => {
+  const target = library("asset:runtime", "System.Runtime", 1);
+  const icon = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="blue"/></svg>').toString("base64");
+  await installFacades(page, {
+    ...surface, icon: { mediaType: "image/svg+xml", base64: icon },
+    assemblies: [...surface.assemblies, target],
+  }, [], "ecosystem-icons");
+  await openReferences(page);
+  const row = page.locator(".reference-list-section .dep-list > li").first();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reference-ecosystem-request", /System.Runtime/);
+  await expect(row.locator("[data-library-reference-icon]"))
+    .toHaveAttribute("src", `data:image/svg+xml;base64,${icon}`);
+  await expect(row.locator("[data-library-reference-ecosystem-icon]")).toHaveCount(0);
+});
+
+test("a late ecosystem lookup cannot annotate a different Library", async ({ page }) => {
+  await installFacades(page, surface, [], "ecosystem-deferred");
+  await openReferences(page);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reference-ecosystem-request", /System.Runtime/);
+  await chooseSubject(page, "package", "Package");
+  await selectLibrary(page, other.id);
+  await chooseInspector(page, "data-library-lens", "references", "Uses");
+  const frame = page.locator(".library-references-surface");
+  await expect(frame).toContainText("Example.Other.Dependency");
+  await releaseFacade(page, "fixture-reference-ecosystems-ready");
+  await expect(frame).not.toContainText("System.Runtime");
+  await expect(frame.locator("[data-library-reference-ecosystem-icon]")).toHaveCount(0);
+});
+
 test("Library navigation exposes the complete long Library name on hover", async ({ page }) => {
   const longLibrary = {
     ...core,
@@ -1644,6 +1716,90 @@ test("triage rows have no collapsed code control and preserve Library Analysis",
     .toHaveAttribute("aria-selected", "true");
 });
 
+
+test("Unsafe discloses Library Types, then the Type's members, then a member's evidence", async ({ page }) => {
+  await installFacades(page);
+  await openAnalysis(page);
+  await page.getByRole("tab", { name: "Unsafe", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Unsafe", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => new URL(page.url()).searchParams.get("analysis")).toBe("unsafe");
+  // Library scope: counts and one row per declaring Type, with no evidence.
+  const librarySurface = page.locator(".library-unsafe-surface");
+  await expect(librarySurface.locator(".unsafe-counts dd")).toHaveText(["member", "public", "propagating", "safe boundary"]);
+  const typeRow = librarySurface.locator(".unsafe-type");
+  await expect(typeRow).toHaveCount(1);
+  await expect(typeRow.locator(".unsafe-type-name")).toHaveText("Example.Widget");
+  await expect(typeRow.locator(".unsafe-pill")).toHaveText(["1 public", "0 propagate", "1 safe boundary"]);
+  await expect(librarySurface.locator(".unsafe-member, .unsafe-evidence-table")).toHaveCount(0);
+  // Type scope: the Type's Analysis inspector opens on Unsafe and lists its
+  // members with their dimensions.
+  await typeRow.locator("button.perf-row").click();
+  await expect(inspectorTab(page, "data-lens", "analysis")).toHaveAttribute("aria-selected", "true");
+  const typeTab = page.locator('[data-analysis-scope="type"][data-analysis-mode="unsafe"]');
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  const typeSurface = page.locator(".type-unsafe-surface");
+  const member = typeSurface.locator(".unsafe-member");
+  await expect(member).toHaveCount(1);
+  await expect(member.locator(".unsafe-member-evidence")).toHaveAttribute("title", "pointer dereference ×2; explicit-contract call: System.Runtime.CompilerServices.Unsafe::Add");
+  await expect(member.locator(".unsafe-member-evidence .perf-shape")).toHaveText(["pointer dereference ×2", "explicit-contract call"]);
+  await expect(member.locator(".unsafe-member-callees")).toHaveText("System.Runtime.CompilerServices.Unsafe::Add");
+  await expect(member.locator(".unsafe-pill")).toHaveText(["Public", "safe boundary"]);
+  await expect(typeSurface.locator(".unsafe-evidence-table")).toHaveCount(0);
+  // The drill leaves the Library's own Analysis selection unchanged.
+  await chooseSubject(page, "library", "Library");
+  await expect(page.locator('[data-analysis-scope="library"][data-analysis-mode="unsafe"]')).toHaveAttribute("aria-selected", "true");
+  await expect(typeRow).toHaveCount(1);
+  await typeRow.locator("button.perf-row").click();
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  await expect(member).toHaveCount(1);
+  // The Library census answers the drilled Type: one Library request, and no
+  // Type or Member request.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "library", typeIdentity: "", stableSelector: "" },
+  ]);
+  // A package Type's Analysis defaults to Relationships, so the link carries
+  // the Unsafe refinement, and a reload restores the Type Analysis Unsafe tab.
+  await expect(page.locator('[data-analysis-scope="type"][data-analysis-mode="relationships"]')).toHaveAttribute("aria-selected", "false");
+  await expect.poll(() => new URL(page.url()).searchParams.get("analysis")).toBe("unsafe");
+  const typeUrl = page.url();
+  await page.reload();
+  await expect(typeTab).toHaveAttribute("aria-selected", "true");
+  await expect(member).toHaveCount(1);
+  expect(page.url()).toBe(typeUrl);
+  // A reload at Type runs only that Type's census.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "type", typeIdentity: "Example.Widget", stableSelector: "" },
+  ]);
+  // Member scope: the member's Analysis inspector opens on Unsafe with its
+  // dimensions and evidence.
+  await member.locator("button.perf-row").click();
+  await expect(inspectorTab(page, "data-member-section", "analysis")).toHaveAttribute("aria-selected", "true");
+  const memberTab = page.locator('[data-analysis-scope="member"][data-analysis-mode="unsafe"]');
+  await expect(memberTab).toHaveAttribute("aria-selected", "true");
+  const memberSurface = page.locator(".member-unsafe-surface");
+  await expect(memberSurface.locator(".api-surface-head p")).toContainText("Run");
+  const finding = memberSurface.locator(".unsafe-member-finding");
+  await expect(finding).toHaveCount(1);
+  await expect(finding.locator(".unsafe-member-dimensions")).toContainText("safe boundary");
+  const items = finding.locator(".unsafe-evidence-table");
+  await expect(items).toBeVisible();
+  await expect(items).toContainText("IL_0007");
+  await expect(items).toContainText("<Run>b__0_0()");
+  // The Type census answers the drilled member without another request.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "type", typeIdentity: "Example.Widget", stableSelector: "" },
+  ]);
+  await expect.poll(() => new URL(page.url()).searchParams.has("analysis")).toBe(false);
+  const memberUrl = page.url();
+  await page.reload();
+  await expect(memberTab).toHaveAttribute("aria-selected", "true");
+  await expect(memberSurface.locator(".unsafe-evidence-table")).toContainText("IL_0007");
+  expect(page.url()).toBe(memberUrl);
+  // A reload at Member runs only that member's census.
+  expect(await unsafeMembersRequests(page)).toEqual([
+    { scope: "member", typeIdentity: "Example.Widget", stableSelector: "Run" },
+  ]);
+});
 
 test("Resource rows open member Resource Triage with detailed evidence and Explore", async ({ page }) => {
   const stop = { ...run, name: "Stop", stableSelector: "Stop", graphSelectorKey: "Stop", signature: "void Stop()", documentationId: "M:Example.Widget.Stop" };

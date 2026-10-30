@@ -103,11 +103,10 @@ implementation):
 
 Meanwhile the repository has four independent workspace construction paths
 (three CLI, one wasm) and no shared definition format across them. The wasm
-packet serializes only its tab-shaped construction input, and `CorpusManifest`
-already serializes the `AssemblySet` recipe for one CLI path. A shared
-workspace definition plus one loader is still a net reduction in duplication,
-but it must reuse those acquisition models rather than assume none exists; the
-wasm site rebuild is sequenced behind it.
+packet serializes only its tab-shaped construction input. A shared workspace
+definition plus one loader is a net reduction in duplication, but it must reuse
+the existing acquisition models rather than assume none exists; the wasm site
+rebuild is sequenced behind it.
 
 ## Ownership and boundaries
 
@@ -3695,9 +3694,23 @@ exact Ecosystem `ViewFacetId`. The plan must have no contexts and must retain
 the product-default traversal target policy. Preparation rejects an absent
 registration or a non-Ecosystem facet before construction.
 
-The host constructs the fresh Workspace from that exact plan. Definitions
-reads the exact current registration revision, resolves the selected
-owner-issued `WorkspaceEcosystemRegistrationOccurrence`, creates
+The closed package-Type form carries the same context-free plan and exact
+Ecosystem registration ID plus one exact `PackageSourceCoordinate`, one
+`ExactLibrarySourceCoordinate.Package`, and one structured
+`MetadataTypeDefinitionName`; the package request is derived from the exact
+Library coordinate rather than accepted as a second independently variable
+value, and the form carries no Ecosystem facet. Definitions
+derives one private construction plan by preserving the plan's registrations
+and traversal policy and adding exactly one context for the coordinate's
+exact pinned package at the product-default target. The caller's curated plan
+remains context-free and unchanged. A supplied context, configured traversal
+target, floating package, or absent or repeated Ecosystem registration is
+invalid before construction.
+
+For the Ecosystem-subject form, the host constructs the fresh Workspace from
+the exact caller plan. Definitions reads the exact current registration
+revision, resolves the selected owner-issued
+`WorkspaceEcosystemRegistrationOccurrence`, creates
 `NavigationEcosystemEvaluation`, and submits that evaluation plus the exact
 Ecosystem subject and facet through canonical Navigation restoration. It never
 selects a sibling registration or reconstructs runtime identity from the
@@ -3705,13 +3718,35 @@ portable registration ID. Missing, replaced, unknown, or inapplicable evidence
 fails visibly before publication and the ordinary Complete Restoration
 lifecycle closes the unpublished Workspace.
 
-This request is deliberately `NonProjectable`: it adds no definition member
-coordinate, packet subject tag, URL/share encoding, or packet/schema version.
-Its detached resolved state retains only the selected registration ID,
-Navigation initialization, and exact lens-resolution result; scanner-bearing
+For the package-Type form, the host constructs from the Definitions-derived
+plan. Definitions admits the resulting exact package Root to Scope and
+evaluates the Scope-issued occurrence. Before Type selection, it also verifies
+that the fresh registration revision retains the exact selected owner-issued
+Ecosystem occurrence. It matches the Library by the full managed assembly
+identity in the exact package coordinate and submits the structured Type
+identity through canonical Navigation restoration. Navigation's owner-issued
+subject inventory proves that the exact Type occurs once in that Library and
+chooses the ordinary Type lens recommendation. Display text, assembly simple
+name, and Ecosystem scanner output are not matching substrates. Before private
+construction authority can be released, the returned activation contains the
+Type as its active Navigation subject, the exact package request/evaluation
+pair for ready-package projection, and a
+`CompleteRestorationSubjectPreparation.Ready` receipt over the exact Root,
+occurrence, Library evaluation, Type subject, and effective lens. Missing or
+ambiguous package, Library, or Type evidence, incomplete inventory, stale
+authority, and Navigation failure are typed non-install outcomes that close
+the unpublished Workspace.
+
+Both request forms are deliberately `NonProjectable`: they add no definition
+member coordinate, packet subject tag, URL/share encoding, or packet/schema
+version. The Ecosystem-subject resolved state retains only the selected
+registration ID, Navigation initialization, and exact lens-resolution result.
+The package-Type resolved state retains the selected registration ID, exact
+Library and Type intent, and Navigation initialization. Scanner-bearing
 declarations remain inside the in-process plan and live Workspace. #9130 is the
-counted first production consumer and reissues this request from exact catalog
-identity. Portable active-Ecosystem sharing, if needed, requires a separate
+counted first Ecosystem-subject production consumer; #10566 owns package-Type
+preparation for the indexed Spotlight destination contract. Portable
+active-Ecosystem or package-Type sharing, if needed, requires a separate
 Workspace Definitions design.
 
 Browser history may identify retained definitions only within one loaded page
@@ -4028,7 +4063,7 @@ candidate `18c37a5a26abe016f70a03fc4cd6448fa709203e`.
 
 The shared handoff and exact association gates are implemented under #10408.
 CLI bindings then adopt it individually under #4647, beginning
-with Package Libraries and Type API; Member overview follows. Browser
+with Package Libraries, Type API and Member overview. Browser
 restoration remains a consumer of the same owner-issued preparation; gate
 same-packet subject, facet, query and target preservation through its
 production activation facade. There is no Browser rendering redesign or
@@ -4062,10 +4097,13 @@ same handoff under #10486: its receiver consumes the borrowed Root's assembly
 roles, projects only the exact Navigation Library, and selects the structured
 Type identity. `WorkspacePacketActivationTests.SavedTypeReplaysOrdinaryApi`
 gates ordinary rendering and Count; the recorded Type packet also runs through
-the production Browser activation owner. Member and attached-query CLI bindings
-remain staged. Selection is a projection of one already
-prepared
-activation under its existing borrow, with no new state machine. The
+the production Browser activation owner. Other facets and attached-query CLI
+bindings remain staged. Member overview adopts the same declaring-Type projection and
+owner-issued Member digest under #10523; its ordinary formats and exact
+overload/property outcomes are gated by the CLI packet tests and the actual
+recorded packet's production Browser activation. Ordinary Member Count needs
+section selection, so the CLI refuses it before restoration for this saved
+view. Selection is a projection of one already prepared activation under its existing borrow, with no new state machine. The
 complete-restoration model above retains lifecycle ownership; the focused
 runtime tests establish the new subject association.
 
@@ -4125,15 +4163,13 @@ implementation steps. No history or activation-lifecycle contract changes here.
 
 Each definition record serializes to a standalone `.json` file (including a
 CLI `--workspace <file>` and a site file loader) or registers as a peer record
-in an inspection bundle. Serialization follows the repository's
-`CorpusManifest` precedent: a source-generated `JsonSerializerContext` and an
-explicit `schemaVersion`, trim- and NativeAOT-compatible. That precedent does
-not supply duplicate-key hardening — current `CorpusManifest.FromJson`
-deserializes directly. The new workspace loader first uses `HardenedJson` to
-reject duplicate properties, then binds through a generated context configured
-to reject unmapped members recursively. A file is limited to 1 MiB of UTF-8
-JSON, nesting depth 32, 4096 JSON values, and 1024 coordinates. Catalog-group
-trees have an additional portable limit of 30 levels and 1024 nodes, validated
+in an inspection bundle. Serialization uses a source-generated
+`JsonSerializerContext` and an explicit `schemaVersion`, keeping it trim- and
+NativeAOT-compatible. The workspace loader first uses `HardenedJson` to reject
+duplicate properties, then binds through a generated context configured to
+reject unmapped members recursively. A file is limited to 1 MiB of UTF-8 JSON,
+nesting depth 32, 4096 JSON values, and 1024 coordinates. Catalog-group trees
+have an additional portable limit of 30 levels and 1024 nodes, validated
 iteratively on authored records before recursive text, coordinate, or
 serialization work and after bounded JSON binding on parsed records. A bundle
 applies the same per-record limits and its own aggregate byte/record budget.
@@ -4141,17 +4177,11 @@ Stream reads and multi-record bundle loads honor cancellation before each
 record. Limit, cancellation, malformed input, duplicate-key, and
 unknown-property failures remain typed and distinct from an empty definition.
 
-`CorpusManifest` remains the corpus-specific persisted recipe; workspace
-definitions subsume neither its corpus ordering nor its population API, and
-there is no schema-to-schema conversion. Its `PlatformFramework` id is a pack
-family, its `Tfm` is separate, and its platform version is informational during
-population; `PlatformAssembly` and `Directory` are also request kinds rather
-than already-normalized workspace coordinates. Conflating those fields with a
-workspace `platform` coordinate would change behavior. Instead, both loaders
-must call shared acquisition-resolution services beneath their distinct
-serializers, so package, platform-family, platform-assembly, project,
-directory, and local requests have one implementation without pretending the
-two persisted contracts are isomorphic.
+Workspace loading calls shared acquisition-resolution services, so package,
+platform-family, platform-assembly, project, directory, and local requests
+retain one implementation. Workspace definitions preserve Workspace coordinate
+semantics rather than reproducing acquisition request shapes as another
+persisted contract.
 
 ## Known gaps this design requires
 
@@ -4365,10 +4395,6 @@ Implementation must add, at minimum:
   every portable body or source-target query payload. Format 1 retains its
   narrower existing closure gate without inferring relationships across
   contexts;
-- a shared-acquisition gate proving `CorpusManifest` population and workspace
-  loading call the same package, platform-family, platform-assembly, project,
-  directory, and local resolution owners without translating one persisted
-  schema into the other;
 - a no-resolver-policy gate asserting every binding-target kind receives a
   non-success typed selection and that the shared policy has no filesystem or
   network resolution path;
@@ -4818,14 +4844,39 @@ Definition records and product demos (this slice):
   request/plan/Workspace association, pre-construction rejection, evidence
   order, current-intent activation, and one-shot cleanup. The neighboring
   registration-only Ecosystem arm accepts an exact context-free product-default
-  `WorkspacePlan`, selected registration ID, and Ecosystem facet; resolves the
-  exact fresh occurrence; activates it through canonical Navigation; and
-  returns a typed non-projectable result with no Package or Platform inventory.
+  `WorkspacePlan` and selected registration ID. Its Ecosystem-subject form
+  accepts an Ecosystem facet, resolves the exact fresh occurrence, and returns
+  a typed non-projectable result with no Package or Platform inventory. Its
+  package-Type form accepts an exact package-backed Library and structured
+  Type, privately derives one pinned construction context, proves the exact
+  Library and Type through owner-issued package and Navigation evidence, and
+  returns the selected-Type receipt before construction authority is released.
+  Both forms activate through canonical Navigation.
   `RegistrationOnlyEcosystem_PreparesExactNonProjectablePlan`,
   `RegistrationOnlyAspire_RestoresExactEcosystem`, and
   `RegistrationOnlyEcosystem_SelectsRequestedNeighbor` gate this boundary with
   the shipped scanner-bearing Aspire declaration and a Microsoft.Extensions
-  neighbor; and
+  neighbor.
+  `RegistrationOnlyPackageType_DerivesOneExactConstructionContext`,
+  `RegistrationOnlyPackageType_PreparesExactType`, and
+  `RegistrationOnlyPackageType_RejectsMissingExactIdentity` gate the
+  package-Type boundary with real `Aspire.StackExchange.Redis@13.6.3`, exact
+  `lib/net10.0/Aspire.StackExchange.Redis.dll` and
+  `Microsoft.Extensions.Hosting.AspireRedisExtensions` identities, missing
+  Library and Type outcomes, the Type lens, selected-subject receipt,
+  non-projectability, and unpublished-candidate cleanup.
+  `RegistrationOnlyPackageType_RejectsIncompleteInventory` and
+  `RegistrationOnlyPackageType_RejectsAmbiguousTypeBinding` gate bounded
+  inventory refusal and duplicate structured Type identities before selection.
+  `RegistrationOnlyPackageType_IgnoresSameNamedNeighbor` proves that a
+  neighboring Library declaring the same structured Type name cannot replace
+  the exact full assembly identity.
+  `RegistrationOnlyPackageType_RejectsStaleConstruction` gates expired,
+  canceled, and superseded construction before candidate release.
+  `RegistrationOnlyPackageType_RejectsReplacedEcosystem` gates exact fresh
+  Ecosystem occurrence identity. The success gate also executes the
+  projection-enabled restoration path and preserves the exact package
+  request, binding, and evaluation; and
 - Definitions accepts schema-version-2-through-4 portable query records, binds them
   through owner-issued typed descriptors, preserves state-bound query and
   multi-Library scope through packet formats 2 through 4, and admits the exact

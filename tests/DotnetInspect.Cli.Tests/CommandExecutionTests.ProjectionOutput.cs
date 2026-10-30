@@ -28,15 +28,6 @@ public partial class CommandExecutionTests
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
                 "-S", "Target Frameworks", "--count");
-            var (multiPackageExit, multiPackageOutput, multiPackageError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Target Frameworks", "--count");
-            var (mapExit, mapOutput, mapError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info,Target Frameworks",
-                "--count");
-
             Assert.Equal(0, libraryExit);
             Assert.True(
                 int.TryParse(
@@ -56,18 +47,6 @@ public partial class CommandExecutionTests
                 packageOutput);
             Assert.True(packageCount > 0);
 
-            Assert.Equal(0, multiPackageExit);
-            Assert.Empty(multiPackageError);
-            Assert.Equal(
-                packageCount * 2,
-                int.Parse(
-                    multiPackageOutput.Trim(),
-                    CultureInfo.InvariantCulture));
-
-            Assert.Equal(0, mapExit);
-            Assert.Empty(mapError);
-            Assert.Contains("Package Info", mapOutput);
-            Assert.Contains("Target Frameworks", mapOutput);
         }
         finally
         {
@@ -364,7 +343,7 @@ public partial class CommandExecutionTests
         // then trip the audit (#3390); it now (#3386) rejects the projection up front with a
         // targeted message, before rendering, so the audit never has to fire a second line.
         var (exit, output, error) = await RunAppAsync(
-            "type", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
+            "type", "-t", "*", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -490,11 +469,9 @@ public partial class CommandExecutionTests
                 "graph packages",
                 "library",
                 "library address",
-                "library query",
                 "member",
                 "package",
                 "package activity",
-                "package query",
                 "project",
                 "type",
             },
@@ -983,7 +960,7 @@ public partial class CommandExecutionTests
         // Two projections cannot both shape one payload, so honoring either one would
         // discard the other.
         var (exit, output, error) = await RunAppAsync(
-            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print");
+            "type", "-t", "*", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1047,7 +1024,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Discover_UnsafeMembers_UsesPresenceProbeWithoutExecutingFullQuery()
     {
-        string assemblyPath = typeof(InstructionProducer).Assembly.Location;
+        string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         var (renderExit, renderOutput, renderError) = await RunAppAsync(
             "library", assemblyPath,
             "-S", SectionNames.UnsafeMembers,
@@ -1057,7 +1034,7 @@ public partial class CommandExecutionTests
         Assert.Empty(renderError);
         Assert.True(
             int.Parse(renderOutput.Trim(), CultureInfo.InvariantCulture) > 0,
-            "The fixture must contain body-only unsafe evidence for discovery to preserve.");
+            "The fixture must contain census unsafe roles for discovery to preserve.");
 
         var (exit, output, error) = await RunAppAsync(
             "library", assemblyPath,
@@ -1069,7 +1046,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
         Assert.Contains("trace: library", error);
-        Assert.DoesNotContain(UnsafeEvidenceQuery.Definition.Name, error);
+        Assert.DoesNotContain(UnsafeMemberCensusQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
 
         var (bareExit, rawOutput, bareError) = await RunAppAsync(
@@ -1225,8 +1202,8 @@ public partial class CommandExecutionTests
         string directory = Path.Combine(
             Path.GetTempPath(), $"effective-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        string assemblyPath = Path.Combine(directory, "Instructions.dll");
-        File.Copy(typeof(InstructionProducer).Assembly.Location, assemblyPath);
+        string assemblyPath = Path.Combine(directory, "UnsafeNew.dll");
+        File.Copy(FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(), assemblyPath);
 
         string hash = Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(assemblyPath)));
@@ -1244,7 +1221,7 @@ public partial class CommandExecutionTests
                 PersistentCache.Set(
                     legacyCategory,
                     key,
-                    $"Library Info\n{SectionNames.PInvokeMethods}\n",
+                    $"Library Info\n{SectionNames.IdentifierConfusion}\n",
                     extension: "tsv");
                 Assert.NotNull(PersistentCache.TryGet(legacyCategory, key, extension: "tsv"));
             }
@@ -1259,7 +1236,7 @@ public partial class CommandExecutionTests
             Assert.Contains(SectionNames.References, output);
             Assert.Contains(SectionNames.UnsafeMembers, output);
             Assert.DoesNotContain(
-                SectionNames.PInvokeMethods,
+                SectionNames.IdentifierConfusion,
                 output);
         }
         finally
@@ -1692,10 +1669,6 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--json", "--columns", "Name,Status");
-            var (multiExit, multiOutput, multiError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "--json", "--columns", "Package");
-
             Assert.Equal(0, exit);
             Assert.Empty(error);
             using (JsonDocument document = JsonDocument.Parse(output))
@@ -1707,9 +1680,6 @@ public partial class CommandExecutionTests
                     row.EnumerateObject().Select(
                         static property => property.Name));
             }
-            Assert.Equal(1, multiExit);
-            Assert.Empty(multiOutput);
-            Assert.Contains("requires lowered JSON", multiError);
         }
         finally
         {
@@ -1762,63 +1732,6 @@ public partial class CommandExecutionTests
                 row => Assert.Equal(
                     ["name"],
                     row.EnumerateObject().Select(property => property.Name)));
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Theory]
-    [InlineData("--value")]
-    [InlineData("--urls")]
-    [InlineData("--paths")]
-    public async Task ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed(
-        string projection)
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage(
-            "Test.Package.MultiPayloadProjection",
-            "README.md",
-            "# Test package");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info",
-                "--json", "--fields", "Version", projection);
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                $"Multiple package inspection cannot be combined with {projection}",
-                error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task ProjectedJsonRoutingAudit_MultiPackageRootsFailBeforeOutput()
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage(
-            "Test.Package.MultiRootProjection",
-            "README.md",
-            "# Test package",
-            extraFiles: [("lib/net8.0/Test.dll", "test")]);
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Files",
-                "--roots", "--json");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "Multiple package inspection cannot be combined with --roots",
-                error);
         }
         finally
         {

@@ -111,7 +111,7 @@ base category. Its membership follows the resolved view: member-kind summaries
 for a type, the matching inventory for a member name, and signature plus local
 implementation evidence for one selected overload.
 
-The `package query` command uses `@Query` as its sole base category. It composes
+The `find --packages` command uses `@Query` as its sole base category. It composes
 the matched `Packages` rows with the `Query Summary` settlement row. Its
 ordinary adaptive output and exact selections remain command-owned projections
 over that catalog rather than automatic verbosity presets.
@@ -538,7 +538,7 @@ The broad and shared descriptors have these measured and structural bounds:
 | Sections | Evidence and producer shape | Classification |
 | --- | --- | --- |
 | Member Index | 252 `System.String` rows; one row per selected member | `Verbose` |
-| Unsafe Members | 192 `System.String` rows; one row per unsafe finding or visible decode diagnostic | `Verbose` |
+| Unsafe Members | 68 `System.String` rows; one row per declared member with an unsafe member finding | `Verbose` |
 | Called Types | 51 `System.String` rows; one row per distinct called type | `Verbose` |
 | Allocation Facts, Safety Facts, Cost Facts | 26, 75, and 205 `System.String` rows respectively in the production host; one row per projected semantic fact | `Verbose` |
 | Top Leverage | 301 `System.String` rows; the producer requests the complete scoped ranking | `Verbose` |
@@ -681,7 +681,9 @@ sections the shipped `project-analysis` skill relies on: `Library Metrics`,
 `P/Invoke Methods`, `Array Pool Escapes`, `Async Methods`, and the
 `Performance:` family. When Library coverage is complete, registration
 invariant 11 makes a description required for every selectable Library
-section. Other commands adopt in their own focused changes.
+section. Other commands adopt in their own focused changes; Diff has completed
+adoption for every selectable section of the pairwise `diff` catalog, and Diff History's
+sections have not adopted yet.
 
 ## Acquisition and network policy
 
@@ -957,9 +959,9 @@ The library command's current authored ownership is:
 
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains. `Unsafe Members` is a standalone section with no category membership;
-target-aware discovery advertises it when a bounded early-exit probe finds
-evidence or metadata scanning yields a renderable incomplete-decode diagnostic,
-and `-S "Unsafe Members"` renders its full census. The explicit-only `Body
+target-aware discovery advertises it when an early-exit probe finds a method
+with an unsafe member census role, and `-S "Unsafe Members"` renders the
+census, as the [Unsafe Members section](unsafe-members-section.md) defines. The explicit-only `Body
 Shapes` section is also uncategorized because its required `Kind=...` predicate,
 rather than a category, supplies its scope.
 
@@ -1019,6 +1021,11 @@ because they are views of an analysis-set result selected with `--analysis`
 ([Analysis selection](command-transition-model.md#analysis-selection)) and do
 not compose with the comparison routes.
 
+Every selectable section of the pairwise `diff` catalog declares a
+[description](#description) and a [shape](section-shapes.md#production-adoption), and the sections form the
+`diff` structural catalog that `explain diff/sections/<section>` and `-D`
+paths address.
+
 ## Project category map
 
 The project command's current authored ownership is:
@@ -1076,7 +1083,7 @@ semantics; this document owns only their command catalog composition.
 
 ## Package Query category map
 
-The `package query` command's authored ownership is:
+The `find --packages` command's authored ownership is:
 
 | Category | Members |
 | --- | --- |
@@ -1138,7 +1145,10 @@ The section pipeline and derived catalog gates enforce these invariants:
     Basis, and Empty. After a command owner completes adoption, every
     selectable section of that command declares a description. The adoption
     gate for each command names the sections it covers; Library is the first,
-    gated by `LibraryDeclaresEverySelectableSectionDescription`.
+    gated by `LibraryDeclaresEverySelectableSectionDescription`, and the
+    pairwise `diff` catalog's sections follow, gated by
+    `DiffDeclaresEverySelectableSectionShapeAndDescription`; Diff History's
+    sections adopt separately.
 
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.

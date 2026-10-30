@@ -85,6 +85,10 @@
   compatibility guidance. SourceLink URL shape now uses
   `--prefer-rendered-urls`; direct fetchable URLs remain the default (#7621,
   #8204, #8293, #8306).
+- **Breaking:** Makes `package` inspection accept at most one Package
+  coordinate. A second coordinate now fails before resolution or acquisition;
+  plural Package selection belongs to Workspace and Package Query reporting
+  rather than cross-product Package columns in unary output (#7221).
 - **Breaking:** Renames undecorated single-payload Package and Project output
   from `--bare` to `--raw`; `--bare` is no longer recognized or reserved.
   Explicit `--raw` overrides `DOTNET_INSPECT_FORMAT` but is rejected when

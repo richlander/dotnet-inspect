@@ -117,6 +117,15 @@ acquisition with its [package transfer receipt](package-transfer-receipt.md).
 It preserves the ordinary primary output and publishes the complete enriched
 frame atomically.
 
+Ecosystem Find adopts a baseline envelope over its staged search summary
+through `EcosystemFindInspection`. Debug `find --ecosystem` and registration-only
+`find --workspace` expose it with `--evidence-envelope <path>`, registering
+`result_kind` `ecosystem-find` at `schema_version` `1`. The complete frame
+contains the same completed blocks and scheduling evidence, with explicit
+legacy acquisition-receipt unavailability. Ordinary output is unchanged.
+Other Find routes, including parse-time explicit `--package-prefix`, refuse
+the option before acquisition; their baseline adoption remains separate.
+
 Debug pairwise `diff --package` adopts `--evidence-envelope <path>` for
 Library API Diff (`LibraryApiDiffOutcome`) and analysis sets
 (`DiffAnalysisDocument`), with the same `PackageAcquisitionEvidence`: the
@@ -1196,10 +1205,11 @@ to the output layer and requires:
 - fixtures to prove that no tested output path reconstructs cardinality from
   rendered or intercepted rows.
 
-For multiple package subjects, `Package Info` and package-file sections retain
-their producer-declared cross-package survey row sets. Other sections preserve
-the aggregate or per-package scope declared before shaping. L2 does not infer a
-merge from labels or presentation.
+Package inspection accepts one Package coordinate and preserves that unary
+producer's declared row set. Plural Package selectors publish ordered complete
+reports above this shaping layer rather than merging unary rows or adding a
+Package provenance column. L2 does not infer a merge from labels or
+presentation.
 
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
@@ -1425,14 +1435,13 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   directories that contain them.
 - `--content` yields one structured row per matched file despite rendering
   text, so its count is the number of files matched.
-- A `--content` path that matches nothing in a package still renders a
-  per-package placeholder — `(absent)` in the block render, a `found:false` row
-  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
-  many files did I get content for*, so counting placeholders would report
-  matches that did not happen. The placeholder is presentation, which is why
-  `--skip-empty` removes it and `--raw` never emits it: under `--skip-empty` the
-  rendered rows and the count agree exactly. This is the one place the count is
-  deliberately smaller than the default render's row total.
+- A `--content` path that matches nothing still renders an `(absent)`
+  placeholder in the block render and a `found:false` row in `--jsonl`, but
+  that placeholder is **not** counted. The count answers *how many files did I
+  get content for*, so counting the presentation placeholder would report a
+  match that did not happen. `--raw` never emits the placeholder. This is the
+  one place the count is deliberately smaller than the default render's row
+  total.
 - An opaque lens payload refuses `--print`, `--value`, `--urls`, and `--paths`
   with the reason rather than inferring structure from rendered text. A lens
   that declares rows and their capabilities composes with ordinary projections:
@@ -1482,7 +1491,7 @@ and `SkillDocuments_ReportBoundedContainmentRanges` gates the split-channel,
 bounded diagnostic. A Markdown scope exports projected text.
 Terminal-facing output never emits a live control or bidi scalar from package
 content. Multi-item
-`--print --out` and multi-file or multi-package `--content --out` are refused
+`--print --out` and multi-file `--content --out` are refused
 unless a structured JSON shape owns the destination; global selection
 cardinality is resolved before any selected payload is read, and a unique exact
 payload is read from the same retained package acquisition that supplied its

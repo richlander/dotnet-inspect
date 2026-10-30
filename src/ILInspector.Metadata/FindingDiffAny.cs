@@ -8,7 +8,9 @@ using System.Reflection.PortableExecutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
+using ILInspector.Instructions;
 using InertText;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata;
 
@@ -60,7 +62,30 @@ public sealed record FindingDiffAnyTypeState(
 public sealed record FindingDiffAnyReceipt(
     int Types,
     int BodiesCompared,
-    long IlBytesCompared);
+    long IlBytesCompared)
+{
+    public int ApiSurfacesBuilt { get; init; }
+    public TimeSpan ApiSurfaceBuildTime { get; init; }
+}
+
+/// <summary>
+/// A provision for the Body decision of one paired method, the seam at which
+/// Finding census step 2b runs lockstep over two IL cursors in place of the
+/// walk (<c>docs/design/finding-census.md#provisions</c>). It receives the
+/// two images and the two method rows the comparison paired, under the Body
+/// policy, and answers as Exists answers: <see cref="FindingExistsDecision.Unchanged"/>,
+/// <see cref="FindingExistsDecision.Changed"/>, or
+/// <see cref="FindingExistsDecision.Indeterminate"/>, which the comparison
+/// folds as it folds a body the walk could not read. The default is the walk.
+/// Under a reader the receipt's <see cref="FindingDiffAnyReceipt.IlBytesCompared"/>
+/// is zero, since only the walk reads IL through the comparison;
+/// <see cref="FindingDiffAny.Explain"/> reads through the walk alone.
+/// </summary>
+public delegate FindingExistsDecision FindingDiffAnyBodyReader(
+    PEReader before,
+    MethodDefinitionHandle beforeMethod,
+    PEReader after,
+    MethodDefinitionHandle afterMethod);
 
 public sealed record FindingDiffAnyResult(
     ImmutableArray<FindingDiffAnyTypeState> Types,
@@ -68,7 +93,7 @@ public sealed record FindingDiffAnyResult(
 
 /// <summary>
 /// Decides, for every Type of one Library image pair, whether its API and its
-/// implementation differ, without building either complete diff.
+/// implementation differ, without building a Library-wide complete diff.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -98,15 +123,24 @@ public sealed record FindingDiffAnyResult(
 /// of its Type <c>Indeterminate</c>.
 /// </para>
 /// </remarks>
-public static class FindingDiffAny
+public static partial class FindingDiffAny
 {
     public static FindingDiffAnyResult Compare(
         PEReader before,
         PEReader after,
         FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
         CancellationToken cancellationToken = default)
+        => Compare(before, after, bodyReader: null, axes, cancellationToken);
+
+    /// <summary>Compares with the Body decision of each paired method read by <paramref name="bodyReader"/> in place of the walk.</summary>
+    public static FindingDiffAnyResult Compare(
+        PEReader before,
+        PEReader after,
+        FindingDiffAnyBodyReader? bodyReader,
+        FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
+        CancellationToken cancellationToken = default)
     {
-        var comparison = new FindingDiffAnyComparison(axes);
+        var comparison = new FindingDiffAnyComparison(axes, bodyReader);
         comparison.Step(before, after, Timeout.InfiniteTimeSpan, cancellationToken);
         return comparison.Result!;
     }
@@ -136,23 +170,31 @@ public static class FindingDiffAny
         PEReader after,
         string fullName)
     {
-        var a = new Side(before);
-        var b = new Side(after);
+        var interner = new SymbolKeyInterner<FindingDiffAnyPart>();
+        var a = new Side(before, interner);
+        var b = new Side(after, interner);
         Unit? unitA = a.Units().Entries.Select(entry => entry.Unit).FirstOrDefault(unit => unit.FullName == fullName);
         Unit? unitB = b.Units().Entries.Select(entry => entry.Unit).FirstOrDefault(unit => unit.FullName == fullName);
         if (unitA is null || unitB is null)
             return ("one-sided", "one-sided");
 
-        string? api = FirstDifference(a, a.ApiCensus(unitA), b, b.ApiCensus(unitB));
+        var work = new Work();
+        List<SymbolKeySlot> apiBefore = a.ApiCensus(unitA);
+        List<SymbolKeySlot> apiAfter = b.ApiCensus(unitB);
+        string? api = ApiState(a, unitA, apiBefore, b, unitB, apiAfter, work) == FindingDiffAnyState.Unchanged
+            ? null : FirstDifference(a, apiBefore, b, apiAfter);
         bool ownerVisible = a.IsVisible(unitA.Owner) || b.IsVisible(unitB.Owner);
         string? body = FirstDifference(
             a,
             a.BodyCensus(unitA, ownerVisible, out var methodsA),
             b,
             b.BodyCensus(unitB, ownerVisible, out var methodsB));
+        if (body is null && OneSidedBody(a, methodsA, methodsB) is { } beforeOnly)
+            body = "- body " + Describe(beforeOnly);
+        if (body is null && OneSidedBody(b, methodsB, methodsA) is { } afterOnly)
+            body = "+ body " + Describe(afterOnly);
         if (body is null)
         {
-            var work = new Work();
             foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
             {
                 if (methodsB.TryGetValue(key, out MethodDefinitionHandle methodB)
@@ -179,8 +221,8 @@ public static class FindingDiffAny
     {
         List<StagedSymbolKey<FindingDiffAnyPart>> keysBefore = before.ConvertAll(a.Transient.Resolve);
         List<StagedSymbolKey<FindingDiffAnyPart>> keysAfter = after.ConvertAll(b.Transient.Resolve);
-        string? onlyBefore = keysBefore.Except(keysAfter).Select(SymbolKeyText.Describe).FirstOrDefault();
-        string? onlyAfter = keysAfter.Except(keysBefore).Select(SymbolKeyText.Describe).FirstOrDefault();
+        string? onlyBefore = keysBefore.Except(keysAfter).Select(key => SymbolKeyText.Describe(key, a.Interner)).FirstOrDefault();
+        string? onlyAfter = keysAfter.Except(keysBefore).Select(key => SymbolKeyText.Describe(key, a.Interner)).FirstOrDefault();
         return onlyBefore is null && onlyAfter is null
             ? null
             : $"- {onlyBefore}\n+ {onlyAfter}";
@@ -232,9 +274,7 @@ public static class FindingDiffAny
             return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
         try
         {
-            api = CensusesEqual(a, a.ApiCensus(unitA), b, b.ApiCensus(unitB))
-                ? FindingDiffAnyState.Unchanged
-                : FindingDiffAnyState.Changed;
+            api = ApiState(a, unitA, a.ApiCensus(unitA), b, unitB, b.ApiCensus(unitB), work);
             if (axes is FindingDiffAnyAxes.Api)
                 return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
             body = BodiesEqual(a, unitA, b, unitB, work)
@@ -264,17 +304,49 @@ public static class FindingDiffAny
         if (!CensusesEqual(a, censusA, b, censusB))
             return false;
 
-        // Equal censuses declare the same non-public members. A public method
-        // on one side only is an API fact; its body is not compared.
+        // Equal censuses declare the same non-public members. A method with a
+        // body on one side only is a difference decided before any IL is read,
+        // so a body that cannot be decoded never hides it: the pairs are
+        // collected first, and the after side is searched for an unpaired body
+        // only when some method went unpaired.
+        List<(MethodDefinitionHandle A, MethodDefinitionHandle B)> pairs = work.Pairs;
+        pairs.Clear();
         foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
         {
-            if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
-                continue;
+            if (methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
+                pairs.Add((methodA, methodB));
+            else if (a.Md.GetMethodDefinition(methodA).RelativeVirtualAddress != 0)
+                return false;
+        }
+        if (pairs.Count != methodsB.Count && OneSidedBody(b, methodsB, methodsA) is not null)
+            return false;
+        foreach ((MethodDefinitionHandle methodA, MethodDefinitionHandle methodB) in pairs)
+        {
             work.Bodies++;
             if (!BodyEqual(a, methodA, b, methodB, work))
                 return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// The first method of <paramref name="side"/> with a body whose key the
+    /// other side's methods do not hold, or null. A method with a body present
+    /// on one side only is a Body difference, public or not, decided without
+    /// reading its IL; a public one is an API fact too. A non-public one also
+    /// differs in the Body census, so this decides the public ones.
+    /// </summary>
+    internal static KeyRef? OneSidedBody(
+        Side side,
+        Dictionary<KeyRef, MethodDefinitionHandle> methods,
+        Dictionary<KeyRef, MethodDefinitionHandle> others)
+    {
+        foreach ((KeyRef key, MethodDefinitionHandle method) in methods)
+        {
+            if (!others.ContainsKey(key) && side.Md.GetMethodDefinition(method).RelativeVirtualAddress != 0)
+                return key;
+        }
+        return null;
     }
 
     /// <summary>
@@ -284,13 +356,24 @@ public static class FindingDiffAny
     /// differs. A body the walk cannot decode or resolve before it decides a
     /// difference is malformed, which the caller reads as Indeterminate.
     /// </summary>
-    static bool BodyEqual(
+    internal static bool BodyEqual(
         Side a,
         MethodDefinitionHandle handleA,
         Side b,
         MethodDefinitionHandle handleB,
         Work work)
     {
+        if (work.BodyReader is { } reader)
+        {
+            // The provision reads presence and the body alike; an undecided
+            // pair is the malformed body the caller reads as Indeterminate.
+            return reader(a.Pe, handleA, b.Pe, handleB) switch
+            {
+                FindingExistsDecision.Unchanged => true,
+                FindingExistsDecision.Changed => false,
+                _ => throw new BadImageFormatException("The body reader could not decide the paired methods."),
+            };
+        }
         MethodDefinition methodA = a.Md.GetMethodDefinition(handleA);
         MethodDefinition methodB = b.Md.GetMethodDefinition(handleB);
         if ((methodA.RelativeVirtualAddress == 0) != (methodB.RelativeVirtualAddress == 0))
@@ -300,10 +383,8 @@ public static class FindingDiffAny
 
         RawMethodBodyView bodyA = RawMethodBodyView.Read(a.Pe, methodA.RelativeVirtualAddress);
         RawMethodBodyView bodyB = RawMethodBodyView.Read(b.Pe, methodB.RelativeVirtualAddress);
-        BlobReader readerA = bodyA.IL;
-        BlobReader readerB = bodyB.IL;
-        work.IlBytes += readerA.Length;
-        return work.Walk.Equal(a, readerA, bodyA, b, readerB, bodyB);
+        work.IlBytes += bodyA.IL.Length;
+        return work.Walk.Equal(a, bodyA, b, bodyB);
     }
 
     /// <summary>
@@ -314,8 +395,9 @@ public static class FindingDiffAny
     /// </summary>
     internal static List<BodyVerdict> BodyVerdicts(PEReader before, PEReader after)
     {
-        var a = new Side(before);
-        var b = new Side(after);
+        var interner = new SymbolKeyInterner<FindingDiffAnyPart>();
+        var a = new Side(before, interner);
+        var b = new Side(after, interner);
         var work = new Work();
         var verdicts = new List<BodyVerdict>();
         UnitTable unitsB = b.Units();
@@ -412,18 +494,29 @@ public static class FindingDiffAny
         int[] _targetsA = new int[64];
         int[] _targetsB = new int[64];
 
-        public bool Equal(
-            Side a,
-            BlobReader readerA,
-            RawMethodBodyView bodyA,
-            Side b,
-            BlobReader readerB,
-            RawMethodBodyView bodyB)
+        public bool Equal(Side a, RawMethodBodyView bodyA, Side b, RawMethodBodyView bodyB)
         {
+            try
+            {
+                return EqualCore(a, bodyA, b, bodyB);
+            }
+            catch (InvalidProgramException ex)
+            {
+                // The reader reports an opcode or operand the IL length cuts
+                // short as an invalid program; here it is a body canonical
+                // comparison cannot decode.
+                throw new BadImageFormatException("The IL ends inside an instruction.", ex);
+            }
+        }
+
+        bool EqualCore(Side a, RawMethodBodyView bodyA, Side b, RawMethodBodyView bodyB)
+        {
+            var readerA = new ILReader(bodyA.IlBytes);
+            var readerB = new ILReader(bodyB.IlBytes);
             int count = 0;
             int targets = 0;
             bool prefixed = false;
-            while (readerA.RemainingBytes > 0 && readerB.RemainingBytes > 0)
+            while (readerA.HasNext && readerB.HasNext)
             {
                 if (count == _startsA.Length)
                 {
@@ -438,11 +531,9 @@ public static class FindingDiffAny
 
                 ILOpCode opCodeA = ReadOpCode(ref readerA);
                 ILOpCode opCodeB = ReadOpCode(ref readerB);
-                Operand operandA = OperandOf(opCodeA);
-                Operand operandB = OperandOf(opCodeB);
-                if (operandA == Operand.LoadInt32 || operandB == Operand.LoadInt32)
+                if (IsLoadInt32(opCodeA) || IsLoadInt32(opCodeB))
                 {
-                    if (operandA != operandB
+                    if (!IsLoadInt32(opCodeA) || !IsLoadInt32(opCodeB)
                         || LoadedInt32(opCodeA, ref readerA) != LoadedInt32(opCodeB, ref readerB))
                     {
                         return false;
@@ -452,66 +543,73 @@ public static class FindingDiffAny
                 }
                 if (Family(opCodeA) != Family(opCodeB))
                     return false;
-                prefixed = IsPrefix(opCodeA);
+                prefixed = opCodeA.IsPrefix();
 
-                switch (operandA)
+                OperandKind operand = opCodeA.GetOperandKind();
+                switch (operand)
                 {
-                    case Operand.None:
+                    case OperandKind.None:
                         break;
-                    case Operand.Int8:
-                        if (readerA.ReadByte() != readerB.ReadByte())
+                    case OperandKind.ShortInlineVar:
+                    case OperandKind.ShortInlineI:
+                        if (readerA.ReadILByte() != readerB.ReadILByte())
                             return false;
                         break;
-                    case Operand.Int16:
-                        if (readerA.ReadInt16() != readerB.ReadInt16())
+                    case OperandKind.InlineVar:
+                        if (readerA.ReadILUInt16() != readerB.ReadILUInt16())
                             return false;
                         break;
-                    case Operand.Int32:
-                        if (readerA.ReadInt32() != readerB.ReadInt32())
+                    case OperandKind.InlineI:
+                    case OperandKind.ShortInlineR:
+                        if (readerA.ReadILUInt32() != readerB.ReadILUInt32())
                             return false;
                         break;
-                    case Operand.Int64:
-                        if (readerA.ReadInt64() != readerB.ReadInt64())
+                    case OperandKind.InlineI8:
+                    case OperandKind.InlineR:
+                        if (readerA.ReadILUInt64() != readerB.ReadILUInt64())
                             return false;
                         break;
-                    case Operand.Branch:
+                    case OperandKind.ShortInlineBrTarget:
+                    case OperandKind.InlineBrTarget:
+                        PushTarget(
+                            targets++,
+                            readerA.ReadBranchDestination(opCodeA),
+                            readerB.ReadBranchDestination(opCodeB));
+                        break;
+                    case OperandKind.InlineSwitch:
                     {
-                        int displacementA = IsShortBranch(opCodeA) ? readerA.ReadSByte() : readerA.ReadInt32();
-                        int displacementB = IsShortBranch(opCodeB) ? readerB.ReadSByte() : readerB.ReadInt32();
-                        PushTarget(targets++, readerA.Offset + displacementA, readerB.Offset + displacementB);
-                        break;
-                    }
-                    case Operand.Switch:
-                    {
-                        int arms = readerA.ReadInt32();
-                        if (arms != readerB.ReadInt32())
+                        uint arms = readerA.ReadILUInt32();
+                        if (arms != readerB.ReadILUInt32())
                             return false;
-                        if (arms < 0 || arms > readerA.RemainingBytes / sizeof(int) || arms > readerB.RemainingBytes / sizeof(int))
+                        if (arms > (uint)(readerA.Size - readerA.Offset) / sizeof(int)
+                            || arms > (uint)(readerB.Size - readerB.Offset) / sizeof(int))
+                        {
                             throw new BadImageFormatException("The switch table does not fit the body.");
-                        int baseA = readerA.Offset + sizeof(int) * arms;
-                        int baseB = readerB.Offset + sizeof(int) * arms;
-                        for (int i = 0; i < arms; i++)
-                            PushTarget(targets++, baseA + readerA.ReadInt32(), baseB + readerB.ReadInt32());
+                        }
+                        int baseA = readerA.Offset + sizeof(int) * (int)arms;
+                        int baseB = readerB.Offset + sizeof(int) * (int)arms;
+                        for (uint i = 0; i < arms; i++)
+                            PushTarget(targets++, baseA + (int)readerA.ReadILUInt32(), baseB + (int)readerB.ReadILUInt32());
                         break;
                     }
-                    case Operand.String:
-                        if (!UserStrings.Equal(a.Strings, readerA.ReadInt32(), b.Strings, readerB.ReadInt32()))
+                    case OperandKind.InlineString:
+                        if (!UserStrings.Equal(a.Strings, readerA.ReadILToken(), b.Strings, readerB.ReadILToken()))
                             return false;
                         break;
-                    case Operand.Signature:
+                    case OperandKind.InlineSig:
                         if (!SignatureBytesEqual(
-                                a, MetadataTokens.EntityHandle(readerA.ReadInt32()),
-                                b, MetadataTokens.EntityHandle(readerB.ReadInt32())))
+                                a, MetadataTokens.EntityHandle(readerA.ReadILToken()),
+                                b, MetadataTokens.EntityHandle(readerB.ReadILToken())))
                         {
                             return false;
                         }
                         break;
                     default:
                     {
-                        EntityHandle handleA = MetadataTokens.EntityHandle(readerA.ReadInt32());
-                        EntityHandle handleB = MetadataTokens.EntityHandle(readerB.ReadInt32());
-                        RequireOperandKind(operandA, a, handleA);
-                        RequireOperandKind(operandA, b, handleB);
+                        EntityHandle handleA = MetadataTokens.EntityHandle(readerA.ReadILToken());
+                        EntityHandle handleB = MetadataTokens.EntityHandle(readerB.ReadILToken());
+                        RequireOperandKind(operand, a, handleA);
+                        RequireOperandKind(operand, b, handleB);
                         if (!Side.OperandsEqual(a, handleA, b, handleB))
                             return false;
                         break;
@@ -526,8 +624,8 @@ public static class FindingDiffAny
             // instruction makes the body malformed before any difference the
             // end decides. A stream that continues keeps its targets beyond
             // the paired instructions undecided.
-            bool completeA = readerA.RemainingBytes == 0;
-            bool completeB = readerB.RemainingBytes == 0;
+            bool completeA = !readerA.HasNext;
+            bool completeB = !readerB.HasNext;
             for (int i = 0; i < targets; i++)
             {
                 if (completeA || _targetsA[i] < readerA.Offset)
@@ -539,7 +637,10 @@ public static class FindingDiffAny
             {
                 // The stream that continues is the difference, once what it
                 // continues with is an opcode that can be decoded.
-                OperandOf(ReadOpCode(ref (completeA ? ref readerB : ref readerA)));
+                if (completeA)
+                    ReadOpCode(ref readerB);
+                else
+                    ReadOpCode(ref readerA);
                 return false;
             }
             for (int i = 0; i < targets; i++)
@@ -547,7 +648,7 @@ public static class FindingDiffAny
                 if (TargetIndex(_startsA, count, _targetsA[i]) != TargetIndex(_startsB, count, _targetsB[i]))
                     return false;
             }
-            return ClausesEqual(a, bodyA, readerA.Length, b, bodyB, readerB.Length, count);
+            return ClausesEqual(a, bodyA, readerA.Size, b, bodyB, readerB.Size, count);
         }
 
         /// <summary>
@@ -585,8 +686,8 @@ public static class FindingDiffAny
                     return false;
                 if (x.Kind == ExceptionRegionKind.Catch)
                 {
-                    RequireOperandKind(Operand.Type, a, x.CatchType);
-                    RequireOperandKind(Operand.Type, b, y.CatchType);
+                    RequireOperandKind(OperandKind.InlineType, a, x.CatchType);
+                    RequireOperandKind(OperandKind.InlineType, b, y.CatchType);
                     if (a.ReferenceKey(x.CatchType) != b.ReferenceKey(y.CatchType))
                         return false;
                 }
@@ -655,19 +756,26 @@ public static class FindingDiffAny
             return index;
         }
 
-        static ILOpCode ReadOpCode(ref BlobReader reader)
+        /// <summary>
+        /// The next opcode, which ECMA-335 must define: an undefined opcode cannot
+        /// be stepped over, so the body is one canonical comparison cannot decode.
+        /// </summary>
+        static ILOpCode ReadOpCode(ref ILReader reader)
         {
-            int opCode = reader.ReadByte();
-            if (opCode == 0xFE)
-                opCode = 0xFE00 | reader.ReadByte();
-            return (ILOpCode)opCode;
+            ILOpCode opCode = reader.ReadILOpcode();
+            if (!opCode.IsValid())
+                throw new BadImageFormatException($"Unknown IL opcode 0x{(int)opCode:X}.");
+            return opCode;
         }
 
+        /// <summary>Every <c>ldc.i4</c> form, which fold to the value loaded.</summary>
+        static bool IsLoadInt32(ILOpCode opCode) => opCode is >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4;
+
         /// <summary>The value every <c>ldc.i4</c> form loads.</summary>
-        static int LoadedInt32(ILOpCode opCode, ref BlobReader reader) => opCode switch
+        static int LoadedInt32(ILOpCode opCode, ref ILReader reader) => opCode switch
         {
-            ILOpCode.Ldc_i4_s => reader.ReadSByte(),
-            ILOpCode.Ldc_i4 => reader.ReadInt32(),
+            ILOpCode.Ldc_i4_s => (sbyte)reader.ReadILByte(),
+            ILOpCode.Ldc_i4 => (int)reader.ReadILUInt32(),
             _ => (int)opCode - (int)ILOpCode.Ldc_i4_0,
         };
 
@@ -679,13 +787,6 @@ public static class FindingDiffAny
             ILOpCode.Leave_s => ILOpCode.Leave,
             _ => opCode,
         };
-
-        static bool IsShortBranch(ILOpCode opCode)
-            => opCode is (>= ILOpCode.Br_s and <= ILOpCode.Blt_un_s) or ILOpCode.Leave_s;
-
-        static bool IsPrefix(ILOpCode opCode)
-            => opCode is ILOpCode.Constrained or ILOpCode.Readonly or ILOpCode.Tail
-                or ILOpCode.Unaligned or ILOpCode.Volatile or NoPrefix;
 
         /// <summary>Canonical comparison compares a stand-alone signature by its bytes.</summary>
         static bool SignatureBytesEqual(Side a, EntityHandle handleA, Side b, EntityHandle handleB)
@@ -710,16 +811,16 @@ public static class FindingDiffAny
         /// not a Type (such as Roslyn's vararg call site, whose parent is the
         /// method definition), or a method specification of such a reference.
         /// </summary>
-        static void RequireOperandKind(Operand operand, Side side, EntityHandle handle)
+        static void RequireOperandKind(OperandKind operand, Side side, EntityHandle handle)
         {
             bool admitted = operand switch
             {
-                Operand.Method => handle.Kind is HandleKind.MethodDefinition
+                OperandKind.InlineMethod => handle.Kind is HandleKind.MethodDefinition
                     || IsMemberReference(side, handle, MemberReferenceKind.Method)
                     || IsMethodSpecification(side, handle),
-                Operand.Field => handle.Kind is HandleKind.FieldDefinition
+                OperandKind.InlineField => handle.Kind is HandleKind.FieldDefinition
                     || IsMemberReference(side, handle, MemberReferenceKind.Field),
-                Operand.Type => IsType(handle),
+                OperandKind.InlineType => IsType(handle),
                 _ => IsType(handle)
                     || handle.Kind is HandleKind.MethodDefinition or HandleKind.FieldDefinition
                     || IsMemberReference(side, handle, kind: null)
@@ -751,82 +852,9 @@ public static class FindingDiffAny
         }
     }
 
-    enum Operand
-    {
-        None,
-        Int8,
-        Int16,
-        Int32,
-        Int64,
-        LoadInt32,
-        Branch,
-        Switch,
-        String,
-        Signature,
-        Method,
-        Field,
-        Type,
-        Token,
-    }
-
-    // The `no.` prefix (0xFE 0x19) takes a one-byte operand and has no ILOpCode member.
-    const ILOpCode NoPrefix = (ILOpCode)0xFE19;
-
-    // Every defined opcode, indexed by its second byte for the 0xFE page.
-    static readonly bool[] KnownOneByte = new bool[256];
-    static readonly bool[] KnownTwoByte = new bool[256];
-
-    static FindingDiffAny()
-    {
-        foreach (ILOpCode opCode in Enum.GetValues<ILOpCode>())
-        {
-            int value = (int)opCode;
-            if (value <= 0xFF)
-                KnownOneByte[value] = true;
-            else if ((value & 0xFF00) == 0xFE00)
-                KnownTwoByte[value & 0xFF] = true;
-        }
-    }
-
-    static bool IsKnown(ILOpCode opCode)
-    {
-        int value = (int)opCode;
-        return value <= 0xFF ? KnownOneByte[value] : KnownTwoByte[value & 0xFF];
-    }
-
-    /// <summary>The operand an opcode takes, or malformed for an opcode ECMA-335 does not define.</summary>
-    static Operand OperandOf(ILOpCode opCode) => opCode switch
-    {
-        ILOpCode.Ldarg_s or ILOpCode.Ldarga_s or ILOpCode.Starg_s
-            or ILOpCode.Ldloc_s or ILOpCode.Ldloca_s or ILOpCode.Stloc_s
-            or ILOpCode.Unaligned or NoPrefix => Operand.Int8,
-        >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4 => Operand.LoadInt32,
-        ILOpCode.Ldarg or ILOpCode.Ldarga or ILOpCode.Starg
-            or ILOpCode.Ldloc or ILOpCode.Ldloca or ILOpCode.Stloc => Operand.Int16,
-        ILOpCode.Ldc_r4 => Operand.Int32,
-        ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8 => Operand.Int64,
-        (>= ILOpCode.Br_s and <= ILOpCode.Blt_un_s) or ILOpCode.Leave_s
-            or (>= ILOpCode.Br and <= ILOpCode.Blt_un) or ILOpCode.Leave => Operand.Branch,
-        ILOpCode.Switch => Operand.Switch,
-        ILOpCode.Ldstr => Operand.String,
-        ILOpCode.Calli => Operand.Signature,
-        ILOpCode.Jmp or ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj
-            or ILOpCode.Ldftn or ILOpCode.Ldvirtftn => Operand.Method,
-        ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld
-            or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld => Operand.Field,
-        ILOpCode.Cpobj or ILOpCode.Ldobj or ILOpCode.Castclass or ILOpCode.Isinst
-            or ILOpCode.Unbox or ILOpCode.Unbox_any or ILOpCode.Stobj or ILOpCode.Box
-            or ILOpCode.Newarr or ILOpCode.Ldelema or ILOpCode.Ldelem or ILOpCode.Stelem
-            or ILOpCode.Refanyval or ILOpCode.Mkrefany or ILOpCode.Initobj
-            or ILOpCode.Constrained or ILOpCode.Sizeof => Operand.Type,
-        ILOpCode.Ldtoken => Operand.Token,
-        _ when IsKnown(opCode) => Operand.None,
-        _ => throw new BadImageFormatException($"Unknown IL opcode 0x{(int)opCode:X}."),
-    };
-
     // A Symbol Key state error is the producer's, never the image's: it must
     // surface, not classify as a malformed Type.
-    static bool IsMalformed(Exception ex)
+    internal static bool IsMalformed(Exception ex)
         => ex is not SymbolKeyStateException
             && ex is BadImageFormatException
                 or InvalidOperationException
@@ -914,8 +942,16 @@ public static class FindingDiffAny
     {
         public int Bodies;
         public long IlBytes;
+        public int ApiSurfacesBuilt;
+        public long ApiSurfaceTicks;
 
         public BodyWalk Walk { get; } = new();
+
+        /// <summary>One unit's paired methods, reused across units so that pairing allocates nothing.</summary>
+        public List<(MethodDefinitionHandle A, MethodDefinitionHandle B)> Pairs { get; } = [];
+
+        /// <summary>The Body provision in place of the walk, or null for the walk.</summary>
+        public FindingDiffAnyBodyReader? BodyReader { get; init; }
     }
 
     internal sealed record Unit(
@@ -959,12 +995,20 @@ public static class FindingDiffAny
         readonly HashSet<SymbolKey<FindingDiffAnyPart>> _duplicateTypeKeys =
             new(SymbolKeyComparer<FindingDiffAnyPart>.Instance);
         MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef, SideRows> _speller;
-        readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
+        readonly HashSet<TypeDefinitionHandle> _literalDefinitions = [];
+        bool _captureLiteralDefinitions;
+        MethodDefinitionHandle _literalMethod;
+        int _literalParameterCount;
+        (SymbolKey<FindingDiffAnyPart> Constructor, BlobHandle Value)[]? _moduleAttributes;
+        readonly Dictionary<TypeDefinitionHandle, Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess>> _explicitImplementations = [];
+        SymbolKeyInterner<FindingDiffAnyPart>? _interner;
 
         const MetadataReaderOptions StoredMetadata = MetadataReaderOptions.None;
 
-        public Side(PEReader pe)
+        public Side(PEReader pe, SymbolKeyInterner<FindingDiffAnyPart> interner)
         {
+            ArgumentNullException.ThrowIfNull(interner);
+            _interner = interner;
             Pe = pe;
             Md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             _mvid = Md.GetGuid(Md.GetModuleDefinition().Mvid);
@@ -980,6 +1024,15 @@ public static class FindingDiffAny
 
         /// <summary>One unit's census facts and member keys, discarded after the unit.</summary>
         public SymbolKeyBuilder<FindingDiffAnyPart> Transient { get; }
+
+        /// <summary>
+        /// The comparison's one interning table, shared with the other side: a
+        /// Type-level key receives its id when memoized, and a named Type's id
+        /// is what a spelling embeds in place of its bytes. The table serves the
+        /// comparison and is released when the side completes.
+        /// </summary>
+        public SymbolKeyInterner<FindingDiffAnyPart> Interner
+            => _interner ?? throw new InvalidOperationException("The comparison completed and released its interning table.");
 
         /// <summary>The one speller of metadata rows; this side resolves and embeds the rows it refers to.</summary>
         public MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef, SideRows> Speller => _speller;
@@ -1002,7 +1055,11 @@ public static class FindingDiffAny
         internal readonly struct SideRows(Side side) : IMetadataRowKeys<FindingDiffAnyPart, KeyRef>
         {
             public KeyRef Resolve(EntityHandle row, MetadataRowRole role)
-                => role == MetadataRowRole.Declaring ? side.TypeKey((TypeDefinitionHandle)row) : side.ReferenceKey(row);
+            {
+                if (side._captureLiteralDefinitions && row.Kind == HandleKind.TypeDefinition)
+                    side._literalDefinitions.Add((TypeDefinitionHandle)row);
+                return role == MetadataRowRole.Declaring ? side.TypeKey((TypeDefinitionHandle)row) : side.ReferenceKey(row);
+            }
 
             public void Embed(SymbolKeyBuilder<FindingDiffAnyPart> into, KeyRef row) => into.Key(row);
 
@@ -1046,6 +1103,7 @@ public static class FindingDiffAny
         public void EndUnit()
         {
             _unitKeys.Clear();
+            _literalMethod = default;
             Transient.Reset();
             if (Retained.Length >= RetainedChunkBytes)
                 FreezeRetained();
@@ -1067,6 +1125,7 @@ public static class FindingDiffAny
             Retained.Release();
             Transient.Release();
             _speller.Release();
+            _interner = null;
         }
 
         /// <summary>
@@ -1088,9 +1147,22 @@ public static class FindingDiffAny
 
         bool TryGetKey(int token, out KeyRef key) => _keys.TryGetValue(token, out key);
 
+        /// <summary>Memoizes a named Type's key (a definition, reference, or primitive), which spellings embed as its Ref.</summary>
         KeyRef Memoize(int token, StagedSymbolKey<FindingDiffAnyPart> staged)
         {
-            var key = new KeyRef(this, staged);
+            var key = new KeyRef(this, staged, Interner.Intern(staged), named: true);
+            _keys[token] = key;
+            return key;
+        }
+
+        /// <summary>
+        /// Memoizes a Type specification's composite, which spellings embed as
+        /// a Key part of its bytes, the form a composite spelled inline in a
+        /// signature takes, so the two encodings of one composite are one key.
+        /// </summary>
+        KeyRef MemoizeComposite(int token, StagedSymbolKey<FindingDiffAnyPart> staged)
+        {
+            var key = new KeyRef(this, staged, Interner.Intern(staged), named: false);
             _keys[token] = key;
             return key;
         }
@@ -1123,20 +1195,13 @@ public static class FindingDiffAny
         static bool IsTypeLevel(HandleKind kind)
             => kind is HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification;
 
-        HashSet<MethodDefinitionHandle> ExplicitImplementations(TypeDefinitionHandle type)
+        Dictionary<MethodDefinitionHandle, ApiSurfaceExtractor.InterfaceImplementationAccess> ExplicitImplementations(TypeDefinitionHandle type)
         {
-            if (_explicitImplementations.TryGetValue(type, out var methods))
-                return methods;
-            methods = [];
-            foreach (MethodImplementationHandle handle in Md.GetTypeDefinition(type).GetMethodImplementations())
+            if (!_explicitImplementations.TryGetValue(type, out var methods))
             {
-                if (Md.GetMethodImplementation(handle).MethodBody is
-                    { Kind: HandleKind.MethodDefinition } body)
-                {
-                    methods.Add((MethodDefinitionHandle)body);
-                }
+                methods = ApiSurfaceExtractor.GetInterfaceImplementations(Md, Md.GetTypeDefinition(type));
+                _explicitImplementations[type] = methods;
             }
-            _explicitImplementations[type] = methods;
             return methods;
         }
 
@@ -1243,7 +1308,7 @@ public static class FindingDiffAny
             int token = MetadataTokens.GetToken(handle);
             int mark = Retained.Begin();
             StagedSymbolKey<FindingDiffAnyPart> row = Retained.Mark(FindingDiffAnyPart.Malformed).Int(token).End(mark);
-            table.Add(new KeyRef(this, row), new Unit(SafeName(handle), $"!{token:X8}", handle, [], Malformed: true));
+            table.Add(new KeyRef(this, row, Interner.Intern(row), named: true), new Unit(SafeName(handle), $"!{token:X8}", handle, [], Malformed: true));
         }
 
         bool TryDeclaringChain(TypeDefinitionHandle handle, Span<TypeDefinitionHandle> chain, out int length)
@@ -1275,8 +1340,16 @@ public static class FindingDiffAny
                 && MetadataVisibility.AreEnclosingTypesExternallyReachable(Md, handle);
 
         bool IsVisible(MethodDefinitionHandle handle, MethodDefinition method)
-            => IsVisibleAccess((int)(method.Attributes & MethodAttributes.MemberAccessMask))
-                || ExplicitImplementations(method.GetDeclaringType()).Contains(handle);
+        {
+            MethodAttributes access = method.Attributes & MethodAttributes.MemberAccessMask;
+            if (IsVisibleAccess((int)access))
+                return true;
+            if (access != MethodAttributes.Private)
+                return false;
+            return ApiSurfaceExtractor.AdmitsMethodAccess(
+                ApiSurfaceExtractor.MethodEffectiveAccess(access,
+                    handle, ExplicitImplementations(method.GetDeclaringType())), includeAll: false, apiAxis: true);
+        }
 
         bool IsVisible(FieldDefinition field)
             => IsVisibleAccess((int)(field.Attributes & FieldAttributes.FieldAccessMask));
@@ -1297,16 +1370,19 @@ public static class FindingDiffAny
             census.Add(Transient.Mark(visible ? FindingDiffAnyPart.Visible : FindingDiffAnyPart.Hidden).End(mark).Slot);
             if (!visible)
                 return census;
-            census.AddRange(VisibleFacts(unit).Where(fact => !IsNonApi(fact)));
+            TypeFacts(census, unit.Owner);
+            MemberFacts(census, unit.Owner, api: true, out _);
+            census.RemoveAll(IsNonApi);
+            ModuleAttributes(census, TypeKey(unit.Owner));
             Transient.Sort(census);
             return census;
         }
 
-        List<SymbolKeySlot> VisibleFacts(Unit unit)
+        List<SymbolKeySlot> VisibleFacts(Unit unit, bool apiDependencies = true)
         {
             var facts = new List<SymbolKeySlot>();
-            TypeFacts(facts, unit.Owner);
-            MemberFacts(facts, unit.Owner, api: true, out _);
+            TypeFacts(facts, unit.Owner, apiDependencies);
+            MemberFacts(facts, unit.Owner, api: true, out _, apiDependencies);
             return facts;
         }
 
@@ -1318,15 +1394,15 @@ public static class FindingDiffAny
             var census = new List<SymbolKeySlot>();
             methods = [];
             if (!visible)
-                TypeFacts(census, unit.Owner);
+                TypeFacts(census, unit.Owner, apiDependencies: false);
             else
-                census.AddRange(VisibleFacts(unit).Where(IsNonApi));
+                census.AddRange(VisibleFacts(unit, apiDependencies: false).Where(IsNonApi));
             MemberFacts(census, unit.Owner, api: !visible ? null : false, out var ownerMethods);
             foreach ((KeyRef key, MethodDefinitionHandle method) in ownerMethods)
                 AddMethod(methods, key, method);
             foreach (TypeDefinitionHandle generated in unit.Generated)
             {
-                TypeFacts(census, generated);
+                TypeFacts(census, generated, apiDependencies: false);
                 MemberFacts(census, generated, api: null, out var generatedMethods);
                 foreach ((KeyRef key, MethodDefinitionHandle method) in generatedMethods)
                     AddMethod(methods, key, method);
@@ -1346,7 +1422,7 @@ public static class FindingDiffAny
                 throw new BadImageFormatException($"Two methods share the compared key {Describe(key)}.");
         }
 
-        void TypeFacts(List<SymbolKeySlot> census, TypeDefinitionHandle handle)
+        void TypeFacts(List<SymbolKeySlot> census, TypeDefinitionHandle handle, bool apiDependencies = true)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
             KeyRef name = TypeKey(handle);
@@ -1392,8 +1468,19 @@ public static class FindingDiffAny
                 KeyRef body = Key(value.MethodBody);
                 KeyRef declaration = Key(value.MethodDeclaration);
                 mark = Transient.Begin();
-                census.Add(Transient.Mark(FindingDiffAnyPart.MethodImplementation).Key(name)
-                    .Key(body).Key(declaration).End(mark).Slot);
+                Transient.Mark(FindingDiffAnyPart.MethodImplementation).Key(name).Key(body).Key(declaration);
+                if (apiDependencies)
+                {
+                    TypeDefinitionHandle? local = value.MethodDeclaration.Kind switch
+                    {
+                        HandleKind.MethodDefinition => Md.GetMethodDefinition((MethodDefinitionHandle)value.MethodDeclaration).GetDeclaringType(),
+                        HandleKind.MemberReference => ApiSurfaceExtractor.DeclaringTypeDefinition(Md, Md.GetMemberReference((MemberReferenceHandle)value.MethodDeclaration).Parent),
+                        _ => null,
+                    };
+                    if (local is { } declaring)
+                        Transient.Int((int)Md.GetTypeDefinition(declaring).Attributes);
+                }
+                census.Add(Transient.End(mark).Slot);
             }
         }
 
@@ -1401,7 +1488,8 @@ public static class FindingDiffAny
             List<SymbolKeySlot> census,
             TypeDefinitionHandle handle,
             bool? api,
-            out List<(KeyRef Key, MethodDefinitionHandle Method)> methods)
+            out List<(KeyRef Key, MethodDefinitionHandle Method)> methods,
+            bool apiDependencies = true)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
             KeyRef name = TypeKey(handle);
@@ -1433,15 +1521,18 @@ public static class FindingDiffAny
                 foreach (ParameterHandle parameterHandle in method.GetParameters())
                 {
                     Parameter parameter = Md.GetParameter(parameterHandle);
+                    ConstantHandle defaultValue = parameter.GetDefaultValue();
                     mark = Transient.Begin();
                     StagedSymbolKey<FindingDiffAnyPart> parameterKey = Transient.Mark(FindingDiffAnyPart.Parameter).Key(key)
                         .Int(parameter.SequenceNumber).End(mark);
                     mark = Transient.Begin();
                     Transient.Mark(FindingDiffAnyPart.ParameterFact).Key(parameterKey)
                         .Name(parameter.Name).Int((int)parameter.Attributes);
-                    Constant(parameter.GetDefaultValue());
+                    Constant(defaultValue);
                     census.Add(Transient.End(mark).Slot);
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
+                    if (apiDependencies && api == true && parameter.SequenceNumber > 0 && !defaultValue.IsNil)
+                        DefaultLiteralDependencies(census, methodHandle, method, parameter.SequenceNumber, parameterKey);
                 }
                 MethodImport import = method.GetImport();
                 if (!import.Module.IsNil)
@@ -1498,6 +1589,68 @@ public static class FindingDiffAny
                 census.Add(Transient.End(mark).Slot);
                 Attributes(census, value.GetCustomAttributes(), key);
             }
+        }
+
+        void DefaultLiteralDependencies(List<SymbolKeySlot> census, MethodDefinitionHandle methodHandle, MethodDefinition method, int sequence,
+            StagedSymbolKey<FindingDiffAnyPart> parameter)
+        {
+            // Composite signature types resolve their rows through SideRows;
+            // direct rows remain deferred until the consumer embeds them. Keep
+            // both, so Nullable<E> and nested enum defaults have E's literals.
+            if (_literalMethod != methodHandle)
+            {
+                _literalDefinitions.Clear();
+                _captureLiteralDefinitions = true;
+                bool opened = false;
+                try
+                {
+                    MethodSignature<MetadataSignatureKey> signature = _speller.DecodeMethod(method);
+                    opened = true;
+                    _literalParameterCount = signature.ParameterTypes.Length;
+                    foreach (MetadataSignatureKey type in signature.ParameterTypes)
+                        if (type.IsRow && type.Row.Kind == HandleKind.TypeDefinition)
+                            _literalDefinitions.Add((TypeDefinitionHandle)type.Row);
+                }
+                finally
+                {
+                    _captureLiteralDefinitions = false;
+                    if (opened) _speller.Discard();
+                }
+                _literalMethod = methodHandle;
+            }
+            if (sequence > _literalParameterCount)
+                throw new BadImageFormatException("Parameter sequence exceeds signature.");
+            foreach (TypeDefinitionHandle definition in _literalDefinitions)
+            {
+                foreach (FieldDefinitionHandle handle in Md.GetTypeDefinition(definition).GetFields())
+                {
+                    FieldDefinition field = Md.GetFieldDefinition(handle);
+                    if ((field.Attributes & FieldAttributes.Literal) == 0) continue;
+                    KeyRef key = Key(handle);
+                    int mark = Transient.Begin();
+                    Transient.Mark(FindingDiffAnyPart.ApiDependency).Key(parameter).Key(key).Int((int)field.Attributes);
+                    Constant(field.GetDefaultValue());
+                    census.Add(Transient.End(mark).Slot);
+                }
+            }
+        }
+
+        internal SymbolKey<FindingDiffAnyPart> MemberKey(TypeDefinitionHandle declaringType, EntityHandle handle)
+        {
+            if (handle.Kind == HandleKind.PropertyDefinition)
+            {
+                PropertyDefinition property = Md.GetPropertyDefinition((PropertyDefinitionHandle)handle);
+                return PropertyKey(TypeKey(declaringType), property).Detach();
+            }
+            if (handle.Kind == HandleKind.EventDefinition)
+            {
+                EventDefinition value = Md.GetEventDefinition((EventDefinitionHandle)handle);
+                KeyRef type = Key(value.Type);
+                KeyRef owner = TypeKey(declaringType);
+                int mark = Transient.Begin();
+                return Transient.Mark(FindingDiffAnyPart.Event).Key(owner).Name(value.Name).Key(type).End(mark).Detach();
+            }
+            return Key(handle).Detach();
         }
 
         bool AccessorVisible(
@@ -1562,6 +1715,37 @@ public static class FindingDiffAny
                     Attributes(census, constraint.GetCustomAttributes(), fact);
                 }
                 Attributes(census, parameter.GetCustomAttributes(), key);
+            }
+        }
+
+        void ModuleAttributes(List<SymbolKeySlot> census, KeyRef owner)
+        {
+            // These rows are image-scoped. Keep owned constructor keys and
+            // blob handles, so a rebound reader supplies each blob's bytes.
+            if (_moduleAttributes is null)
+            {
+                CustomAttributeHandleCollection attributes = Md.GetModuleDefinition().GetCustomAttributes();
+                var entries = new (SymbolKey<FindingDiffAnyPart> Constructor, BlobHandle Value)[attributes.Count];
+                var constructors = new Dictionary<EntityHandle, SymbolKey<FindingDiffAnyPart>>();
+                int index = 0;
+                foreach (CustomAttributeHandle handle in attributes)
+                {
+                    CustomAttribute attribute = Md.GetCustomAttribute(handle);
+                    if (!constructors.TryGetValue(attribute.Constructor, out var constructor))
+                    {
+                        constructor = Key(attribute.Constructor).Detach();
+                        constructors.Add(attribute.Constructor, constructor);
+                    }
+                    entries[index++] = (constructor, attribute.Value);
+                }
+                _moduleAttributes = entries;
+            }
+            foreach (var attribute in _moduleAttributes)
+            {
+                int mark = Transient.Begin();
+                Transient.Mark(FindingDiffAnyPart.Attribute).Key(owner).Key(attribute.Constructor);
+                Blob(attribute.Value);
+                census.Add(Transient.End(mark).Slot);
             }
         }
 
@@ -1748,7 +1932,7 @@ public static class FindingDiffAny
                     default:
                         // A specification that names a plain row is that row's key.
                         if (_speller.TryTypeSpecification(Retained, (TypeSpecificationHandle)handle, out var spelled, out KeyRef alias))
-                            return Memoize(token, spelled);
+                            return MemoizeComposite(token, spelled);
                         _keys[token] = alias;
                         return alias;
                 }
@@ -1770,7 +1954,7 @@ public static class FindingDiffAny
     }
 
     internal static string Describe(KeyRef key)
-        => SymbolKeyText.Describe(key.IsFrozen ? key.Frozen : key.Detach());
+        => SymbolKeyText.Describe(key.IsFrozen ? key.Frozen : key.Detach(), key.Owner.Interner);
 
     internal sealed class UserStrings
     {
@@ -1881,6 +2065,7 @@ internal enum FindingDiffAnyPart : byte
     Constraint,
     Attribute,
     Constant,
+    ApiDependency,
 }
 
 /// <summary>
@@ -1889,7 +2074,10 @@ internal enum FindingDiffAnyPart : byte
 /// side's transient population (its generation complemented, below zero) for a
 /// member row the current unit spelled. Both resolve on demand through the
 /// side, so memoizing a key is one write and freezing a chunk touches no
-/// reference. It compares and hashes by its bytes in every state.
+/// reference. A Type-level key carries the id the comparison's interning table
+/// gave it and the form it embeds in, and compares and hashes by that id
+/// against the comparison's other Type-level keys; a member key compares and
+/// hashes by its bytes.
 /// </summary>
 internal readonly struct KeyRef : IEquatable<KeyRef>
 {
@@ -1897,26 +2085,40 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
     readonly int _generation;
     readonly int _offset;
     readonly int _length;
+    // The interned id and the embedding form in one field, so the struct stays
+    // at 24 bytes: positive is a named Type (id + 1), which embeds as its Ref;
+    // negative is a composite (-(id + 1)), which embeds as a Key part of its
+    // bytes; zero is a member key or the default value, which has no id.
+    readonly int _form;
 
-    public KeyRef(FindingDiffAny.Side owner, StagedSymbolKey<FindingDiffAnyPart> staged)
+    /// <summary>
+    /// A Type-level key, staged in the side's retained population and interned
+    /// under <paramref name="id"/>: a named Type (definition, reference, or
+    /// primitive) when <paramref name="named"/>, otherwise a Type
+    /// specification's composite.
+    /// </summary>
+    public KeyRef(FindingDiffAny.Side owner, StagedSymbolKey<FindingDiffAnyPart> staged, int id, bool named)
     {
-        if (staged.IsStagedIn(owner.Retained))
-            _generation = staged.Generation;
-        else if (staged.IsStagedIn(owner.Transient))
-            _generation = ~staged.Generation;
-        else
-            throw new ArgumentException("A key is staged in its side's retained or transient population.", nameof(staged));
+        if (!staged.IsStagedIn(owner.Retained))
+            throw new ArgumentException("A Type-level key is staged in its side's retained population.", nameof(staged));
+        ArgumentOutOfRangeException.ThrowIfNegative(id);
         _owner = owner;
+        _generation = staged.Generation;
         _offset = staged.Offset;
         _length = staged.Length;
+        _form = named ? id + 1 : -(id + 1);
     }
 
-    internal KeyRef(FindingDiffAny.Side owner, int generation, int offset, int length)
+    /// <summary>A member key, staged in the side's transient population for the current unit.</summary>
+    public KeyRef(FindingDiffAny.Side owner, StagedSymbolKey<FindingDiffAnyPart> staged)
     {
+        if (!staged.IsStagedIn(owner.Transient))
+            throw new ArgumentException("A member key is staged in its side's transient population.", nameof(staged));
         _owner = owner;
-        _generation = generation;
-        _offset = offset;
-        _length = length;
+        _generation = ~staged.Generation;
+        _offset = staged.Offset;
+        _length = staged.Length;
+        _form = 0;
     }
 
     public bool IsDefault => _owner is null;
@@ -1926,6 +2128,17 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
     internal int Offset => _offset;
 
     internal int Length => _length;
+
+    /// <summary>The id the comparison's table gave a Type-level key; a member key has none.</summary>
+    internal int Id
+        => _form > 0 ? _form - 1
+            : _form < 0 ? -_form - 1
+            : throw new InvalidOperationException("A member key has no interned id.");
+
+    /// <summary>Whether a spelling embeds this key as the Ref of its id: a named Type does, a composite or member key embeds as its bytes.</summary>
+    internal bool EmbedsAsRef => _form > 0;
+
+    internal FindingDiffAny.Side Owner => _owner;
 
     /// <summary>Whether the key is a member row's, staged in the unit's transient population.</summary>
     public bool IsTransient => _generation < 0;
@@ -1952,6 +2165,9 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
 
     public bool Equals(KeyRef other)
     {
+        if (!IsTransient && !other.IsTransient)
+            return _form == other._form;
+        // A Type-level and a member key begin with different markers, so a mixed pair compares unequal by its bytes.
         bool frozen = IsFrozen;
         bool otherFrozen = other.IsFrozen;
         if (frozen && otherFrozen)
@@ -1965,11 +2181,11 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
 
     public override bool Equals(object? obj) => obj is KeyRef other && Equals(other);
 
-    // Frozen and staged keys hash the same bytes the same way.
+    // A Type-level key hashes by its id; a member key by its staged bytes.
     public override int GetHashCode()
     {
-        if (IsFrozen)
-            return FrozenRange.GetHashCode();
+        if (!IsTransient)
+            return _form;
         var hash = new HashCode();
         hash.AddBytes(Bytes);
         return hash.ToHashCode();
@@ -1982,19 +2198,26 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
 
 internal static class FindingDiffAnyKeyBuilderExtensions
 {
-    /// <summary>Embeds a retained key, frozen or staged, as a nested Key part.</summary>
+    /// <summary>
+    /// Embeds a key in the form its kind determines: a named Type as the Ref
+    /// part of its shared id; a composite, frozen or staged, and a member key
+    /// as a nested Key part of their bytes.
+    /// </summary>
     public static SymbolKeyBuilder<FindingDiffAnyPart> Key(this SymbolKeyBuilder<FindingDiffAnyPart> builder, KeyRef key)
-        => key.IsFrozen ? builder.KeyRange(key.FrozenRange) : builder.KeyBytes(key.Bytes);
+        => key.EmbedsAsRef ? builder.Ref(key.Id)
+            : key.IsFrozen ? builder.KeyRange(key.FrozenRange)
+            : builder.KeyBytes(key.Bytes);
 
 }
 
-public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody)
+public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody, FindingDiffAnyBodyReader? bodyReader = null)
 {
     readonly FindingDiffAny.UnitTable _unitsA = new();
     readonly FindingDiffAny.UnitTable _unitsB = new();
     readonly ImmutableArray<FindingDiffAnyTypeState>.Builder _states =
         ImmutableArray.CreateBuilder<FindingDiffAnyTypeState>();
-    readonly FindingDiffAny.Work _work = new();
+    readonly FindingDiffAny.Work _work = new() { BodyReader = bodyReader };
+    SymbolKeyInterner<FindingDiffAnyPart>? _interner;
     FindingDiffAny.Side? _a;
     FindingDiffAny.Side? _b;
     bool _readA;
@@ -2027,8 +2250,9 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
 
         if (_a is null || _b is null)
         {
-            _a = new FindingDiffAny.Side(before);
-            _b = new FindingDiffAny.Side(after);
+            _interner = new SymbolKeyInterner<FindingDiffAnyPart>();
+            _a = new FindingDiffAny.Side(before, _interner);
+            _b = new FindingDiffAny.Side(after, _interner);
         }
         else
         {
@@ -2079,9 +2303,15 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
         _a.Complete();
         _b.Complete();
         _states.Sort((x, y) => string.CompareOrdinal(x.FullName, y.FullName));
+        // The sides released the table when they completed; the comparison holds only its result.
+        _interner = null;
         Result = new FindingDiffAnyResult(
             _states.ToImmutable(),
-            new FindingDiffAnyReceipt(_states.Count, _work.Bodies, _work.IlBytes));
+            new FindingDiffAnyReceipt(_states.Count, _work.Bodies, _work.IlBytes)
+            {
+                ApiSurfacesBuilt = _work.ApiSurfacesBuilt,
+                ApiSurfaceBuildTime = TimeSpan.FromSeconds((double)_work.ApiSurfaceTicks / Stopwatch.Frequency),
+            });
         return true;
     }
 }

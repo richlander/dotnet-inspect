@@ -7,6 +7,8 @@ about a version pair, from one state per Type to the complete diff of one
 Member, as capabilities of one diff owner over one fact substrate. It owns:
 
 - the question ladder and each rung's precision;
+- the section query that answers each rung at its own scope, and the rule
+  that no rung's query requires another rung's result;
 - the two axes and what each covers;
 - the Exists contract between a cheap answer and the complete diff;
 - the rule that comparison is expansive and filtering is presentation;
@@ -28,7 +30,7 @@ It consumes and does not redefine:
 | [API population scope](api-population-scope.md) | The ordinary and widened API populations; this document changes which one a comparison uses |
 | [Diff observability](diff-observability.md) | A reported change has a view; over-reporting stays within observability |
 | [IL diff canonicalization](il-diff-canonicalization.md) | Canonical body equality, and a failed inspection for an endpoint it cannot decode |
-| [Finding Diff Any](finding-diff-any.md) | Today's Exists provision: its census, identity, axes, and Type level |
+| [Finding Diff Any](finding-diff-any.md) | Exists at Library, Type, and Member scope, with its provisions: its census, identity, axes, and Type level |
 | [Annotated Type Map](annotated-type-map.md) | The per-Member differences of a Type |
 | [Annotated Source diff document](annotated-source-diff-document.md) | The complete diff of one Member |
 | [Symbol Key](symbol-key.md) | Byte-exact symbolic identity |
@@ -57,17 +59,26 @@ judged on latency, and the rich rungs on completeness.
 
 ## The question ladder
 
-| Rung | Question | Scope | Precision | Today's provision |
-| --- | --- | --- | --- | --- |
-| 1 | Does this Type have any diff? | Library | one state per Type per axis | Finding Diff Any, Library level |
-| 2 | Which Members of this Type have any diff? | Type | one state per row per axis | Finding Diff Any, Type level |
-| 3 | Which differences does this Type have, per Member? | Type | multiple states per row per axis | Annotated Type Map |
-| 4 | What is the complete diff of this Member? | Member | all states per axis | Annotated Source diff document |
+| Rung | Number | Question | Scope | Precision | Today's provision |
+| --- | --- | --- | --- | --- | --- |
+| L1 | 1 | Which Types have any diff? | Library | one state per Type per axis | Finding Diff Any, Library level |
+| T1 | 2 | Which Members of this Type have any diff? | Type | one state per row per axis | Finding Diff Any, Type level |
+| T2 | 3 | Which change facts does each changed Member of this Type have? | Type | the change facts per row per axis | Annotated Type Map |
+| M1 | none | Which change facts does this Member have? | Member | the change facts of one row per axis | the Diff analysis set at Member surface, for some fact families |
+| M2 | 4 | What is the complete diff of this Member, with or without its change facts? | Member | all states per axis, and its text | Annotated Source diff document |
 
-Rungs 1 and 2 are **Exists** questions: one state per subject and axis,
+The ladder discloses progressively: each rung is a useful answer on its own
+and leads to the next. The labels name the scope and the depth; the numbers
+are the earlier names, which other documents still use. M1 is its own rung:
+one Member's change facts, asked for directly, without its Type's rows.
+
+L1 and T1 are **Exists** questions: one state per subject and axis,
 `Unchanged`, `Changed`, or `Indeterminate`, stopped at the first difference.
-An axis a request did not ask for is `NotCompared`. Rungs 3 and 4 are **Rows**
-questions: they explain.
+An axis a request did not ask for is `NotCompared`. T2, M1, and M2 are **Rows**
+questions: they explain. A **change fact** is one typed difference a Rows
+rung reports for a row, such as an accessibility change, an added allocation,
+or a gained unsafe use; [Section queries](#section-queries) states the fact
+families.
 
 A Type's rung-2 rows are its Members and its **residual**: the facts no single
 Member owns, such as its base Type, interfaces, attributes, layout, static
@@ -95,6 +106,115 @@ the one above it:
 Those coverage relationships are certified by the gates below, as the
 [producer-capability model](query-space-producer-capabilities.md#covering-relationship)
 requires.
+
+## Section queries
+
+Each rung is answered by a **section query** addressed at its own scope. In
+this document a section query is one registered route with typed Table and
+Document outputs, as [Section shapes](section-shapes.md#section-representations)
+define them, bound to both hosts through the [capability
+catalog](inspection-capability-composition.md): a CLI section and a Browser
+export over the same request and result. The CLI's `-Q` and `--where`
+**section query keys** are a different thing: field predicates over a
+section's rows, which a rung's CLI section may also offer. The Diff analysis
+set's Compare route is the existing example of a route with that shape.
+
+Each section query's result carries a **receipt** of the Types it extracted
+and paired in each version. Finding Diff Any's result reports a compared-Type
+count today; the receipt names the Types. The Demand-shaped gate below reads
+it.
+
+| Rung | Address | Computes only | Rows |
+| --- | --- | --- | --- |
+| L1 | a Library pair | one state per Type per axis, stopped at each Type's first difference | one row per Type with a `Changed` or `Indeterminate` state, with per-axis states and counts |
+| T1 | a Library pair and a Type identity | that Type's pairing and its Members' and residual's states | one row per Member, and the residual, with a `Changed` or `Indeterminate` state |
+| T2 | a Library pair and a Type identity | T1's rows and each changed row's change facts | T1's rows, each with its change facts |
+| M1 | a Library pair and a Member key | that key's entries in each version and their change facts | the key's change facts, one-sided when the key exists on one side |
+| M2 | a Library pair and a Member key | that key's own complete diff, paired when the key exists on both sides and its present side when on one; for a one-sided key, the comparison version-pair correspondence pairs it with; and its change facts when asked | the key's text diff per medium, with any paired comparison beside it and its facts overlaid when asked |
+
+### Demand-shaped
+
+A section query computes only what its address needs. L1 is wide and shallow:
+it visits every Type and stops early. T1 and T2 read one Type in each version.
+M1 and M2 read one Member in each version. So:
+
+- **No prerequisite rung.** A Type or Member request, such as one a link
+  opens, never computes, waits for, or selects from a wider rung's result.
+  Both resolve the addressed Type in each version through the exact
+  single-Type lookup ([assembly inspection query](assembly-inspection-query.md)),
+  which neither pairs nor walks the Library. M1 then reads its Member key by
+  exact key in each version, as the map joins, and an absent side makes the
+  key one-sided; it produces only that key's entries, not the Type's map. M2
+  holds its key's own diff: the paired diff when the key exists on both
+  sides, and the present side when it exists on one. For a one-sided key, M2
+  also pairs it across keys through the
+  [version-pair correspondence](api-qualified-anchor.md#version-pair-correspondence)
+  over that Type's declarations, as Finding Diff Any's
+  [Member level](finding-diff-any.md#member) does, and presents that pair's
+  comparison beside the key's own diff. So a Member whose signature changed,
+  which is two keys at T1, T2, and M1, opens from either key an M2 with that
+  key's one-sided diff and the paired comparison. The coverage relationships
+  read each key's own diff; the paired comparison is presentation. T1 and T2 pair the addressed Type by its identity, not by pairing every
+  Type of the two images.
+- **Reuse is optional.** A host may answer a request from a completed wider
+  result it already holds, such as a T1 row from a held T2 result or a
+  retained per-version map, when that result covers the narrower address.
+  That is a cache of the provision that answers the address, never a
+  requirement.
+- **No whole-Library reads.** A Type- or Member-addressed query performs none
+  of the reads the [single-Library API Diff
+  terminal](diff-system.md#single-library-api-diff-terminal) makes across the
+  whole Library: reading every extension-declaring Type, reading every Type
+  for an outcome that counts unchanged subjects, reading every Type at a view
+  the Unchanged prefilter does not define, and deriving a Member's API facts
+  from the surface-wide API comparison. That terminal answers the Library
+  scope and today's analysis set; it is not the path for T1, T2, M1, or M2.
+
+### Shared across scopes
+
+The rungs share everything except a materialized result:
+
+- **Identity.** One owner-issued Type identity and one **Member key**, the
+  map's census key, address every scope. A host spells a Member key as its
+  [`MemberAnchor`](api-qualified-anchor.md#basis-and-existing-currencies),
+  with its row token on its side where two keys share a spelling, as the
+  [Annotated Type Map](annotated-type-map.md) does. A key names one row at
+  T1, T2, and M1, so a link resolves to the same subject at each of those
+  rungs; at M2 it names that key's own diff, with any paired comparison
+  presented beside it.
+- **Change facts.** Every fact family a Rows rung reports carries per-side
+  status facets, so a host's ordinary population, hidden and obsolete
+  filters, and accessibility filters are presentation over facets each row
+  carries, as [the expansive rule](#comparison-is-expansive-filtering-is-presentation)
+  requires. T2 and M1 admit the same families, which are the [Annotated Type
+  Map](annotated-type-map.md)'s admitted findings and two further families:
+  - **API change kinds**, such as an accessibility change or a removed Member,
+    from the Public API comparison. Library API Changes already carries their
+    per-side status;
+  - **Local instruction findings**, the map's admitted descriptors, such as
+    `alloc.*`, `unsafe.*`, and `lifetime.*`; and
+  - **declaration and implementation facts**, presented by the declaration
+    view.
+
+  A family joins T2 and M1 only when its facts carry per-side status facets.
+  Call relationships, such as `call.edge`, join under the map's own rule:
+  when the Annotated Source owner adds them to the fact comparison. Other
+  Finding families of today's Diff analysis set, such as unsafe members, string
+  literals, and API attributes, join when the map's admission owner admits
+  them; a thrown-exception diff, which no producer computes yet, joins when
+  one does.
+- **Outcomes.** Every rung keeps loading, failed, rejected, unavailable,
+  incomplete, and complete-empty distinct. An incomplete answer never claims
+  absence, and an `Indeterminate` row is shown as undecided.
+- **Agreement.** The coverage relationships of [the question
+  ladder](#the-question-ladder) hold between independently computed rungs,
+  read under [the Exists contract](#the-exists-contract) and its bounded
+  exceptions, and M1 agrees with T2: a Member's M1 facts are exactly its T2
+  row's facts.
+
+How the CLI and Inspect Web request each section query, its options, and its
+defaults are decided after every rung is a section query, and are not owned
+here.
 
 ## Axes
 
@@ -254,14 +374,20 @@ offers:
 | Provision | Answers | Shape |
 | --- | --- | --- |
 | Lockstep Exists | Rungs 1 and 2 | Walks both images, compares symbolic facts (the API census, the Body declaration census, and IL), stops each axis at its first difference |
-| Retained maps | Rungs 2 and 3 | Produces one version's facts once, paying for rung 3's facts, and compares two retained maps by key; its rung-2 answer is a projection of them |
-| Complete | Rungs 3 and 4 | Builds the complete models and explains every difference |
+| Map diff | T2 and M1, and T1 as its projection | Produces both versions' [Annotated Type Map](annotated-type-map.md) entries for the address, in lockstep as that owner permits, and compares them by key: the addressed Type's entries for T1 and T2, and only the addressed key's entries for M1. For T1 it runs as Exists, comparing shape facts and stopping at each row's first difference, with no fact comparison. It has no text comparison and builds no Type-scope source view |
+| Complete | M2 | Builds the complete models of the addressed Member and explains every difference |
+
+A host that retains one version's map, built once, may compare two retained
+maps by key to answer T1 and T2 for a Type they cover. That is the map diff
+provision's cache, which [Demand-shaped](#demand-shaped) allows: it is never a
+prerequisite of a Type- or Member-addressed request.
 
 All provisions share one fact substrate: Member and operand identity are [Symbol
 Keys](symbol-key.md), Member grain is Finding Diff Any's census key, and the
 facts are the axes' facts above. Coverage runs from richer to cheaper: a row's
-complete diff decides its rung-2 state, a Type's rung-3 map decides its rung-2
-states, and a Type's rung-2 states decide its rung-1 state as the ladder states.
+complete diff (M2) decides its T1 state, a Member's M1 facts are its T2 row's
+facts, a Type's T2 rows decide its T1 states, and a Type's T1 states decide its
+L1 state as the ladder states.
 Each edge's proof obligation is a gate below.
 
 ### When a separate provision is kept
@@ -275,11 +401,17 @@ Finding Diff Any is today's lockstep Exists provision. The [symbolic-identity
 spike](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6253951916)
 measured the complete IL diff's own code, with symbolic identity, at 0.67 to
 1.19 times Finding Diff Any's Body cost on six pairs, with every method pair
-agreeing. Finding Diff Any's Body IL walk is therefore deleted once the shared
-code meets the latency bar below. Its censuses remain: the API census as the API
-axis's Exists provision, because the surface model costs about ten times more,
-and the Body declaration census, which compares the Body axis's declaration
-facts. Both are owned by the diff owner as the first stages of their axes.
+agreeing. Meeting the latency bar below is therefore necessary to delete
+Finding Diff Any's Body IL walk. Deletion also requires Finding census's [Cost
+gate](finding-census.md#gates), which runs lockstep beside the walk itself and
+deletes the walk only when lockstep matches or beats it on every reported
+number; both must hold. Finding census step 2b measured lockstep under that
+gate and kept the walk ([what remains of the
+gap](finding-census.md#what-remains-of-the-gap)). Its censuses remain: the API
+census as the API axis's Exists provision, because the surface model costs
+about ten times more, and the Body declaration census, which compares the Body
+axis's declaration facts. Both are owned by the diff owner as the first stages
+of their axes.
 
 ## Latency bar
 
@@ -298,13 +430,13 @@ facts. Both are owned by the diff owner as the first stages of their axes.
     were 144, 22, 28, 24, 105, and 323 ms in the order above. The baseline
     binary is kept for later measurements after the walk is deleted.
 
-Exists is distinct from Rows by the structural rule, not by a ratio at
-Library scope: most Types in a pair are unchanged and proving that is the
-dominant cost, so early exit saves little there. The distinction that matters
-is between rungs 1 and 2, which never explain, and rungs 3 and 4, which build
-facts or models for the Types and Members a user opens, or once per version
-when a host retains maps. The numeric rule
-is the gate for replacing a provision.
+Exists is distinct from Rows by the structural rule, not by a ratio at Library
+scope: most Types in a pair are unchanged and proving that is the dominant
+cost, so early exit saves little there. The distinction that matters is between
+L1 and T1, which never explain, and T2, M1, and M2, which build maps or
+models for the Types and Members a user opens, or once per version when a host
+retains maps as a cache. The numeric rule is necessary for replacing a provision, and
+Finding census's [Cost gate](finding-census.md#gates) must hold as well.
 
 ## Changes to consumed owners
 
@@ -317,6 +449,11 @@ adoption step named:
 | [Finding Diff Any](finding-diff-any.md#axes) | Body compares non-public declaration facts and `beforefieldinit` ([#10348](https://github.com/richlander/dotnet-inspect/pull/10348)); implementation flags and compiler-emitted attributes of admitted Members are uncertain API facts, and no view presents declaration facts | Those facts move to Body, presented by the declaration view ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
 | [Finding Diff Any](finding-diff-any.md#type) | The Type level is not run for a one-sided Type | It runs, with each row `Changed` and one-sided | 1 |
 | [Finding Diff Any](finding-diff-any.md#axes) | A body that cannot be decoded is `Indeterminate`, never a difference, and the Body exactness gate expects `Indeterminate` for a decode failure | Narrowed to content read before Exists decides, as rule 3 states | 1 |
+| [Annotated Type Map](annotated-type-map.md) | A Member's findings are the detail of its row, not a narrower scope; the map admits only Local instruction descriptors | M1, the map's Member scope, is a rung addressed directly; the map also admits API change kinds and declaration facts, each with per-side status facets | 6 |
+| [Diff system](diff-system.md#single-library-api-diff-terminal) | A single-Library request reads only its targeted Types in full, except every extension-declaring Type, every Type for an outcome counting unchanged subjects, every Type at a view the prefilter does not define, and a Member's API facts from the surface-wide comparison | Type- and Member-addressed section queries make none of those whole-Library reads; the terminal answers the Library scope and today's analysis set | 6 |
+| [Finding Diff Any](finding-diff-any.md#type) | The Type level pairs the Types of two images once | T1 pairs the addressed Type by its identity; pairing every Type remains L1's | 6 |
+| [Annotated Type Map](annotated-type-map.md) | A host may compare two retained one-version maps | A retained map is a host cache that may answer a Type it covers, never a prerequisite of a Type- or Member-addressed request | 6 |
+| [Annotated Source diff document](annotated-source-diff-document.md) | The CLI text host shows no facts, and no Markout lowering is claimed | M2 has Table and Document outputs, and both hosts can overlay M1's facts | 6 |
 | [Annotated Type Map](annotated-type-map.md) | Non-public declarations are Body rows ([#10350](https://github.com/richlander/dotnet-inspect/pull/10350)); admitted Members' implementation facts are not map facts; a declaration-fact row has no rung-4 view | Admitted Members' implementation facts join the map's Body facts when Finding Diff Any's census moves them; the declaration view presents both ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
 
 ## Adoption
@@ -343,13 +480,45 @@ Each step is its own focused effort:
 3. **Shared Body Exists.** The complete IL diff takes symbolic identity
    ([#9918](https://github.com/richlander/dotnet-inspect/issues/9918)) and a
    lockstep comparison without materialized instructions, then meets the latency
-   bar with the Body declaration census included; Finding Diff Any's Body IL
-   walk is deleted.
+   bar with the Body declaration census included and Finding census's [Cost
+   gate](finding-census.md#gates); Finding Diff Any's Body IL walk is deleted.
 4. **Census ownership.** The API census moves under the API comparison, and
    the Body declaration census under the Body comparison, as each axis's
    first stage, so each axis has one owner.
 5. **Requests.** The diff request names axes per step and Exists or Rows per
    rung ([#10200](https://github.com/richlander/dotnet-inspect/issues/10200)).
+6. **Section queries.** Every rung becomes a section query, in this order.
+   Each slice binds both hosts unless it records why one host has no consumer
+   yet:
+   1. **Foundations.** The Diff sections gain Shapes, descriptions, and a
+      catalog identity, so `explain` describes them and their CLI sections
+      offer section query keys. CLI only: the Browser reaches Diff through its
+      routes.
+   2. **L1.** Finding Diff Any's Library level becomes a route with a CLI
+      section, and the existing Browser export binds to it.
+   3. **T1.** Finding Diff Any's Type level, run for a one-sided Type as step 1
+      states and pairing the addressed Type by identity, becomes a route with a
+      CLI section and a Browser export, after the Type census work in flight
+      ([#10776](https://github.com/richlander/dotnet-inspect/pull/10776)).
+   4. **T2.** After the map's [adoption](annotated-type-map.md#adoption)
+      steps 2 to 5, which include the Annotated Source owner's fact
+      comparison, the map diff becomes the T2 route, admitting API change kinds
+      and declaration facts with their status facets, with a CLI section and a
+      Browser export.
+   5. **M1.** The map diff's Member scope becomes the M1 route, addressed by
+      Member key through the exact single-Type lookup and an exact key read in
+      each version, with a CLI section and a Browser export. It reads the same fact
+      comparison as T2, so nothing is replaced and it agrees with T2.
+   6. **M2.** The Annotated Source diff document becomes a route with Table and
+      Document outputs, a CLI section, and a Browser binding, addressed by
+      Member key, holding that key's own diff and, for a one-sided key, the
+      comparison version-pair correspondence pairs it with, overlaying the
+      key's M1 facts when asked.
+
+   No slice adds an interim producer that a later slice replaces. Today's Diff
+   analysis set at Type and Member surface stays as it is until the CLI and
+   Inspect Web request syntax is designed over the section queries, after
+   step 6.
 
 ## Gates
 
@@ -373,6 +542,17 @@ Each step is its own focused effort:
 - **No fallback:** each Exists measurement reports zero complete-model builds
   on the six measured pairs once adoption step 2 completes.
 - **Latency (design evidence):** the latency bar, measured on NativeAOT.
+- **Demand-shaped:** for each Type- or Member-addressed section query, a
+  fixture request completes while extracting and pairing only the addressed
+  Type in each version and the Types its facts read, as the query's receipt
+  reports.
+- **Scope agreement:** over the fixtures, including a public method whose
+  parameter Type changes while its IL stays the same, so it is two one-sided
+  keys that correspondence pairs, with each rung computed by its own
+  request, each Member's M1 facts equal its T2 row's facts, and the Coverage
+  gate above holds between those independently computed L1, T1, T2, and M2
+  answers, with the same qualifiers: decided rows only, and an
+  `Indeterminate` row read under the Exists contract's third rule.
 
 The fixture gates run in `ILInspector.Metadata.Tests` beside the existing
 `FindingDiffAnyTests`. The six real pairs are measured by
@@ -387,6 +567,7 @@ step, not an ordinary gate.
   consumes the shared lifted-owner resolution, whose async ownership is recorded
   to come from `StateMachineRelationshipIndex`
   ([#10235](https://github.com/richlander/dotnet-inspect/issues/10235)).
-- It does not define a host's filters, defaults, or visual design.
+- It does not define a host's filters, defaults, request syntax, or visual
+  design.
 - It does not define the QuerySpace operators a diff may later use; that is
   [#10227](https://github.com/richlander/dotnet-inspect/issues/10227).

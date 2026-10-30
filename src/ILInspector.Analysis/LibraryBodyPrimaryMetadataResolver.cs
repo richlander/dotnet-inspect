@@ -776,10 +776,24 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         public bool? IsInAssemblyExceptionType(
             AllocationOccurrence occurrence) =>
             owner._exactLocalTypeEvidence
+                && occurrence.OperandToken is int operandToken
+                && occurrence.AllocatedType is { } allocatedType
+                    ? owner.IsExactInAssemblyExceptionType(
+                        operandToken,
+                        allocatedType)
+                    : occurrence.AllocatedType is { } type
+                        ? owner.IsInAssemblyExceptionType(type)
+                        : null;
+
+        public bool? IsInAssemblyExceptionType(
+            int operandToken,
+            TypeRef allocatedType) =>
+            owner._exactLocalTypeEvidence
                 ? owner.IsExactInAssemblyExceptionType(
-                    occurrence)
+                    operandToken,
+                    allocatedType)
                 : owner.IsInAssemblyExceptionType(
-                    occurrence.AllocatedType!);
+                    allocatedType);
 
         public (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken)
             => owner.ResolveFieldOwner(fieldToken, scope);
@@ -838,16 +852,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         return result;
     }
 
-    bool? IsExactInAssemblyExceptionType(
-        AllocationOccurrence occurrence)
+    internal bool? IsExactInAssemblyExceptionType(
+        int operandToken,
+        TypeRef type)
     {
         _localExceptionTypeQueried?.Invoke();
-        TypeRef type =
-            occurrence.AllocatedType
-            ?? throw new InvalidOperationException(
-                "An allocation exception query requires an allocated type.");
         if (!TryResolveExactLocalTypeDefinition(
-                occurrence.OperandToken,
+                operandToken,
                 out TypeDefinitionHandle handle))
         {
             TypeRef definition =
@@ -893,9 +904,18 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     _reader,
                     (TypeReferenceHandle)baseHandle,
                     0);
-            return baseType.Name.EndsWith(
-                "Exception",
-                StringComparison.Ordinal);
+            if (baseType.Namespace == "System"
+                && baseType.Name == "Exception")
+            {
+                return true;
+            }
+            if (baseType.Namespace == "System"
+                && baseType.Name
+                    is "Object" or "ValueType" or "Enum")
+            {
+                return false;
+            }
+            return null;
         }
         return false;
     }

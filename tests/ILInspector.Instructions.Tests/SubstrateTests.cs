@@ -446,6 +446,52 @@ public class InstructionDecoderTests
         }
     }
 
+    [Fact]
+    public void Visit_struct_visitor_streams_and_rejects_retained_il()
+    {
+        byte[] il = [0x28, 0x01, 0x00, 0x00, 0x06, 0x00, 0x2A];
+        var recorder = new RecordingVisitor { Visited = [] };
+
+        Assert.True(InstructionDecoder.Visit(il.AsSpan(), ref recorder));
+        Assert.Equal(
+            [
+                (ILOpCode.Call, 0x06000001, 5),
+                (ILOpCode.Nop, 0, 1),
+                (ILOpCode.Ret, 0, 1),
+            ],
+            recorder.Visited);
+
+        var stopping = new RecordingVisitor { Visited = [], Limit = 1 };
+        Assert.False(InstructionDecoder.Visit(il.AsSpan(), ref stopping));
+        Assert.Single(stopping.Visited);
+
+        byte[][] malformed =
+        [
+            [0x28, 0x00],
+            [0x45, 0x01, 0x00, 0x00, 0x00],
+            [0xFE],
+            [0xFE, 0x14],
+        ];
+        foreach (byte[] bytes in malformed)
+        {
+            var visitor = new RecordingVisitor { Visited = [] };
+            Assert.Throws<BadImageFormatException>(
+                () => InstructionDecoder.Visit(bytes.AsSpan(), ref visitor));
+        }
+    }
+
+    struct RecordingVisitor : IInstructionVisitor
+    {
+        public List<(ILOpCode, int, int)> Visited;
+        public int Limit;
+
+        public readonly bool Visit(ILOpCode opcode, int operandToken, int encodedLength)
+        {
+            Visited.Add((opcode, operandToken, encodedLength));
+            return Limit == 0 || Visited.Count < Limit;
+        }
+    }
+
     static bool Visit(
         byte[] il,
         Func<ILOpCode, int, int, bool> visitor)

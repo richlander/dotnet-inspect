@@ -9,6 +9,24 @@ namespace DotnetInspect.Web.Interop.Package;
 [SupportedOSPlatform("browser")]
 public static partial class PackageExports
 {
+    // Resource-free catalog claims, not resolved reference suppliers.
+    [JSExport]
+    public static string ClassifyEcosystemAssemblyNames(string namesJson)
+    {
+        var names = JsonSerializer.Deserialize(
+            namesJson, BrowserPackageJsonContext.Default.BrowserEcosystemAssemblyNameArray)
+            ?? throw new ArgumentException("Assembly names are absent.", nameof(namesJson));
+        BrowserEcosystemAssemblyNameClaim[] results = [.. names.Select(name =>
+        {
+            var ecosystem = EcosystemPackCatalog.FindAssemblyNameClaim(name.Name);
+            return new BrowserEcosystemAssemblyNameClaim(
+                name.Name, ecosystem?.Id.Value, ecosystem?.Title,
+                EcosystemPackCatalog.ShouldSearchPlatform(name.Name));
+        })];
+        return JsonSerializer.Serialize(
+            results, BrowserPackageJsonContext.Default.BrowserEcosystemAssemblyNameClaimArray);
+    }
+
     // Resource-free annotation helper, like ClassifyPackageGraphIdentities.
     // The caller supplies catalog evidence; this path never acquires a pack.
     [JSExport]

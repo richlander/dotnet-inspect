@@ -74,6 +74,8 @@
     <Project Path="fixtures/diff/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
     <Project Path="fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj" />
     <Project Path="fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj" />
+    <Project Path="fixtures/diff/UnsafeMemberDiffFixtures.V1/UnsafeMemberDiffFixtures.V1.csproj" />
+    <Project Path="fixtures/diff/UnsafeMemberDiffFixtures.V2/UnsafeMemberDiffFixtures.V2.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.CloneTransportFixtures/InspectWeb.CloneTransportFixtures.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.DocumentationFixtures/InspectWeb.DocumentationFixtures.csproj" />
     <Project Path="fixtures/inspect-web/InspectWeb.MethodBodyFixtures/InspectWeb.MethodBodyFixtures.csproj" />
@@ -100,6 +102,7 @@
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.NormalizationDecomposed/TsJsExport.ContextFixtures.NormalizationDecomposed.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1/ILInspector.Metadata.ApiDeclarationCorrespondence.V1.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2/ILInspector.Metadata.ApiDeclarationCorrespondence.V2.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V1/ILInspector.Metadata.FindingDiffAny.V1.csproj" />
@@ -113,6 +116,7 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures.Debug/ILInspector.Metadata.StateMachineFixtures.Debug.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures/ILInspector.Metadata.SourceProvenanceFixtures.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SourceProvenanceLookalike/ILInspector.Metadata.SourceProvenanceLookalike.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard/ILInspector.Metadata.SourceProvenanceNetStandard.csproj" />

@@ -1,5 +1,8 @@
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
+using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries.Definitions;
 
@@ -91,6 +94,34 @@ public abstract record CompleteRestorationRequestBasis
 
         public ViewFacetId Facet { get; }
     }
+
+    public sealed record RegistrationOnlyEcosystemPackageTypeInput :
+        CompleteRestorationRequestBasis
+    {
+        public RegistrationOnlyEcosystemPackageTypeInput(
+            WorkspacePlan plan,
+            WorkspaceEcosystemRegistrationId ecosystem,
+            ExactLibrarySourceCoordinate.Package library,
+            MetadataTypeDefinitionName type)
+        {
+            Plan = plan ?? throw new ArgumentNullException(nameof(plan));
+            Ecosystem = ecosystem
+                ?? throw new ArgumentNullException(nameof(ecosystem));
+            Library = library
+                ?? throw new ArgumentNullException(nameof(library));
+            Type = type ?? throw new ArgumentNullException(nameof(type));
+        }
+
+        public WorkspacePlan Plan { get; }
+
+        public WorkspaceEcosystemRegistrationId Ecosystem { get; }
+
+        public ExactLibrarySourceCoordinate.Package Library { get; }
+
+        public PackageSourceCoordinate Package => Library.PackageCoordinate;
+
+        public MetadataTypeDefinitionName Type { get; }
+    }
 }
 
 /// <summary>
@@ -145,6 +176,30 @@ public abstract record CompleteRestorationRecipe
         public ViewFacetId Facet { get; } =
             Facet ?? throw new ArgumentNullException(nameof(Facet));
     }
+
+    public sealed record RegistrationOnlyEcosystemPackageType :
+        CompleteRestorationRecipe
+    {
+        public RegistrationOnlyEcosystemPackageType(
+            WorkspaceEcosystemRegistrationId ecosystem,
+            ExactLibrarySourceCoordinate.Package library,
+            MetadataTypeDefinitionName type)
+        {
+            Ecosystem = ecosystem
+                ?? throw new ArgumentNullException(nameof(ecosystem));
+            Library = library
+                ?? throw new ArgumentNullException(nameof(library));
+            Type = type ?? throw new ArgumentNullException(nameof(type));
+        }
+
+        public WorkspaceEcosystemRegistrationId Ecosystem { get; }
+
+        public ExactLibrarySourceCoordinate.Package Library { get; }
+
+        public PackageSourceCoordinate Package => Library.PackageCoordinate;
+
+        public MetadataTypeDefinitionName Type { get; }
+    }
 }
 
 /// <summary>
@@ -187,16 +242,17 @@ public sealed record CompleteRestorationPlan
     public CompleteRestorationRecipe Recipe { get; }
 
     public IReadOnlyList<WorkspacePackageSourceDefinition>
-        ConfiguredPackageSources { get; }
+        ConfiguredPackageSources
+    { get; }
 
     internal IReadOnlyDictionary<
         string,
         PackageNavigationSource> PackageSources
-        { get; }
+    { get; }
 
     internal IReadOnlyDictionary<string, PlatformNavigationSource>
         PlatformSources
-        { get; }
+    { get; }
 }
 
 /// <summary>Typed non-activation evidence from complete restoration.</summary>
@@ -369,6 +425,54 @@ public abstract record CompleteRestorationFailure
         public string NavigationId { get; }
 
         public ArtifactRootFailure? RootFailure { get; }
+    }
+
+    public enum PackageTypeSelectionFailureKind
+    {
+        LibraryMissing,
+        LibraryAmbiguous,
+        TypeMissing,
+        TypeAmbiguous,
+        IncompleteInventory,
+    }
+
+    public sealed record PackageTypeSelectionFailed :
+        CompleteRestorationFailure
+    {
+        internal PackageTypeSelectionFailed(
+            PackageTypeSelectionFailureKind kind,
+            ExactLibrarySourceCoordinate.Package library,
+            MetadataTypeDefinitionName type,
+            string message)
+            : base(message)
+        {
+            Kind = kind;
+            Library = library
+                ?? throw new ArgumentNullException(nameof(library));
+            Type = type ?? throw new ArgumentNullException(nameof(type));
+        }
+
+        public PackageTypeSelectionFailureKind Kind { get; }
+
+        public ExactLibrarySourceCoordinate.Package Library { get; }
+
+        public MetadataTypeDefinitionName Type { get; }
+    }
+
+    public sealed record PackageTypePreparationFailed :
+        CompleteRestorationFailure
+    {
+        internal PackageTypePreparationFailed(
+            CompleteRestorationSubjectFailure failure)
+            : base(
+                "The exact package-Type subject could not be prepared for "
+                    + "the completed activation.")
+        {
+            Failure = failure
+                ?? throw new ArgumentNullException(nameof(failure));
+        }
+
+        public CompleteRestorationSubjectFailure Failure { get; }
     }
 
     public sealed record SelectorResolutionFailed :
@@ -719,6 +823,89 @@ public static class CompleteRestorationPreparation
                 new CompleteRestorationRecipe.RegistrationOnlyEcosystem(
                     request.Ecosystem,
                     request.Facet),
+                [],
+                ImmutableDictionary<string, PackageNavigationSource>.Empty,
+                ImmutableDictionary<string, PlatformNavigationSource>.Empty));
+    }
+
+    public static CompleteRestorationPreparationResult
+        FromRegistrationOnlyEcosystemPackageType(
+            CompleteRestorationRequestBasis
+                .RegistrationOnlyEcosystemPackageTypeInput request,
+            ICompleteRestorationIntentAuthority authority,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(authority);
+        if (NonCurrent(authority, request) is { } unavailable)
+            return unavailable;
+        if (cancellationToken.IsCancellationRequested)
+            return Cancelled(authority.Identity, request);
+
+        if (!request.Plan.Contexts.IsEmpty)
+        {
+            return InvalidRegistrationOnlyRequest(
+                authority.Identity,
+                request,
+                "Registration-only Ecosystem package-Type restoration does "
+                    + "not accept Workspace contexts.");
+        }
+        if (request.Plan.TraversalTargetPolicy
+            != TraversalTargetFrameworkPolicy.ProductDefault)
+        {
+            return InvalidRegistrationOnlyRequest(
+                authority.Identity,
+                request,
+                "Registration-only Ecosystem package-Type restoration "
+                    + "requires the product-default traversal target policy.");
+        }
+
+        WorkspaceRegistration.Ecosystem[] selected =
+        [
+            .. request.Plan.Registrations
+                .OfType<WorkspaceRegistration.Ecosystem>()
+                .Where(registration =>
+                    registration.Declaration.Id == request.Ecosystem),
+        ];
+        if (selected.Length != 1)
+        {
+            return InvalidRegistrationOnlyRequest(
+                authority.Identity,
+                request,
+                selected.Length == 0
+                    ? $"Workspace plan does not contain Ecosystem "
+                        + $"registration '{request.Ecosystem}'."
+                    : $"Workspace plan contains multiple Ecosystem "
+                        + $"registrations '{request.Ecosystem}'.");
+        }
+
+        PackageSourceCoordinate package = request.Package;
+        string framework = request.Plan.TraversalTargetPolicy.TargetFramework;
+        var context = new WorkspaceContextInput
+        {
+            Framework = framework,
+            Members =
+            [
+                WorkspaceMemberCoordinate.Package(
+                    package.PackageId,
+                    package.Version,
+                    framework),
+            ],
+        };
+        var constructionPlan = new WorkspacePlan(
+            request.Plan.TraversalTargetPolicy,
+            request.Plan.Registrations,
+            [context]);
+        return new CompleteRestorationPreparationResult.Ready(
+            new CompleteRestorationPlan(
+                authority.Identity,
+                request,
+                constructionPlan,
+                new CompleteRestorationRecipe
+                    .RegistrationOnlyEcosystemPackageType(
+                        request.Ecosystem,
+                        request.Library,
+                        request.Type),
                 [],
                 ImmutableDictionary<string, PackageNavigationSource>.Empty,
                 ImmutableDictionary<string, PlatformNavigationSource>.Empty));

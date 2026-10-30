@@ -40,6 +40,18 @@ agnostic at the bottom. Analysis and the decompiler depend on `Instructions`;
 neither owns it. The product path stays SRM-only, NativeAOT-friendly, Roslyn-free,
 and never loads inspected assemblies.
 
+The IL byte layer, `ILReader`, the opcode tables (`IsValid`,
+`GetInstructionSize`, `IsPrefix`, `IsBranch`, `GetOperandKind`), and
+`OperandKind`, lives in `ILInspector.MetadataPrimitives`, below both
+Instructions and `ILInspector.Metadata`, in the `ILInspector.Instructions`
+namespace it has always had. Two readers sit on it: the decoder, which builds
+instructions, and Finding Diff Any's paired Body walk, which builds none
+([Finding Diff Any](finding-diff-any.md#axes)). Metadata and Instructions still
+do not reference each other, which
+`LayeringTests.MetadataAndInstructions_DoNotReferenceEachOther` gates, and the
+primitives floor stays InertText-only
+([Metadata primitives](../metadata-primitives.md#current-boundary)).
+
 The implemented
 [instruction exception-flow facts](instruction-exception-flow-facts.md)
 compose this substrate with
@@ -77,6 +89,9 @@ dependency direction and the assembly owner.
   bounded early-exit consumers; a complete visit enforces the same opcode,
   operand, switch-table, and dangling-prefix structure, while a stopped visit
   deliberately leaves the unseen suffix unvalidated.
+  The retained-IL visit also takes a struct `IInstructionVisitor`, which a hot
+  caller uses to avoid a delegate call per instruction, with the same
+  validation as the delegate overload.
   `InstructionSequence` is the demand-driven retained-prefix primitive.
   Independent cursors advance with `MoveNext`, and indexed access extends the
   same shared scan frontier only through the requested instruction. The
@@ -269,9 +284,15 @@ identity (Layer 0) and let each consumer build its own Layer 1.
 
 The ported `ILReader` + size table are faithful — byte-level tiling and
 round-trip hold because the reader sizes every opcode correctly, prefixes
-included. The bugs adversarial review found were all in the *connective tissue we
-hand-roll above the reader* (`InstructionDecoder`, `MethodInstructions`, the
+included. The bugs adversarial review found were all in the *connective tissue
+we hand-roll above the reader* (`InstructionDecoder`, `MethodInstructions`, the
 gated `StackTypeInterpreter`), never in the ported files.
+`ILOpcodeExtensions.cs` does hold hand-written members beside the ported size
+table: `IsBranch`, `IsUnconditionalBranch`, `IsShortBranch`, `IsPrefix`, and
+`GetIndex`, the port's adaptations to SRM's `ILOpCode`, and `GetOperandKind`,
+the decoder's operand classification moved there so that the decoder and
+Finding Diff Any's walk consult one file. A diff against upstream should expect
+those and read the rest as the port.
 
 That is the deliberate boundary. The substrate guarantees **structural
 completeness** — the stream tiles `[0, ilLength)`, branch targets land on
@@ -357,6 +378,8 @@ the bugs it fixes. Two gate kinds instead:
   `Visit_rejects_malformed_or_dangling_input`, and
   `Visit_can_stop_before_a_malformed_suffix` enforce the complete-visit and
   early-stop contracts without requiring an instruction array.
+  `Visit_struct_visitor_streams_and_rejects_retained_il` holds the struct
+  overload to the same stream and the same malformed-input rejection.
 - **Directional differential** vs each replaced decoder over the corpus: classify
   every diff as improvement / neutral / regression; the gate is **zero
   regressions** (not zero diffs), with improvements characterized by an absolute

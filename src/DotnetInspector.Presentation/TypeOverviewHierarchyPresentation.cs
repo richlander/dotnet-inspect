@@ -66,9 +66,7 @@ public static class TypeOverviewHierarchyPresentation
 
     /// <summary>
     /// Creates the default Type hierarchy plan: the Type, its member
-    /// categories, and each category's MemberGroups by Name as leaves. The
-    /// default requests no exact-Member Counts; overloads belong to the inner
-    /// <c>member</c> command.
+    /// categories, and each category's MemberGroups by Name with overload Counts.
     /// </summary>
     public static TypeOverviewHierarchyPresentationPlan CreateCompactPlan(
         TypeOverviewHierarchyPresentationFormat format,
@@ -84,7 +82,7 @@ public static class TypeOverviewHierarchyPresentation
                 rows: new TypeMemberGroupRowsRequest(
                     TypeOverviewHierarchyPresentationPlan
                         .MaximumMemberGroupRows,
-                    includeExactMemberCount: false),
+                    includeExactMemberCount: true),
                 spelling: TypeMemberGroupSpelling.CSharp,
                 accessibility: accessibility,
                 includeHidden: includeNonPublic);
@@ -97,7 +95,8 @@ public static class TypeOverviewHierarchyPresentation
                 new InspectionHierarchyPopulationRequest.Rows(
                     InspectionHierarchyNodeSpelling.Name,
                     new InspectionHierarchyPopulationRequest.Rows(
-                        InspectionHierarchyNodeSpelling.Name)));
+                        InspectionHierarchyNodeSpelling.Name,
+                        new InspectionHierarchyPopulationRequest.Count())));
         return new(format, declarations, hierarchy);
     }
 
@@ -215,12 +214,7 @@ public static class TypeOverviewHierarchyPresentation
                 "Unknown member-group category."),
         };
 
-        return IsOverloadGrouped(category.Value)
-            && category.ExactMemberCount is { } exactMemberCount
-            && category.LogicalCount != exactMemberCount
-                ? $"{noun} ({category.LogicalCount} logical, "
-                    + $"{exactMemberCount} overloads)"
-                : $"{noun} ({category.LogicalCount})";
+        return $"{noun} ({category.LogicalCount})";
     }
 
     private static string FormatMember(TypeMemberGroupShape member)
@@ -228,24 +222,15 @@ public static class TypeOverviewHierarchyPresentation
         string name =
             CSharpIdentifier.ContainRenderedText(
                 member.Binding.Name.ToString());
-        if (!IsOverloadGrouped(member.Binding.Category)
-            || member.ExactMemberCount is not { } exactMemberCount)
+        if (member.ExactMemberCount is not { } exactMemberCount)
         {
             return name;
         }
 
         return exactMemberCount > 1
-            ? $"{name} ({exactMemberCount} overloads)"
+            ? $"{name} ({exactMemberCount})"
             : name;
     }
-
-    private static bool IsOverloadGrouped(
-        MemberGroupCategory category) =>
-        category
-            is MemberGroupCategory.Constructor
-            or MemberGroupCategory.Method
-            or MemberGroupCategory.Operator
-            or MemberGroupCategory.ExplicitInterfaceImplementation;
 
     private static string FormatTypeDeclaration(
         TypeSubject subject,

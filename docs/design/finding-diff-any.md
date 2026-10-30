@@ -13,6 +13,37 @@ The producer is `FindingDiffAny.Compare` in `ILInspector.Metadata`. It depends
 only on System.Reflection.Metadata, so it runs unchanged under NativeAOT and
 Browser/Wasm.
 
+Since [Finding census](finding-census.md#adoption) step 4, this document owns
+**Exists at Library, Type, and Member scope** over the census: the axes, the
+pair partition, the API axis surface, the folds of a Type's rows, and their
+gates, at the [three levels](#levels). Finding census owns the reading of one
+row on one kind beneath them, and the agreement of that reading with
+Exhaustive. Exists at Member scope is a Member's row of the [Type
+level](#type), its API and Body states, which adoption step 7 will land; the
+Member level's complete diff stays with its owners.
+
+Two provisions answer the rows this document folds. Each is bound to the
+cursor's equality by Finding census's [provision
+rule](finding-census.md#provisions) and kept for its time alone:
+
+- **The paired Body walk** decides a paired method's IL. Finding census step 2b
+  ran lockstep over two IL cursors through the walk's [body reader
+  seam](#axes), at Library and Type scope, and kept the walk ([what remains of
+  the gap](finding-census.md#what-remains-of-the-gap)).
+- **The census slot comparison** decides one unit's census facts on each axis,
+  with the API axis surface deciding a census that differs only in uncertain
+  facts. Finding census step 3 reads the same slots through the declaration
+  cursor and keeps the comparison ([declaration
+  cursor](finding-census.md#adoption)).
+
+Either provision is deleted only when lockstep over the cursors meets Diff
+capabilities' [latency bar](diff-capabilities.md#latency-bar) and matches or
+beats the provision on every number Finding census's [Cost
+gate](finding-census.md#gates) reports; both must hold. The change that deletes
+the walk owns the IL kind's Allocation gate and the Browser/Wasm measurement,
+and the change that deletes the slot comparison owns the declaration kind's
+allocation debt that step 3 records.
+
 The name was Fast Diff until 2026-10-21
 ([#10430](https://github.com/richlander/dotnet-inspect/issues/10430)). "Fast"
 named a cost, and the design says the cost is not its identity; `Any` names the
@@ -139,20 +170,30 @@ settles each kind in its adoption step 2. `beforefieldinit` is a Body fact;
 the implementation flags and compiler-emitted attributes of a Member the
 surface admits are uncertain API facts until that step moves them to Body.
 
-Under that policy, `ldc.i4` forms and short branches fold to one family,
-branch and switch targets compare by aligned instruction, metadata tokens
-compare by symbolic name, and user strings by value. Other opcodes keep their
-encoding and slot operands, so `ldloc.s` and `ldloc`, or `ldloc.0` and
-`ldloc.s 0`, differ, as the IL view shows them. Exception clauses compare as
-canonical comparison's clause atoms compare: clause by clause in declaration
-order, by kind, by catch Type as a symbolic name, and by each extent boundary
-as the instruction it starts, so a changed catch Type or a moved `try`
-boundary is a Body difference and a re-encoded branch before the `try` is not.
-As in canonical comparison, body size, the local signature, stack size, and
-`init locals` are not compared, and stand-alone signatures compare as
-canonical comparison compares them. The walk is allocation-free in lockstep
-and stops at the first difference; a retargeted branch or a moved clause
-extent is found once the body's instruction map is complete.
+Under that policy, `ldc.i4` forms and short branches fold to one family, branch
+and switch targets compare by aligned instruction, metadata tokens compare by
+symbolic name, and user strings by value. Other opcodes keep their encoding and
+slot operands, so `ldloc.s` and `ldloc`, or `ldloc.0` and `ldloc.s 0`, differ,
+as the IL view shows them. Exception clauses compare as canonical comparison's
+clause atoms compare: clause by clause in declaration order, by kind, by catch
+Type as a symbolic name, and by each extent boundary as the instruction it
+starts, so a changed catch Type or a moved `try` boundary is a Body difference
+and a re-encoded branch before the `try` is not. As in canonical comparison,
+body size, the local signature, stack size, and `init locals` are not compared,
+and stand-alone signatures compare as canonical comparison compares them. The
+walk is allocation-free in lockstep and stops at the first difference; a
+retargeted branch or a moved clause extent is found once the body's instruction
+map is complete. It reads IL through the shared IL byte layer, `ILReader` and
+the opcode tables in `ILInspector.MetadataPrimitives` ([Instruction
+substrate](instruction-substrate.md#layering)), building no instruction, so the
+walk and the decoder behind the census cursor read one opcode table and differ
+only in what each builds above it. The walk is a provision behind one seam: a
+caller may supply a `FindingDiffAnyBodyReader`, which receives the two images
+and the two method rows the comparison paired and answers as Exists answers,
+and the comparison then folds its answer as it folds the walk's, an undecided
+pair as a body it could not read. Finding census step 2b ran lockstep over two
+IL cursors through that seam, beside the walk, and kept the walk ([Finding
+census](finding-census.md#what-remains-of-the-gap)).
 
 A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,
@@ -200,10 +241,15 @@ is observed at the same boundaries.
 ### Identity
 
 Metadata tokens, in IL operands and in signatures, compare by symbolic name.
-A Type-level row's name is resolved once per side and memoized for the
-comparison; a member row's is resolved once per unit that refers to it, and a
-pair of operand rows once proven equal is remembered for the comparison, so
-the comparison retains the pairing rather than member spellings. They never
+A Type-level row's name is resolved once per side, memoized for the
+comparison, and interned in the one table both sides share, so a member
+spelling, fact, or composite names a Type definition, reference, or primitive
+by the `Ref` of its shared id rather than by its bytes, while a Type
+specification's composite embeds as the same `Key` part an inline composite
+does ([Symbol Key interning](symbol-key.md#interning)); a member row's is
+resolved once per unit that refers to it, and a pair of operand rows once
+proven equal is remembered for the comparison, so the comparison retains the
+pairing rather than member spellings. They never
 compare by token number or
 by defining or referenced assembly identity, as the [Body policy](#axes)
 states, so a renumbered or retargeted reference, or a dependency's version
@@ -303,6 +349,67 @@ symbolically belongs to canonical comparison
 ([#9801](https://github.com/richlander/dotnet-inspect/issues/9801)), and
 Finding Diff Any follows it; the axis never keeps a private exception.
 
+## API census settlement
+
+The implementation of [#10197](https://github.com/richlander/dotnet-inspect/issues/10197)
+classifies the staged keys in place. The Symbol Key grammar reader also reads
+borrowed staging storage; classification does not detach keys or spell them.
+A complete comparison is projected only for the selected Type when no
+presented difference settles the census. Equal censuses project no model.
+The receipt reports API surfaces built and the time constructing them.
+
+That projection covers only what the uncertain differences can change. Each
+uncertain fact has an owner: the Member it describes, or the Member owning its
+parameter or generic parameter. The projection holds the Type row and every
+Member whose metadata name, or one of whose accessors' names, equals an owner's
+name byte for byte, so overloads and the property or event of an accessor are
+compared together. A Member outside it owns no differing fact. A Type-owned
+uncertain fact, such as a Type attribute or nullable context, can change how
+every Member is presented, so it projects the whole Type. The projection is the
+complete comparison's input with only the facts that comparison reads: it
+omits memory-safety facts and accessor semantics, so the image's memory-safety
+index is never built for it. `ApiEqualityExtractionTests` gates both: equality
+projection compares equal to the complete extraction, and member selection by
+name and accessor name.
+
+Module attribute descriptors are read once per image; owned constructor keys
+and blob handles are shared across Type censuses. Defaulted parameters of one method share its
+decoded signature dependencies, and the constant handle is read once per
+parameter. API facts fill their result list directly before the non-API facts
+are removed. These work reductions preserve the fact keys and their owners;
+the multiple-Type module and multiple-default/method cases in
+`CensusAndClosureHash_RespectCrossTypeDependencies` gate the sharing boundaries.
+
+The census includes facts outside the selected Type when the API projection
+reads them: literal names and constants of local Types used by defaulted
+method signatures, implemented local interfaces' access flags, and module
+attributes. Signature dependencies use the shared guarded symbol speller,
+including composite signatures such as `Nullable<E>`. Explicit implementation
+admission uses the API extractor's effective-access rule. A dependency fact
+belongs to its parameter's declaring Member; its referenced field is payload,
+not the owner. The declaration cursor exposes it as `ApiDependency`. These
+dependency facts belong only to API; a private default does not widen the
+Body declaration population.
+
+Defaults and these context facts are uncertain. For example, changing the
+numeric value behind `E.A` can leave the presented default `E.A` unchanged.
+`CensusAndClosureHash_RespectCrossTypeDependencies` gates plain and nested enum
+renames, nullable enum defaults, local-interface admission, and close negative
+cases, against the complete comparison, Library state, Type inventory, Member
+partition, and the dependency's presence in the declaration cursor. The closure
+hash added by [#10785](https://github.com/richlander/dotnet-inspect/pull/10785)
+is an independent conservative oracle in these gates; Any Diff does not run a
+second hash scan.
+
+The motivating real population is the six pinned pairs in the
+[measurement record](#gates): their earlier census over-reports
+Newtonsoft.Json, CoreLib, and System.Private.Xml where uncertain raw facts
+change without a presented API change. The compiled getter-status case from
+[#10354](https://github.com/richlander/dotnet-inspect/issues/10354) isolates
+one such difference. `FindingDiffAnyApiExactnessPrerequisiteTests` retains that
+case and checks Library, inventory, and Member-partition agreement;
+`FindingDiffAnyTests` compares the fixture populations in both directions.
+
 ## Gates
 
 `FindingDiffAnyTests` gates:
@@ -314,9 +421,9 @@ Finding Diff Any follows it; the axis never keeps a private exception.
   Types;
 - API exactness, in both directions: every Type's API state equals whether the
   complete Public API comparison of the API axis surface reports a change to it
-  or one of its Members, over three fixture pairs. A changed non-enum constant
-  is the one known exception: Finding Diff Any reports it, and the complete
-  comparison does not yet compare constant values;
+  or one of its Members, over three fixture pairs. A non-enum constant whose
+  value the complete comparison does not present is an uncertain difference
+  and does not produce an API cue by itself;
 - accessibility: a Member or nested Type whose accessibility moves between
   API axis buckets is API `Changed`, and the complete comparison of the API
   axis surface reports `MemberAccessibilityChanged` or
@@ -414,21 +521,32 @@ none of them. The remaining cost is the Public API surface built for Types
 whose census differs only in uncertain facts, about 50 ms on CoreLib, and the
 spike's fact classification, which allocates where the census need not.
 
-The earlier census is therefore a low-fidelity baseline, not a target: where
-it is faster, it is faster by leaving uncertain differences unverified, which
-over-reports. The operator accepted the cost of exactness on these pairs. Its
-budget, checked by every NativeAOT measurement of these pairs:
+These timings are historical prototype measurements, not a ceiling for the
+current contract. The spike's timed `Shared.Library` call passes
+`bodyPlus: false`, omitting the non-public declaration census and the header
+check that option controls. It reports Body `Unchanged` for compiled private
+field and public method additions that the current contract reports `Changed`.
+Rebuilding the preserved spike at `87f53a7cd` reproduced Aspire's 53 ms result
+at 54.97 ms, but that is a narrower question. Its Body oracle checks canonical
+IL output, not the omitted declaration facts.
 
-- **Exists** is no slower than the earlier census on a pair for which it builds
-  no Public API surface;
-- on every pair, **Exists** is no slower than its time in the table above,
-  which is the ceiling a later slice must meet, and each measurement reports
-  the surfaces built and the time spent building them beside the total; and
-- the remaining cost of fact classification, about 27 ms on CoreLib, is
-  overhead to remove, and each uncertain fact kind that a gate shows
-  presented, such as attribute arguments compared by symbolic name
-  ([#9802](https://github.com/richlander/dotnet-inspect/issues/9802)), removes
-  surface builds rather than exactness.
+The current cost gate compares exact base and candidate NativeAOT binaries on
+the same pinned inputs, machine, axes, and complete Body contract. Report API
+and Body together and API-only separately, with surface count and construction
+time beside each total. On pairs that build no API surface, avoid a regression
+against that same-work base. On uncertain-only differences, the operator
+accepted the cost of exactness: report the selected-Type model cost separately
+from census/classification work. The complete API comparison is the correctness
+oracle; the earlier raw census can over-report and is only a cost baseline.
+The comparison must not regain the prototype's time by dropping declaration
+facts or other owned work. New measurements record their base and head rather
+than inheriting the prototype's absolute numbers across contracts or machines.
+
+The prototype's allocating fact classification remains historical optimization
+evidence. Staged classification reads typed key parts without detaching or
+spelling them. Further fact promotion, such as symbolic attribute arguments
+([#9802](https://github.com/richlander/dotnet-inspect/issues/9802)), needs its own
+presented-kind gates and reduces model builds rather than exactness.
 
 Canonical IL comparison's failure count for CoreLib (5,454) counts methods or
 bodies present on one side only, not bodies it could not decode; neither
@@ -707,6 +825,53 @@ Type present on one side, an owner is Body `Changed` exactly when the API axis
 surface does not admit it, it owns a method with a body, or it is the residual.
 `eng/measure-finding-diff-any.cs` reports NativeAOT time per Type for the
 largest changed Types of each measured pair.
+
+**Paired-Type Member fold motivation.** System.Text.Json 9.0.0 and 10.0.0,
+using their `lib/net9.0/System.Text.Json.dll` and
+`lib/net10.0/System.Text.Json.dll` package assets, add
+`JsonSerializerOptions.AllowDuplicateProperties`, a property with accessor
+methods. The Type view needs one property cue rather than separate accessor
+cues, while retaining the Library-level partition. The paired compiled fixture
+covers the added-property shape, including a private setter; the measurement
+program checks the Member fold alongside the inventory on this pinned package
+pair. Generated-code ownership and Member anchors remain later slices of
+[#10706](https://github.com/richlander/dotnet-inspect/issues/10706).
+
+**Type inventory.** One paired Type's rows are
+readable as the Library level compares them: `FindingDiffAnyTypePairing` pairs
+the Types of two images once, by the Type identity above, and its `Inventory`
+returns, for one paired Type, every census fact present on one side only, on
+the axis the census gives it and spelled from its expansion, every `Ref`
+replaced by the key it names so that neither the spelling nor the rows' order
+carries an interning id, and every method the Body census pairs with its Body
+state through the pairing's body reader, the walk unless a
+`FindingDiffAnyBodyReader` is supplied. The inventory's fold is the Library
+level's state for the Type, which the gates check for every paired Type of the
+fixture pair: API is settled by the presented/uncertain rule above, so an uncertain raw
+API fact can be present on one side while API is `Unchanged`; Body `Changed` when a Body fact or a method with a body is, and
+otherwise the state of the first paired method, in the Body census's method
+order, whose body is not `Unchanged`, so an `Indeterminate` row after a `Changed` one folds to `Changed`
+as the Library level reads it, and every row keeps its own state. One name the
+pairing withholds: two paired Type rows that spell one display name, which the
+Library level decides each by key, are `Indeterminate` under that name, since
+the name selects neither row. The [declaration
+cursor](finding-census.md#adoption) reads the same slots, and its
+identity-set comparison of one Type's census finds the same one-sided facts.
+Types present on one side only are not paired; their one-sided form is this
+level's. The paired-Type `Members` fold implements step 7 slice 1 under the
+ownership rules above, reading each fact's owner from its key parts. Members
+are identified by their expanded census keys; generated code remains residual
+until slice 2, which also adds anchors. This slice settles the aggregate API
+state and clears every owner's API cue when the Type is API `Unchanged`.
+When the Type is API `Changed`, an owner's one-sided uncertain facts remain
+candidate cues; the Type-query adoption still owns their per-Member settlement.
+`FindingDiffAnyTypeMemberTests` checks the paired fixture partition through
+both body readers, the raising and residual scenarios, and the pinned JSON
+property. The inventory is the
+closed set it folds: the rows are fixed by the two censuses before any body is
+read. The Type scenario of [Diff system](diff-system.md#scenarios) enters here,
+and [Finding census](finding-census.md#cost-at-type-scope) records what one
+Type costs through each reader.
 
 ### Member
 

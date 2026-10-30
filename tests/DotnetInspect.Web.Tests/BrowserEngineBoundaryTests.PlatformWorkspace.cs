@@ -1422,7 +1422,10 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.True(result.Found);
             Assert.Equal(
                 BrowserPlatformIdentity.PackageName,
-                Assert.Single(result.Packages).Package);
+                Assert.Single(result.Packages).Surface.Package);
+            Assert.Null(
+                Assert.Single(result.Packages)
+                    .ImplementationComparisonRuntimeIdentifier);
             BrowserHomeDemoRunActivation activation =
                 Assert.IsType<BrowserHomeDemoRunActivation>(
                     result.Activation);

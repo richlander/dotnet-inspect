@@ -25,7 +25,7 @@ public static partial class PackageExports
 {
     private static readonly Lazy<ResourceExplanationCatalog> QueryExplanationCatalog = new(() =>
     {
-        InspectionCapabilityCatalog catalog = BrowserCapabilityCatalogSearch.CreateCatalog();
+        InspectionCapabilityCatalog catalog = BrowserCapabilityComposition.CreatePackageQueryCatalog();
         return ResourceExplanationCatalog.CreateCapabilities(catalog,
             PackageQueryCapabilityResourcePaths.Create(catalog));
     });

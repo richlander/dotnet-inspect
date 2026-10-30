@@ -62,6 +62,9 @@ public static class FixtureIds
     public const string MetadataFindingDiffAnyV2 = "metadata.finding-diff-any.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
     public const string MetadataEnablements = "metadata.enablements";
+    public const string MetadataStateMachinesDebug = "metadata.state-machines.debug";
+    public const string MetadataCompilationProfileRuntimeAsync =
+        "metadata.compilation-profile.runtime-async";
     public const string MetadataSourceProvenance =
         "metadata.source-provenance";
     public const string MetadataSourceProvenanceLookalike =
@@ -86,6 +89,8 @@ public static class FixtureIds
         "metadata.type-dependency.reference";
     public const string DiffV1 = "diff.v1";
     public const string DiffV2 = "diff.v2";
+    public const string UnsafeMemberDiffV1 = "unsafe-member-diff.v1";
+    public const string UnsafeMemberDiffV2 = "unsafe-member-diff.v2";
     public const string SourceDiffV1 = "source-diff.v1";
     public const string SourceDiffV2 = "source-diff.v2";
     public const string QueriesIntrinsicCoreLibraryCalls =
@@ -401,6 +406,20 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CompilerLowering),
         "metadata", "enablements", "runtime-async");
 
+    public static readonly FixtureDefinition MetadataStateMachinesDebug = Fixture(
+        FixtureIds.MetadataStateMachinesDebug,
+        "ILInspector.Metadata.StateMachineFixtures.Debug",
+        "ILInspector.Metadata.StateMachineFixtures.Debug.dll",
+        Boundaries(FixtureBoundary.ModuleAttribute, FixtureBoundary.CompilerLowering),
+        "metadata", "state-machines", "compilation-profile", "debug");
+
+    public static readonly FixtureDefinition MetadataCompilationProfileRuntimeAsync = Fixture(
+        FixtureIds.MetadataCompilationProfileRuntimeAsync,
+        "ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync",
+        "ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "metadata", "compilation-profile", "runtime-async");
+
     public static readonly FixtureDefinition MetadataSourceProvenance =
         Fixture(
             FixtureIds.MetadataSourceProvenance,
@@ -540,6 +559,20 @@ public static class FixtureCatalog
         "DiffFixtureSample.dll",
         Boundaries(FixtureBoundary.VersionPair),
         "diff", "version-pair", "analysis", "decompiler", "rts-candidate");
+
+    public static readonly FixtureDefinition UnsafeMemberDiffV1 = Fixture(
+        FixtureIds.UnsafeMemberDiffV1,
+        "UnsafeMemberDiffFixtures.V1",
+        "UnsafeMemberDiffSample.dll",
+        Boundaries(FixtureBoundary.VersionPair),
+        "diff", "version-pair", "analysis", "unsafe");
+
+    public static readonly FixtureDefinition UnsafeMemberDiffV2 = Fixture(
+        FixtureIds.UnsafeMemberDiffV2,
+        "UnsafeMemberDiffFixtures.V2",
+        "UnsafeMemberDiffSample.dll",
+        Boundaries(FixtureBoundary.VersionPair),
+        "diff", "version-pair", "analysis", "unsafe");
 
     // This pair needs distinct controlled SourceLink maps as well as versioned
     // binaries; changing the existing analysis pair's PDB contract would leak
@@ -1256,6 +1289,8 @@ public static class FixtureCatalog
         MetadataFindingDiffAnyV2,
         MetadataMemorySafety,
         MetadataEnablements,
+        MetadataStateMachinesDebug,
+        MetadataCompilationProfileRuntimeAsync,
         MetadataSourceProvenance,
         MetadataSourceProvenanceLookalike,
         MetadataSourceProvenanceNetStandard,
@@ -1281,6 +1316,8 @@ public static class FixtureCatalog
         SourceLinkVisualBasic,
         DiffV1,
         DiffV2,
+        UnsafeMemberDiffV1,
+        UnsafeMemberDiffV2,
         SourceDiffV1,
         SourceDiffV2,
         CloneSearchMembers,
@@ -1383,6 +1420,10 @@ public static class FixtureCatalog
         "metadata.finding-diff-any",
         MetadataFindingDiffAnyV1,
         MetadataFindingDiffAnyV2);
+    public static readonly FixturePair UnsafeMemberDiffPair = new(
+        "unsafe-member-diff",
+        UnsafeMemberDiffV1,
+        UnsafeMemberDiffV2);
     public static readonly FixturePair SourceDiffPair = new("source-diff", SourceDiffV1, SourceDiffV2);
     public static readonly FixturePair LibraryApiDiffPair = new(
         "library-api-diff",
@@ -1709,6 +1750,10 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
             "ILInspector.Metadata.EnablementFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.EnablementFixtures",
+            "ILInspector.Metadata.StateMachineFixtures.Debug" =>
+                "fixtures/metadata/ILInspector.Metadata.StateMachineFixtures.Debug",
+            "ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync" =>
+                "fixtures/metadata/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync",
             "ILInspector.Metadata.SourceProvenanceFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures",
             "ILInspector.Metadata.SourceProvenanceLookalike" =>
@@ -1748,6 +1793,8 @@ public static class FixtureCatalog
             "DiffAsmFixtures.Target" => "fixtures/diff/DiffAsmFixtures.Target",
             "DiffFixtures.V1" => "fixtures/diff/DiffFixtures.V1",
             "DiffFixtures.V2" => "fixtures/diff/DiffFixtures.V2",
+            "UnsafeMemberDiffFixtures.V1" => "fixtures/diff/UnsafeMemberDiffFixtures.V1",
+            "UnsafeMemberDiffFixtures.V2" => "fixtures/diff/UnsafeMemberDiffFixtures.V2",
             "DotnetInspector.SourceDiff.V1" => "fixtures/queries/DotnetInspector.SourceDiff.V1",
             "DotnetInspector.SourceDiff.V2" => "fixtures/queries/DotnetInspector.SourceDiff.V2",
             "DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures" =>

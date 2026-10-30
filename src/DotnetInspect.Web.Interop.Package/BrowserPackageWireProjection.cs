@@ -3,6 +3,7 @@ using DotnetInspector.InspectionContracts;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using InertText;
 
 namespace DotnetInspect.Web.Interop.Package;
@@ -14,6 +15,41 @@ namespace DotnetInspect.Web.Interop.Package;
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageWireProjection
 {
+    internal static BrowserPackageVersionSettlementEvidenceInspection Project(
+        EvidenceInspectionEnvelope<PackageVersionSettlementOutcome, PackageAcquisitionEvidence> inspection)
+    {
+        BrowserPackageVersionSettlementInspection baseline = Project(inspection.Inspection);
+        return new(
+            baseline.Content,
+            baseline.Share,
+            baseline.Diagnostics,
+            new([
+                .. inspection.Evidence.Acquisitions.Select(acquisition => new BrowserPackageAcquisitionEvidenceEntry(
+                    acquisition.PackageId,
+                    acquisition.Version,
+                    acquisition.Authority,
+                    acquisition.Origin.ToString(),
+                    new(
+                        acquisition.Transfer.Path.ToString(),
+                        acquisition.Transfer.FallbackReason?.ToString(),
+                        [
+                            .. acquisition.Transfer.Requests.Select(request => new BrowserPackageTransferRequest(
+                                request.Purpose.ToString(),
+                                request.Range is { } range ? new(range.Start, range.Length) : null,
+                                request.Outcome.ToString(),
+                                request.AdvertisedLength,
+                                request.BytesReceived)),
+                        ],
+                        acquisition.Transfer.RequestCount,
+                        acquisition.Transfer.BytesReceived,
+                        acquisition.Transfer.IsTruncated))),
+            ]));
+    }
+
+    internal static string ImplementationComparisonRuntimeIdentifier(
+        BrowserPackageCoordinate coordinate) =>
+        coordinate.ImplementationComparisonRuntimeIdentifier;
+
     internal static BrowserExactLibraryApiInspection Project(
         InspectionEnvelope<ExactLibraryApiInspectionResult> inspection)
     {

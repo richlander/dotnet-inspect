@@ -111,6 +111,8 @@ internal static class LibraryMetadataService
                 bodyAnalysisFeatures
                     != Analysis.LibraryBodyAnalysisFeatures.None
                 || requiredQueries?.Contains(
+                    TopLeverageQuery.Definition) == true
+                || requiredQueries?.Contains(
                     SyncCallsInAsyncDemand.Section) == true
                 || usesFocusedLibraryMetrics
                 || needsResourceLifecycle;
@@ -592,9 +594,7 @@ internal static class LibraryMetadataService
         IReadOnlyCollection<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
-        if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true
-            || queries?.Contains(
+        if (queries?.Contains(
                 LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
@@ -2348,10 +2348,10 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
-                UnsafeEvidenceQuery.Definition,
-                out UnsafeEvidenceResult? unsafeEvidence))
+                UnsafeMemberCensusQuery.Definition,
+                out UnsafeMemberCensusQueryResult? unsafeMembers))
         {
-            ApplyUnsafeEvidenceResult(path, inspection, logger, unsafeEvidence);
+            ApplyUnsafeMemberCensusResult(path, inspection, logger, unsafeMembers);
         }
 
         if (results.TryGet(
@@ -3265,71 +3265,48 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ApplyUnsafeEvidenceResult(
+    internal static void ApplyUnsafeMemberCensusResult(
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        UnsafeEvidenceResult result)
+        UnsafeMemberCensusQueryResult result)
     {
         switch (result)
         {
-            case UnsafeEvidenceResult.Available available:
-                inspection.UnsafeEvidenceInspection =
-                    new FindingInspection<Analysis.UnsafeEvidence>.Complete(
-                        [
-                            .. available.Evidence
-                                .GroupBy(evidence => (
-                                    evidence.Member.ModuleVersionId,
-                                    evidence.Member.MetadataToken))
-                                .SelectMany(group =>
-                                    Analysis.AnalysisFindings.InspectUnsafeEvidence(
-                                        group,
-                                        FindingSubjectFor(path, group.First().Member))),
-                        ]);
-                inspection.UnsafeEvidenceDiagnostics = available.Diagnostics;
-                var rows = available.Evidence
-                    .Select(evidence => new UnsafeMemberSummary
-                    {
-                        Member = FormatMethod(evidence.Member),
-                        Reason = evidence.Reason,
-                        Detail = evidence.Detail,
-                        Kind = evidence.Kind,
-                        IL = evidence.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
-                        Token = evidence.OperandToken is { } token ? $"0x{token:X8}" : null,
-                    })
-                    .OrderBy(row => row.Member, StringComparer.Ordinal)
-                    .ThenBy(row => row.IL ?? "", StringComparer.Ordinal)
-                    .ThenBy(row => row.Reason, StringComparer.Ordinal)
-                    .ThenBy(row => row.Detail, StringComparer.Ordinal)
-                    .ToList();
-                inspection.UnsafeMembers = rows.Count > 0 ? rows : null;
-
-                foreach (var diagnostic in available.Diagnostics)
+            case UnsafeMemberCensusQueryResult.Inspected inspected:
+                inspection.UnsafeMemberInspection =
+                    Analysis.AnalysisFindings.InspectUnsafeMembers(
+                        inspected.Census,
+                        FindingSubjectFor(path));
+                if (inspection.UnsafeMemberInspection
+                    is Analysis.UnsafeMemberFindingInspection.Failed census)
                 {
                     logger.LogWarning(
-                        $"unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
+                        $"Error reading unsafe members in {path}: {census.Error.Reason}");
                 }
+                UnsafeMemberProjection.Disclose(
+                    inspection.UnsafeMemberInspection,
+                    logger.Enabled);
                 break;
 
-            case UnsafeEvidenceResult.NoMetadata:
-                inspection.UnsafeEvidenceDiagnostics = [];
+            case UnsafeMemberCensusQueryResult.NoMetadata:
+                inspection.UnsafeMemberInspection = null;
                 break;
 
-            case UnsafeEvidenceResult.Failed failed:
+            case UnsafeMemberCensusQueryResult.Failed failed:
                 logger.LogWarning(
-                    $"Error scanning unsafe members in {path}: {failed.Error.Message}");
-                inspection.UnsafeEvidenceInspection =
-                    FailedInspection<Analysis.UnsafeEvidence>(
-                        path,
-                        Analysis.AnalysisFindings.UnsafeEvidenceDescriptor,
-                        failed.Error);
-                inspection.UnsafeEvidenceDiagnostics = [];
-                inspection.UnsafeMembers = null;
+                    $"Error reading unsafe members in {path}: {failed.Error.Message}");
+                inspection.UnsafeMemberInspection =
+                    new Analysis.UnsafeMemberFindingInspection.Failed(
+                        new InspectionError(
+                            FindingSubjectFor(path),
+                            Analysis.AnalysisFindings.UnsafeMemberDescriptor,
+                            failed.Error.Message));
                 break;
 
             default:
                 throw new InvalidOperationException(
-                    $"Unknown unsafe-evidence result '{result.GetType().Name}'.");
+                    $"Unknown unsafe member census result '{result.GetType().Name}'.");
         }
     }
 

@@ -1742,6 +1742,188 @@ public partial class CommandExecutionTests
         Assert.Contains(newEvidence, output);
     }
 
+    // The unsafe member census compared by declared member: Removed, Added,
+    // Changed, and Present, where a renumbered closure is no change
+    // (docs/design/unsafe-members-section.md#diff).
+    [Fact]
+    public async Task Diff_UnsafeMember_LibraryTransitionsClassifyEachMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library",
+            UnsafeMemberPair,
+            "--analysis", "unsafe-member");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        const string Stable = "Public: pointer dereference ×2; stack allocation";
+        Assert.Equal(
+            [
+                ("PairFinding.Added", "AddedUnsafe(int)", "absent", Stable),
+                (
+                    "PairFinding.Changed",
+                    "ChangedUnsafe(int)",
+                    "Public: pointer dereference; stack allocation",
+                    Stable),
+                ("PairFinding.Removed", "RemovedUnsafe(int)", Stable, "absent"),
+                ("PairFinding.Present", "RenumberedClosure()", Stable, Stable),
+                ("PairFinding.Present", "StableUnsafe(int)", Stable, Stable),
+            ],
+            UnsafeMemberTransitions(output, "UnsafeMemberDiffSample :: "));
+    }
+
+    // Type scope compares the selected Type's census, with the same rows
+    // the Library comparison gives that Type.
+    [Fact]
+    public async Task Diff_UnsafeMember_TypeTransitionsAgreeWithLibrary()
+    {
+        var library = await RunAppAsync(
+            "diff", "--library", UnsafeMemberPair,
+            "--analysis", "unsafe-member");
+        var type = await RunAppAsync(
+            "diff", "--library", UnsafeMemberPair,
+            "-t", "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample",
+            "--analysis", "unsafe-member");
+
+        Assert.Equal(0, type.Exit);
+        Assert.Empty(type.Error);
+        Assert.Equal(
+            UnsafeMemberTransitions(library.Output, "UnsafeMemberDiffSample :: "),
+            UnsafeMemberTransitions(
+                type.Output,
+                "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample :: "));
+    }
+
+    // A Type present at only one endpoint compares against no members, so
+    // every member it has is Added or Removed.
+    [Theory]
+    [InlineData("AddedUnsafeType", "PairFinding.Added")]
+    [InlineData("RemovedUnsafeType", "PairFinding.Removed")]
+    public async Task Diff_UnsafeMember_OneSidedTypeIsAllAddedOrRemoved(
+        string type,
+        string transition)
+    {
+        string typeName = $"UnsafeMemberDiffFixtures.{type}";
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", UnsafeMemberPair,
+            "-t", typeName,
+            "--analysis", "unsafe-member");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] row = Assert.Single(
+            output.Split('\n')
+                .Select(static line => line.TrimEnd('\r').Split('\t')),
+            static columns => columns.Length >= 7
+                && columns[1] == "analysis.unsafe-member");
+        Assert.Equal(transition, row[0]);
+        Assert.Equal($"{typeName} :: {typeName}.Read(int)", row[2]);
+    }
+
+    // A package whose Library assembly is renamed pairs nothing across the
+    // endpoints: the old assembly's members are Removed and the new one's
+    // Added, under their own subjects.
+    [Fact]
+    public async Task Diff_UnsafeMember_PackageAssemblyRenameReportsBothSides()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"diff-unsafe-rename-{Guid.NewGuid():N}");
+        string packageName = $"Diff.Unsafe.Rename.{Guid.NewGuid():N}";
+        string assemblyPath = FixtureCatalog.UnsafeMemberDiffV1.AssemblyPath();
+        Directory.CreateDirectory(directory);
+        try
+        {
+            NuGetCache.Initialize(
+                "dotnet-inspect-unsafe-rename",
+                Path.Combine(directory, "cache"),
+                skipNuGetCache: true);
+            foreach ((string version, string assemblyName) in new[]
+                {
+                    ("1.0.0", "Old.dll"),
+                    ("2.0.0", "New.dll"),
+                })
+            {
+                string packagePath = Path.Combine(
+                    directory, $"{packageName}.{version}.nupkg");
+                using (ZipArchive archive = ZipFile.Open(
+                    packagePath, ZipArchiveMode.Create))
+                {
+                    archive.CreateEntryFromFile(
+                        assemblyPath, $"lib/net10.0/{assemblyName}");
+                    ZipArchiveEntry nuspec = archive.CreateEntry(
+                        $"{packageName}.nuspec");
+                    await using Stream stream = nuspec.Open();
+                    await using var writer = new StreamWriter(stream);
+                    await writer.WriteAsync(
+                        $"""
+                        <package><metadata>
+                          <id>{packageName}</id><version>{version}</version>
+                          <authors>tests</authors><description>unsafe rename</description>
+                        </metadata></package>
+                        """);
+                }
+                string staged = Path.Combine(directory, $"staged-{version}");
+                ZipFile.ExtractToDirectory(packagePath, staged);
+                NuGetCache.CommitPackage(
+                    staged, packagePath, packageName, version,
+                    NuGetCache.GetSourceKey(directory));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "diff", $"{packageName}@1.0.0..2.0.0",
+                "--source", directory,
+                "--analysis", "unsafe-member",
+                "--json");
+
+            Assert.True(exit == 0, $"{error}\n{output}");
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal("Compared", Assert.Single(
+                document.RootElement.GetProperty("outcomes").EnumerateArray())
+                .GetProperty("kind").GetString());
+            JsonElement[] transitions = [.. document.RootElement
+                .GetProperty("transitions").EnumerateArray()];
+            JsonElement[] removed = [.. transitions.Where(static row =>
+                row.GetProperty("transition").GetString() == "PairFinding.Removed")];
+            JsonElement[] added = [.. transitions.Where(static row =>
+                row.GetProperty("transition").GetString() == "PairFinding.Added")];
+            Assert.Equal(transitions.Length, removed.Length + added.Length);
+            Assert.Equal(5, removed.Length);
+            Assert.Equal(5, added.Length);
+            Assert.All(removed, static row => Assert.StartsWith(
+                "Old.dll :: ", row.GetProperty("target").GetString()));
+            Assert.All(added, static row => Assert.StartsWith(
+                "New.dll :: ", row.GetProperty("target").GetString()));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static string UnsafeMemberPair =>
+        $"{FixtureCatalog.UnsafeMemberDiffPair.OldAssemblyPath()}..{FixtureCatalog.UnsafeMemberDiffPair.NewAssemblyPath()}";
+
+    static (string Transition, string Member, string Old, string New)[]
+        UnsafeMemberTransitions(string output, string subjectPrefix)
+    {
+        string target = subjectPrefix + "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample.";
+        return
+        [
+            .. output.Split('\n')
+                .Select(static line => line.TrimEnd('\r').Split('\t'))
+                .Where(columns => columns.Length >= 7
+                    && columns[1] == "analysis.unsafe-member"
+                    && columns[2].StartsWith(target, StringComparison.Ordinal))
+                .Select(columns => (
+                    columns[0],
+                    columns[2][target.Length..],
+                    columns[5],
+                    columns[6]))
+                .OrderBy(static row => row.Item2, StringComparer.Ordinal),
+        ];
+    }
+
     [Fact]
     public async Task Diff_StringLiterals_ContainsRetainsCompleteChangedLiteralRows()
     {
@@ -2397,7 +2579,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--analysis (api, api-attribute, allocation, call-site, unsafety, csharp, il)",
+            "--analysis (api, api-attribute, allocation, call-site, unsafety, string-literals, unsafe-member, csharp, il)",
             error,
             StringComparison.Ordinal);
     }
@@ -2679,13 +2861,13 @@ public partial class CommandExecutionTests
         Assert.Empty(result.Error);
         Assert.Equal(
             """
-            ├─ Member (section)
-            ├─ Signal (section)
-            ├─ Old (section)
-            ├─ New (section)
-            ├─ Delta (section)
-            ├─ Shape (section)
-            └─ Evidence (section)
+            ├─ Member (section) [diff/sections/analysis-diff/items/section/member]
+            ├─ Signal (section) [diff/sections/analysis-diff/items/section/signal]
+            ├─ Old (section) [diff/sections/analysis-diff/items/section/old]
+            ├─ New (section) [diff/sections/analysis-diff/items/section/new]
+            ├─ Delta (section) [diff/sections/analysis-diff/items/section/delta]
+            ├─ Shape (section) [diff/sections/analysis-diff/items/section/shape]
+            └─ Evidence (section) [diff/sections/analysis-diff/items/section/evidence]
 
             """.ReplaceLineEndings(),
             result.Output);

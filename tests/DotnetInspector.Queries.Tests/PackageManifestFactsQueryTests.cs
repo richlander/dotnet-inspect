@@ -86,6 +86,8 @@ public sealed class PackageManifestFactsQueryTests
                 coordinate));
 
         Assert.Equal(coordinate, facts.Coordinate);
+        Assert.Equal("Example.Package", facts.DeclaredPackageId);
+        Assert.Equal("1.0.0", facts.DeclaredPackageVersion);
         Assert.Equal(
             PackageManifestIdentityProvenance.ExpectedCoordinate,
             facts.IdentityProvenance);
@@ -509,6 +511,97 @@ public sealed class PackageManifestFactsQueryTests
     }
 
     [Fact]
+    public void ExecuteWithSectionFailures_RetainsValidMetadata()
+    {
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsQuery.ExecuteWithSectionFailures(
+                Encoding.UTF8.GetBytes(
+                    """
+                    <package>
+                      <metadata>
+                        <id>Example.Package</id>
+                        <version>1.0.0</version>
+                        <authors>Example Authors</authors>
+                        <description>Example description</description>
+                        <dependencies>
+                          <dependency id="evil/../other" version="not-a-range" />
+                        </dependencies>
+                      </metadata>
+                    </package>
+                    """),
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal("Example.Package", facts.DeclaredPackageId);
+        Assert.Equal("Example Authors", facts.Authors);
+        Assert.Equal("Example description", facts.Description?.ToString());
+        Assert.Empty(facts.DependencyGroups);
+        Assert.Equal(
+            "evil/../other",
+            Assert.Single(facts.DependencyIdentifierObservations).Id);
+        Assert.Equal(
+            PackageManifestFailureReason.InvalidDependencyContract,
+            Assert.IsType<PackageManifestDependencyFactsResult.Failed>(
+                facts.DependencyDeclarations).Failure.Reason);
+    }
+
+    [Fact]
+    public void ExecuteWithSectionFailures_BoundsRejectedIdentifierObservations()
+    {
+        string oversizedId =
+            new('x', PackageManifestFactsQuery.MaxScalarCharacters + 1);
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsQuery.ExecuteWithSectionFailures(
+                Encoding.UTF8.GetBytes(
+                    $"""
+                     <package>
+                       <metadata>
+                         <id>Example.Package</id>
+                         <version>1.0.0</version>
+                         <authors>Example Authors</authors>
+                         <description>Keep valid metadata</description>
+                         <dependencies>
+                           <dependency id="evil/../other" version="[1.0.0]" />
+                           <dependency id="{oversizedId}" version="[1.0.0]" />
+                         </dependencies>
+                       </metadata>
+                     </package>
+                     """),
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal("Example Authors", facts.Authors);
+        Assert.Equal("Keep valid metadata", facts.Description?.ToString());
+        Assert.Equal(
+            "evil/../other",
+            Assert.Single(facts.DependencyIdentifierObservations).Id);
+        Assert.Equal(
+            PackageManifestFailureReason.InvalidDependencyContract,
+            Assert.IsType<PackageManifestDependencyFactsResult.Failed>(
+                facts.DependencyDeclarations).Failure.Reason);
+    }
+
+    [Fact]
+    public void ExecuteWithSectionFailures_ProjectsSeekableStreamDirectly()
+    {
+        using var stream = new MemoryStream(
+            Encoding.UTF8.GetBytes(MinimalManifest()),
+            writable: false);
+
+        PackageManifestFacts facts = Available(
+            PackageManifestFactsProjection.ExecuteWithSectionFailures(
+                stream,
+                PackageSourceCoordinate.Create(
+                    "Example.Package",
+                    "1.0.0")));
+
+        Assert.Equal("Example.Package", facts.DeclaredPackageId);
+        Assert.Equal(stream.Length, stream.Position);
+    }
+
+    [Fact]
     public void Execute_RejectsInvalidDependencyRangeWithTypedReason()
     {
         PackageManifestFactsResult.Failed failure = Assert.IsType<
@@ -582,6 +675,27 @@ public sealed class PackageManifestFactsQueryTests
         Assert.Equal(
             PackageManifestFailureReason.ConfiguredLimitExceeded,
             failure.Failure.Reason);
+    }
+
+    [Fact]
+    public void ExecuteWithSectionFailures_EnforcesSeekableStreamByteLimit()
+    {
+        using var stream = new MemoryStream(
+            new byte[PackageManifestFactsQuery.MaxManifestBytes + 1],
+            writable: false);
+
+        PackageManifestFactsResult.Failed failure = Assert.IsType<
+            PackageManifestFactsResult.Failed>(
+                PackageManifestFactsProjection.ExecuteWithSectionFailures(
+                    stream,
+                    PackageSourceCoordinate.Create(
+                        "Example.Package",
+                        "1.0.0")));
+
+        Assert.Equal(
+            PackageManifestFailureReason.ConfiguredLimitExceeded,
+            failure.Failure.Reason);
+        Assert.Equal(0, stream.Position);
     }
 
     [Fact]
@@ -930,6 +1044,12 @@ public sealed class PackageManifestFactsQueryTests
         PackageManifestFacts actual)
     {
         Assert.Equal(expected.Coordinate, actual.Coordinate);
+        Assert.Equal(
+            expected.DeclaredPackageId,
+            actual.DeclaredPackageId);
+        Assert.Equal(
+            expected.DeclaredPackageVersion,
+            actual.DeclaredPackageVersion);
         Assert.Equal(expected.ManifestVersion, actual.ManifestVersion);
         Assert.Equal(
             expected.Description?.ToString(),

@@ -1,3 +1,6 @@
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Fixtures;
 
 namespace DotnetInspect.Cli.Tests;
@@ -216,19 +219,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 Path.ChangeExtension(assemblyPath, ".pdb"),
                 TestContext.Current.CancellationToken));
 
-        var (exit, output, error) = await RunCommandAsync(
-            [
-                "member",
-                "CSharpText.MemberSlicing.MemberTextSlicer",
-                nameof(
-                    CSharpText.MemberSlicing.MemberTextSlicer
-                        .ExtractMemberText),
-                "--package",
-                $"{id}@{Version}",
-                "--source",
-                source,
-                "-v:d",
-            ]);
+        var (exit, output, error) =
+            await RunExplicitAuthoredDocumentationAsync(id, source);
 
         Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
         Assert.Empty(error);
@@ -238,9 +230,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task
-        MemberCommand_ImplicitDocsDoNotAuthorizeAuthoredDocumentation()
+        MemberCommand_ImplicitDocsDoNotAuthorizeAuthoredDocumentation(bool detailed)
     {
         string id =
             $"Package.ImplicitDocumentation.{Guid.NewGuid():N}";
@@ -274,6 +268,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 $"{id}@{Version}",
                 "--source",
                 source,
+                "-S", "Methods",
+                .. detailed ? new[] { "-v:d" } : [],
             ]);
 
         Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
@@ -310,19 +306,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 Path.ChangeExtension(assemblyPath, ".pdb"),
                 TestContext.Current.CancellationToken));
 
-        var (exit, output, error) = await RunCommandAsync(
-            [
-                "member",
-                "CSharpText.MemberSlicing.MemberTextSlicer",
-                nameof(
-                    CSharpText.MemberSlicing.MemberTextSlicer
-                        .ExtractMemberText),
-                "--package",
-                $"{id}@{Version}",
-                "--source",
-                source,
-                "-v:d",
-            ]);
+        var (exit, output, error) =
+            await RunExplicitAuthoredDocumentationAsync(id, source);
 
         Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
         Assert.Contains(
@@ -338,4 +323,18 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             error,
             StringComparison.Ordinal);
     }
+
+    private static Task<(int Exit, string Output, string Error)>
+        RunExplicitAuthoredDocumentationAsync(string id, string source) =>
+        ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "CSharpText.MemberSlicing.MemberTextSlicer",
+            MemberFilter = [nameof(CSharpText.MemberSlicing.MemberTextSlicer.ExtractMemberText)],
+            PackagePath = $"{id}@{Version}",
+            Select = ["Methods"],
+            SourceOptions = new NuGetSourceOptions { Sources = [source] },
+            Verbosity = Verbosity.Detailed,
+            ShowDocs = true,
+            DocsExplicitlySet = true,
+        }));
 }

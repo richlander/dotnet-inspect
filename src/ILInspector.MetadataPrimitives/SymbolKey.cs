@@ -159,6 +159,7 @@ public enum SymbolKeyPartKind
     Name,
     Key,
     Blob,
+    Ref,
 }
 
 /// <summary>
@@ -170,18 +171,55 @@ public enum SymbolKeyPartKind
 public ref struct SymbolKeyPartReader<TDomain>
     where TDomain : unmanaged, Enum
 {
-    readonly OpaqueByteRange _key;
+    readonly SymbolKeyPartBytes _key;
     int _position;
     SymbolKeyPartKind _kind;
     TDomain _marker;
     long _int;
-    OpaqueByteRange _payload;
+    SymbolKeyPartBytes _payload;
 
     internal SymbolKeyPartReader(OpaqueByteRange key)
     {
-        _key = key;
+        _key = new SymbolKeyPartBytes(key);
         _position = 0;
     }
+
+    internal SymbolKeyPartReader(ReadOnlySpan<byte> staged)
+    {
+        _key = new SymbolKeyPartBytes(staged);
+        _position = 0;
+    }
+
+    internal SymbolKeyPartReader<TDomain> NestedParts => new(_payload);
+
+    SymbolKeyPartReader(SymbolKeyPartBytes bytes)
+    {
+        _key = bytes;
+        _position = 0;
+    }
+
+    internal int ComparePrefix(SymbolKeyPartReader<TDomain> other)
+        => _key.Slice(0, _position).CompareTo(other._key.Slice(0, other._position));
+
+    internal bool SamePart(SymbolKeyPartReader<TDomain> other)
+        => _kind == other._kind && _kind switch
+        {
+            SymbolKeyPartKind.Marker => EqualityComparer<TDomain>.Default.Equals(_marker, other._marker),
+            SymbolKeyPartKind.Int or SymbolKeyPartKind.Ref => _int == other._int,
+            _ => _payload.CompareTo(other._payload) == 0,
+        };
+
+    /// <summary>Copies the payload of a Name, Key, or Blob part, staged or frozen.</summary>
+    internal byte[] CopyPayload()
+    {
+        byte[] bytes = new byte[_payload.Length];
+        for (int i = 0; i < bytes.Length; i++)
+            bytes[i] = _payload.ByteAt(i);
+        return bytes;
+    }
+
+    internal bool PayloadStartsWith(byte value)
+        => _payload.Length != 0 && _payload.ByteAt(0) == value;
 
     /// <summary>Whether a part remains.</summary>
     public bool HasNext => _position < _key.Length;
@@ -195,13 +233,22 @@ public ref struct SymbolKeyPartReader<TDomain>
     public long Int => _int;
 
     /// <summary>The typed view of a <see cref="SymbolKeyPartKind.Name"/> part.</summary>
-    public SymbolKeyName Name => new(_payload);
+    public SymbolKeyName Name => new(_payload.Frozen);
 
     /// <summary>The nested key of a <see cref="SymbolKeyPartKind.Key"/> part.</summary>
-    public SymbolKey<TDomain> Key => new(_payload);
+    public SymbolKey<TDomain> Key => new(_payload.Frozen);
 
     /// <summary>The opaque range of a <see cref="SymbolKeyPartKind.Blob"/> part.</summary>
-    public OpaqueByteRange Blob => _payload;
+    public OpaqueByteRange Blob => _payload.Frozen;
+
+    /// <summary>
+    /// The id of a <see cref="SymbolKeyPartKind.Ref"/> part, meaningful only
+    /// in the <see cref="SymbolKeyInterner{TDomain}"/> that issued it.
+    /// </summary>
+    public int Id => (int)_int;
+
+    /// <summary>The payload range of a Name, Key, or Blob part, for the expansion that copies it.</summary>
+    internal OpaqueByteRange Payload => _payload.Frozen;
 
     /// <summary>Advances to the next part; false after the last.</summary>
     public bool Read()
@@ -235,17 +282,24 @@ public ref struct SymbolKeyPartReader<TDomain>
                 _payload = ReadPayload();
                 _kind = SymbolKeyPartKind.Blob;
                 return true;
+            case SymbolKeyTag.Ref:
+                ulong id = ReadVarint();
+                if (id > int.MaxValue)
+                    throw new InvalidOperationException("A key holds a Ref part whose id exceeds the table range.");
+                _int = (long)id;
+                _kind = SymbolKeyPartKind.Ref;
+                return true;
             default:
                 throw new InvalidOperationException($"The key holds an unsupported part tag 0x{tag:X2}.");
         }
     }
 
-    OpaqueByteRange ReadPayload()
+    SymbolKeyPartBytes ReadPayload()
     {
         ulong length = ReadVarint();
         if (length > (ulong)(_key.Length - _position))
             throw new InvalidOperationException("A key part's length exceeds the key.");
-        OpaqueByteRange payload = _key.Slice(_position, (int)length);
+        SymbolKeyPartBytes payload = _key.Slice(_position, (int)length);
         _position += (int)length;
         return payload;
     }
@@ -263,5 +317,39 @@ public ref struct SymbolKeyPartReader<TDomain>
                 return value;
         }
         throw new InvalidOperationException("A key holds an integer part wider than 64 bits.");
+    }
+}
+
+// One grammar reader over either immutable key storage or a borrowed staging
+// span. A staged part can be compared or descended into without copying it;
+// only an immutable part can issue a public frozen key/name/blob view.
+internal readonly ref struct SymbolKeyPartBytes
+{
+    readonly OpaqueByteRange _frozen;
+    readonly ReadOnlySpan<byte> _staged;
+
+    internal SymbolKeyPartBytes(OpaqueByteRange frozen) => _frozen = frozen;
+    internal SymbolKeyPartBytes(ReadOnlySpan<byte> staged) => _staged = staged;
+    internal int Length => _staged.IsEmpty ? _frozen.Length : _staged.Length;
+    internal byte ByteAt(int offset) => _staged.IsEmpty ? _frozen.ByteAt(offset) : _staged[offset];
+    internal OpaqueByteRange Frozen => _staged.IsEmpty
+        ? _frozen
+        : throw new SymbolKeyStateException("A staged part has no frozen view.");
+    internal SymbolKeyPartBytes Slice(int offset, int length)
+        => _staged.IsEmpty ? new(_frozen.Slice(offset, length)) : new(_staged.Slice(offset, length));
+    internal int CompareTo(SymbolKeyPartBytes other)
+    {
+        if (!_staged.IsEmpty && !other._staged.IsEmpty)
+            return _staged.SequenceCompareTo(other._staged);
+        if (_staged.IsEmpty && other._staged.IsEmpty)
+            return _frozen.CompareTo(other._frozen);
+        int common = Math.Min(Length, other.Length);
+        for (int i = 0; i < common; i++)
+        {
+            int order = ByteAt(i).CompareTo(other.ByteAt(i));
+            if (order != 0)
+                return order;
+        }
+        return Length.CompareTo(other.Length);
     }
 }

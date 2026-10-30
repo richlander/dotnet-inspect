@@ -455,6 +455,125 @@ test("Library Analysis mode survives URL projection and restoration", () => {
   assert.equal(ignored.analysisMode, "relationships");
 });
 
+test("Type and Member Analysis modes are deep-linked per scope", () => {
+  const baseline = workspaceState();
+  const packageType = { relationshipsOffered: true };
+  const platformType = { relationshipsOffered: false };
+  const typeState = workspaceState({
+    analysisMode: "unsafe",
+    analysisContext: packageType,
+    view: {
+      ...baseline.view,
+      lens: "analysis",
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+    },
+  });
+  const memberState = workspaceState({
+    analysisMode: "unsafe",
+    view: { ...baseline.view, lens: "api", section: "analysis" },
+  });
+
+  // A package Type defaults to Relationships, so its Unsafe mode is written.
+  const typeUrl = buildWorkspaceStateUrl(
+    "https://inspect.example/?analysis=stale",
+    typeState,
+    () => encoded());
+  assert.equal(typeUrl.searchParams.get("analysis"), "unsafe");
+  const relationshipsUrl = buildWorkspaceStateUrl(
+    typeUrl.href,
+    { ...typeState, analysisMode: "relationships" },
+    () => encoded());
+  assert.equal(relationshipsUrl.searchParams.has("analysis"), false);
+  // A Platform Type lists only Unsafe, its default, so it's omitted, and a
+  // mode it doesn't list is never written.
+  for (const analysisMode of ["unsafe", "relationships", "performance"]) {
+    const platformUrl = buildWorkspaceStateUrl(
+      typeUrl.href,
+      { ...typeState, analysisMode, analysisContext: platformType },
+      () => encoded());
+    assert.equal(platformUrl.searchParams.has("analysis"), false, analysisMode);
+  }
+  const unlisted = buildWorkspaceStateUrl(
+    typeUrl.href,
+    { ...typeState, analysisMode: "performance" },
+    () => encoded());
+  assert.equal(unlisted.searchParams.has("analysis"), false);
+
+  const parsedType = parseWorkspaceLocation(
+    locationSnapshot(typeUrl),
+    () => decoded(typeState));
+  assert.equal(parsedType.typeAnalysisMode, "unsafe");
+  // A Type or Member Analysis link never selects a Library mode.
+  assert.equal(parsedType.analysisMode, "relationships");
+  // Absent or unknown, the Type's default applies once its package is known.
+  for (const value of [null, "unknown", "performance"]) {
+    const other = new URL(typeUrl);
+    if (value === null) other.searchParams.delete("analysis");
+    else other.searchParams.set("analysis", value);
+    assert.equal(parseWorkspaceLocation(
+      locationSnapshot(other),
+      () => decoded(typeState)).typeAnalysisMode, null, String(value));
+  }
+
+  // Unsafe is the Member's default, so canonical composition omits it.
+  const memberUrl = buildWorkspaceStateUrl(
+    "https://inspect.example/?analysis=stale",
+    memberState,
+    () => encoded());
+  assert.equal(memberUrl.searchParams.has("analysis"), false);
+  const explicit = new URL(memberUrl);
+  explicit.searchParams.set("analysis", "unsafe");
+  assert.equal(parseWorkspaceLocation(
+    locationSnapshot(explicit),
+    () => decoded(memberState)).memberAnalysisMode, "unsafe");
+  for (const invalid of ["unknown", "relationships"]) {
+    const malformed = new URL(memberUrl);
+    malformed.searchParams.set("analysis", invalid);
+    const defaulted = parseWorkspaceLocation(
+      locationSnapshot(malformed),
+      () => decoded(memberState));
+    assert.equal(defaulted.memberAnalysisMode, "unsafe");
+    assert.equal(defaulted.typeAnalysisMode, null);
+  }
+
+  // Outside Analysis the refinement is removed at every scope.
+  const factsUrl = buildWorkspaceStateUrl(
+    "https://inspect.example/?analysis=unsafe",
+    { ...memberState, view: { ...memberState.view, section: "facts" } },
+    () => encoded());
+  assert.equal(factsUrl.searchParams.has("analysis"), false);
+  const apiUrl = buildWorkspaceStateUrl(
+    "https://inspect.example/?analysis=unsafe",
+    { ...typeState, view: { ...typeState.view, lens: "api" } },
+    () => encoded());
+  assert.equal(apiUrl.searchParams.has("analysis"), false);
+});
+
+test("history signatures carry each scope's Analysis mode only inside its inspector", () => {
+  const typeAnalysis = workspaceView({
+    lens: "analysis",
+    selectedMemberKey: "",
+    typeAnalysisMode: "unsafe",
+  });
+  assert.notEqual(
+    workspaceViewSignature(typeAnalysis),
+    workspaceViewSignature({ ...typeAnalysis, lens: "api" }));
+  const memberAnalysis = workspaceView({
+    memberSection: "analysis",
+    memberAnalysisMode: "unsafe",
+  });
+  assert.notEqual(
+    workspaceViewSignature(memberAnalysis),
+    workspaceViewSignature({ ...memberAnalysis, memberSection: "facts" }));
+  // A scope's mode doesn't distinguish views outside its inspector.
+  const facts = workspaceView({ memberSection: "facts" });
+  assert.equal(
+    workspaceViewSignature(facts),
+    workspaceViewSignature({ ...facts, memberAnalysisMode: "unsafe", typeAnalysisMode: "unsafe" }));
+});
+
 test("decompiled member source view survives workspace URL projection", () => {
   const baseline = workspaceState();
   const state = workspaceState({
@@ -570,6 +689,29 @@ test("canonical forwarded-Type Overview is distinct from Package Overview", () =
   assert.equal(parsed.lens, "overview");
   assert.equal(parsed.type, "System.Xml:System.Xml.XmlReader");
   assert.equal(parsed.library, "System.Xml");
+});
+
+test("canonical Type Metadata links restore as Overview", () => {
+  const initial = workspaceState();
+  const state = workspaceState({
+    view: {
+      ...initial.view,
+      lens: "metadata",
+      type: "System.Text.Json:System.Text.Json.JsonDocument",
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+    },
+  });
+
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot("https://inspect.example/?w=canonical"),
+    () => decoded(state));
+
+  assert.equal(parsed.lens, "overview");
+  assert.equal(
+    parsed.type,
+    "System.Text.Json:System.Text.Json.JsonDocument");
 });
 
 test("canonical Type Compare restores the reported Type and exact compile asset", () => {

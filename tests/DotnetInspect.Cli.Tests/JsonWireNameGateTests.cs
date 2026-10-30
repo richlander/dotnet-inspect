@@ -125,7 +125,6 @@ public class JsonWireNameGateTests
     {
         string[] expectedCamelCase =
         [
-            "CorpusManifestJsonContext",
             "DiscoveryJsonContext",
         ];
 

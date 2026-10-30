@@ -77,7 +77,7 @@ that every operation asks the same question:
 
 ```console
 # Package candidates; Package Query owns package aggregation.
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "license=MIT"
 
 # One Graph-owned selector scopes every selected graph projection.
@@ -86,7 +86,7 @@ dotnet-inspect graph cluster 3 \
   --library provider.dll
 
 # Target Library Query: one row per candidate assembly.
-dotnet-inspect library query ./bin \
+dotnet-inspect find --libraries ./bin \
   --where "references=System.Text.Json"
 ```
 

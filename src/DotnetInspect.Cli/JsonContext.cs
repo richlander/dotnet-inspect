@@ -66,8 +66,9 @@ internal partial class SimpleTableJsonlContext : JsonSerializerContext
 [JsonSerializable(typeof(List<IntegrationOpportunityInfo>))]
 [JsonSerializable(typeof(SwitchInfo))]
 [JsonSerializable(typeof(List<SwitchInfo>))]
-[JsonSerializable(typeof(UnsafeMemberSummary))]
-[JsonSerializable(typeof(List<UnsafeMemberSummary>))]
+[JsonSerializable(typeof(UnsafeMemberFindingJson))]
+[JsonSerializable(typeof(List<UnsafeMemberFindingJson>))]
+[JsonSerializable(typeof(UnsafeMemberEvidenceJson))]
 [JsonSerializable(typeof(OptimizationOpportunitySummary))]
 [JsonSerializable(typeof(List<OptimizationOpportunitySummary>))]
 [JsonSerializable(typeof(RidPackageReference))]
@@ -93,7 +94,6 @@ public partial class JsonContext : JsonSerializerContext
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(PackageInspectionJson))]
-[JsonSerializable(typeof(PackageInspectionJson[]))]
 internal partial class PackageInspectionJsonContext : JsonSerializerContext
 {
 }
@@ -183,12 +183,6 @@ internal partial class CloneCandidateOutputCompactJsonContext : JsonSerializerCo
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(PackageFileJsonRow))]
 internal partial class PackageFileJsonRowContext : JsonSerializerContext
-{
-}
-
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
-[JsonSerializable(typeof(PackageFileMultiJsonRow))]
-internal partial class PackageFileMultiJsonRowContext : JsonSerializerContext
 {
 }
 
@@ -303,6 +297,12 @@ internal partial class MemberFindResultJsonContext : JsonSerializerContext { }
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(List<MemberFindResult>))]
 internal partial class MemberFindResultCompactJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(DotnetInspector.Queries.EcosystemFindSearchSummary<FindCommand.LayeredSearchBlock>))]
+internal partial class EcosystemFindResultJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {

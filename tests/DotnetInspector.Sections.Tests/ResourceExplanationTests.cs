@@ -218,11 +218,15 @@ public class ResourceExplanationTests
     }
 
     [Theory]
-    [InlineData(DiscoveryResourceKind.Category)]
-    [InlineData(DiscoveryResourceKind.Section)]
-    [InlineData(DiscoveryResourceKind.Item)]
+    [InlineData(DiscoveryResourceKind.Category, false)]
+    [InlineData(DiscoveryResourceKind.Section, false)]
+    [InlineData(DiscoveryResourceKind.Item, false)]
+    [InlineData(DiscoveryResourceKind.Category, true)]
+    [InlineData(DiscoveryResourceKind.Section, true)]
+    [InlineData(DiscoveryResourceKind.Item, true)]
     public void StructuralCatalog_RejectsExtraHierarchySegments(
-        DiscoveryResourceKind kind)
+        DiscoveryResourceKind kind,
+        bool registered)
     {
         (DiscoveryDocument discovery, StructuralResourcePathRegistration[]
             registrations) = StructuralFixture();
@@ -235,10 +239,17 @@ public class ResourceExplanationTests
             registration.Identity,
             new ResourcePath($"{registration.Path.Value}/extra"));
 
-        Assert.Throws<ArgumentException>(() =>
-            ResourceExplanationCatalog.CreateStructural(
-                discovery,
-                registrations));
+        if (registered)
+        {
+            Assert.Throws<ArgumentException>(() =>
+                new InspectionStructuralCatalogRegistration(
+                    "test/library", "Library", new(discovery, [.. registrations])));
+        }
+        else
+        {
+            Assert.Throws<ArgumentException>(() =>
+                ResourceExplanationCatalog.CreateStructural(discovery, registrations));
+        }
     }
 
     [Fact]
@@ -279,7 +290,9 @@ public class ResourceExplanationTests
             [
                 "resource-explanation",
                 "schema-query",
+                "inspection-capability-composition",
                 "query-space",
+                "consumer",
                 "analysis-requests",
                 "findings",
                 "product-vocabulary",
@@ -938,8 +951,8 @@ public class ResourceExplanationTests
         (DiscoveryDocument discovery, StructuralResourcePathRegistration[]
             registrations) = StructuralFixture();
         return ResourceExplanationCatalog.CreateStructural(
-            discovery,
-            registrations);
+            new InspectionStructuralCatalogRegistration(
+                "test/library", "Library", new(discovery, [.. registrations])));
     }
 
     private static (

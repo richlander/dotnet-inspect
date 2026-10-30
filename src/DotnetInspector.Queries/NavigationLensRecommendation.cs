@@ -372,6 +372,8 @@ public static class NavigationLensRecommendation
                 ViewFacetRole.WorkspaceOverview,
             StructuralSubjectIdentity.EcosystemSubject =>
                 ViewFacetRole.EcosystemOverview,
+            StructuralSubjectIdentity.ProjectSubject =>
+                ViewFacetRole.ProjectOverview,
             StructuralSubjectIdentity.PackageSubject =>
                 ViewFacetRole.PackageLibraries,
             StructuralSubjectIdentity.AllLibrariesSubject =>
@@ -379,7 +381,7 @@ public static class NavigationLensRecommendation
             StructuralSubjectIdentity.LibrarySubject =>
                 ViewFacetRole.LibraryTypes,
             StructuralSubjectIdentity.TypeSubject =>
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
             StructuralSubjectIdentity.MemberSubject =>
                 ViewFacetRole.MemberOverview,
             _ => throw new InvalidOperationException(

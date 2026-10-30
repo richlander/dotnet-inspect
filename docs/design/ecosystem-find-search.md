@@ -24,7 +24,8 @@ The operation is a map/reduce over source-owner facts:
 2. reduce those facts into every selected Ecosystem whose declarations admit
    the source while preserving the Find owner's per-candidate classification
    and discovery order; and
-3. publish phase-identified blocks without retracting an earlier block.
+3. publish each admitted semantic finding through one ordered result session
+   without exposing producer phases to its consumer.
 
 The owner defines phase scheduling and continuation, cross-Ecosystem source
 deduplication, membership reduction, the event and completed-Document
@@ -216,6 +217,52 @@ phase. It runs indexed and bounded work and immediately resumes any continuation
 with its maximum remaining window. It does not implement a second scheduler or
 result contract.
 
+Every producer receives the same `FindSemanticResultSession`. Indexed,
+bounded, intervening Workspace, and resumed prefix work publish typed findings
+through it in scheduler order. Its finite capacity is the semantic row window.
+The scheduler still owns phase completion, source failures, continuation, and
+unsearched work; it supplies those facts when completing the result session.
+Neither the optional sink nor the terminal semantic result identifies which
+producer consulted an index.
+
+### Completed inspection and Debug evidence
+
+`EcosystemFindInspection` adopts the baseline inspection envelope over the
+session's completed summary. Ordinary and evidence-enabled execution run the
+same session exactly once and preserve its blocks, failures, and completion.
+Share is explicitly nonprojectable until a canonical projection exists.
+
+Debug CLI `find --ecosystem ... --evidence-envelope <path>` and the
+registration-only `--workspace` equivalent publish that complete envelope with
+typed execution evidence, while preserving ordinary output. Capture is chosen
+before execution. Invalid destinations, discovery invocations, and unsupported
+routes are refused before source work. Publication failure is visible and
+nonzero, including when useful rows have already streamed.
+
+Evidence retains the normalized session question, resolved registration and
+prefix demand, row and candidate allowances, evaluator invocations by phase,
+discovery pages, and the number of admitted live candidates evaluated.
+Zero-row candidate evaluations consume the same allowance and remain visible.
+Shared bounded-source reuse is not another evaluator invocation. The summary
+supplies the stop reason, remaining work, prefix coverage, and scoped failures.
+Adapter target-framework and type-filter inputs accompany the session evidence.
+These observations describe scheduling, not HTTP requests or transferred bytes.
+
+The motivating real asset remains `Aspire.Hosting.Redis` **13.6.3**: an indexed
+`.AddRedis -n 1` can fill its window without bounded acquisition or live
+discovery. Index-miss and partial-hit cases with underfilled windows instead
+expose the same independent candidate allowance, including work yielding no
+rows. Focused shared-inspection tests compare ordinary and enriched execution;
+CLI gates cover real indexed output, early refusal, and sidecar failure.
+
+The legacy CLI evaluator does not issue House acquisition receipts. Evidence
+states that unavailability explicitly; absence is not zero network activity.
+This adoption does not migrate acquisition, add a deadline or byte budget,
+or claim NuGet/index equivalence. Explicit `--package-prefix` expansion is a
+separate parse-time route: it refuses this gesture before binding, and remains
+a follow-up alongside other non-Ecosystem Find routes. Debug execution is
+diagnostic evidence, never a production performance measurement.
+
 The request is rejected before source work when:
 
 - its Find question is invalid;
@@ -357,6 +404,12 @@ wall-clock arrival order across hosts.
 
 ## Event and completed content
 
+The ordered semantic result session is the consumer-facing item stream.
+`FindSemanticFinding` items are durable and appear in the same order in its
+terminal `FindSemanticResult`. Hosts may add progress and lifecycle events
+around that stream, but Spotlight and CLI output never receive an indexed
+stage or choose when index work runs.
+
 The operation adopts the shared async-event categories with this closed
 vocabulary:
 
@@ -367,14 +420,8 @@ EcosystemFindSearchEvent
     optional Ecosystem identity
     completed work
     optional honest total
-  BoundedBlock
-    Ecosystem identity and ordinal
-    owner-issued Find block
-    source coverage
-  PrefixBlock
-    exact Package coordinate and candidate ordinal
-    Ecosystem memberships
-    owner-issued Find block
+  Finding
+    TypeFindSemanticMatch or MemberFindSemanticMatch
   ItemFailure
     phase
     exact source or prefix identity
@@ -390,11 +437,10 @@ completed-Document boundary. `Completed` is published only after the caller
 has resumed the continuation or finalized it with zero capacity. This keeps
 one event vocabulary and one terminal Document for immediate and staged hosts.
 
-Bounded blocks are durable even when they contain zero rows, because zero
-matches and "not settled yet" are distinct Ecosystem states. Prefix blocks
-with zero monotonic rows are not durable; their completed work contributes to
+Zero matches and "not settled yet" remain distinct completion states, but an
+empty producer emits no semantic finding. Its completed work contributes to
 progress and terminal accounting. Scoped failures are durable and never
-converted into empty blocks.
+converted into empty results.
 
 Normal completion returns:
 
@@ -410,10 +456,10 @@ InspectionEnvelope<EcosystemFindSearchDocument>
   Diagnostics
 ```
 
-The completed Document repeats durable semantic content so blocking hosts,
+The completed result repeats durable semantic findings so blocking hosts,
 structured output, cache consumers, and replay do not depend on event history.
-An adopter validates streamed item and failure counts against the terminal
-summary before publishing completed state.
+An adopter validates streamed item and failure counts against terminal
+completion before publishing completed state.
 
 Explicit cancellation, abandonment of an issued continuation, or host
 supersession produces no completed inspection envelope. Already published
@@ -436,7 +482,31 @@ before.
 The prefix-package bound is shared across all demanded prefixes. A candidate
 consumes one unit when admitted for settlement, including a candidate that
 later fails. Duplicate candidates consume no additional unit. When the bound
-is reached, later prefix pages and declarations do not start.
+is reached, later prefix pages and declarations do not start, including when
+the last admitted candidate ends the current page. A nonterminal page is not
+proof of prefix exhaustion; stopping there retains the current prefix as
+unsearched work.
+
+Index misses and partial index hits use the same live candidate allowance.
+Indexed matches consume row capacity, not candidate units; an underfilled
+`-n` never extends that allowance. Selective index exhaustion does not prove
+live exhaustion, even when artifact generation completed without failures.
+Only coverage sufficient for the consumer's population and matching question
+could discharge that live work. The current Integration-symbol index makes
+no such general Find coverage claim.
+
+The real motivating population includes
+`Aspire.Hosting.Redis@13.6.3`: an indexed Integration symbol can match while
+other questions over the same prefix miss the selective index. The staged
+session tests exercise both cases with an underfilled or absent row window,
+and the CLI paging test checks that the candidate bound prevents another
+source request independently of row satisfaction.
+
+This candidate bound is not a whole-search time or byte ceiling. Source
+enumeration and package acquisition retain their owners' deadlines and
+payload limits. Explicit CLI `--package-prefix` currently follows a separate
+parse-time expansion path capped at 500 packages; its policy is not changed
+by this Ecosystem-session contract.
 
 Terminal completion distinguishes at least:
 
@@ -538,6 +608,10 @@ Inspect Web then adopts the same request, event, and Document:
   resumes the continuation with the remaining row window or zero; and
 - operation authority suppresses stale publication after text, scope, or
   demand replacement.
+
+All of those producers publish into one managed
+`FindSemanticResultSession`. TypeScript consumes one finding stream and one
+completion; it neither invokes nor observes a separate indexed operation.
 
 Spotlight grouping, visible batch size, focus, activation, and navigation
 remain Browser-owned. Selecting a Type or Member requires a separately

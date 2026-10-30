@@ -241,21 +241,15 @@ retains the non-adaptive package result.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
-matching wildcard). Target-aware bare discovery lists it when a bounded,
-early-exit presence probe finds evidence or the metadata scan produces a
-renderable incomplete-decode diagnostic. The probe caches no-copy signature
-marker scans by blob and streams IL without copying or materializing decoded
-instruction arrays. It borrows the command-owned, non-prefetched PE reader and
-walks methods sequentially in metadata order, so an early finding does not
-materialize the complete image and concurrent suffix work cannot consume its
-budget first. It charges signature and visited-IL bytes to separate 4 MiB
-assembly-wide budgets and fails visibly when either budget is exhausted or a
-candidate declaration, local, or call signature cannot be decoded safely. A
-namespace and type-name match for `System.Runtime.CompilerServices.Unsafe` is
-only a candidate; terminal evidence requires the same trusted framework
-identity as the full census. The reader is supplied through a synchronous
-capability callback whose contract forbids retention or disposal; it does not
-materialize that census. The
+matching wildcard). Target-aware bare discovery lists it when an early-exit
+presence probe finds a method with an
+[unsafe member census](unsafe-member-findings.md) role. The probe applies the
+census's own per-body rule, including its
+[role scan](unsafe-member-findings.md#role-scan), over the command-owned
+reader in metadata order, so it settles at the first role without
+materializing the census. A probe that cannot decide fails discovery visibly.
+The [Unsafe Members section](unsafe-members-section.md#discovery) owns that
+rule and how presence can differ from rows. The
 explicit-only `Body Shapes` and `Body Shape Summary` sections are likewise
 uncategorized; their required `Kind=...` predicate supplies their scope.
 [Body Shape views](body-shape-views.md) owns the occurrence-versus-summary
@@ -288,7 +282,7 @@ dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S "Reference Hierarchy" --tree --depth 2
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Audit
-dotnet-inspect package query Newtonsoft.Json -S @Query
+dotnet-inspect find --packages Newtonsoft.Json -S @Query
 dotnet-inspect member JsonSerializer Serialize:1 --platform System.Text.Json -S @Calls
 ```
 
@@ -489,10 +483,11 @@ changed.
 
 Adoption status: `--offline` is the only network prohibition in code. Network
 telemetry observes requests and never blocks them, so any producer that needs
-PDB facts may acquire a missing PDB outside `--offline`. Today the CLI requests
-`PdbAcquire` when a PDB-dependent section is selected exactly, at `-v:d`, or by
-explicit effective discovery; the gesture that selects such a section moves to
-facet selection under the
+PDB facts may acquire a missing PDB outside `--offline`. The CLI requests
+`PdbAcquire` through PDB-dependent selection or explicit effective discovery;
+some remaining paths also request it at `-v:d`. The Member detail and Library
+audit exceptions below require selecting gestures for their acquisition paths.
+The gesture that selects such a section moves to facet selection under the
 [CLI verbosity retirement](cli-verbosity-retirement.md). Package descriptions
 already show by default; a single type's docs do not yet.
 
@@ -560,6 +555,66 @@ Capability-request provenance comes from the user's gesture, not from an
 internal verbosity promotion. Capability authorization comes solely from host
 preflight.
 
+### Member detail PDB requests
+
+The CLI's standalone exact-Member PDB-resolution path requires an explicitly
+selected section or operation. A detailed view, whether requested by the user
+or promoted internally, does not request that enrichment for automatically included
+Decompiled Source, Body Shapes, or other detail sections. Explicit sections,
+categories, and globs retain their existing resolved-section semantics and
+capability preflight. Explicit Source, PDB Source, and Source Diff retain their
+existing acquisition and failure contracts.
+
+An explicit typed body query is a selecting operation. For example,
+`--where "Kind=ObjectCreationExpression"` retains the existing
+[Body Shapes selection](body-shape-views.md#two-explicit-sections) and its
+standalone PDB request, even without `-S`. That request comes from the query
+gesture, not from verbosity. This adoption does not narrow existing query
+gestures to require a redundant section option.
+
+This adopts step 5 of [CLI verbosity retirement](cli-verbosity-retirement.md)
+for that Member path only. Source Locations, Type and Library source policy,
+source-content admission, rendering, and shared House operations keep their
+existing owners. Automatically included detail may still render without
+standalone PDB enrichment; this is not a promise that an entire Member request
+performs no symbol work through another independently selected operation.
+
+The real asset is dotnet-inspect at `4085de244`,
+[`MemberTextSlicer.ExtractMemberText`](https://github.com/richlander/dotnet-inspect/blob/4085de244/src/CSharpText.MemberSlicing/MemberTextSlicer.cs#L61),
+with its compiled Library and matching Portable PDB. Detailed automatically
+includes both PDB Source and Decompiled Source; the prior Member gate admits
+standalone PDB resolution even without explicit selection. The Release
+`MemberSourceAuthorizationTests` gates that automatic-detail case, explicit
+section preservation, typed-query lowering, unrelated selection, and overload
+scope against this real declaration. Existing `LocalRepoSourceProjectionTests` retain the
+positive CLI PDB Source and Source Locations canaries. These gates establish
+request decisions and offline production behavior, not network-transfer counts.
+
+### Library audit PDB requests
+
+The CLI Library audit plan requests acquisition of a missing PDB only for
+explicitly selected PDB-dependent sections. Detailed verbosity, including
+internal promotion, does not request audit PDB acquisition. Resolved section,
+category, and glob selections retain their existing decisions. Explicit local
+source diagnostics retain cache-only reads; unrelated selections request none
+of these audit capabilities.
+
+This is step 5 preparation for the Library audit path. Existing automatic
+Normal/Detailed embedded, adjacent, and cached PDB reads remain unchanged.
+Selected query prerequisites, effective discovery, source-content admission,
+Type paths, and shared House operations keep their existing contracts. This
+claim does not prohibit symbol acquisition through another selected operation.
+
+The motivating asset is dotnet-inspect at `cec0846b2`,
+[`MemberTextSlicer.cs`](https://github.com/richlander/dotnet-inspect/blob/cec0846b2/src/CSharpText.MemberSlicing/MemberTextSlicer.cs),
+compiled as `CSharpText.MemberSlicing.dll` with its matching Portable PDB.
+Its Library exposes Symbols and Signals; the former audit plan requests a
+missing PDB at Detailed without explicit selection. Release
+`SectionPipelineTests.LibrarySourcePlan_*` gates the changed request decision,
+original gesture provenance, explicit selections, and preserved local reads.
+Offline CLI canaries against this compiled Library and PDB establish retained
+local output, not physical network-transfer counts.
+
 ## Projection
 
 After selecting a section, `--columns` and `--fields` project its data:
@@ -620,7 +675,7 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   request; a provider, work, page, time, or memory cap is not semantic
   selection and never becomes a corpus total. Under incomplete evidence, Rows
   and Count both report what was observed, with the same disclosure and exit
-  status. `package query`'s candidate `--take` remains non-semantic: it fixes
+  status. `find --packages`'s candidate `--take` remains non-semantic: it fixes
   the requested candidate population rather than selecting rows. A reached
   explicit `--take` yields the matches within that population, exact when
   every candidate in it completed and never a total for the wider scope; a
@@ -631,7 +686,7 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   candidate execution; reaching that Head is complete for the selected rows
   rather than a candidate truncation.
 - `-n N` and numeric shorthand such as `-6` limit declared items independently
-  within each row set after filtering and ordering. `package query` keeps this
+  within each row set after filtering and ordering. `find --packages` keeps this
   semantic selection separate from explicit `--take`; a lone Head may be
   delegated into query execution with or without it.
 - `--tail` takes items from the end.

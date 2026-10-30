@@ -27,7 +27,8 @@ export interface EngineStartupClient {
   readonly catalog: Pick<
     EngineClient["catalog"],
     "inspectVocabulary" | "listEcosystems" | "listHomeDemos"
-      | "listTypeViewFacets"
+      | "listLibraryViewFacets" | "listMemberViewFacets"
+      | "listPackageViewFacets" | "listTypeViewFacets"
   >;
   readonly package:
     Pick<EngineClient["package"], "listPackageActivityEcosystems">
@@ -44,6 +45,12 @@ interface StartupReads {
   readonly inspectVocabulary: EngineStartupClient["catalog"]["inspectVocabulary"];
   readonly listEcosystems: EngineStartupClient["catalog"]["listEcosystems"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
+  readonly listLibraryViewFacets:
+    EngineStartupClient["catalog"]["listLibraryViewFacets"];
+  readonly listMemberViewFacets:
+    EngineStartupClient["catalog"]["listMemberViewFacets"];
+  readonly listPackageViewFacets:
+    EngineStartupClient["catalog"]["listPackageViewFacets"];
   readonly listTypeViewFacets:
     EngineStartupClient["catalog"]["listTypeViewFacets"];
   readonly listPackageActivityEcosystems:
@@ -89,6 +96,15 @@ export function registerEngineWorkerStartupOperations(
     engineStartupOperations.packageQueryDurableRowLayout,
     reads.packageQueryDurableRowLayout);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
+  register(
+    engineStartupOperations.listLibraryViewFacets,
+    reads.listLibraryViewFacets);
+  register(
+    engineStartupOperations.listMemberViewFacets,
+    reads.listMemberViewFacets);
+  register(
+    engineStartupOperations.listPackageViewFacets,
+    reads.listPackageViewFacets);
   register(
     engineStartupOperations.listTypeViewFacets,
     reads.listTypeViewFacets);
@@ -177,6 +193,12 @@ export function bindEngineWorkerStartupClient(
       inspectVocabulary: readVocabulary,
       listEcosystems: bind(engineStartupOperations.listEcosystems),
       listHomeDemos: bind(engineStartupOperations.listHomeDemos),
+      listLibraryViewFacets:
+        bind(engineStartupOperations.listLibraryViewFacets),
+      listMemberViewFacets:
+        bind(engineStartupOperations.listMemberViewFacets),
+      listPackageViewFacets:
+        bind(engineStartupOperations.listPackageViewFacets),
       listTypeViewFacets:
         bind(engineStartupOperations.listTypeViewFacets),
     },

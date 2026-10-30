@@ -24,9 +24,7 @@ using DotnetInspect.Cli.Views;
 using InertText;
 using Inspector.Findings;
 using Markout;
-using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -64,95 +62,6 @@ public partial class PackageCommand
             => CleanupPackageExtraction(resolution);
     }
 
-    private static async Task<int> ExecuteMultiPackageContentAsync(
-        string[] packageArgs,
-        InspectionOptions options,
-        CommandContext context)
-    {
-        var targets = new List<PackageReferenceTarget>();
-        foreach (var packageArg in packageArgs)
-        {
-            if (!TryCreatePackageTarget(packageArg, out var target))
-                return 1;
-            targets.Add(target);
-        }
-
-        var destination = PackagePayloadDestination(options);
-        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
-            return 1;
-
-        int? houseResult =
-            await TryWriteLiteralHouseDocumentContentAsync(
-                    targets,
-                    options,
-                    context)
-                .ConfigureAwait(false);
-        if (houseResult is { } exitCode)
-            return exitCode;
-
-        var results = new List<PackageFileContentSet>();
-        bool unaryPayload = RequiresUnaryPackageContent(options);
-        if (!unaryPayload)
-        {
-            foreach (var target in targets)
-            {
-                var result = await ReadPackageFileContentsAsync(
-                    target,
-                    options,
-                    context,
-                    suppressUnaryPayloadRead: false);
-                if (result == null)
-                    return 1;
-                results.Add(result);
-            }
-
-            return PrintPackageFileContents(results, options);
-        }
-
-        var acquisitions = new List<PackageFileContentAcquisition>();
-        try
-        {
-            foreach (var target in targets)
-            {
-                PackageFileContentAcquisition? acquisition =
-                    await AcquirePackageFileContentAsync(
-                        target,
-                        options,
-                        context);
-                if (acquisition == null)
-                    return 1;
-                acquisitions.Add(acquisition);
-                results.Add(
-                    acquisition.Read(
-                        options,
-                        suppressUnaryPayloadRead: true));
-            }
-
-            if (SelectUnaryPackageContent(results, options) is { } selectedFile)
-            {
-                int selectedPackage = results.FindIndex(
-                    result => result.Files.Any(
-                        file => ReferenceEquals(file, selectedFile)));
-                if (selectedPackage < 0)
-                    throw new InvalidOperationException(
-                        "The selected package content row has no owning package.");
-
-                results[selectedPackage] =
-                    acquisitions[selectedPackage].Read(
-                        options,
-                        suppressUnaryPayloadRead: true,
-                        selectedFile.Path);
-            }
-
-            return PrintPackageFileContents(results, options);
-        }
-        finally
-        {
-            foreach (var acquisition in acquisitions)
-                acquisition.Dispose();
-        }
-    }
-
     private static PackageFileContent? SelectUnaryPackageContent(
         IReadOnlyList<PackageFileContentSet> results,
         InspectionOptions options)
@@ -161,28 +70,12 @@ public partial class PackageCommand
         [
             .. RowWindow.Apply(
                 options.Rows,
-                FlattenPackageFileContentRows(results, options).ToList())
+                FlattenPackageFileContentRows(results).ToList())
                 .Where(static file => file.Found),
         ];
         return visibleFiles is [var selectedFile]
             ? selectedFile
             : null;
-    }
-
-    private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
-        PackageReferenceTarget target,
-        InspectionOptions options,
-        CommandContext context,
-        bool suppressUnaryPayloadRead)
-    {
-        using PackageFileContentAcquisition? acquisition =
-            await AcquirePackageFileContentAsync(
-                target,
-                options,
-                context);
-        return acquisition?.Read(
-            options,
-            suppressUnaryPayloadRead);
     }
 
     private static async Task<PackageFileContentAcquisition?>
@@ -248,7 +141,7 @@ public partial class PackageCommand
         }
     }
 
-    private static bool TryCreateLiteralHouseDocumentContent(
+    private static bool TryCreateLiteralHouseFileContent(
         IReadOnlyList<PackageReferenceTarget> targets,
         InspectionOptions options,
         [NotNullWhen(true)] out PackageReferenceTarget? target,
@@ -268,6 +161,9 @@ public partial class PackageCommand
             || LensProjection.IsRequested(options)
             || options.ContentScope != PackageFileContentScope.Full
             || options.Rows is not null
+            || options.PackageFilePredicates.Count != 0
+            || options.PathMatchMode.Equals(
+                "first", StringComparison.OrdinalIgnoreCase)
             || !string.IsNullOrWhiteSpace(options.Tfm)
             || !options.ShowContent
             || selectors is not [var selectedPath]
@@ -281,15 +177,15 @@ public partial class PackageCommand
         }
 
         string normalizedSelectedPath = selectedPath.Replace('\\', '/');
-        isSkill = PackageFileFamily.IsSkillDocumentPath(
-            normalizedSelectedPath);
-        if (!isSkill
-            && !normalizedSelectedPath.Equals(
-                "README.md",
-                StringComparison.OrdinalIgnoreCase))
+        if (!PackageEntryPath.IsSafeRelativePath(normalizedSelectedPath)
+            || !NamesAKind(normalizedSelectedPath)
+            || PackageFileLister.IsPlumbing(normalizedSelectedPath)
+            || normalizedSelectedPath is "@readme" or "@agents" or "@license")
         {
             return false;
         }
+        isSkill = PackageFileFamily.IsSkillDocumentPath(
+            normalizedSelectedPath);
 
         target = selectedTarget;
         pinnedVersion = normalizedVersion;
@@ -298,12 +194,12 @@ public partial class PackageCommand
     }
 
     private static async Task<int?>
-        TryWriteLiteralHouseDocumentContentAsync(
+        TryWriteLiteralHouseFileContentAsync(
             IReadOnlyList<PackageReferenceTarget> targets,
             InspectionOptions options,
             CommandContext context)
     {
-        if (!TryCreateLiteralHouseDocumentContent(
+        if (!TryCreateLiteralHouseFileContent(
                 targets,
                 options,
                 out PackageReferenceTarget? target,
@@ -311,10 +207,67 @@ public partial class PackageCommand
                 out string? documentPath,
                 out bool isSkill))
         {
+#if DEBUG
+            if (options.EvidenceEnvelopePath is not null)
+            {
+                CommandError.Write(
+                    "--evidence-envelope requires --workspace or one pinned "
+                    + "online literal package file with full --content.");
+                return 1;
+            }
+#endif
             return null;
         }
 
-        return await WriteLiteralHouseDocumentContentAsync(
+#if DEBUG
+        if (options.EvidenceEnvelopePath is { } requestedEvidencePath)
+        {
+            if (HasUnstructuredOutputPath(options)
+                && ProjectionDestinationWriter.IsFile(
+                    PackagePayloadDestination(options)))
+            {
+                CommandError.Write(
+                    "--evidence-envelope on literal package content requires "
+                    + "a detached text or structured projection, not exact file export.");
+                return 1;
+            }
+            if (!EvidenceEnvelopeOutput.TryResolvePath(
+                    requestedEvidencePath,
+                    out string evidencePath,
+                    out string? error))
+            {
+                CommandError.Write(error!);
+                return 1;
+            }
+            if (options.OutputPath is { } outputPath
+                && outputPath != "-")
+            {
+                string fullOutputPath;
+                try
+                {
+                    fullOutputPath = Path.GetFullPath(outputPath);
+                }
+                catch (Exception exception)
+                    when (exception is ArgumentException
+                        or NotSupportedException
+                        or PathTooLongException)
+                {
+                    CommandError.Write("--out requires a valid file path.");
+                    return 1;
+                }
+                if (EvidenceEnvelopeOutput.PathsMayIdentifySameFile(
+                        evidencePath,
+                        fullOutputPath))
+                {
+                    CommandError.Write(
+                        "--out and --evidence-envelope must name distinct files.");
+                    return 1;
+                }
+            }
+            options = options with { EvidenceEnvelopePath = evidencePath };
+        }
+#endif
+        return await WriteLiteralHouseFileContentAsync(
                 target,
                 pinnedVersion,
                 documentPath,
@@ -435,9 +388,26 @@ public partial class PackageCommand
             return null;
         }
 
+        return await ExecuteAdmittedPackageFileAsync(
+                file,
+                context,
+                (workspace, occurrence) => WriteAdmittedHouseReadmeSectionAsync(
+                    workspace, occurrence, file, options, destination))
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<int> WriteAdmittedHouseReadmeSectionAsync(
+        InspectionWorkspace workspace,
+        WorkspacePackageOccurrenceDescriptor occurrence,
+        PackageFileAcquisitionResult.Acquired file,
+        InspectionOptions options,
+        ProjectionDestination destination)
+    {
         InspectionEnvelope<PackageFileContentDocument> inspection =
             await PackageFileContentInspection.ExecuteAsync(
                     new(
+                        workspace,
+                        occurrence,
                         file,
                         PackageDocumentContentLimits.MaxDecodedBytes))
                 .ConfigureAwait(false);
@@ -503,7 +473,7 @@ public partial class PackageCommand
                 _ => destination));
     }
 
-    private static async Task<int?> WriteLiteralHouseDocumentContentAsync(
+    private static async Task<int?> WriteLiteralHouseFileContentAsync(
         PackageReferenceTarget target,
         string pinnedVersion,
         string documentPath,
@@ -523,10 +493,8 @@ public partial class PackageCommand
         await using DesktopPackageSourceComposition composition =
             context.CreatePackageSourceComposition();
         using var stores = new SearchPackageStores();
-        PackageFileAcquisitionResult result;
-        try
-        {
-            result = await composition.AcquireFileAsync(
+        PackageFileAcquisitionResult result =
+            await composition.AcquireFileAsync(
                     PackageSourceCoordinate.Create(
                         target.PackageName,
                         pinnedVersion),
@@ -535,18 +503,47 @@ public partial class PackageCommand
                     options.SourceOptions,
                     context.Logger.Log)
                 .ConfigureAwait(false);
-        }
-        catch (ArgumentException)
+        PackageHouseFileList? inventory =
+            result.Settlement.Result.Evidence.FileList;
+        if (inventory is not null
+            && MayRequireLegacyToolWrapperHandling(
+                inventory.Entries.Select(static entry => entry.Path)))
         {
-            // A path the exact-file operation cannot name, such as one with a
-            // '..' segment, keeps the existing package-content path.
+            context.Logger.Log(
+                $"{target.PackageName}@{pinnedVersion} may be a .NET tool wrapper; "
+                + "exporting through the complete package-content path.");
+            return null;
+        }
+        if (result.Status == PackageFileAcquisitionStatus.Missing
+            && inventory?.Entries.Any(entry =>
+                entry.Path.StartsWith(
+                    documentPath + "/",
+                    StringComparison.OrdinalIgnoreCase)) is true)
+        {
+            context.Logger.Log(
+                $"'{documentPath}' selects a directory; using the directory-content route.");
             return null;
         }
         if (result is not PackageFileAcquisitionResult.Acquired file)
         {
-            if (TryWritePackageFileSelectionFailure(result.Status))
-                return 1;
-            return null;
+            if (!TryWritePackageFileSelectionFailure(result.Status))
+            {
+                string reason = result.Settlement.Result switch
+                {
+                    PackageHouseResult.NotFound value => value.Reason.ToString(),
+                    PackageHouseResult.NoMatch value => value.Reason.ToString(),
+                    PackageHouseResult.Ambiguous value => value.Reason.ToString(),
+                    PackageHouseResult.Rejected value => value.Reason.ToString(),
+                    PackageHouseResult.Unavailable value => value.Reason.ToString(),
+                    PackageHouseResult.Incomplete value => value.Reason.ToString(),
+                    PackageHouseResult.Failed value => value.Reason.ToString(),
+                    _ => result.Status.ToString(),
+                };
+                CommandError.Write(
+                    "Could not acquire the selected package file.",
+                    reason);
+            }
+            return 1;
         }
 
         if (file.Settlement.Result.Evidence.Acquisition?.Transfer
@@ -559,45 +556,126 @@ public partial class PackageCommand
                 + $"{transfer.BytesReceived} bytes received.");
         }
 
-        if (MayRequireLegacyToolWrapperHandling(
-                file.FileList.Entries.Select(
-                    static entry => entry.Path)))
-        {
-            context.Logger.Log(
-                $"{target.PackageName}@{pinnedVersion} may be a .NET tool wrapper; "
-                + "exporting through the complete package-content path.");
-            return null;
-        }
+        return await ExecuteAdmittedPackageFileAsync(
+                file,
+                context,
+                (workspace, occurrence) =>
+                    WriteAdmittedLiteralHouseFileContentAsync(
+                        workspace, occurrence, file, target, pinnedVersion,
+                        isSkill, options, destination))
+            .ConfigureAwait(false);
+    }
 
+    private static async Task<int> WriteAdmittedLiteralHouseFileContentAsync(
+        InspectionWorkspace workspace,
+        WorkspacePackageOccurrenceDescriptor occurrence,
+        PackageFileAcquisitionResult.Acquired file,
+        PackageReferenceTarget target,
+        string pinnedVersion,
+        bool isSkill,
+        InspectionOptions options,
+        ProjectionDestination destination)
+    {
         if (!isSkill
             && HasUnstructuredOutputPath(options)
             && ProjectionDestinationWriter.IsFile(destination))
         {
-            try
-            {
-                await using PackageHousePayloadRead input =
-                    file.OpenRead();
-                await ProjectionDestinationWriter.WriteExactBytesAsync(
-                        destination,
-                        input)
-                    .ConfigureAwait(false);
-            }
-            catch (InvalidDataException exception)
-            {
-                CommandError.Write(
-                    "Could not read the selected package document.",
-                    exception.Message);
-                return 1;
-            }
-            return 0;
+            var correspondence = (PackageArtifactRootCorrespondence)
+                occurrence.Occurrence.Correspondence;
+            var ready = (ArtifactRootRealizationStatus.Ready)
+                occurrence.Realization.Status;
+            ArtifactRootResult<int> export =
+                await workspace.ExecutePackageRootQueryAsync(
+                    correspondence,
+                    ready.Generation,
+                    async (_, _) =>
+                    {
+                        try
+                        {
+                            await using PackageHousePayloadRead input =
+                                file.OpenRead();
+                            await ProjectionDestinationWriter.WriteExactBytesAsync(
+                                    destination,
+                                    input)
+                                .ConfigureAwait(false);
+                            return 0;
+                        }
+                        catch (Exception exception) when (
+                            exception is IOException
+                                or InvalidDataException
+                                or NotSupportedException
+                                or PackageEntryNotMaterializedException)
+                        {
+                            CommandError.Write(
+                                "Could not read the selected package file.",
+                                exception.Message);
+                            return 1;
+                        }
+                    }).ConfigureAwait(false);
+            if (export is ArtifactRootResult<int>.Available available)
+                return available.Value;
+            var rejected = (ArtifactRootResult<int>.Rejected)export;
+            CommandError.Write(
+                "The package file export query was rejected: "
+                + rejected.Failure);
+            return 1;
         }
 
+        var builder = new EvidenceInspectionBuilder<
+            PackageFileContentDocument, PackageFileContentEvidence>();
+#if DEBUG
+        builder.RequestEvidence(options.EvidenceEnvelopePath is not null);
+#endif
+        var result = await builder.BuildAsync(
+            new PackageFileContentInspectionRequest(
+                workspace,
+                occurrence,
+                file,
+                PackageDocumentContentLimits.MaxDecodedBytes),
+            static (request, token) =>
+                PackageFileContentInspection.ExecuteAsync(request, token),
+            static (request, token) =>
+                PackageFileContentInspection.ExecuteWithEvidenceAsync(
+                    request, token)).ConfigureAwait(false);
         InspectionEnvelope<PackageFileContentDocument> inspection =
-            await PackageFileContentInspection.ExecuteAsync(
-                    new(
-                        file,
-                        PackageDocumentContentLimits.MaxDecodedBytes))
-                .ConfigureAwait(false);
+            result.Inspection;
+#if DEBUG
+        if (result.Evidence is { } enriched)
+        {
+            var contract =
+                new InspectionEnvelopeJsonContract<PackageFileContentDocument>(
+                    "package-file-content",
+                    1,
+                    PackageFileContentInspectionJsonContext.Default
+                        .PackageFileContentDocument);
+            if (!InspectionEnvelopeOutput.TrySerializeEvidence(
+                    enriched,
+                    contract,
+                    PackageFileContentInspectionJsonContext.Default
+                        .PackageFileContentEvidence,
+                    compactJson: false,
+                    out byte[] payload,
+                    out Exception? serializationError))
+            {
+                CommandError.Write(
+                    "Evidence envelope serialization failed: "
+                    + serializationError!.Message);
+                return 1;
+            }
+            if (!EvidenceEnvelopeOutput.TryPublish(
+                    options.EvidenceEnvelopePath!,
+                    payload,
+                    out Exception? publicationError))
+            {
+                CommandError.Write(
+                    "Evidence envelope publication failed: "
+                    + publicationError!.Message);
+                return 1;
+            }
+            CommandError.WriteLine(
+                $"Evidence envelope: {options.EvidenceEnvelopePath}");
+        }
+#endif
         if (inspection.Content.Status
             != PackageFileContentStatus.Completed)
         {
@@ -614,7 +692,10 @@ public partial class PackageCommand
         var projectedFile = new PackageFile(
             document.Path!,
             document.Size,
-            IsReadme: !isSkill);
+            IsReadme: PackagePrimaryDocumentInspection.Execute(
+                    file.FileList.Entries).Content.Entry?.Path.Equals(
+                        document.Path,
+                        StringComparison.OrdinalIgnoreCase) is true);
         PackageFileContent content = CreatePackageFileContent(
             target.PackageName,
             pinnedVersion,
@@ -632,6 +713,58 @@ public partial class PackageCommand
                     [content]),
             ],
             options);
+    }
+
+    private static async Task<int> ExecuteAdmittedPackageFileAsync(
+        PackageFileAcquisitionResult.Acquired file,
+        CommandContext context,
+        Func<InspectionWorkspace, WorkspacePackageOccurrenceDescriptor, Task<int>>
+            inspect)
+    {
+        PackageRootBinding binding =
+            PackageRootBinding.CreateForContentInspection(
+                file.Settlement.Payload);
+        var workspace = new InspectionWorkspace(WorkspacePlan.Empty);
+        return await WorkspacePacketRestorationLifetime.ExecuteAsync(
+            workspace,
+            async () =>
+            {
+                WorkspaceScopeReadResult read =
+                    await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
+                if (read is not WorkspaceScopeReadResult.Available available)
+                {
+                    CommandError.Write(
+                        "The package file Workspace is unavailable: " + read);
+                    return 1;
+                }
+                WorkspaceScopeOperationResult admission =
+                    await workspace.AddPackagesAsync(
+                        available.Snapshot.Revision,
+                        [binding],
+                        DateTimeOffset.UtcNow.AddMinutes(5))
+                        .ConfigureAwait(false);
+                if (admission
+                    is not WorkspaceScopeOperationResult.Committed committed)
+                {
+                    CommandError.Write(
+                        "The package file Root could not be admitted: " + admission);
+                    return 1;
+                }
+                WorkspacePackageOccurrenceDescriptor occurrence =
+                    committed.Snapshot.Packages.Single();
+                if (occurrence.Occurrence.Correspondence
+                        is not PackageArtifactRootCorrespondence
+                    || occurrence.Realization.Status
+                        is not ArtifactRootRealizationStatus.Ready)
+                {
+                    throw new InvalidOperationException(
+                        "The committed package file Root did not publish query admission.");
+                }
+                context.Logger.Log(
+                    "Using committed content-only package Root for file inspection: "
+                    + $"{binding.Root.PackageId}@{binding.Root.PackageVersion}.");
+                return await inspect(workspace, occurrence).ConfigureAwait(false);
+            }).ConfigureAwait(false);
     }
 
     private static bool TryWritePackageFileSelectionFailure(
@@ -821,10 +954,6 @@ public partial class PackageCommand
                 RequestsPackageEcosystemDependencies(
                     producerOptions,
                     pipeline);
-            NuspecData? nuspec = FindPackageNuspecForInspection(
-                extractPath,
-                resolution,
-                wantsEcosystemDependencies);
 
             long? packageSize = null;
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
@@ -849,7 +978,7 @@ public partial class PackageCommand
                 version,
                 target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
-                nuspec,
+                nuspec: null,
                 context.HttpClient,
                 logger,
                 options.ForceLatest,
@@ -857,7 +986,8 @@ public partial class PackageCommand
                 fetchMetadata: wantsPackageMetadata,
                 requireIdentifierMetadata: wantsIdentifierMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
-                sourceOptions: options.SourceOptions);
+                sourceOptions: options.SourceOptions,
+                requestedTargetFramework: options.Tfm);
 
             await ApplyPackageInfoMeasurementsAsync(
                 result,
@@ -1375,27 +1505,33 @@ public partial class PackageCommand
         await using DesktopPackageSourceComposition composition =
             context.CreatePackageSourceComposition();
         using var stores = new SearchPackageStores();
-        ConfiguredPackagePayloadResult acquisition =
+        PackageHouseContentQuery contentQuery =
+            PackageHouseContentQuery.PackageFileList();
+        PackageHouseSettlement contentSettlement =
             PackageExtractor.TryNormalizePackageVersion(
                 target.Version,
                 out string pinnedVersion)
-                ? await composition.AcquirePinnedAsync(
-                        target.PackageName,
-                        pinnedVersion,
+                ? await composition.AcquireContentAsync(
+                        PackageSourceCoordinate.Create(
+                            target.PackageName, pinnedVersion),
+                        contentQuery,
                         stores.GetStore,
                         options.SourceOptions,
                         context.Logger.Log)
                     .ConfigureAwait(false)
-                : await composition.AcquireSelectedAsync(
+                : await composition.AcquireSelectedContentAsync(
                         target.PackageName,
                         target.Version.Length > 0
                             ? target.Version
                             : null,
+                        contentQuery,
                         stores.GetStore,
                         options.SourceOptions,
                         context.Logger.Log,
                         options.IncludePrerelease)
                     .ConfigureAwait(false);
+        ConfiguredPackagePayloadResult acquisition =
+            PackageHousePayloadResultAdapter.Create(contentSettlement);
         if (acquisition.HouseSettlement
                 is not PackageHouseSettlement.Acquired settlement)
         {
@@ -1406,8 +1542,18 @@ public partial class PackageCommand
             return 1;
         }
 
+        if (settlement.Result.Evidence.FileList is not { } fileList)
+        {
+            WritePackageFileAcquisitionFailure(
+                target.PackageName,
+                target.Version,
+                acquisition);
+            return 1;
+        }
+
         if (MayRequireLegacyToolWrapperHandling(
-                settlement.Payload.Content.EnumerateEntries()))
+                fileList.Entries.Select(
+                    static entry => entry.Path)))
         {
             context.Logger.Log(
                 $"{target.PackageName}@{settlement.Payload.Coordinate.Version} "
@@ -1641,17 +1787,33 @@ public partial class PackageCommand
             RequestsPackageEcosystemDependencies(
                 producerOptions,
                 pipeline);
-        NuspecData? nuspec =
-            ReadCompileInventoryNuspec(
-                settlement.Payload.Content,
-                wantsEcosystemDependencies);
-        if (nuspec?.IsToolPackage == true)
+        InspectionEnvelope<PackageDependencyInspectionOutcome>
+            dependencyInspection =
+            await PackageDependencyInspectionOperation.ExecuteAsync(
+                    new(
+                        PackageInspectionInput.CreateFromPayload(
+                            settlement.Payload),
+                        options.Tfm))
+                .ConfigureAwait(false);
+        PackageManifestFacts? manifest =
+            dependencyInspection.Content switch
+            {
+                PackageDependencyInspectionOutcome.Available available =>
+                    available.Manifest,
+                PackageDependencyInspectionOutcome.Failed failed =>
+                    failed.Manifest,
+                _ => null,
+            };
+        if (manifest?.IsToolPackage == true)
+        {
             return PackageInfoInventoryAttempt.NotHandled;
+        }
 
         InspectionResult result =
             PackageInspector.InspectPackageInventory(
                 settlement,
-                nuspec);
+                dependencyInspection,
+                context.Logger.Log);
         ApplyPackageInfoMeasurementInspection(
             result,
             PackageInfoMeasurementInspection.Project(
@@ -1756,38 +1918,6 @@ public partial class PackageCommand
             && path.EndsWith(
                 ".deps.json",
                 StringComparison.OrdinalIgnoreCase);
-
-    private static NuspecData? ReadCompileInventoryNuspec(
-        IPackageContent content,
-        bool ecosystemRecognitionRequested)
-    {
-        string? manifestPath =
-            PackageManifestContent.FindRootManifest(content);
-        if (manifestPath is null
-            || !content.TryOpenEntry(
-                manifestPath,
-                PackageManifestFactsProjection.MaxManifestBytes,
-                out Stream? manifest))
-        {
-            return null;
-        }
-
-        using (manifest)
-        {
-            try
-            {
-                return NuspecParser.Parse(
-                    manifest,
-                    PackageManifestFactsProjection
-                        .MaxManifestCharacters);
-            }
-            catch (NuspecParseException) when (
-                ecosystemRecognitionRequested)
-            {
-                return null;
-            }
-        }
-    }
 
     private static void WritePackageInfoAcquisitionFailure(
         string packageId,
@@ -2424,7 +2554,7 @@ public partial class PackageCommand
 
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
     {
-        var rows = FlattenPackageFileContentRows(results, options).ToList();
+        var rows = FlattenPackageFileContentRows(results).ToList();
         var visibleRows = RowWindow.Apply(options.Rows, rows);
 
         // Same rule the print projection applies: a Markdown scope names a Markdown construct,
@@ -2520,8 +2650,7 @@ public partial class PackageCommand
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
-        IReadOnlyList<PackageFileContentSet> results,
-        InspectionOptions options)
+        IReadOnlyList<PackageFileContentSet> results)
     {
         foreach (var result in results)
         {
@@ -2530,7 +2659,7 @@ public partial class PackageCommand
                 foreach (var file in result.Files)
                     yield return file;
             }
-            else if (!options.SkipEmpty)
+            else
             {
                 yield return new PackageFileContent(
                     result.PackageName,
@@ -2590,54 +2719,6 @@ public partial class PackageCommand
         return builder.ToString();
     }
 
-    private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
-    {
-        if (IsPackageFileSection(section))
-        {
-            WriteMultiPackageFilesTable(results, section, options);
-            return;
-        }
-
-        WriteMultiPackageFieldTable(results, section, options);
-    }
-
-    private static void WriteMultiPackageFilesTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
-    {
-        if (options.Jsonl)
-        {
-            WriteMultiPackageFilesJsonl(results, section, options);
-            return;
-        }
-
-        var rows = BuildMultiPackageFileRows(results, section, options.SkipEmpty)
-            .Select(row => new[]
-            {
-                row.Package,
-                row.Version,
-                row.Path,
-                row.Size?.ToString(CultureInfo.InvariantCulture) ?? "",
-            })
-            .ToArray();
-        var windowedRows = RowWindow.Apply(options.Rows, rows).ToArray();
-
-        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
-        {
-            var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
-                options.Columns,
-                options.Fields);
-            OutputFormatter.ConfigureTableWriterOptions(
-                writerOptions,
-                options.Tsv,
-                options.Jsonl);
-            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
-            markoutWriter.WriteTable(
-                ["Package", "Version", "Path", "Size"],
-                ["package", "version", "path", "size"],
-                windowedRows);
-            markoutWriter.Flush();
-        });
-    }
-
     private static void WritePackageFilesJsonl(
         InspectionResult result,
         string section,
@@ -2660,100 +2741,6 @@ public partial class PackageCommand
             var row = new PackageFileJsonRow(file.Path, file.Size);
             output.WriteLine(JsonSerializer.Serialize(row, PackageFileJsonRowContext.Default.PackageFileJsonRow));
         }
-    }
-
-    private static void WriteMultiPackageFilesJsonl(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
-    {
-        var rows = BuildMultiPackageFileRows(results, section, options.SkipEmpty);
-        var selectedColumns = ResolveMultiPackageFileColumns(
-            section,
-            options.Columns);
-        foreach (var row in RowWindow.Apply(options.Rows, rows))
-            WriteMultiPackageFileJsonRow(row, selectedColumns);
-    }
-
-    private static List<PackageFileMultiJsonRow> BuildMultiPackageFileRows(
-        IReadOnlyList<InspectionResult> results,
-        string section,
-        bool skipEmpty)
-    {
-        var rows = new List<PackageFileMultiJsonRow>();
-        foreach (var result in results)
-        {
-            var text = new PackageInspectionText(result);
-            var files = GetPackageFileTextRows(result, text, section);
-            if (files.Count == 0)
-            {
-                if (!skipEmpty)
-                {
-                    rows.Add(
-                        new PackageFileMultiJsonRow(
-                            text.PackageName,
-                            text.Version,
-                            new InertString(TextPolicy.Field, ""),
-                            null));
-                }
-                continue;
-            }
-
-            foreach (var file in files)
-            {
-                rows.Add(
-                    new PackageFileMultiJsonRow(
-                        text.PackageName,
-                        text.Version,
-                        file.Path,
-                        file.Size));
-            }
-        }
-
-        return rows;
-    }
-
-    private static string[] ResolveMultiPackageFileColumns(
-        string section,
-        string[]? columns)
-    {
-        if (columns is not { Length: > 0 })
-            return MultiPackageFileColumnNames;
-
-        return ResolveProjectionNames(
-            MultiPackageFileColumnNames,
-            columns);
-    }
-
-    private static void WriteMultiPackageFileJsonRow(
-        PackageFileMultiJsonRow row,
-        IReadOnlyList<string> columns)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            writer.WriteStartObject();
-            foreach (string column in columns)
-            {
-                switch (column)
-                {
-                    case "Package":
-                        writer.WriteString("package", row.Package);
-                        break;
-                    case "Version":
-                        writer.WriteString("version", row.Version);
-                        break;
-                    case "Path":
-                        writer.WriteString("path", row.Path);
-                        break;
-                    case "Size":
-                        if (row.Size is { } size)
-                            writer.WriteNumber("size", size);
-                        else
-                            writer.WriteNull("size");
-                        break;
-                }
-            }
-            writer.WriteEndObject();
-        }
-        Console.WriteLine(Encoding.UTF8.GetString(buffer.WrittenSpan));
     }
 
     private static int PrintPackageBareSelection(
@@ -2944,73 +2931,6 @@ public partial class PackageCommand
         return [];
     }
 
-    private static void WriteMultiPackageFieldTable(
-        IReadOnlyList<InspectionResult> results,
-        string section,
-        InspectionOptions options)
-    {
-        var rows = BuildMultiPackageFieldRows(
-            results,
-            section,
-            options.Fields);
-
-        string rendered = OutputFormatter.RenderProjectedTable(
-            !options.NoHeader,
-            options.Tsv,
-            options.Jsonl,
-            options.Columns,
-            fields: null,
-            (writer, formatter, writerOptions) =>
-            {
-                var markoutWriter =
-                    new MarkoutWriter(writer, formatter, writerOptions);
-                markoutWriter.WriteTable(
-                    ["Package", "Field", "Value"],
-                    ["package", "field", "value"],
-                    rows);
-                markoutWriter.Flush();
-            });
-        DiagnoseMissingPackageFieldSectionFields(
-            section,
-            options.Fields,
-            rows.Select(row => row[1]));
-        Console.Out.Write(
-            OutputFormatter.LimitRenderedTableRows(
-                rendered,
-                options.Rows,
-                !options.NoHeader));
-    }
-
-    private static void DiagnoseMissingPackageFieldSectionFields(
-        string section,
-        string[]? patterns,
-        IEnumerable<string> renderedFields)
-    {
-        if (patterns is not { Length: > 0 })
-            return;
-
-        var rendered = renderedFields.ToHashSet(
-            StringComparer.OrdinalIgnoreCase);
-        var missing = patterns
-            .Where(pattern =>
-            {
-                string[] resolved = ResolveProjectionNames(
-                    GetMultiPackageFieldNames(section),
-                    [pattern]);
-                return resolved.Length > 0
-                    && !resolved.Any(rendered.Contains);
-            })
-            .ToArray();
-        if (missing.Length == 0)
-            return;
-
-        string label = missing.Length == 1
-            ? "field has"
-            : "fields have";
-        CommandError.WriteNote(
-            $"{missing.Length} {label} no data: {string.Join(", ", missing)}");
-    }
-
     private static IEnumerable<MarkoutField> SelectPackageInfoFields(
         InspectionResult result,
         IReadOnlyList<string>? selectedFields)
@@ -3027,89 +2947,4 @@ public partial class PackageCommand
             .Select(field => byName[field]);
     }
 
-    private static IEnumerable<MarkoutField> SelectPackageFieldSectionFields(
-        InspectionResultView view,
-        string section,
-        IReadOnlyList<string>? selectedFields)
-    {
-        IEnumerable<MarkoutField> fields =
-            section.Equals(
-                PackageSections.PackageInfo,
-                StringComparison.OrdinalIgnoreCase)
-                ? view.Metadata
-                : view.SigningSectionData?
-                    .ToMarkoutFields()
-                    ?? [];
-        if (selectedFields == null)
-            return fields;
-
-        var byName = fields.ToDictionary(
-            field => field.Key,
-            StringComparer.OrdinalIgnoreCase);
-        return selectedFields
-            .Where(byName.ContainsKey)
-            .Select(field => byName[field]);
-    }
-
-    private static string[][] BuildMultiPackageFieldRows(
-        IReadOnlyList<InspectionResult> results,
-        string section,
-        string[]? fields)
-    {
-        var selectedFields = ResolvePackageFieldSectionFields(
-            section,
-            fields);
-
-        return results
-            .SelectMany(result =>
-            {
-                var view = new InspectionResultView(result);
-                return SelectPackageFieldSectionFields(
-                        view,
-                        section,
-                        selectedFields)
-                .Select(field => new[]
-                {
-                    view.PackageName,
-                    field.Key,
-                    field.Value?.ToString() ?? "",
-                });
-            })
-            .ToArray();
-    }
-
-    private static int WindowedCount(int count, RowWindow? rows)
-    {
-        var (start, end) = ResolveRowWindow(count, rows);
-        return end - start;
-    }
-
-    private static (int Start, int End) ResolveRowWindow(int count, RowWindow? rows)
-        => rows is { IsUnlimited: false } window
-            ? window.Resolve(count)
-            : (0, count);
-
-    private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
-    {
-        result.PackageName = nuspec.PackageName ?? result.PackageName;
-        result.ManifestVersion = nuspec.ManifestVersion;
-        result.Version = nuspec.Version ?? result.Version;
-        result.Description = nuspec.Description;
-        result.Authors = nuspec.Authors;
-        result.Repository = nuspec.Repository;
-        result.RepositoryType = nuspec.RepositoryType;
-        result.RepositoryCommit = nuspec.RepositoryCommit;
-        result.License = nuspec.License;
-        result.LicenseUrl = nuspec.LicenseUrl;
-        result.DeclaredLicenseFile = nuspec.LicenseDeclaration is
-            {
-                Kind: PackageLicenseDeclarationKind.File,
-            } license
-                ? license.Value
-                : null;
-        result.PackageTypes = nuspec.PackageTypes;
-        result.IsToolPackage = nuspec.IsToolPackage;
-        result.ReadmeFile = nuspec.ReadmeFile;
-        result.DependencyGroups = nuspec.DependencyGroups;
-    }
 }

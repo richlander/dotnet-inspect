@@ -48,10 +48,10 @@ duplicated per host. Only the pairwise producers and the analysis-set runner
 | Decision | Where it is made today |
 | --- | --- |
 | Which versions to compare | Browser TypeScript (`resolveEffectiveDiffTarget` in `package-comparison-targets.ts`); the CLI's literal `A..B` (`DiffCommand`); CLI History (`DiffHistoryEvaluationPlan`) |
-| Which Libraries correspond | `PackageCompileAssetSelector.FindComparisonAsset` (browser exports); `LibraryApiDiffRunner` (`.Single()` per side); History's Type matching across all of a cell's assemblies; `CoordinateLibraryPairingQuery` |
+| Which Libraries correspond | `PackageCompileAssetSelector.FindComparisonAsset` (browser exports); `LibraryApiChangesDiffAdapter` (`.Single()` per side); History's Type matching across all of a cell's assemblies; `CoordinateLibraryPairingQuery` |
 | How endpoints are acquired | Browser `BrowserPackageWorkspace.OpenScopeAsync`; CLI `ApiSurfaceEndpointResolver`; CLI `PackageEndpointDiffSession`; History `PackageHouseVersionPopulation.SelectCell` |
-| Which analyses run and how results combine | `DiffAnalysisInspection` (shared), with inputs built separately by the CLI (`RunAnalysisSet`) and the browser (`DiffAnalysisLibraryInspection`) |
-| Single-Library API Diff terminal | Browser: the analysis set; CLI: `LibraryApiDiffRunner` and `LibraryApiDiffInspection` |
+| Which analyses run and how results combine | `DiffAnalysisInspection` (shared), with inputs built by the operation's one input builder from the browser (`DiffOperation.ExecuteLibraryPair`) and CLI `diff --analysis` (`DiffOperation.ExecuteSurfaceSetAsync`, over host-opened surfaces) |
+| Single-Library API Diff terminal | `DiffOperation.ExecuteLibraryPair`, from the browser and from CLI `diff` through `LibraryApiChangesDiffAdapter`; `DiffCommand.ExecuteLibraryApiChangesAsync` projects its `LibraryApi` through `LibraryApiChangesInspection` |
 | Which Member bodies to diff | Browser: `MemberBodyDiffInspection`; CLI: `ImplementationComparisonQuery` |
 | Iterating a version population | `DiffHistoryMethodology`, CLI only, evaluating each version on its own and lowered by the CLI host (`DiffHistoryOutput`); its orchestration now runs in `DiffOperation` |
 
@@ -70,6 +70,86 @@ comparison.
 > analyses and populations, runs producers, and combines their results.
 > Comparison infrastructure that does not depend on packages, versions or
 > hosts lives in the `ILInspector` layer, where any scenario can reuse it.
+
+## Scenarios
+
+The scarce resource is time. The goal is a diff, and findings in general,
+cheap enough to be always available: the way IntelliSense made every Type and
+member list available on a partial name or a trailing dot, and the way the
+`.Add*` queries carry that one step further. For diff that means opening a
+package and seeing at once what changed, broadly or for one member, and asking
+of one member when it last changed. The Exists case carries that promise; the
+exhaustive case explains what Exists found.
+
+Five scenarios are foundational, and each is one composition of three
+primitives: rows are paired across images by their owner's correspondence
+(Finding Diff Any's [identity](finding-diff-any.md#identity) for Types and
+the members it reads, [API qualified anchor](api-qualified-anchor.md) for a
+member named across versions); each paired row is decided by **Exists**
+(lockstep that stops at the row's first difference) or read in full by
+**Exhaustive** (the complete diff of the row); and row decisions fold up to
+the requested scope. The axes, API and Body, are which row kinds are read.
+The rungs are [Diff capabilities](diff-capabilities.md)'.
+
+| Scenario | Pairing | Per-row decision and fold | Rungs |
+| --- | --- | --- | --- |
+| **Member**: one member, A against A' | One member by its anchor | Exists, or Exhaustive, on API and/or Body; no fold: the single-atom diff | 2 for one row, 4 |
+| **Type**: one Type, A against A' | The Type's members and its declaration facts | Type Exists, stopped at the Type's first difference; every row's Exists state; or Exhaustive per row | 1, 2, 3 |
+| **Assembly**: A against A' | Every Type, then every member | Type Exists for every Type; or Exhaustive per Type, per Member, or both, folded to Type states and the Library state: the full offline assembly diff | 1 to 4 |
+| **Batch**: A against several versions | One image paired with each of the others, a star | Exists per row, folded to Type states per version pair, such as the current major's previous patch and the last major's patch against A | 1 and 2, repeated |
+| **Bisect**: one member across a version sequence | One member by its anchor in each version | Exists per row, folded to every version interval across which the member differs, on API and/or Body, with no assumption that it changed once | 2 for one row, repeated |
+
+Finding Diff Any is the assembly scenario, hard-wired: assembly-wide pairing,
+Type-scope folds, and a private body reader, the walk, that decides a paired
+method's Body without a cursor. Product hosts reach the Type scenario today by
+filtering its assembly result; its Type-scoped entry,
+`FindingDiffAnyTypePairing`, pairs two images once and returns one paired
+Type's rows and states through either body reader ([Type
+inventory](finding-diff-any.md#type)), with no product host yet; the Member
+fold over those rows is the Type level's, not yet composed, and `Explain`
+returns first-difference text. It reaches the member scenario only through
+internal gate hooks; the member Body diff lives in IL diff's endpoints, and a
+member's API today is read as a filter over the surface-wide API comparison.
+[Diff History](diff-history.md) composes the chain form, each consecutive pair
+of a version population, in two ways: Library-scope History over Finding Diff
+Any at explicit points, and Type- or Member-focused History over Finding
+producers, such as the API member and Analysis Findings, whose adaptive probing
+bisects one Type's or one Member's Findings by inspecting each point it probes,
+with no assumption that the focus changed once. Batch as a star, and bisect
+over Exists on Finding Diff Any's axes, are not composed. Finding Diff Any is
+therefore one composition, not the solution.
+
+What is foundational is what every row of the table uses: the cursors and
+`FindingExists` of [Finding census](finding-census.md), which owns the reading
+of one row on one kind including when it is `Indeterminate`; the exhaustive
+comparison of each kind; and the vocabulary Finding Diff Any owns as contract
+rather than mechanism: the identity rule, which rows count toward which axis,
+and how a Type's rows and their undecided readings fold. Since Finding census
+step 4, Finding Diff Any owns Exists at Library, Type, and Member scope, as a
+composition of those primitives. The walk is a provision of that owner, kept
+because Finding census step 2b measured it cheaper than lockstep over the
+cursors, and deleted only when lockstep matches or beats it on every number
+Finding census's Cost gate reports; it is justified by time alone, never by a
+second definition of change.
+
+Three consequences follow for what Finding Diff Any does not compose:
+
+- **Batch** wants one census side per image reused across the batch's
+  comparisons, so an image's Type-level keys are spelled once. The Symbol Key
+  interning table is scoped to one comparison today and a side releases it
+  when it completes, so batch needs the table scoped to the batch, recorded
+  on [#10533](https://github.com/richlander/dotnet-inspect/issues/10533).
+- **Bisect over Exists** is where per-row Exists pays most: it reads one
+  member per version and stops at that member's first difference, so its cost
+  is one member times the versions probed, never a whole comparison per
+  point. Its Body axis needs the declaration cursor of Finding census step 3
+  beside the IL cursor, since a member's Body facts include declaration facts,
+  and its API axis needs a per-member reading under Finding Diff Any's
+  API-axis equality, which its [Member level](finding-diff-any.md#member)
+  defines and no owner provides yet.
+- **The Type scenario at rung 3** is composed by
+  [Annotated Type Map](annotated-type-map.md), which reads the per-Member
+  exhaustive diffs under one Type; Finding Diff Any does not compose it.
 
 ## Layers
 
@@ -185,7 +265,7 @@ payloads. These are the main `T` types in production on `main` in October
 | Text lines | `string` | Inspect, Compare, `AnalysisDiff<string>` | `TextFindings`: member source diff, the authored source pair, the annotated source diff |
 | Source | `SourceDocumentObservation`, `MemberSourceObservation` | Inspect, Compare | SourceLink and source Findings |
 | Body semantics in History | `AllocationOccurrence`, `DirectCall`, `UnsafetyOccurrence` | Inspect, Compare, census Correlate, History transitions | Analysis producers that `diff --history` accepts |
-| Other body semantics | `UnsafeEvidence`, `StringLiteralUseOccurrence`, `SwitchInfo` compare; `StringMaterializationOccurrence`, `ResourceLifecycleOccurrence`, `ResourceOwnershipPathWitness`, `CallGraphCycleWitness` and `UnsafeMemberFinding` are inspected only; `UnsafeMemberFinding` has no host caller yet ([unsafe member Findings](unsafe-member-findings.md)) | Inspect, and Compare where noted | Analysis producers in the [analysis catalog](command-transition-model.md#analysis-selection) |
+| Other body semantics | `UnsafeEvidence`, `StringLiteralUseOccurrence`, `SwitchInfo` and `UnsafeMemberFinding` compare, `UnsafeMemberFinding` through `diff --analysis unsafe-member` ([Unsafe Members section](unsafe-members-section.md#diff)); `StringMaterializationOccurrence`, `ResourceLifecycleOccurrence`, `ResourceOwnershipPathWitness` and `CallGraphCycleWitness` are inspected only | Inspect, and Compare where noted | Analysis producers in the [analysis catalog](command-transition-model.md#analysis-selection) |
 | Assembly metadata | `AssemblyReference`, `AssemblyAttributeInfo`, `TypeForwarderInfo`, `ManifestResourceInfo`, `CompilationOptionInfo`, `CompilationReferenceInfo`, `UnionTypeInfo`, `ExtensionMemberObservation`, `ClassifiedMethodObservation` compare; `AssemblySurfaceClassification` is inspected only | Inspect, and Compare where noted, mostly in identity-set mode | Metadata Findings |
 | Ecosystem signals | `OpenTelemetrySignalInfo`, `EcosystemIntegrationSignalInfo` | Inspect, Compare | Ecosystem producers |
 | Decompiler | `DecompilerFidelityCause` | Inspect, Compare | Decompiler fidelity |
@@ -208,7 +288,7 @@ today, across about thirty payloads, while the other rungs serve narrow domains:
 covers History's six payloads, and exact-identity Correlate is API members only.
 The designed `ComparisonDocument<AnalysisDiff<TItem>>` and
 `ComparisonDocument<MappedTextDiff>` forms have no production instantiation.
-Finding Diff Any's `FindingDiffAnyState`, `ApiDiffAnalyzer`'s `ApiChange`, and
+Finding Diff Any's `FindingDiffAnyState`, `ApiFindingClassifier`'s `ApiChange`, and
 the IL and C# body rows have no `T` at all; they are the producers that the next
 table marks as off the ladder.
 
@@ -222,7 +302,7 @@ table marks as off the ladder.
 | **Text characterization** | `TextDiffCharacterization` (`TextRegion`, `TextChange`, `TextMove`) over an `AnalysisDiff<string>` | Lines, with whitespace-only and moved changes | Facts over an `AnalysisDiff<string>` | [Text whitespace](text-whitespace-characterization.md), [text moves](text-move-characterization.md) |
 | **Canonical IL comparison** | `IlBodyDiff` rows over `CanonicalIlOperation` | One method body | No: native rows; IL Findings take the ladder separately | [IL diff canonicalization](il-diff-canonicalization.md) |
 | **C# body comparison** | `CSharpBodyDiff` line rows; `CSharpStructuralComparison` node matches within one body | One method body | No: native rows; C# Findings take the ladder separately | [Implementation diff](implementation-diff.md#structural-body-comparison) |
-| **API surface comparison** | `ApiDiffAnalyzer` `ApiChange` with `ChangeKind` and `ChangeClassification` | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
+| **API surface comparison** | `ApiFindingClassifier` `ApiChange` with `ChangeKind` and `ChangeClassification`, from `ApiDiffAnalyzer`'s change facts over the API Finding correspondence | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
 | **Axis summary** | `FindingDiffAnyState` per Type and axis | Type, with Member and residual partitions designed | No: per-pair states | [Finding Diff Any](finding-diff-any.md#levels) |
 | **Subject composition** | `ComparisonSubjectChange`: Diff, Addition, Deletion, Rename, Move, RenameAndMove | A root or subject in a composed comparison | Composition, not a rung | [Comparison document](comparison-document.md#subject-changes) |
 
@@ -270,7 +350,7 @@ way for every producer.
 - **Moves inside IL and C# line diffs.** Only Findings, text and C# structure
   detect moves.
 - **Correlation for non-Finding producers.** Finding Diff Any,
-  `ApiDiffAnalyzer`, and the IL and C# body diffs return native rows rather than
+  `ApiFindingClassifier`, and the IL and C# body diffs return native rows rather than
   Findings, so their results cannot be correlated across versions; only their
   Finding projections can.
 - **One alignment kernel.** Three product LCS implementations exist:
@@ -505,6 +585,83 @@ each result. A host that needs only part of a result, such as the browser's
 Type cue, asks for that content in the request rather than filtering a larger
 one.
 
+### Single-Library API Diff terminal
+
+A pair request over the analysis catalog whose subject is one Library, or a
+Type or Member within one Library, is the single-Library API Diff terminal for
+both hosts. A Type or Member subject is the request's target within its
+Library. The terminal returns `InspectionEnvelope<DiffAnalysisDocument>`, the
+shape Inspect Web already consumes, and populates `LibraryApi` when the request
+asks for it: the browser asks, and CLI `diff --analysis` does not, so its JSON
+keeps omitting `libraryApi`. The CLI's Library API Changes output is a
+projection of that result. `LibraryApiDiffDocument`, which [Library API diff
+presentation](library-api-diff-presentation.md) owns, and the analysis set's
+`api` outcome, which the [command transition
+model](command-transition-model.md#content-and-failure) owns, stay two
+projections of one comparison; neither becomes the other.
+
+The request states its **targets**: the Library, named Types, or named
+Members. CLI patterns such as `-t` and `--member` resolve against both sides'
+Type names into targets before anything is extracted, and a Type selection that
+narrows Library API Changes stays part of the request, so changed Types outside
+it are not extracted. From the targets the operation, not the host, derives the
+Types it reads in full:
+
+- every targeted Type, for a Type or Member target;
+- every Type, when a requested outcome counts unchanged subjects across the
+  Library, such as the `api` analysis's Summary;
+- both sides' extension-declaring Types, as Type selection already requires;
+  and
+- every Type, at a view the [Unchanged
+  prefilter](finding-producers.md#unchanged-prefilter)
+  does not define.
+
+The Unchanged prefilter skips every other Type whose closure hash is equal on
+both sides. Skipping is therefore a property of the one request, never of a
+host, and a host that needs an unchanged Type's rows asks for it as a target.
+For the facts a comparison states about the whole Library:
+
+- **Retention bounds**, the Type, member and retained-text limits, count
+  only the Types the comparison extracts. A skipped Type is proven unchanged
+  and retains nothing, so a comparison that a retention bound truncates today
+  may complete. That is the prefilter's one intentional output change.
+- **Image bounds**, such as the browser's metadata-row limit, apply to the
+  image before anything is hashed or extracted, so they change no output, and
+  the hashing pass runs within the same operation as extraction. A package
+  load stays bounded work.
+- **Failures** stay conservative. A Type whose closure could not be hashed,
+  or whose extraction would record an inspection failure, a degraded
+  signature, or a resolution failure outside the image, is not skipped, and
+  when either side's context hash cannot be computed, nothing is skipped.
+  Endpoint completeness and the degraded-signature count are therefore
+  unchanged. The prefilter's read-set guard keeps the extractor's reads inside
+  the closure. The prefilter slice is
+  [finding producers' slice 2](finding-producers.md#unchanged-prefilter), and
+  that guard and this failure rule gate it.
+
+Until adoption steps 3 and 5 land, the operation takes a Library pair the
+host has already opened: the host keeps its acquisition and its Library
+pairing, the CLI's single-asset pairing and the browser's
+`FindComparisonAsset`, unchanged. Steps 3 and 5 then produce that pair inside
+the operation. Multi-Library Package and Platform assembly sets likewise
+enter as host-opened sets, which step 3 retires with the endpoint routes. A
+host-owned comparison cache stays with the host, as layer 5
+places it, but the operation issues its key: the endpoint identities, the
+framework, the view, and the bounds. Targets are not in the key; a later
+request whose target the prefilter skipped, or a request's Type selection
+excluded, compares that Type on demand. The
+key slice lands before the prefilter slice, and the prefilter slice brings the
+on-demand comparison, so cached reuse never serves a comparison missing its
+target.
+
+The CLI's `diff --analysis api` compares the API axis, as `diff` does, for
+every subject the one input builder serves: single-Library through this
+terminal, and multi-Library Package and Platform assembly sets through the same
+builder, closing
+[#10391](https://github.com/richlander/dotnet-inspect/issues/10391). That is an
+intentional output change for that route, matching how Library API Changes
+already reports accessibility moves.
+
 ## Browser and CLI
 
 Both hosts call the same operation:
@@ -532,10 +689,10 @@ first, so later steps retire duplicates rather than add adapters.
 | 1 | This design | None |
 | 2 | Create `DotnetInspector.Diff` with `DiffRequest` and `DiffOperation`. Move Diff History's orchestration into it as the per-point mode, returning `DiffHistoryOutcome` unchanged. `diff --history` calls it. Done: `DiffOperation.ExecuteAsync` and `ExecuteWithEvidenceAsync` take a `DiffHistoryRequest` and a `DiffAcquisition`, and the engines are internal to the diff system. Per-version cell evaluators stay in `PackageQueries` until step 3. | `DiffHistoryInspector`, `DiffHistoryMethodology` and History request types in `PackageQueries`; `DiffHistoryInspection` in `DotnetInspector.Sections` |
 | 2b | History's lowering moves from the CLI host into Presentation, after `FindingTargetFormatter` moves below Presentation; next-action command text stays in the CLI. Done: `DiffHistoryPresentation.Project` builds the Markout view and takes the host's `DiffHistoryNextActionFormatter`; `DiffHistoryJsonOutput` and its context serialize the outcome; Presentation admits `NuGet.Versioning`, which package-version contracts expose. | `DiffHistoryJsonOutput`, the view models and the projection in the CLI; the CLI keeps writing, section selection, row selection and command text |
-| 3 | Every point opens through its kind's seam, in both hosts, finishing [package endpoint scope](package-endpoint-scope.md#adoption) adoption. The browser gains the endpoint scope and a population cell executor; both hosts share one Root and Workspace composition behind the two seams. Prerequisites: the [package cache policy](package-cache-policy.md) decision that endpoint scope adoption names, and Platform endpoints from Platform realization. | `ApiSurfaceEndpointResolver` diff routes; `PackageEndpointDiffSession`; the browser's per-export `OpenScopeAsync` pairs; the duplicate Root and Workspace composition in the CLI's cell executor |
+| 3 | Every point opens through its kind's seam, in both hosts, finishing [package endpoint scope](package-endpoint-scope.md#adoption) adoption. The browser gains the endpoint scope and a population cell executor; both hosts share one Root and Workspace composition behind the two seams. Prerequisites: the [package cache policy](package-cache-policy.md) decision that endpoint scope adoption names, and Platform endpoints from Platform realization. | `ApiSurfaceEndpointResolver` diff routes; `PackageEndpointDiffSession`; the hosts' acquisition ahead of step 6's host-opened Library pair and set inputs, and the set input itself; the browser's per-export `OpenScopeAsync` pairs; the duplicate Root and Workspace composition in the CLI's cell executor |
 | 4 | Add the paired-steps mode, version-window requests and the request-set entry. Run Finding Diff Any as a paired producer, with its slicing driven by the operation. Rename Finding Diff Any steps to slices. | The browser's own Finding Diff Any slice loop in `LibraryFindingDiffAnyExports` |
-| 5 | One Library correspondence query for paired-mode steps, owned by [compile-asset correspondence](package-asset-selection-correspondence.md#comparison-counterparts). Per-point focus resolution stays History's rule. | `LibraryApiDiffRunner`'s `.Single()` pairing; per-export `FindComparisonAsset` calls |
-| 6 | Move the analysis-set runner and its single input builder into the operation. Single-Library API Diff has one terminal. | `RunAnalysisSet`'s separate input builder; `LibraryApiDiffRunner` and `LibraryApiDiffInspection` as a separate terminal |
+| 5 | One Library correspondence query for paired-mode steps, owned by [compile-asset correspondence](package-asset-selection-correspondence.md#comparison-counterparts). Per-point focus resolution stays History's rule. | The hosts' Library pairing ahead of step 6's host-opened Library pair input: the CLI's single-asset pairing, formerly `LibraryApiDiffRunner`'s `.Single()`, and per-export `FindComparisonAsset` calls; that transitional input itself |
+| 6 | Move the analysis-set runner and its single input builder into the operation. Single-Library API Diff has one terminal, as [Single-Library API Diff terminal](#single-library-api-diff-terminal) states. It may land before steps 3 to 5 on host-opened Library pairs and sets. Its slices, in order: the CLI's projections read the completed outcome; the terminal moves into the operation and the browser calls it; CLI `diff` calls it; one input builder in the operation serves every `diff --analysis` subject, single-Library, multi-Library Package and Platform assembly sets; `diff --analysis api` compares the API axis; the operation issues the cache key; the Unchanged prefilter skips by request targets and compares skipped targets on demand. Every slice is byte-identical except two named intentional changes: the API-axis move, and the prefilter's retention bounds. The slice that retires `LibraryApiDiffInspection` moves its tests to the terminal and amends the owners that name them: [Library API diff presentation](library-api-diff-presentation.md), the [adoption census](diff-command-adoption-census.md), [package endpoint scope](package-endpoint-scope.md), the [command transition model](command-transition-model.md), and the [inspection space](../inspection-space.md); the moved tests keep every property those owners gate. | The CLI's analysis-set input builder (`CreateAnalysisSetRequest` and `ExecuteAnalysisSetAsync`); `LibraryApiDiffRunner`, and `LibraryApiDiffInspection`, its tests moving to the terminal; the browser's own input builder, formerly `DiffAnalysisLibraryInspection` |
 | 7 | Member body content uses one selected-population request | `MemberBodyDiffInspection` as a browser-only path; CLI Implementation Diff's separate population |
 | 8 | Browser exports become thin adapters over the operation; the background cue requests window policies | TypeScript version choice (`resolveEffectiveDiffTarget` choosing versions); per-export pairing and aggregation code; the whole-Library API Diff behind the one-Type cue once Finding Diff Any's Type level lands |
 | 9 | CLI `diff` routes, including Platform and local-file diff, collapse onto the operation; the three command-owned routes are owned here | Command-owned routes in the [adoption census](diff-command-adoption-census.md) |
