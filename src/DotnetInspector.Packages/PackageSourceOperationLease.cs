@@ -17,6 +17,8 @@ public sealed class PackageSourceOperationLease : IDisposable
     private readonly NuGetOperationContext _context;
     private readonly PackageSourceDependencyVersionObservations
         _dependencyVersions = new();
+    private readonly PackageSourceDependencyVersionObservations<
+        PackageSourceDependencyCandidateEvidence> _dependencyCandidateVersions = new();
     private int _activeSteps;
     private bool _disposed;
 
@@ -220,6 +222,20 @@ public sealed class PackageSourceOperationLease : IDisposable
             _dependencyVersions);
     }
 
+    public Task<PackageVersionDiscoveryResult> DiscoverDependencyCandidateVersionsAsync(
+        string packageId,
+        string? canonicalVersionConstraint,
+        IPackageSourceAuthorization sourceAuthorization,
+        Action<string>? log = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        PackageDependencyVersionRange.Validate(canonicalVersionConstraint);
+        return DiscoverDependencyCandidateCoreAsync(
+            StartWork(), packageId, canonicalVersionConstraint,
+            sourceAuthorization, log, _dependencyCandidateVersions);
+    }
+
     public Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
         string packageId,
         IPackageSourceAuthorization sourceAuthorization,
@@ -382,6 +398,7 @@ public sealed class PackageSourceOperationLease : IDisposable
             finally
             {
                 _dependencyVersions.Clear();
+                _dependencyCandidateVersions.Clear();
                 _generation.ReleaseOperation();
             }
         }
@@ -509,6 +526,19 @@ public sealed class PackageSourceOperationLease : IDisposable
                 operationContext: work.Context,
                 log,
                 observations).ConfigureAwait(false);
+    }
+
+    private static async Task<PackageVersionDiscoveryResult> DiscoverDependencyCandidateCoreAsync(
+        ActiveWorkRegistration work,
+        string packageId,
+        string? constraint,
+        IPackageSourceAuthorization authorization,
+        Action<string>? log,
+        PackageSourceDependencyVersionObservations<PackageSourceDependencyCandidateEvidence> observations)
+    {
+        using (work)
+            return await work.Generation.DiscoverDependencyCandidateVersionsAsync(
+                packageId, constraint, authorization, work.Context, observations, log).ConfigureAwait(false);
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverCoreAsync(
