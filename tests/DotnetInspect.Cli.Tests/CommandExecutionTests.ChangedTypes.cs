@@ -50,15 +50,21 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Diff_ChangedTypes_PackageWithReferenceAssemblies_ComparesImplementations()
     {
+        // Unsafe 5.0.0 ships ref/ and lib/ for netstandard2.0; its reference
+        // stubs carry nullable attributes its implementation does not.
         var (exit, output, error) = await RunAppAsync(
             "diff", "--package", "System.Runtime.CompilerServices.Unsafe@5.0.0..6.0.0",
-            "-S", "Changed Types", "--json");
+            "--tfm", "netstandard2.0", "-S", "Changed Types");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("\"Compared\"", output);
-        // A reference stub's methods throw; only implementation bodies are compared.
-        Assert.DoesNotContain("\"bodiesCompared\": 0", output);
+        Assert.Equal(
+            [
+                "Microsoft.CodeAnalysis.EmbeddedAttribute",
+                "System.Runtime.CompilerServices.NativeIntegerAttribute",
+                "System.Runtime.CompilerServices.Unsafe",
+            ],
+            DataRows(output).Select(row => row[0]));
     }
 
     [Fact]
