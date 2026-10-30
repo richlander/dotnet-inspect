@@ -20,11 +20,11 @@ internal static class PackageQueryCommandCapability
                     BindingIdentity,
                     InspectionConsumerKind.Cli,
                     "dotnet-inspect CLI",
-                    "package query"),
+                    "find --packages"),
                 PackageQueryCapability.Route,
                 PackageQuery.InspectionTermBindingIdentities,
                 [
-                    "Supply a package ID or PREFIX* as the positional argument after package query.",
+                    "Supply a package ID or PREFIX* as the positional argument after find --packages.",
                     $"Supply exposed inspection facets through --where \"key{RowPredicateSyntaxParser.Comparison(PortableQueryOperator.Equal)}value\" for eq"
                     + $" or --where \"key {RowPredicateSyntaxParser.Comparison(PortableQueryOperator.StartsWith)} value\" for starts-with;"
                     + " use only operators exposed by the facet.",

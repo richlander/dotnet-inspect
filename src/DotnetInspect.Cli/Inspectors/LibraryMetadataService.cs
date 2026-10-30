@@ -111,6 +111,8 @@ internal static class LibraryMetadataService
                 bodyAnalysisFeatures
                     != Analysis.LibraryBodyAnalysisFeatures.None
                 || requiredQueries?.Contains(
+                    TopLeverageQuery.Definition) == true
+                || requiredQueries?.Contains(
                     SyncCallsInAsyncDemand.Section) == true
                 || usesFocusedLibraryMetrics
                 || needsResourceLifecycle;
@@ -592,8 +594,7 @@ internal static class LibraryMetadataService
         IReadOnlyCollection<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
-        if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(
+        if (queries?.Contains(
                 LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;

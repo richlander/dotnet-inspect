@@ -173,8 +173,8 @@ public class QueryDiscoveryTests
     public async Task LibraryQuery_ProjectsRegisteredReferenceCapabilityWithoutAcquisition()
     {
         var result = await Run(
-            "library",
-            "query",
+            "find",
+            "--libraries",
             "-Q",
             LibraryQuerySections.LibrariesName,
             "--json");
@@ -383,8 +383,8 @@ public class QueryDiscoveryTests
     public async Task QueryRejectsDataDiscoveryModes(string mode)
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             mode,
@@ -412,8 +412,8 @@ public class QueryDiscoveryTests
         string expected)
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             option,
             value,
             "-Q",
@@ -518,15 +518,15 @@ public class QueryDiscoveryTests
     public async Task PackageQueryDiscovery_IsInertAndDescribesExecutableTerms()
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             "--json");
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Equal(
-            "package query",
+            "find --packages",
             json.RootElement.GetProperty("command").GetString());
         JsonElement[] facets =
         [
@@ -612,10 +612,10 @@ public class QueryDiscoveryTests
             ? [$"{option}=Query: Packages"]
             : [option, "Query: Packages"];
         var result = await Run(
-            ["package", "query", .. selector, "--json"]);
+            ["find", "--packages", .. selector, "--json"]);
         var query = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             "--json");
@@ -737,8 +737,8 @@ public class QueryDiscoveryTests
     public async Task PackageQueryDiscovery_AppliesSemanticSelectionStages()
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             "-n",

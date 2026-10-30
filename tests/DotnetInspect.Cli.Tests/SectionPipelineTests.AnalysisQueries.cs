@@ -852,7 +852,8 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void ResourceTriageAndTopLeverage_ShareFocusedAnalysisWithoutBodyIndex()
+    public void
+        ResourceTriageAndTopLeverage_KeepRequiredAndFocusedAnalysisSeparate()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
@@ -894,6 +895,12 @@ public partial class SectionPipelineTests
         Assert.Contains(
             "resource lifecycle: True",
             bodyAnalysis.Detail.ToString());
+        var leverageAnalysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "method leverage analysis");
+        Assert.Contains(
+            "local desktop realization",
+            leverageAnalysis.Detail.ToString());
         Assert.DoesNotContain(
             trace.Resources,
             resource => resource.Resource == "body index");
@@ -928,13 +935,22 @@ public partial class SectionPipelineTests
         var available = Assert.IsType<TopLeverageResult.Available>(
             results.Get(TopLeverageQuery.Definition));
         Assert.NotEmpty(available.Methods);
-        var bodyAnalysis = Assert.Single(
+        Assert.Contains(
+            available.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "state-machine source does not map to a unique valid "
+                    + "execution body",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
             trace.Resources,
             resource => resource.Resource == "body analysis");
-        Assert.StartsWith("built in", bodyAnalysis.Detail.ToString());
+        var leverageAnalysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "method leverage analysis");
+        Assert.StartsWith("built in", leverageAnalysis.Detail.ToString());
         Assert.Contains(
-            "MethodEvidence",
-            bodyAnalysis.Detail.ToString());
+            "local desktop realization",
+            leverageAnalysis.Detail.ToString());
         Assert.DoesNotContain(
             trace.Resources,
             resource => resource.Resource == "body index");
@@ -951,7 +967,7 @@ public partial class SectionPipelineTests
 
         var failed = Assert.IsType<TopLeverageResult.Failed>(
             results.Get(TopLeverageQuery.Definition));
-        Assert.IsType<InvalidOperationException>(failed.Error);
+        Assert.IsType<FileNotFoundException>(failed.Error);
     }
 
     [Fact]

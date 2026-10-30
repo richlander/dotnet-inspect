@@ -131,6 +131,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("containPackageDocumentLeaves"),
     queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
+    queryLibrarySurface: () => unexpected("queryLibrarySurface"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
     queryPlatformMemberDocumentation: () =>
@@ -2739,6 +2740,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "prefetchPlatformPacks",
       "queryLibraries",
       "queryLibraryApi",
+      "queryLibrarySurface",
       "queryMemberDocumentation",
       "queryPlatformMemberDocumentation",
       "queryPackage",
@@ -2888,7 +2890,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 144);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 145);
 
   const state = fixture();
   const groups = [
