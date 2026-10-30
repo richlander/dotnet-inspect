@@ -72,6 +72,9 @@ public sealed class ProductionFacadeContextTests
             "ContainPackageDocumentLeaves",
             "ExplainPackageQuery",
             "GetPackageDocument",
+#if DEBUG
+            "GetPackageDocumentWithEvidence",
+#endif
             "GetPlatformCatalog",
             "GetPlatformVersions",
             "InspectPackageDependencies",
@@ -374,6 +377,10 @@ public sealed class ProductionFacadeContextTests
         var sharedPackageContractTypes = new HashSet<Type>();
         Collect(
             typeof(InspectionEnvelope<PackageDependencyInspectionOutcome>),
+            sharedPackageContractTypes);
+        Collect(
+            typeof(EvidenceInspectionEnvelope<
+                PackageFileContentDocument, PackageFileContentEvidence>),
             sharedPackageContractTypes);
         foreach (Type outcome in
                  typeof(PackageDependencyInspectionOutcome).GetNestedTypes())

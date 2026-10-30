@@ -821,6 +821,58 @@ packaged CLI smoke gate independently exercises live NuGet acquisition. Run the
 gate after building the frontend and publishing `DotnetInspect.Web.csproj` in
 Release to `artifacts/inspect-web-publish`.
 
+### Package document inspection
+
+Browser document reads admit the exact PackageHouse-acquired payload as a
+content-only Package Root, then execute the shared
+`PackageFileContentInspection` under committed Root query admission. There is
+no Library selection, assembly opening, or direct-reader fallback. The
+operation owns an ephemeral Workspace and awaits its close on success,
+failure, or cancellation; it does not activate or replace the selected retained
+Browser Workspace.
+
+PackageHouse retains source authorization, exact-file selection, transfer,
+and cache policy under
+[Package read demand](../docs/design/package-read-demand.md#exact-file-demand)
+and [Package cache policy](../docs/design/package-cache-policy.md).
+Workspace owns generation-bound admission and borrowing under
+[Package Root realization](../docs/design/artifact-acquisition-and-workspaces.md#package-root-realization).
+Evidence is detached optional output, not admission authority.
+
+The Browser vocabulary remains root `README.md`, root `PACKAGE.md`, root
+`*.nuspec`, and Markdown below a `skills` directory. Shared inspection bounds
+detached bytes to 16 MiB. Browser projection preserves UTF-8 replacement
+decoding, removes only a leading BOM, and leaves embedded BOMs and bidi controls
+for the existing presentation boundary. Ordinary document JSON is unchanged.
+The existing operation deadline covers acquisition, admission, reading, and
+projection; retirement is awaited even when that deadline expires.
+
+The operator approved `GetPackageDocumentWithEvidence`, a Debug-only export of
+the shared file inspection's complete typed envelope. Ordinary reads do not
+capture evidence. The export reports acquisition and query admission, absent
+Library selection, and actual participant counts without adding a frontend
+gesture.
+
+The motivating real assets are `Newtonsoft.Json@13.0.4` README, archive SHA-256
+`f09081d457405baf35a973fa0c50d6bf272ed683f2568c5a620a49da952f6529`,
+and `WrongTurn@0.1.15` README, archive SHA-256
+`faa0362dd6aebf9757d117dd8ffc786b64d6263421ea40eb36b4749903174aa4`.
+The existing `BrowserEngineBoundaryTests.PackageDocument_*` gates preserve
+range/warm-cache output and deferred bidi containment; focused evidence gates
+check admitted content-only reading. Managed timings and unaffected CLI
+measurements do not establish Browser performance. This adoption is tracked
+by [#10922](https://github.com/richlander/dotnet-inspect/issues/10922), the third
+exact-file slice under [#6638](https://github.com/richlander/dotnet-inspect/issues/6638).
+
+[`eng/measure-inspect-web-document.cs`](../eng/measure-inspect-web-document.cs)
+executes the production export with a bounded in-memory entry-persistence
+adapter, following the Library-opening probe. Publish the identical harness
+against exact base/head product sources with `PublishAot=true`; its cold/warm
+latency, allocation, and content fingerprint describe native facade execution,
+not Wasm, JavaScript, or Cache Storage latency. A separate Debug publication
+accepts `evidence` after the package, version, and exact path to capture both
+invocations' complete envelopes instead of timing.
+
 ## Supported
 
 <!-- markdownlint-disable MD013 -->

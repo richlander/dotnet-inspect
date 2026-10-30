@@ -488,12 +488,15 @@ vocabularies:
   README content request is the directory tail and one exact
   entry span: 1 of 24 entries.
 - **The Browser/Wasm viewer**, which validates that the requested path is a
-  root `README.md`, root `PACKAGE.md`, or Markdown beneath `skills/`, then
+  root `README.md`, root `PACKAGE.md`, root `*.nuspec`, or Markdown beneath
+  `skills/`, then
   calls `PackageFileAcquisition`. Directory first completes small archives; larger archives read only the exact selected entry by range.
   The
   Browser package-entry store retains the directory and selected entries in
   Cache Storage, so a warm read after store recreation makes no package request
   ([cache policy adoption step 5](package-cache-policy.md#adoption)).
+  [Browser document inspection](../../inspect-web/README.md#package-document-inspection)
+  owns content-only Workspace admission and shared inspection after acquisition.
 
 ### Current demand adoption
 
@@ -537,7 +540,7 @@ All gates run in Release.
 | 8. An entry larger than the budget | one block holding that entry alone | `PackageEntryBlocksTests`: blocks tile the folder without gap or overlap, whatever the input order |
 | 9. A name that selects no implementation asset | a visible realization failure | `PackageRangedRealizationTests.NamedImplementation_NameSelectingNothing_FailsVisibly` (House `NoMatch`) and `PackageRootAcquisitionTests.AssetDemand_NamedRootRealizesOnlyItsNames` (Root `PackageImplementationNameException`) |
 | 10. A named asset in a folder already read whole as the surface | no block and no extra request: the named read equals the unnamed read | `PackageRangedRealizationTests.NamedImplementation_FolderAlreadyReadAsSurface_AddsNoBlock`, a boundary fixture with interleaved `lib/net8.0` and `lib/net10.0` folders and no `ref/` |
-| 11. A root `README.md` content request from an archive above the cut | directory tail and one exact entry span; every CLI projection matches the complete-acquisition path, file output is byte-identical and bounded-streamed, detached output above 16 MiB fails visibly; Browser/Wasm incrementally decodes the same ranged entry and a warm read makes no request | `ConfiguredPayloadAcquisitionTests.PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsOnlyTheExactEntryByRange` and `BrowserEngineBoundaryTests.PackageDocument_RealNewtonsoftReadmeUsesRangeAndWarmEntryCache`, real asset `Newtonsoft.Json` 13.0.4; `PackageCommand_ReadmeExport_CompleteFallbackWritesTheSameBytes`; `PackageFileContentInspectionTests.EntryAboveDetachedLimitFailsBeforeOpeningContent` |
+| 11. A root `README.md` content request from an archive above the cut | directory tail and one exact entry span; every CLI projection matches the complete-acquisition path, file output is byte-identical and bounded-streamed, detached output above 16 MiB fails visibly; Browser/Wasm reads the same ranged generation through shared content-only Root inspection and a warm read makes no request | `ConfiguredPayloadAcquisitionTests.PackageCommand_ReadmeContent_RealNewtonsoftArchive_ReadsOnlyTheExactEntryByRange` and `BrowserEngineBoundaryTests.PackageDocument_RealNewtonsoftReadmeUsesRangeAndWarmEntryCache`, real asset `Newtonsoft.Json` 13.0.4; `PackageCommand_ReadmeExport_CompleteFallbackWritesTheSameBytes`; `PackageFileContentInspectionTests.EntryAboveDetachedLimitFailsBeforeOpeningContent` |
 | 12. A `skills/<name>/SKILL.md` content request | only the exact Skill entry is published; root files, sibling Skills, and reference subfolders are not fetched | `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_ReadsOnlyTheExactEntry`, a boundary fixture modeled on the skill layout of `CrestApps.AgentSkills.Mcp.OrchardCore` 1.2.0 and padded above the cut, because that package is under it |
 | 13. The same content request twice from a credential-free HTTP feed | the second makes no package request | case 11's gate: the second request reads the entry cache, and its transfer receipt has no request |
 | 14. A named entry the directory does not list | a visible failure | `PackageRangedRealizationTests.PackageFileAcquisition_ColdWarmAndMissing_AreOrchestrated` (typed exact-file result), `FileDemand_UnlistedName_FailsVisibly` (House `NoMatch`, ranged and complete), and `ConfiguredPayloadAcquisitionTests.PackageCommand_SkillExport_MissingSkillFailsVisibly` |

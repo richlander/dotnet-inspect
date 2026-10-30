@@ -1605,3 +1605,14 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserCapabilityCatalogSearchInspection))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserPackageJsonContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(
+    typeof(EvidenceInspectionEnvelope<
+        PackageFileContentDocument, PackageFileContentEvidence>),
+    TypeInfoPropertyName = "PackageDocumentEvidenceEnvelope")]
+internal sealed partial class BrowserPackageDocumentEvidenceJsonContext
+    : JsonSerializerContext;

@@ -1104,9 +1104,8 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// The UTF-8 text of one package-shipped Markdown document, identified by its exact package
-    /// entry path. Only paths the package's own document manifest lists are served. This reads
-    /// package content and inspects no assembly, so it opens no group.
+    /// The UTF-8 text of one browsable package document, identified by its exact entry path.
+    /// Shared file inspection reads its committed content-only Root without opening a Library.
     /// </summary>
     [JSExport]
     public static async Task<string> GetPackageDocument(string packageId, string version, string path)
@@ -1122,6 +1121,26 @@ public static partial class PackageExports
             document,
             BrowserPackageJsonContext.Default.BrowserPackageDocumentContent);
     }
+
+#if DEBUG
+    [JSExport]
+    public static async Task<string> GetPackageDocumentWithEvidence(
+        string packageId,
+        string version,
+        string path)
+    {
+        EvidenceInspectionEnvelope<
+            PackageFileContentDocument,
+            PackageFileContentEvidence> result =
+                await BrowserPackageWorkspace.ReadDocumentWithEvidenceAsync(
+                    packageId,
+                    version,
+                    path);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageDocumentEvidenceJsonContext.Default.PackageDocumentEvidenceEnvelope);
+    }
+#endif
 
     /// <summary>
     /// Contains one bounded generation of identified package-document presentation leaves.
