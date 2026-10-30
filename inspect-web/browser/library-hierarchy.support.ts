@@ -4371,6 +4371,14 @@ async function installFacades(
               role: "TypeApi",
             },
             {
+              id: "type.analysis",
+              kind: "Type",
+              title: "Analysis",
+              summary: "Analysis findings and relationships for the active Type.",
+              order: 250,
+              role: null,
+            },
+            {
               id: "type.metadata",
               kind: "Type",
               title: "Metadata",
