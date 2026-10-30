@@ -238,6 +238,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     renderTriageCaret: () => unexpected("renderTriageCaret"),
     queryPackageResourceTriage: () =>
       unexpected("queryPackageResourceTriage"),
+    queryPackageUnsafeMembers: () =>
+      unexpected("queryPackageUnsafeMembers"),
     queryPackageLibraryDependencyStructure: () =>
       unexpected("queryPackageLibraryDependencyStructure"),
     queryPackageLibraryMetrics: () =>
@@ -254,6 +256,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformPerformance"),
     queryPlatformResourceTriage: () =>
       unexpected("queryPlatformResourceTriage"),
+    queryPlatformUnsafeMembers: () =>
+      unexpected("queryPlatformUnsafeMembers"),
   },
   source: {
     queryMemberBodyDiff: () => { throw new Error("unused"); },
@@ -2802,6 +2806,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageResourceTriage",
       "queryPackageTypeImplementationHeat",
       "queryPackageTypeMethodLeverage",
+      "queryPackageUnsafeMembers",
       "queryPlatformIntegrations",
       "queryPlatformLibraryDependencyStructure",
       "queryPlatformLibraryMetrics",
@@ -2811,6 +2816,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformResourceTriage",
       "queryPlatformTypeImplementationHeat",
       "queryPlatformTypeMethodLeverage",
+      "queryPlatformUnsafeMembers",
       "renderTriageCaret",
     ],
     source: [
@@ -2886,7 +2892,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 143);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 146);
+  assert.equal(
+    new Set(engineWorkerOrdinaryOperationKinds).size,
+    engineWorkerOrdinaryOperationKinds.length,
+    "every operation kind is distinct");
 
   const state = fixture();
   const groups = [
@@ -2938,5 +2948,26 @@ test("triage caret transport preserves exact source extent and managed output", 
   const result = state.client.analysis.renderTriageCaret(sourceLine, 4, 4);
   await state.environment.flushAsync();
   assert.equal(await result, printed);
+  state.host.dispose();
+});
+
+test("unsafe member transport carries the census scope to both owners", async () => {
+  const empty = { outcome: "available", assembly: "Fixture", counts: { members: 0, public: 0, propagating: 0, safeBoundaries: 0, safeBoundaryUndecided: 0 }, types: [], limitations: [], inspectionError: null };
+  const calls: string[][] = [];
+  const state = fixture({
+    analysis: {
+      queryPackageUnsafeMembers: async (...args) => { calls.push(["package", ...args]); return empty; },
+      queryPlatformUnsafeMembers: async (...args) => { calls.push(["platform", ...args]); return empty; },
+    },
+  });
+  const packageResult = state.client.analysis.queryPackageUnsafeMembers("Pkg", "1.0.0", "net10.0", "lib/net10.0/Pkg.dll", "Pkg.Type", "Run~1");
+  const platformResult = state.client.analysis.queryPlatformUnsafeMembers("net10.0", "10.0.0", "System.Text.Json.dll", "pack:System.Text.Json", "System.Text.Json.JsonDocument", "");
+  await state.environment.flushAsync();
+  assert.deepEqual(await packageResult, empty);
+  assert.deepEqual(await platformResult, empty);
+  assert.deepEqual(calls, [
+    ["package", "Pkg", "1.0.0", "net10.0", "lib/net10.0/Pkg.dll", "Pkg.Type", "Run~1"],
+    ["platform", "net10.0", "10.0.0", "System.Text.Json.dll", "pack:System.Text.Json", "System.Text.Json.JsonDocument", ""],
+  ]);
   state.host.dispose();
 });

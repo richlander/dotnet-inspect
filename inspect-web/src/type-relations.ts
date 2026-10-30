@@ -720,23 +720,16 @@ export function renderTypeRelationsSummary(
   }</button>`;
 }
 
-export function renderTypeAnalysisPage(
+/** The Relationships mode's content, inside a Type Analysis inspector. */
+export function renderTypeRelationshipsMode(
   options: RenderTypeRelationsOptions,
 ): string {
-  const content = renderTypeRelations(options)
+  return renderTypeRelations(options)
     || section(`
       <div class="source-progress">
         <span class="loader"></span>
         <p>Preparing focused binary relationship evidence…</p>
       </div>`);
-  return `
-    <section class="metadata-surface type-analysis-surface" aria-labelledby="type-analysis-title">
-      <header class="metadata-surface-head">
-        <h1 id="type-analysis-title">Analysis</h1>
-        <p>${options.escapeHtml(options.focusTypeName)}</p>
-      </header>
-      <div class="metadata-surface-scroll">${content}</div>
-    </section>`;
 }
 
 export function renderTypeRelations(
