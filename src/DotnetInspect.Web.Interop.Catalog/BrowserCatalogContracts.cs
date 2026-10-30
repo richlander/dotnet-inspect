@@ -44,7 +44,29 @@ public sealed record BrowserPackageSurface(
     int TotalMembers,
     BrowserPackageDocument[] Documents,
     string[] InspectionErrors,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserInspectionShare? CatalogShare = null,
+    BrowserInspectionDiagnostic[]? CatalogDiagnostics = null);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionShareKind>))]
+public enum BrowserInspectionShareKind
+{
+    Available,
+    NonProjectable,
+}
+
+public sealed record BrowserInspectionShare(
+    BrowserInspectionShareKind Kind,
+    string? FullUrl,
+    string? Packet,
+    string? Path,
+    string? Reason);
+
+public sealed record BrowserInspectionDiagnostic(
+    string Code,
+    string Severity,
+    string Summary,
+    string? Correspondence);
 
 public sealed record BrowserPackageIcon(
     string MediaType,

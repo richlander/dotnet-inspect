@@ -52,8 +52,28 @@ internal static partial class BrowserCatalogWireProjection
             surface.TotalMembers,
             Project(surface.Documents),
             surface.InspectionErrors,
-            surface.InspectionError);
+            surface.InspectionError,
+            surface.CatalogShare is { } share ? ProjectCatalogShare(share) : null,
+            [.. surface.CatalogDiagnostics.Select(ProjectCatalogDiagnostic)]);
     }
+
+    static BrowserInspectionShare ProjectCatalogShare(
+        DotnetInspector.Sections.InspectionShare share) =>
+        share switch
+        {
+            DotnetInspector.Sections.InspectionShare.Available available =>
+                new(BrowserInspectionShareKind.Available, available.FullUrl,
+                    available.Packet, null, null),
+            DotnetInspector.Sections.InspectionShare.NonProjectable unavailable =>
+                new(BrowserInspectionShareKind.NonProjectable, null,
+                    null, unavailable.Path, unavailable.Reason.ToString()),
+            _ => throw new InvalidOperationException("Unknown catalog Share outcome."),
+        };
+
+    static BrowserInspectionDiagnostic ProjectCatalogDiagnostic(
+        DotnetInspector.Sections.InspectionDiagnostic diagnostic) =>
+        new(diagnostic.Code, diagnostic.Severity.ToString(),
+            diagnostic.Summary.ToString(), diagnostic.Correspondence?.ToString());
 
     internal static BrowserAssemblySurface Project(BrowserAssemblySurfaceInfo assembly) =>
         new(

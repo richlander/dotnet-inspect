@@ -54,16 +54,29 @@ internal static class BrowserSurfaceProjection
         int TotalMembers,
         string[] InspectionErrors,
         string? InspectionError,
-        bool IsTruncated);
+        bool IsTruncated)
+    {
+        internal InspectionShare? CatalogShare { get; init; }
+        internal ImmutableArray<InspectionDiagnostic> CatalogDiagnostics { get; init; } = [];
+    }
 
     internal static Surface Project(
         AssemblyContextApiSurfaceResult surfaces,
         IReadOnlyList<Participant> requested,
         bool qualifyTypeIds = false,
+        string? platformPack = null) =>
+        Project(LibraryTypeCatalogInspectionOperation.Complete(surfaces),
+            requested, qualifyTypeIds, platformPack);
+
+    internal static Surface Project(
+        InspectionEnvelope<AssemblyContextApiSurfaceResult> inspection,
+        IReadOnlyList<Participant> requested,
+        bool qualifyTypeIds = false,
         string? platformPack = null)
     {
-        ArgumentNullException.ThrowIfNull(surfaces);
+        ArgumentNullException.ThrowIfNull(inspection);
         ArgumentNullException.ThrowIfNull(requested);
+        AssemblyContextApiSurfaceResult surfaces = inspection.Content;
         if (surfaces.Assemblies.Assemblies.Length > requested.Count)
         {
             throw new InvalidOperationException(
@@ -193,7 +206,11 @@ internal static class BrowserSurfaceProjection
                 .Sum(type => type.Members),
             noticeEntries,
             notice,
-            truncation is not null);
+            truncation is not null)
+        {
+            CatalogShare = inspection.Share,
+            CatalogDiagnostics = inspection.Diagnostics,
+        };
     }
 
     internal static Surface Project(
