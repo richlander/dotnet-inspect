@@ -30,8 +30,8 @@ public sealed class LibraryMetricsQueryTests
         LibraryBodyAnalysisExecution analysis =
             LibraryBodyAnalysisService.ExecutePath(
                 FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile());
 
         LibraryMetricsResult result =
             LibraryMetricsQuery.Execute(
@@ -89,8 +89,8 @@ public sealed class LibraryMetricsQueryTests
             LibraryBodyAnalysisService.ExecutePath(
                 FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                        LibraryBodyAnalysisFeatures.MethodEvidence)
+                    .WithCompleteImplementationProfile());
 
         LibraryMetricsResult result =
             LibraryMetricsQuery.Execute(analysis);
@@ -112,8 +112,8 @@ public sealed class LibraryMetricsQueryTests
             LibraryBodyAnalysisService.ExecutePath(
                 path,
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                        LibraryBodyAnalysisFeatures.MethodEvidence)
+                    .WithCompleteImplementationProfile());
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(path);
         var signatureAvailable =

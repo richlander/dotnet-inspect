@@ -113,9 +113,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void ImplementationProfiles_ExposeRawStructureAndOverloadEdges()
     {
-        var index = BodyAnalysisTestExecution.Open(
-            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        var index = BodyAnalysisTestExecution
+            .OpenCompleteImplementationProfile(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
         var profiles = index.ImplementationProfiles.Profiles.Where(
             profile =>
                 profile.Method.DeclaringType.Name
@@ -170,9 +170,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void ImplementationProfiles_ExposeNormalFlowCyclomaticComplexity()
     {
-        var index = BodyAnalysisTestExecution.Open(
-            FixtureCatalog.DiffPair.OldAssemblyPath(),
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        var index = BodyAnalysisTestExecution
+            .OpenCompleteImplementationProfile(
+                FixtureCatalog.DiffPair.OldAssemblyPath());
 
         var profile = Assert.Single(
             index.ImplementationProfiles.Profiles,
@@ -200,9 +200,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OverloadRelationships_PreserveExactCallerTargetAndOffset()
     {
-        var index = BodyAnalysisTestExecution.Open(
-            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        var index = BodyAnalysisTestExecution
+            .OpenCompleteImplementationProfile(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
 
         var relationship = Assert.Single(
             index.ImplementationProfiles.OverloadRelationships,
@@ -223,9 +223,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void OverloadRelationships_ResolveConstructedGenericArityExactly()
     {
-        var index = BodyAnalysisTestExecution.Open(
-            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        var index = BodyAnalysisTestExecution
+            .OpenCompleteImplementationProfile(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
 
         var relationship = Assert.Single(
             index.ImplementationProfiles.OverloadRelationships,
@@ -243,10 +243,10 @@ public partial class LibraryBodyIndexTests
         OverloadRelationships_LocalMemberReferenceUsesExactReturnType()
     {
         LibraryBodyAnalysisExecution index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution
+                .OpenCompleteImplementationProfileFromPrefetchedImage(
                 "ReturnOverloads.dll",
-                EmitReturnOverloadAssembly(),
-                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+                EmitReturnOverloadAssembly());
 
         OverloadCallRelationship relationship =
             Assert.Single(index.ImplementationProfiles.OverloadRelationships);
@@ -274,10 +274,10 @@ public partial class LibraryBodyIndexTests
         OverloadRelationships_LocalVarargMemberReferenceUsesRequiredPrefix()
     {
         LibraryBodyAnalysisExecution index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution
+                .OpenCompleteImplementationProfileFromPrefetchedImage(
                 "VarargOverloads.dll",
-                EmitVarargOverloadAssembly(),
-                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+                EmitVarargOverloadAssembly());
 
         OverloadCallRelationship relationship =
             Assert.Single(index.ImplementationProfiles.OverloadRelationships);
@@ -305,11 +305,11 @@ public partial class LibraryBodyIndexTests
         OverloadRelationships_LocalVarargMethodDefinitionParentUsesExactTarget()
     {
         LibraryBodyAnalysisExecution index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution
+                .OpenCompleteImplementationProfileFromPrefetchedImage(
                 "VarargMethodDefinitionParent.dll",
                 EmitVarargOverloadAssembly(
-                    methodDefinitionParent: true),
-                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+                    methodDefinitionParent: true));
 
         Assert.Collection(
             index.CallGraph.DirectCalls,
@@ -353,10 +353,10 @@ public partial class LibraryBodyIndexTests
         OverloadRelationships_ExternalAssemblyMemberReferenceDoesNotResolveLocally()
     {
         LibraryBodyAnalysisExecution index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution
+                .OpenCompleteImplementationProfileFromPrefetchedImage(
                 "SelfCollision.dll",
-                EmitExternalScopeCollisionAssembly(),
-                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+                EmitExternalScopeCollisionAssembly());
 
         DirectCall call = Assert.Single(index.CallGraph.DirectCalls);
         Assert.Equal(
@@ -373,10 +373,10 @@ public partial class LibraryBodyIndexTests
         OverloadRelationships_ExternalSignatureTypeDoesNotResolveLocally()
     {
         LibraryBodyAnalysisExecution index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution
+                .OpenCompleteImplementationProfileFromPrefetchedImage(
                 "ParameterCollision.dll",
-                EmitExternalSignatureTypeCollisionAssembly(),
-                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+                EmitExternalSignatureTypeCollisionAssembly());
 
         DirectCall call = Assert.Single(index.CallGraph.DirectCalls);
         Assert.IsType<TypeReferenceOrigin.AssemblyReference>(
@@ -389,10 +389,10 @@ public partial class LibraryBodyIndexTests
         ImplementationProfiles_GuardRejectedLocalSignatureIsIncomplete()
     {
         LibraryBodyAnalysisExecution index =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
+            BodyAnalysisTestExecution
+                .OpenCompleteImplementationProfileFromPrefetchedImage(
                 "DeepLocal.dll",
-                EmitGuardRejectedLocalSignatureAssembly(),
-                LibraryBodyAnalysisFeatures.ImplementationProfiles);
+                EmitGuardRejectedLocalSignatureAssembly());
 
         MethodImplementationProfile profile =
             Assert.Single(index.ImplementationProfiles.Profiles);
@@ -572,9 +572,9 @@ public partial class LibraryBodyIndexTests
     [Fact]
     public void ImplementationProfiles_AttributeAsyncBodiesToSourceMethods()
     {
-        var index = BodyAnalysisTestExecution.Open(
-            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        var index = BodyAnalysisTestExecution
+            .OpenCompleteImplementationProfile(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath());
 
         var profiles = index.ImplementationProfiles.Profiles
             .Where(

@@ -245,7 +245,6 @@ internal sealed class LibraryMethodAnalysisResult
     public BodySignals Signals;
     public MethodImplementationMetricEvidence? ImplementationMetrics;
     public AnalysisDiagnostic? ImplementationMetricDiagnostic;
-    public MethodBodyImplementationMetrics? ImplementationProfile;
     public AnalysisDiagnostic? Diagnostic;
     public MethodIdentity? DeclaredSource;
     public bool DeclaredSourceSuppressesOpportunities;
@@ -717,8 +716,6 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.Allocations);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-        bool includeImplementationProfiles = plan.Includes(
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
         bool includeJsonWireContractFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.JsonWireContractFlow);
         bool includeCallValueFlow = plan.RequiresCallValueFlow;
@@ -1093,6 +1090,17 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         metadataBody);
             }
             if (plan.ImplementationMetrics
+                    is { IncludesAsyncMetric: true }
+                && metricBodyAdmitted)
+            {
+                result.ImplementationMetrics =
+                    SetAsyncMetric(
+                        result.ImplementationMetrics,
+                        result.DeclaredMethod ?? caller,
+                        caller,
+                        asyncBody is not null);
+            }
+            if (plan.ImplementationMetrics
                     is { RequiresDirectCallDiscovery: true }
                 && metricBodyAdmitted)
             {
@@ -1169,12 +1177,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             ImplementationMetricAnalysisPlan? implementationMetricPlan =
                 plan.ImplementationMetrics;
             bool measureInstructionShape =
-                includeImplementationProfiles
-                || implementationMetricPlan
+                implementationMetricPlan
                     ?.IncludesInstructionShapeMetric == true;
             bool measureControlFlow =
-                includeImplementationProfiles
-                || implementationMetricPlan
+                implementationMetricPlan
                     ?.IncludesControlFlowMetric == true;
             MethodImplementationContextMeasurements?
                 contextMeasurements = null;
@@ -1206,19 +1212,6 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         result.DeclaredMethod ?? caller,
                         caller,
                         focusedMeasurements);
-            }
-            if (includeImplementationProfiles
-                && metricBodyAdmitted)
-            {
-                result.ImplementationProfile =
-                    MethodImplementationProfileAnalysis.Measure(
-                        context,
-                        result.DeclaredMethod ?? caller,
-                        il.Length,
-                        asyncBody is not null,
-                        contextMeasurements
-                        ?? throw new InvalidOperationException(
-                            "Implementation profiles require context measurements."));
             }
             MethodAllocationFacts allocationFacts;
             ILibraryMethodAnalysisResolver methodAnalysisResolver;
@@ -1750,7 +1743,8 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 when (IsRecoverableMethodFailure(ex))
             {
                 if (!directlySelectedBody
-                    && !plan.ProducesLibraryStructuralReport)
+                    && !plan.ProducesLibraryStructuralReport
+                    && !plan.ProducesCompleteImplementationProfile)
                 {
                     throw;
                 }

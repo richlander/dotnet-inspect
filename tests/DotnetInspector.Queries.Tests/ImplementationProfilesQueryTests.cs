@@ -11,8 +11,8 @@ public sealed class ImplementationProfilesQueryTests
         LibraryBodyAnalysisExecution analysis =
             LibraryBodyAnalysisService.ExecutePath(
                 FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile());
 
         ImplementationProfilesResult result =
             ImplementationProfilesQuery.Execute(
