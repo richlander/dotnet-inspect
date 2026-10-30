@@ -82,9 +82,11 @@ map diff is not its own producer: it reads the same registered families as
 the one-version map, joined by key on both sides and compared.
 
 A map answers its request and nothing else. Its Rows are the Members the
-request implicates, so its Count is their number: a request for unsafe Members
-counts the unsafe Members, and a request for what changed counts the changed
-ones. A complete Member listing is a different question, answered by a listing
+request implicates, and the Type row when the Type's own code is implicated,
+so its Count is their number: a request for unsafe Members counts the unsafe
+Members, plus the Type row when the Type's own code, such as a static
+constructor, is unsafe, and a request for what changed counts the changed
+rows. A complete Member listing is a different question, answered by a listing
 query from the map's coordinate.
 
 ## The map
@@ -283,7 +285,10 @@ A host that needs the partition asks for the diff.
 Both forms are one implementation: the registered families, and a comparison
 over two sides' contributions. The map diff reads both sides' shape facts in
 lockstep over an image pair, stops at its first difference when only Exists is
-asked, and censuses fact streams only for the Members it lists. It never runs a
+asked, and compares fact streams only for the Members it lists. Whether it
+also builds the fact census only for listed Members, which needs the shape
+comparison before the census demand, is what adoption steps 3 and 5 measure.
+It never runs a
 separate walk that decides changes another way, and it never compares two
 one-version maps, which hold only their implicated Members.
 
@@ -479,12 +484,15 @@ implementation and, if adopted, of its QuerySpace operators.
 
 ## Gates
 
-- **One implementation:** for every fixture Type pair, each listed Member's
-  finding transitions are computed from the same finding families the
-  one-version map reads, and no map diff compares two one-version maps.
+- **One implementation:** for every fixture Type pair, a one-sided listed
+  Member's `Added` or `Removed` finding transitions equal that side's
+  one-version findings for the same families, and no map diff compares two
+  one-version maps.
 - **Implicated Members:** a one-version map holds exactly its listed rows and
   the coordinate, so a request for unsafe Members has one row per unsafe
-  Member and a Count equal to their number; a request naming no analysis is the
+  Member, and the Type row when the Type's own code is unsafe, and a Count
+  equal to those rows, including a fixture whose only unsafe code is a static
+  constructor; a request naming no analysis is the
   coordinate and outcome with no rows, Count zero, and Exists `false` with a
   complete outcome. A coordinate that resolves to no Type definition, or to
   several, in the image fails as a request failure, never a `Complete`
