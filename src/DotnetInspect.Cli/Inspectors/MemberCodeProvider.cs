@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -72,8 +74,38 @@ internal static class MemberCodeProvider
         ResolvedAssemblyReference? sourceAssembly = null,
         MemberProjectionAnalysisInput? researchAnalysis = null,
         InspectionEnvelope<AssemblyMemberDecompilationEntry>?
-            decompilationInspection = null)
+            decompilationInspection = null,
+        IAssemblyBindingPolicy? sourceBindingPolicy = null,
+        ImmutableArray<byte>? sourcePortablePdb = null) =>
+        CollectWithCancellation(
+            type,
+            methods,
+            dllPath,
+            overloadIndex,
+            request,
+            pdbPath,
+            includeAll,
+            renderOptions,
+            sourceAssembly,
+            researchAnalysis,
+            decompilationInspection,
+            sourceBindingPolicy,
+            sourcePortablePdb,
+            CancellationToken.None);
+
+    internal static List<(ApiMember Member, Item Code)> CollectWithCancellation(
+        ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
+        Request request, string? pdbPath, bool includeAll,
+        PrinterOptions? renderOptions,
+        ResolvedAssemblyReference? sourceAssembly,
+        MemberProjectionAnalysisInput? researchAnalysis,
+        InspectionEnvelope<AssemblyMemberDecompilationEntry>?
+            decompilationInspection,
+        IAssemblyBindingPolicy? sourceBindingPolicy,
+        ImmutableArray<byte>? sourcePortablePdb,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var results = new List<(ApiMember, Item)>();
         
         // Sections that require a single selected method (IL, decompiled source, etc.)
@@ -105,13 +137,19 @@ internal static class MemberCodeProvider
         bool needsDirectDecompiledProjection =
             request.DecompiledSource
             && decompilationInspection is null;
+        bool ownerFidelityInspection =
+            request.FidelityCauses
+            && selectedAssembly is not null
+            && sourceBindingPolicy is not null
+            && sourcePortablePdb.HasValue;
         using var pipelineSource =
             OpenPipelineSource(
                 request,
                 dllPath,
                 pdbPath,
                 selectedAssembly,
-                needsDirectDecompiledProjection);
+                needsDirectDecompiledProjection,
+                ownerFidelityInspection);
 
         foreach (var method in methods)
         {
@@ -190,7 +228,8 @@ internal static class MemberCodeProvider
             bool needsInitializationProjection = propertySource?.RequiresInitializationProjection == true
                 && sharedDecompilation?.Result.Output is null;
             if ((needsDirectDecompiledProjection
-                    || request.FidelityCauses
+                    || (request.FidelityCauses
+                        && !ownerFidelityInspection)
                     || request.AppliedTaste
                     || needsInitializationProjection)
                 && pipelineSource is not null)
@@ -265,7 +304,27 @@ internal static class MemberCodeProvider
                         ? $"{Path.GetFullPath(dllPath)}#0x{token:X8}"
                         : $"{Path.GetFullPath(dllPath)}::{lookupType}.{method.Name}#{lookupOverloadIndex}",
                     $"{lookupType}.{method.Name}");
-                if (pipelineSource is null)
+                if (ownerFidelityInspection)
+                {
+                    fidelityCauses = methodToken is { } exactMethodToken
+                        ? Decompiler.MemberFidelityInspectionService.Inspect(
+                            exactMethodToken,
+                            methodHasBody,
+                            subject,
+                            selectedAssembly!,
+                            sourceBindingPolicy!,
+                            sourcePortablePdb,
+                            cancellationToken)
+                        : new FindingInspection<
+                            Decompiler.DecompilerFidelityCause>.Failed(
+                                new InspectionError(
+                                    subject,
+                                    Decompiler.DecompilerFindings
+                                        .FidelityInspectionDescriptor,
+                                    "The selected member has no exact "
+                                        + "MethodDef identity."));
+                }
+                else if (pipelineSource is null)
                 {
                     fidelityCauses = new FindingInspection<Decompiler.DecompilerFidelityCause>.Failed(
                         new InspectionError(
@@ -569,12 +628,25 @@ internal static class MemberCodeProvider
         string dllPath,
         string? pdbPath,
         ResolvedAssemblyReference? sourceAssembly,
-        bool needsDirectDecompiledProjection)
+        bool needsDirectDecompiledProjection,
+        bool ownerFidelityInspection)
     {
         if (!needsDirectDecompiledProjection && !request.AnnotatedSource && !request.CostOverlay
             && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses
             && !request.AppliedTaste && !request.SourceDocument && !request.FindingCensus)
             return null;
+        if (ownerFidelityInspection
+            && !needsDirectDecompiledProjection
+            && !request.AnnotatedSource
+            && !request.CostOverlay
+            && !request.SemanticsOverlay
+            && !request.Facts
+            && !request.AppliedTaste
+            && !request.SourceDocument
+            && !request.FindingCensus)
+        {
+            return null;
+        }
         IAssemblyReferenceResolver resolver = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(dllPath)
             {

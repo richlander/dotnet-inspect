@@ -4495,22 +4495,53 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(page.getByTitle("net11.0", { exact: true })).toBeVisible();
   });
 
+  const signalRReferencesQuery = new URLSearchParams({
+    package: "Microsoft.Azure.SignalR",
+    w: Buffer.from(JSON.stringify({
+      f: 1,
+      t: [["Microsoft.Azure.SignalR", "1.33.1", "net8.0", null]],
+      g: [[0]],
+      a: 0,
+      x: 0,
+      v: "library:references",
+      l: ["compile:lib/net8.0/Microsoft.Azure.SignalR.dll"],
+    })).toString("base64url"),
+  });
+
+  test("shows real platform ecosystem icons in Library References", async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 1600, height: 1400 });
+    await page.goto(`/?${signalRReferencesQuery}`, { waitUntil: "domcontentloaded" });
+    const frame = page.locator(".library-references-surface");
+    const rows = frame.locator(".dep-list > li");
+    await expect(rows).toHaveCount(40, { timeout: 120_000 });
+    for (const [name, title] of [
+      ["System.Runtime", ".NET Runtime"],
+      ["Microsoft.AspNetCore.Connections.Abstractions", "ASP.NET Core"],
+      ["Microsoft.Extensions.Logging.Abstractions", "Microsoft.Extensions"],
+    ] as const) {
+      const row = rows.filter({ has: page.getByText(name, { exact: true }) });
+      await expect(row.getByRole("img", { name: `Ecosystem: ${title}`, exact: true }))
+        .toHaveCount(1);
+      await expect(row.locator("button")).toHaveCount(0);
+      await expect(frame.locator(".reference-graph-section g.node")
+        .filter({ hasText: name })
+        .locator("image[data-reference-ecosystem-icon]"))
+        .toHaveAttribute("href", /^data:image\/svg\+xml,/);
+    }
+    await expect(rows.locator("[data-library-reference-ecosystem-icon]")).toHaveCount(37);
+    await page.screenshot({ path: testInfo.outputPath("platform-reference-icons.png") });
+    await frame.locator(".library-references-scroll").evaluate(element => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await page.screenshot({ path: testInfo.outputPath("platform-reference-icons-scrolled.png") });
+  });
+
   test("shows real external Package icons in Library References", async ({
     page,
   }) => {
-    const query = new URLSearchParams({
-      package: "Microsoft.Azure.SignalR",
-      w: Buffer.from(JSON.stringify({
-        f: 1,
-        t: [["Microsoft.Azure.SignalR", "1.33.1", "net8.0", null]],
-        g: [[0]],
-        a: 0,
-        x: 0,
-        v: "library:references",
-        l: ["compile:lib/net8.0/Microsoft.Azure.SignalR.dll"],
-      })).toString("base64url"),
-    });
-    await page.goto(`/?${query}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/?${signalRReferencesQuery}`, { waitUntil: "domcontentloaded" });
     const referenceSurface = page.locator(".library-references-surface");
     const rows = referenceSurface.locator(".dep-list > li");
     await expect(rows).toHaveCount(40, { timeout: 120_000 });
@@ -4627,7 +4658,7 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(flattened).toContain("AddHttpClient");
   });
 
-  test("renders the Type Overview grammar over real Wasm", async ({
+  test("renders Type Overview and Analysis Relationships over real Wasm", async ({
     page,
   }, testInfo) => {
     await page.goto(
@@ -4648,7 +4679,9 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(overview.getByRole("heading", { name: "Type shape" }))
       .toBeVisible({ timeout: 180_000 });
     await expect(overview.locator(".fact-rows"))
-      .toContainText("System.Object");
+      .toContainText("Nested types");
+    await expect(overview.locator(".fact-rows"))
+      .toContainText("9");
     await expect(overview.getByRole("heading", { name: "Implements" }))
       .toBeVisible();
     await expect(overview.locator(".type-chip-list"))
@@ -4686,11 +4719,66 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(graphExplorer).toBeHidden();
     await expect(explore).toBeFocused();
 
-    await page.locator("#subject-panel").screenshot({
-      path: testInfo.outputPath("type-overview-json-document.png"),
+    await page.locator("[data-type]").filter({
+      hasText: "ObjectEnumerator",
+    }).first().click();
+    const nestedOverview = page.locator(".type-overview-surface");
+    await expect(nestedOverview).toBeVisible({ timeout: 180_000 });
+    const analysisLink = nestedOverview.locator("[data-type-analysis]");
+    await expect(analysisLink).toHaveText("Analysis");
+    await analysisLink.click();
+
+    const analysisPage = page.locator(".type-analysis-surface");
+    await expect(analysisPage.getByRole("heading", { name: "Analysis" }))
+      .toBeVisible();
+    const relationships = analysisPage.getByRole("heading", {
+      name: "Relationships",
     });
-    await overview.locator("[data-type-members]").click();
-    await expect(page.locator(".api-row[data-member]")).not.toHaveCount(0);
+    await expect(relationships).toBeVisible({ timeout: 180_000 });
+    await expect(analysisPage.locator(".section-title"))
+      .toContainText("3 called types · 4 member relationships");
+    await expect(analysisPage.getByText("Partial call evidence"))
+      .toHaveCount(0);
+    await expect(analysisPage.getByText("Partial compatibility evidence"))
+      .toHaveCount(0);
+    const typeEdges =
+      analysisPage.locator("[data-type-analysis-relationship]");
+    await expect(typeEdges).toHaveCount(3);
+    await typeEdges.first().click();
+    await expect(typeEdges.first()).toHaveAttribute("aria-pressed", "true");
+    const detail = analysisPage.locator(
+      "[data-type-analysis-detail]:not([hidden])",
+    );
+    await expect(detail).toBeVisible();
+    await expect(detail.locator(".type-analysis-member-group").first())
+      .toBeVisible();
+    await expect(detail.getByText(/\d+ physical sites?/, { exact: false })
+      .first()).toBeVisible();
+    await expect(detail.locator(".type-call-site"))
+      .toHaveCount(2);
+    await expect(detail.locator(".type-call-site").first())
+      .toContainText("IL_");
+
+    await page.locator("#subject-panel").screenshot({
+      path: testInfo.outputPath("type-analysis-object-enumerator.png"),
+    });
+    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    await expect(page.locator(".type-overview-surface"))
+      .toBeVisible();
+    await expect(page.locator("[data-type-analysis]"))
+      .toHaveText("3 called types");
+    await page.getByRole("tab", { name: "Analysis", exact: true }).click();
+    const restoredDetail = page.locator(
+      "[data-type-analysis-detail]:not([hidden])",
+    );
+    await expect(restoredDetail).toBeVisible();
+    await restoredDetail.getByRole("button", {
+      name: "System.Text.Json.JsonDocument",
+      exact: true,
+    }).click();
+    await expect(page.locator(
+      '.type-row[data-type][aria-selected="true"] .type-name',
+    )).toHaveText("JsonDocument");
   });
 
   test("projects exact all-access Type method leverage into the UI", async ({
