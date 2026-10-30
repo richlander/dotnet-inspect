@@ -8,6 +8,75 @@ namespace DotnetInspector.Sections.Tests;
 
 public sealed partial class ExactTypeInspectionOperationTests
 {
+    [Fact]
+    public async Task ResolvedDefinition_DoesNotOpenUnrelatedForwarderSupplier()
+    {
+        var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Exact", ["Healthy"])).Name;
+        var complete = await ReadAsync(structured: false);
+        var selected = await ReadAsync(structured: true);
+
+        Assert.Equal(complete.Json, selected.Json);
+        Assert.True(complete.SupplierReads > 0);
+        Assert.Equal(0, selected.SupplierReads);
+        Assert.Equal(2, complete.Types);
+        Assert.Equal(1, selected.Types);
+
+        async Task<(string Json, int Types, int SupplierReads)> ReadAsync(
+            bool structured)
+        {
+            int supplierReads = 0;
+            var supplierIdentity = new AssemblyReferenceIdentity(
+                "Unrelated.Supplier", new Version(1, 0, 0, 0), null, null);
+            byte[] supplierImage = BuildMetadataAssembly(
+                supplierIdentity.Name, Guid.NewGuid(), true, "Exact", "Forwarded");
+            ResolvedAssemblyReference supplier = ResolvedAssemblyReference.Create(
+                supplierIdentity, null,
+                () =>
+                {
+                    supplierReads++;
+                    return new MemoryStream(supplierImage, writable: false);
+                },
+                AssemblyResolutionProvenance.Local("unrelated supplier test"));
+            byte[] rootImage = BuildMetadataAssembly(
+                "Resolved.Root", Guid.NewGuid(), true, "Exact", "Forwarded",
+                supplierIdentity, definedTypeName: "Healthy");
+            ResolvedAssemblyReference root = ResolvedAssemblyReference.Create(
+                new("Resolved.Root", new Version(1, 0, 0, 0), null, null), null,
+                () => new MemoryStream(rootImage, writable: false),
+                AssemblyResolutionProvenance.Local("exact root test"));
+            IAcquisitionFreeAssemblyBindingPolicy policy =
+                SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
+                    new[] { root, supplier }.Select(
+                        assembly => (
+                            assembly,
+                            (IAcquisitionFreeAssemblyBindingPolicy)
+                                NoResolverAssemblyBindingPolicy.Instance)));
+
+            ValueTask<(string Json, int Types, int SupplierReads)> Read(
+                InspectionEnvelope<ExactTypeInspectionResult> envelope,
+                SelectedContextExactTypeLiveTarget? target,
+                ApiSurface? catalog,
+                CancellationToken cancellationToken)
+            {
+                Assert.True(envelope.Content.IsAvailable);
+                Assert.NotNull(target);
+                return ValueTask.FromResult((
+                    JsonSerializer.Serialize(envelope.Content.Type),
+                    target.Surface.Types.Count,
+                    supplierReads));
+            }
+
+            return structured
+                ? await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                    root, policy, type, ApiSurfaceScope.Public, Read,
+                    TestContext.Current.CancellationToken)
+                : await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                    root, policy, "Exact.Healthy", ApiSurfaceScope.Public, Read,
+                    TestContext.Current.CancellationToken);
+        }
+    }
+
     [Theory]
     [InlineData(ApiSurfaceScope.Public)]
     [InlineData(ApiSurfaceScope.IncludeAll)]
@@ -224,11 +293,14 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     [Theory]
-    [InlineData("Exact.Healthy", ExactTypeInspectionOutcome.Available)]
-    [InlineData("Exact.Forwarded", ExactTypeInspectionOutcome.Unavailable)]
-    [InlineData("Exact.Missing", ExactTypeInspectionOutcome.NotFound)]
+    [InlineData("Exact.Healthy", ExactTypeInspectionOutcome.Available, false)]
+    [InlineData("Exact.Healthy", ExactTypeInspectionOutcome.Available, true)]
+    [InlineData("Exact.Forwarded", ExactTypeInspectionOutcome.Unavailable, false)]
+    [InlineData("Exact.Forwarded", ExactTypeInspectionOutcome.Unavailable, true)]
+    [InlineData("Exact.Missing", ExactTypeInspectionOutcome.NotFound, false)]
+    [InlineData("Exact.Missing", ExactTypeInspectionOutcome.NotFound, true)]
     public async Task ResolvedAssembly_ScopesUnresolvedForwarderToItsSubject(
-        string query, ExactTypeInspectionOutcome expected)
+        string query, ExactTypeInspectionOutcome expected, bool structured)
     {
         bool expectedAvailable = expected == ExactTypeInspectionOutcome.Available;
         var identity = new AssemblyReferenceIdentity(
@@ -246,17 +318,27 @@ public sealed partial class ExactTypeInspectionOperationTests
             () => new MemoryStream(image, writable: false),
             AssemblyResolutionProvenance.Local("forwarded failure scope test"));
 
-        InspectionEnvelope<ExactTypeInspectionResult> result =
-            await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
-                assembly,
-                NoResolverAssemblyBindingPolicy.Instance,
-                query,
-                ApiSurfaceScope.Public,
-                (envelope, target, _, _) =>
-                {
-                    Assert.Equal(expectedAvailable, target is not null);
-                    return ValueTask.FromResult(envelope);
-                },
+        ValueTask<InspectionEnvelope<ExactTypeInspectionResult>> Read(
+            InspectionEnvelope<ExactTypeInspectionResult> envelope,
+            SelectedContextExactTypeLiveTarget? target,
+            ApiSurface? catalog,
+            CancellationToken cancellationToken)
+        {
+            Assert.Equal(expectedAvailable, target is not null);
+            return ValueTask.FromResult(envelope);
+        }
+
+        var type = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "Exact", [query["Exact.".Length..]])).Name;
+        InspectionEnvelope<ExactTypeInspectionResult> result = structured
+            ? await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                assembly, NoResolverAssemblyBindingPolicy.Instance,
+                type, ApiSurfaceScope.Public, Read,
+                TestContext.Current.CancellationToken)
+            : await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                assembly, NoResolverAssemblyBindingPolicy.Instance,
+                query, ApiSurfaceScope.Public, Read,
                 TestContext.Current.CancellationToken);
 
         Assert.Equal(expectedAvailable, result.Content.IsAvailable);
@@ -264,10 +346,11 @@ public sealed partial class ExactTypeInspectionOperationTests
     }
 
     [Theory]
-    [InlineData("Exact.Type.")]
-    [InlineData("Exact.Missing")]
+    [InlineData("Exact.Type.", false)]
+    [InlineData("Exact.Missing", false)]
+    [InlineData("Exact.Missing", true)]
     public async Task ResolvedAssembly_MalformedForwarderPreventsConclusiveAbsence(
-        string query)
+        string query, bool structured)
     {
         byte[] image = BuildMalformedForwarderAssembly();
         ResolvedAssemblyReference assembly = ResolvedAssemblyReference.Create(
@@ -276,17 +359,26 @@ public sealed partial class ExactTypeInspectionOperationTests
             () => new MemoryStream(image, writable: false),
             AssemblyResolutionProvenance.Local("malformed forwarder selection test"));
 
-        InspectionEnvelope<ExactTypeInspectionResult> result =
-            await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
-                assembly,
-                NoResolverAssemblyBindingPolicy.Instance,
-                query,
-                ApiSurfaceScope.Public,
-                (envelope, target, _, _) =>
-                {
-                    Assert.Null(target);
-                    return ValueTask.FromResult(envelope);
-                },
+        ValueTask<InspectionEnvelope<ExactTypeInspectionResult>> Read(
+            InspectionEnvelope<ExactTypeInspectionResult> envelope,
+            SelectedContextExactTypeLiveTarget? target,
+            ApiSurface? catalog,
+            CancellationToken cancellationToken)
+        {
+            Assert.Null(target);
+            return ValueTask.FromResult(envelope);
+        }
+
+        InspectionEnvelope<ExactTypeInspectionResult> result = structured
+            ? await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                assembly, NoResolverAssemblyBindingPolicy.Instance,
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create("Exact", ["Missing"])).Name,
+                ApiSurfaceScope.Public, Read,
+                TestContext.Current.CancellationToken)
+            : await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                assembly, NoResolverAssemblyBindingPolicy.Instance,
+                query, ApiSurfaceScope.Public, Read,
                 TestContext.Current.CancellationToken);
 
         Assert.Equal(ExactTypeInspectionOutcome.Unavailable, result.Content.Outcome);

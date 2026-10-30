@@ -1117,7 +1117,9 @@ For an already established definition, resolved-Library projection passes that
 structured identity to Metadata before decoding members. Metadata retains the
 selected declaration and local extension suppliers, rather than building every
 unrelated Type's rich API first. Rejected name traversals remain included so
-their failures stay visible. A declaration probe or extension-supplier scan that
+their failures stay visible. Only forwarders for that exact definition are
+resolved and projected; unrelated forwarders do not authorize supplier work.
+A declaration probe or extension-supplier scan that
 cannot establish this selection retains complete projection. Text queries,
 unresolved forwarding, and absence retain the existing rich selection path.
 The live surface is preparation for the selected Type, not a claim that every

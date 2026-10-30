@@ -44,7 +44,9 @@ internal static partial class ExactTypeInspectionQuery
         TypeResolutionRequest[] forwardedRequests =
         [
             .. catalogSurface.TypeForwarders
-                .Where(forwarder => forwarder.DefinitionName is not null)
+                .Where(forwarder => forwarder.DefinitionName is { } definition
+                    && (selectedDefinition is null
+                        || definition.Equals(selectedDefinition)))
                 .Select(forwarder => TypeResolutionRequest.FromAssembly(
                     assembly,
                     AssemblyResolutionScope.Any,
