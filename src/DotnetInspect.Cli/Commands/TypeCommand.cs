@@ -264,6 +264,11 @@ public static partial class TypeCommand
                 "A type command requires a type inspection plan.",
                 nameof(plan));
 
+        // Exact Type Member documentation comes only from selected Content.
+        if (!string.IsNullOrWhiteSpace(options.TypeName)
+            && !new TypeGestureIntent(options.TypeFilter).SelectsListingCatalog(options.TypeName))
+            options = options with { ShowDocs = false };
+
         if (resolvedSource is null && loadedSurface is null
             && PackageReferenceAdmission.IsCandidate(options.PackagePath))
         {
@@ -839,10 +844,19 @@ public static partial class TypeCommand
                         packageName, packageVersion ?? apiVersion, apiSource, selectedTfm,
                         sourceAssembly);
 
-                    // Default --docs on for single-type view at Normal+ unless explicitly disabled
-                    TypeOptions effectiveOptions = options;
-                    if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
-                        effectiveOptions = options with { ShowDocs = true };
+                    // Type Member documentation is selected by Content, independently of presentation.
+                    TypeOptions effectiveOptions = options with { ShowDocs = false };
+                    if (!effectiveOptions.EffectiveDiscovery
+                        && TypeMemberDocumentOutput.IsSelected(effectiveOptions))
+                    {
+                        TypeOptions? attached = await TypeMemberDocumentOutput.AttachAsync(
+                            apiType, effectiveOptions,
+                            apiType.SourceAssemblyPath ?? runtimeAssemblyPath ?? apiDllPath,
+                            cancellationToken);
+                        if (attached is null)
+                            return 1;
+                        effectiveOptions = attached;
+                    }
 
                     // The resolved assembly path enables decompiler-backed
                     // sections (whole-type Decompiled Source).

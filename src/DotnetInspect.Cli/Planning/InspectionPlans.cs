@@ -558,6 +558,8 @@ public static class ApiSectionDemandIndex
             SectionNames.Methods,
             SectionNames.Overloads,
             SectionNames.DocumentedOverloads,
+            SectionNames.Members,
+            SectionNames.DocumentedMembers,
             SectionNames.MemberIndex,
             SectionNames.Operators,
             SectionNames.ExplicitInterfaceImplementations,

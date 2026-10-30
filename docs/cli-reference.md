@@ -2063,6 +2063,19 @@ identifies the selected ordinal and total Count and names `--tree` as the
 gesture that lists them. Explicit formats, sections, and verbosity preserve
 their requested population instead of implicitly selecting one overload.
 
+For an exact Type, `-S Members` lists each declared Member with its kind,
+stable digest anchor, and complete signature. `-S "Documented Members"` adds
+compiled documentation to the same ordered rows. Missing or failed documentation
+retains the declaration. These sections support Markdown, tables, JSON, TSV,
+JSONL, column projection, common Member filters, row windows, and Count.
+Verbosity and Description projection do not enrich the plain section, and
+Count does not request documentation. The compact Type Tree remains the default.
+
+```bash
+dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --tfm net9.0 -S Members --table
+dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --tfm net9.0 -S "Documented Members" --table
+```
+
 Explicit `--tree` shows the parent Type with available acquisition properties,
 then the same-name MemberGroup and every overload's ordinal and signature.
 `-S Overloads --table` lists every overload with its ordinal selector, stable

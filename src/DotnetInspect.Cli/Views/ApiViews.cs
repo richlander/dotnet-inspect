@@ -19,6 +19,11 @@ internal static class ApiViewText
         value is null ? null : Field(value);
 }
 
+public record TypeMemberRow(string Kind, string Anchor, string Signature);
+
+public record DocumentedTypeMemberRow(
+    string Kind, string Anchor, string Signature, string? Description);
+
 public record OverloadRow(
     string Select,
     string Anchor,
@@ -38,6 +43,14 @@ public class TypeView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
+
+    [MarkoutSection(Name = SectionNames.Members)]
+    [JsonIgnore]
+    public List<TypeMemberRow>? MemberRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.DocumentedMembers)]
+    [JsonIgnore]
+    public List<DocumentedTypeMemberRow>? DocumentedMemberRows { get; set; }
 
     [MarkoutSection(Name = SectionNames.Overloads)]
     [JsonIgnore]

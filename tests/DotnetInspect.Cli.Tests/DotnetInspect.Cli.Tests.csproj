@@ -44,6 +44,9 @@
     <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/lib/net9.0/System.Text.Json.dll"
           Link="RealAssets/DiffAnalysis/9.0.0/System.Text.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net9.0/System.Text.Json.xml"
+          Link="RealAssets/DiffAnalysis/10.0.0/System.Text.Json.xml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net9.0/System.Text.Json.dll"
           Link="RealAssets/DiffAnalysis/10.0.0/System.Text.Json.dll"
           CopyToOutputDirectory="PreserveNewest" />

@@ -69,6 +69,9 @@ public static class SectionNames
     /// <summary>Section for method overload rows.</summary>
     public const string Methods = "Methods";
 
+    public const string Members = "Members";
+    public const string DocumentedMembers = "Documented Members";
+
     public const string Overloads = "Overloads";
     public const string DocumentedOverloads = "Documented Overloads";
 

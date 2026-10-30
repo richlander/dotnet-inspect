@@ -93,6 +93,43 @@ internal sealed class ExactLibraryInspectionSession(
             cancellationToken);
     }
 
+    public InspectionEnvelope<TypeDocumentInspectionOutcome>?
+        ExecuteTypeDocument(TypeDocumentInspectionPlan plan, CancellationToken cancellationToken)
+    {
+        if (owner.IssueOperationLease(reference)
+            is not LibraryOperationLeaseIssueOutcome.Issued issued)
+        {
+            CommandError.Write("The exact Library owner could not issue the Type operation lease.");
+            return null;
+        }
+        using LibraryOperationLease lease = issued.Lease;
+        return TypeDocumentInspectionOperation.Execute(new(reference, plan), lease, cancellationToken);
+    }
+
+    public async ValueTask<InspectionEnvelope<TypeDocumentAttachmentCompositionResult>?>
+        ExecuteTypeDocumentAttachmentCompositionAsync(
+            TypeDocumentInspectionPlan plan,
+            MemberDocumentationAttachmentRequest documentation,
+            CancellationToken cancellationToken)
+    {
+        if (owner.IssueOperationLease(reference)
+            is not LibraryOperationLeaseIssueOutcome.Issued issued)
+        {
+            CommandError.Write("The exact Library owner could not issue the Type operation lease.");
+            return null;
+        }
+        using LibraryOperationLease lease = issued.Lease;
+        return await TypeDocumentAttachmentCompositionOperation.ExecuteAsync(
+            new(reference, plan, documentation), lease,
+            (ids, demand, token) => DirectLibraryDocumentationQuery.ExecuteManyAsync(
+                reference, owner, ids, demand,
+                plan.Accessibility == TypeMemberGroupAccessibilityFilter.All || plan.IncludeHidden
+                    ? ApiSurfaceExtractionScope.IncludeAll
+                    : ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
+                plan.Bounds, s_documentationLimits, TimeSpan.FromSeconds(10), plan.Type, token),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public InspectionEnvelope<MemberDocumentInspectionOutcome>?
         ExecuteMemberDocument(
             MemberDocumentInspectionPlan plan,

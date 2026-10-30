@@ -397,6 +397,10 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    internal TypeDocument? MemberDeclarations { get; init; }
+    internal MemberDocumentationAttachmentOutcome? MemberDocumentation { get; init; }
+    internal int? MemberSectionCount { get; init; }
+
     public bool NamesakeLibrary { get; init; }
     internal bool MermaidExplicitlySet { get; init; }
     internal bool NonHierarchyFormatExplicitlySet { get; init; }
