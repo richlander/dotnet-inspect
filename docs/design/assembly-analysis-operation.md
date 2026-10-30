@@ -559,6 +559,15 @@ breadths retain interpreted serial execution. The Browser/Wasm operation uses
 the default overload; its project closure does not reference
 `DotnetInspector.Sections.Local` or the local worker adapter.
 
+[#10854](https://github.com/richlander/dotnet-inspect/issues/10854) adopts the
+same focused producer for CLI Library Top Leverage. Its host-neutral operation
+borrows the command's already-open prefetched image, preserves the typed query
+result and focused Analysis receipts, and remains serial by default. The local
+CLI adapter supplies the existing bounded desktop realization. Selecting Top
+Leverage alone no longer requests Method Evidence from
+`LibraryBodyAnalysisService`; another selected legacy consumer retains only
+its own required donor features.
+
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
 exact method-analysis producer for safety-only IL-coordinate preparation.
 Direct CLI and host-neutral Library Address execution borrow the already-open

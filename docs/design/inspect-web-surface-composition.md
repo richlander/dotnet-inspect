@@ -1161,6 +1161,18 @@ dependencies, while the shared References URL admits only the root package.
 The browser renderer gate uses a deterministic package-backed fixture to check
 that an external supplier icon arrives after the direct rows and diagram.
 
+`Microsoft.Azure.SignalR@1.33.1/net8.0` is the real acquisition regression
+witness. Its `Microsoft.Azure.SignalR.dll` declares 40 direct references,
+including external `Azure.Core` and `Microsoft.Azure.SignalR.Protocols`, while
+`Microsoft.Azure.SignalR.Common` is already in the root package. A compatibility
+payload plan caused the semantic supplier query to fail, leaving only the
+same-package icon. The published-Wasm `package-adoption.spec.ts` scenario
+`shows real external Package icons in Library References` opens that exact
+Library through the production page and checks external icons in both rows and
+graph nodes, with Platform references left plain. It uses normal Gallery
+acquisition rather than a stubbed supplier response; the existing fixture gate
+continues to cover deferred presentation separately.
+
 For a uniquely matched Workspace Library, References may show the owning
 ordinary package's icon beside the AssemblyRef row. It uses the admitted
 Library-to-package provenance established by that exact identity match, then
