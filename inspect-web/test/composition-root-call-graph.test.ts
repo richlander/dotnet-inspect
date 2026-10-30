@@ -1884,6 +1884,112 @@ test("member content selection keeps compact groups cheap and exact rows explici
   assert.match(
     groups,
     /state\.memberContent === "members"[\s\S]*state\.memberContent === "documented-members"[\s\S]*currentTypeDocumentGroups\(type\)/);
+  const portableGroups =
+    appSource.match(/function portableMemberGroups\([\s\S]*?\n}\n\nfunction portableMemberMatches\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  const pendingDocumentMatches: unknown = runInNewContext(
+    stripTypeScriptTypes(`${portableGroups}
+      portableMemberMatches(type, {
+        memberAnchor: "destination-anchor",
+        memberSignature: null,
+      });
+    `),
+    {
+      currentTypeDocumentGroups: () => null,
+      partitionGraphMembers: (members: unknown[]) => ({
+        publicMembers: members,
+        graphMembers: [],
+      }),
+      groupMembers: (members: unknown[]) => members.length === 0
+        ? []
+        : [{
+            key: "method:Run",
+            overloads: [{
+              anchorDigest: "destination-anchor",
+              canonicalSignature: "void Destination.Run()",
+            }],
+          }],
+      searchableMemberGroups: (candidateGroups: unknown[]) => candidateGroups,
+      type: { api: [{}] },
+    });
+  assert.ok(Array.isArray(pendingDocumentMatches));
+  assert.equal(
+    pendingDocumentMatches.length,
+    1,
+    "portable identity must remain resolvable before the destination exact document loads");
+  const restorePortable =
+    appSource.match(/function selectPortableMember\([\s\S]*?\n}\n\nfunction restorePendingPortableMember\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  const pendingState = {
+    package: {},
+    pendingPortableMemberDeepLink: {
+      packageKey: "package-key",
+      documentKey: "document-key",
+      type: "T:Destination",
+      memberAnchor: "destination-anchor",
+      memberSignature: null,
+      section: "overview",
+    } as {
+      packageKey: string;
+      documentKey: string;
+      type: string;
+      memberAnchor: string | null;
+      memberSignature: string | null;
+      section: string | null;
+    } | null,
+    memberBrowseTypeId: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null as number | null,
+    memberSection: "overview",
+    selectedBodyTarget: null,
+  };
+  const exactGroups = [{
+    key: "method:Run",
+    overloads: [
+      {
+        anchorDigest: "other-anchor",
+        canonicalSignature: "void Destination.Run(int)",
+      },
+      {
+        anchorDigest: "destination-anchor",
+        canonicalSignature: "void Destination.Run()",
+      },
+    ],
+  }];
+  runInNewContext(
+    stripTypeScriptTypes(`${portableGroups}
+      ${restorePortable}
+      restorePendingPortableMember();
+    `),
+    {
+      state: pendingState,
+      selectedType: () => ({ id: "T:Destination", api: [] }),
+      packageIdentityKey: () => "package-key",
+      typeMemberDocumentKey: () => "document-key",
+      currentTypeDocumentGroups: () => exactGroups,
+      partitionGraphMembers: () => ({
+        publicMembers: [],
+        graphMembers: [],
+      }),
+      groupMembers: () => [],
+      searchableMemberGroups: (candidateGroups: unknown[]) => candidateGroups,
+      appendQueryNotice: () => assert.fail("matching exact member was rejected"),
+      solePortableBodyTarget: () => null,
+      isMemberSection: () => true,
+      memberSectionIdsFor: () => ["overview"],
+    });
+  assert.equal(pendingState.pendingPortableMemberDeepLink, null);
+  assert.equal(pendingState.selectedMemberKey, "method:Run");
+  assert.equal(pendingState.selectedOverloadIndex, 1);
+  assert.match(
+    appSource,
+    /canonicalViewRestorationFailure\([\s\S]*portableMemberMatches\(requestedType, deep\)/);
+  assert.match(
+    appSource,
+    /exactProjectionPending[\s\S]*pendingPortableMemberDeepLink = \{[\s\S]*documentKey: typeMemberDocumentKey\(type\)/);
+  assert.match(
+    appSource,
+    /await loadSelectedTypeMemberDocument\(\);\s*restorePendingPortableMember\(\);/);
   const projection =
     appSource.match(/function typeDocumentMemberSurface\([\s\S]*?\n}\n\nfunction currentTypeDocumentGroups/)?.[0]
     ?? "";

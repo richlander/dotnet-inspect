@@ -1530,6 +1530,15 @@ interface PendingGraphMemberDeepLink {
   target: GraphMemberShareIdentity;
 }
 
+interface PendingPortableMemberDeepLink {
+  packageKey: string;
+  documentKey: string;
+  type: string;
+  memberAnchor: string | null;
+  memberSignature: string | null;
+  section: string | null;
+}
+
 interface RecentPackage {
   highestFramework?: string;
   nugetOrg?: boolean;
@@ -1722,6 +1731,7 @@ const initialState = {
   graphMemberNavigationSeq: 0,
   graphMemberNavigationTitle: "",
   pendingGraphMemberDeepLink: null,
+  pendingPortableMemberDeepLink: null,
   platformStack: [],
   platformDrillLoading: false,
   platformDrillError: "",
@@ -1870,6 +1880,7 @@ interface StateOverrides {
     import("./facades/inspect-web-call-graph.d.ts").BrowserDirectUseClusterInspection
     | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
+  pendingPortableMemberDeepLink: PendingPortableMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
@@ -7754,6 +7765,33 @@ function memberGroups(
     ...declaredMemberGroups(type),
     ...groupMembers(graphMembers, true),
   ];
+}
+
+function portableMemberGroups(type: AppTypeSurface): AppMemberGroup[] {
+  const { publicMembers, graphMembers } = partitionGraphMembers(type.api);
+  return [
+    ...(currentTypeDocumentGroups(type)
+      ?? searchableMemberGroups(groupMembers(publicMembers))),
+    ...groupMembers(graphMembers, true),
+  ];
+}
+
+function portableMemberMatches(
+  type: AppTypeSurface,
+  target: {
+    memberAnchor?: string | null;
+    memberSignature?: string | null;
+  },
+) {
+  return portableMemberGroups(type).flatMap(group =>
+    group.overloads.map((overload, overloadIndex) => ({
+      group,
+      overload,
+      overloadIndex,
+    }))).filter(candidate =>
+      target.memberAnchor
+        ? candidate.overload.anchorDigest === target.memberAnchor
+        : candidate.overload.canonicalSignature === target.memberSignature);
 }
 
 function memberFilterState() {
@@ -19657,14 +19695,7 @@ function canonicalViewRestorationFailure(
   if (!requestedType) {
     return `The shared member's declaring type '${deep.type}' is no longer available.`;
   }
-  const matches = memberGroups(requestedType).flatMap(group =>
-    group.overloads.map(overload => ({
-      group,
-      overload,
-    }))).filter(candidate =>
-      deep.memberAnchor
-        ? candidate.overload.anchorDigest === deep.memberAnchor
-        : candidate.overload.canonicalSignature === deep.memberSignature);
+  const matches = portableMemberMatches(requestedType, deep);
   if (matches.length === 0) {
     return "The shared member is no longer available.";
   }
@@ -19716,6 +19747,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberCallGraphKey = "";
   state.memberCallGraphExpanding = false;
   state.memberCallGraphSeq++;
+  state.pendingPortableMemberDeepLink = null;
   invalidateGraphMemberNavigation();
   state.selectedBodyTarget = null;
   state.platformStack = [];
@@ -19759,7 +19791,6 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     const type = pkg.types.find(item => item.id === deep.type);
     if (!type) return;
     revealTypeInFilters(type);
-    const groups = memberGroups(type);
     state.memberTextFilter = deep.memberTextFilter || "";
     state.memberKindFilter = deep.memberKindFilter
       && memberKinds(type).includes(deep.memberKindFilter)
@@ -19774,37 +19805,34 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         value === deep.memberTraitFilter)
       ? deep.memberTraitFilter
       : "";
+    const groups = memberGroups(type);
     if (deep.memberBrowse && groups.length)
       state.memberBrowseTypeId = type.id;
     const portableMatches = deep.memberAnchor || deep.memberSignature
-      ? groups.flatMap(group =>
-          group.overloads.map((overload, overloadIndex) => ({
-            group,
-            overload,
-            overloadIndex,
-          }))).filter(candidate =>
-            deep.memberAnchor
-              ? candidate.overload.anchorDigest === deep.memberAnchor
-              : candidate.overload.canonicalSignature === deep.memberSignature)
+      ? portableMemberMatches(type, deep)
       : [];
     let restoredPortableMember = false;
     if (deep.memberAnchor || deep.memberSignature) {
       if (portableMatches.length === 1) {
         const selection = portableMatches[0]!;
-        state.memberBrowseTypeId = type.id;
-        state.selectedMemberKey = selection.group.key;
-        state.selectedOverloadIndex = selection.overloadIndex;
-        const portableBodyTarget =
-          solePortableBodyTarget(selection.overload);
-        const hasSelectedBody = portableBodyTarget !== null;
-        if (deep.section
-          && isMemberSection(deep.section)
-          && memberSectionIdsFor(
-            selection.group,
-            state.package?.isRuntimePack,
-            hasSelectedBody).includes(deep.section)) {
-          state.memberSection = deep.section;
-          state.selectedBodyTarget = portableBodyTarget;
+        const exactProjectionPending =
+          !selection.overload.graphOnly
+          && (state.memberContent === "members"
+            || state.memberContent === "documented-members")
+          && typeMemberPopulationSource === "ordinary"
+          && currentTypeDocumentGroups(type) === null;
+        if (exactProjectionPending) {
+          state.memberBrowseTypeId = type.id;
+          state.pendingPortableMemberDeepLink = {
+            packageKey: packageIdentityKey(pkg),
+            documentKey: typeMemberDocumentKey(type),
+            type: type.id,
+            memberAnchor: deep.memberAnchor ?? null,
+            memberSignature: deep.memberSignature ?? null,
+            section: deep.section ?? null,
+          };
+        } else {
+          selectPortableMember(type, selection, deep.section);
         }
         restoredPortableMember = true;
       } else {
@@ -19909,6 +19937,55 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.typeCursor = Math.max(0, filteredTypeRows().findIndex(item => item.id === state.selectedTypeId));
 }
 
+function selectPortableMember(
+  type: AppTypeSurface,
+  selection: {
+    group: AppMemberGroup;
+    overload: AppMemberSurface;
+    overloadIndex: number;
+  },
+  section: string | null | undefined,
+) {
+  state.memberBrowseTypeId = type.id;
+  state.selectedMemberKey = selection.group.key;
+  state.selectedOverloadIndex = selection.overloadIndex;
+  const portableBodyTarget = solePortableBodyTarget(selection.overload);
+  const hasSelectedBody = portableBodyTarget !== null;
+  if (section
+    && isMemberSection(section)
+    && memberSectionIdsFor(
+      selection.group,
+      state.package?.isRuntimePack,
+      hasSelectedBody).includes(section)) {
+    state.memberSection = section;
+    state.selectedBodyTarget = portableBodyTarget;
+  }
+}
+
+function restorePendingPortableMember() {
+  const pending = state.pendingPortableMemberDeepLink;
+  const type = selectedType();
+  if (!pending) return;
+  if (!type
+    || packageIdentityKey(state.package) !== pending.packageKey
+    || type.id !== pending.type
+    || typeMemberDocumentKey(type) !== pending.documentKey) {
+    state.pendingPortableMemberDeepLink = null;
+    return;
+  }
+  if (!currentTypeDocumentGroups(type)) return;
+  const matches = portableMemberMatches(type, pending);
+  state.pendingPortableMemberDeepLink = null;
+  if (matches.length !== 1) {
+    appendQueryNotice(
+      matches.length === 0
+        ? "The shared member is no longer available and was not opened."
+        : "The shared member identity is ambiguous and was not opened.");
+    return;
+  }
+  selectPortableMember(type, matches[0]!, pending.section);
+}
+
 // Kick off the async data load implied by the current lens/section so a restored or
 // history-navigated view fills in its content.
 // Returns the loader for a type-level lens, or the sentinel `"member"` when the lens
@@ -19934,6 +20011,12 @@ function loadSelectedTypeLensData(): Promise<void> | undefined | "member" {
 }
 
 async function loadSelectionData() {
+  const pendingPortableMember = state.pendingPortableMemberDeepLink;
+  if (pendingPortableMember
+    && (packageIdentityKey(state.package) !== pendingPortableMember.packageKey
+      || selectedType()?.id !== pendingPortableMember.type)) {
+    state.pendingPortableMemberDeepLink = null;
+  }
   if (state.pendingGraphMemberDeepLink
     && !graphMemberPendingMatchesView(
       state.pendingGraphMemberDeepLink,
@@ -19952,6 +20035,7 @@ async function loadSelectionData() {
   }
   await loadSelectedTypeMemberPopulation();
   await loadSelectedTypeMemberDocument();
+  restorePendingPortableMember();
   if (!state.selectedMemberKey) return;
   const member = selectedMember(selectedType());
   if (!member) return;
@@ -24232,6 +24316,7 @@ function setTypeMemberPopulationIntent(
   state.typeMemberPopulationLoading = false;
   state.typeMemberPopulationError = "";
   state.typeMemberPopulationKey = "";
+  state.pendingPortableMemberDeepLink = null;
   resetTypeMemberDocument();
 }
 
@@ -24258,6 +24343,7 @@ async function selectTypeMemberContent(content: string) {
   }
   if (state.memberContent === content) return;
   state.memberContent = content;
+  state.pendingPortableMemberDeepLink = null;
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
