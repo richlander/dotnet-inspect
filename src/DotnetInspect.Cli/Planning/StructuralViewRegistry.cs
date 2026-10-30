@@ -24,6 +24,7 @@ public enum StructuralViewIdentity
     Type,
     MemberType,
     MemberTarget,
+    Diff,
 }
 
 [Flags]
@@ -333,6 +334,21 @@ public static class StructuralViewRegistry
                 | StructuralParserCapabilities.MemberFilter
                 | StructuralParserCapabilities.Overload
                 | StructuralParserCapabilities.Digest),
+            // Diff selects and discovers its comparison sections through its
+            // own command; the view projects its catalog for explanation,
+            // search, and -Q.
+            new(
+                StructuralViewIdentity.Diff,
+                80,
+                DiffCommand.Name,
+                "diff",
+                [InspectionCatalogIdentity.Diff],
+                StructuralParserCapabilities.Sections
+                | StructuralParserCapabilities.Fields
+                | StructuralParserCapabilities.Columns
+                | StructuralParserCapabilities.Tree
+                | StructuralParserCapabilities.TypeFilter
+                | StructuralParserCapabilities.MemberFilter),
         ];
 
     public static IReadOnlyList<StructuralViewDescriptor> All =>
@@ -1042,6 +1058,25 @@ public static class StructuralViewRegistry
                 outputCapabilities = ApiOutputCapabilities.For(route);
                 sectionCardinalities =
                     ApiMemberSectionCardinality.For(selectableSections);
+                break;
+            }
+            case InspectionCatalogIdentity.Diff:
+            {
+                DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+                schema = DiffSections.CreateSchema();
+                selectableSections =
+                    catalog.Sections.SelectableSectionNames;
+                defaultSections = catalog.Sections.InfoSectionNames;
+                annotations = catalog.Pipeline.GetCostAnnotations();
+                categories = catalog.Sections.SelectionCategoryMap;
+                listedCategoryDoors =
+                    catalog.Pipeline.GetListedCategoryDoors();
+                catalogHiddenSections =
+                    catalog.Pipeline.GetCatalogHiddenSections();
+                exactOnlySections = DiffSections.ExactOnlySections;
+                sectionShapes = catalog.Sections.SectionShapes;
+                sectionDescriptions = catalog.Sections.SectionDescriptions;
+                outputCapabilities = DiffOutputCapabilities.Catalog;
                 break;
             }
             default:

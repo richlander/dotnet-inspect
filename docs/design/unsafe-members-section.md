@@ -208,7 +208,9 @@ owns, the identity has no aliases.
   across more than two versions.
 - **Row selection.** The section adds no `--where` keys and no semantic row
   unit. The generic row window applies.
-- **Browser.** The Inspect Web Unsafe tab is step 4.
+- **Browser.** This document doesn't own the Inspect Web Unsafe tab. That's
+  step 4, which [its owner](inspect-web-surface-composition.md#unsafe) defines
+  over the same census.
 - **Legacy evidence.** This document does not change `Unsafe Operations`,
   `Safety Facts`, `analysis.unsafety`, or `analysis.unsafe-evidence`.
 - **Per-origin relation failure.** At Library scope one invalid state-machine

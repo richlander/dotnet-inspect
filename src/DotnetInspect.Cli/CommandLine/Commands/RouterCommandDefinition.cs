@@ -1307,8 +1307,8 @@ public static class RouterCommandDefinition
                 if (CommandLineBuilder.HasParsedOption(packageParse, "--versions")
                     || CommandLineBuilder.HasParsedOption(packageParse, "--versions-with-feed"))
                 {
-                    // A plural package lens owns its positional capacity; an extra
-                    // package must not become an implicit type target.
+                    // Package version listing owns the route; an extra coordinate
+                    // must fail Package cardinality instead of becoming a Type target.
                     rewritten = [PackageCommand.Name, .. tokens];
                     return true;
                 }
