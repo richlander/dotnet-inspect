@@ -4,6 +4,23 @@
 # entry only when the configuration's exact outcome is a named repository gate.
 # Format: one canonical `<path-to-cfg>=<TLC-exit-code>` pair per line.
 
+docs/design/models/package-dependency-traversal-concurrency/BrokenBudget.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/BrokenCapacity.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/BrokenOrder.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/BrokenRelease.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/Concurrent.cfg=0
+docs/design/models/package-dependency-traversal-concurrency/OverlapReachability.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/RefillReachability.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/Sequential.cfg=0
+
+docs/design/models/package-source-operation-concurrency/BrokenAdmission.cfg=12
+docs/design/models/package-source-operation-concurrency/BrokenDuplicateFetch.cfg=12
+docs/design/models/package-source-operation-concurrency/BrokenRelease.cfg=12
+docs/design/models/package-source-operation-concurrency/BrokenRestartCeiling.cfg=12
+docs/design/models/package-source-operation-concurrency/Concurrent.cfg=0
+docs/design/models/package-source-operation-concurrency/ParallelReachability.cfg=12
+docs/design/models/package-source-operation-concurrency/Sequential.cfg=0
+
 docs/design/models/analysis-body-use-terminal-kernel-lifecycle/BrokenInvalidateSettled.cfg=12
 docs/design/models/analysis-body-use-terminal-kernel-lifecycle/BrokenSplitAdmission.cfg=12
 docs/design/models/analysis-body-use-terminal-kernel-lifecycle/ReachabilityEarlyPublication.cfg=12
@@ -90,6 +107,7 @@ docs/design/models/inspect-web-spotlight-destination-activation/BrokenDropOverla
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenDualCurrentAndFreshPublication.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenFallbackAfterCoveredFailure.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenPublishFailedFreshActivation.cfg=12
+docs/design/models/inspect-web-spotlight-destination-activation/BrokenPublishUnfocusedFreshType.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenPlatformDescendantNavigation.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenRebindRenderedDescriptor.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenRepeatPlatformNavigation.cfg=12
@@ -98,17 +116,22 @@ docs/design/models/inspect-web-spotlight-destination-activation/BrokenStaleDirec
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenStaleFreshPublication.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenStalePostMembershipFocus.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenWrongLibraryOccurrence.cfg=12
+docs/design/models/inspect-web-spotlight-destination-activation/BrokenWrongPackageTypeOccurrence.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/Liveness.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessCoveredPackage.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessExactLibrary.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessLibrary.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessOverlap.cfg=0
+docs/design/models/inspect-web-spotlight-destination-activation/LivenessPackageType.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessPlatformDescendants.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessRepeatPlatform.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessStaleDescriptor.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityAddCurrentPackageLibrary.cfg=12
+docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityAddCurrentPackageType.cfg=12
+docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityActivateCurrentPackageType.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityCurrentMembership.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityFreshWorkspace.cfg=12
+docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityFreshPackageType.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityMembershipCoveredLibrary.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityNavigateCurrent.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityOverlappingWitnesses.cfg=12
@@ -128,6 +151,7 @@ docs/design/models/inspect-web-spotlight-destination-activation/SafetyCoveredPac
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyExactLibrary.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyLibrary.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyOverlap.cfg=0
+docs/design/models/inspect-web-spotlight-destination-activation/SafetyPackageType.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyPlatformDescendants.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyRepeatPlatform.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyStaleDescriptor.cfg=0

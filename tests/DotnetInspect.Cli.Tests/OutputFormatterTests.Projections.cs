@@ -129,6 +129,116 @@ public partial class OutputFormatterTests
     }
 
     [Fact]
+    public async Task DiscoverOutput_LegacyTreeSelectionRegroupsSemanticRows()
+    {
+        var schema = new DocumentSchema()
+            .Add("First", "column", "A", "B")
+            .Add("Second", "column", "C", "D");
+        DiscoveryOutputRequest request =
+            DiscoveryOutputRequest.Create(
+                OutputFormat.Markdown,
+                tree: true) with
+            {
+                Rows = RowWindow.Range(2, 3),
+            };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                ["First", "Second"],
+                schema,
+                request)));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            """
+            ├─ First
+            │  └─ B (column)
+            └─ Second
+               └─ C (column)
+
+            """.ReplaceLineEndings(),
+            output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_LegacyTreePreservesRepeatedSectionOccurrences()
+    {
+        var schema = new DocumentSchema()
+            .Add("First", "column", "A", "B")
+            .Add("Second", "column", "C", "D");
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                ["First", "Second", "First"],
+                schema,
+                DiscoveryOutputRequest.Create(
+                    OutputFormat.Markdown,
+                    tree: true))));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            """
+            ├─ First
+            │  ├─ A (column)
+            │  └─ B (column)
+            ├─ Second
+            │  ├─ C (column)
+            │  └─ D (column)
+            └─ First
+               ├─ A (column)
+               └─ B (column)
+
+            """.ReplaceLineEndings(),
+            output);
+    }
+
+    [Fact]
+    public async Task DiscoverOutput_LegacyCatalogKeepsRootAndCostPlacement()
+    {
+        var schema = new DocumentSchema()
+            .Add("Regular", "column", "Name")
+            .Add("Optional", "column", "Value");
+        DiscoveryOutputRequest request =
+            DiscoveryOutputRequest.Create(
+                OutputFormat.Markdown,
+                tree: true);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+            Task.FromResult(DiscoverOutput.Execute(
+                discover: [],
+                schema,
+                request,
+                rootLabel: "Library",
+                sectionCostAnnotations:
+                    new Dictionary<string, string>
+                    {
+                        ["Optional"] = "opt-in",
+                    },
+                sectionCategories:
+                    new Dictionary<string, string[]>
+                    {
+                        ["@Group"] = ["Optional"],
+                    })));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            """
+            └─ Library
+               ├─ @Group (category)
+               │  └─ Optional
+               ├─ Regular
+               │  └─ Name (column)
+               └─ Optional (opt-in)
+                  └─ Value (column)
+
+            """.ReplaceLineEndings(),
+            output);
+    }
+
+    [Fact]
     public void CountProjection_CapturesTableRowsBySection()
     {
         var projection = CountProjectionFormatter.Capture(writer =>
@@ -218,6 +328,7 @@ public partial class OutputFormatterTests
         }
         else if (format == OutputFormat.Jsonl)
         {
+            Assert.Equal("{\"section\":\"Methods\",\"count\":17}\n{\"section\":\"Fields\",\"count\":23}", output);
             var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(2, lines.Length);
             using var first = JsonDocument.Parse(lines[0]);

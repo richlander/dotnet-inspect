@@ -5,12 +5,76 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Fact]
+    public async Task PackageHierarchyShareAppendsUrlToOrdinaryTree()
+    {
+        string[] query =
+        [
+            "package", "System.Text.Json@10.0.0", "--tfm", "netstandard2.0",
+            "-S", "Dependency Hierarchy",
+        ];
+        var ordinary = await RunAppAsync(query);
+        var shared = await RunAppAsync([.. query, "--share", "url"]);
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Equal(0, shared.Exit);
+        Assert.Equal(ordinary.Output, shared.Output);
+        Assert.Empty(ordinary.Error);
+        var url = new Uri(shared.Error.Trim());
+        Assert.Equal("dotnet-inspect.ca", url.Host);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            url.Query[3..],
+            TestContext.Current.CancellationToken);
+        WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+        Assert.Equal("system.text.json", tab.Source);
+        Assert.Equal("10.0.0", tab.Version);
+        Assert.Equal("netstandard2.0", tab.Framework);
+        Assert.Equal("package.dependency-hierarchy", packet.ViewStates[1].Facet);
+        Assert.Contains(packet.Registrations,
+            registration => registration is WorkspaceRegistration.Ecosystem
+            {
+                Declaration.Id.Value: "ecosystem.runtime",
+            });
+        Assert.Equal(
+            "netstandard2.0",
+            packet.TraversalTargetPolicy.TargetFramework);
+    }
+
+    [Fact]
+    public async Task PackageHierarchyShareRejectsCountBeforeAcquisition()
+    {
+        var result = await RunAppAsync(
+            "package", "System.Text.Json@10.0.0", "--tfm", "netstandard2.0",
+            "-S", "Dependency Hierarchy", "--count", "--share", "url");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("cannot preserve", result.Error);
+    }
+
+    [Fact]
+    public async Task PackageHierarchyShareUsesTraversalDefaultFramework()
+    {
+        var result = await RunAppAsync(
+            "package", "System.Text.Json@10.0.0",
+            "-S", "Dependency Hierarchy", "--share", "packet");
+
+        Assert.Equal(0, result.Exit);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            result.Error.Trim(),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
+            Assert.Single(packet.Tabs).Framework);
+    }
+
     [Fact]
     public async Task DependsTypeShareAppendsUrlWithoutChangingJsonContent()
     {

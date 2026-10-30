@@ -1,9 +1,12 @@
 import type { BrowserPackagePerformance } from "./facades/inspect-web-analysis.d.ts";
 import { renderAnalysisInspector } from "./analysis-inspector.ts";
 
+import { singlePerformanceBodyTarget, renderTriageCode, triageMemberLabel } from "./triage-code.ts";
+
 type LibraryAnalysisResult = Pick<
   BrowserPackagePerformance,
-  "members" | "inspectionError" | "nonPublicOpportunities" | "totalOpportunities"
+  "members" | "syncCallsInAsync" | "syncCallsInAsyncCount"
+    | "inspectionError" | "totalOpportunities"
 >;
 
 export interface LibraryAnalysisOptions {
@@ -18,14 +21,6 @@ export interface LibraryAnalysisOptions {
   error: string;
   data: LibraryAnalysisResult | null;
   escapeHtml: (value: unknown) => string;
-}
-
-function shortTypeName(fullName: string): string {
-  const generic = fullName.indexOf("<");
-  const head = generic < 0 ? fullName : fullName.slice(0, generic);
-  const tail = generic < 0 ? "" : fullName.slice(generic);
-  const dot = head.lastIndexOf(".");
-  return (dot < 0 ? head : head.slice(dot + 1)) + tail;
 }
 
 export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): string {
@@ -50,38 +45,64 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
       content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
     } else {
       const members = resolved.members ?? [];
+      const syncCalls = resolved.syncCallsInAsync ?? [];
+      const syncCallCount = resolved.syncCallsInAsyncCount ?? null;
       const partial = Boolean(resolved.inspectionError);
-      const nonPublicStatus = resolved.nonPublicOpportunities > 0
-        ? ` \u00b7 ${resolved.nonPublicOpportunities.toLocaleString()} non-public`
-        : "";
-      status = `${members.length.toLocaleString()} public member${members.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} opportunit${resolved.totalOpportunities === 1 ? "y" : "ies"}${nonPublicStatus}${partial ? " \u00b7 partial" : ""}`;
+      const syncCallStatus = syncCallCount === null
+        ? "sync-call count unavailable"
+        : `${syncCallCount.toLocaleString()} sync call${syncCallCount === 1 ? "" : "s"}`;
+      status = `${members.length.toLocaleString()} member${members.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} opportunit${resolved.totalOpportunities === 1 ? "y" : "ies"} \u00b7 ${syncCallStatus}${partial ? " \u00b7 partial" : ""}`;
       const warning = partial
-        ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be analyzed completely</strong><ul><li><code>${escapeHtml(resolved.inspectionError)}</code></li></ul></section>`
+        ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be analyzed completely</strong></section>`
         : "";
       const note = members.length
         ? `<p class="library-analysis-note">Ranked by product triage policy. Static IL classification &mdash; confirm impact with a benchmark or profiler. Select a member to open its API details.</p>`
         : "";
       const rows = members.map(member => {
-        const display = `${shortTypeName(member.typeId)}.${member.memberName}`;
+        const display = triageMemberLabel(member.typeId, member.memberName);
         const shapes = member.shapes
           .map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`)
           .join("");
         const loopBadge = member.inLoopCount > 0
           ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">&#x21BB; ${member.inLoopCount}</span>`
           : "";
-        return `<button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">
+        const previewBody = singlePerformanceBodyTarget(member);
+        const previews = (previewBody ? [previewBody] : []).map(body => renderTriageCode({
+          assembly: member.assembly, typeId: body.typeId, memberName: body.memberName,
+          selector: body.selectorKey, methodToken: body.methodToken, issueOffsets: body.issueOffsets ?? null,
+        }, escapeHtml)).join("");
+        return `<article class="triage-item"><button class="perf-row" data-perf-selector="${escapeHtml(member.stableSelector)}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} &mdash; open member">
           <span class="perf-count">${member.opportunityCount}</span>
           <span class="perf-member"><span class="perf-name">${escapeHtml(display)}</span><span class="perf-shapes">${shapes}</span></span>
           <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "\u2014")}</span></span>
-        </button>`;
+        </button>${previews}</article>`;
       }).join("");
-      const nonPublicNote = resolved.nonPublicOpportunities > 0
-        ? ` ${resolved.nonPublicOpportunities.toLocaleString()} opportunit${resolved.nonPublicOpportunities === 1 ? "y is" : "ies are"} in non-public members.`
+      const syncRows = syncCalls.map(call => `<tr>
+        <td><code>${escapeHtml(call.caller)}</code></td>
+        <td><code>${escapeHtml(call.callee)}</code></td>
+        <td><code>${escapeHtml(call.alternative)}</code></td>
+        <td><span class="sync-call-kind">${escapeHtml(call.pairKind)}</span></td>
+      </tr>`).join("");
+      const syncSection = syncCalls.length
+        ? `<section class="document-section sync-calls-section">
+          <div class="section-title"><h2>Sync calls in async</h2><span>${syncCallCount === null ? "count unavailable" : syncCallCount.toLocaleString()}</span></div>
+          <p class="library-analysis-note">Async methods calling synchronous APIs that have callable async alternatives.</p>
+          <div class="sync-calls-table-wrap"><table class="sync-calls-table">
+            <thead><tr><th>Caller</th><th>Callee</th><th>Alternative</th><th>Pair kind</th></tr></thead>
+            <tbody>${syncRows}</tbody>
+          </table></div>
+        </section>`
         : "";
-      const empty = partial
-        ? `<section class="document-section empty-document"><h2>Analysis incomplete</h2><p>No public-member results are available from this incomplete analysis.</p></section>`
-        : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No public allocation hot spots</h2><p>${resolved.totalOpportunities.toLocaleString()} allocation/performance opportunit${resolved.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${escapeHtml(libraryName)}.${nonPublicNote}</p></section>`;
-      content = `${warning}${note}${members.length ? `<div class="perf-list">${rows}</div>` : empty}`;
+      const empty = members.length
+        ? ""
+        : partial
+        ? `<section class="document-section empty-document"><h2>Analysis incomplete</h2><p>No ranked optimization member results are available from this incomplete analysis.</p></section>`
+        : resolved.totalOpportunities === 0
+          ? syncCalls.length
+            ? ""
+            : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No allocation hot spots</h2><p>No allocation/performance opportunities were classified for ${escapeHtml(libraryName)}.</p></section>`
+          : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No navigable member results</h2><p>${resolved.totalOpportunities.toLocaleString()} allocation/performance opportunit${resolved.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none could be attributed to a navigable member of ${escapeHtml(libraryName)}.</p></section>`;
+      content = `${warning}${note}${members.length ? `<div class="perf-list">${rows}</div>` : ""}${syncSection}${empty}`;
     }
   }
   return renderAnalysisInspector(options, "performance", status, content);

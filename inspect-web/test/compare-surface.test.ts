@@ -62,8 +62,11 @@ test("Compare modes are a closed two-value vocabulary", () => {
 });
 
 test("Diff and Clone are modes inside Compare, not separate inspectors or lenses", () => {
-  const catalogs = dataSource.match(/const lenses = \[[\s\S]*?\] as const;[\s\S]*?export const memberSectionDefinitions = \[[\s\S]*?\] as const;/)?.[0] ?? "";
-  assert.match(catalogs, /\["compare", "Compare"\]/);
+  const catalogs = dataSource.match(
+    /const typeLensRouteByFacetId = \{[\s\S]*?const memberSectionRoutes = \[[\s\S]*?\] as const;/,
+  )?.[0] ?? "";
+  assert.match(catalogs, /"type\.compare": "compare"/);
+  assert.match(catalogs, /"member\.compare": "compare"/);
   assert.doesNotMatch(catalogs, /"clone"|"diff"/);
 });
 
@@ -149,7 +152,7 @@ test("the app retains Compare mode per Package and reconciles both modes from re
   const activateMember = appSource.match(/function activateCompareMember\([\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(
     activateMember,
-    /navigateToMember\(\s*subject\.pkg,\s*type,\s*match\.group,\s*match\.overloadIndex,\s*null,\s*"compare"\);/);
+    /navigateToMember\(\s*subject\.pkg,\s*type,\s*match\.group,\s*match\.overloadIndex,\s*body,\s*"compare"\);/);
   assert.match(activateMember, /overload\.anchorDigest !== memberFingerprint/);
   assert.doesNotMatch(activateMember, /textContent|innerText|display/);
   // Change target returns to Package Overview's Comparison targets work area.

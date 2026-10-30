@@ -93,6 +93,7 @@ public sealed class MetadataHierarchyRelationIndex
 
 internal readonly record struct MetadataHierarchyRelationIndexKey(
     MetadataTypeDefinitionName Target,
+    AssemblyReferenceIdentity? TargetAssembly,
     MetadataHierarchyRelationKind Kind);
 
 internal readonly record struct MetadataHierarchyRelationIndexSource(
@@ -290,6 +291,7 @@ internal static partial class MetadataRelationInspection
                         diagnostics,
                         globalDiagnostics,
                         sourceIndex,
+                        identity.Assembly,
                         MetadataHierarchyRelationKind.BaseType,
                         definition.BaseType,
                         MetadataTokens.GetToken(sourceHandle));
@@ -313,6 +315,7 @@ internal static partial class MetadataRelationInspection
                         diagnostics,
                         globalDiagnostics,
                         sourceIndex,
+                        identity.Assembly,
                         MetadataHierarchyRelationKind.Interface,
                         implementation.Interface,
                         MetadataTokens.GetToken(implementationHandle));
@@ -585,28 +588,30 @@ internal static partial class MetadataRelationInspection
             MetadataHierarchyRelationIndexData data,
             MetadataHierarchyTargetSelection target)
     {
-        if (target.Kind is MetadataHierarchyRelationKind exactKind)
-        {
-            return data.Targets.TryGetValue(
-                new(target.Type, exactKind),
-                out ImmutableArray<
-                    MetadataHierarchyRelationIndexCandidate> exact)
-                        ? exact
-                        : [];
-        }
+        ImmutableArray<MetadataHierarchyRelationIndexCandidate> Exact(
+            MetadataHierarchyRelationKind kind) =>
+            [
+                .. data.Targets
+                    .Where(pair =>
+                        pair.Key.Target == target.Type
+                        && pair.Key.Kind == kind
+                        && (target.Assembly is null
+                            || pair.Key.TargetAssembly is null
+                            || AssemblyReferenceIdentity
+                                    .EquivalentComparer.Equals(
+                                        pair.Key.TargetAssembly,
+                                        target.Assembly)))
+                    .SelectMany(static pair => pair.Value)
+                    .OrderBy(static candidate => candidate.SourceIndex),
+            ];
 
-        data.Targets.TryGetValue(
-            new(
-                target.Type,
-                MetadataHierarchyRelationKind.BaseType),
-            out ImmutableArray<
-                MetadataHierarchyRelationIndexCandidate> bases);
-        data.Targets.TryGetValue(
-            new(
-                target.Type,
-                MetadataHierarchyRelationKind.Interface),
-            out ImmutableArray<
-                MetadataHierarchyRelationIndexCandidate> interfaces);
+        if (target.Kind is MetadataHierarchyRelationKind exactKind)
+            return Exact(exactKind);
+
+        ImmutableArray<MetadataHierarchyRelationIndexCandidate> bases =
+            Exact(MetadataHierarchyRelationKind.BaseType);
+        ImmutableArray<MetadataHierarchyRelationIndexCandidate> interfaces =
+            Exact(MetadataHierarchyRelationKind.Interface);
         if (bases.IsEmpty)
             return interfaces;
         if (interfaces.IsEmpty)
@@ -654,6 +659,7 @@ internal static partial class MetadataRelationInspection
         ImmutableArray<MetadataRelationDiagnostic>.Builder
             globalDiagnostics,
         int sourceIndex,
+        AssemblyReferenceIdentity? sourceAssembly,
         MetadataHierarchyRelationKind kind,
         EntityHandle target,
         int occurrenceToken)
@@ -667,10 +673,16 @@ internal static partial class MetadataRelationInspection
             bool wasRead = TryReadHierarchyTargetName(
                 reader,
                 operation,
+                sourceAssembly,
                 target,
                 out MetadataTypeDefinitionName? targetName,
+                out AssemblyReferenceIdentity? targetAssembly,
                 out string? failure);
-            cached = new(wasRead, targetName, failure);
+            cached = new(
+                wasRead,
+                targetName,
+                targetAssembly,
+                failure);
             targetNames.Add(target, cached);
         }
         if (!cached.WasRead)
@@ -692,6 +704,7 @@ internal static partial class MetadataRelationInspection
             MetadataOperationDimension.RetainedHierarchyRelations);
         var key = new MetadataHierarchyRelationIndexKey(
             cached.Name!,
+            cached.Assembly,
             kind);
         if (!candidateBuilders.TryGetValue(
                 key,
@@ -714,11 +727,14 @@ internal static partial class MetadataRelationInspection
     static bool TryReadHierarchyTargetName(
         MetadataReader reader,
         MetadataOperationContext operation,
+        AssemblyReferenceIdentity? sourceAssembly,
         EntityHandle target,
         out MetadataTypeDefinitionName? name,
+        out AssemblyReferenceIdentity? assembly,
         out string? failure)
     {
         name = null;
+        assembly = null;
         failure = null;
         try
         {
@@ -794,6 +810,18 @@ internal static partial class MetadataRelationInspection
             }
             name =
                 ((MetadataTypeDefinitionNameReadResult.Read)result).Name;
+            if (sourceAssembly is not null
+                && definition.Kind == HandleKind.TypeDefinition
+                && !MetadataHierarchyRelationAnalysis
+                    .TryReadTargetAssemblyIdentity(
+                        reader,
+                        definition,
+                        out assembly,
+                        out failure))
+            {
+                name = null;
+                return false;
+            }
             return true;
         }
         catch (Exception exception)
@@ -858,5 +886,6 @@ internal static partial class MetadataRelationInspection
     readonly record struct HierarchyTargetNameCacheEntry(
         bool WasRead,
         MetadataTypeDefinitionName? Name,
+        AssemblyReferenceIdentity? Assembly,
         string? Failure);
 }

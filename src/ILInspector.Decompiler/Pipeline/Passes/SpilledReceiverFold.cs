@@ -28,9 +28,15 @@ static class SpilledReceiverFold
     /// <c>ExpressionInliningPass.WritesNode</c>'s argument cases.
     /// </summary>
     public static HashSet<int> OrderSensitiveArguments(IrFunction function)
+        => OrderSensitiveArguments(function.Descendants);
+
+    public static HashSet<int> OrderSensitiveArgumentsInScope(IrNode scope)
+        => OrderSensitiveArguments(CoercionSinks.ScopeNodes(scope));
+
+    static HashSet<int> OrderSensitiveArguments(IEnumerable<IrNode> nodes)
     {
         var arguments = new HashSet<int>();
-        foreach (var node in function.Descendants)
+        foreach (var node in nodes)
         {
             switch (node)
             {
@@ -68,7 +74,9 @@ static class SpilledReceiverFold
     /// <c>in</c> rvalue only when that address is a direct sink argument.
     /// <paramref name="orderSensitiveArguments"/> names
     /// parameter slots whose address escapes or whose value is reassigned, so a
-    /// moved effect cannot cross a read that it may change.
+    /// moved effect cannot cross a read that it may change. <paramref name="defaultValueScope"/>
+    /// admits a default-value initobj spill only after proving its local storage
+    /// belongs exclusively to that initialization and value load in this scope.
     /// </summary>
     public static bool TryFold(
         IrNode statement,
@@ -78,6 +86,7 @@ static class SpilledReceiverFold
         string stepLabel,
         bool stackSlotsOnly = false,
         bool allowInArgumentAddressSpills = false,
+        IrFunction? defaultValueScope = null,
         IReadOnlySet<int>? orderSensitiveArguments = null)
     {
         if (statement.Parent is not Block block)
@@ -94,9 +103,15 @@ static class SpilledReceiverFold
                     block.Children[i],
                     sink,
                     usage,
-                    allowInArgumentAddressSpills) is not { } load)
+                    allowInArgumentAddressSpills,
+                    defaultValueScope) is not { } load)
                 break;
-            run.Add((block.Children[i], load, (IrExpression)block.Children[i].Children[0]));
+            var value = block.Children[i] is InitObject init
+                ? new DefaultValue(init.Type)
+                : (IrExpression)block.Children[i].Children[0];
+            if (block.Children[i] is InitObject)
+                value.InheritSourceOffset(block.Children[i]);
+            run.Add((block.Children[i], load, value));
         }
         if (run.Count == 0)
             return false;
@@ -111,9 +126,11 @@ static class SpilledReceiverFold
         if (!RunPreservesEffectOrder(run, sink, orderSensitiveArguments))
             return false;
 
-        foreach (var (store, load, _) in run)
+        foreach (var (store, load, plannedValue) in run)
         {
-            var value = (IrExpression)store.DetachChildren()[0];
+            var value = store is InitObject
+                ? plannedValue
+                : (IrExpression)store.DetachChildren()[0];
             store.Detach();
             context.Stepper.StepOver(stepLabel, sink);
             load.ReplaceWith(value);
@@ -215,23 +232,28 @@ static class SpilledReceiverFold
     /// trivial even without an effect of its own.
     /// </summary>
     static bool IsReorderTrivial(IrExpression value)
-        => value is Constant or SizeOf or LoadToken;
+        => value is Constant or DefaultValue or SizeOf or LoadToken;
 
     /// <summary>
     /// The sole value read of <paramref name="node"/> when it is a single-use
     /// spill store whose read sits inside <paramref name="call"/>. When explicitly
     /// enabled, the compiler's sole direct <c>in</c>-argument address read is the
-    /// equivalent value consumer. Any other address use remains a decline.
+    /// equivalent value consumer. A supplied <paramref name="defaultValueScope"/>
+    /// also admits an exclusively owned initobj/value-load pair. Other address
+    /// uses remain a decline.
     /// </summary>
     public static IrNode? SpillLoadInside(
         IrNode node,
         IrExpression call,
         IReadOnlyDictionary<(bool IsSlot, int Index), Place> usage,
-        bool allowInArgumentAddressSpills = false)
+        bool allowInArgumentAddressSpills = false,
+        IrFunction? defaultValueScope = null)
     {
         (bool IsSlot, int Index)? key = node switch
         {
             StoreLocal store => (false, store.Index),
+            InitObject { Address: LoadLocalAddress address } when defaultValueScope is not null
+                => (false, address.Index),
             StoreStackSlot store => (true, store.Slot),
             _ => null,
         };
@@ -241,7 +263,16 @@ static class SpilledReceiverFold
         {
             return null;
         }
-        IrNode? load = record switch
+        IrNode? load = node is InitObject init
+            ? record is { Stores: 1, Loads.Count: 1, Addresses.Count: 1 }
+                && ReferenceEquals(record.Addresses[0], init.Address)
+                && record.Loads[0] is LoadLocal valueLoad
+                && init.Type.Equals(valueLoad.ResultType)
+                && init.Address.ResultType is { Kind: TypeRefKind.ByRef, ElementType: { } storageType }
+                && init.Type.Equals(storageType)
+                    ? record.Loads[0]
+                    : null
+            : record switch
         {
             { AddressTaken: false, Loads.Count: 1 } => record.Loads[0],
             { Loads.Count: 0, Addresses.Count: 1 }
@@ -252,6 +283,11 @@ static class SpilledReceiverFold
             _ => null,
         };
         if (load is null)
+            return null;
+        if (node is InitObject { Address: LoadLocalAddress initializedAddress } initialization
+            && (defaultValueScope is null
+                || !ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(
+                    defaultValueScope, initializedAddress.Index, [initialization, load])))
             return null;
         if (!ReferenceOwnership.IsInside(load, call))
             return null;
@@ -336,6 +372,9 @@ static class SpilledReceiverFold
             {
                 case LoadLocal load: Entry(false, load.Index).Loads.Add(load); break;
                 case StoreLocal store: Entry(false, store.Index).Stores++; break;
+                case InitObject { Address: LoadLocalAddress address }:
+                    Entry(false, address.Index).Stores++;
+                    break;
                 case LoadLocalAddress address: Entry(false, address.Index).Addresses.Add(address); break;
                 case LoadStackSlot load: Entry(true, load.Slot).Loads.Add(load); break;
                 case StoreStackSlot store: Entry(true, store.Slot).Stores++; break;

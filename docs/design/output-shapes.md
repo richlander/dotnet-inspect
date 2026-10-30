@@ -13,6 +13,16 @@ semantic
 [inspection Document](host-observable-content-kinds.md#document)
 may render through that shape, but the two terms are not equivalent.
 
+The approved [section representation
+contract](section-shapes.md#section-representations) distinguishes offered
+Hierarchy, Table, and structured Document representations. It owns consumer
+selection and requires `--json` to serialize the Document, typically typed
+table rows plus summary and interpretation context. A Table row stream does
+not carry that summary as an extra table. The narrowing ladder below is not a
+requirement to lower every format through a Markdown-oriented Document.
+Existing per-command paths remain unchanged until their owners adopt the
+representation contract.
+
 Default-renderer policy is owned by
 [Native type and source defaults](rendering-model.md#native-type-and-source-defaults).
 In particular, `type`/`member` source payloads do not require or accept
@@ -106,6 +116,21 @@ Debug `diff --history` adopts `--evidence-envelope <path>` for
 acquisition with its [package transfer receipt](package-transfer-receipt.md).
 It preserves the ordinary primary output and publishes the complete enriched
 frame atomically.
+
+Ecosystem Find adopts a baseline envelope over its staged search summary
+through `EcosystemFindInspection`. Debug `find --ecosystem` and registration-only
+`find --workspace` expose it with `--evidence-envelope <path>`, registering
+`result_kind` `ecosystem-find` at `schema_version` `1`. The complete frame
+contains the same completed blocks and scheduling evidence, with explicit
+legacy acquisition-receipt unavailability. Ordinary output is unchanged.
+Other Find routes, including parse-time explicit `--package-prefix`, refuse
+the option before acquisition; their baseline adoption remains separate.
+
+Debug pairwise `diff --package` adopts `--evidence-envelope <path>` for
+Library API Diff (`LibraryApiDiffOutcome`) and analysis sets
+(`DiffAnalysisDocument`), with the same `PackageAcquisitionEvidence`: the
+before endpoint's House acquisition, then the after endpoint's. Request
+shapes without a baseline envelope refuse the option.
 
 `--depth` remains traversal, while `--rows` and
 `-n`/`--head`/`--tail` remain semantic relationship selection. Content retains
@@ -621,7 +646,7 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
 section enters the declared-row ladder at all. Inventory sections expose Rows
 and Count over owner-declared row sets; scalar sections already represent one
 typed value and expose neither. For an inventory, Count reduces each declared
-row set independently: exactly one outcome reaches Scalar, while multiple exact
+row set independently: exactly one outcome reaches Scalar, while multiple
 outcomes reassemble as one ordered count Table. Count never collapses
 independent row sets into one request-wide scalar.
 
@@ -714,19 +739,15 @@ The proposed `--envelope` is a separate
 [service-output selector](#content-shapes-and-service-envelopes), not another
 content-shape or presentation modifier.
 
-`library --package ... --tfm all` selects multiple independent inspections. Its
-full output therefore requires a document format: Markdown or JSON.
-Single-table, stream, plain-text, tree, unary projection, and single-row-set
-`--print` output fail closed rather than selecting one inspection or combining
-independent row sets. Count remains valid because it preserves the producer's
-declared aggregate or independent row-set scopes.
+`--tfm all` is package discovery under
+[All-frameworks package discovery](package-tfm-all-discovery.md):
+it selects no compile projection, and requests that inspect assemblies fail
+before acquisition rather than select one Library from several frameworks.
 
 For unreduced output, shape cardinality is evaluated after both section and
 subject selection. `--table`, `--tsv`, and `--jsonl` require exactly one table
 shape; `--tree` requires exactly one tree shape; standalone `--mermaid`
-requires exactly one graph shape. Selecting one section with `--tfm all` still
-produces one shape per inspection, so it does not satisfy any unreduced
-single-shape contract.
+requires exactly one graph shape.
 
 Count does not apply that eligibility test to its contributing inputs. It first
 consumes the already-bound typed reduction result, then evaluates format
@@ -819,6 +840,22 @@ knobs handle remaining cell narrowing and formatting:
   membership projection.
 - **Table mode** (`MarkoutWriterOptions.TableMode`) picks how tables render:
   Markdown (default), `MarkoutTableMode.Tsv`, or `MarkoutTableMode.Jsonl`.
+
+For the CLI Markout-dependency migration in #9579, a shared presentation
+adapter may accept settled version-feed, version-listing, and string-list rows
+with a host-neutral Table/TSV/JSONL choice, then construct the existing
+`TableFormatter` and Markout writer. It passes rows through Markout's
+begin/row/end table API rather than buffering a second copy of the complete
+rendered output. Markout owns any format-specific buffering. The companion
+[Markout streaming change](https://github.com/richlander/markout/pull/231)
+emits TSV and JSONL rows as they arrive; pretty tables still need all rows to
+calculate column widths. The CLI retains row acquisition, JSON array output,
+and destination handling. This adapter's approved consumer is the
+CLI; Browser/Wasm continues using its existing presentation paths and has no
+planned adoption of this text-table adapter. The user approved this exact
+CLI-only scope on 2026-10-07 by replying "proceed" to the explicit request for
+approval of the narrow adapter in `DotnetInspector.Presentation` without
+Browser/Wasm adoption.
 
 Formatters decide presentation, not content:
 
@@ -1052,33 +1089,6 @@ do not establish cardinality. Producers outside Markout, such as metadata
 tables, expose the same declared logical rows to L2 that their renderers
 consume.
 
-### Approved `vocabulary --json` compatibility boundary
-
-The CLI host's plain, unprojected `vocabulary --json` path is an approved
-bounded exception to ordinary Markout lowering. Its typed input is the selected
-owner-issued `VocabularySection` sequence plus the catalog schema version, and
-its lowering boundary is `VocabularyWireDocument` through the generated
-`VocabularyWireJsonContext` or `VocabularyWireCompactJsonContext`. The visible
-result is the established schema-versioned document containing section
-metadata, accepted-command identities, field schemas, operators, and typed
-value cells.
-
-This boundary exists because the lowered Markout table shape intentionally
-contains display rows, not the catalog's schema and typed values. Moving this
-path through Markout would discard that information or change the public wire
-contract. The exception is limited to this CLI host and plain unprojected
-`--json`; Markdown, plain text, table, TSV, JSONL, and projected JSON serialize
-one typed `VocabularyView` through `VocabularyViewContext`. The Release gates
-are
-`VocabularyCommandTests.JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
-`Command_JsonCarriesTypedSchemaAndValues`,
-`Command_DefaultRendersTheSelfDescribingSectionIndex`,
-`Command_PlainTextUsesThePlainTextFormatter`,
-`Command_JsonlUsesProjectedRuntimeColumns`, and
-`Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats`.
-The focused adoption is tracked by
-[#6811](https://github.com/richlander/dotnet-inspect/issues/6811).
-
 ### Approved cache JSON compatibility boundary
 
 The CLI host's `cache --json` and `cache --jsonl` paths are an approved bounded
@@ -1147,17 +1157,22 @@ Only an inventory section can produce that typed result. A scalar section has
 no declared row set and rejects Count rather than reporting one, zero, its
 property count, or its rendered-line count.
 
-- A successful Count result containing one exact declared-row-set entry
-  produces a culture-invariant decimal scalar. Markdown, plain text, pretty
+- A successful Count result containing one declared-row-set entry produces a
+  culture-invariant decimal scalar. Markdown, plain text, pretty
   table, and TSV emit the same bare value; JSON emits one number; and JSONL
   emits one numeric record.
-- A successful Count result containing multiple exact declared-row-set entries
+- A successful Count result containing multiple declared-row-set entries
   produces ordered row-set/count rows. Markdown, table, and plain text render
   those rows as their native table form; TSV emits two columns; JSONL emits one
   object per row; JSON emits an array of objects. JSON and JSONL counts are
   numbers rather than numeric strings.
 - Standalone Mermaid rejects every Count result because neither a scalar nor a
   count map is a graph.
+- An observed entry over incomplete evidence lowers to the same Scalar or
+  count Table as an exact one. Its incompleteness evidence is not encoded in
+  the numeric value; the consuming output owner discloses it and sets the exit
+  status exactly as it does for Rows over the same evidence, under
+  [Section-row shaping](section-row-shaping.md#incomplete-evaluation).
 - An already-bound failure result produces no Scalar or count Table. Failure
   presentation belongs to the consuming output owner and is not encoded as a
   numeric value.
@@ -1181,16 +1196,20 @@ to the output layer and requires:
   and object-per-row JSONL result, while the separately exercised Mermaid path
   rejects and the ordinary single-input-table restriction does not reject the
   count result;
+- one observed entry and a mixed exact/observed multi-entry result to render
+  the same numeric shapes as exact entries while their incompleteness evidence
+  reaches the consuming owner's disclosure rather than the payload;
 - a bound failure to exercise every Markdown, plain-text, pretty-table, TSV,
   JSON, JSONL, and Mermaid route, each using its owner-defined failure
   presentation with no Scalar or count Table payload; and
 - fixtures to prove that no tested output path reconstructs cardinality from
   rendered or intercepted rows.
 
-For multiple package subjects, `Package Info` and package-file sections retain
-their producer-declared cross-package survey row sets. Other sections preserve
-the aggregate or per-package scope declared before shaping. L2 does not infer a
-merge from labels or presentation.
+Package inspection accepts one Package coordinate and preserves that unary
+producer's declared row set. Plural Package selectors publish ordered complete
+reports above this shaping layer rather than merging unary rows or adding a
+Package provenance column. L2 does not infer a merge from labels or
+presentation.
 
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
@@ -1402,7 +1421,7 @@ resolved by discarding one.
 ### Lens modes project their own payload
 
 A few requests select a *lens* rather than a section of the normal document:
-`package --versions`, `--layout`, `--tfms`, and `--content`, along with
+`package --versions` and `--content`, along with
 `library address --file` and the `-D`/`--discover` listing. Each renders a
 payload it computes itself and returns before the section pipeline, so the
 section-selection vocabulary does not describe what the caller is looking at.
@@ -1410,20 +1429,19 @@ section-selection vocabulary does not describe what the caller is looking at.
 The lens payload is still a payload, so the two-outcome rule above applies
 unchanged. Because the lens owns the shape, its answers are fixed:
 
-- `--count` counts the lens payload — versions, target frameworks, package
+- `--count` counts the lens payload — versions, package
   files, IL offsets, discovered artifacts — not the lines used to render it. A
   layout count is a count of files, even though the rendered tree also shows the
   directories that contain them.
 - `--content` yields one structured row per matched file despite rendering
   text, so its count is the number of files matched.
-- A `--content` path that matches nothing in a package still renders a
-  per-package placeholder — `(absent)` in the block render, a `found:false` row
-  in `--jsonl` — and that placeholder is **not** counted. The count answers *how
-  many files did I get content for*, so counting placeholders would report
-  matches that did not happen. The placeholder is presentation, which is why
-  `--skip-empty` removes it and `--raw` never emits it: under `--skip-empty` the
-  rendered rows and the count agree exactly. This is the one place the count is
-  deliberately smaller than the default render's row total.
+- A `--content` path that matches nothing still renders an `(absent)`
+  placeholder in the block render and a `found:false` row in `--jsonl`, but
+  that placeholder is **not** counted. The count answers *how many files did I
+  get content for*, so counting the presentation placeholder would report a
+  match that did not happen. `--raw` never emits the placeholder. This is the
+  one place the count is deliberately smaller than the default render's row
+  total.
 - An opaque lens payload refuses `--print`, `--value`, `--urls`, and `--paths`
   with the reason rather than inferring structure from rendered text. A lens
   that declares rows and their capabilities composes with ordinary projections:
@@ -1473,7 +1491,7 @@ and `SkillDocuments_ReportBoundedContainmentRanges` gates the split-channel,
 bounded diagnostic. A Markdown scope exports projected text.
 Terminal-facing output never emits a live control or bidi scalar from package
 content. Multi-item
-`--print --out` and multi-file or multi-package `--content --out` are refused
+`--print --out` and multi-file `--content --out` are refused
 unless a structured JSON shape owns the destination; global selection
 cardinality is resolved before any selected payload is read, and a unique exact
 payload is read from the same retained package acquisition that supplied its
@@ -1544,7 +1562,7 @@ not a rendering of the service envelope.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` currently wires a lowered document path, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

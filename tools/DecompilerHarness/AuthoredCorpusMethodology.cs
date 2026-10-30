@@ -12,11 +12,16 @@ static class AuthoredCorpusMethodology
     /// unaided RTS <c>ValidDifferent</c> IL-diff rows. v4 starts the native RTS
     /// outcome lineage: references are frozen from the owner-selected closure,
     /// and source correspondence requires a product body graded <c>Full</c>.
+    /// v5 starts a new invalid-attribution lineage: span attribution reads the
+    /// product-issued body ranges of the decompiled unit and the authored-body
+    /// substitution instead of re-locating each body by name in a Roslyn parse,
+    /// so it can now attribute targets the name search could not uniquely find.
+    /// The source-outcome lineage is unchanged.
     /// The compiled substitution and fidelity controls are gated by
     /// <c>ValidDifferentFaultIsolationTests</c>; the aggregate partition and
     /// version stamp are gated by <c>AuthoredCorpusFrontierAttributionTests</c>.
     /// </summary>
-    internal const int Version = 4;
+    internal const int Version = 5;
 
     /// <summary>
     /// Returns the lineage that defines the top-level <c>valid</c>,
@@ -28,7 +33,7 @@ static class AuthoredCorpusMethodology
         => methodologyVersion switch
         {
             1 or 2 or 3 => 1,
-            4 => 2,
+            4 or 5 => 2,
             _ => null,
         };
 
@@ -48,6 +53,7 @@ static class AuthoredCorpusMethodology
             2 => 2,
             3 => 3,
             4 => 4,
+            5 => 5,
             _ => null,
         };
 

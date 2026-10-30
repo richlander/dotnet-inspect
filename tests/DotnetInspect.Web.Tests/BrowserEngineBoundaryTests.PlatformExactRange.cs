@@ -111,10 +111,20 @@ public sealed partial class BrowserEngineBoundaryTests
             coordinate => Assert.Equal(originalVersion, coordinate.Version));
     }
 
-    [Fact]
-    public async Task PlatformWorkspace_ExactAssemblyUsesRangeAndReusesEntryCache()
+    // PR-fast: one selected fixture image on either side of the shared size cut.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task PlatformWorkspace_ExactAssemblyFollowsSizePolicyAndReusesCache(
+        bool aboveCut,
+        bool byName)
     {
-        const string version = "11.0.7381";
+        string version = byName
+            ? aboveCut ? "11.0.7491" : "11.0.7492"
+            : aboveCut ? "11.0.7381" : "11.0.7481";
+        string framework = byName && !aboveCut ? "net11.0-browser" : "net11.0";
         const string packageId =
             "microsoft.netcore.app.runtime.linux-x64";
         const string assemblyFileName =
@@ -133,7 +143,9 @@ public sealed partial class BrowserEngineBoundaryTests
 
         byte[] archive = RuntimePackage(
             assemblyFileName,
-            assembly);
+            assembly,
+            unrelatedBytes: aboveCut ? 4 * 1024 * 1024 : 4096);
+        Assert.Equal(aboveCut, archive.LongLength > PackageRangedRead.DefaultSizeCut);
         var handler = new ExactPlatformRangeHandler(
             packageId,
             version,
@@ -151,48 +163,96 @@ public sealed partial class BrowserEngineBoundaryTests
         IPackageSourceAuthorization sourceAuthorization =
             BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
 
-        await using BrowserPlatformScopeResolution first =
-            await BrowserPlatformWorkspace.OpenAssemblyAsync(
-                "net11.0",
-                version,
-                identity,
-                "netcore.app",
-                networkClient,
-                packageClient,
-                sourceAuthorization,
-                TimeSpan.FromSeconds(30),
-                TestContext.Current.CancellationToken);
+        Task<BrowserPlatformScopeResolution> OpenAsync() =>
+            byName
+                ? BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    framework, version, assemblyFileName, "netcore.app",
+                    networkClient, packageClient, sourceAuthorization,
+                    acquireCompletePopulation: false,
+                    TimeSpan.FromSeconds(30),
+                    TestContext.Current.CancellationToken)
+                : BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    framework, version, identity, "netcore.app",
+                    networkClient, packageClient, sourceAuthorization,
+                    TimeSpan.FromSeconds(30),
+                    TestContext.Current.CancellationToken);
+
+        await using BrowserPlatformScopeResolution first = await OpenAsync();
 
         Assert.Equal(identity.Name, first.Participant.Participant.Assembly.Identity.Name);
+        Assert.True(first.Scope.ExactPackageRealization);
         Assert.Single(first.Scope.Members);
-        Assert.Equal(1, handler.CompleteGetRequests);
-        Assert.True(handler.RangeRequests >= 1);
-        Assert.True(
-            handler.PackageBytesServed < archive.LongLength,
-            $"served {handler.PackageBytesServed} of {archive.LongLength} package bytes");
+        Assert.Equal(0, handler.CompleteGetRequests);
+        if (aboveCut)
+        {
+            Assert.True(handler.RangeRequests >= 1);
+            Assert.True(
+                handler.PackageBytesServed < archive.LongLength,
+                $"served {handler.PackageBytesServed} of {archive.LongLength} package bytes");
+        }
+        else
+        {
+            Assert.Equal(archive.LongLength <= 65557 ? 1 : 2, handler.RangeRequests);
+            Assert.Equal(archive.LongLength, handler.PackageBytesServed);
+            Assert.False(handler.CompleteBodyReadBeforeRange);
+        }
 
         await first.DisposeAsync();
         await BrowserPackageWorkspace.RemoveScopeAsync(first.Scope);
         int requests = handler.PackageRequests;
         long served = handler.PackageBytesServed;
 
-        await using BrowserPlatformScopeResolution second =
-            await BrowserPlatformWorkspace.OpenAssemblyAsync(
-                "net11.0",
-                version,
-                identity,
-                "netcore.app",
-                networkClient,
-                packageClient,
-                sourceAuthorization,
-                TimeSpan.FromSeconds(30),
-                TestContext.Current.CancellationToken);
+        await using BrowserPlatformScopeResolution second = await OpenAsync();
 
         Assert.Single(second.Scope.Members);
         Assert.Equal(requests, handler.PackageRequests);
         Assert.Equal(served, handler.PackageBytesServed);
         await second.DisposeAsync();
         await BrowserPackageWorkspace.RemoveScopeAsync(second.Scope);
+    }
+
+    // PR-fast: two selected images from the pinned archive, without population analysis.
+    [Fact]
+    public async Task PlatformWorkspace_NamedLibrariesAccumulateWithoutCompleteAcquisition()
+    {
+        const string version = "11.0.7493";
+        const string packageId = "microsoft.netcore.app.runtime.linux-x64";
+        byte[] archive = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "RealAssets", "PlatformForwarderActivation", "runtime.nupkg"),
+            TestContext.Current.CancellationToken);
+        var handler = new ExactPlatformRangeHandler(packageId, version, archive);
+        using IPackageSourceClient packageClient =
+            BrowserPackageWorkspace.CreateGallerySource(handler, new NuGetFetchOptions());
+        using var client = new HttpClient(handler, disposeHandler: false);
+        IPackageSourceAuthorization authorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
+
+        await using (BrowserPlatformScopeResolution first = await OpenAsync("System.Text.Json.dll"))
+        {
+            Assert.Single(first.Scope.Members);
+            Assert.True(first.Scope.ExactPackageRealization);
+        }
+        await using BrowserPlatformScopeResolution second = await OpenAsync("System.Linq.dll");
+
+        Assert.True(second.Scope.ExactPackageRealization);
+        Assert.Equal(
+            ["System.Linq", "System.Text.Json"],
+            second.Scope.Members.Select(member => member.Participant.Assembly.Identity.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(0, handler.CompleteGetRequests);
+        Assert.True(handler.RangeRequests > 0);
+        Assert.True(handler.PackageBytesServed < archive.LongLength);
+        Assert.Equal(0, handler.PackageRequestsFor("microsoft.aspnetcore.app.runtime.linux-x64"));
+        await second.DisposeAsync();
+        await BrowserPackageWorkspace.RemoveScopeAsync(second.Scope);
+
+        Task<BrowserPlatformScopeResolution> OpenAsync(string name) =>
+            BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0", version, name, "netcore.app",
+                client, packageClient, authorization,
+                acquireCompletePopulation: false,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
     }
 
     [Theory]
@@ -263,7 +323,7 @@ public sealed partial class BrowserEngineBoundaryTests
     [Fact]
     public async Task PlatformCallGraph_UsesExactRangedRuntimeAssemblies()
     {
-        const string version = "11.0.0-rc.1.26425.128";
+        const string version = "11.0.7397";
         const string packageId =
             "microsoft.netcore.app.runtime.linux-x64";
         const string assemblyFileName = "System.Text.Json.dll";
@@ -368,7 +428,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             "netcore.app",
             coreLibraryConstructor.PlatformPack);
-        Assert.Equal(1, handler.CompleteGetRequests);
+        Assert.Equal(0, handler.CompleteGetRequests);
         Assert.True(handler.RangeRequests >= 1);
         Assert.True(
             handler.PackageBytesServed < archive.LongLength,
@@ -1080,7 +1140,8 @@ public sealed partial class BrowserEngineBoundaryTests
     static byte[] RuntimePackage(
         string assemblyFileName,
         byte[] assembly,
-        string targetFramework = "net11.0")
+        string targetFramework = "net11.0",
+        int unrelatedBytes = 4 * 1024 * 1024)
     {
         using var bytes = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -1115,7 +1176,7 @@ public sealed partial class BrowserEngineBoundaryTests
                       }
                       """));
             Write(archive, prefix + assemblyFileName, assembly);
-            var unrelated = new byte[4 * 1024 * 1024];
+            var unrelated = new byte[unrelatedBytes];
             new Random(42).NextBytes(unrelated);
             Write(archive, prefix + "Unrelated.Invalid.dll", unrelated);
         }

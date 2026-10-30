@@ -258,7 +258,10 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
         string name, bool definesType = true, AssemblyReferenceIdentity? forwardsTo = null,
         Guid? mvid = null, bool leadingType = false, string methodName = "Value",
         Version? version = null, int methodResult = 42, int typeGenericArity = 0,
-        bool nestedType = false, int forwarderCount = 1)
+        bool nestedType = false, int forwarderCount = 1, bool methodParameter = false, bool definesMethod = true, bool methodReturnsLong = false, bool definesProperty = false,
+        string? callsReference = null, Version? callsReferenceVersion = null,
+        MethodImplAttributes methodImplementation =
+            MethodImplAttributes.IL)
     {
         string typeName = typeGenericArity == 0
             ? "Type"
@@ -270,6 +273,21 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
             default, default, default, default);
         metadata.AddTypeDefinition(default, default, metadata.GetOrAddString("<Module>"),
             default, MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+        // The method calls [callsReference]Dep.Probe::Target(), so a pair that
+        // differs only in the reference's version differs only in that operand.
+        MemberReferenceHandle? callTarget = null;
+        if (callsReference is not null)
+        {
+            AssemblyReferenceHandle dependency = metadata.AddAssemblyReference(
+                metadata.GetOrAddString(callsReference), callsReferenceVersion ?? new Version(1, 0, 0, 0),
+                default, default, default, default);
+            TypeReferenceHandle probe = metadata.AddTypeReference(
+                dependency, metadata.GetOrAddString("Dep"), metadata.GetOrAddString("Probe"));
+            var targetSignature = new BlobBuilder();
+            new BlobEncoder(targetSignature).MethodSignature().Parameters(0, result => result.Void(), _ => { });
+            callTarget = metadata.AddMemberReference(
+                probe, metadata.GetOrAddString("Target"), metadata.GetOrAddBlob(targetSignature));
+        }
         if (leadingType)
             metadata.AddTypeDefinition(TypeAttributes.Public, metadata.GetOrAddString("N"),
                 metadata.GetOrAddString("Other"), default,
@@ -302,17 +320,33 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
                     MetadataTokens.MethodDefinitionHandle(1));
                 metadata.AddNestedType(innerType, outerType);
             }
-            var signature = new BlobBuilder();
-            new BlobEncoder(signature).MethodSignature().Parameters(0,
-                result => result.Type().Int32(), _ => { });
-            var instructions = new BlobBuilder();
-            var encoder = new InstructionEncoder(instructions);
-            encoder.LoadConstantI4(methodResult);
-            encoder.OpCode(ILOpCode.Ret);
-            int body = new MethodBodyStreamEncoder(bodies).AddMethodBody(encoder);
-            metadata.AddMethodDefinition(MethodAttributes.Public | MethodAttributes.Static,
-                MethodImplAttributes.IL, metadata.GetOrAddString(methodName),
-                metadata.GetOrAddBlob(signature), body, MetadataTokens.ParameterHandle(1));
+            if (definesMethod)
+            {
+                var signature = new BlobBuilder();
+                new BlobEncoder(signature).MethodSignature().Parameters(methodParameter ? 1 : 0,
+                    result => { if (methodReturnsLong) result.Type().Int64(); else result.Type().Int32(); }, parameters => { if (methodParameter) parameters.AddParameter().Type().Int32(); });
+                var instructions = new BlobBuilder();
+                var encoder = new InstructionEncoder(instructions);
+                if (callTarget is { } target)
+                    encoder.Call(target);
+                encoder.LoadConstantI4(methodResult);
+                if (methodReturnsLong) encoder.OpCode(ILOpCode.Conv_i8);
+                encoder.OpCode(ILOpCode.Ret);
+                int body = new MethodBodyStreamEncoder(bodies).AddMethodBody(encoder);
+                var methodHandle = metadata.AddMethodDefinition(MethodAttributes.Public | MethodAttributes.Static | (definesProperty ? MethodAttributes.SpecialName : 0),
+                    methodImplementation, metadata.GetOrAddString(definesProperty ? "get_" + methodName : methodName),
+                    metadata.GetOrAddBlob(signature), body, MetadataTokens.ParameterHandle(1));
+                if (definesProperty)
+                {
+                    var propertySignature = new BlobBuilder();
+                    new BlobEncoder(propertySignature).PropertySignature(isInstanceProperty: false).Parameters(0,
+                        result => { if (methodReturnsLong) result.Type().Int64(); else result.Type().Int32(); }, _ => { });
+                    var property = metadata.AddProperty(PropertyAttributes.None, metadata.GetOrAddString(methodName),
+                        metadata.GetOrAddBlob(propertySignature));
+                    metadata.AddPropertyMap(outerType, property);
+                    metadata.AddMethodSemantics(property, MethodSemanticsAttributes.Getter, methodHandle);
+                }
+            }
         }
         if (forwardsTo is not null)
         {

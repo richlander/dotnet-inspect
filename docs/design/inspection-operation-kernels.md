@@ -314,7 +314,7 @@ QuerySpace may select, order, or count declared graph rows after the Graph
 result exists. This is reference composition and does not reduce graph work or
 prove absence in a population the traversal did not complete.
 
-If Graph can satisfy a QuerySpace Rows or exact Count terminal without
+If Graph can satisfy a QuerySpace Rows or Count terminal without
 materializing the complete document, the Graph owner adopts Source Delegation
 for that terminal. The delegated result must prove equivalence to the
 complete-document reference path, including ordering, strict-stage failures,

@@ -1049,7 +1049,7 @@ public sealed partial class CSharpTypePrinterTests
             """
             System.Console.WriteLine(42);
             return;
-            """);
+            """).Source;
 
         Assert.Equal(
             result.Source[..range.Start]
@@ -1079,7 +1079,8 @@ public sealed partial class CSharpTypePrinterTests
             ]));
         const string body = "return @\"alpha\r\n\r\nomega\";";
 
-        string replacement = result.SourceArtifact.ReplaceBody(body);
+        var replaced = result.SourceArtifact.ReplaceBody(body);
+        string replacement = replaced.Source;
         var range = Assert.IsType<CSharpSourceRange>(result.SourceArtifact.ReplaceableBodyRange);
 
         Assert.Equal(
@@ -1090,6 +1091,10 @@ public sealed partial class CSharpTypePrinterTests
             + "    }"
             + result.Source[range.End..],
             replacement);
+        Assert.Equal(range.Start, replaced.BodyRange.Start);
+        Assert.Equal(
+            "    {\n" + body + "\n    }",
+            replacement.Substring(replaced.BodyRange.Start, replaced.BodyRange.Length));
     }
 
     [Fact]
@@ -1120,7 +1125,7 @@ public sealed partial class CSharpTypePrinterTests
                     })
             ]));
 
-        string replacement = result.SourceArtifact.ReplaceBody("_value = 2;");
+        string replacement = result.SourceArtifact.ReplaceBody("_value = 2;").Source;
 
         Assert.Contains("public Widget() : base(1)", replacement, StringComparison.Ordinal);
         Assert.Contains("_value = 2;", replacement, StringComparison.Ordinal);
@@ -1160,7 +1165,7 @@ public sealed partial class CSharpTypePrinterTests
                         CSharpAccessorBody.Block("_values[index] = value;")))
             ]));
 
-        string replacement = result.SourceArtifact.ReplaceBody("return _values[index];");
+        string replacement = result.SourceArtifact.ReplaceBody("return _values[index];").Source;
 
         Assert.Contains("return _values[index];", replacement, StringComparison.Ordinal);
         Assert.Contains("_values[index] = value;", replacement, StringComparison.Ordinal);
@@ -1200,7 +1205,7 @@ public sealed partial class CSharpTypePrinterTests
                             with { IsReplacementTarget = true }))
             ]));
 
-        string replacement = result.SourceArtifact.ReplaceBody("Remove(value);");
+        string replacement = result.SourceArtifact.ReplaceBody("Remove(value);").Source;
 
         Assert.Contains("_changed += value;", replacement, StringComparison.Ordinal);
         Assert.Contains("Remove(value);", replacement, StringComparison.Ordinal);

@@ -331,11 +331,39 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         PlatformTypeCatalogDerivationBounds catalogBounds,
         CancellationToken cancellationToken = default)
     {
+        return await ExecuteAsync(
+                coordinator,
+                predecessor,
+                applicability,
+                platform,
+                constructSuccessor,
+                static () => ValueTask.CompletedTask,
+                catalogBounds,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public static async ValueTask<
+        IntrinsicCoreLibraryWorkspaceContinuationOutcome> ExecuteAsync(
+        WorkspaceReplacementCoordinator coordinator,
+        WorkspaceRealizationOperationLease predecessor,
+        IntrinsicCoreLibraryRouteDecision.Applicable applicability,
+        PlatformPopulationArtifactMaterializationOutcome.Completed platform,
+        Func<
+            InspectionWorkspace,
+            CancellationToken,
+            ValueTask<IntrinsicCoreLibraryWorkspaceSuccessorEvidence>>
+            constructSuccessor,
+        Func<ValueTask> releaseConstructedSuccessor,
+        PlatformTypeCatalogDerivationBounds catalogBounds,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(coordinator);
         ArgumentNullException.ThrowIfNull(predecessor);
         ArgumentNullException.ThrowIfNull(applicability);
         ArgumentNullException.ThrowIfNull(platform);
         ArgumentNullException.ThrowIfNull(constructSuccessor);
+        ArgumentNullException.ThrowIfNull(releaseConstructedSuccessor);
         ArgumentNullException.ThrowIfNull(catalogBounds);
 
         if (cancellationToken.IsCancellationRequested)
@@ -401,6 +429,37 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         }
 
         WorkspaceRealizationCandidate candidate = prepared.Candidate;
+        async ValueTask<
+            IntrinsicCoreLibraryWorkspaceContinuationOutcome.Failed?>
+            ReleaseFailureAsync(
+            bool cancel,
+            bool platformSettled,
+            Exception? precedingFailure = null)
+        {
+            try
+            {
+                await releaseConstructedSuccessor().ConfigureAwait(false);
+                return null;
+            }
+            catch (Exception releaseFailure)
+            {
+                Exception failure = precedingFailure is null
+                    ? releaseFailure
+                    : new AggregateException(
+                        precedingFailure,
+                        releaseFailure);
+                return new IntrinsicCoreLibraryWorkspaceContinuationOutcome
+                    .Failed(
+                        failure,
+                        await CleanupAsync(
+                                platform,
+                                candidate,
+                                cancel,
+                                platformSettled,
+                                coordinator)
+                            .ConfigureAwait(false));
+            }
+        }
         var preparationState = new CandidatePreparationState();
         CandidatePreparation preparation;
         try
@@ -419,6 +478,14 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
+            if (await ReleaseFailureAsync(
+                    cancel: true,
+                    preparationState.PlatformSettled)
+                    .ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new IntrinsicCoreLibraryWorkspaceContinuationOutcome
                 .Cancelled(
                     await CleanupAsync(
@@ -431,6 +498,15 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         }
         catch (Exception failure)
         {
+            if (await ReleaseFailureAsync(
+                    cancel: false,
+                    preparationState.PlatformSettled,
+                    failure)
+                    .ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new IntrinsicCoreLibraryWorkspaceContinuationOutcome.Failed(
                 failure,
                 await CleanupAsync(
@@ -444,6 +520,14 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
 
         if (preparation is CandidatePreparation.Rejected preparationRejected)
         {
+            if (await ReleaseFailureAsync(
+                    cancel: false,
+                    preparationRejected.PlatformSettled)
+                    .ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return await RejectAsync(
                 coordinator,
                 candidate,
@@ -469,6 +553,14 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
+            if (await ReleaseFailureAsync(
+                    cancel: true,
+                    platformSettled: true)
+                    .ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new IntrinsicCoreLibraryWorkspaceContinuationOutcome
                 .Cancelled(
                     await CleanupAsync(
@@ -481,6 +573,15 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         }
         catch (Exception failure)
         {
+            if (await ReleaseFailureAsync(
+                    cancel: false,
+                    platformSettled: true,
+                    failure)
+                    .ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return new IntrinsicCoreLibraryWorkspaceContinuationOutcome.Failed(
                 failure,
                 await CleanupAsync(
@@ -498,6 +599,14 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
             var rejected =
                 (WorkspaceRealizationCandidateCompletionResult.Rejected)
                         completion;
+            if (await ReleaseFailureAsync(
+                    cancel: false,
+                    platformSettled: true)
+                    .ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return await RejectAsync(
                 coordinator,
                 candidate,
@@ -519,6 +628,14 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         {
             var rejected =
                 (WorkspaceRealizationCutoverResult.Rejected)cutover;
+            if (await ReleaseFailureAsync(
+                    cancel: false,
+                    platformSettled: true)
+                    .ConfigureAwait(false)
+                is { } releaseFailure)
+            {
+                return releaseFailure;
+            }
             return await RejectAsync(
                 coordinator,
                 candidate,
@@ -640,11 +757,9 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
         }
 
         IntrinsicCoreLibraryRouteDecision successorDecision =
-            IntrinsicCoreLibraryPlatformApplicabilityQuery.Execute(
+            IntrinsicCoreLibraryPlatformApplicabilityQuery.Rebind(
                 eligible.Plan,
-                platform,
-                catalogBounds,
-                cancellationToken);
+                applicability);
         if (successorDecision
                 is not IntrinsicCoreLibraryRouteDecision.Applicable
                     successorApplicable
@@ -820,7 +935,6 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
             && firstCall.CallKind == secondCall.CallKind
             && firstCall.DispatchKind == secondCall.DispatchKind
             && firstCall.InLoop == secondCall.InLoop
-            && firstCall.Target == secondCall.Target
             && first.Correspondence.Type == second.Correspondence.Type
             && first.Origin.Asset == second.Origin.Asset
             && StringComparer.OrdinalIgnoreCase.Equals(
@@ -839,7 +953,6 @@ public static class IntrinsicCoreLibraryWorkspaceContinuationOperation
                 StringComparison.OrdinalIgnoreCase)
             && !ReferenceEquals(first, second)
             && !ReferenceEquals(firstCall.Identity, secondCall.Identity)
-            && !ReferenceEquals(first.Origin.Package, second.Origin.Package)
             && !ReferenceEquals(
                 first.Origin.Registration,
                 second.Origin.Registration)

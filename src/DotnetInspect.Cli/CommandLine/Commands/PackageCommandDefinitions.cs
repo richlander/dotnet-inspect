@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
@@ -25,10 +26,10 @@ public static class PackageCommandDefinitions
     {
         var packageCommand = new Command(PackageCommand.Name, "Inspect a NuGet package");
 
-        var packageNameArg = new Argument<string[]>("package")
+        var packageNameArg = new Argument<string?>("package")
         {
-            Description = "NuGet package name or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
-            Arity = ArgumentArity.ZeroOrMore
+            Description = "NuGet package name, exact Package reference, or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
+            Arity = ArgumentArity.ZeroOrOne
         };
         var workspaceOption = new Option<string?>("--workspace")
         {
@@ -52,7 +53,7 @@ public static class PackageCommandDefinitions
             Description = "Obsolete Package dependency-tree spelling",
             Hidden = true,
         };
-        var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
+        var filesOption = new Option<bool>("--files") { Description = "Select the Files section" };
         var pathOption = new Option<string[]>("--path")
         {
             Description = "List package files with sizes (the Files section), scoped to a file, directory, glob, @readme (README.md > PACKAGE.md), or @agents. Can repeat. Pass --path with no value for the whole package.",
@@ -60,7 +61,6 @@ public static class PackageCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         var pathMatchOption = new Option<string?>("--match") { Description = "For repeated --path: all (default) or first matching selector per package" };
-        var skipEmptyOption = new Option<bool>("--skip-empty") { Description = "With multi-package Files rows, omit packages with no matching files" };
         var rootsOption = new Option<bool>("--roots")
         {
             Description =
@@ -69,10 +69,10 @@ public static class PackageCommandDefinitions
         var tfmsOption = new Option<bool>("--tfms")
         {
             Description =
-                "List target frameworks in the package; use -n N to select N TFM rows"
+                "Select the Target Frameworks section; use -n N to select N TFM rows"
         };
-        var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --layout)" };
-        var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --layout)" };
+        var libOption = new Option<bool>("--lib") { Description = "Select Files beneath the lib/ root" };
+        var toolsOption = new Option<bool>("--tools") { Description = "Select Files beneath the tools/ root" };
         var libraryOption = new Option<string?>("--library")
         {
             Description = "Inspect this package's compile libraries; provide a DLL name to narrow exactly",
@@ -82,6 +82,11 @@ public static class PackageCommandDefinitions
         {
             Description =
                 "Narrow to the Library whose assembly name matches the package ID",
+        };
+        var firstLibraryOption = new Option<bool>("--first-library")
+        {
+            Description =
+                "Narrow to the first namesake in Library order, otherwise the first Library",
         };
         var allLibrariesOption = new Option<bool>("--all-libraries")
         {
@@ -142,16 +147,17 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(evidenceEnvelopeOption);
 #endif
         packageCommand.Options.Add(dependenciesOption);
-        packageCommand.Options.Add(layoutOption);
+        packageCommand.Options.Add(filesOption);
+        packageCommand.Options.Add(opts.RowWhere);
         packageCommand.Options.Add(pathOption);
         packageCommand.Options.Add(pathMatchOption);
-        packageCommand.Options.Add(skipEmptyOption);
         packageCommand.Options.Add(rootsOption);
         packageCommand.Options.Add(tfmsOption);
         packageCommand.Options.Add(libOption);
         packageCommand.Options.Add(toolsOption);
         packageCommand.Options.Add(libraryOption);
         packageCommand.Options.Add(namesakeLibraryOption);
+        packageCommand.Options.Add(firstLibraryOption);
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
@@ -169,13 +175,13 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.Raw);
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
-            packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, namesakeLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            packageNameArg, dependenciesOption, filesOption, pathOption, tfmsOption,
+            libOption, toolsOption, libraryOption, namesakeLibraryOption, firstLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
-            skipEmptyOption, rootsOption, opts.NoHeaders,
+            rootsOption, opts.NoHeaders,
             workspaceOption, shareOption,
 #if DEBUG
             evidenceEnvelopeOption
@@ -201,10 +207,6 @@ public static class PackageCommandDefinitions
                     result,
                     opts,
                     commandArgs)
-                && !PackageOptionsParser.IsPackageLayoutRowSelection(
-                    result,
-                    opts,
-                    commandArgs)
                 && !PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
@@ -227,9 +229,10 @@ public static class PackageCommandDefinitions
             packageCommand,
             opts.Discover, opts.Schema, opts.Select, opts.Verbosity,
             opts.Lines, opts.TailLines,
-            dependenciesOption, layoutOption, pathOption, pathMatchOption,
-            skipEmptyOption, tfmsOption, libOption, toolsOption,
-            libraryOption, namesakeLibraryOption, allLibrariesOption,
+            dependenciesOption, filesOption, pathOption, pathMatchOption,
+            tfmsOption, libOption, toolsOption,
+            libraryOption, namesakeLibraryOption, firstLibraryOption,
+            allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption, rootsOption);
@@ -249,7 +252,9 @@ public static class PackageCommandDefinitions
             if (result.GetValue(opts.Envelope))
             {
                 string[] packageReferences =
-                    result.GetValue(packageNameArg) ?? [];
+                    result.GetValue(packageNameArg) is { } selectedPackageReference
+                        ? [selectedPackageReference]
+                        : [];
                 bool isRange =
                     packageReferences is [var packageReference]
                     && PackageVersionRange.TryParse(
@@ -441,8 +446,8 @@ public static class PackageCommandDefinitions
                 result.GetValue(versionsOption)
                 || result.GetValue(versionsWithFeedOption)
                 || (result.GetValue(opts.Count)
-                    && (result.GetValue(packageNameArg) ?? [])
-                        is [var packageReference]
+                    && result.GetValue(packageNameArg)
+                        is { } packageReference
                     && PackageVersionRange.TryParse(
                         packageReference,
                         out _,
@@ -453,10 +458,6 @@ public static class PackageCommandDefinitions
                     opts,
                     commandArgs)
                 || PackageOptionsParser.IsPackageFileRowSelection(
-                    result,
-                    opts,
-                    commandArgs)
-                || PackageOptionsParser.IsPackageLayoutRowSelection(
                     result,
                     opts,
                     commandArgs)
@@ -474,13 +475,6 @@ public static class PackageCommandDefinitions
                     opts.IsJsonDocumentOutput(result),
                     lowering));
 
-        var queryCommand = CreatePackageQueryCommand(
-            opts,
-            packageCommand,
-            packageNameArg,
-            prereleaseOption,
-            tfmOption);
-        packageCommand.Subcommands.Add(queryCommand);
         packageCommand.Subcommands.Add(
             PackageChangesCommandDefinitions.CreatePackageChangesCommand(
                 opts,
@@ -495,12 +489,12 @@ public static class PackageCommandDefinitions
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {
-            if (parseResult.GetValue(packageNameArg) is [var first, ..]
+            if (parseResult.GetValue(packageNameArg) is { } first
                 && first.Equals("search", StringComparison.OrdinalIgnoreCase))
             {
                 CommandError.Write(
-                    "'package search' has been removed. Use 'package query <ID>' "
-                    + "for an exact package or 'package query <PREFIX>*' for "
+                    "'package search' has been removed. Use 'find --packages <ID>' "
+                    + "for an exact package or 'find --packages <PREFIX>*' for "
                     + "package-prefix discovery.");
                 return 1;
             }
@@ -525,11 +519,12 @@ public static class PackageCommandDefinitions
 
                 case PackageOptionsParser.Success success:
                     {
-                        var exitCode = await PackageCommand.ExecuteAsync(success.Options);
+                        var exitCode = await PackageCommand.ExecuteAsync(success.Options, ct);
 
                         if (exitCode == 0
                             && success.Options.CompanionOutput != CompanionOutput.None
                             && success.Options.PackageArgs.Length > 0
+                            && !PackageReferenceAdmission.Contains(success.Options.PackageArgs)
                             && success.Options.PackageLibrary == null
                             && !success.Options.AllLibraries)
                         {
@@ -552,43 +547,23 @@ public static class PackageCommandDefinitions
     }
 
     /// <summary>
-    /// Creates the host-neutral package query subcommand.
+    /// Binds Package Query to the Package result grain of Find.
     /// </summary>
-    public static Command CreatePackageQueryCommand(
+    internal static Func<ParseResult, CancellationToken, Task<int>> ConfigureFindPackages(
         SharedOptions opts,
-        Command packageCommand,
-        Argument<string[]> inheritedPackageArgument,
-        Option<bool> inheritedPrereleaseOption,
-        Option<string?> inheritedTfmOption)
+        Command queryCommand,
+        Argument<string?> inputArg,
+        Option<string[]> ecosystemOption,
+        Option<string?> queryTfmOption,
+        Option<bool> compactOption,
+        Option<bool> packagesOption)
     {
-        var queryCommand = new Command(
-            "query",
-            "Query exact package IDs, package-ID prefixes, or Ecosystems");
-
-        var inputArg = new Argument<string?>("package")
+        var explainOption = new Option<string?>("--explain")
         {
             Description =
-                "Exact package ID or literal package-ID prefix ending in '*'",
+                "Explain installed Package Query facets and CLI bindings as HAL JSON "
+                + "without executing a query (use -Q facet keys to narrow)",
             Arity = ArgumentArity.ZeroOrOne
-        };
-        var ecosystemOption = new Option<string?>("--ecosystem")
-        {
-            Description =
-                "Query an Ecosystem's core packages and recorded prefixes "
-                + "(for example aspire or ecosystem.aspire) instead of a package argument"
-        };
-        var takeOption = new Option<string[]>("--take")
-        {
-            Description =
-                "Maximum package candidates to inspect "
-                + $"(otherwise default {PackageQuery.DefaultMaximumCandidates}; "
-                + $"{PackageQuery.MaximumPackageContentCandidates} for "
-                + "package-content queries; "
-                + $"{PackageQuery.MaximumMetadataExpensiveCandidates} for "
-                + "metadata-expensive queries; maximum "
-                + $"{PackageQueryOptions.MaximumCandidates})",
-            Arity = ArgumentArity.OneOrMore,
-            AllowMultipleArgumentsPerToken = false
         };
         var prereleaseOption = new Option<bool>("--preview")
         {
@@ -600,120 +575,87 @@ public static class PackageCommandDefinitions
             Description =
                 "Reject queries that require package archive content"
         };
-        var queryTfmOption = new Option<string?>("--tfm")
-        {
-            Description =
-                "Select implementation libraries by TFM "
-                + "(required with --where library-literal=...)"
-        };
-        var compactOption = new Option<bool>("--compact")
-        {
-            Description = "Minified JSON (use with --json or --envelope)"
-        };
-        queryCommand.Arguments.Add(inputArg);
-        queryCommand.Options.Add(ecosystemOption);
-        queryCommand.Options.Add(takeOption);
+        queryCommand.Options.Add(explainOption);
         queryCommand.Options.Add(prereleaseOption);
         queryCommand.Options.Add(nuspecOnlyOption);
-        queryCommand.Options.Add(queryTfmOption);
-        queryCommand.Options.Add(opts.RowWhere);
-        queryCommand.Options.Add(opts.Json);
-        queryCommand.Options.Add(compactOption);
-        opts.AddTableOptionsTo(queryCommand);
-        queryCommand.Options.Add(opts.Limit);
-        queryCommand.Options.Add(opts.Rows);
-        queryCommand.Options.Add(opts.Head);
-        queryCommand.Options.Add(opts.Tail);
-        queryCommand.Options.Add(opts.Lines);
-        queryCommand.Options.Add(opts.TailLines);
-        queryCommand.Options.Add(opts.Count);
-        queryCommand.Options.Add(opts.Fields);
-        queryCommand.Options.Add(opts.Columns);
-        queryCommand.Options.Add(opts.Discover);
-        queryCommand.Options.Add(opts.QueryHelp);
-        queryCommand.Options.Add(opts.Select);
-        queryCommand.Options.Add(opts.Tree);
-        opts.AddNuGetOptionsTo(queryCommand);
-        opts.AddEnvelopeOptionTo(
-            queryCommand,
-            opts.Limit,
-            opts.Rows,
-            opts.Head,
-            opts.Tail,
-            opts.Lines,
-            opts.TailLines,
-            opts.Count,
-            opts.Discover,
-            opts.QueryHelp,
-            opts.Select);
         queryCommand.Validators.Add(result =>
         {
+            if (!result.GetValue(packagesOption))
+                return;
+            if (result.GetResult(explainOption) is { Implicit: false })
+            {
+                if (result.GetValue(explainOption) is not null)
+                {
+                    result.AddError(
+                        "Package Query --explain supports only the bare installed-query "
+                        + "explanation; dotted projections are not available.");
+                }
+                if (result.GetValue(inputArg) is not null)
+                {
+                    result.AddError(
+                        "Package Query --explain is command-only and cannot be "
+                        + "combined with a package argument.");
+                }
+                Option? unsupportedOption = null;
+                for (CommandResult? scope = result;
+                     scope is not null;
+                     scope = scope.Parent as CommandResult)
+                {
+                    unsupportedOption = scope.Command.Options.FirstOrDefault(
+                        option => option != explainOption
+                        && option != packagesOption
+                        && option != opts.Json
+                        && option != opts.QueryHelp
+                        && !(scope.Command is RootCommand
+                            && option.Name is "--offline" or HttpTimeoutConfiguration.Flag)
+                        && scope.GetResult(option) is { Implicit: false });
+                    if (unsupportedOption is not null)
+                        break;
+                }
+                if (unsupportedOption is not null)
+                {
+                    result.AddError(
+                        $"{unsupportedOption.Name} is not available with find --packages --explain; "
+                        + "only -Q facet keys, --json, and process-wide controls may accompany "
+                        + "the installed-query explanation.");
+                }
+                return;
+            }
             if (result.GetResult(compactOption) is { Implicit: false }
                 && !result.GetValue(opts.Json)
                 && !result.GetValue(opts.Envelope))
             {
                 result.AddError(
-                    "--compact requires package query --json or --envelope.");
+                    "--compact requires find --packages --json or --envelope.");
             }
             if (result.GetValue(opts.Json)
                 && result.GetValue(opts.Tree)
                 && result.GetResult(opts.Discover) is not { Implicit: false })
             {
                 result.AddError(
-                    "--tree with package query --json requires schema discovery.");
+                    "--tree with find --packages --json requires schema discovery.");
             }
         });
 
-        queryCommand.SetAction(async (parseResult, ct) =>
+        return async (parseResult, ct) =>
         {
-            var acceptedParentOptions = new HashSet<Option>
+            if (parseResult.GetResult(explainOption) is { Implicit: false })
             {
-                opts.Envelope,
-                opts.Json,
-                opts.Markdown,
-                opts.Table,
-                opts.Tsv,
-                opts.Jsonl,
-                opts.NoHeaders,
-                opts.Limit,
-                opts.Count,
-                opts.Source,
-                opts.AddSource,
-                opts.NuGetConfig,
-                opts.Print,
-                opts.Value,
-                opts.Urls,
-                opts.Paths,
-                opts.Rows,
-                opts.Head,
-                opts.Tail,
-                opts.Lines,
-                opts.TailLines,
-                opts.Fields,
-                opts.Columns,
-                opts.Discover,
-                opts.Select,
-                opts.Tree,
-                opts.QueryHelp,
-                inheritedPrereleaseOption,
-                inheritedTfmOption,
-            };
-            var unsupportedParentOption = packageCommand.Options.FirstOrDefault(
-                option => !acceptedParentOptions.Contains(option)
-                    && parseResult.GetResult(option) is { Implicit: false });
-            if (unsupportedParentOption is not null)
-            {
-                CommandError.Write(
-                    $"{unsupportedParentOption.Name} is not available with package query.");
-                return 1;
-            }
-
-            if (parseResult.GetValue(inheritedPackageArgument) is { Length: > 0 })
-            {
-                CommandError.Write(
-                    "A package inspection target is not available with package query; "
-                    + "place 'query' immediately after 'package'.");
-                return 1;
+                if (opts.ResolveFormat(parseResult, OutputFormat.Json) != OutputFormat.Json)
+                {
+                    CommandError.Write(
+                        "Package Query --explain requires HAL JSON; use --json "
+                        + "to override DOTNET_INSPECT_FORMAT.");
+                    return 1;
+                }
+                string[]? facetKeys = opts.ParseQueryHelp(parseResult);
+                if (parseResult.GetValue(opts.QueryHelp) is not null
+                    && facetKeys is not { Length: > 0 })
+                {
+                    CommandError.Write("-Q requires at least one exact facet key when a value is supplied.");
+                    return 1;
+                }
+                return ResourceExplanationCommand.ExplainPackageQuery(facetKeys);
             }
 
             NuGetSourceOptions sourceOptions =
@@ -739,23 +681,11 @@ public static class PackageCommandDefinitions
                 && discover is null)
             {
                 CommandError.Write(
-                    "--tree with package query --json requires schema discovery.");
+                    "--tree with find --packages --json requires schema discovery.");
                 return 1;
             }
-            string? inheritedTfm =
-                parseResult.GetValue(inheritedTfmOption);
             string? queryTfm =
                 parseResult.GetValue(queryTfmOption);
-            if (inheritedTfm is not null
-                && queryTfm is not null
-                && !inheritedTfm.Equals(
-                    queryTfm,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                CommandError.Write(
-                    "Package Query received conflicting --tfm values.");
-                return 1;
-            }
             if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                     parseResult,
                     "Package Query",
@@ -793,7 +723,13 @@ public static class PackageCommandDefinitions
             string? input = parseResult.GetValue(inputArg);
             if (string.IsNullOrWhiteSpace(input))
                 input = null;
-            string? ecosystem = parseResult.GetValue(ecosystemOption);
+            string[] ecosystems = parseResult.GetValue(ecosystemOption) ?? [];
+            if (ecosystems.Length > 1)
+            {
+                CommandError.Write("find --packages accepts exactly one --ecosystem.");
+                return 1;
+            }
+            string? ecosystem = ecosystems.FirstOrDefault();
             string[] whereExpressions =
                 parseResult.GetValue(opts.RowWhere) ?? [];
 
@@ -831,9 +767,8 @@ public static class PackageCommandDefinitions
                     parseResult.GetValue(nuspecOnlyOption),
                     CliExecutionBoundCommandRegistry.GetPreparedValue(parseResult),
                     rowSelection,
-                    parseResult.GetValue(inheritedPrereleaseOption)
-                        || parseResult.GetValue(prereleaseOption),
-                    queryTfm ?? inheritedTfm,
+                    parseResult.GetValue(prereleaseOption),
+                    queryTfm,
                     out PackageQueryOptions? options,
                     out OptionError error))
             {
@@ -871,33 +806,6 @@ public static class PackageCommandDefinitions
                 options,
                 new CommandContext(verbose: false),
                 ct);
-        });
-
-        CliRowSelectionCommandRegistry.Register(
-            queryCommand,
-            new(
-                opts.Limit,
-                opts.Rows,
-                top: null,
-                orderBy: null,
-                opts.Head,
-                opts.Tail,
-                opts.Lines,
-                opts.TailLines),
-            CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window
-                | CliRowSelectionCapabilities.Lines,
-            _ => true,
-            validateLowering: (result, lowering) =>
-                CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.IsJsonDocumentOutput(result),
-                    lowering));
-        CliExecutionBoundCommandRegistry.Register(
-            queryCommand,
-            takeOption,
-            static _ => PackageQueryOptions.MaximumCandidates,
-            isActive: static _ => true);
-
-        return queryCommand;
+        };
     }
 }

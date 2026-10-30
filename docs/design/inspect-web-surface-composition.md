@@ -16,7 +16,8 @@ This owner defines:
 
 - Home's page-level hierarchy, wide and narrow composition, and relationship to
   the data bar;
-- which working surfaces exist (Type API, Member API, Type Metadata, Compare,
+- which working surfaces exist (Type Overview, Type Members, Member API,
+  Type Metadata, Compare,
   Source, Member Diff, Package query, Package activity, Diagnostics) and their
   page-level placement relative to Type/Member
   navigation;
@@ -262,7 +263,7 @@ actions in the result:
 
 - Source places its applicable selectors, `Copy`, optional `Open`, and
   `Explore` in the working-surface action region while source content starts at
-  the top of its pane and compact provenance stays attached to the bottom. Type
+  the top of its pane below compact provenance. Type
   Source `Explore` requests the routed whole-Type experience owned by
   [Inspect Web Type Explorer](inspect-web-type-explorer.md); this document owns
   only the action's placement. Member Source `Explore` opens the transient
@@ -332,26 +333,44 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
-Library Metadata, Compare, Source, Member Diff, and Diagnostics are working
-surfaces rather than documents inset inside a general page. Annotated Source is
-a transient full-bleed viewer reached from Source or exact Finding actions, not
-a persistent Member inspector. The Metadata Explorer retains its separately
-owned full-bleed composition.
+Type Overview, Type Members, Member API, Type Metadata, Package Overview,
+Package Dependencies, Library Metadata, Compare, Source, Member Diff, and
+Diagnostics are working surfaces rather than documents inset inside a general
+page. Annotated Source is a transient full-bleed viewer reached from Source or
+exact Finding actions, not a persistent Member inspector. The Metadata
+Explorer retains its separately owned full-bleed composition.
+
+When present, the top content row has the shared 40-pixel heading height on
+both sides of the master-detail divide. It contains one line: long text elides
+and mode tabs scroll horizontally rather than wrapping. Additional controls
+and full diagnostics occupy separate content below that heading.
+
+Regular inspector content and navigation panes end directly at the data bar.
+They have no fixed bottom context, keyboard-hint, or provenance bar. The subject
+path and selected navigation rows provide context. The overload picker keeps
+its Back action in the heading, and Source keeps origin, provenance, limitations,
+and diagnostics above the code. Result-local disclosures and transient viewer
+footers remain part of their owning content rather than inspector chrome.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
 failures, and completion remain owned by `package-query-cli.md`. Its former
 package-tab placement stays superseded.
 
-### Type and Member API
+### Type Overview, Type Members, and Member API
 
-Type API and Member API use the full area to the right of Type or Member
-navigation. They do not retain a centered document column, a large subject
-hero, or repeated package, library, namespace, and target-framework context.
-The persistent subject path remains the owner of that hierarchy.
+Type Overview uses the full area to the right of Type navigation. Its internal
+vertical grammar, fact grouping, structural rows, and failure presentation are
+owned by
+[Inspect Web Subject Overview](inspect-web-subject-overview.md#owner-and-claim).
+The subject path remains the owner of the enclosing package, library, and Type
+hierarchy.
 
-The Type API surface contains:
+Type Members and Member API use the full area to the right of Type or Member
+navigation. They do not retain a centered document column or large subject
+hero.
+
+The Type Members surface contains:
 
 ```text
 Members                                  visible / total members
@@ -661,7 +680,7 @@ Package Dependencies uses the same viewer and action-row placement. Explore is
 available once dependency groups have been read, including a selected group with
 no connected packages. The viewer contains the manifest-group selector, exact-group
 notice, graph, and workspace/diagram diagnostics. Package coordinate controls,
-dependency lists, assembly references, and the coordinate footer remain on the
+dependency lists and assembly references remain on the
 underlying page. The viewer identifies the inspected package; group buttons
 identify the selected manifest framework independently of the active coordinate.
 The shared header uses the package coordinate as its subject, the active target
@@ -701,8 +720,8 @@ cover truncation diagnostics.
 
 Type Metadata uses the same viewer when its current projection contains a
 relationship graph. Only that graph and its relationship warnings move; type
-shape, member composition, related-type lists, attributes, and the coordinate
-footer stay inline. Pending diagram rendering can complete in either placement.
+shape, member composition, related-type lists, and attributes stay inline.
+Pending diagram rendering can complete in either placement.
 Browsable nodes use the shared keyboard activation and drag suppression;
 unavailable types remain non-interactive with an accessible explanation. Type
 activation closes Explore before the existing typed navigation path runs. It
@@ -778,7 +797,6 @@ The surface contains:
 Metadata                                  kind · accessibility
 type shape rows
 member composition and relationship sections
-exact type identity            TFM · library · package@version
 ```
 
 The quiet header labels the lens and reports type kind and accessibility
@@ -788,13 +806,11 @@ composition, interfaces, derived types, attributes, relationship graphs, and
 inspection warnings retain their owned semantics and follow in the same
 scroller.
 
-The fixed bottom context row preserves the exact type identity and package
-coordinate needed to compare or capture the projection without restoring a
-large duplicate heading. Loading and failure states retain the same header,
-scroll owner, and bottom context row; they remain visibly distinct from a
-successful empty projection.
+Loading and failure states retain the same header and scroll owner; they remain
+visibly distinct from a successful empty projection. Type Metadata has no bottom
+context row.
 
-At narrow widths, header status and both context values may elide as complete
+At narrow widths, header status may elide as complete
 strings. The surface retains one scroll owner and creates no page-level
 horizontal overflow.
 
@@ -810,13 +826,23 @@ Overview identity.
 platform compatibility warning              (when present)
 icon · subject name
 subject-specific identity details and content
-package@version                                    active framework
 ```
 
 Package Overview starts directly with its identity and content rather than
-reserving a quiet `Overview` header row. Its Version selector sits at the top
-of the Package navigation pane, immediately above the TFM list. Library
-Overview retains the shared quiet header and does not gain coordinate controls.
+reserving a quiet `Overview` header row. The Package navigation pane lists target
+frameworks first, then
+versions in owner-issued release order, with the active version selected,
+text filtering, and an `Include:` group with independent Prerelease and Unlisted
+checkboxes, both unchecked initially. Listing flags come from the existing
+owner-issued version inventory; the host does not infer them from version text.
+Async inventory refresh preserves both checkbox selections. The list headings
+identify the pane
+without an additional Package Navigation row.
+The active coordinate remains visible regardless of filters. Loading and
+failed inventory states retain that coordinate; failure offers explicit retry.
+Target framework selection uses the same navigation pane and updates the active
+coordinate and its Libraries.
+Library Overview retains the shared quiet header and does not gain coordinate controls.
 One independently scrolling content region starts with a larger icon and
 readable name, the surface's single visible level-one heading. Both subjects
 reuse the package's existing icon selection and fallback. Library retains its
@@ -824,8 +850,7 @@ own name, asset path and full assembly identity. The identity is part of the
 full-width content, not a new inset card.
 
 When the product classifies the package/platform target relation as
-incompatible, Package Overview renders one warning immediately below the
-Version control:
+incompatible, Package Overview retains one compatibility warning:
 
 > This package is incompatible with the Workspace platform. Some operations may
 > be blocked, and some results may be incorrect.
@@ -840,12 +865,38 @@ operation-level compatibility failure remains visible in that operation's
 surface; the Overview warning provides persistent package context rather than
 replacing the failure.
 
-Package content retains package facts, comparison targets, and document links.
-At wide inspector widths, Package facts own the primary column while package
-comparison targets remain at the top of the secondary package-resources column
-and package documents follow beneath them. At constrained widths, the same
-complete sections return to one ordered stack: Package Info, Comparison targets,
-then Documentation.
+Package Overview retains package facts, Libraries, and document links in its
+full-width content, with Documentation directly beneath Libraries. Each document
+occupies one clickable row showing its file name and first rendered H1 title.
+Document content is read asynchronously after Overview paints, using the existing
+package document query. Title reads do not delay package facts or Libraries.
+Titles belong to the exact admitted package model and document path; delayed
+reads from an earlier coordinate cannot overwrite the active coordinate's rows.
+Documents without an H1 retain their file name without an invented title;
+failed reads show title unavailability while retaining the document action.
+`Newtonsoft.Json@13.0.3` motivates the titled row: its `README.md` has the
+first H1 `Json.NET` (with an inline logo). `System.Text.Json@10.0.0` motivates
+the untitled fallback: its `PACKAGE.md` has no H1.
+Frameworks
+and versions remain in the master pane for both Overview and Compare. The icon
+and package name identify the subject without an additional
+Package label. Package Compare uses the same full-width frame, content alignment,
+as Overview, starts directly with Comparison targets without repeating
+the package icon or name, and owns that work area; Library,
+Type, and Member **Change target** actions return there. Choosing settings
+continues to configure the existing session-local comparison state.
+
+`System.Text.Json@1.0.0` (unlisted) and
+`System.Text.Json@10.0.0-preview.1.25080.5` (listed prerelease), observed through
+nuget.org Registration, motivate independent inclusion controls. Focused gates
+cover their listing projection and both independent checkbox combinations;
+remote observations remain reproducible through Registration rather than a
+mutable live assertion.
+`System.Text.Json@10.0.0` motivates the version inventory, net10.0/net9.0
+framework choices, Library inventory, and README placement. The existing
+`library-hierarchy.package-loading.spec.ts` production-composition gate exercises
+coordinate switching and its pending, success, failure, and navigation behavior.
+Package layout and navigation unit gates cover the new ordering and selection.
 
 Library navigation owns one single-select inventory containing `All libraries`
 followed by every exact admitted Library. `All libraries` is the default
@@ -862,30 +913,33 @@ Type preserves the active aggregate or exact Library subject so the Type
 inventory contains the corresponding contributed Types.
 
 `System.Text.Json@10.0.0` is the motivating ordinary package: Package Overview
-keeps its README and comparison setup visible without duplicating structural
+keeps its README and framework choices visible without duplicating structural
 navigation, while Library defaults to the package aggregate and can narrow to
 `System.Text.Json.dll`. Its exact Library Overview uses six public namespaces
 as primary navigation while five type-kind counts remain a compact secondary
 summary.
 
-The bottom context row preserves the exact package/version and active
-framework. At narrow widths the Frameworks (Package), Libraries (Library), or
-Types (Type and Member) return control remains available above the working
-surface; the local name and icon remain visible in the content below it.
-Controls wrap within their row, and header/footer values may elide as complete
+Package navigation and inspectors end directly at the data bar, without a
+bottom keyboard-hint or repeated-coordinate row. The persistent subject path
+and selected navigation rows retain package, version, and framework context.
+Library Overview also has no bottom context row. At narrow widths the
+Frameworks & versions (Package), Libraries (Library), or Types (Type and Member)
+return control remains available above the working surface; Overview retains
+its local name and icon in the content below it.
+Controls wrap within their row, and header values may elide as complete
 strings. Local subject names wrap rather than disappearing.
 Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
-header, any controls, and coordinates remain in place.
+header and any controls remain in place.
 
-Overview presents the already-loaded package. Changing its selected TFM or
-version from the Package navigation pane keeps the
+Overview presents the already-loaded package. Changing its version from the Package
+navigation pane, or its selected TFM from that pane, keeps the
 package shell, inspected target, navigation, and data bar visible, whether the
 target is cached or needs acquisition. Only the
 inspector content becomes busy, with a compact text-and-spinner status rather
 than the full-page bot interstitial. Pending content does not publish a new URL
 or expose the previous coordinate's results as the requested coordinate.
-Completion refreshes the content and TFM navigation from the returned package;
+Completion refreshes the content and version navigation from the returned package;
 keyboard focus returns to the initiating coordinate control. Failure restores
 the previous content and coordinate with the existing visible retry notice.
 Opening a new package retains the acquisition interstitial.
@@ -933,16 +987,22 @@ of the package identity.
 The surface contains:
 
 ```text
-Dependencies                         package and reference count or state
-Version · Framework
-target-framework groups and graph
-package dependencies and assembly references
-package@version                                             active framework
+References                              count or state  References | Hierarchy
+selected view's graph and controls
+reference lists or hierarchy diagnostics
 ```
 
-The quiet header labels the lens and reports the selected dependency group's
-package count together with the selected assembly's direct reference count.
-A compact control row keeps Version and Framework available. Dependency-group
+The quiet header labels the lens and reports the selected view's count or state.
+References is the default tab. Hierarchy is available for NuGet packages and
+uses the same bounded graph viewport, pan and zoom controls, and Graph Explore
+action. Each hierarchy occurrence is a separate graph node, including revisits
+and cycles. Its preview is bounded with an explicit shown/total count; traversal
+incompleteness and acquisition failures remain visible below the graph. Shared
+hierarchy URLs open the Hierarchy tab within References.
+For References, the header reports the selected dependency group's package
+count together with the selected assembly's direct reference count.
+Version navigation remains available in the Package master pane; the framework
+shortcut opens the master pane's framework choices. Dependency-group
 selection remains with the result because it selects a manifest group rather
 than changing the active package coordinate.
 
@@ -951,6 +1011,16 @@ target-framework selector, dependency graph, package dependency list, assembly
 references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
+
+Each direct NuGet dependency row begins with the package's embedded icon when
+the exact dependency version can be resolved and the icon is admitted by
+[Package icon range inspection](package-icon-range-inspection.md). Icon reads
+are range-only and asynchronous: row navigation becomes available after the
+existing package-coordinate match, without waiting for its icon. Missing,
+unavailable, refused, or failed icon reads use the existing NuGet default
+package icon and do not trigger a complete package download. A late icon result
+cannot update another Package, target framework, dependency group, or
+replacement row.
 
 The inline graph is a bounded structural preview so the selected group's direct
 NuGet dependency rows enter the initial result viewport. At wide inspector
@@ -971,14 +1041,27 @@ surfaces retain their existing inline sizing.
 beside the inline graph experience. `System.Text.Json@10.0.0` is the neighboring
 zero-dependency case.
 
-The fixed bottom context row preserves the exact package coordinate and active
-framework. Loading, query failure, no-dependency, no-exact-group, graph
-failure, and partial-workspace states retain the same header, controls, scroll
-owner, and context row. Failures remain visibly distinct from successful
+Package Dependencies has no bottom context row. Loading, query failure,
+no-dependency, no-exact-group, graph failure, and partial-workspace states retain
+the same header, controls, and scroll owner. Failures remain visibly distinct
+from successful
 empty results.
 
+Foreground Package Dependencies owns one closed acquisition lifecycle shared
+by the Package References and Library References surfaces. Idle carries no
+coordinate or evidence; loading carries the exact request; ready carries the
+typed dependency and assembly-reference result, including owner-issued partial
+diagnostics or successful no-dependency evidence; failed carries a non-empty
+visible query diagnostic and no result. Only the exact current loading request
+may publish foreground evidence, and same-coordinate loading or terminal
+evidence suppresses duplicate acquisition. Workspace dependency-group caches
+remain a separate durable authority: a resident package result may populate
+its coordinate-keyed cache even after a different foreground request replaces
+it. Workspace snapshots retain ready and failed foreground evidence and
+normalize interrupted loading to idle.
+
 At narrow widths, the `Types` return control shares the quiet header, controls
-wrap within their row, and header and footer values may elide as complete
+wrap within their row, and header values may elide as complete
 strings. The surface creates no page-level horizontal overflow. This slice
 does not change graph construction or navigation, Package Overview,
 Integrations, Analysis, Package Metadata, or the Metadata Explorer.
@@ -987,14 +1070,14 @@ Integrations, Analysis, Package Metadata, or the Metadata Explorer.
 
 Package Vulnerabilities is available for exact nuget.org package coordinates.
 It uses the complete package inspector area with the Package Overview
-Frameworks navigation pane; version changes update the package coordinate, but
+Frameworks & versions navigation pane; version changes update the package
+coordinate, but
 framework selection does not alter vulnerability identity.
 
 ```text
 Vulnerabilities                    reviewed advisory count and coverage
 coverage basis and acquisition failures
 reviewed advisory cards
-package@version                         GitHub reviewed advisories
 ```
 
 Opening the lens starts explicit network acquisition through
@@ -1003,6 +1086,23 @@ advisories and Complete, Partial, or Unavailable availability without
 reinterpreting ranges or constructing another feed model. Each advisory keeps
 GHSA and optional CVE identity, severity, published and updated dates, and its
 GitHub destination.
+
+A Package Vulnerabilities request has one closed browser-owned state:
+`idle`, `loading` for one exact package-coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize an interrupted `loading`
+request to `idle`, since a snapshot has no live acquisition that can settle it.
+This contract owns only the Package Vulnerabilities surface; it does not define
+a generic asynchronous-state framework or migrate another Inspect Web
+resource.
+
+The motivating production flow is `Newtonsoft.Json` 12.0.1 from nuget.org:
+opening that exact coordinate, navigating away, and returning while advisory
+acquisition is pending must not let the retired request replace newer evidence.
+Focused coordinator tests preserve the same replacement and invalidation
+boundary deterministically.
 
 A complete empty result states only that no GitHub-reviewed NuGet advisory
 matched the exact package version. Partial and unavailable results retain typed
@@ -1020,23 +1120,96 @@ an inset reference-section heading. The subject path retains navigation context.
 References                                  direct reference count or state
 direct AssemblyRef graph
 reference names, versions, cultures, and public-key tokens
-Library asset and assembly identity              TFM · package@version
 ```
 
 One independently scrolling region begins with a bounded one-hop AssemblyRef
 graph and follows it with the complete reference rows. The graph uses the
 existing shared Mermaid viewport and pan/zoom controls, keeps the selected
 assembly as its root, and projects only the direct references already returned
-by the Library query. It performs no additional acquisition or transitive
+by the Library query. The root assembly name fits inside its rendered node
+without clipped text. It performs no additional acquisition or transitive
 inference. The preview is capped at 80 total nodes; when a Library exceeds that
 bound, the graph reports its shown count and the complete list remains
 authoritative immediately below it.
 
-The graph and list use the available width. The quiet header and bottom context
-remain in place while the content scrolls. Full Library assembly identity and
-asset path remain available in the footer rather than being discarded with the
-old heading. This follows the Package Dependencies composition: structural
-graph first, complete direct-answer list second.
+An AssemblyRef name is a typed Library destination only when its
+case-insensitive assembly name and version, case-insensitive culture with null,
+empty, and `neutral` treated as equivalent, and normalized public-key token
+uniquely match one Library admitted to the active Workspace. The destination
+carries both the exact package identity and Library identifier; selecting it
+switches to that package and opens the Library Overview. An absent or ambiguous
+match remains static, and References never guesses a package from an assembly
+display name.
+
+For package-backed References, an optional asynchronous supplier pass consumes
+the selected package Library's direct Metadata AssemblyRefs and the closed,
+reachable Package route evidence owned by
+[Package-origin AssemblyRef supply routing](package-origin-assemblyref-supply-routing.md).
+Only a terminal Package selection yields an exact package ID and version for
+the existing range-only icon request. A Platform supplier, incomplete or
+ambiguous association, and any unavailable or failed result yield no Package
+icon. This pass does not delay the direct reference rows or diagram, change
+their navigation, or admit a supplier to the Workspace. A result may update the
+same reference row and diagram node only while the package, selected Library,
+and direct reference result remain current. The graph icon sits in space added
+to the node's left edge so it cannot shorten the Library or AssemblyRef text.
+
+[`Microsoft.Extensions.AI.OpenAI@10.11.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI.OpenAI/10.11.0)
+at `net10.0` is the motivating NuGet asset: its root package declares
+`Microsoft.Extensions.AI.Abstractions@10.11.0` and `OpenAI@2.14.0`
+dependencies, while the shared References URL admits only the root package.
+The browser renderer gate uses a deterministic package-backed fixture to check
+that an external supplier icon arrives after the direct rows and diagram.
+
+`Microsoft.Azure.SignalR@1.33.1/net8.0` is the real acquisition regression
+witness. Its `Microsoft.Azure.SignalR.dll` declares 40 direct references,
+including external `Azure.Core` and `Microsoft.Azure.SignalR.Protocols`, while
+`Microsoft.Azure.SignalR.Common` is already in the root package. A compatibility
+payload plan caused the semantic supplier query to fail, leaving only the
+same-package icon. The published-Wasm `package-adoption.spec.ts` scenario
+`shows real external Package icons in Library References` opens that exact
+Library through the production page and checks external icons in both rows and
+graph nodes, separately from ecosystem annotations. It uses normal Gallery
+acquisition rather than a stubbed supplier response; the existing fixture gate
+continues to cover deferred presentation separately.
+
+For a uniquely matched Workspace Library, References may show the owning
+ordinary package's icon beside the AssemblyRef row. It uses the admitted
+Library-to-package provenance established by that exact identity match, then
+the package's retained icon or the default icon for a known package source.
+For nuget.org coordinates, the existing exact-coordinate icon query may
+replace the default. Framework/runtime Libraries and absent or ambiguous
+Workspace matches receive no icon from this path. A local artifact
+without retained package-icon evidence also receives no Package icon. Icon loading is
+bounded and cannot change the direct AssemblyRef answer or a newer Library
+view. The graph remains an AssemblyRef diagram; Package icons annotate rows and nodes
+where package ownership is known.
+
+Independently of supplier acquisition, References may annotate a direct
+AssemblyRef with the existing product ecosystem icon when the resource-free
+[direct assembly-name claim](ecosystem-dependency-recognition.md#direct-assembly-name-claims)
+returns a first claimant eligible for Platform search. The catalog owns
+matching, precedence, and eligibility; the Browser does not reconstruct them.
+The icon's accessible label and tooltip identify ecosystem affiliation, not a
+resolved Platform supplier, Package ownership, or dependency recognition.
+Proven ordinary Package icons take precedence. Unknown names, ineligible
+claims, unavailable icons, and failed lookups remain unannotated by this path.
+Annotations apply to both rows and graph nodes, remain bound to the current
+Library reference result, and neither change navigation nor acquire or admit
+any artifact.
+
+The same SignalR asset motivates this extension: its `System.Runtime`,
+`Microsoft.AspNetCore.*`, and `Microsoft.Extensions.*` references currently lack
+icons despite existing product-authored ecosystem associations. Focused Browser
+gates cover the three platform ecosystem icons, unknown and ineligible
+neighbors, Package-icon precedence, and stale lookup completion. The
+published-Wasm gate exercises the normal assembly-name lookup on the exact
+SignalR Library rather than substituting classification results.
+
+The graph and list use the available width. The quiet header remains in place
+while the content scrolls; References has no bottom context row. This follows
+the Package Dependencies composition: structural graph first, complete
+direct-answer list second.
 
 Loading, query failure, inspection failure, and successful zero-reference results
 retain the same frame and remain visibly distinct. Existing Library selection,
@@ -1045,7 +1218,7 @@ are unchanged.
 
 At narrow widths the existing Types return control shares the quiet header.
 The graph uses the constrained inline height at narrow widths. Reference names
-and identity fields wrap within rows; header status and footer values may elide
+and identity fields wrap within rows; header status may elide
 as complete strings with their full text retained. Long values and many rows
 create local scrolling, not page-level horizontal overflow.
 
@@ -1053,10 +1226,10 @@ The browser-only presentation scope was explicitly approved for
 [the one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6165).
 Its one production consumer is Library References; adoption retires only that
 consumer's generic hero and inset reference section. Browser HTML lowering
-continues over the existing typed `BrowserPackageDependencies` reference result.
-This remains a browser-only projection over the existing query rather than a
-new query or rendering architecture. Metadata and Package Dependencies are the
-local composition precedents.
+continues over the shared Library Reference Inspection envelope. This remains
+a browser-only projection over the existing operation rather than a new query
+or rendering architecture. Metadata and Package Dependencies are the local
+composition precedents.
 
 Focused renderer and production-composition browser gates cover wide/narrow
 geometry, long names and identities, many/zero rows, pending and failed results,
@@ -1067,9 +1240,33 @@ separate work.
 
 The Library inspector order is **Overview**, **References**, **Compare**,
 **Analysis**, and **Metadata**. Analysis contains direct **Relationships**,
-**Complexity**, **Performance**, and **Integrations** tabs, following
-Compare's single-inspector mode composition. These modes are not separate
-persistent inspectors.
+**Dependencies**, **Complexity**, **Integrations**, **Performance Triage**,
+**Resource Triage**, and **Unsafe** tabs, following Compare's single-inspector
+mode composition. These modes are not separate persistent inspectors.
+
+Analysis is also an inspector at Type and Member scope, so an analysis that
+discloses progressively stays in one inspector all the way down. Type
+Analysis is the product-issued `type.analysis` view facet, whose Relationships
+mode [Annotated Type Relations Browser adoption](annotated-type-relations-browser.md)
+owns. Member Analysis is Browser-owned, after the product-issued sections.
+Each scope lists only the modes it can render, in this order:
+
+| Scope | Analysis modes | Default |
+| --- | --- | --- |
+| Library | the seven above | Relationships |
+| Type | Relationships (package-backed Types), Unsafe | Relationships, or Unsafe where Relationships isn't offered |
+| Member | Unsafe | Unsafe |
+
+A Type or Member gains a mode only when that mode defines its scope there. A
+scope with one mode shows no tab strip. Type Analysis is offered for package
+and Platform Types, but not `file` sources or forwarded Types; a Platform Type
+offers only Unsafe. Member Analysis is offered for methods and constructors,
+including bodiless ones whose contract is a finding, and for properties and
+events, whose accessor findings anchor to them. Fields and constants have no
+Member Analysis. A drill from one scope's mode opens the next scope's
+Analysis inspector on the same mode. The
+[`analysis` refinement](inspect-web-navigation-consumer.md#canonical-location-and-refresh)
+deep-links the selected mode at every scope.
 
 Relationships is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
@@ -1079,23 +1276,55 @@ partial, empty, and available outcomes. Integrations presents its detected and
 suggested evidence together while preserving the independent completion and
 failure state of each source.
 
+Detected Integrations evidence has one closed Browser-owned state: `idle`,
+`loading` for one exact Library/coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize interrupted `loading` to
+`idle`. Suggested Opportunities remains an independently settling neighboring
+source. This contract does not define a generic asynchronous-state framework or
+migrate another Analysis mode.
+
+`Microsoft.Extensions.Http` 10.0.0 on nuget.org supplies the motivating
+production flow: its `Microsoft.Extensions.Http` Library produces HTTP Client
+signals including `IHttpClientFactory` and `AddHttpClient`. Replacing that
+Library/coordinate while the scan is pending must not let the retired request
+replace newer detected evidence. Focused coordinator tests preserve the same
+replacement and invalidation boundary deterministically.
+
+Suggested Opportunities evidence has its own closed Browser-owned state:
+`idle`, `loading` for one exact Library/coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize interrupted `loading` to
+`idle`. Detected Integrations remains an independently settling neighboring
+source. This transfer remains feature-specific and does not define a generic
+asynchronous-state framework or migrate another Analysis mode.
+
+`Npgsql` on nuget.org supplies the motivating production flow: its `Npgsql`
+Library produces Aspire and Health Checks opportunities for
+`NpgsqlConnection`. Replacing that Library/coordinate while the scan is pending
+must not let the retired request replace newer suggestions or publish a stale
+failure. Focused coordinator tests preserve both settlement outcomes and the
+same invalidation boundary deterministically.
+
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
-shared results panel. Full labels remain available at narrow widths, where the
-tabs occupy a second header row rather than clipping or introducing page-level
+shared results panel. Full labels remain available at narrow widths through
+local horizontal tab scrolling; the heading stays one line without page-level
 horizontal scrolling.
 
 The shared frame uses a quiet count/state header, an optional platform Library
-selector, one full-area results scroller, and bottom assembly context. At wide
-widths the title, status, and tabs share one header row. At narrow widths the
-existing Types control occupies the title's place and the tabs use the second
-header row.
+selector, and one full-area results scroller. The title, status, and tabs share
+one fixed-height header row. At narrow widths the existing Types control
+occupies the title's place; status elides and tabs scroll locally.
 
 ```text
-Analysis  count/state   [Relationships]  Complexity  Performance  Integrations
+Analysis  count/state   [Relationships]  Dependencies  Complexity  …  Unsafe
 optional platform Library selector
 mode-owned content
-Library asset and assembly identity              TFM · package@version
 ```
 
 Performance retains product triage order, opportunity and loop counts, shape
@@ -1111,14 +1340,126 @@ in these modes; its Browser presentation belongs to the ordinary Type inventory
 defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
-The platform selector stays above scrolling results and keeps its existing
-acquisition behavior. The footer retains asset path, full assembly identity,
-and package/version/framework context. Browser HTML lowering consumes the
-existing typed mode results; no producer, query, acquisition, CLI section, or
-result contract changes.
+#### Unsafe
 
-Focused renderer and production-composition browser gates cover all four
-direct tabs, lazy loading, focus retention across asynchronous completion,
+Unsafe presents the [unsafe member census](unsafe-member-findings.md) for the
+selected package or Platform Library, as step 4 of its
+[adoption](unsafe-member-findings.md#adoption-and-gates). The census owns
+admission, attribution, identity, exposure, the
+[safe-boundary state](unsafe-member-findings.md#safe-boundary), Type groups,
+counts, and completeness. This view owns only how it discloses them.
+
+Unsafe uses progressive disclosure, as Compare does. Each scope is a useful
+answer on its own and leads to the next:
+
+```text
+Library:  counts | Types with findings, each with its counts
+Type:     counts | the Type's members with findings, each with its dimensions
+Member:   the member's dimensions | its contributing evidence
+```
+
+- **Dimensions.** Every scope presents three separate dimensions and never
+  merges them into one safe/unsafe value:
+  - presence: the member uses or propagates unsafe code;
+  - exposure: public, non-public, or unknown;
+  - safe boundary: the member uses an unsafe context without propagating it.
+    It's decided only under the updated rules. A legacy module shows it as not
+    applicable, never as a negative.
+
+  Propagation is the explicit caller-unsafe contract. A propagator is never a
+  safe boundary.
+Every scope is the **Unsafe** tab of that scope's
+[Analysis inspector](#library-analysis).
+
+- **Library scope.** The Library Analysis **Unsafe** tab shows the Library
+  counts and one row per declaring Type with a finding, ordered by Type name.
+  A row shows the Type, its member count, and its public, propagating, and
+  safe-boundary counts. Activating a row opens that Type's Analysis inspector
+  on **Unsafe**.
+- **Type scope.** The Type Analysis **Unsafe** tab shows the Type's counts and
+  one row per member with a finding, in the
+  [Unsafe Members section](unsafe-members-section.md#rows) order. A row shows
+  the member, its exposure, its propagation, its safe-boundary state, its
+  evidence summary, and a partial badge. Activating a row opens that member's
+  Analysis inspector on **Unsafe**. A Type without findings states that,
+  unless the census is incomplete, when it states that absence can't be
+  established.
+- **Member scope.** The Member Analysis **Unsafe** tab shows the member's
+  dimensions and its contributing evidence items as a table of role, physical
+  body, IL offset, and detail. A lambda, local-function, or state-machine body
+  appears only as evidence of its declared member. When several declared
+  bodies anchor to one member, such as property accessors, each keeps its own
+  finding.
+- **Ungraded.** No scope shows severity, risk, or recommendation.
+- **Navigation.** Each scope links through the Library's all-accessibility API
+  surface.
+  - The Type and member rows name their Type the way the Library's ordinary
+    Type list does. That is the asset's assembly name for a package, and the
+    bare identity name for a Platform Library.
+  - When the ordinary list doesn't carry the Type, the row opens it as a
+    transient Type from the projection it carries, as Performance rows do.
+  - Every drill widens to the Type's whole member population, so a
+    non-public member is listed.
+  - A Type or member the surface can't resolve renders without a link and
+    keeps its finding.
+  - The Type and Member Analysis inspectors are available for package and
+    Platform Libraries alike, because Unsafe presents the census, not Member
+    Facts.
+- **Scope of work.** A view runs the narrowest census that answers it, and
+  reuses a wider one that's already loaded:
+  - Library Unsafe runs the Library census.
+  - Type Unsafe selects its Type from a fresh Library census of the same
+    Library when one is loaded. Otherwise it runs the Type-scope census for
+    that Type alone.
+  - Member Unsafe selects its member from a fresh Library census, or from a
+    fresh Type census of its declaring Type, when one is loaded. Otherwise it
+    runs the Member-scope census for that member alone.
+
+  So a drill down from the Library starts no new census, and a deep link or
+  refresh at Type or Member scope never waits for a Library census. Widening
+  from a narrow scope to the Library runs the Library census then.
+- **State.** Each scope has the closed request state Resource Triage uses,
+  keyed by exact Library and coordinate, plus the Type identity at Type scope
+  and the member's Type and stable selector at Member scope. Only the current
+  request may publish; replacement and package invalidation retire it.
+  Workspace snapshots normalize an interrupted load to idle. A view selects
+  from a covering result by the product-issued Type identity and member
+  stable selector, and doesn't regroup, filter, or recount rows.
+- **Member-scope absence.** A Member-scope census can't see a generated body
+  that the relation can't authenticate to the member, as
+  [the census execution](unsafe-member-findings.md#execution) states. So a
+  member without findings from that census reads "No unsafe evidence was
+  attributed to this member", never that it has none. The same member
+  selected from a Type or Library census keeps that census's limitations.
+- **Outcomes.** Each outcome renders distinctly at every scope:
+  - loading;
+  - failed or rejected, with its diagnostic;
+  - unavailable, such as a reference-only Library;
+  - incomplete, as a warning that lists every census limitation above the
+    observed rows. An incomplete census with no rows says absence can't be
+    established, never "no unsafe members".
+  - complete with no findings, which is the empty state "No unsafe members
+    under the updated memory-safety rules";
+  - the rows.
+- **Bounds.** There's no row bound. The census is one bounded Library
+  operation.
+
+The managed exports run `AssemblyContextUnsafeMemberCensusQuery` over the
+Library's admitted implementation participant at the requested scope. That
+query runs the census through its shared session entry. It resolves a Type
+scope's TypeDef and a Member scope's MethodDefs through the existing API
+surface selection, and adds navigation identities from the complete API
+surface. The export groups findings with
+`UnsafeMemberTypeGroup` and counts them with `UnsafeMemberCounts`.
+
+The platform selector stays above scrolling results and keeps its existing
+acquisition behavior. Analysis has no bottom context row. Browser HTML lowering
+consumes the existing typed mode results. Apart from the Unsafe tab's census
+query and export, no producer, query, acquisition, CLI section, or result
+contract changes.
+
+Focused renderer and production-composition browser gates cover the direct
+tabs, lazy loading, focus retention across asynchronous completion,
 wide/narrow layout, Library switching, row actions, and platform controls.
 
 ### Package Metadata
@@ -1145,13 +1486,24 @@ package summary. Each assembly retains its format, header facts, heaps, and
 populated-table controls, and those controls continue to open the separately
 owned Metadata Explorer.
 
-The fixed bottom context row preserves the exact package coordinate, target
-framework, and optional scoped library. Library-required, loading, failure,
-partial-failure, and no-image states retain the same header, controls, scroll
-owner, and context row. Failures remain visibly distinct from a successful
+Library-required, loading, failure, partial-failure, and no-image states retain
+the same header, controls, and scroll owner, without a bottom context row.
+Failures remain visibly distinct from a successful
 empty result.
 
-At narrow widths, controls wrap within their row and header and footer values
+Package Metadata owns one closed acquisition lifecycle. Idle carries no
+coordinate or evidence; loading carries the exact request for its package,
+framework, and optional Library coordinate; ready carries either complete
+metadata, partial metadata with its owner-issued inspection diagnostic, or a
+successful no-image result; failed carries a non-empty visible diagnostic and
+no metadata result. Only the exact current loading request may publish.
+Explicit retry replaces failed evidence, while automatic loading does not loop
+on the same failed coordinate. Workspace snapshots retain ready and failed
+evidence and normalize interrupted loading to idle. `System.Text.Json` 10.0.0
+is the real-package witness for ordinary image evidence; focused owner tests
+preserve partial-image and all-image-failure boundaries.
+
+At narrow widths, controls wrap within their row and header values
 may elide as complete strings. The surface creates no page-level horizontal
 overflow. This slice does not change the Metadata Explorer or other package
 lenses.
@@ -1261,12 +1613,12 @@ Their layout is:
 
 ```text
 Working-surface actions   Authored | Decompiled   View   Copy   Open   Explore
-Types or Members | source content
-                 | source provenance
+Types or Members | source provenance
+                 | source content
 ```
 
 Source gives the page-owned working-surface action region its contextual
-actions and keeps compact provenance as a footer attached to the source pane.
+actions and places compact provenance above the code in the source pane.
 It adds no visible title or presentation summary inside the pane. The
 navigation pane and source content may scroll independently. Collapsing
 navigation gives the working surface the full viewport width.
@@ -1458,6 +1810,19 @@ its selected row into view. Activating an inventory row moves focus to the
 return button in the resulting narrow detail pane. A filter-focus command first
 switches to inventory, then opens and focuses the applicable filter.
 
+Selecting a row or receiving background inspection results preserves the
+navigation inventory's scroll position while its scope remains the same.
+Changing scope starts a new viewport; explicit keyboard navigation and restored
+Member reveals may still bring the selected row into view.
+
+The motivating real asset is Markout 0.38.0, net10.0, with
+`Markout.MarkoutField` selected in Type Compare on dotnet-inspect.ca. Selecting
+Types in its long inventory reset the list to the top because rendering
+replaced the scroll container. The deterministic browser navigation test
+`Type selection preserves a long inventory viewport across renders` exercises
+the production render path with an expanded inventory; the package coordinate
+and selected Type retain the reproducible real-world observation.
+
 When crossing into the narrow layout, focus inside Type or Member navigation
 keeps inventory visible; focus inside detail keeps detail visible. Otherwise
 the retained presentation-local pane remains visible. Widening reveals both
@@ -1473,9 +1838,65 @@ navigation band. It never scrolls or obscures the Application menu.
 
 ## Data bar and Diagnostics
 
-The bottom data bar is one compact 30 CSS-pixel product-information line. Its
-grid row remains allocated when the notice stack is empty. It does not wrap,
-expand, or host runtime diagnostics:
+The bottom data bar is one compact 30 CSS-pixel line with three presentations:
+transient inspection feedback, the active inspector's result summary, and
+default product information, in that order of precedence. Its grid row remains
+allocated in every state; long messages scroll horizontally without wrapping or
+expansion.
+
+The data bar has two feedback purposes: useful information for the user and
+genuine assertion-style errors that a dotnet-inspect maintainer should fix.
+Routine implementation details are neither. Expected compiler-generated
+physical-only ownership coverage stays in retained diagnostic evidence; it
+does not replace the bar's content or offer Retry.
+
+Optional enrichment feedback must not consume inventory or inspector space or
+obstruct the core inspection journey. Structural salience is the first
+consumer: actionable feedback replaces the data bar's default content, while
+Type rows and owner-issued cues remain available. Feedback clears on subject
+or inspector traversal, including back
+and forward navigation. Rerendering the same view retains feedback; a late
+result started in a preceding view cannot restore cleared feedback. Clearing
+presentation does not clear retained evidence or automatically retry work.
+
+Home retains default product information. Library Compare's Public API Diff
+is the result-summary pilot. On a successful complete comparison it supplies
+the owner-issued Library display, version endpoints, and totals for changed,
+added, and removed
+Types, changed Members, and breaking, additive, and potentially breaking changes.
+Inspection notices remain named. The completed summary moves from the working
+surface into the persistent bar; comparison targets, row-level evidence, and
+essential loading/failure recovery stay in the inspector.
+
+A result summary must match the active subject, inspector, content, exact
+Library, package generation, framework, and comparison target. Traversal,
+target changes, and loading cannot display a previous result. Returning to the
+same completed comparison may present its retained result; clearing transient
+feedback does not clear valid result data. Other inspectors use default product
+information until separately adopted. No inspector may enqueue background text
+or compete with the active inspector for the result slot.
+
+The pilot's real asset is
+[System.Text.Json 9.0.0](https://www.nuget.org/packages/System.Text.Json/9.0.0)
+to [10.0.0](https://www.nuget.org/packages/System.Text.Json/10.0.0), `net8.0`.
+Its Public API Diff already issues detached aggregate counts and exact version
+endpoints through the normal package comparison route. Unit tests retain these
+currencies through result projection and check feedback precedence, loading,
+and target mismatches. Browser tests cover completion, zero changes, inspector
+traversal, default fallback, and fixed geometry at desktop and narrow widths.
+
+The motivating asset is
+[System.Text.Json 7.0.0](https://www.nuget.org/packages/System.Text.Json/7.0.0),
+`net7.0`, entered through a shared workspace at
+`System.Text.Json.JsonCommentHandling`. Its physical-only body qualification
+was printed above Type rows and reduced the inventory's available space;
+that routine coverage now produces no transient feedback.
+Data-bar rendering and lifecycle tests plus Browser journeys at desktop and
+narrow widths gate feedback precedence, invariant geometry, traversal clearing,
+stale-result suppression, and Retry. The published real-package journey is
+also checked against the same shared-link entry.
+
+Default product information:
 
 <!-- markdownlint-disable MD013 -->
 ```text
@@ -1665,7 +2086,7 @@ with the absence of a synthesized `Default feed` control.
    frame, that failures remain visible, and that only the content region
    scrolls.
 3. Repeat with a long generic type identity, long package coordinate, and a
-   narrow viewport. Confirm that header and footer values elide as complete
+   narrow viewport. Confirm that header values elide as complete
    strings without selective loss or page-level horizontal overflow.
 
 ### Package Metadata working surface
@@ -1713,9 +2134,9 @@ with the absence of a synthesized `Default feed` control.
 ### Package Vulnerabilities working surface
 
 1. Open a nuget.org Package and confirm that Vulnerabilities appears after
-   Dependencies, uses the Frameworks navigation pane, and retains the exact
-   package/version context while framework selection does not trigger another
-   advisory request.
+   Dependencies, uses the Frameworks & versions navigation pane, and retains
+   the exact package/version context while framework selection does not
+   trigger another advisory request.
 2. Exercise a matching reviewed advisory and confirm that GHSA and optional CVE
    identity, severity, published and updated dates, and the GitHub destination
    remain visible.

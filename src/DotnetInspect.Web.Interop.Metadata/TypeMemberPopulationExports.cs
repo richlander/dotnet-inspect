@@ -19,13 +19,40 @@ namespace DotnetInspect.Web.Interop.Metadata;
     nameof(MetadataExports.QueryTypeMemberPopulation),
     typeof(BrowserTypeMemberPopulationInspection))]
 [JsExportJsonOutput(
+    nameof(MetadataExports.QueryPerformanceTypeMemberPopulation),
+    typeof(BrowserTypeMemberPopulationInspection))]
+[JsExportJsonOutput(
     nameof(MetadataExports.QueryPlatformTypeMemberPopulation),
+    typeof(BrowserTypeMemberPopulationInspection))]
+[JsExportJsonOutput(
+    nameof(MetadataExports.QueryPlatformPerformanceTypeMemberPopulation),
     typeof(BrowserTypeMemberPopulationInspection))]
 [JsExportJsonOutput(
     nameof(MetadataExports.QueryUploadedLibraryTypeMemberPopulation),
     typeof(BrowserTypeMemberPopulationInspection))]
+[JsExportJsonOutput(
+    nameof(MetadataExports.QueryUploadedLibraryPerformanceTypeMemberPopulation),
+    typeof(BrowserTypeMemberPopulationInspection))]
 public static partial class MetadataExports
 {
+    public static Task<string> QueryTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility) =>
+        QueryTypeMemberPopulation(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            spelling,
+            accessibility,
+            runtimeIdentifier: null);
+
     [JSExport]
     public static async Task<string> QueryTypeMemberPopulation(
         string packageId,
@@ -34,13 +61,80 @@ public static partial class MetadataExports
         string assemblyName,
         string typeIdentity,
         string spelling,
-        string accessibility)
+        string accessibility,
+        string? runtimeIdentifier)
+        => await QueryPackageTypeMemberPopulation(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                spelling,
+                accessibility,
+                runtimeIdentifier,
+                useImplementation: false,
+                includeHidden: false)
+            .ConfigureAwait(false);
+
+    public static Task<string> QueryPerformanceTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility) =>
+        QueryPerformanceTypeMemberPopulation(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            spelling,
+            accessibility,
+            runtimeIdentifier: null);
+
+    [JSExport]
+    public static async Task<string> QueryPerformanceTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility,
+        string? runtimeIdentifier)
+        => await QueryPackageTypeMemberPopulation(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                spelling,
+                accessibility,
+                runtimeIdentifier,
+                useImplementation: true,
+                includeHidden: true)
+            .ConfigureAwait(false);
+
+    static async Task<string> QueryPackageTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility,
+        string? runtimeIdentifier,
+        bool useImplementation,
+        bool includeHidden)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
-                targetFramework).ConfigureAwait(false);
+                targetFramework,
+                runtimeIdentifier).ConfigureAwait(false);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         if (!coordinate.Selection.IsSelected)
@@ -49,25 +143,37 @@ public static partial class MetadataExports
                 $"{packageId} {version} has no selected compile Library "
                     + $"({coordinate.Selection.Status}).");
         }
-        BrowserWorkspaceParticipant participant =
+        BrowserWorkspaceParticipant surfaceParticipant =
             scope.SurfaceParticipant(
                 coordinate,
                 coordinate.CompileAsset(assemblyName));
+        ValueTask<AssemblyContextLibraryAdapterResult> materialization =
+            useImplementation
+                ? scope.UseImplementationParticipant(
+                    scope.ImplementationParticipant(surfaceParticipant),
+                    (group, member) =>
+                        AssemblyContextLibraryAdapter.MaterializeAsync(
+                            group,
+                            member,
+                            AssemblyContextLibraryRole.Implementation,
+                            BrowserExactMemberPolicy.MaterializationLimits,
+                            CancellationToken.None))
+                : scope.UseSurfaceParticipant(
+                    surfaceParticipant,
+                    (group, member) =>
+                        AssemblyContextLibraryAdapter.MaterializeAsync(
+                            group,
+                            member,
+                            AssemblyContextLibraryRole.ApiOnly,
+                            BrowserExactMemberPolicy.MaterializationLimits,
+                            CancellationToken.None));
         BrowserTypeMemberPopulationInspection inspection =
             await ExecuteTypeMemberPopulationAsync(
-                    scope.UseSurfaceParticipant(
-                        participant,
-                        (group, member) =>
-                            AssemblyContextLibraryAdapter.MaterializeAsync(
-                                group,
-                                member,
-                                AssemblyContextLibraryRole.ApiOnly,
-                                BrowserExactMemberPolicy
-                                    .MaterializationLimits,
-                                CancellationToken.None)),
+                    materialization,
                     typeIdentity,
                     spelling,
-                    accessibility)
+                    accessibility,
+                    includeHidden)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -81,6 +187,47 @@ public static partial class MetadataExports
         string typeIdentity,
         string spelling,
         string accessibility)
+        => await QueryPlatformTypeMemberPopulationCore(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                spelling,
+                accessibility,
+                includeHidden: false)
+            .ConfigureAwait(false);
+
+    [JSExport]
+    public static async Task<string>
+        QueryPlatformPerformanceTypeMemberPopulation(
+            string targetFramework,
+            string platformVersion,
+            string assemblyName,
+            string pack,
+            string typeIdentity,
+            string spelling,
+            string accessibility)
+        => await QueryPlatformTypeMemberPopulationCore(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                spelling,
+                accessibility,
+                includeHidden: true)
+            .ConfigureAwait(false);
+
+    static async Task<string> QueryPlatformTypeMemberPopulationCore(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string spelling,
+        string accessibility,
+        bool includeHidden)
     {
         await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
@@ -104,7 +251,8 @@ public static partial class MetadataExports
                                 CancellationToken.None)),
                     typeIdentity,
                     spelling,
-                    accessibility)
+                    accessibility,
+                    includeHidden)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -117,6 +265,39 @@ public static partial class MetadataExports
             string typeIdentity,
             string spelling,
             string accessibility)
+        => await QueryUploadedLibraryTypeMemberPopulationCore(
+                declaredName,
+                content,
+                typeIdentity,
+                spelling,
+                accessibility,
+                includeHidden: false)
+            .ConfigureAwait(false);
+
+    [JSExport]
+    public static async Task<string>
+        QueryUploadedLibraryPerformanceTypeMemberPopulation(
+            string declaredName,
+            byte[] content,
+            string typeIdentity,
+            string spelling,
+            string accessibility)
+        => await QueryUploadedLibraryTypeMemberPopulationCore(
+                declaredName,
+                content,
+                typeIdentity,
+                spelling,
+                accessibility,
+                includeHidden: true)
+            .ConfigureAwait(false);
+
+    static async Task<string> QueryUploadedLibraryTypeMemberPopulationCore(
+        string declaredName,
+        byte[] content,
+        string typeIdentity,
+        string spelling,
+        string accessibility,
+        bool includeHidden)
     {
         ArgumentNullException.ThrowIfNull(content);
         BrowserTypeMemberPopulationInspection inspection =
@@ -129,7 +310,8 @@ public static partial class MetadataExports
                             .MaterializationLimits),
                     typeIdentity,
                     spelling,
-                    accessibility)
+                    accessibility,
+                    includeHidden)
                 .ConfigureAwait(false);
         return SerializeTypeMemberPopulation(inspection);
     }
@@ -139,14 +321,15 @@ public static partial class MetadataExports
             ValueTask<AssemblyContextLibraryAdapterResult> materialization,
             string typeIdentity,
             string spelling,
-            string accessibility)
+            string accessibility,
+            bool includeHidden)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeIdentity);
         MetadataTypeMemberPopulationRequest request = new(
             BrowserExactMemberPolicy.ParseTypeIdentity(
                 typeIdentity),
             ParseSpelling(spelling),
-            includeHidden: false,
+            includeHidden,
             ParseAccessibility(accessibility));
         AssemblyContextLibraryInspectionRun<
             LibraryTypeMemberPopulationInspectionOutcome> run =
@@ -256,6 +439,7 @@ public static partial class MetadataExports
                     ],
                     new(
                         population.SelectorCounts.Traits.All,
+                        population.SelectorCounts.Traits.BodyBacked,
                         population.SelectorCounts.Traits.Static,
                         population.SelectorCounts.Traits.Instance,
                         population.SelectorCounts.Traits.Virtual,

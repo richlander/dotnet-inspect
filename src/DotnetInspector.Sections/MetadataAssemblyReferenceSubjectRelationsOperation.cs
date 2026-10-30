@@ -419,7 +419,7 @@ public static class MetadataAssemblyReferenceSubjectRelationsOperation
                 nameof(source));
         }
         if (request.Route != SubjectRelationsRouteKind.Library
-            || correspondence.Focus != request.Focus
+            || correspondence.FocusAuthority != request.Focus
             || !ReferenceEquals(
                 correspondence.Population,
                 request.Population)

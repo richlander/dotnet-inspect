@@ -74,6 +74,24 @@ static partial class FidelityCheck
     /// fallback is no longer needed.
     /// </para>
     /// <para>
+    /// v4 (#9586) builds the correspondence key under the same current- and
+    /// platform-assembly scope rule the comparison applies to operands. Under v3 the key
+    /// carried each referenced assembly's full identity, so a generated member whose
+    /// signature named a platform type never paired once the recompile resolved that type
+    /// against a different framework build, and identical bodies reported operand
+    /// differences (dotnet-inspect.any 0.14.0 <c>EcosystemIntegrationScanner.OrderApis</c>).
+    /// The flag set is unchanged; the equality rule loosened, and corpus numbers move.
+    /// </para>
+    /// <para>
+    /// v5 (#9586) keys a compiler-generated display class (<c>&lt;&gt;c__DisplayClassN_K</c>)
+    /// by the owned lambdas it holds, so a display class renumbered by the reconstructed
+    /// skeleton folds when both sides hold the same named lambdas and the key is unique on
+    /// each side (dotnet-inspect.any 0.14.0 <c>GenericContext.ForType</c> and
+    /// <c>ForMethod</c>). It also makes the key's assembly-scope rule literally the operand
+    /// rule (module readers and comma-bearing reference names). The flag set is unchanged;
+    /// the equality rule loosened again, and corpus numbers move.
+    /// </para>
+    /// <para>
     /// The flag set is the trigger this version is <em>gated</em> on, but it is not the
     /// whole of what it protects: the equality rules also include how
     /// <c>IlBodyDiff</c> renders an operand, and a renderer change moves them without
@@ -93,8 +111,18 @@ static partial class FidelityCheck
     /// change that is not monotone, or that moves a corpus number, does not get this
     /// argument and must bump.
     /// </para>
+    /// <para>
+    /// v6 (#9942) compares the exception-clause table: each clause's kind, its catch Type
+    /// under the operand rule, and its extents by aligned instruction. A body whose only
+    /// difference is a catch Type or a <c>try</c> boundary compared <c>Exact</c> under v5
+    /// and does not under v6, so corpus numbers move, strictly toward fewer <c>Exact</c>
+    /// rows; the rows that move are the EH-blind population #9942 names. The
+    /// contract set does not adopt <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/>
+    /// (#10373): compile-back recompiles against the original's own references, so
+    /// a non-platform reference identity difference is evidence, not noise.
+    /// </para>
     /// </remarks>
-    internal const int CurrentContractVersion = 3;
+    internal const int CurrentContractVersion = 6;
 
     internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
@@ -214,20 +242,81 @@ static partial class FidelityCheck
         IReadOnlyList<string> assemblies,
         int cap,
         string? typeFilter = null)
-        => SelectReturnToSenderTargetPlan(
+        => SelectReturnToSenderTargetsCapped(
             assemblies,
             cap,
-            typeFilter).Targets
-            .Select(
-                static target => new CompileBackTarget(
-                    target.AssemblyPath,
-                    target.Type,
-                    target.Method,
-                    target.Overload,
-                    target.Signature,
-                    target.Address,
-                    target.Declaration))
-            .ToArray();
+            typeFilter).Targets;
+
+    internal static CappedReturnToSenderTargetSelection
+        SelectReturnToSenderTargetsCapped(
+            IReadOnlyList<string> assemblies,
+            int cap,
+            string? typeFilter = null)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        if (cap <= 0 || assemblies.Count == 0)
+            return new([], 0, 0, 0, 0);
+
+        var selected =
+            new List<CompileBackTarget>(Math.Min(cap, 4096));
+        int rankedBodyCount = 0;
+        int evaluatedBodyCount = 0;
+        int declarationCandidateCount = 0;
+        int excludedDeclarationCandidateCount = 0;
+        using var metadata = CorpusMetadata.Create(assemblies);
+        foreach (string assemblyPath in assemblies)
+        {
+            int remaining = cap - selected.Count;
+            if (remaining <= 0)
+                break;
+
+            using MetadataSource source =
+                MetadataSource.Open(
+                    assemblyPath,
+                    context: metadata);
+            RegisterSourceContext(source, metadata);
+            using var assembly =
+                AssemblyInspectionSession.Open(assemblyPath);
+            using var targetSource =
+                new ReturnToSenderTargetSourceSession(
+                    assemblyPath,
+                    assembly);
+            ReturnToSenderCappedTargetSelection selection =
+                targetSource.SelectCappedTargets(
+                    source,
+                    remaining,
+                    typeFilter);
+            selected.AddRange(
+                selection.Targets.Select(
+                    static target => new CompileBackTarget(
+                        target.AssemblyPath,
+                        target.Type,
+                        target.Method,
+                        target.Overload,
+                        target.Signature,
+                        target.Address,
+                        target.Declaration)));
+            rankedBodyCount = checked(
+                rankedBodyCount
+                + selection.RankedBodyCount);
+            evaluatedBodyCount = checked(
+                evaluatedBodyCount
+                + selection.EvaluatedBodyCount);
+            declarationCandidateCount = checked(
+                declarationCandidateCount
+                + selection.DeclarationCandidateCount);
+            excludedDeclarationCandidateCount = checked(
+                excludedDeclarationCandidateCount
+                + selection.ExcludedDeclarationCandidateCount);
+        }
+
+        return new(
+            selected,
+            rankedBodyCount,
+            evaluatedBodyCount,
+            declarationCandidateCount,
+            excludedDeclarationCandidateCount);
+    }
 
     internal static ReturnToSenderTargetSelection SelectReturnToSenderTargetPlan(
         IReadOnlyList<string> assemblies,
@@ -527,6 +616,13 @@ static partial class FidelityCheck
         int ScannedBodyCount,
         int DeclarationCandidateCount,
         int EligibleCount);
+
+    internal sealed record CappedReturnToSenderTargetSelection(
+        IReadOnlyList<CompileBackTarget> Targets,
+        int RankedBodyCount,
+        int EvaluatedBodyCount,
+        int DeclarationCandidateCount,
+        int ExcludedDeclarationCandidateCount);
 
     /// <summary>
     /// Runs the fidelity check loop over one assembly and returns a structured result
@@ -835,7 +931,8 @@ static partial class FidelityCheck
         string Method,
         int Overload,
         string Signature,
-        string DisplayMethod)
+        string DisplayMethod,
+        MetadataMethodAddress? Address)
     {
         public static MethodTarget From(CorpusMethodSnapshot method)
             => new(
@@ -845,7 +942,8 @@ static partial class FidelityCheck
                 method.Method,
                 method.Overload,
                 method.Signature,
-                method.DisplayMethod);
+                method.DisplayMethod,
+                Address: null);
     }
 
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
@@ -1037,7 +1135,8 @@ static partial class FidelityCheck
                 Method: target.Method,
                 Overload: target.Overload,
                 Signature: target.Signature,
-                DisplayMethod: $"{target.Type}::{target.Method}"))
+                DisplayMethod: $"{target.Type}::{target.Method}",
+                Address: target.Address))
             .ToArray();
 
         return EvaluateTargets(assemblies, methodTargets, lowered, options, readSymbols)
@@ -1060,7 +1159,8 @@ static partial class FidelityCheck
                 Method: target.Method,
                 Overload: target.Overload,
                 Signature: target.Signature,
-                DisplayMethod: $"{target.Type}::{target.Method}"))
+                DisplayMethod: $"{target.Type}::{target.Method}",
+                Address: target.Address))
             .ToArray();
         return (await EvaluateChangedMethodTargets(assemblies, methodTargets))
             .Select(row => row.Result)
@@ -1288,21 +1388,67 @@ static partial class FidelityCheck
                             if (entries.Count == 0 || !assemblyTargets.TryGetValue(fullType, out var typeTargets))
                                 continue;
 
-                            var typeTargetMap = typeTargets.ToDictionary(
-                                target => $"{target.Method}{target.Signature}",
-                                StringComparer.Ordinal);
-                            var matched = entries
-                                .Where(entry => typeTargetMap.ContainsKey($"{entry.Name}{entry.Signature}"))
-                                .ToArray();
-                            if (matched.Length == 0)
+                            var targetsByHandle =
+                                new Dictionary<MethodDefinitionHandle, MethodTarget>();
+                            var targetsBySignature =
+                                new Dictionary<string, MethodTarget>(StringComparer.Ordinal);
+                            foreach (var target in typeTargets)
+                            {
+                                if (target.Address is { } address
+                                    && address.TryResolve(reader, out var handle))
+                                {
+                                    targetsByHandle.Add(handle, target);
+                                }
+                                else
+                                {
+                                    targetsBySignature.Add(
+                                        $"{target.Method}{target.Signature}",
+                                        target);
+                                }
+                            }
+
+                            var matchedEntries = new List<Entry>();
+                            var matchedTargets = new List<MethodTarget>();
+                            foreach (var entry in entries)
+                            {
+                                if (!targetsByHandle.TryGetValue(
+                                        entry.Handle,
+                                        out MethodTarget? target)
+                                    && !targetsBySignature.TryGetValue(
+                                        $"{entry.Name}{entry.Signature}",
+                                        out target))
+                                {
+                                    continue;
+                                }
+
+                                matchedEntries.Add(entry);
+                                matchedTargets.Add(target);
+                            }
+                            if (matchedEntries.Count == 0)
                                 continue;
 
-                            var typeResults = EvaluateGrouped(reader, pe, references, featureOptions, compileOptions, fullType, treeHandle, matched);
-                            for (int i = 0; i < matched.Length && i < typeResults.Count; i++)
+                            var typeResults = EvaluateGrouped(
+                                reader,
+                                pe,
+                                references,
+                                featureOptions,
+                                compileOptions,
+                                fullType,
+                                treeHandle,
+                                matchedEntries);
+                            for (int i = 0;
+                                i < matchedEntries.Count && i < typeResults.Count;
+                                i++)
                             {
-                                var entry = matched[i];
-                                var target = typeTargetMap[$"{entry.Name}{entry.Signature}"];
-                                rows.Add(new TargetedCompileBackResult(target, typeResults[i]));
+                                var target = matchedTargets[i];
+                                CompileBackResult result = typeResults[i] with
+                                {
+                                    Type = target.Type,
+                                    Method = target.Method,
+                                    Overload = target.Overload,
+                                    Signature = target.Signature,
+                                };
+                                rows.Add(new TargetedCompileBackResult(target, result));
                                 pending.Remove(TargetKey(target));
                             }
                         }
@@ -3083,7 +3229,7 @@ static partial class FidelityCheck
         string Pct(int n, int d) => d == 0 ? "0" : $"{100.0 * n / d:F2}%";
         Console.WriteLine($"COMPILE-BACK over {total} rendered methods ({full} Full)");
         Console.WriteLine();
-        Console.WriteLine($"  exact (contract v{CurrentContractVersion}): {exact} ({Pct(exact, total)}) — EH-blind");
+        Console.WriteLine($"  exact (contract v{CurrentContractVersion}): {exact} ({Pct(exact, total)})");
         Console.WriteLine($"  opcode diff (Full) : {opcodeDiff} — recompiled to a different opcode stream");
         Console.WriteLine($"  operand diff (Full): {operandDiff} — opcode names matched; operand or target differed");
         Console.WriteLine($"  fidelity unavailable: {fidelityUnavailable} — body comparison produced no verdict");
@@ -3107,7 +3253,7 @@ static partial class FidelityCheck
         {
             Console.WriteLine();
             Console.WriteLine(ExampleHeading(
-                "Operand-diff examples (Full; EH-blind)",
+                "Operand-diff examples (Full)",
                 operandDiffExamples.Count,
                 operandDiff));
             foreach (var e in operandDiffExamples)

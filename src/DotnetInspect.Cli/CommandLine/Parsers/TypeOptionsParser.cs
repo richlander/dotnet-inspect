@@ -18,6 +18,15 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class TypeOptionsParser
 {
+    private static string[] SplitValues(string[]? values) =>
+    [
+        .. (values ?? []).SelectMany(value =>
+            value.Split(
+                ',',
+                StringSplitOptions.TrimEntries
+                    | StringSplitOptions.RemoveEmptyEntries)),
+    ];
+
     public static bool TryCreateStructuralPlan(
         ParseResult parseResult,
         SharedOptions options,
@@ -162,7 +171,11 @@ public static class TypeOptionsParser
         Option<string?> AtOption,
         Option<string?> WorkspaceOption,
         Option<string?> ShareOption,
-        Option<string?> SuppressRuntimeTypeFallbackOption);
+        Option<string[]> RelationsOption,
+        Option<string[]> RelationColorOption,
+        Option<string[]> RequireRelationColorOption,
+        Option<string?> SuppressRuntimeTypeFallbackOption,
+        Option<bool> NamesakeLibraryOption);
 
     internal static bool IsTypeListingRowSelection(
         ParseResult parseResult,
@@ -262,7 +275,11 @@ public static class TypeOptionsParser
     /// </summary>
     public record Success(
         TypeOptions Options,
-        ResolvedMemberInspectionPlan Plan) : TypeParseResult;
+        ResolvedMemberInspectionPlan Plan) : TypeParseResult
+    {
+        internal TypeCommandPlan CommandPlan { get; init; } =
+            new TypeCommandPlan.Standard();
+    }
 
     /// <summary>
     /// Parses type command options asynchronously (due to source resolution).
@@ -278,6 +295,9 @@ public static class TypeOptionsParser
         bool hasProjectSource = !string.IsNullOrWhiteSpace(projectPath);
         bool hasNonProjectSource = sourceInputs.HasExplicitSource;
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+        bool mermaidExplicitlySet =
+            parseResult.GetResult(opts.Mermaid) is { Implicit: false }
+            && parseResult.GetValue(opts.Mermaid);
         bool routerCompletedPlatformLookup =
             RouterCommandDefinition
                 .IsSuppressRuntimeTypeFallbackCapability(
@@ -292,7 +312,8 @@ public static class TypeOptionsParser
         if (sourceInputs.Args.Length == 0
             && !sourceInputs.HasExplicitSource
             && !hasProjectSource
-            && workspacePacket is null)
+            && workspacePacket is null
+            && !mermaidExplicitlySet)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
@@ -346,19 +367,30 @@ public static class TypeOptionsParser
             CloneCandidateRowSelectionAdoption.IsActive(
                 parseResult,
                 opts);
+        bool selectsBodyShapeRows =
+            !selectsCloneCandidateRows
+            && BodyShapeRowSelectionAdoption.IsActive(
+                parseResult,
+                opts,
+                args.TfmOption);
         bool selectsTypeListingRows =
             !selectsCloneCandidateRows
+            && !selectsBodyShapeRows
             && IsTypeListingRowSelection(
                 parseResult,
                 opts,
                 args);
         RowSelectionIntent<string>? semanticRowSelection = null;
-        if ((selectsCloneCandidateRows || selectsTypeListingRows)
+        if ((selectsCloneCandidateRows
+                || selectsBodyShapeRows
+                || selectsTypeListingRows)
             && !CliRowSelectionCommandRegistry
                 .TryGetPreparedSemanticIntent(
                     parseResult,
                     selectsCloneCandidateRows
                         ? "Clone Candidates"
+                        : selectsBodyShapeRows
+                        ? "Body Shapes"
                         : "Type",
                     out semanticRowSelection,
                     out string? rowSelectionError))
@@ -428,6 +460,14 @@ public static class TypeOptionsParser
             SharedParsers.ParseTypeFilter(
                 parseResult.GetValue(args.TypeFilterOption));
 
+        if (string.IsNullOrWhiteSpace(source.TypeName)
+            && string.IsNullOrWhiteSpace(typeFilter)
+            && sourceSelection.HasExplicitSource
+            && !opts.IsDiscoveryMode(parseResult))
+        {
+            return new ShowHelp();
+        }
+
         // Parse member filter
         var memberValues = parseResult.GetValue(args.MemberOption) ?? [];
         if (memberValues.Any(value => MemberTargetSelector.Parse(value).GenericArity.HasValue))
@@ -470,11 +510,22 @@ public static class TypeOptionsParser
 
         bool envelopeOutput = parseResult.GetValue(opts.Envelope);
         bool tree = parseResult.GetValue(opts.Tree);
+        bool nonHierarchyFormatExplicitlySet =
+            parseResult.GetValue(opts.Json)
+            || parseResult.GetValue(opts.Markdown)
+            || parseResult.GetValue(opts.PlainText)
+            || parseResult.GetValue(opts.Table)
+            || parseResult.GetValue(opts.Tsv)
+            || parseResult.GetValue(opts.Jsonl)
+            || parseResult.GetResult(opts.Verbosity)
+                is { Implicit: false };
         bool treeOwnsFormat =
             tree && !opts.IsFormatFlagExplicitlySet(parseResult);
         OutputFormat outputFormat =
             envelopeOutput
                 ? OutputFormat.Json
+                : mermaidExplicitlySet
+                ? OutputFormat.Mermaid
                 : treeOwnsFormat
                 ? OutputFormat.Markdown
                 : opts.ResolveFormat(parseResult);
@@ -482,13 +533,29 @@ public static class TypeOptionsParser
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
+            TypeTargetUsedPlatformPrefixFallback =
+                source.UsedPlatformPrefixFallback,
             RouterCompletedPlatformLookup =
                 routerCompletedPlatformLookup,
+            AnnotatedRelationIds =
+                parseResult.GetResult(args.RelationsOption)
+                    is { Implicit: false }
+                    ? SplitValues(parseResult.GetValue(args.RelationsOption))
+                    : null,
+            AnnotatedRelationColorIds =
+                SplitValues(
+                    parseResult.GetValue(args.RelationColorOption)),
+            AnnotatedRelationRequiredColorIds =
+                SplitValues(
+                    parseResult.GetValue(
+                        args.RequireRelationColorOption)),
             WorkspacePacket = workspacePacket,
             ShareFormat = shareFormat,
             PackagePath = source.PackagePath,
             PackageRangeAddress = parseResult.GetValue(args.AtOption),
             AssemblyPath = source.AssemblyPath,
+            NamesakeLibrary =
+                parseResult.GetValue(args.NamesakeLibraryOption),
             PlatformAssembly = source.PlatformAssembly,
             ProjectPath = projectPath,
             PlatformFramework = source.FrameworkOverride ?? parseResult.GetValue(args.FrameworkOption),
@@ -504,6 +571,11 @@ public static class TypeOptionsParser
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
             JsonOutput = !envelopeOutput && outputFormat == OutputFormat.Json,
+            MermaidOutput = !envelopeOutput
+                && outputFormat == OutputFormat.Mermaid,
+            MermaidExplicitlySet = mermaidExplicitlySet,
+            NonHierarchyFormatExplicitlySet =
+                nonHierarchyFormatExplicitlySet,
             EnvelopeOutput = envelopeOutput,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular =
@@ -536,6 +608,45 @@ public static class TypeOptionsParser
             Paths = parseResult.GetValue(opts.Paths),
             JsonArray = parseResult.GetValue(opts.JsonArray),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
+            LineWindowExplicitlySet =
+                parseResult.GetResult(opts.Limit)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Head)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Tail)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Lines)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.TailLines)
+                    is { Implicit: false },
+            ShapeOrDiscoveryControlExplicitlySet =
+                parseResult.GetResult(opts.Select)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Discover)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.QueryHelp)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Columns)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Fields)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Row)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.Details)
+                    is { Implicit: false },
+            PerformanceTriageControlExplicitlySet =
+                parseResult.GetResult(opts.PerformanceTriageTop)
+                    is { Implicit: false }
+                || parseResult.GetResult(
+                    opts.PerformanceTriageShape)
+                    is { Implicit: false }
+                || parseResult.GetResult(
+                    opts.PerformanceTriageMinConfidence)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.RowWhere)
+                    is { Implicit: false }
+                || parseResult.GetResult(opts.RowOrderBy)
+                    is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
@@ -556,6 +667,10 @@ public static class TypeOptionsParser
                 selectsCloneCandidateRows
                     ? semanticRowSelection
                     : null,
+            BodyShapeRowSelection =
+                selectsBodyShapeRows
+                    ? semanticRowSelection
+                    : null,
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             CloneCandidateQuery = cloneCandidateQuery,
@@ -572,9 +687,36 @@ public static class TypeOptionsParser
             CompanionOutput = opts.ParseCompanionOutput(parseResult)
         };
 
-        return new Success(
-            options,
+        ResolvedMemberInspectionPlan inspectionPlan =
             ResolvedMemberInspectionPlan
-                .FromCompatibilityOptions(options));
+                .FromCompatibilityOptions(options);
+        TypeCommandPlanningResult planning =
+            TypeCommandPlanner.Plan(options, inspectionPlan);
+        if (planning is TypeCommandPlanningResult.Rejected
+                { Error: TypeCommandPlanner.ExactTypeMermaidError }
+            && !sourceSelection.HasExplicitSource
+            && string.IsNullOrWhiteSpace(options.TypeName)
+            && string.IsNullOrWhiteSpace(options.TypeFilter)
+            && options.PlatformPrefixQuery is null)
+        {
+            // Bare names need find-if-miss before exact-Type eligibility.
+            planning = new TypeCommandPlanningResult.Planned(
+                new TypeCommandPlan.Standard());
+        }
+
+        return planning switch
+        {
+            TypeCommandPlanningResult.Planned planned =>
+                new Success(
+                    options,
+                    inspectionPlan)
+                {
+                    CommandPlan = planned.Plan,
+                },
+            TypeCommandPlanningResult.Rejected rejected =>
+                new VersionError(rejected.Error),
+            _ => throw new InvalidOperationException(
+                "Unknown Type command planning result.")
+        };
     }
 }

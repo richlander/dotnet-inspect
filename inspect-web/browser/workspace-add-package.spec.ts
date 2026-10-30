@@ -108,8 +108,10 @@ test("normal Search after dismissal regains its scopes and removal affordances",
   await expect(dialog.locator("[data-sl-scope]")).toHaveText([
     "All",
     "Packages",
+    "Libraries",
     "Types",
     "Members",
+    "Commands",
   ]);
   await dialog.getByRole("option", { name: /Alpha/ }).click();
   await expect(page.locator("#notice")).toHaveText("Ordinary Search selection");

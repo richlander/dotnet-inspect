@@ -248,6 +248,35 @@ a leading `Kind` column so each row is self-describing. The
 `type`/`member` `Performance Triage` lens is a different, single-member view and
 keeps that name.
 
+`Performance: Async` is allocation-only: it holds `async-state-machine`
+findings and is intended to be subsumed by a general allocation analysis that
+includes async methods. The `sync-call-in-async` finding (a synchronous call
+in an async method whose `FooAsync` sibling exists) is a different question and
+leaves that kind. It becomes its own `Performance: Sync Calls in Async` section
+backed by a dedicated producer result with structured columns (Caller, Callee,
+Alternative, Pair Kind), not an `OptimizationOpportunity` shape. The
+host-neutral `SyncCallsInAsyncQuery` closes Rows, Count, and Exists as
+independent QuerySpace requests over one Method-source traversal with the
+host's reference binding; `Dispose`/`DisposeAsync` pairs are included by
+default and blocking-call patterns such as `.Result` are not part of this
+section. The CLI projects exact rows as Caller, Callee, Alternative, and Pair
+Kind, emits them under `performance.sync_calls_in_async` in JSON, and uses the
+query's scalar Count instead of materializing rows for `--count`. The
+`Performance:*` tabular union retains one row family with optional columns for
+this distinct row shape. Inspect Web executes the same query for the selected
+assembly-context participant and publishes every Rows answer as a separate
+`BrowserSyncCallInAsync` population on `library:analysis`. Its optimization
+member ranking and opportunity totals exclude this shape, and its displayed
+sync-call total comes from the query's Count closing rather than from counting
+Rows in the host. Query rejection, failure, abort, and per-body diagnostics
+remain visible as incomplete inspection state. The Browser table preserves
+Caller, Callee, Alternative, and Pair Kind without manufacturing navigation
+identity. The former `sync-call-in-async` `OptimizationOpportunity` shape,
+`AsyncSiblingOpportunities` body-analysis feature, and wrapper evidence are
+retired; producer-planner plus QuerySpace is the only product path. The
+producer-planner mechanics follow
+[Method Query Source](method-query-source.md).
+
 ## Next semantic additions
 
 Before adding `Context: Safety`, `Context: Allocation`, or `Context: Cost`, define

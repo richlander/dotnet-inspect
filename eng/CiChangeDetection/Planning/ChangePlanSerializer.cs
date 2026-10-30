@@ -14,19 +14,16 @@ internal static class ChangePlanSerializer
     private static readonly string[] ValidationNames =
     [
         "test",
-        "repositoryGuards",
         "dependencyPolicy",
         "csharpDiffSmoke",
         "decompilerGates",
         "markdownlint",
         "ilDiffSmoke",
-        "ilRoundTrip",
         "pack",
-        "buildNet10",
         "inspectWeb",
-        "inspectWebComprehensive",
         "skillGate",
         "tla",
+        "lean",
     ];
 
     /// <summary>
@@ -241,10 +238,7 @@ internal static class ChangePlanSerializer
                 values[7],
                 values[8],
                 values[9],
-                values[10],
-                values[11],
-                values[12],
-                values[13]);
+                values[10]);
 
             JsonElement scopesElement =
                 RequireObject(root.GetProperty("scopes"), "scopes");
@@ -309,19 +303,16 @@ internal static class ChangePlanSerializer
     private static bool[] ValidationValues(ValidationSelections validations) =>
     [
         validations.Test,
-        validations.RepositoryGuards,
         validations.DependencyPolicy,
         validations.CSharpDiffSmoke,
         validations.DecompilerGates,
         validations.Markdownlint,
         validations.IlDiffSmoke,
-        validations.IlRoundTrip,
         validations.Pack,
-        validations.BuildNet10,
         validations.InspectWeb,
-        validations.InspectWebComprehensive,
         validations.SkillGate,
         validations.Tla,
+        validations.Lean,
     ];
 
     /// <summary>

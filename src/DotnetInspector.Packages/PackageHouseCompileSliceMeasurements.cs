@@ -543,6 +543,12 @@ public static class PackageHouseCompileSliceMeasurementProjection
         out long length,
         out PackageHouseCompileSliceMeasurementUnavailableReason failure)
     {
+        if (content is RangedPackageContent { ArchiveLength: { } rangedLength })
+        {
+            length = rangedLength;
+            failure = default;
+            return true;
+        }
         Stream? archive = null;
         try
         {

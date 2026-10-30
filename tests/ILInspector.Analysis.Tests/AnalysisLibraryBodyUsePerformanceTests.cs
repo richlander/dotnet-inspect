@@ -359,7 +359,7 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                 MethodDefinition method =
                     reader.GetMethodDefinition(methodHandle);
                 if (method.RelativeVirtualAddress == 0
-                    || !LibraryMethodAnalysisRunner
+                    || !MethodDefinitionShapes
                         .HasManagedIlBody(method.ImplAttributes))
                 {
                     continue;

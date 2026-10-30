@@ -109,8 +109,10 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, libraryExit);
             Assert.Empty(libraryOutput);
+            // Library Info is a scalar record, so the mixed Count observes
+            // References alone, which still cannot render as a tree.
             Assert.Contains(
-                $"Section '{SectionNames.LibraryInfo}' is scalar",
+                "References is direct evidence and cannot be rendered as a hierarchy",
                 libraryError);
             Assert.Equal(1, packageExit);
             Assert.Empty(packageOutput);
@@ -196,7 +198,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
+                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info", "--markdown");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -217,7 +219,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info");
+                "library", "Test.Tool.dll", "--package", packagePath, "-S", "Library Info", "--markdown");
 
             Assert.Empty(error);
             Assert.Equal(0, exit);
@@ -615,6 +617,104 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        Library_MissingPackageArchiveNamespacePreservesFileNotFound()
+    {
+        string missingPackagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Missing.dll",
+            "--package",
+            missingPackagePath,
+            "--tfm",
+            "net10.0",
+            "--namespace",
+            "DotnetInspect.Cli.Tests");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"File not found: {missingPackagePath}",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        Library_RuntimeOnlyPackageNamespaceUsesCompatibilityPopulation()
+    {
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.RuntimeNamespace",
+            ("runtimes/win-x64/lib/net10.0/RuntimeOnly.dll",
+                TestAssemblyPath));
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "RuntimeOnly.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "--namespace",
+                "DotnetInspect.Cli.Tests");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "`DotnetInspect.Cli.Tests.CommandExecutionTests`",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        Library_ImplementationPathNamespaceDoesNotAliasSurfaceAsset()
+    {
+        const string Library = "Selected.dll";
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.ImplementationNamespace",
+            ($"ref/net10.0/{Library}", TestAssemblyPath),
+            ($"lib/net10.0/{Library}",
+                typeof(ApiType).Assembly.Location));
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                $"lib/net10.0/{Library}",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "--namespace",
+                "ILInspector.Metadata");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Library 'lib/net10.0/Selected.dll' not found",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "ref/net10.0/Selected.dll",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
         Library_NamespaceMarkdownRejectsProjectionControls()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -919,7 +1019,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_NameFamilyRoleTypeSelectionCountsExactTypes()
+    public async Task Library_ArchitecturalFamilyTypeSelectionCountsExactTypes()
     {
         string fixture =
             FixtureCatalog.ResearchNameFamilies.AssemblyPath();
@@ -927,13 +1027,13 @@ public partial class CommandExecutionTests
             "library",
             fixture,
             "-S",
-            SectionNames.NameFamilyRoles,
+            SectionNames.ArchitecturalFamilies,
             "--json");
         var count = await RunAppAsync(
             "library",
             fixture,
             "-S",
-            SectionNames.NameFamilyRoleTypes,
+            SectionNames.ArchitecturalFamilyTypes,
             "--count");
 
         Assert.Equal(0, content.Exit);
@@ -953,7 +1053,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Library_NameFamilyRoleRowScopesCannotCompete()
+    public async Task Library_ArchitecturalFamilyRowScopesCannotCompete()
     {
         string fixture =
             FixtureCatalog.ResearchNameFamilies.AssemblyPath();
@@ -961,9 +1061,9 @@ public partial class CommandExecutionTests
             "library",
             fixture,
             "-S",
-            SectionNames.NameFamilyRoles,
+            SectionNames.ArchitecturalFamilies,
             "-S",
-            SectionNames.NameFamilyRoleTypes);
+            SectionNames.ArchitecturalFamilyTypes);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
@@ -1131,7 +1231,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferences_CollectsDirectReferenceMetadata()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.References);
+            "System.Text.Json", "-S", SectionNames.References, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1406,7 +1506,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
 
             Assert.True(
                 exit == 0,
@@ -1456,7 +1556,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
             var tree = await RunAppAsync(
                 "library",
                 rootPath,
@@ -1511,7 +1611,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1592,7 +1692,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1725,7 +1825,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.Signals);
+                SectionNames.Signals, "--markdown");
 
             Assert.Equal(1, signals.Exit);
             Assert.Equal(
@@ -1744,7 +1844,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.IdentifierConfusion);
+                SectionNames.IdentifierConfusion, "--markdown");
 
             Assert.Equal(1, audit.Exit);
             Assert.Empty(audit.Output);
@@ -1862,7 +1962,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SelectedReferenceHierarchy_CollectsResolvedTransitiveReferences()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy);
+            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1897,12 +1997,18 @@ public partial class CommandExecutionTests
             "| References | section | library/sections/references "
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
             output);
+        Assert.Contains("| Shape |", output);
         Assert.Contains("| Cardinality |", output);
         Assert.Contains("| Terminals |", output);
         Assert.Contains(
             "| Library Info | section | library/sections/library-info "
             + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
-            + "| scalar |  |",
+            + "| table | scalar |  |",
+            output);
+        Assert.Contains(
+            "| Signals | section | library/sections/signals "
+            + "| --markdown, --plaintext, --json, --table, --tsv, --jsonl "
+            + "| table | inventory | rows, count |",
             output);
         Assert.DoesNotContain("File not found", output);
     }
@@ -1985,8 +2091,19 @@ public partial class CommandExecutionTests
             row.GetProperty("formats")
                 .EnumerateArray()
                 .Select(item => item.GetString()));
-        Assert.False(row.TryGetProperty("cardinality", out _));
-        Assert.False(row.TryGetProperty("terminals", out _));
+        // Reference Hierarchy is a Hierarchy whose rows are its reference
+        // occurrences.
+        Assert.Equal(
+            "hierarchy",
+            row.GetProperty("shape").GetString());
+        Assert.Equal(
+            "inventory",
+            row.GetProperty("cardinality").GetString());
+        Assert.Equal(
+            ["rows", "count"],
+            row.GetProperty("terminals")
+                .EnumerateArray()
+                .Select(item => item.GetString()));
     }
 
     [Fact]
@@ -2055,34 +2172,197 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        LibraryCommand_MixedAndFixedScalarSelectionsRejectCount()
+        LibraryCommand_ScalarOnlyAndImplicitSelectionsRejectCount()
+    {
+        // A selection of scalars only, or the implicit overview (which always
+        // includes Library Info), has no rows to count.
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        var scalars = await RunAppAsync(
+            "library",
+            missingPath,
+            "-S",
+            $"{SectionNames.Symbols},{SectionNames.SourceLinkAvailability}",
+            "--count");
+        var implicitOverview = await RunAppAsync(
+            "library",
+            missingPath,
+            "--count");
+
+        Assert.Equal(1, scalars.Exit);
+        Assert.Empty(scalars.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.SourceLinkAvailability}' is scalar",
+            scalars.Error);
+        Assert.Equal(1, implicitOverview.Exit);
+        Assert.Empty(implicitOverview.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.LibraryInfo}' is scalar",
+            implicitOverview.Error);
+    }
+
+    [Fact]
+    public async Task
+        LibraryAndPackage_CategoryCoordinateSectionsDoNotMakeAScalarMixed()
+    {
+        // Without an address, @Context reaches no section this request can
+        // address, so Symbols stands alone and fails before acquisition on
+        // both the direct and the package-library routes.
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}");
+        string selection = $"{SectionNames.Symbols},@Context";
+        var library = await RunAppAsync(
+            "library", missingPath + ".dll", "-S", selection, "--count");
+        var package = await RunAppAsync(
+            "package", missingPath + ".nupkg",
+            "--library", "Missing.dll",
+            "-S", selection, "--count");
+
+        foreach (var result in new[] { library, package })
+        {
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                $"Section '{SectionNames.Symbols}' is scalar",
+                result.Error);
+        }
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--rows", "1")]
+    public async Task
+        LibraryCommand_LoneScalarRecordRejectsTerminalBeforeAcquisition(
+            params string[] terminal)
     {
         string missingPath = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+        [
+            "library",
+            missingPath,
+            "-S",
+            SectionNames.Symbols,
+            .. terminal,
+        ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Section '{SectionNames.Symbols}' is scalar",
+            error);
+        Assert.Contains(terminal[0], error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_LoneSection_RendersItsNativeShape()
+    {
+        // With no format named, a lone Table streams TSV rows, a scalar Table
+        // its field listing, and the Hierarchy its tree.
+        var table = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", SectionNames.References);
+        var scalar = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", SectionNames.LibraryInfo);
+        var hierarchy = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", SectionNames.ReferenceHierarchy);
+
+        Assert.Equal(0, table.Exit);
+        Assert.Empty(table.Error);
+        Assert.StartsWith("name\tversion\tpublic_key_token\n", table.Output);
+
+        Assert.Equal(0, scalar.Exit);
+        Assert.Empty(scalar.Error);
+        Assert.StartsWith("field\tvalue\n", scalar.Output);
+
+        Assert.Equal(0, hierarchy.Exit);
+        Assert.Empty(hierarchy.Error);
+        Assert.StartsWith("└─ DotnetInspect.Cli.Tests\n", hierarchy.Output);
+        Assert.DoesNotContain("## ", hierarchy.Output);
+    }
+
+    [Theory]
+    // An explicit format keeps its own rendering.
+    [InlineData("References", "--markdown")]
+    // A composition is not a lone section.
+    [InlineData("References,Signals")]
+    // Dependency Structure's Document stays one explicit format away.
+    [InlineData("Dependency Structure", "--markdown")]
+    // The request named two sections; dropping the scalar record from the
+    // Rows execution does not make it a lone section.
+    [InlineData("Symbols,Signals", "--rows", "1..2")]
+    public async Task LibraryCommand_NativeShapeFormat_AppliesOnlyToALoneUnformattedSection(
+        string selection,
+        params string[] options)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["library", TestAssemblyPath, "-S", selection, .. options]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            $"# {Path.GetFileName(TestAssemblyPath)}",
+            output);
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_MixedScalarSelectionCountsOnlyInventories()
+    {
+        // An explicit selection that mixes scalar records with inventories
+        // counts the inventories; a field count is never reported as rows,
+        // and the result keeps its per-section map.
         var mixed = await RunAppAsync(
             "library",
-            missingPath,
+            TestAssemblyPath,
             "-S",
-            $"{SectionNames.LibraryInfo},{SectionNames.References}",
-            "--count");
-        var fixedOverview = await RunAppAsync(
+            $"{SectionNames.LibraryInfo},{SectionNames.Symbols},"
+                + SectionNames.References,
+            "--count",
+            "--tsv");
+        var metadata = await RunAppAsync(
             "library",
-            missingPath,
+            TestAssemblyPath,
             "-S",
-            LibraryFixedOverviewSelection,
-            "--count");
+            "@Metadata",
+            "--count",
+            "--tsv");
 
-        Assert.Equal(1, mixed.Exit);
-        Assert.Empty(mixed.Output);
-        Assert.Contains(
-            $"Section '{SectionNames.LibraryInfo}' is scalar",
-            mixed.Error);
-        Assert.Equal(1, fixedOverview.Exit);
-        Assert.Empty(fixedOverview.Output);
-        Assert.Contains(
-            $"Section '{SectionNames.LibraryInfo}' is scalar",
-            fixedOverview.Error);
+        Assert.Equal(0, mixed.Exit);
+        Assert.Empty(mixed.Error);
+        string[] mixedRows = mixed.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("section\tcount", mixedRows[0]);
+        Assert.StartsWith(
+            $"{SectionNames.References}\t",
+            Assert.Single(mixedRows[1..]));
+
+        Assert.Equal(0, metadata.Exit);
+        Assert.Empty(metadata.Error);
+        Assert.Contains("Metadata: TypeDef\t", metadata.Output);
+        Assert.DoesNotContain(
+            MetadataSectionNames.Image,
+            metadata.Output);
+
+        // Rows is Count's peer over the same population: the scalar record
+        // leaves the windowed selection too.
+        var rows = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            $"{SectionNames.Symbols},{SectionNames.Signals}",
+            "--rows",
+            "1..2",
+            "--markdown");
+
+        Assert.Equal(0, rows.Exit);
+        Assert.Empty(rows.Error);
+        Assert.Contains($"## {SectionNames.Signals}", rows.Output);
+        Assert.DoesNotContain($"## {SectionNames.Symbols}", rows.Output);
     }
 
     [Fact]
@@ -2511,7 +2791,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.References);
+                SectionNames.References, "--markdown");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -2588,14 +2868,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_TreeRequiresReferenceHierarchySelection()
+    public async Task LibraryCommand_SectionTreeRequiresReferenceHierarchySelection()
     {
+        // Bare --tree selects the Library Type hierarchy; with a section
+        // selection, --tree keeps the Reference Hierarchy requirement.
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "--tree");
+            "library", "System.Text.Json", "--tree", "-S", "References");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--tree requires exactly '-S \"Reference Hierarchy\"'", error);
+        Assert.Contains("'-S \"Reference Hierarchy\" --tree'", error);
     }
 
     [Fact]
@@ -2681,7 +2963,7 @@ public partial class CommandExecutionTests
             "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
-            "library", "System.Runtime.CompilerServices.Unsafe", "-S", "Library Info");
+            "library", "System.Runtime.CompilerServices.Unsafe", "-S", "Library Info", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);
@@ -2701,7 +2983,7 @@ public partial class CommandExecutionTests
         Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Library Info");
+            "library", "System.Text.Json", "-S", "Library Info", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(runError);
@@ -3357,6 +3639,9 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("| Performance: Boxing | section", output);
         Assert.Contains("| Performance: Async | section", output);
+        Assert.Contains(
+            "| Performance: Sync Calls in Async | section",
+            output);
 
         Assert.Equal(0, treeExit);
         Assert.Empty(treeError);
@@ -3367,10 +3652,24 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, countExit);
         Assert.Empty(countError);
-        Assert.Equal("11", countOutput.Trim());
+        Assert.Equal("12", countOutput.Trim());
 
-        Assert.Equal(0, effectiveExit);
-        AssertOnlyPerformanceAnalysisWarnings(effectiveError);
+        Assert.Equal(1, effectiveExit);
+        Assert.Contains(
+            "Warning: Array Pool Escapes inspection incomplete "
+                + "(analysis.resource-lifecycle):",
+            effectiveError,
+            StringComparison.Ordinal);
+        AssertOnlyPerformanceAnalysisWarnings(
+            string.Join(
+                '\n',
+                effectiveError.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries)
+                    .Where(line => !line.StartsWith(
+                        "Warning: Array Pool Escapes inspection incomplete ",
+                        StringComparison.Ordinal))));
         Assert.Contains("| Performance: Boxing | section", effectiveOutput);
     }
 
@@ -3379,7 +3678,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "System.CommandLine.dll", "--package", "System.CommandLine",
-            "-S", "SourceLink: Files", "-n", "18", "--lines");
+            "-S", "SourceLink: Files", "-n", "18", "--lines", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3480,7 +3779,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_SwitchesSection_DetectsFeatureSwitchDefinitions()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Switches", "--rows", "20");
+            "library", "System.Text.Json", "-S", "Switches", "--rows", "20", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Switches", output);
@@ -3594,7 +3893,7 @@ public partial class CommandExecutionTests
             "-S",
             "Integration Opportunities",
             "--rows",
-            "20");
+            "20", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration Opportunities", output);
@@ -3632,7 +3931,7 @@ public partial class CommandExecutionTests
             "System.Data.Common",
             "-S",
             "Integration Opportunities",
-            "--trace");
+            "--trace", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integration Opportunities", output);
@@ -3838,7 +4137,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetrySection_ForDiagnosticSource_Renders()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations");
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -3910,7 +4209,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LoggingSection_ForLoggingAbstractions_Renders()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations");
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -4057,7 +4356,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_LoggingSection_DetectsLoggingPrimitives()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations");
+            "library", "Microsoft.Extensions.Logging.Abstractions", "-S", "Integrations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -4361,7 +4660,7 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_OpenTelemetrySection_DetectsDiagnosticSourcePrimitives()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations");
+            "library", "System.Diagnostics.DiagnosticSource", "-S", "Integrations", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Integrations", output);
@@ -4429,7 +4728,7 @@ public partial class CommandExecutionTests
             OptimizationOpportunitiesQuery.Definition,
             ResourceTriageQuery.Definition,
             TopLeverageQuery.Definition,
-            UnsafeEvidenceQuery.Definition,
+            UnsafeMemberCensusQuery.Definition,
         ];
         InspectionQueryDefinition[] liveNetworkQueries =
         [
@@ -4475,14 +4774,16 @@ public partial class CommandExecutionTests
         Assert.NotEmpty(names);
 
         var (togetherExit, togetherOutput, _) = await RunAppAsync(
-            "library", assembly, "-S", string.Join(',', names));
+            "library", assembly, "-S", string.Join(',', names), "--markdown");
         Assert.Equal(0, togetherExit);
 
         var rendered = 0;
         foreach (var name in names)
         {
+            // A lone section takes its native shape format, so both runs
+            // name Markdown to compare section bodies.
             var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
-                "library", assembly, "-S", name);
+                "library", assembly, "-S", name, "--markdown");
 
             var alone = TryExtractSectionBody(aloneOutput, name);
             if (alone is null)
@@ -4553,7 +4854,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_Signals_ShowsSignalsOnly()
     {
-        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals");
+        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
@@ -4581,7 +4882,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_PlatformSignals_DownloadsPdbByDefault()
     {
-        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S", "Signals");
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S", "Signals", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
@@ -4592,7 +4893,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_Signals_ChecksSymbolsByDefault()
     {
-        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals");
+        var (exit, output, error) = await RunAppAsync("library", TestAssemblyPath, "-S", "Signals", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
@@ -4656,7 +4957,8 @@ public partial class CommandExecutionTests
                     assemblyPath,
                     "-S",
                     "Signals",
-                    "--offline");
+                    "--offline",
+                    "--markdown");
 
             Assert.True(
                 exit == 0,
@@ -4711,438 +5013,6 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Source: Platform", output);
         Assert.DoesNotContain("Tip:", error);
-    }
-
-    [Theory]
-    [InlineData("--tree")]
-    [InlineData("--table")]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
-    [InlineData("--plaintext")]
-    public async Task LibraryCommand_TfmAll_RejectsNonDocumentOutputBeforePackageAcquisition(string option)
-    {
-        var missingPackagePath = Path.Combine(
-            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
-        var arguments = new List<string>
-        {
-            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
-            "-S", option == "--tree" ? SectionNames.References : SectionNames.LibraryInfo,
-            option
-        };
-
-        var (exit, output, error) = await RunAppAsync(arguments.ToArray());
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--tfm all", error);
-        Assert.Contains("Markdown or JSON", error);
-        Assert.Contains(option, error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Theory]
-    [InlineData("--print")]
-    [InlineData("--value")]
-    [InlineData("--urls")]
-    [InlineData("--paths")]
-    public async Task LibraryCommand_TfmAll_RejectsUnaryProjections(string option)
-    {
-        var missingPackagePath = Path.Combine(
-            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
-
-        var (exit, output, error) = await RunAppAsync(
-            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
-            "-S", SectionNames.LibraryInfo, option);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--tfm all", error);
-        Assert.Contains(option, error);
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_CountDoesNotBypassExtractResources()
-    {
-        var missingPackagePath = Path.Combine(
-            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
-        string outputPath = Path.Combine(
-            Path.GetTempPath(),
-            $"dotnet-inspect-unused-{Guid.NewGuid():N}");
-
-        var (exit, output, error) = await RunAppAsync(
-            "library",
-            "Missing.dll",
-            "--package",
-            missingPackagePath,
-            "--tfm",
-            "all",
-            "-S",
-            SectionNames.Resources,
-            "--count",
-            "--extract-resources",
-            outputPath);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--tfm all", error);
-        Assert.Contains("--extract-resources", error);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_TreeRejectionTakesPrecedenceOverSectionSelection()
-    {
-        var missingPackagePath = Path.Combine(
-            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
-
-        var (exit, output, error) = await RunAppAsync(
-            "library", "Missing.dll", "--package", missingPackagePath,
-            "--tfm", "all", "--tree");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--tree requires exactly one tree shape", error);
-        Assert.Contains("Markdown or JSON", error);
-        Assert.DoesNotContain("-S References", error);
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_LocalFileRetainsSingleShapeOutput()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "--tfm", "all",
-            "-S", SectionNames.LibraryInfo, "--tsv");
-
-        Assert.Equal(0, exit);
-        Assert.NotEmpty(output);
-        Assert.Empty(error);
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_PlatformRouteRetainsSingleShapeOutput()
-    {
-        var missingPackagePath = Path.Combine(
-            Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}.nupkg");
-
-        var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json", "--package", missingPackagePath,
-            "--tfm", "all", "-S", SectionNames.LibraryInfo, "--tsv");
-
-        Assert.Equal(0, exit);
-        Assert.NotEmpty(output);
-        Assert.Empty(error);
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_SinglePackageInspectionRetainsDocumentFraming()
-    {
-        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
-        try
-        {
-            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
-                "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
-                "-S", SectionNames.LibraryInfo);
-            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
-                "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
-                "-S", SectionNames.LibraryInfo, "--json");
-            var discovery = await RunAppAsync(
-                "library",
-                "System.Runtime.dll",
-                "--package",
-                packagePath,
-                "--tfm",
-                "all",
-                "-D",
-                SectionNames.LibraryInfo,
-                "--schema",
-                "--details",
-                "--json");
-            Assert.Equal(0, markdownExit);
-            Assert.Contains("## Libraries", markdownOutput);
-            Assert.Empty(markdownError);
-            Assert.Equal(0, jsonExit);
-            using var document = JsonDocument.Parse(jsonOutput);
-            Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
-            Assert.Single(document.RootElement.EnumerateArray());
-            Assert.Empty(jsonError);
-            Assert.Equal(0, discovery.Exit);
-            Assert.Empty(discovery.Error);
-            using (JsonDocument discoveryDocument =
-                   JsonDocument.Parse(discovery.Output))
-            {
-                JsonElement row = Assert.Single(
-                    discoveryDocument.RootElement.EnumerateArray());
-                Assert.False(row.TryGetProperty("cardinality", out _));
-                Assert.False(row.TryGetProperty("terminals", out _));
-            }
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"section-multitfm-{Guid.NewGuid():N}");
-        try
-        {
-            var emptyAssembly = FixtureCatalog.DiffPair.OldAssemblyPath();
-            var content = Path.Combine(tempDir, "content");
-            var net8Dir = Path.Combine(content, "lib", "net8.0");
-            var net10Dir = Path.Combine(content, "lib", "net10.0");
-            Directory.CreateDirectory(net8Dir);
-            Directory.CreateDirectory(net10Dir);
-            // --tfm all orders these paths ordinally, so net10 is inspected first.
-            File.Copy(TestAssemblyPath, Path.Combine(net8Dir, "Lib.dll"));
-            File.Copy(emptyAssembly, Path.Combine(net10Dir, "Lib.dll"));
-            var packagePath = Path.Combine(tempDir, "Section.MultiTfm.1.0.0.nupkg");
-            ZipFile.CreateFromDirectory(content, packagePath);
-
-            File.Copy(emptyAssembly, Path.Combine(net8Dir, "Lib.dll"), overwrite: true);
-            var emptyPackagePath = Path.Combine(tempDir, "Section.AllEmpty.MultiTfm.1.0.0.nupkg");
-            ZipFile.CreateFromDirectory(content, emptyPackagePath);
-            var (emptyExit, emptyOutput, emptyError) = await RunAppAsync(
-                "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
-                "-S", "Async Methods", "--markdown");
-            Assert.Equal(1, emptyExit);
-            Assert.Empty(emptyOutput);
-            Assert.Equal(
-                "This section (Async Methods) produced no output.",
-                emptyError.Trim());
-
-            var (wildcardExit, wildcardOutput, wildcardError) = await RunAppAsync(
-                "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
-                "-S", "Async*", "--markdown");
-            Assert.Equal(0, wildcardExit);
-            Assert.Contains("## Libraries", wildcardOutput);
-            Assert.Equal(
-                "Note: 1 matched section has no data: Async Methods.",
-                wildcardError.Trim());
-
-            var (exit, output, error) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--markdown");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("## Libraries", output);
-            Assert.Contains(
-                nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
-                output);
-            Assert.DoesNotContain(
-                "This section (Async Methods) produced no output.",
-                error);
-
-            var (defaultExit, defaultOutput, defaultError) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods");
-
-            Assert.Equal(0, defaultExit);
-            Assert.Contains("## Libraries", defaultOutput);
-            Assert.Contains(
-                nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
-                defaultOutput);
-            Assert.Empty(defaultError);
-
-            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--json");
-
-            Assert.Equal(0, jsonExit);
-            using (var document = JsonDocument.Parse(jsonOutput))
-            {
-                Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
-                Assert.Equal(2, document.RootElement.GetArrayLength());
-            }
-            Assert.Empty(jsonError);
-
-            var (singleCountExit, singleCountOutput, singleCountError) = await RunAppAsync(
-                "library", TestAssemblyPath, "-S", "Async Methods", "--count");
-            var (multiCountExit, multiCountOutput, multiCountError) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--count", "--tsv");
-            var (multiTreeCountExit, multiTreeCountOutput, multiTreeCountError) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--count", "--tree");
-            var (multiTreeMapExit, multiTreeMapOutput, multiTreeMapError) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods,Library Info", "--count", "--tree");
-
-            Assert.Equal(0, singleCountExit);
-            Assert.Equal(0, multiCountExit);
-            Assert.Empty(singleCountError);
-            Assert.Empty(multiCountError);
-            Assert.Equal(singleCountOutput, multiCountOutput);
-            Assert.Equal(1, multiTreeCountExit);
-            Assert.Empty(multiTreeCountOutput);
-            Assert.Contains("Reference Hierarchy", multiTreeCountError);
-            Assert.Equal(1, multiTreeMapExit);
-            Assert.Empty(multiTreeMapOutput);
-            Assert.Contains("Reference Hierarchy", multiTreeMapError);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_PreservesHealthyIdentifierAuditResults()
-    {
-        var tempDir = Path.Combine(
-            Path.GetTempPath(),
-            $"identifier-multitfm-test-{Guid.NewGuid():N}");
-        try
-        {
-            var content = Path.Combine(tempDir, "content");
-            var net8Dir = Path.Combine(content, "lib", "net8.0");
-            var net10Dir = Path.Combine(content, "lib", "net10.0");
-            Directory.CreateDirectory(net8Dir);
-            Directory.CreateDirectory(net10Dir);
-            WriteReferenceFixtureAssembly(
-                Path.Combine(net8Dir, "Lib.dll"),
-                "\u0405ystem.Healthy");
-            WriteReferenceFixtureAssembly(
-                Path.Combine(net10Dir, "Lib.dll"),
-                "Lib",
-                "Bridge");
-            File.WriteAllText(
-                Path.Combine(net10Dir, "Bridge.dll"),
-                "not a managed assembly");
-            var packagePath = Path.Combine(
-                tempDir,
-                "Identifier.MultiTfm.1.0.0.nupkg");
-            ZipFile.CreateFromDirectory(content, packagePath);
-
-            var (exit, output, error) = await RunAppAsync(
-                "library",
-                "Lib.dll",
-                "--package",
-                packagePath,
-                "--tfm",
-                "all",
-                "-S",
-                SectionNames.IdentifierConfusion);
-
-            Assert.Equal(1, exit);
-            Assert.Contains("### Lib.dll (net8.0)", output);
-            Assert.Contains("U+0405→S", output);
-            Assert.Contains(
-                "Warning: Identifier audit failed for "
-                + "'lib/net10.0/Lib.dll': invalid assembly metadata",
-                error);
-            Assert.DoesNotContain(
-                "IdentifierConfusionReferenceTraversalException",
-                error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected()
-    {
-        string tempDir = Directory.CreateTempSubdirectory(
-            "library-descriptor-multitfm-").FullName;
-        try
-        {
-            string content = Path.Combine(tempDir, "content");
-            string libraryDirectory =
-                Path.Combine(content, "lib", "net11.0");
-            Directory.CreateDirectory(libraryDirectory);
-            string healthyPath = Path.Combine(
-                libraryDirectory,
-                "Good.dll");
-            string malformedPath = Path.Combine(
-                libraryDirectory,
-                "Bad.dll");
-            WriteTruncatedMetadataTableAssembly(
-                TestAssemblyPath,
-                malformedPath);
-            File.Copy(TestAssemblyPath, healthyPath);
-            string packagePath = Path.Combine(
-                tempDir,
-                "Mixed.Package.1.0.0.nupkg");
-            ZipFile.CreateFromDirectory(content, packagePath);
-
-            var (exit, output, error) = await RunAppAsync(
-                "library",
-                "--package",
-                packagePath,
-                "--tfm",
-                "all",
-                "-S",
-                "Library Info");
-
-            Assert.Equal(1, exit);
-            Assert.Contains("Good.dll", output);
-            Assert.DoesNotContain("Bad.dll", output);
-            Assert.Contains("Bad.dll", error);
-            Assert.Contains(
-                "selected managed assembly contains invalid metadata",
-                error,
-                StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task LibraryCommand_TfmAll_EmptySectionFailuresNameEachAssembly()
-    {
-        LibraryInspection FailedInspection(string tfm)
-        {
-            var subject = new FindingSubject("fixture", "fixture");
-            return new LibraryInspection
-            {
-                FileName = "Lib.dll",
-                Tfm = tfm,
-                ResourceLifecycleInspection =
-                    new FindingInspection<ResourceLifecycleOccurrence>.Failed(
-                        new InspectionError(
-                            subject,
-                            AnalysisFindings.ResourceLifecycleDescriptor,
-                            "fixture failure"))
-            };
-        }
-
-        var options = new LibraryOptions
-        {
-            IncludeSections = [SectionNames.ArrayPoolEscapes]
-        };
-        var (output, error) = await ConsoleCapture.RunAsync(
-            () => LibraryCommand.WarnEmptySections(
-                [FailedInspection("net8.0"), FailedInspection("net9.0")],
-                options,
-                LibrarySections.CreatePipeline()));
-
-        Assert.Empty(output);
-        Assert.Contains(
-            "Lib.dll (net8.0): Array Pool Escapes inspection failed "
-            + "(Resource lifecycle occurrence): fixture failure",
-            error);
-        Assert.Contains(
-            "Lib.dll (net9.0): Array Pool Escapes inspection failed "
-            + "(Resource lifecycle occurrence): fixture failure",
-            error);
-        Assert.Equal(2, error.Split("fixture failure", StringSplitOptions.None).Length - 1);
-
-        var (singleOutput, singleError) = await ConsoleCapture.RunAsync(
-            () => LibraryCommand.WarnEmptySections(
-                [FailedInspection("net8.0")],
-                options,
-                LibrarySections.CreatePipeline()));
-
-        Assert.Empty(singleOutput);
-        Assert.Equal(
-            "Warning: Array Pool Escapes inspection failed "
-            + "(Resource lifecycle occurrence): fixture failure",
-            singleError.Trim());
     }
 
     [Fact]

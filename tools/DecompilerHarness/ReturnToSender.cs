@@ -2267,41 +2267,7 @@ static class ReturnToSender
         => source.ClassifyType((EntityHandle)handle) is TypeShapeKind.Class or TypeShapeKind.Struct;
 
     static bool IsSupportedClosureRoot(MetadataReader reader, TypeDefinition typeDef)
-    {
-        string name = reader.GetString(typeDef.Name);
-        return name is not "<Module>"
-            && !name.Contains('<', StringComparison.Ordinal)
-            && !IsDelegate(reader, typeDef);
-    }
-
-    static bool IsDelegate(MetadataReader reader, TypeDefinition typeDef)
-    {
-        if (typeDef.BaseType.IsNil)
-            return false;
-
-        string baseName = typeDef.BaseType.Kind switch
-        {
-            HandleKind.TypeReference => FullName(reader, reader.GetTypeReference((TypeReferenceHandle)typeDef.BaseType)),
-            HandleKind.TypeDefinition => FullName(reader, reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType)),
-            _ => "",
-        };
-
-        return baseName is "System.MulticastDelegate" or "System.Delegate";
-    }
-
-    static string FullName(MetadataReader reader, TypeReference type)
-    {
-        string ns = reader.GetString(type.Namespace);
-        string name = reader.GetString(type.Name);
-        return ns.Length == 0 ? name : $"{ns}.{name}";
-    }
-
-    static string FullName(MetadataReader reader, TypeDefinition type)
-    {
-        string ns = reader.GetString(type.Namespace);
-        string name = reader.GetString(type.Name);
-        return ns.Length == 0 ? name : $"{ns}.{name}";
-    }
+        => CompileBackSourceComposer.IsSupportedTypedClosureRoot(reader, typeDef);
 
     static List<ILInstructionText>? FindAndDisassemble(
         PEReader pe,
@@ -2810,7 +2776,6 @@ static class ReturnToSender
         CSharpCompilationOptions compileOptions,
         IReadOnlyList<MetadataReference> references)
     {
-        var request = artifact.Request;
         var control = TryCompileAuthoredBody(
             artifact,
             sourceIndex,
@@ -2832,13 +2797,13 @@ static class ReturnToSender
         // additional signal by span attribution — but only credit a body
         // defect for a provably shell-independent in-body error (syntax or
         // body-intrinsic semantic).
-        if (BuildTargetIdentity(request) is { } identity
+        if (artifact.SourceArtifact.ReplaceableBodyRange is { } decompiledBody
             && SpanAttribution.IsolatingBodyError(
                 artifact.Source,
+                decompiledBody,
                 decompiledDiagnostics,
-                control.Source,
+                control.BodyRange,
                 control.Diagnostics,
-                identity,
                 parseOptions) is { } isolatingError)
         {
             return new FaultIsolationResult(
@@ -2973,6 +2938,7 @@ static class ReturnToSender
     sealed record AuthoredBodyCompilation(
         ReturnToSenderSourceMember SourceMember,
         string Source,
+        CSharpSourceRange BodyRange,
         ImmutableArray<Diagnostic> Diagnostics,
         byte[]? PeImage);
 
@@ -2998,7 +2964,8 @@ static class ReturnToSender
         {
             // The product froze both the compiled unit and its selected body range.
             // Do not recompose the shell or rediscover the member in the harness.
-            string authoredSource = artifact.SourceArtifact.ReplaceBody(authoredBody);
+            var replaced = artifact.SourceArtifact.ReplaceBody(authoredBody);
+            string authoredSource = replaced.Source;
             var tree = CSharpSyntaxTree.ParseText(authoredSource, parseOptions);
             var compilation = CSharpCompilation.Create(
                 CompilationAssemblyName,
@@ -3010,6 +2977,7 @@ static class ReturnToSender
             return new AuthoredBodyCompilation(
                 sourceMember,
                 authoredSource,
+                replaced.BodyRange,
                 emit.Diagnostics,
                 emit.Success ? stream.ToArray() : null);
         }
@@ -3017,29 +2985,6 @@ static class ReturnToSender
         {
             return null;
         }
-    }
-
-    static SpanAttribution.TargetIdentity? BuildTargetIdentity(ArtifactRequest request)
-    {
-        int parameterCount = request.Function.Signature.Parameters.Length;
-        var kind = request switch
-        {
-            PropertyGetterArtifactRequest => SpanAttribution.TargetMemberKind.PropertyGet,
-            PropertySetterArtifactRequest => SpanAttribution.TargetMemberKind.PropertySet,
-            EventAccessorArtifactRequest when request.MethodName.StartsWith("add_", StringComparison.Ordinal)
-                => SpanAttribution.TargetMemberKind.EventAdd,
-            EventAccessorArtifactRequest when request.MethodName.StartsWith("remove_", StringComparison.Ordinal)
-                => SpanAttribution.TargetMemberKind.EventRemove,
-            EventAccessorArtifactRequest => (SpanAttribution.TargetMemberKind?)null,
-            MethodArtifactRequest when request.MethodName is ".ctor" or ".cctor"
-                => SpanAttribution.TargetMemberKind.Constructor,
-            MethodArtifactRequest => SpanAttribution.TargetMemberKind.Method,
-            _ => null,
-        };
-
-        return kind is { } memberKind
-            ? new SpanAttribution.TargetIdentity(request.FullType, request.MethodName, parameterCount, memberKind)
-            : null;
     }
 
     internal static ArtifactRequest WithTargetBody(ArtifactRequest request, ProductTargetBody targetBody)

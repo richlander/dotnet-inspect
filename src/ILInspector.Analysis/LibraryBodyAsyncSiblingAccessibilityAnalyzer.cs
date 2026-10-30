@@ -191,9 +191,10 @@ internal sealed class LibraryBodyAsyncSiblingAccessibilityAnalyzer(
                 }
             }
             catch (Exception ex)
-                when (LibraryMethodAnalysisRunner
-                        .IsRecoverableMethodFailure(ex)
-                    || ex is FileLoadException)
+                when (ex is not AssemblyBindingPolicyChangedException
+                    && (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex)
+                        || ex is FileLoadException))
             {
                 return new(
                     Granted: false,
@@ -313,8 +314,9 @@ internal sealed class LibraryBodyAsyncSiblingAccessibilityAnalyzer(
                     .Contains(candidateType);
         }
         catch (Exception ex)
-            when (LibraryMethodAnalysisRunner
-                .IsRecoverableMethodFailure(ex))
+            when (ex is not AssemblyBindingPolicyChangedException
+                && LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
         {
             return false;
         }

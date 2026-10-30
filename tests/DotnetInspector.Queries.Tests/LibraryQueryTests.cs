@@ -203,9 +203,11 @@ public sealed class LibraryQueryTests
                     MaximumCandidates: 1,
                     RowSelection: RowSelectionIntent<string>.Create(
                     [
-                        RowSelectionIntentOperation<string>.Head(1),
+                        RowSelectionIntentOperation<string>.Head(2),
                     ]))));
 
+        // The bound stops evaluation before the Head is satisfied, so it
+        // constrains the answer.
         LibraryQueryDocument document = LibraryQuery.Execute(
             [
                 new(
@@ -233,6 +235,39 @@ public sealed class LibraryQueryTests
         Assert.Equal(
             RowSelectionStageKind.Head,
             Assert.Single(plan.RowSelection.Operations).Kind);
+    }
+
+    [Fact]
+    public void Execute_LoneHeadStopsEvaluationAtItsNthMatch()
+    {
+        string path = typeof(EmbeddedSourceFixture).Assembly.Location;
+        LibraryQueryPlan plan = Accepted(
+            LibraryQuery.Plan(
+                new(
+                    MaximumCandidates: 2,
+                    RowSelection: RowSelectionIntent<string>.Create(
+                    [
+                        RowSelectionIntentOperation<string>.Head(1),
+                    ]))));
+
+        LibraryQueryDocument document = LibraryQuery.Execute(
+            [
+                new(path, "a-source", null, AssemblySetSourceKind.Directory),
+                new(path, "b-source", null, AssemblySetSourceKind.Directory),
+                new(path, "c-source", null, AssemblySetSourceKind.Directory),
+            ],
+            [],
+            plan,
+            TestContext.Current.CancellationToken);
+
+        // The first match witnesses Head(1): later candidates and the bound
+        // beyond them are outside the request.
+        Assert.Single(document.Results);
+        Assert.Equal(3, document.Summary.PopulationCandidates);
+        Assert.Equal(1, document.Summary.Candidates);
+        Assert.Equal(
+            LibraryQueryIncompleteReason.None,
+            document.Summary.IncompleteReasons);
     }
 
     [Fact]

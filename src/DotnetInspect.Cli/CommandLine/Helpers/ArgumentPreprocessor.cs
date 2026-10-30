@@ -129,7 +129,7 @@ public static class ArgumentPreprocessor
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "api", "audit", // removed commands, reserved so they are not treated as implicit package targets
-        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "explain", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "explain", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     internal static bool TryGetRemovedCommandError(
@@ -225,6 +225,17 @@ public static class ArgumentPreprocessor
             error = "'dependency-evidence' is no longer valid. Use 'depends' "
                 + "with the same root options; add '-S Dependencies' for "
                 + "declaration evidence without traversal.";
+            return true;
+        }
+        if (command >= 0
+            && args[command].Equals(
+                "vocabulary",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "'vocabulary' has been removed. Use "
+                + "'explain vocabularies' to list product vocabularies, "
+                + "'explain vocabularies/<id> --depth 1' for every value, or "
+                + "'explain vocabularies/<id>/values/<value>' for one value.";
             return true;
         }
         if (command >= 0
@@ -771,11 +782,11 @@ public static class ArgumentPreprocessor
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover", "-Q", "--query-help"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "find", "implements", "extensions", "depends"
+        "find", "extensions", "depends"
     };
     private static readonly HashSet<string> OptionsWithFollowingValue = new(StringComparer.OrdinalIgnoreCase)
     {
-        "--package", "--library", "--assembly", "--project", "--bin", "--directory",
+        "-w", "--package", "--library", "--assembly", "--project", "--project-document", "--bin", "--directory",
         "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
         "--caller-package", "--caller-project", "--match", "--path",
@@ -803,19 +814,27 @@ public static class ArgumentPreprocessor
         var commandIndex = FindSearchScopeCommandIndex(args);
         if (commandIndex < 0 || args.Length - commandIndex < 3)
             return args;
+        if (args[commandIndex] == "find"
+            && args.Skip(commandIndex + 1).TakeWhile(arg => arg != "--")
+                .Any(arg => arg is "--libraries" or "--libraries=true"))
+            return args;
 
         string[]? result = null;
         for (var i = commandIndex + 1; i < args.Length - 1; i++)
         {
-            if (!string.Equals(args[i], "--platform", StringComparison.Ordinal)
-                || args[i + 1].StartsWith("-", StringComparison.Ordinal)
-                || !ShouldTreatPlatformFollowerAsLibrary(args, commandIndex, i))
+            if (args[i] == "--")
+                break;
+            if (!string.Equals(args[i], "--platform", StringComparison.Ordinal))
             {
                 continue;
             }
 
             result ??= (string[])args.Clone();
-            result[i] = CommandLineHelpers.PlatformLibraryOptionName;
+            if (!args[i + 1].StartsWith("-", StringComparison.Ordinal)
+                && ShouldTreatPlatformFollowerAsLibrary(args, commandIndex, i))
+                result[i] = CommandLineHelpers.PlatformLibraryOptionName;
+            else if (args[commandIndex] == "find")
+                result[i] = "--platform=true";
         }
 
         return result ?? args;

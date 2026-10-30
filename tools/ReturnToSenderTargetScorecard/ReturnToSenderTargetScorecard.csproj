@@ -3,6 +3,8 @@
   <!--
     Checks and times exact pre-cap ReturnToSender target Count through the old
     eager-row path, LINQ, pinned NLinq, and the shipping QuerySpace Planner.
+    The select-repeat command compares eager full-census capped selection with
+    source-owned stable-rank-first capped selection.
     Publish NativeAOT to time:
       dotnet publish tools/ReturnToSenderTargetScorecard -c Release -r <rid> -p:PublishAot=true -p:IsPublishable=true -o <dir>
   -->

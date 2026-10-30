@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 
 using DotnetInspector.LibraryMetadata;
-using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
 

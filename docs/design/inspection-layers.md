@@ -165,9 +165,9 @@ each participant after inspection. `Integration Opportunities` consumes the
 typed Integrations result as a declared prerequisite and scans the same
 retained participant snapshot before release; direct `library` and package
 `--library` retain their existing controls.
-The `extensions`, `implements`, and `find` CLIs resolve their assembly sets in
-the host, then execute content-shaped L1 queries through an ephemeral
-workspace. Ordinary independent scans use sequential one-participant groups so
+The `extensions`, focused Type hierarchy, and `find` CLIs resolve their
+assembly sets in the host, then execute content-shaped L1 queries through an
+ephemeral workspace. Ordinary independent scans use sequential one-participant groups so
 the workspace does not retain the entire search set; this is gated by
 `RunPerAssembly_RetainsOnlyCurrentParticipant`. The explicit
 `extensions --reachable` traversal uses one binding-consistent group and lazily
@@ -203,6 +203,11 @@ but cannot derive and probe an ambient sidecar path; this is gated by
 `AssemblyReferenceResolverTests.PathlessDescriptor_DoesNotProbeIdentityDerivedSidecarPath`.
 The query's in-memory host path and typed failure behavior are gated by
 `AssemblyContextSourceQueryTests`.
+
+Subject Relations now constructs a process-local hierarchy focus from the
+selected-context exact-Type operation's owner-issued structured identity and
+declaration occurrence. Inspect Web selects hierarchy form, captured
+population, bounds, and presentation without rebuilding the Metadata name.
 
 Library section production no longer has a string-keyed scanner axis. Body
 Shapes binds `BodyShapesQuery`, retains the typed `BodyShapeSearchResult`, and
@@ -280,8 +285,8 @@ consumer and resource canaries.
 `BrowserEngineBoundaryTests.PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible`
 executes the query from exact in-memory bytes in the inspect-web consumer test
 surface. The CI inspect-web lane publishes the Browser/Wasm engine, where the
-exported `QueryPackageDependencies` operation roots the same query through
-`PackageDependencyGroupsQuery`; the
+exported `InspectPackageDependencies` operation roots the same manifest facts
+through `PackageDependencyInspectionOperation`; the
 `PackageManifestFactsProjection.cs` and `PackageManifestFactsQuery.cs`
 change-detection canaries ensure changes to either side of that path cannot
 skip the lane.
@@ -1608,12 +1613,118 @@ canaries:
   enumerated siblings relative to each parent first, then installed platform
   assets; it does not import the inspecting process's dependency closure.
 - `AssemblyContextReferencesQuery` owns session access for every participant in
-  a binding-consistent group. `PackageDependencyGroupsQuery` reads one bounded
-  root manifest through `IPackageContent`, validates its package ID and version,
-  retains its groups as declared, and reports exact-framework absence separately
-  from an empty dependency set.
-  Browser-Wasm composes those two typed results without parsing XML or opening
-  an assembly session.
+  a binding-consistent group. Its participant entry point also issues detached
+  `AssemblyReferenceRow` values for hosts that need reference fields but do not
+  own Metadata identity semantics, exact owner-issued binding evidence with the
+  participant's completed current-context selection, plus a typed detached
+  rejection for hosts that do not own Metadata candidate-open failures.
+  Inspect Web orders and projects the detached rows; Package Queries alone
+  enters external supplier association for an owner-issued `NoNameOwner`,
+  without Web reconstructing Metadata identities, binding requests, origins,
+  scopes, or selection outcomes.
+  `PackageDependencyGroupsQuery` reads one bounded root manifest through
+  `IPackageContent`, validates its package ID and version, retains its groups as
+  declared, and reports exact-framework absence separately from an empty
+  dependency set. Browser-Wasm composes those two typed results without parsing
+  XML, opening an assembly session, or projecting Metadata identities or
+  failures itself.
+- `LoadedTypeSearchRanking` owns direct, broadened, and fuzzy ranking over one
+  finite caller-authorized population of already-loaded Type names. It consumes
+  Metadata's matching grammar and tier predicates, applies the product result
+  bounds, and issues caller-shaped hits without acquiring or inspecting an
+  artifact. Browser-Wasm supplies its existing transport records but does not
+  execute the semantic ranking.
+- `ExactLibraryApiInspectionResult` carries its exact assembly identity through
+  a Queries-owned detached value with the same metadata fields. Browser-Wasm
+  losslessly adapts that value without referencing Metadata identity types;
+  Queries retains the semantic projection from the selected participant.
+- `EmbeddedLibraryInspectionResult` carries uploaded-Library provenance,
+  assembly identity, accessibility, completeness, outcome, and inspection
+  failures as detached Sections-owned values. Its companion execution retains
+  the bounded raw declaration surface outside the envelope so Web Core can
+  lower that graph once without cloning it. The Browser Library facade adapts
+  the portable values and does not reference uploaded-path Metadata values.
+- Library inspection plans and documents carry Sections-owned
+  `LibraryInspectionBounds`; their requested Enablements content is detached
+  immediately into `DotnetInspector.LibraryMetadata` values while
+  `ILInspector.Metadata` remains the semantic vocabulary owner. The Browser
+  Library facade therefore lowers exact-Library documents without a project or
+  compiled reference to either Metadata assembly. Its typed operation and
+  positive dependency ceilings own product semantics, so its compiler ban
+  input retains only runtime platform hazards.
+- Web Core's Platform-forwarder navigation projects forwarder display fields
+  and ordered resolution routes into caller-shaped Browser values. The Package
+  facade preserves the generated wire contract without referencing Metadata
+  identities or structured Type names. Web Core selects the exact
+  implementation population member and passes its structured Type and expected
+  MVID to PlatformHouse; PlatformHouse borrows the Library image, constructs
+  the live Metadata request, and reports a typed stale-candidate rejection.
+- Web Core owns package and Platform scope realization and operation lifetime.
+  Package Queries, Queries, Sections, Services, Ecosystems, Packages, and
+  Presentation own the acquisition, query, activity, vulnerability,
+  documentation, capability, ranking, and result semantics that the Package
+  facade adapts. Its typed paths and positive dependency ceilings therefore
+  own product semantics, and its compiler ban input retains only runtime
+  platform hazards.
+- Web Core owns package, Platform, retained-workspace, and uploaded-Library
+  scope and member-resolution lifetime. Queries owns metadata roots, tables,
+  heaps, exact selection, and graph-member projection; Sections and
+  LibraryMetadata own bounded Type and Member documents and populations;
+  CSharp owns declaration rendering; Research queries and sections own Library
+  comparison semantics. The Metadata facade adapts those owner-issued values,
+  and its typed paths plus positive dependency ceilings own product semantics,
+  so its compiler ban input retains only runtime platform hazards.
+- Web Core owns package and Platform scope realization, exact Member
+  resolution, Clone Workspace acquisition, cancellation coordination, and
+  operation lifetime. Queries, Sections, Research, Analysis, Presentation, and
+  Decompiler Annotations own the typed method facts, Clone candidates,
+  integrations, opportunities, structural metrics, implementation profiles,
+  performance results, resource triage, and caret geometry that the Analysis
+  facade adapts. Its typed paths plus positive dependency ceilings own product
+  semantics, so its compiler ban input retains only runtime platform hazards.
+- Web Core's direct project and emitted assembly dependencies are separate
+  positive ceilings. They admit the owner-issued package, Platform, workspace,
+  query, presentation, Metadata identity, and source-acquisition APIs required
+  by Browser composition, while rejecting every unlisted edge.
+  The semantic Browser banned-symbol gate remains necessary inside that ceiling:
+  an admitted owner assembly does not authorize Core to open raw images, invoke
+  product producers, or reconstruct identity and correspondence semantics.
+- Queries owns Web Core's assembly-context `MemberCallGraphSession` and
+  `CallGraphProjection` execution and returns one
+  `AssemblyContextMemberCallGraphDocument` with detached member-navigation,
+  tree, and diagnostic facts. Web retains package and Platform scope expansion,
+  Browser rendering, attribution, navigation policy, and wire projection
+  without a direct `ILInspector.CallGraph` or `ILInspector.Analysis` project or
+  emitted assembly edge.
+- Platform call-graph resolution delegates each closed-world type-resolution
+  decision and exact body match to Queries. The decision returns the exact
+  participant, a detached failure or identity conflict, or one exact assembly
+  continuation demand. Web retains Platform acquisition, authorization,
+  bounded expansion and retry, and scope lifetime without interpreting live
+  Metadata resolution outcomes or projecting an API surface solely to invoke
+  `CallGraphMemberResolver` itself.
+- Product demo plans resolve their owner-issued member anchor over
+  caller-shaped candidates in Queries. Web Core carries only the projected
+  Browser surface and a portable exact Library identity to Catalog; Catalog
+  does not independently invoke Metadata member resolution or unwrap Metadata
+  assembly identities. Catalog composes immutable product vocabulary
+  declarations from their owners, including Decompiler declaration factories,
+  without executing Decompiler producers. Its typed paths and positive
+  dependency ceilings therefore own product semantics, and its compiler ban
+  input retains only runtime platform hazards.
+- Web Core owns package, Platform, retained-workspace, exact Member and Type
+  resolution, cancellation coordination, and operation lifetime. Queries,
+  Sections, Services, SourceHouse, CSharp, Decompiler, Research, Presentation,
+  and Markout own the member and Type Source, Type Explorer document, source
+  and method-body comparison, Finding census, and Member Body Diff results that
+  the Browser Source facade adapts. PDB source inspections project resolved and
+  attributable browse URLs as detached Services-owned values, so the facade
+  does not interpret SourceLink documents and its positive project and
+  compiled-assembly ratchets exclude `ILInspector.SourceLink`. Metadata and
+  Queries project logical-member and physical-MethodDef identity before the
+  boundary. The facade's typed paths plus positive dependency ceilings own
+  product semantics, so its compiler inputs retain only three focused
+  projected-identity and failure-value bans plus runtime platform hazards.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its
@@ -1621,9 +1732,12 @@ canaries:
   same-named type in another participant cannot become the root, and verifies
   the exact normalized root name and Metadata-issued registration that
   contributed the match rather than borrowing another definition or a fuzzy
-  same-participant match when the selected participant contributed no public
-  dependency root. Published outcomes retain committed participant order. The
-  query returns resource-free subjects, graph facts, and typed per-participant
+  same-participant match when the selected participant contributed no exact
+  dependency root. Participant-qualified lookup admits the exact selected
+  definition regardless of accessibility; ordinary scans and ancestor
+  expansion retain their public-type population. Published outcomes retain
+  committed participant order. The query returns resource-free subjects, graph
+  facts, and typed per-participant
   failures. The L2 `TypeDependencySectionPlan` binds the exact target and
   semantic relationship-row intent, then applies the shared row contract after
   complete query execution. The CLI `depends` host and Inspect Web Type
@@ -1781,6 +1895,31 @@ intentional and visible:
   queries are available, but that existing CLI adapter has not adopted them.
 - `InspectionCost` and the legacy `SectionCost` are parallel during migration;
   L2 maps between them exhaustively.
+
+### Exact non-public dependency roots
+
+A participant-qualified request may inspect the exact selected non-public
+root. Metadata admits that one additional definition only from the requested
+acquisition registration and only by its exact normalized name. Other
+non-public definitions remain outside the scan population. Missing, fuzzy,
+case-distinct, or rejected roots cannot borrow another participant's definition;
+participant failures retain their existing outcomes.
+
+The motivating asset is `System.Text.Json@11.0.0-rc.1.26425.128`,
+`lib/net11.0/System.Text.Json.dll`, whose internal
+`System.Text.ValueStringBuilder` derives from `System.ValueType`. The browser
+could display its shape but previously emitted an uncertified-relationship
+warning because the scanner skipped its root. The Web test project restores
+this exact package and retains its unmodified archive as an inspected input.
+`QueryTypeProjection_InspectsAuthenticInternalDependencyRoot` gates the exact
+browser path and the absence of the uncertified-root warning. The scanner's
+existing omission of `System.Object`, `System.ValueType`, and `System.Enum`
+remains in effect, so this root has an empty dependency graph. Focused Metadata
+and Queries tests gate the public-only defaults, exact-name matching, and
+selected-participant identity.
+These are PR-fast cases; the authentic canary is marked slow because it scans a
+whole package assembly. Daily Deep Inspect and the focused pre-merge Web gate
+own that canary. Acquisition occurs at restore rather than test time.
 
 ## What must change
 

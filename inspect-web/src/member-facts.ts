@@ -29,9 +29,10 @@ function escapeHtml(value: unknown) {
 
 export function renderMemberFacts(
   state: MemberFactsRenderState,
+  includeAnalysisFacts = true,
 ) {
   return `
-    ${renderAnalysisFacts(state)}
+    ${includeAnalysisFacts ? renderAnalysisFacts(state) : ""}
     ${renderFindingFacts(state)}`;
 }
 

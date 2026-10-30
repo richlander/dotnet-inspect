@@ -75,7 +75,7 @@ internal static class LibraryMetadataService
             if ((requiredQueries?.Contains(
                     LibraryNameFamilyQuery.Definition) == true
                 || requiredQueries?.Contains(
-                    LibraryFamilyRoleQuery.Definition) == true)
+                    LibraryArchitecturalFamilyQuery.Definition) == true)
                 && assemblyReference is
                 {
                     Registration.ArtifactRegistration: null,
@@ -92,23 +92,37 @@ internal static class LibraryMetadataService
             bool needsResourceLifecycle =
                 requiredQueries?.Contains(
                     ResourceTriageQuery.Definition) == true;
+            bool usesFocusedLibraryMetrics =
+                requiredQueries?.Count == 1
+                && requiredQueries.Contains(
+                    LibraryMetricsQuery.Definition);
             Analysis.LibraryBodyAnalysisRequest bodyAnalysisRequest =
                 needsResourceLifecycle
                     ? Analysis.LibraryBodyAnalysisRequest
                         .CreateResourceLifecycle(
                             Analysis.ArrayPoolResourceEffectModel.Create(),
                             bodyAnalysisFeatures)
+                    : usesFocusedLibraryMetrics
+                            ? Analysis.LibraryBodyAnalysisRequest
+                                .CreateLibraryStructuralReport()
                     : Analysis.LibraryBodyAnalysisRequest.Create(
                         bodyAnalysisFeatures);
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
                     != Analysis.LibraryBodyAnalysisFeatures.None
+                || requiredQueries?.Contains(
+                    TopLeverageQuery.Definition) == true
+                || requiredQueries?.Contains(
+                    SyncCallsInAsyncDemand.Section) == true
+                || usesFocusedLibraryMetrics
                 || needsResourceLifecycle;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities)
                 || requiredQueries?.Contains(BodyShapesQuery.Definition) == true
+                || requiredQueries?.Contains(
+                    SyncCallsInAsyncDemand.Section) == true
                 || needsResourceLifecycle;
             IAssemblyReferenceResolver? bodyReferenceResolver =
                 needsBodyReferenceResolver
@@ -211,8 +225,8 @@ internal static class LibraryMetadataService
                             options.NameFamilyPopulation,
                         NameFamilyRowSelection =
                             options.NameFamilyRowSelection,
-                        NameFamilyRoleTypeRows =
-                            options.NameFamilyRoleTypeRows,
+                        ArchitecturalFamilyTypeRows =
+                            options.ArchitecturalFamilyTypeRows,
                         DependencyStructureRowSelection =
                             options.DependencyStructureRowSelection,
                     };
@@ -256,6 +270,9 @@ internal static class LibraryMetadataService
                 IntegrationQuery = options.IntegrationQuery,
                 BodyShapeSections = options.IncludeSections,
                 BodyShapeSummaryRows = options.Rows,
+                BodyShapeSearchLimit = BodyShapeRowSelection.SearchLimit(
+                    options.BodyShapeRowSelection,
+                    options.IncludeSections),
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
@@ -367,8 +384,8 @@ internal static class LibraryMetadataService
                         options.NameFamilyPopulation,
                     NameFamilyRowSelection =
                         options.NameFamilyRowSelection,
-                    NameFamilyRoleTypeRows =
-                        options.NameFamilyRoleTypeRows,
+                    ArchitecturalFamilyTypeRows =
+                        options.ArchitecturalFamilyTypeRows,
                     DependencyStructureRowSelection =
                         options.DependencyStructureRowSelection,
                 };
@@ -577,9 +594,7 @@ internal static class LibraryMetadataService
         IReadOnlyCollection<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
-        if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(UnsafeEvidenceQuery.Definition) == true
-            || queries?.Contains(
+        if (queries?.Contains(
                 LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
@@ -2313,6 +2328,17 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                SyncCallsInAsyncDemand.Section,
+                out SyncCallsInAsyncBindingResult? syncCallsInAsync))
+        {
+            ApplySyncCallsInAsyncResult(
+                path,
+                inspection,
+                logger,
+                syncCallsInAsync);
+        }
+
+        if (results.TryGet(
                 UnsafeEvidencePresenceQuery.Definition,
                 out UnsafeEvidencePresenceResult? unsafeEvidencePresence))
         {
@@ -2322,10 +2348,10 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
-                UnsafeEvidenceQuery.Definition,
-                out UnsafeEvidenceResult? unsafeEvidence))
+                UnsafeMemberCensusQuery.Definition,
+                out UnsafeMemberCensusQueryResult? unsafeMembers))
         {
-            ApplyUnsafeEvidenceResult(path, inspection, logger, unsafeEvidence);
+            ApplyUnsafeMemberCensusResult(path, inspection, logger, unsafeMembers);
         }
 
         if (results.TryGet(
@@ -2369,14 +2395,14 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
-                LibraryFamilyRoleQuery.Definition,
-                out LibraryFamilyRoleQueryResult? familyRoles))
+                LibraryArchitecturalFamilyQuery.Definition,
+                out LibraryArchitecturalFamilyQueryResult? architecturalFamilies))
         {
-            ApplyLibraryFamilyRoleResult(
+            ApplyLibraryArchitecturalFamilyResult(
                 path,
                 inspection,
                 logger,
-                familyRoles);
+                architecturalFamilies);
         }
 
         if (results.TryGet(
@@ -2727,34 +2753,34 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ApplyLibraryFamilyRoleResult(
+    internal static void ApplyLibraryArchitecturalFamilyResult(
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        LibraryFamilyRoleQueryResult result)
+        LibraryArchitecturalFamilyQueryResult result)
     {
-        inspection.FamilyRoleQueryResult = result;
+        inspection.ArchitecturalFamilyQueryResult = result;
 
         switch (result)
         {
-            case LibraryFamilyRoleQueryResult.Available:
-            case LibraryFamilyRoleQueryResult.NameFamiliesUnavailable:
-            case LibraryFamilyRoleQueryResult.NameFamiliesRejected:
-            case LibraryFamilyRoleQueryResult.StructuralRejected:
-            case LibraryFamilyRoleQueryResult.CompositionRejected:
-            case LibraryFamilyRoleQueryResult.PopulationUnavailable:
-            case LibraryFamilyRoleQueryResult.SelectionFailed:
+            case LibraryArchitecturalFamilyQueryResult.Available:
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesUnavailable:
+            case LibraryArchitecturalFamilyQueryResult.NameFamiliesRejected:
+            case LibraryArchitecturalFamilyQueryResult.StructuralRejected:
+            case LibraryArchitecturalFamilyQueryResult.CompositionRejected:
+            case LibraryArchitecturalFamilyQueryResult.PopulationUnavailable:
+            case LibraryArchitecturalFamilyQueryResult.SelectionFailed:
                 break;
 
-            case LibraryFamilyRoleQueryResult.Failed failed:
+            case LibraryArchitecturalFamilyQueryResult.Failed failed:
                 logger.LogWarning(
-                    $"Error collecting Library name-family roles in {path}: "
+                    $"Error collecting Library architectural families in {path}: "
                     + failed.Error.Message);
                 break;
 
             default:
                 throw new InvalidOperationException(
-                    "Unknown Library family-role result "
+                    "Unknown Architectural Families result "
                     + $"'{result.GetType().Name}'.");
         }
     }
@@ -2802,6 +2828,8 @@ internal static class LibraryMetadataService
                 if (available.Search.Failures.Count == 0)
                     break;
 
+                CommandError.WriteWarning(
+                    BodyShapeCompleteness.Warning(available.Search));
                 if (logger.Enabled)
                 {
                     foreach (var failure in available.Search.Failures)
@@ -2809,12 +2837,6 @@ internal static class LibraryMetadataService
                         logger.LogWarning(
                             $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
                     }
-                }
-                else
-                {
-                    CommandError.WriteWarning(
-                        $"Body Shapes skipped {available.Search.Failures.Count} candidates; "
-                        + "rerun with --verbose for details.");
                 }
                 break;
 
@@ -3007,6 +3029,132 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static void ApplySyncCallsInAsyncResult(
+            string path,
+            LibraryInspection inspection,
+            VerboseLogger logger,
+            SyncCallsInAsyncBindingResult result)
+        {
+            inspection.SyncCallsInAsyncRows = [];
+            inspection.SyncCallsInAsyncSummaries = null;
+            inspection.SyncCallsInAsyncCount = null;
+            inspection.SyncCallsInAsyncPresence = null;
+            inspection.SyncCallsInAsyncFailure = null;
+
+            switch (result)
+            {
+                case SyncCallsInAsyncBindingResult.Available available:
+                    foreach ((SyncCallsInAsyncClosing closing,
+                        SyncCallsInAsyncAnswer answer) in available.Result.Answers)
+                    {
+                        ApplySyncCallsInAsyncAnswer(
+                            path,
+                            inspection,
+                            logger,
+                            closing,
+                            answer);
+                    }
+                    foreach (Analysis.AnalysisDiagnostic diagnostic
+                        in available.Result.Diagnostics)
+                    {
+                        logger.LogWarning(
+                            $"Incomplete Sync Calls in Async analysis in {path}: "
+                            + diagnostic.Message);
+                    }
+                    break;
+
+                case SyncCallsInAsyncBindingResult.Failed failed:
+                    logger.LogWarning(
+                        $"Error finding sync calls in async methods in {path}: "
+                        + failed.Error.Message);
+                    inspection.SyncCallsInAsyncFailure =
+                        failed.Error.Message;
+                    break;
+
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Sync Calls in Async result "
+                        + $"'{result.GetType().Name}'.");
+            }
+        }
+
+    static void ApplySyncCallsInAsyncAnswer(
+            string path,
+            LibraryInspection inspection,
+            VerboseLogger logger,
+            SyncCallsInAsyncClosing closing,
+            SyncCallsInAsyncAnswer answer)
+        {
+            switch (answer)
+            {
+                case SyncCallsInAsyncAnswer.Rows rows:
+                    inspection.SyncCallsInAsyncRows = rows.Calls;
+                    inspection.SyncCallsInAsyncSummaries =
+                    [
+                        .. rows.Calls.Select(static row =>
+                            new SyncCallInAsyncSummary
+                            {
+                                Caller = FormatMethod(row.Caller),
+                                Callee =
+                                    ApiOutputFormatter.FormatCallee(
+                                        row.Callee),
+                                Alternative =
+                                    ApiOutputFormatter.FormatCallee(
+                                        row.Alternative),
+                                PairKind = row.PairKind.ToString(),
+                            }),
+                    ];
+                    break;
+
+                case SyncCallsInAsyncAnswer.Count count:
+                    inspection.SyncCallsInAsyncCount = count.Value;
+                    break;
+
+                case SyncCallsInAsyncAnswer.Exists exists:
+                    inspection.SyncCallsInAsyncPresence = exists.Value;
+                    break;
+
+                case SyncCallsInAsyncAnswer.Failed failed:
+                    RecordSyncCallsInAsyncFailure(
+                        path,
+                        inspection,
+                        logger,
+                        closing,
+                        $"{failed.Failure.Unit}: "
+                        + failed.Failure.Message);
+                    break;
+
+                case SyncCallsInAsyncAnswer.Aborted aborted:
+                    RecordSyncCallsInAsyncFailure(
+                        path,
+                        inspection,
+                        logger,
+                        closing,
+                        $"{aborted.Critical.Unit}: "
+                        + aborted.Critical.Budget);
+                    break;
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Unknown Sync Calls in Async answer "
+                        + $"'{answer.GetType().Name}'.");
+            }
+        }
+
+    static void RecordSyncCallsInAsyncFailure(
+            string path,
+            LibraryInspection inspection,
+            VerboseLogger logger,
+            SyncCallsInAsyncClosing closing,
+            string reason)
+        {
+            string failure = $"{closing} failed at {reason}.";
+            logger.LogWarning(
+                $"Error finding sync calls in async methods in {path}: "
+                + failure);
+            inspection.SyncCallsInAsyncFailure ??= failure;
+    }
+
     static void ApplyClassificationAnswer(
         string path,
         LibraryInspection inspection,
@@ -3117,71 +3265,48 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ApplyUnsafeEvidenceResult(
+    internal static void ApplyUnsafeMemberCensusResult(
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        UnsafeEvidenceResult result)
+        UnsafeMemberCensusQueryResult result)
     {
         switch (result)
         {
-            case UnsafeEvidenceResult.Available available:
-                inspection.UnsafeEvidenceInspection =
-                    new FindingInspection<Analysis.UnsafeEvidence>.Complete(
-                        [
-                            .. available.Evidence
-                                .GroupBy(evidence => (
-                                    evidence.Member.ModuleVersionId,
-                                    evidence.Member.MetadataToken))
-                                .SelectMany(group =>
-                                    Analysis.AnalysisFindings.InspectUnsafeEvidence(
-                                        group,
-                                        FindingSubjectFor(path, group.First().Member))),
-                        ]);
-                inspection.UnsafeEvidenceDiagnostics = available.Diagnostics;
-                var rows = available.Evidence
-                    .Select(evidence => new UnsafeMemberSummary
-                    {
-                        Member = FormatMethod(evidence.Member),
-                        Reason = evidence.Reason,
-                        Detail = evidence.Detail,
-                        Kind = evidence.Kind,
-                        IL = evidence.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
-                        Token = evidence.OperandToken is { } token ? $"0x{token:X8}" : null,
-                    })
-                    .OrderBy(row => row.Member, StringComparer.Ordinal)
-                    .ThenBy(row => row.IL ?? "", StringComparer.Ordinal)
-                    .ThenBy(row => row.Reason, StringComparer.Ordinal)
-                    .ThenBy(row => row.Detail, StringComparer.Ordinal)
-                    .ToList();
-                inspection.UnsafeMembers = rows.Count > 0 ? rows : null;
-
-                foreach (var diagnostic in available.Diagnostics)
+            case UnsafeMemberCensusQueryResult.Inspected inspected:
+                inspection.UnsafeMemberInspection =
+                    Analysis.AnalysisFindings.InspectUnsafeMembers(
+                        inspected.Census,
+                        FindingSubjectFor(path));
+                if (inspection.UnsafeMemberInspection
+                    is Analysis.UnsafeMemberFindingInspection.Failed census)
                 {
                     logger.LogWarning(
-                        $"unsafe analysis skipped {diagnostic.Method}: {diagnostic.Message}");
+                        $"Error reading unsafe members in {path}: {census.Error.Reason}");
                 }
+                UnsafeMemberProjection.Disclose(
+                    inspection.UnsafeMemberInspection,
+                    logger.Enabled);
                 break;
 
-            case UnsafeEvidenceResult.NoMetadata:
-                inspection.UnsafeEvidenceDiagnostics = [];
+            case UnsafeMemberCensusQueryResult.NoMetadata:
+                inspection.UnsafeMemberInspection = null;
                 break;
 
-            case UnsafeEvidenceResult.Failed failed:
+            case UnsafeMemberCensusQueryResult.Failed failed:
                 logger.LogWarning(
-                    $"Error scanning unsafe members in {path}: {failed.Error.Message}");
-                inspection.UnsafeEvidenceInspection =
-                    FailedInspection<Analysis.UnsafeEvidence>(
-                        path,
-                        Analysis.AnalysisFindings.UnsafeEvidenceDescriptor,
-                        failed.Error);
-                inspection.UnsafeEvidenceDiagnostics = [];
-                inspection.UnsafeMembers = null;
+                    $"Error reading unsafe members in {path}: {failed.Error.Message}");
+                inspection.UnsafeMemberInspection =
+                    new Analysis.UnsafeMemberFindingInspection.Failed(
+                        new InspectionError(
+                            FindingSubjectFor(path),
+                            Analysis.AnalysisFindings.UnsafeMemberDescriptor,
+                            failed.Error.Message));
                 break;
 
             default:
                 throw new InvalidOperationException(
-                    $"Unknown unsafe-evidence result '{result.GetType().Name}'.");
+                    $"Unknown unsafe member census result '{result.GetType().Name}'.");
         }
     }
 

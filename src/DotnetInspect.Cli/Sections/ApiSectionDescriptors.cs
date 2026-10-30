@@ -165,6 +165,8 @@ public static class ApiMemberSectionDescriptors
             .Add<TypeParameters>()
             .Add<TypeInterfaces>()
             .Add<Baseclass>()
+            .Add<Implementers>()
+            .Add<DerivedTypes>()
             .Add<Constructors>()
             .Add<Finalizer>()
             .Add<Fields>()
@@ -207,6 +209,8 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.TypeParameters,
                 SectionNames.TypeInterfaces,
                 SectionNames.Baseclass,
+                SectionNames.Implementers,
+                SectionNames.DerivedTypes,
                 SectionNames.Constructors,
                 SectionNames.Finalizer,
                 SectionNames.Fields,
@@ -293,6 +297,30 @@ public static class ApiMemberSectionDescriptors
                && model.BaseType != "System.Object"
                && model.BaseType != "System.ValueType"
                && model.BaseType != "System.Enum";
+    }
+
+    public sealed class Implementers : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Implementers;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(ApiType model) => true;
+    }
+
+    public sealed class DerivedTypes : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.DerivedTypes;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(ApiType model) => true;
     }
 
     // ===== Member sections (rendered via PopulateMemberSections) =====
@@ -541,7 +569,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
-        // Backed by the whole-assembly body index; list structurally during -D rather
+        // Backed by whole-assembly body analysis; list structurally during -D rather
         // than opening the index to probe, mirroring OptimizationOpportunities.
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
@@ -583,7 +611,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool ExplicitOnly => true;
-        // Backed by the whole-assembly body index; list structurally during -D rather
+        // Backed by whole-assembly body analysis; list structurally during -D rather
         // than opening the index to probe, mirroring SourceLocations/UnsafeOperations.
         public static bool ProbeEffectiveness => false;
         public static bool CanRender(ApiType model)
@@ -713,7 +741,7 @@ public static class ApiMemberSectionDescriptors
     /// body-less.
     /// </summary>
     internal static bool IsBodyBacked(ApiMember member) =>
-        IsMethodLike(member) || HasAccessorTokens(member);
+        ApiMemberBodyFacts.IsBodyBacked(member);
 
     internal static bool HasExecutableBody(
         ApiMember member,
@@ -780,6 +808,8 @@ public static class ApiMemberSectionPipelines
                 SectionNames.CloneCandidates,
                 SectionNames.TypeMetrics,
                 SectionNames.MemberMetrics,
+                SectionNames.Implementers,
+                SectionNames.DerivedTypes,
             ],
             StringComparer.OrdinalIgnoreCase);
 
@@ -789,6 +819,8 @@ public static class ApiMemberSectionPipelines
                 .. CommonExactOnlySections,
                 SectionNames.Signature,
                 SectionNames.CustomAttributes,
+                SectionNames.Overloads,
+                SectionNames.DocumentedOverloads,
             ],
             StringComparer.OrdinalIgnoreCase);
 
@@ -833,6 +865,12 @@ public static class ApiMemberSectionPipelines
         SectionNames.PerformanceTriage,
     ];
 
+    private static readonly string[] RelationSections =
+    [
+        SectionNames.Implementers,
+        SectionNames.DerivedTypes,
+    ];
+
     private static readonly string[] SourceSections =
     [
         SectionNames.Source,
@@ -874,6 +912,9 @@ public static class ApiMemberSectionPipelines
             .AddCategory(
                 SectionCategoryNames.Performance,
                 Present(PerformanceSections))
+            .AddCategory(
+                SectionCategoryNames.Relations,
+                Present(RelationSections))
             .AddCategory(
                 SectionCategoryNames.Source,
                 Present(SourceSections))
@@ -953,6 +994,8 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.Properties>()
             .Add<ApiMemberDetailSectionDescriptors.Signature>()
             .Add<Methods>()
+            .Add<Overloads>()
+            .Add<DocumentedOverloads>()
             .Add<ApiMemberSectionDescriptors.MemberIndex>()
             .Add<ApiMemberSectionDescriptors.SourceLocations>()
             .Add<ApiMemberSectionDescriptors.Operators>()
@@ -1012,6 +1055,30 @@ public static class ApiMemberOverloadSectionDescriptors
 
     private static bool HasSingleBodyBackedMember(ApiType model)
         => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+
+    public sealed class Overloads : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Overloads;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "method");
+    }
+
+    public sealed class DocumentedOverloads : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.DocumentedOverloads;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "method");
+    }
 
     private static bool HasSingleExecutableBodyMember(
         ApiType model,

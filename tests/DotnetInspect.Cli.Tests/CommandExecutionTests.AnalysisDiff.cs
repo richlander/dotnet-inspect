@@ -12,6 +12,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -73,7 +74,7 @@ public partial class CommandExecutionTests
             "--json");
 
         Assert.Equal(0, exit);
-        AssertOnlyPerformanceAnalysisWarnings(error);
+        Assert.Empty(error);
         Assert.Contains("\"shape\": \"allocation-fanout\"", output);
         Assert.Contains("\"provenance\": \"aggregate\"", output);
         Assert.Contains("\"direct_sites\": 1", output);
@@ -124,7 +125,8 @@ public partial class CommandExecutionTests
             "library",
             TestAssemblyPath,
             "-S",
-            SectionNames.ArrayPoolEscapes);
+            SectionNames.ArrayPoolEscapes,
+            "--markdown");
         var jsonl = await RunAppAsync(
             "library",
             TestAssemblyPath,
@@ -593,6 +595,33 @@ public partial class CommandExecutionTests
         Assert.Equal(rows.Output, scalar.Output);
     }
 
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_CountHonorsMixedProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Top Leverage,Performance: Sync Calls in Async",
+            "--columns",
+            "Member",
+            "--count",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Dictionary<string, int> counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.True(counts[SectionNames.TopLeverage] > 0);
+        Assert.Equal(
+            0,
+            counts[SectionNames.PerformanceSyncCallsInAsync]);
+    }
+
     // ===== Performance sections (kind-scoped decomposition of the library "Performance Triage" monolith) =====
 
     [Fact]
@@ -610,7 +639,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceSection_SingleKind_RendersOnlyThatKind()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance: Boxing");
+            "library", "System.Text.Json", "-S", "Performance: Boxing", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -626,7 +655,7 @@ public partial class CommandExecutionTests
         // machine <GetAsyncEnumerator>d__1). It must render as a code span like the Member and
         // Allocation columns, showing the brackets literally — not HTML-escaped as &lt;/&gt;.
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Performance: Async");
+            "library", "System.Text.Json", "-S", "Performance: Async", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -643,23 +672,194 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PerformanceAsync_FindsSyncCallsWithAsyncSiblings()
+    public async Task PerformanceSyncCallsInAsync_FindsAsyncSiblings()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--markdown");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "## Performance: Sync Calls in Async",
+            output);
+        Assert.Contains("| Caller | Callee | Alternative | Pair Kind |", output);
+        Assert.Contains("CallsSyncSiblingFromAsync", output);
+        Assert.Contains("ReadValueAsync", output);
+        Assert.Contains("CallsFileReadLinesFromAsync", output);
+        Assert.Contains("System.IO.File.ReadLinesAsync", output);
+    }
+
+    [Fact]
+    public async Task PerformanceAsync_ExcludesSyncCallsWithAsyncSiblings()
     {
         var (exit, output, error) = await RunAppAsync(
             "library",
             TestAssemblyPath,
             "-S",
             "Performance: Async",
-            "--triage-shape",
-            "sync-call-in-async");
+            "--markdown");
 
         Assert.Equal(0, exit);
         AssertOnlyPerformanceAnalysisWarnings(error);
-        Assert.Contains("## Performance: Async", output);
+        Assert.Contains("SearchByPrefixPagesAsync", output);
+        Assert.DoesNotContain("CallsSyncSiblingFromAsync", output);
+        Assert.DoesNotContain("CallsFileReadLinesFromAsync", output);
+    }
+
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_CountUsesScalarClosing()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.Parse(output.Trim()) > 0);
+        Assert.DoesNotContain("CallsSyncSiblingFromAsync", output);
+    }
+
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_JsonUsesPerformanceProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output.Trim());
+        JsonElement rows = document.RootElement
+            .GetProperty("performance")
+            .GetProperty("sync_calls_in_async");
+        Assert.True(rows.GetArrayLength() > 0);
+        JsonElement row = rows[0];
+        Assert.True(row.TryGetProperty("caller", out _));
+        Assert.True(row.TryGetProperty("callee", out _));
+        Assert.True(row.TryGetProperty("alternative", out _));
+        Assert.True(row.TryGetProperty("pair_kind", out _));
+    }
+
+    [Fact]
+    public async Task PerformanceJson_ExcludesLegacySyncCallsFromAsync()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "@Performance",
+            "--json");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        using var document = JsonDocument.Parse(output.Trim());
+        JsonElement performance =
+            document.RootElement.GetProperty("performance");
+        Assert.True(
+            performance.GetProperty("sync_calls_in_async")
+                .GetArrayLength() > 0);
+        if (performance.TryGetProperty(
+                "async",
+                out JsonElement asyncRows))
+        {
+            Assert.DoesNotContain(
+                asyncRows.EnumerateArray(),
+                row => row.GetProperty("shape").GetString()
+                    == "sync-call-in-async");
+        }
+    }
+
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_TsvHasDedicatedColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "caller\tcallee\talternative\tpair_kind",
+            output);
         Assert.Contains("CallsSyncSiblingFromAsync", output);
-        Assert.Contains("ReadValueAsync", output);
-        Assert.Contains("CallsFileReadLinesFromAsync", output);
-        Assert.Contains("System.IO.File::ReadLinesAsync", output);
+    }
+
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_RejectsLegacyTriagePredicates()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Sync Calls in Async",
+            "--where",
+            "Priority>=low",
+            "--tsv");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "supports --triage-shape sync-call-in-async",
+            error);
+        Assert.Contains(
+            "Use -n or --rows",
+            error);
+    }
+
+    [Fact]
+    public async Task PerformanceSyncCallsInAsync_ImplicitShapeUsesDedicatedSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--triage-shape",
+            "sync-call-in-async",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "caller\tcallee\talternative\tpair_kind\n",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains("CallsSyncSiblingFromAsync", output);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_MixedShapeSelectionRetainsSyncCalls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "--triage-shape",
+            "box-value-type,sync-call-in-async",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        Assert.Contains(
+            output.Split('\n'),
+            line => line.StartsWith(
+                "Boxing\t",
+                StringComparison.Ordinal));
+        Assert.Contains(
+            output.Split('\n'),
+            line => line.StartsWith(
+                "Sync Calls in Async\t",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -809,10 +1009,57 @@ public partial class CommandExecutionTests
         var headerCount = lines.Count(line => line.StartsWith("kind\t", StringComparison.Ordinal));
         Assert.Equal(1, headerCount);
         Assert.StartsWith("kind\tmember\t", lines[0]);
-        // Rows from more than one kind are present and labeled (e.g. Boxing and Arrays).
+        // Legacy and query-backed row shapes share one labeled table.
         var kinds = lines.Skip(1).Select(l => l.Split('\t')[0]).Distinct().ToList();
         Assert.Contains("Boxing", kinds);
         Assert.Contains("Arrays", kinds);
+        Assert.Contains("Sync Calls in Async", kinds);
+        string[][] syncCalls =
+            [
+                .. lines.Skip(1)
+                .Select(line => line.Split('\t'))
+                .Where(fields =>
+                    fields[0] == "Sync Calls in Async"),
+            ];
+        Assert.NotEmpty(syncCalls);
+        Assert.All(
+            syncCalls,
+            syncCall =>
+            {
+                Assert.NotEmpty(syncCall[9]);
+                Assert.NotEmpty(syncCall[10]);
+                Assert.NotEmpty(syncCall[11]);
+                Assert.NotEmpty(syncCall[12]);
+            });
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_OneEffectiveKindRetainsUnionSchema()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance:*",
+            "--triage-shape",
+            "sync-call-in-async",
+            "--tsv");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        string[] lines = output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.StartsWith(
+            "kind\tmember\tevidence\tallocation\tloop\treach\tweight"
+                + "\tpriority\tconfidence\tcaller\tcallee\talternative"
+                + "\tpair_kind",
+            lines[0]);
+        Assert.All(
+            lines.Skip(1),
+            line => Assert.StartsWith(
+                "Sync Calls in Async\t",
+                line));
     }
 
     [Fact]
@@ -847,6 +1094,63 @@ public partial class CommandExecutionTests
             Assert.True(doc.RootElement.TryGetProperty("kind", out _));
         }
         Assert.DoesNotContain(output.TrimEnd('\n').Split('\n'), line => line.Length == 0);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_ProjectedJsonlExcludesInapplicableRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance:*",
+            "--columns",
+            "Caller",
+            "--jsonl");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        string[] lines = output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+        Assert.All(
+            lines,
+            line =>
+            {
+                using JsonDocument document =
+                    JsonDocument.Parse(line);
+                Assert.False(string.IsNullOrEmpty(
+                    document.RootElement
+                        .GetProperty("caller")
+                        .GetString()));
+            });
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_ProjectedRowsApplyAfterRowAdmission()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance:*",
+            "--columns",
+            "Caller",
+            "--tsv",
+            "-n",
+            "5");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        string[] lines = output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("caller", lines[0]);
+        Assert.Equal(5, lines.Length);
+        Assert.All(
+            lines.Skip(1),
+            line => Assert.False(string.IsNullOrEmpty(line)));
     }
 
     [Fact]
@@ -1438,8 +1742,190 @@ public partial class CommandExecutionTests
         Assert.Contains(newEvidence, output);
     }
 
+    // The unsafe member census compared by declared member: Removed, Added,
+    // Changed, and Present, where a renumbered closure is no change
+    // (docs/design/unsafe-members-section.md#diff).
     [Fact]
-    public async Task Diff_StringLiterals_ContainsRetainsCompleteLiteralRows()
+    public async Task Diff_UnsafeMember_LibraryTransitionsClassifyEachMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library",
+            UnsafeMemberPair,
+            "--analysis", "unsafe-member");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        const string Stable = "Public: pointer dereference ×2; stack allocation";
+        Assert.Equal(
+            [
+                ("PairFinding.Added", "AddedUnsafe(int)", "absent", Stable),
+                (
+                    "PairFinding.Changed",
+                    "ChangedUnsafe(int)",
+                    "Public: pointer dereference; stack allocation",
+                    Stable),
+                ("PairFinding.Removed", "RemovedUnsafe(int)", Stable, "absent"),
+                ("PairFinding.Present", "RenumberedClosure()", Stable, Stable),
+                ("PairFinding.Present", "StableUnsafe(int)", Stable, Stable),
+            ],
+            UnsafeMemberTransitions(output, "UnsafeMemberDiffSample :: "));
+    }
+
+    // Type scope compares the selected Type's census, with the same rows
+    // the Library comparison gives that Type.
+    [Fact]
+    public async Task Diff_UnsafeMember_TypeTransitionsAgreeWithLibrary()
+    {
+        var library = await RunAppAsync(
+            "diff", "--library", UnsafeMemberPair,
+            "--analysis", "unsafe-member");
+        var type = await RunAppAsync(
+            "diff", "--library", UnsafeMemberPair,
+            "-t", "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample",
+            "--analysis", "unsafe-member");
+
+        Assert.Equal(0, type.Exit);
+        Assert.Empty(type.Error);
+        Assert.Equal(
+            UnsafeMemberTransitions(library.Output, "UnsafeMemberDiffSample :: "),
+            UnsafeMemberTransitions(
+                type.Output,
+                "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample :: "));
+    }
+
+    // A Type present at only one endpoint compares against no members, so
+    // every member it has is Added or Removed.
+    [Theory]
+    [InlineData("AddedUnsafeType", "PairFinding.Added")]
+    [InlineData("RemovedUnsafeType", "PairFinding.Removed")]
+    public async Task Diff_UnsafeMember_OneSidedTypeIsAllAddedOrRemoved(
+        string type,
+        string transition)
+    {
+        string typeName = $"UnsafeMemberDiffFixtures.{type}";
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", UnsafeMemberPair,
+            "-t", typeName,
+            "--analysis", "unsafe-member");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string[] row = Assert.Single(
+            output.Split('\n')
+                .Select(static line => line.TrimEnd('\r').Split('\t')),
+            static columns => columns.Length >= 7
+                && columns[1] == "analysis.unsafe-member");
+        Assert.Equal(transition, row[0]);
+        Assert.Equal($"{typeName} :: {typeName}.Read(int)", row[2]);
+    }
+
+    // A package whose Library assembly is renamed pairs nothing across the
+    // endpoints: the old assembly's members are Removed and the new one's
+    // Added, under their own subjects.
+    [Fact]
+    public async Task Diff_UnsafeMember_PackageAssemblyRenameReportsBothSides()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"diff-unsafe-rename-{Guid.NewGuid():N}");
+        string packageName = $"Diff.Unsafe.Rename.{Guid.NewGuid():N}";
+        string assemblyPath = FixtureCatalog.UnsafeMemberDiffV1.AssemblyPath();
+        Directory.CreateDirectory(directory);
+        try
+        {
+            NuGetCache.Initialize(
+                "dotnet-inspect-unsafe-rename",
+                Path.Combine(directory, "cache"),
+                skipNuGetCache: true);
+            foreach ((string version, string assemblyName) in new[]
+                {
+                    ("1.0.0", "Old.dll"),
+                    ("2.0.0", "New.dll"),
+                })
+            {
+                string packagePath = Path.Combine(
+                    directory, $"{packageName}.{version}.nupkg");
+                using (ZipArchive archive = ZipFile.Open(
+                    packagePath, ZipArchiveMode.Create))
+                {
+                    archive.CreateEntryFromFile(
+                        assemblyPath, $"lib/net10.0/{assemblyName}");
+                    ZipArchiveEntry nuspec = archive.CreateEntry(
+                        $"{packageName}.nuspec");
+                    await using Stream stream = nuspec.Open();
+                    await using var writer = new StreamWriter(stream);
+                    await writer.WriteAsync(
+                        $"""
+                        <package><metadata>
+                          <id>{packageName}</id><version>{version}</version>
+                          <authors>tests</authors><description>unsafe rename</description>
+                        </metadata></package>
+                        """);
+                }
+                string staged = Path.Combine(directory, $"staged-{version}");
+                ZipFile.ExtractToDirectory(packagePath, staged);
+                NuGetCache.CommitPackage(
+                    staged, packagePath, packageName, version,
+                    NuGetCache.GetSourceKey(directory));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "diff", $"{packageName}@1.0.0..2.0.0",
+                "--source", directory,
+                "--analysis", "unsafe-member",
+                "--json");
+
+            Assert.True(exit == 0, $"{error}\n{output}");
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal("Compared", Assert.Single(
+                document.RootElement.GetProperty("outcomes").EnumerateArray())
+                .GetProperty("kind").GetString());
+            JsonElement[] transitions = [.. document.RootElement
+                .GetProperty("transitions").EnumerateArray()];
+            JsonElement[] removed = [.. transitions.Where(static row =>
+                row.GetProperty("transition").GetString() == "PairFinding.Removed")];
+            JsonElement[] added = [.. transitions.Where(static row =>
+                row.GetProperty("transition").GetString() == "PairFinding.Added")];
+            Assert.Equal(transitions.Length, removed.Length + added.Length);
+            Assert.Equal(5, removed.Length);
+            Assert.Equal(5, added.Length);
+            Assert.All(removed, static row => Assert.StartsWith(
+                "Old.dll :: ", row.GetProperty("target").GetString()));
+            Assert.All(added, static row => Assert.StartsWith(
+                "New.dll :: ", row.GetProperty("target").GetString()));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static string UnsafeMemberPair =>
+        $"{FixtureCatalog.UnsafeMemberDiffPair.OldAssemblyPath()}..{FixtureCatalog.UnsafeMemberDiffPair.NewAssemblyPath()}";
+
+    static (string Transition, string Member, string Old, string New)[]
+        UnsafeMemberTransitions(string output, string subjectPrefix)
+    {
+        string target = subjectPrefix + "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample.";
+        return
+        [
+            .. output.Split('\n')
+                .Select(static line => line.TrimEnd('\r').Split('\t'))
+                .Where(columns => columns.Length >= 7
+                    && columns[1] == "analysis.unsafe-member"
+                    && columns[2].StartsWith(target, StringComparison.Ordinal))
+                .Select(columns => (
+                    columns[0],
+                    columns[2][target.Length..],
+                    columns[5],
+                    columns[6]))
+                .OrderBy(static row => row.Item2, StringComparer.Ordinal),
+        ];
+    }
+
+    [Fact]
+    public async Task Diff_StringLiterals_ContainsRetainsCompleteChangedLiteralRows()
     {
         string oldPath =
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
@@ -1466,7 +1952,7 @@ public partial class CommandExecutionTests
             "https://new.example and https://shared.example",
             output,
             StringComparison.Ordinal);
-        Assert.Contains(
+        Assert.DoesNotContain(
             "prefix https://embedded.example",
             output,
             StringComparison.Ordinal);
@@ -1505,11 +1991,137 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Diff_StringLiterals_MultiLibraryPackageReportsCompanionChanges()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "Microsoft.Azure.SignalR@1.20.0..1.33.1",
+            "--analysis", "string-literals",
+            "--where", "Literal contains https://",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "Compared",
+            Assert.Single(document.RootElement.GetProperty("outcomes")
+                .EnumerateArray()).GetProperty("kind").GetString());
+        JsonElement.ArrayEnumerator transitions =
+            document.RootElement.GetProperty("transitions").EnumerateArray();
+        Assert.NotEmpty(transitions);
+        Assert.All(transitions, row =>
+        {
+            Assert.Equal(
+                "Microsoft.Azure.SignalR.Common.dll",
+                row.GetProperty("target").GetString());
+            Assert.Equal(
+                "PairFinding.Added",
+                row.GetProperty("transition").GetString());
+            Assert.Contains("https://", row.GetProperty("new").GetString());
+        });
+    }
+
+    [Fact]
+    public async Task Diff_StringLiterals_PackageAssemblyRenameReportsBothSides()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"diff-literal-rename-{Guid.NewGuid():N}");
+        string packageName = $"Diff.Literal.Rename.{Guid.NewGuid():N}";
+        string assemblyPath = FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        Directory.CreateDirectory(directory);
+        try
+        {
+            NuGetCache.Initialize(
+                "dotnet-inspect-literal-rename",
+                Path.Combine(directory, "cache"),
+                skipNuGetCache: true);
+            foreach ((string version, string assemblyName) in new[]
+                {
+                    ("1.0.0", "Old.dll"),
+                    ("2.0.0", "New.dll"),
+                })
+            {
+                string packagePath = Path.Combine(
+                    directory, $"{packageName}.{version}.nupkg");
+                using (ZipArchive archive = ZipFile.Open(
+                    packagePath, ZipArchiveMode.Create))
+                {
+                    archive.CreateEntryFromFile(
+                        assemblyPath, $"lib/net10.0/{assemblyName}");
+                    ZipArchiveEntry nuspec = archive.CreateEntry(
+                        $"{packageName}.nuspec");
+                    await using Stream stream = nuspec.Open();
+                    await using var writer = new StreamWriter(stream);
+                    await writer.WriteAsync(
+                        $"""
+                        <package><metadata>
+                          <id>{packageName}</id><version>{version}</version>
+                          <authors>tests</authors><description>literal rename</description>
+                        </metadata></package>
+                        """);
+                }
+                string staged = Path.Combine(directory, $"staged-{version}");
+                ZipFile.ExtractToDirectory(packagePath, staged);
+                NuGetCache.CommitPackage(
+                    staged, packagePath, packageName, version,
+                    NuGetCache.GetSourceKey(directory));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "diff", $"{packageName}@1.0.0..2.0.0",
+                "--source", directory,
+                "--analysis", "string-literals",
+                "--where", "Literal contains https://",
+                "--json");
+
+            Assert.True(exit == 0, $"{error}\n{output}");
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal("Compared", Assert.Single(
+                document.RootElement.GetProperty("outcomes").EnumerateArray())
+                .GetProperty("kind").GetString());
+            JsonElement[] transitions = [.. document.RootElement
+                .GetProperty("transitions").EnumerateArray()];
+            Assert.Equal(2, transitions.Length);
+            Assert.Contains(transitions, row =>
+                row.GetProperty("target").GetString() == "Old.dll"
+                && row.GetProperty("transition").GetString()
+                    == "PairFinding.Removed");
+            Assert.Contains(transitions, row =>
+                row.GetProperty("target").GetString() == "New.dll"
+                && row.GetProperty("transition").GetString()
+                    == "PairFinding.Added");
+
+            string oldPath = Path.Combine(
+                directory, "staged-1.0.0", "lib", "net10.0", "Old.dll");
+            string newPath = Path.Combine(
+                directory, "staged-2.0.0", "lib", "net10.0", "New.dll");
+            var local = await RunAppAsync(
+                "diff", "--library", $"{oldPath}..{newPath}",
+                "--analysis", "string-literals",
+                "--where", "Literal contains https://",
+                "--json");
+            Assert.Equal(0, local.Exit);
+            Assert.Empty(local.Error);
+            using JsonDocument localDocument = JsonDocument.Parse(local.Output);
+            Assert.Empty(localDocument.RootElement
+                .GetProperty("transitions").EnumerateArray());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Theory]
-    [InlineData("Literal contains https://", "https://", 3)]
+    [InlineData("Literal contains https://", "https://", 2)]
     [InlineData("Literal contains https:// ", "https:// ", 0)]
-    [InlineData("Literal contains  https://", " https://", 3)]
-    [InlineData("Literal contains  ", " ", 3)]
+    [InlineData("Literal contains  https://", " https://", 2)]
+    [InlineData("Literal contains  ", " ", 2)]
     public async Task Diff_StringLiterals_JsonRetainsExactPredicateContext(
         string expression,
         string expectedValue,
@@ -1967,7 +2579,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--analysis (api, api-attribute, allocation, call-site, unsafety, csharp, il)",
+            "--analysis (api, api-attribute, allocation, call-site, unsafety, string-literals, unsafe-member, csharp, il)",
             error,
             StringComparison.Ordinal);
     }
@@ -2234,6 +2846,31 @@ public partial class CommandExecutionTests
             DiffSections.Transitions.Name,
             category.Output,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Diff_DiscoveryTreePreservesAuthoredSectionItems()
+    {
+        var result = await RunAppAsync(
+            "diff",
+            "-D",
+            DiffSections.AnalysisDiff.Name,
+            "--tree");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            ├─ Member (section) [diff/sections/analysis-diff/items/section/member]
+            ├─ Signal (section) [diff/sections/analysis-diff/items/section/signal]
+            ├─ Old (section) [diff/sections/analysis-diff/items/section/old]
+            ├─ New (section) [diff/sections/analysis-diff/items/section/new]
+            ├─ Delta (section) [diff/sections/analysis-diff/items/section/delta]
+            ├─ Shape (section) [diff/sections/analysis-diff/items/section/shape]
+            └─ Evidence (section) [diff/sections/analysis-diff/items/section/evidence]
+
+            """.ReplaceLineEndings(),
+            result.Output);
     }
 
     [Fact]

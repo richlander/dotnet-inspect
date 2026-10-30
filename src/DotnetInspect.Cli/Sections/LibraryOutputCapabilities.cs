@@ -51,12 +51,12 @@ internal static class LibraryOutputCapabilities
                 OutputCapabilityCatalog.StandardSectionFormats
                     .Where(format =>
                         format != DiscoveryOutputMode.Json));
-        sections[SectionNames.NameFamilyRoles] =
+        sections[SectionNames.ArchitecturalFamilies] =
             SectionOutputCapabilities.Create(
                 OutputCapabilityCatalog.StandardSectionFormats
                     .Where(format =>
                         format != DiscoveryOutputMode.Json));
-        sections[SectionNames.NameFamilyRoleTypes] =
+        sections[SectionNames.ArchitecturalFamilyTypes] =
             SectionOutputCapabilities.Create(
                 OutputCapabilityCatalog.StandardSectionFormats
                     .Where(format =>
@@ -80,6 +80,6 @@ internal static class LibraryOutputCapabilities
 
         return new OutputCapabilityCatalog(
             sections,
-            [PerformanceKinds.Sections]);
+            [[.. PerformanceKinds.TabularSections]]);
     }
 }

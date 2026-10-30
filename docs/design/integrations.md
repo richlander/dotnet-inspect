@@ -185,7 +185,9 @@ library JSON properties, the Workspace Census, or browser presentation.
 Detection reads metadata only:
 
 1. Public package-owned type definitions and curated public starter extension
-   methods are scanned for integration currency.
+   methods are scanned for integration currency. A type definition is public
+   when it is public through every enclosing Type, the
+   [Public scope's Type admission](api-population-scope.md#accessibility-within-api-visibility-scope).
 2. External "famous" types from referenced assemblies are not enough to create a
    focused row; rows should identify what to use from the inspected package.
 3. Public package-owned telemetry control APIs such as `DisableTracing` and
@@ -386,8 +388,8 @@ acquisition-identity case.
 failure-boundary rule.
 
 Package `--all-libraries` creates one binding-consistent group per package asset
-directory, preserving non-`net*` framework and runtime contexts, so `--tfm all`
-never combines different binding universes. Every root receives its own
+directory, preserving non-`net*` framework and runtime contexts, so it never
+combines different binding universes. Every root receives its own
 `AssemblyDependencyResolver`, and
 `SourceRelativeAssemblyGroupBindingPolicy` composes those resolvers behind the
 one shared policy version required by the group. For each participant in group

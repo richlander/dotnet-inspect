@@ -1287,9 +1287,9 @@ static class Program
     /// number of corpus methods it changed (the "which passes carry the load"
     /// roadmap). With a pass named, lists every method that pass changed (its
     /// blast radius), optionally with the per-method diff hunk (<c>--show-diff</c>).
-    /// <paramref name="cap"/> stops the sweep after that many methods —
-    /// RunWithStages over whole CoreLib is not free, and a cap is the same
-    /// bound the compiling checks use.
+    /// <paramref name="cap"/> stops the sweep after that many methods. The
+    /// name-only path streams manager-issued receipts; <c>--show-diff</c>
+    /// retains stages because it presents their text.
     /// </summary>
     static int PassImpact(List<string> assemblies, string? passFilter, bool showDiff, int cap)
     {
@@ -1320,10 +1320,20 @@ static class Program
                 if (total >= cap) { capped = true; break; }
                 total++;
 
-                IReadOnlyList<PipelineStage> stages;
+                IReadOnlyCollection<string> changed;
+                IReadOnlyList<PipelineStage>? stages = null;
                 try
                 {
-                    stages = IrPasses.RunWithStages(function, ImportSeam(source));
+                    if (showDiff && canonicalPass is not null)
+                    {
+                        stages = IrPasses.RunWithStages(function, ImportSeam(source));
+                        changed = StageDump.PassesThatChanged(stages);
+                    }
+                    else
+                    {
+                        var receipts = IrPasses.RunWithReceipts(function, ImportSeam(source));
+                        changed = PassExecutionReceipts.ChangedPasses(receipts);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1334,8 +1344,6 @@ static class Program
                             function.Signature, function.MetadataToken));
                     continue;
                 }
-                var changed = StageDump.PassesThatChanged(stages);
-
                 if (canonicalPass is null)
                 {
                     foreach (var name in changed)
@@ -1349,7 +1357,7 @@ static class Program
                 Console.WriteLine($"{typeName}::{methodName}");
                 if (showDiff)
                 {
-                    Console.Write(StageDump.FormatPassDiff(stages, canonicalPass));
+                    Console.Write(StageDump.FormatPassDiff(stages!, canonicalPass));
                     Console.WriteLine();
                 }
             }
@@ -1390,6 +1398,7 @@ static class Program
         long total = 0, crashes = 0, structured = 0, retainedRegions = 0, stoppedContainers = 0, methodsWithStop = 0;
         var reasons = new Dictionary<string, (long Count, string Example)>(StringComparer.Ordinal);
         var retainedDeclines = new Dictionary<string, long>(StringComparer.Ordinal);
+        var primaryDeclines = new Dictionary<string, (long Count, string Example)>(StringComparer.Ordinal);
         var retainedMethods = new SortedDictionary<string, int>(StringComparer.Ordinal);
         bool capped = false;
 
@@ -1441,6 +1450,16 @@ static class Program
                 }
                 foreach (var reason in diagnostics.RetainedDeclines)
                     retainedDeclines[reason] = retainedDeclines.GetValueOrDefault(reason) + 1;
+                if (diagnostics.Stops.Count > 0 && diagnostics.RetainedDeclines.Count > 0)
+                {
+                    // The planner records declines in the order it tries
+                    // candidates, so the first one belongs to the earliest-start,
+                    // furthest-merge candidate: the reason the largest region of
+                    // a flat method was not recovered.
+                    string primary = diagnostics.RetainedDeclines[0];
+                    var prior = primaryDeclines.GetValueOrDefault(primary);
+                    primaryDeclines[primary] = (prior.Count + 1, prior.Example ?? $"{typeName}::{methodName}");
+                }
             }
             if (capped) break;
         }
@@ -1467,6 +1486,13 @@ static class Program
             Console.WriteLine("retained-region declines:");
             foreach (var entry in retainedDeclines.OrderByDescending(e => e.Value))
                 Console.WriteLine($"  {entry.Value,8}  {entry.Key}");
+        }
+        if (primaryDeclines.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("primary retained decline per flat method (first candidate tried):");
+            foreach (var entry in primaryDeclines.OrderByDescending(e => e.Value.Count))
+                Console.WriteLine($"  {entry.Value.Count,8}  {entry.Key,-40}  e.g. {entry.Value.Example}");
         }
         return crashes > 0 ? 1 : 0;
     }

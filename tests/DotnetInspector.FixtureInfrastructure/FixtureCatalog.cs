@@ -58,8 +58,13 @@ public static class FixtureIds
         "metadata.api-correspondence.v1";
     public const string MetadataApiCorrespondenceV2 =
         "metadata.api-correspondence.v2";
+    public const string MetadataFindingDiffAnyV1 = "metadata.finding-diff-any.v1";
+    public const string MetadataFindingDiffAnyV2 = "metadata.finding-diff-any.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
     public const string MetadataEnablements = "metadata.enablements";
+    public const string MetadataStateMachinesDebug = "metadata.state-machines.debug";
+    public const string MetadataCompilationProfileRuntimeAsync =
+        "metadata.compilation-profile.runtime-async";
     public const string MetadataSourceProvenance =
         "metadata.source-provenance";
     public const string MetadataSourceProvenanceLookalike =
@@ -84,6 +89,8 @@ public static class FixtureIds
         "metadata.type-dependency.reference";
     public const string DiffV1 = "diff.v1";
     public const string DiffV2 = "diff.v2";
+    public const string UnsafeMemberDiffV1 = "unsafe-member-diff.v1";
+    public const string UnsafeMemberDiffV2 = "unsafe-member-diff.v2";
     public const string SourceDiffV1 = "source-diff.v1";
     public const string SourceDiffV2 = "source-diff.v2";
     public const string QueriesIntrinsicCoreLibraryCalls =
@@ -137,6 +144,7 @@ public static class FixtureIds
     public const string AnalysisCallFunctionPointerScope = "analysis.call-function-pointer-scope";
     public const string AnalysisTopLevelAsync = "analysis.top-level-async";
     public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
+    public const string AnalysisIterators = "analysis.iterators";
     public const string AnalysisProtobuf = "analysis.protobuf";
     public const string AnalysisRender = "analysis.render";
     public const string AnalysisSpoofSystemLinq = "analysis.spoof.system-linq";
@@ -182,6 +190,7 @@ public static class FixtureIds
     public const string InspectWebDocumentation =
         "inspect-web.documentation";
     public const string InspectWebMethodBodies = "inspect-web.method-bodies";
+    public const string InspectWebPackagePdb = "inspect-web.package-pdb";
     public const string InspectWebSourceComparisonV1 = "inspect-web.source-comparison.v1";
     public const string InspectWebSourceComparisonV2 = "inspect-web.source-comparison.v2";
     public const string SourceLinkMalformed = "sourcelink.malformed";
@@ -249,6 +258,22 @@ public static class FixtureCatalog
             Boundaries(FixtureBoundary.VersionPair),
             "metadata", "api-correspondence", "version-pair");
 
+    public static readonly FixtureDefinition MetadataFindingDiffAnyV1 =
+        Fixture(
+            FixtureIds.MetadataFindingDiffAnyV1,
+            "ILInspector.Metadata.FindingDiffAny.V1",
+            "ILInspector.Metadata.FindingDiffAny.dll",
+            Boundaries(FixtureBoundary.VersionPair),
+            "metadata", "finding-diff-any", "version-pair");
+
+    public static readonly FixtureDefinition MetadataFindingDiffAnyV2 =
+        Fixture(
+            FixtureIds.MetadataFindingDiffAnyV2,
+            "ILInspector.Metadata.FindingDiffAny.V2",
+            "ILInspector.Metadata.FindingDiffAny.dll",
+            Boundaries(FixtureBoundary.VersionPair),
+            "metadata", "finding-diff-any", "version-pair");
+
     public static readonly FixtureDefinition MetadataPublicMethodRoots =
         Fixture(
             FixtureIds.MetadataPublicMethodRoots,
@@ -312,6 +337,25 @@ public static class FixtureCatalog
         Asset("reference", "InspectWeb.MethodBodyFixtures", "ref/InspectWeb.MethodBodyFixtures.dll"),
         Asset("package", "InspectWeb.MethodBodyFixtures", "InspectWeb.MethodBodyFixtures.1.0.0.nupkg"));
 
+    public static readonly FixtureDefinition InspectWebPackagePdb = Fixture(
+        FixtureIds.InspectWebPackagePdb,
+        "InspectWeb.PackagePdbFixture",
+        "InspectWebPackagePdbFixture.dll",
+        ["inspect-web", "source", "package-pdb"],
+        Boundaries(
+            FixtureBoundary.SidecarAsset,
+            FixtureBoundary.SourceLinkMap,
+            FixtureBoundary.PostBuildTransformation),
+        Asset(
+            "package",
+            "InspectWeb.PackagePdbFixture",
+            "InspectWeb.PackagePdbFixture.1.0.0.nupkg"),
+        Asset(
+            "pdb",
+            "InspectWeb.PackagePdbFixture",
+            "InspectWebPackagePdbFixture.pdb"),
+        Asset("source", "InspectWeb.PackagePdbFixture", "Counter.cs"));
+
     // The browser Source comparison pair needs the same authored difference as the
     // queries source-diff pair, but reachable from a browser participant: an embedded
     // PDB (no adjacent file, no symbol transport) and a SourceLink map on a host the
@@ -361,6 +405,20 @@ public static class FixtureCatalog
         "ILInspector.Metadata.EnablementFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "metadata", "enablements", "runtime-async");
+
+    public static readonly FixtureDefinition MetadataStateMachinesDebug = Fixture(
+        FixtureIds.MetadataStateMachinesDebug,
+        "ILInspector.Metadata.StateMachineFixtures.Debug",
+        "ILInspector.Metadata.StateMachineFixtures.Debug.dll",
+        Boundaries(FixtureBoundary.ModuleAttribute, FixtureBoundary.CompilerLowering),
+        "metadata", "state-machines", "compilation-profile", "debug");
+
+    public static readonly FixtureDefinition MetadataCompilationProfileRuntimeAsync = Fixture(
+        FixtureIds.MetadataCompilationProfileRuntimeAsync,
+        "ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync",
+        "ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "metadata", "compilation-profile", "runtime-async");
 
     public static readonly FixtureDefinition MetadataSourceProvenance =
         Fixture(
@@ -501,6 +559,20 @@ public static class FixtureCatalog
         "DiffFixtureSample.dll",
         Boundaries(FixtureBoundary.VersionPair),
         "diff", "version-pair", "analysis", "decompiler", "rts-candidate");
+
+    public static readonly FixtureDefinition UnsafeMemberDiffV1 = Fixture(
+        FixtureIds.UnsafeMemberDiffV1,
+        "UnsafeMemberDiffFixtures.V1",
+        "UnsafeMemberDiffSample.dll",
+        Boundaries(FixtureBoundary.VersionPair),
+        "diff", "version-pair", "analysis", "unsafe");
+
+    public static readonly FixtureDefinition UnsafeMemberDiffV2 = Fixture(
+        FixtureIds.UnsafeMemberDiffV2,
+        "UnsafeMemberDiffFixtures.V2",
+        "UnsafeMemberDiffSample.dll",
+        Boundaries(FixtureBoundary.VersionPair),
+        "diff", "version-pair", "analysis", "unsafe");
 
     // This pair needs distinct controlled SourceLink maps as well as versioned
     // binaries; changing the existing analysis pair's PDB contract would leak
@@ -671,6 +743,13 @@ public static class FixtureCatalog
         "ILInspector.Analysis.TopLevelAsyncFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.OutputKind),
         "analysis", "top-level", "async");
+
+    public static readonly FixtureDefinition AnalysisIterators = Fixture(
+        FixtureIds.AnalysisIterators,
+        "ILInspector.Analysis.IteratorFixtures",
+        "ILInspector.Analysis.IteratorFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "iterators");
 
     public static readonly FixtureDefinition AnalysisTopLevelClassicAsync = Fixture(
         FixtureIds.AnalysisTopLevelClassicAsync,
@@ -1206,8 +1285,12 @@ public static class FixtureCatalog
         MetadataAttributeEnums,
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2,
+        MetadataFindingDiffAnyV1,
+        MetadataFindingDiffAnyV2,
         MetadataMemorySafety,
         MetadataEnablements,
+        MetadataStateMachinesDebug,
+        MetadataCompilationProfileRuntimeAsync,
         MetadataSourceProvenance,
         MetadataSourceProvenanceLookalike,
         MetadataSourceProvenanceNetStandard,
@@ -1222,6 +1305,7 @@ public static class FixtureCatalog
         InspectWebCloneTransport,
         InspectWebDocumentation,
         InspectWebMethodBodies,
+        InspectWebPackagePdb,
         InspectWebSourceComparisonV1,
         InspectWebSourceComparisonV2,
         DecompilerAuthoredRebuild,
@@ -1232,6 +1316,8 @@ public static class FixtureCatalog
         SourceLinkVisualBasic,
         DiffV1,
         DiffV2,
+        UnsafeMemberDiffV1,
+        UnsafeMemberDiffV2,
         SourceDiffV1,
         SourceDiffV2,
         CloneSearchMembers,
@@ -1250,6 +1336,7 @@ public static class FixtureCatalog
         AnalysisCallFunctionPointerScope,
         AnalysisTopLevelAsync,
         AnalysisTopLevelClassicAsync,
+        AnalysisIterators,
         AnalysisCallerGraphCallerTwin,
         AnalysisCallerGraphIndirectCaller,
         AnalysisCallerGraphLookalikeCaller,
@@ -1329,6 +1416,14 @@ public static class FixtureCatalog
         "metadata.api-correspondence",
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2);
+    public static readonly FixturePair MetadataFindingDiffAnyPair = new(
+        "metadata.finding-diff-any",
+        MetadataFindingDiffAnyV1,
+        MetadataFindingDiffAnyV2);
+    public static readonly FixturePair UnsafeMemberDiffPair = new(
+        "unsafe-member-diff",
+        UnsafeMemberDiffV1,
+        UnsafeMemberDiffV2);
     public static readonly FixturePair SourceDiffPair = new("source-diff", SourceDiffV1, SourceDiffV2);
     public static readonly FixturePair LibraryApiDiffPair = new(
         "library-api-diff",
@@ -1366,6 +1461,7 @@ public static class FixtureCatalog
             AnalysisStringMaterialization,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
+            AnalysisIterators,
             AnalysisCallerGraphCallerTwin,
             AnalysisCallerGraphIndirectCaller,
             AnalysisCallerGraphLookalikeCaller,
@@ -1646,10 +1742,18 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1",
             "ILInspector.Metadata.ApiDeclarationCorrespondence.V2" =>
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
+            "ILInspector.Metadata.FindingDiffAny.V1" =>
+                "fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V1",
+            "ILInspector.Metadata.FindingDiffAny.V2" =>
+                "fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
             "ILInspector.Metadata.EnablementFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.EnablementFixtures",
+            "ILInspector.Metadata.StateMachineFixtures.Debug" =>
+                "fixtures/metadata/ILInspector.Metadata.StateMachineFixtures.Debug",
+            "ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync" =>
+                "fixtures/metadata/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync",
             "ILInspector.Metadata.SourceProvenanceFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.SourceProvenanceFixtures",
             "ILInspector.Metadata.SourceProvenanceLookalike" =>
@@ -1677,6 +1781,8 @@ public static class FixtureCatalog
             "InspectWeb.DocumentationFixtures" =>
                 "fixtures/inspect-web/InspectWeb.DocumentationFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
+            "InspectWeb.PackagePdbFixture" =>
+                "fixtures/inspect-web/InspectWeb.PackagePdbFixture",
             "InspectWeb.SourceComparisonFixtures.V1" =>
                 "fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1",
             "InspectWeb.SourceComparisonFixtures.V2" =>
@@ -1687,6 +1793,8 @@ public static class FixtureCatalog
             "DiffAsmFixtures.Target" => "fixtures/diff/DiffAsmFixtures.Target",
             "DiffFixtures.V1" => "fixtures/diff/DiffFixtures.V1",
             "DiffFixtures.V2" => "fixtures/diff/DiffFixtures.V2",
+            "UnsafeMemberDiffFixtures.V1" => "fixtures/diff/UnsafeMemberDiffFixtures.V1",
+            "UnsafeMemberDiffFixtures.V2" => "fixtures/diff/UnsafeMemberDiffFixtures.V2",
             "DotnetInspector.SourceDiff.V1" => "fixtures/queries/DotnetInspector.SourceDiff.V1",
             "DotnetInspector.SourceDiff.V2" => "fixtures/queries/DotnetInspector.SourceDiff.V2",
             "DotnetInspector.Queries.IntrinsicCoreLibraryCallFixtures" =>
@@ -1746,6 +1854,7 @@ public static class FixtureCatalog
             "ILInspector.Analysis.StringMaterializationFixtures" => "fixtures/analysis/ILInspector.Analysis.StringMaterializationFixtures",
             "ILInspector.Analysis.TopLevelAsyncFixtures" => "fixtures/analysis/ILInspector.Analysis.TopLevelAsyncFixtures",
             "ILInspector.Analysis.TopLevelClassicAsyncFixtures" => "fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures",
+            "ILInspector.Analysis.IteratorFixtures" => "fixtures/analysis/ILInspector.Analysis.IteratorFixtures",
             "ILInspector.Decompiler.Fixtures.CheckedArithmetic" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic",
             "ILInspector.Decompiler.Fixtures.ClassicAsync" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync",
             "ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts",

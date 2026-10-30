@@ -511,6 +511,16 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLf(LambdaStatement(node)!);
             return;
         }
+        // A label anchor followed by a visible statement in its block binds its
+        // label to that statement; only a trailing anchor needs the labelled
+        // empty statement that keeps the label legal.
+        if (node is LabelAnchor
+            && node.Parent is Block anchorBlock
+            && anchorBlock.Children.Skip(node.ChildIndex + 1).Any(IsVisibleStatement))
+        {
+            AppendStatementLabel(sb, node, indent);
+            return;
+        }
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = $"{(localFunction.IsStatic ? "static " : "")}{(localFunction.RequiresUnsafe ? "unsafe " : "")}";
@@ -1590,6 +1600,8 @@ public sealed partial class CSharpPrinter
         ExpressionStatement e => e.Expression switch
         {
             UnsupportedNode u => UnsupportedStatement(e, u),
+            { } expr when e.DiscardTargetType is not null
+                => DiscardStatement(e, expr),
             { } expr when ShouldDiscardForUnsafeExpression(expr)
                 => DiscardStatement(e, expr),
             // A safe user-defined checked ++/-- as a statement spells
@@ -1936,7 +1948,10 @@ public sealed partial class CSharpPrinter
     string DiscardStatement(ExpressionStatement owner, IrExpression expression)
     {
         _printedRangeMetadata?.SetNodeKind(owner, "AssignmentStatement");
-        return $"_ = {UnsafeExpressionText(expression, Expression(expression))};";
+        string value = Expression(expression);
+        if (owner.DiscardTargetType is { } target)
+            value = $"({TypeText(target)})({value})";
+        return $"_ = {UnsafeExpressionText(expression, value)};";
     }
 
     /// <summary>Renders a diagnostic comment payload without publishing it as surface syntax.</summary>

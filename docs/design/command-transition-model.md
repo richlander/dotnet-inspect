@@ -84,6 +84,10 @@ Related docs:
 
 ## Independent axes
 
+The CLI normalizes an exact `type` request before choosing its presentation:
+the default compact Tree, explicit Tree, and explicit Mermaid forms retain the
+same Type subject and inspection operation.
+
 | Axis | Question | Examples | CLI shape |
 | --- | --- | --- | --- |
 | Source context | Where is the subject acquired from? | package, platform, local library, restored project, TFM | Named options such as `--package`, `--platform`, `--library`, `--project`, `--tfm` |
@@ -272,8 +276,8 @@ without making syntax or rendering accidental semantics:
   grammar;
 - one Package location and one Library location can each produce either a
   focused answer or a child census;
-- multi-package Package inspection supports a substantially smaller operation
-  set than unary Package inspection; and
+- the retired multi-package Package mode supported a substantially smaller
+  operation set than unary Package inspection; and
 - output can reduce a vector to one displayed row without changing what the
   operation returned.
 
@@ -453,9 +457,9 @@ precedent:
 
 | Current behavior | Target disposition |
 | --- | --- |
-| `package` accepts multiple positional packages and adds an outer Package column. | Move aggregate Package inventory to Workspace through [#7219](https://github.com/richlander/dotnet-inspect/issues/7219), then retire multi-package `package` through [#7221](https://github.com/richlander/dotnet-inspect/issues/7221); do not copy it into `library`. |
-| Multi-package `package` rejects Library selection, versions, layout, discovery, printing, dependencies, and other unary operations. | Preserve those operations on one Package coordinate instead of growing a second constrained command mode. |
-| Package-backed `library` can emit several Libraries, including all-TFM populations. | Inventory those Library occurrences through Workspace or a package-owned child census; [#7222](https://github.com/richlander/dotnet-inspect/issues/7222) makes `library` select one exact Library Result. |
+| `package` accepts zero or one positional Package coordinate; a second coordinate is rejected before acquisition. | Keep Package inspection unary. Workspace, Package Query, and reporting owners may select plural execution units without adding an outer Package column to the native result. [#7221](https://github.com/richlander/dotnet-inspect/issues/7221) owns the removal; [#10928](https://github.com/richlander/dotnet-inspect/issues/10928) owns future ordered Package reports. |
+| The retired multi-package `package` mode rejected Library selection, versions, layout, discovery, printing, dependencies, and other unary operations. | Preserve those operations on one Package coordinate instead of growing a second constrained command mode. |
+| Package-backed `library` can emit several Libraries. | Inventory those Library occurrences through Workspace or a package-owned child census; [#7222](https://github.com/richlander/dotnet-inspect/issues/7222) makes `library` select one exact Library Result. |
 | A bare `.dll` Library value can change the Type command's positional interpretation. | [#7220](https://github.com/richlander/dotnet-inspect/issues/7220) gives the Type positional slot one stable role and requires explicit coordinate fields. |
 | `workspace` accepts repeatable Packages and renders an ordered Package inventory. | [#7219](https://github.com/richlander/dotnet-inspect/issues/7219) owns the focused typed top-level Package, package-prefix, and exact-Library inventory adoption. |
 | Ordinary `find`, assembly-semantic `find --literal`, and Package Query resolve plural source populations. | Preserve their operation-owned multi-coordinate inputs and owner-issued homogeneous result modes. |
@@ -549,12 +553,11 @@ Type-listing gesture returns a Type vector even when exactly one Type matches.
 Adopt the pattern through focused owners:
 
 1. Lock this cardinality contract.
-2. [#7219](https://github.com/richlander/dotnet-inspect/issues/7219) adopts
+2. [#7221](https://github.com/richlander/dotnet-inspect/issues/7221) adopts
+   single-coordinate Package inspection independently of Workspace inventory.
+3. [#7219](https://github.com/richlander/dotnet-inspect/issues/7219) adopts
    typed top-level inventory in the Workspace owner and delivers its
    host-neutral result to CLI and Browser consumers.
-3. [#7221](https://github.com/richlander/dotnet-inspect/issues/7221) adopts
-   single-coordinate Package inspection after the Workspace replacement is
-   usable.
 4. [#7222](https://github.com/richlander/dotnet-inspect/issues/7222) adopts
    exact scalar Library inspection after aggregate Library inventory has an
    owner.
@@ -563,14 +566,14 @@ Adopt the pattern through focused owners:
    through separately scoped issues when a concrete gap is identified.
 
 Total steps: **5**. A later step may split into independently reviewed command
-adoptions, but no command removes a current aggregate route before the
-Workspace replacement for that scenario is usable.
+adoptions. Package inspection is unary; Workspace inventory remains an
+independent scenario rather than a prerequisite for that command contract.
 
 The motivating real cases are aggregate inspection of
 `System.Text.Json@10.0.0` with `Markout@0.35.2`, exact Library and Type
 drill-down in `System.Text.Json@10.0.0`, and bounded `Microsoft.Extensions.`
-package-prefix registration. The current multi-package Package route's reduced
-operation set demonstrates why it is not the model to reproduce for Library.
+package-prefix registration. The retired multi-package Package route's reduced
+operation set demonstrated why it was not the model to reproduce for Library.
 
 Each focused adoption owns its exact implementation and gates. Pattern
 conformance requires evidence for the applicable subset of:
@@ -818,8 +821,8 @@ authored operation preset.
 ### Envelope-complete adoption
 
 `InspectionEnvelope<TContent>` already exists, and
-`LibraryApiDiffInspection.Execute` already returns
-`InspectionEnvelope<LibraryApiDiffOutcome>`. Its available case carries one
+`DiffOperation.ExecuteLibraryPair` already returns a `DiffAnalysisDocument`
+whose `LibraryApi` is a `LibraryApiDiffOutcome`. Its available case carries one
 `LibraryApiDiffDocument`, retaining endpoint summaries, the existing
 `ComparisonDocument<LibraryApiTypeDiff>`, verdicts, and evidence. Unavailable
 and rejected execution retain their typed cases.
@@ -938,8 +941,30 @@ produces:
 | `call-site` | Member | `analysis.call-site` | `AnalysisFindings.CompareCallSites` |
 | `unsafety` | Member | `analysis.unsafety` | `AnalysisFindings.CompareUnsafety` |
 | `string-literals` | Library | `analysis.string-literal-use` | Shared path- or AssemblyContext-backed string-literal comparison query |
+| `unsafe-member` | Library, Type | `analysis.unsafe-member` | `UnsafeMemberComparisonQuery` producing `AnalysisFindings.CompareUnsafeMembers` ([Unsafe Members section](unsafe-members-section.md#diff)) |
 | `csharp` | Member | `csharp.line` | `CSharpFindings.Compare` |
 | `il` | Member | `il.op` | `IlFindings.Compare` |
+
+For `string-literals`, a pairwise package Diff compares every selected Library
+assembly at the before and after endpoints. Assemblies correspond by their
+case-insensitive file name; each retains a distinct Library Finding subject and
+appears by file name in `Transitions.Target`. A Library present on only one side
+has an empty comparison side, so its matching literals are added or removed.
+When a package selects one assembly at each endpoint with the same file name,
+the existing one-Library subject and output remain unchanged. A package rename
+uses separate one-sided assembly subjects. Direct local `--library` pairs retain
+their existing pairwise subject and output even when the file names differ. A failed
+inspection of any selected assembly remains a failed comparison rather than a
+partial success. This work remains explicit through `--analysis string-literals`
+and one `Literal` predicate.
+
+`Microsoft.Azure.SignalR@1.20.0..1.33.1` is the motivating real
+asset: both versions select several Library assemblies, and the added HTTPS
+literal uses occur in `Microsoft.Azure.SignalR.Common.dll`. The pinned CLI test
+population retains both package versions and its focused slow test exercises
+the ordinary package acquisition path. The single-Library fixture and query
+tests cover complete literal identity, while the multi-Library query test
+covers assembly separation and an assembly present on only one side.
 
 `api` binds the existing `Changes` producer at every surface, including the
 filterless Library surface of `diff A B`. `ApiFindingComparison` carries keyed
@@ -960,9 +985,9 @@ Diff offers these views over the result:
 A view is admitted only when the selected set contains an analysis it
 projects. `Changes` requires `api`. `Transitions` requires a selected
 participation that declares it at the requested surface. Type and Member
-participations continue to support it. At Library, `string-literals` is the
-first declaration; Library `api` and Member-only analyses do not gain Library
-Transition support. Otherwise the request is rejected before execution,
+participations continue to support it. At Library, `string-literals` and
+`unsafe-member` declare it; Library `api` and Member-only analyses do not gain
+Library Transition support. Otherwise the request is rejected before execution,
 naming the view and the missing analysis. A view never adds an analysis and
 never renders an empty success.
 
@@ -1048,8 +1073,8 @@ and behavior.
 `DiffAnalysisOperation` produces one internal `DiffAnalysisResult`: an ordered
 list of native per-analysis outcomes in selection order. It is Diff's
 producer result, not a universal diff type. `DiffAnalysisInspection` projects
-that result into one
-`InspectionEnvelope<DiffAnalysisDocument>` for host delivery. The Document
+that result into an owner-issued representation for host delivery. Document
+demand returns `InspectionEnvelope<DiffAnalysisDocument>`. The Document
 retains the comparison context, selected analyses and views, flattened outcome
 state, typed API inspection failures independently of the selected view, the
 selected API Changes payload, selected Summary rows, and selected Transitions
@@ -1089,7 +1114,8 @@ A request without analysis-set views keeps today's Content. The default
 single-`api` Library request still delivers
 `InspectionEnvelope<LibraryApiDiffOutcome>`, so default output does not change.
 An explicit `--analysis` request, or a request selecting Summary or
-Transitions, delivers `InspectionEnvelope<DiffAnalysisDocument>`.
+Transitions, delivers `InspectionEnvelope<DiffAnalysisDocument>` for Document
+demand.
 Unprojected `--json` writes that exact Content and `--envelope` writes the same
 Content with `result_kind` `diff-analysis`, schema version `2`, Share, and
 ordered diagnostics. Type and Member targets remain semantic request inputs;
@@ -1113,6 +1139,52 @@ continues to take precedence over table, TSV, and JSONL shape selection.
 Member filtering follows the owner-issued typed Member subject rather than a
 closed list of change kinds. Explicit Changes intent follows the resolved
 section selection, including wildcard selectors.
+
+#### Summary and Transitions representations
+
+The first runtime adoption of
+[Section representations](section-shapes.md#section-representations), tracked
+by [#10542](https://github.com/richlander/dotnet-inspect/issues/10542) under
+[#10385](https://github.com/richlander/dotnet-inspect/issues/10385), offers
+Table and Document for Summary and Transitions. The motivating repository
+source is `DiffCommand.AnalysisSelection.cs` at `90112c915`: its tabular path
+serialized whole views, adding Versions and status context around the shared
+rows. The pinned `System.Text.Json@9.0.0..10.0.0` member comparison above
+remains the real-asset scenario; the compiled DiffPair fixture supplies
+deterministic command evidence.
+
+Summary Table demand returns `InspectionEnvelope<DiffAnalysisSummaryTable>`;
+Transitions Table demand returns
+`InspectionEnvelope<DiffAnalysisTransitionsTable>`. Both contain exactly the
+ordered typed rows their Document view carries, using the same projection.
+Summary rows count transitions within each selected analysis and semantic
+Type/Member scope, before a presentation row window. These counts are the
+Summary section's payload, not optional Document context. Transitions Table
+demand neither computes Summary rows nor constructs comparison context,
+flattened Document outcomes, or a Document.
+
+The CLI selects Table for a lone Summary or Transitions section by default
+and for explicit table, TSV, or JSONL. All tabular encodings contain only the
+selected rows under one schema, with no Versions or status rows. Transitions
+always declares Old Inspection and New Inspection columns, empty when absent,
+so incomplete evidence and empty results use the same schema. Headerless and
+empty JSONL streams remain valid empty populations. Failures still produce
+diagnostics and nonzero exits under the existing failure contract.
+
+Explicit Markdown, JSON, and envelope output request Document. A heterogeneous
+selection remains Document. JSON retains native counts and outcome states,
+never display strings reconstructed from a renderer. Existing unsupported
+JSON field/column/row projections fail before acquisition; they do not switch
+to display JSON. Tree demand is unsupported for these two sections and fails
+before acquisition. Browser consumers retain their current Document contract
+and may select these shared typed Table entry points independently; this slice
+does not change Browser transport or presentation preferences.
+
+`DiffCommandTests.AnalysisRepresentation_*` gates shared row/diagnostic parity,
+single-schema TSV and JSONL, typed Document JSON, empty streams, and unsupported
+tree admission. The neighboring Markdown and analysis tests retain Document
+presentation coverage. Changes and the other Diff sections have not adopted
+this representation contract yet.
 
 #### Demo and evidence
 

@@ -5,6 +5,9 @@ public sealed class CheckedIntegerOperandPass : IIrPass
 {
     public string Name => "checked-integer-operand";
 
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
     public void Run(IrFunction function, PassContext context)
     {
         // Parents clone their operands; finish each nested binary first.

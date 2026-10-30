@@ -194,7 +194,8 @@ public partial class PackageQueryTests
         Assert.Equal(
             "2",
             EvidenceProperty(match.Evidence[4], "settings-version"));
-        Assert.Equal(["Contoso.Tool"], content.Requests);
+        Assert.Equal(["Contoso.Tool"], content.InventoryRequests);
+        Assert.Equal(["Contoso.Tool"], content.FileRequests);
         Assert.All(
             match.Evidence,
             evidence =>
@@ -204,6 +205,45 @@ public partial class PackageQueryTests
                     || evidence.Number is not null
                     || evidence.Summary is not null);
             });
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReportsRidSpecificToolPackageType()
+    {
+        var source = new FakePackageSource(
+            [Match("Contoso.Tool.linux-x64")],
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.tool.linux-x64@1.0.0"] = Manifest(
+                    "Contoso.Tool.linux-x64",
+                    packageTypes:
+                    """
+                    <packageTypes>
+                      <packageType name="DotnetToolRidPackage" />
+                    </packageTypes>
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.*",
+                    [Term(PackageQuery.ToolTermKey, "true")],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match = Assert.Single(
+            events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("DotnetToolRidPackage", Assert.Single(match.Answers,
+            answer => answer.Id == PackageQuery.ToolTermKey).Value);
+        Assert.Equal(
+            "DotnetToolRidPackage",
+            EvidenceProperty(match.Evidence[^1], "package-type"));
     }
 
     [Fact]
@@ -263,7 +303,7 @@ public partial class PackageQueryTests
                 PackageQuery.ToolTermKey,
             ],
             match.Evidence.Select(evidence => evidence.Id));
-        Assert.Equal("true", Assert.Single(match.Answers,
+        Assert.Equal("DotnetTool", Assert.Single(match.Answers,
             answer => answer.Id == PackageQuery.ToolTermKey).Value);
         Assert.Equal(
             "DotnetTool",

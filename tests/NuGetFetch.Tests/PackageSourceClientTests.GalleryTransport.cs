@@ -278,6 +278,7 @@ public sealed partial class PackageSourceClientTests
         Assert.False(handler.UseProxy);
         Assert.Null(handler.Credentials);
         Assert.NotNull(handler.ConnectCallback);
+        Assert.Equal(0, handler.MaxResponseDrainSize);
     }
 
     [Fact]
@@ -611,6 +612,28 @@ public sealed partial class PackageSourceClientTests
             request.Options.TryGetValue(
                 fetchOptionsKey,
                 out IDictionary<string, object>? options));
+        Assert.Equal("omit", options["credentials"]);
+        Assert.Equal("error", options["redirect"]);
+        Assert.False(options.ContainsKey("cache"));
+    }
+
+    [Fact]
+    public void BrowserRangeRequestsBypassHttpCache()
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            ServiceIndex);
+        NuGetHttpRequest.ConfigureBrowserRangeRequest(
+            request,
+            isBrowser: true);
+        var fetchOptionsKey = new HttpRequestOptionsKey<
+            IDictionary<string, object>>("WebAssemblyFetchOptions");
+
+        Assert.True(
+            request.Options.TryGetValue(
+                fetchOptionsKey,
+                out IDictionary<string, object>? options));
+        Assert.Equal("no-store", options["cache"]);
         Assert.Equal("omit", options["credentials"]);
         Assert.Equal("error", options["redirect"]);
     }
@@ -1021,15 +1044,17 @@ public sealed partial class PackageSourceClientTests
     [Fact]
     public void GalleryDesktopTransportDecompressesSemVer2Registration()
     {
-        using HttpClientHandler handler =
+        using HttpMessageHandler transport =
             PackageSourceClientFactory.CreateGalleryTransportHandler(
                 isBrowser: false);
 
+        SocketsHttpHandler handler = Assert.IsType<SocketsHttpHandler>(transport);
+        Assert.Equal(0, handler.MaxResponseDrainSize);
         Assert.Equal(
             DecompressionMethods.All,
             handler.AutomaticDecompression);
         Assert.False(handler.UseCookies);
-        Assert.False(handler.UseDefaultCredentials);
+        Assert.Null(handler.Credentials);
         Assert.False(handler.PreAuthenticate);
         Assert.False(handler.AllowAutoRedirect);
     }
@@ -1037,10 +1062,11 @@ public sealed partial class PackageSourceClientTests
     [Fact]
     public void GalleryBrowserTransportAvoidsUnsupportedHandlerConfiguration()
     {
-        using HttpClientHandler handler =
+        using HttpMessageHandler transport =
             PackageSourceClientFactory.CreateGalleryTransportHandler(
                 isBrowser: true);
 
+        HttpClientHandler handler = Assert.IsType<HttpClientHandler>(transport);
         Assert.Equal(
             DecompressionMethods.None,
             handler.AutomaticDecompression);

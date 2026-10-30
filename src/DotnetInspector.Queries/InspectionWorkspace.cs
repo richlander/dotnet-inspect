@@ -2007,6 +2007,9 @@ public sealed partial class InspectionWorkspace :
     {
         ArgumentNullException.ThrowIfNull(plan);
         _registrationRevision = new(_identity, plan);
+        _scopeProject = plan.Project is { } project
+            ? new(_identity, project)
+            : null;
         _closeStart = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         _closeTask = CloseCoreAsync(_closeStart.Task);
@@ -2031,6 +2034,13 @@ public sealed partial class InspectionWorkspace :
             participants,
             options,
             retainedSnapshots: null);
+
+    internal bool ContainsAssemblyContextGroup(
+        AssemblyContextGroup group)
+    {
+        lock (_gate)
+            return _groups.Contains(group);
+    }
 
     internal AssemblyContextGroup CreateAssemblyContextGroupWithRetainedImages(
         IEnumerable<AssemblyContextParticipant> participants,

@@ -178,7 +178,11 @@ A location-intent declaration has one of two sources:
   product-triggering Browser gesture captures its intended push, replace, or
   no-write policy before its first asynchronous prerequisite. A returned
   result carries that originating identity; completion cannot mint a newer
-  identity or derive one from then-current UI state.
+  identity or derive one from then-current UI state. One Performance Triage
+  row gesture therefore records only its
+  final Member destination. Type and Member loading presentations rendered
+  while resolving that destination neither publish a URL nor enter history;
+  one Back restores the exact Library Analysis predecessor.
 
 Only the current location-intent identity may publish location. A newer browser
 selection replaces any older unresolved browser selection because the browser
@@ -241,6 +245,33 @@ product-owned canonical packet:
 ```text
 ?package=System.Text.Json&w=<opaque-canonical-packet>
 ```
+
+Analysis composes one optional Browser-owned presentation refinement over
+that packet:
+
+```text
+?package=System.Text.Json&w=<opaque-canonical-packet>&analysis=performance
+```
+
+`analysis` carries one Analysis mode only while the packet resolves an
+Analysis inspector, at Library, Type, or Member scope, and only when that
+scope lists the mode
+([Analysis modes](inspect-web-surface-composition.md#library-analysis)).
+Its absence, or a value the scope doesn't list, selects that scope's default:
+`relationships` for a Library and for a package-backed Type, and `unsafe`
+for a Platform Type or a Member. Canonical
+composition omits the default and removes the parameter outside Analysis.
+Each scope keeps its own selected mode, so drilling from a Library mode to a
+Type doesn't change the Library's selection. Selecting an Analysis mode
+replaces the current browser entry, and refresh, copied links, Back, and
+Forward restore the selected mode without adding host presentation to the
+Workspace definition.
+
+The motivating production witness is
+`Microsoft.Extensions.AI.OpenAI` 10.11.0 on `net10.0`. Before this refinement,
+selecting **Performance Triage** updated only live Browser state, so the
+[published workspace link](https://dotnet-inspect.ca/?package=Microsoft.Extensions.AI.OpenAI&w=eyJmIjoxLCJ0IjpbWyJNaWNyb3NvZnQuRXh0ZW5zaW9ucy5BSS5PcGVuQUkiLCIxMC4xMS4wIiwibmV0MTAuMCIsbnVsbF1dLCJnIjpbWzBdXSwiYSI6MCwieCI6MCwidiI6ImxpYnJhcnk6YW5hbHlzaXMiLCJsIjpbImNvbXBpbGU6bGliL25ldDEwLjAvTWljcm9zb2Z0LkV4dGVuc2lvbnMuQUkuT3BlbkFJLmRsbCJdfQ)
+reopened on **Relationships**.
 
 The UI does not expand Package, Library, Type, Member, filter, or source
 identity into readable path segments merely to make them URL-addressable. A
@@ -1095,6 +1126,10 @@ outcomes.
 5. Confirm that route preflight, refresh, and shared-link activation never parse
    compact packet fields or use the readable package courtesy identity as a
    fallback workspace.
+6. Select every Library Analysis mode and confirm that non-default modes compose
+   the `analysis` refinement, copied links and refresh restore it, an unknown
+   value defaults to Relationships, and Relationships or another surface omits
+   the parameter.
 
 ### Browser history
 
@@ -1126,6 +1161,12 @@ outcomes.
 8. Supersede a Back restoration with Forward, then return a non-posting
    outcome for the current Forward restoration. Confirm that only the newest
    traversal serial may realign the selected entry.
+9. From Library Analysis / Performance Triage, activate one ranked row from
+   the `Microsoft.Extensions.AI.OpenAI` 10.11.0 `net10.0` production witness.
+   Confirm that Type and Member loading presentations do not replace the
+   Analysis address or enter product history, the exact Member/Facts
+   destination is committed once, and one product Back returns directly to
+   Performance Triage.
 
 ### Type Explorer route acceptance
 

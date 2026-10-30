@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Sections;
+using DotnetInspect.Web;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -12,21 +13,13 @@ internal static class BrowserCapabilityCatalogSearch
         string text,
         int maximumResults)
     {
-        InspectionCapabilityCatalog catalog =
-            InspectionCapabilityCatalog.Create(
-                [
-                    PackageQueryCapability.ProductModule,
-                    PackageQueryCapabilityBinding.Module,
-                ]);
-        ResourceExplanationCatalog explanation =
-            ResourceExplanationCatalog.CreateCapabilities(
-                catalog,
-                PackageQueryCapabilityResourcePaths.Create(catalog));
+        var (catalog, explanation) = BrowserCapabilityComposition.CreateSearchComposition();
         return CapabilityCatalogSearch.Search(
             catalog,
             explanation,
             new(text, maximumResults));
     }
+
 }
 
 [SupportedOSPlatform("browser")]
@@ -83,8 +76,20 @@ public static partial class PackageExports
                 "Unknown capability-search Share outcome."),
         };
 
+    // Browser structural views are not registered yet; every current result
+    // carries the shared capability identity, including registered analyses.
     private static BrowserCapabilityCatalogSearchResult Project(
         CapabilityCatalogSearchResult result) =>
+        Project(
+            result,
+            result.ResourceIdentity
+            ?? throw new InvalidOperationException(
+                "The Browser capability-search wire projection does not "
+                + "carry structural results."));
+
+    private static BrowserCapabilityCatalogSearchResult Project(
+        CapabilityCatalogSearchResult result,
+        InspectionCapabilityResourceIdentity identity) =>
         new(
             result.Similarity,
             result.MatchedTerm,
@@ -100,6 +105,8 @@ public static partial class PackageExports
                     BrowserCapabilityCatalogSearchMatchSource.ResourcePath,
                 CapabilityCatalogSearchMatchSource.ResourceName =>
                     BrowserCapabilityCatalogSearchMatchSource.ResourceName,
+                CapabilityCatalogSearchMatchSource.IssuedFinding =>
+                    BrowserCapabilityCatalogSearchMatchSource.IssuedFinding,
                 CapabilityCatalogSearchMatchSource.Summary =>
                     BrowserCapabilityCatalogSearchMatchSource.Summary,
                 CapabilityCatalogSearchMatchSource.RelatedRoute =>
@@ -111,7 +118,7 @@ public static partial class PackageExports
             },
             result.IsSegment,
             new BrowserCapabilityResourceIdentity(
-                result.ResourceIdentity.Kind switch
+                identity.Kind switch
                 {
                     InspectionCapabilityResourceKind.Document =>
                         BrowserCapabilityResourceKind.Document,
@@ -121,13 +128,15 @@ public static partial class PackageExports
                         BrowserCapabilityResourceKind.QuerySpace,
                     InspectionCapabilityResourceKind.QueryFacet =>
                         BrowserCapabilityResourceKind.QueryFacet,
+                    InspectionCapabilityResourceKind.Analysis =>
+                        BrowserCapabilityResourceKind.Analysis,
                     InspectionCapabilityResourceKind.ConsumerBinding =>
                         BrowserCapabilityResourceKind.ConsumerBinding,
                     _ => throw new InvalidOperationException(
                         "Unknown capability resource kind."),
                 },
-                result.ResourceIdentity.Identity,
-                result.ResourceIdentity.ParentIdentity),
+                identity.Identity,
+                identity.ParentIdentity),
             result.ResourceKind switch
             {
                 CapabilityCatalogSearchResourceKind.InspectionDocument =>
@@ -140,6 +149,8 @@ public static partial class PackageExports
                     BrowserCapabilityCatalogSearchResourceKind.QuerySpace,
                 CapabilityCatalogSearchResourceKind.QueryFacet =>
                     BrowserCapabilityCatalogSearchResourceKind.QueryFacet,
+                CapabilityCatalogSearchResourceKind.Analysis =>
+                    BrowserCapabilityCatalogSearchResourceKind.Analysis,
                 CapabilityCatalogSearchResourceKind.ConsumerBinding =>
                     BrowserCapabilityCatalogSearchResourceKind
                         .ConsumerBinding,

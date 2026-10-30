@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
-using ILInspector.MetadataPrimitives;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Web.Interop.Source;
 
@@ -51,7 +51,7 @@ public sealed record BrowserTypeExplorerMemberIdentity(
     string MemberName)
 {
     internal static BrowserTypeExplorerMemberIdentity From(
-        MemberAnchor anchor) =>
+        ProjectedMemberAnchor anchor) =>
         new(
             anchor.StableSelector,
             anchor.CanonicalSignature,
@@ -77,7 +77,7 @@ public sealed record BrowserTypeExplorerRequest(
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(Accessibilities);
-        MemberAnchor? selectedMember = null;
+        ProjectedMemberAnchor? selectedMember = null;
         if (SelectedDeclarationId is int declarationId)
         {
             if (!string.Equals(
@@ -102,7 +102,7 @@ public sealed record BrowserTypeExplorerRequest(
                     "The selected declaration is not present in this Type document.");
                 return false;
             }
-            selectedMember = declaration.Anchor;
+            selectedMember = declaration.ProjectedAnchor;
         }
         projectionRequest = new(
             BodyMode switch
@@ -386,9 +386,10 @@ internal static class BrowserTypeExplorerAdapter
             CSharpTypePhysicalArtifact artifact =
                 document.Artifacts[physicalBody.ArtifactId];
             destination = new(
-                physicalBody.Address.ModuleVersionId.ToString("D"),
-                BrowserTypeExplorerMemberIdentity.From(artifact.Anchor),
-                physicalBody.Address.Token);
+                physicalBody.ProjectedAddress.ModuleVersionId.ToString("D"),
+                BrowserTypeExplorerMemberIdentity.From(
+                    artifact.ProjectedAnchor),
+                physicalBody.ProjectedAddress.MetadataToken);
         }
         return new(
             body.BodyId,

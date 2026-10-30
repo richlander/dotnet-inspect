@@ -1,15 +1,33 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using System.Text.Encodings.Web;
 using DotnetInspect.Cli.Commands;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Views;
 
 namespace DotnetInspect.Cli;
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(VersionListingJson))]
+[JsonSerializable(typeof(SectionCount))]
+internal partial class SimpleTableJsonlContext : JsonSerializerContext
+{
+    internal static SimpleTableJsonlContext Relaxed { get; } = new(
+        new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        });
+}
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,
@@ -26,8 +44,6 @@ namespace DotnetInspect.Cli;
 [JsonSerializable(typeof(LibraryIntegrationSummaryJson))]
 [JsonSerializable(typeof(List<LibraryIntegrationSummaryJson>))]
 [JsonSerializable(typeof(List<VersionJson>))]
-[JsonSerializable(typeof(List<PackageTfmJson>))]
-[JsonSerializable(typeof(List<PackageLayoutFileJson>))]
 [JsonSerializable(typeof(List<VersionListingJson>))]
 [JsonSerializable(typeof(List<VersionFeedJson>))]
 [JsonSerializable(typeof(LibraryIntegrationSignalJson))]
@@ -50,8 +66,9 @@ namespace DotnetInspect.Cli;
 [JsonSerializable(typeof(List<IntegrationOpportunityInfo>))]
 [JsonSerializable(typeof(SwitchInfo))]
 [JsonSerializable(typeof(List<SwitchInfo>))]
-[JsonSerializable(typeof(UnsafeMemberSummary))]
-[JsonSerializable(typeof(List<UnsafeMemberSummary>))]
+[JsonSerializable(typeof(UnsafeMemberFindingJson))]
+[JsonSerializable(typeof(List<UnsafeMemberFindingJson>))]
+[JsonSerializable(typeof(UnsafeMemberEvidenceJson))]
 [JsonSerializable(typeof(OptimizationOpportunitySummary))]
 [JsonSerializable(typeof(List<OptimizationOpportunitySummary>))]
 [JsonSerializable(typeof(RidPackageReference))]
@@ -77,7 +94,6 @@ public partial class JsonContext : JsonSerializerContext
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(PackageInspectionJson))]
-[JsonSerializable(typeof(PackageInspectionJson[]))]
 internal partial class PackageInspectionJsonContext : JsonSerializerContext
 {
 }
@@ -170,12 +186,6 @@ internal partial class PackageFileJsonRowContext : JsonSerializerContext
 {
 }
 
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
-[JsonSerializable(typeof(PackageFileMultiJsonRow))]
-internal partial class PackageFileMultiJsonRowContext : JsonSerializerContext
-{
-}
-
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
@@ -244,20 +254,21 @@ internal partial class ExtensionsJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<ExtensionMethodJsonResult>))]
 internal partial class ExtensionsCompactJsonContext : JsonSerializerContext { }
 
-// Implements command JSON contexts
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<ImplementerJsonResult>))]
-internal partial class ImplementsJsonContext : JsonSerializerContext { }
+[JsonSerializable(typeof(TypeHierarchyRelationsJsonResult))]
+internal partial class TypeHierarchyRelationsJsonContext :
+    JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<ImplementerJsonResult>))]
-internal partial class ImplementsCompactJsonContext : JsonSerializerContext { }
+[JsonSerializable(typeof(TypeHierarchyRelationsJsonResult))]
+internal partial class TypeHierarchyRelationsCompactJsonContext :
+    JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,
@@ -286,6 +297,12 @@ internal partial class MemberFindResultJsonContext : JsonSerializerContext { }
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(List<MemberFindResult>))]
 internal partial class MemberFindResultCompactJsonContext : JsonSerializerContext { }
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(DotnetInspector.Queries.EcosystemFindSearchSummary<FindCommand.LayeredSearchBlock>))]
+internal partial class EcosystemFindResultJsonContext : JsonSerializerContext { }
 
 static class JsonOutputHelper
 {

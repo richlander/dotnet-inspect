@@ -146,7 +146,7 @@ public class ExactSzArraySlotMaterializationTests
     }
 
     [Fact]
-    public void PrimitiveArrayCopyComponentRemainsAtomic()
+    public void PrimitiveArrayCopyComponentMaterializesSourceClosedMembers()
     {
         var function = Function(IntArray,
             new StoreStackSlot(0, new NewArray(Int32, new Constant(2, Int32))),
@@ -154,9 +154,17 @@ public class ExactSzArraySlotMaterializationTests
             new ExpressionStatement(new LoadStackSlot(1, type: null)),
             new Return(new LoadStackSlot(0, IntArray)));
 
-        Assert.All(SlotMaterializationPass.Analyze(function), decision =>
-            Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent)));
-        AssertRetained(function);
+        var decisions = SlotMaterializationPass.Analyze(function);
+        // Decided S_0 copies into S_1, whose only load is untyped: S_0 is
+        // source-closed and materializes; S_1 stays a slot.
+        Assert.True(Assert.Single(decisions, decision => decision.Slot == 0).WillMaterialize);
+        Assert.True(Assert.Single(decisions, decision => decision.Slot == 1).Vetoes
+            .HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+        var split = SlotMaterializationInvariant.Capture(function);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        split.Check();
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 0);
     }
 
     [Theory]

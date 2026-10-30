@@ -54,7 +54,12 @@ public sealed partial class InspectionWorkspace
                     new(_identity, order, members.Count),
                     coordinate, assembly.Identity,
                     new WorkspaceDeclarationOrigin.ContextLoad(member.Declared, member.Realized),
-                    assembly.Provenance));
+                    assembly.Provenance,
+                    coordinate is ExactLibrarySourceCoordinate.Package
+                        ? new(
+                            request.Framework,
+                            request.RuntimeIdentifier)
+                        : null));
             }
         }
 
@@ -89,13 +94,27 @@ public sealed partial class InspectionWorkspace
     /// failures. It does not realize registrations or scan declarations.
     /// </summary>
     public WorkspaceDeclarationPopulationCapture CaptureDeclarationPopulation(
-        ImmutableArray<WorkspaceDeclarationContext> contexts)
+        ImmutableArray<WorkspaceDeclarationContext> contexts) =>
+        CaptureDeclarationPopulation(contexts, []);
+
+    /// <summary>
+    /// Captures the supplied admitted contexts while omitting explicitly
+    /// selected exact member occurrences.
+    /// </summary>
+    public WorkspaceDeclarationPopulationCapture CaptureDeclarationPopulation(
+        ImmutableArray<WorkspaceDeclarationContext> contexts,
+        ImmutableArray<WorkspaceDeclarationOccurrence>
+            excludedOccurrences)
     {
         lock (_gate)
         {
             if (DeclarationPopulationAvailability() is { } unavailable)
                 return new WorkspaceDeclarationPopulationCapture.Rejected(unavailable);
-            if (contexts.IsDefault || contexts.Any(static context => context is null))
+            if (contexts.IsDefault
+                || contexts.Any(static context => context is null)
+                || excludedOccurrences.IsDefault
+                || excludedOccurrences.Any(
+                    static occurrence => occurrence is null))
             {
                 return new WorkspaceDeclarationPopulationCapture.Rejected(
                     WorkspaceDeclarationPopulationFailure.MalformedSelection);
@@ -122,8 +141,29 @@ public sealed partial class InspectionWorkspace
                 }
             }
 
+            var exclusions =
+                new HashSet<WorkspaceDeclarationOccurrence>();
+            foreach (WorkspaceDeclarationOccurrence occurrence
+                in excludedOccurrences)
+            {
+                if (!ReferenceEquals(occurrence.Workspace, _identity)
+                    || !exclusions.Add(occurrence)
+                    || !contexts.Any(context =>
+                        context.Receipt.Members.Any(member =>
+                            ReferenceEquals(
+                                member.Occurrence,
+                                occurrence))))
+                {
+                    return new WorkspaceDeclarationPopulationCapture.Rejected(
+                        WorkspaceDeclarationPopulationFailure
+                            .OccurrenceNotSelected);
+                }
+            }
+
             return new WorkspaceDeclarationPopulationCapture.Captured(
-                CreateDeclarationPopulation(contexts));
+                CreateDeclarationPopulation(
+                    contexts,
+                    exclusions));
         }
     }
 
@@ -195,23 +235,66 @@ public sealed partial class InspectionWorkspace
     }
 
     WorkspaceDeclarationPopulation CreateDeclarationPopulation(
-        IEnumerable<WorkspaceDeclarationContext> contexts)
+        IEnumerable<WorkspaceDeclarationContext> contexts) =>
+        CreateDeclarationPopulation(
+            contexts,
+            excludedOccurrences: null);
+
+    WorkspaceDeclarationPopulation CreateDeclarationPopulation(
+        IEnumerable<WorkspaceDeclarationContext> contexts,
+        IReadOnlySet<WorkspaceDeclarationOccurrence>?
+            excludedOccurrences)
     {
         var ordered = contexts.OrderBy(static context => context.Receipt.Order).ToArray();
         var access = new Dictionary<
             WorkspaceDeclarationOccurrence,
             WorkspaceDeclarationMemberAccess>();
+        var receipts =
+            ImmutableArray.CreateBuilder<
+                WorkspaceDeclarationContextReceipt>(
+                    ordered.Length);
         foreach (WorkspaceDeclarationContext context in ordered)
         {
+            WorkspaceDeclarationContextReceipt original =
+                context.Receipt;
+            ImmutableArray<WorkspaceDeclarationMember> members =
+                excludedOccurrences is null
+                    ? original.Members
+                    : [
+                        .. original.Members.Where(member =>
+                            !excludedOccurrences.Contains(
+                                member.Occurrence)),
+                    ];
+            WorkspaceDeclarationContextReceipt receipt =
+                members.Length == original.Members.Length
+                    ? original
+                    : new(
+                        original.Workspace,
+                        original.Order,
+                        original.Request,
+                        original.IsRealized,
+                        members,
+                        original.Failures);
+            receipts.Add(receipt);
+
             if (context.Group is { } group)
             {
                 for (int index = 0;
                     index < group.Participants.Length;
                     index++)
                 {
+                    WorkspaceDeclarationMember member =
+                        original.Members[index];
+                    if (excludedOccurrences?.Contains(
+                            member.Occurrence)
+                        == true)
+                    {
+                        continue;
+                    }
                     access.Add(
-                        context.Receipt.Members[index].Occurrence,
+                        member.Occurrence,
                         new WorkspaceDeclarationMemberAccess.AssemblyContext(
+                            member,
                             group,
                             group.Participants[index].Assembly));
                 }
@@ -227,16 +310,28 @@ public sealed partial class InspectionWorkspace
                     index < context.LibraryOccurrences.Length;
                     index++)
                 {
+                    WorkspaceDeclarationMember member =
+                        original.Members[index];
+                    if (excludedOccurrences?.Contains(
+                            member.Occurrence)
+                        == true)
+                    {
+                        continue;
+                    }
                     access.Add(
-                        context.Receipt.Members[index].Occurrence,
+                        member.Occurrence,
                         new WorkspaceDeclarationMemberAccess
                             .LibraryOccurrence(
+                                member,
                                 context.LibraryOccurrences[index],
                                 bounds));
                 }
             }
         }
-        return new(this, new(_identity, [.. ordered.Select(static context => context.Receipt)]), access);
+        return new(
+            this,
+            new(_identity, receipts.MoveToImmutable()),
+            access);
     }
 
     internal WorkspaceDeclarationPopulationFailure? DeclarationPopulationAvailability()

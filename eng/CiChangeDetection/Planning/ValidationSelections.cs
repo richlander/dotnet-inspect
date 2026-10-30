@@ -7,25 +7,22 @@ namespace CiChangeDetection.Planning;
 /// </summary>
 internal readonly record struct RoutingSelections(
     bool Code,
-    bool RepositoryGuards,
     bool CSharpDiff,
     bool Decompiler,
     bool Docs,
     bool IlDiff,
-    bool IlRoundtrip,
     bool Packaging,
-    bool Shipped,
     bool Web,
-    bool WebComprehensive,
     bool Skills,
-    bool Tla)
+    bool Tla,
+    bool Lean)
 {
     /// <summary>
     /// Gets the selections that a change set of every routed kind produces.
     /// </summary>
     internal static RoutingSelections All { get; } = new(
-        true, true, true, true, true, true,
-        true, true, true, true, true, true, true);
+        true, true, true, true, true,
+        true, true, true, true, true);
 }
 
 /// <summary>
@@ -36,53 +33,31 @@ internal sealed class ValidationSelections
 {
     internal ValidationSelections(
         bool test,
-        bool repositoryGuards,
         bool dependencyPolicy,
         bool cSharpDiffSmoke,
         bool decompilerGates,
         bool markdownlint,
         bool ilDiffSmoke,
-        bool ilRoundTrip,
         bool pack,
-        bool buildNet10,
         bool inspectWeb,
-        bool inspectWebComprehensive,
         bool skillGate,
-        bool tla)
+        bool tla,
+        bool lean)
     {
-        if (ilRoundTrip && !test)
-        {
-            throw new PlanRefusalException(
-                PlanRefusalCategory.PlanSerialization,
-                "ilRoundTrip requires test");
-        }
-
-        if (inspectWebComprehensive && !inspectWeb)
-        {
-            throw new PlanRefusalException(
-                PlanRefusalCategory.PlanSerialization,
-                "inspectWebComprehensive requires inspectWeb");
-        }
-
         Test = test;
-        RepositoryGuards = repositoryGuards;
         DependencyPolicy = dependencyPolicy;
         CSharpDiffSmoke = cSharpDiffSmoke;
         DecompilerGates = decompilerGates;
         Markdownlint = markdownlint;
         IlDiffSmoke = ilDiffSmoke;
-        IlRoundTrip = ilRoundTrip;
         Pack = pack;
-        BuildNet10 = buildNet10;
         InspectWeb = inspectWeb;
-        InspectWebComprehensive = inspectWebComprehensive;
         SkillGate = skillGate;
         Tla = tla;
+        Lean = lean;
     }
 
     internal bool Test { get; }
-
-    internal bool RepositoryGuards { get; }
 
     internal bool DependencyPolicy { get; }
 
@@ -94,27 +69,21 @@ internal sealed class ValidationSelections
 
     internal bool IlDiffSmoke { get; }
 
-    internal bool IlRoundTrip { get; }
-
     internal bool Pack { get; }
 
-    internal bool BuildNet10 { get; }
-
     internal bool InspectWeb { get; }
-
-    internal bool InspectWebComprehensive { get; }
 
     internal bool SkillGate { get; }
 
     internal bool Tla { get; }
 
+    internal bool Lean { get; }
+
     /// <summary>
     /// Applies the repository's event rules to raw routing selections. A
-    /// pre-merge candidate runs the focused repository guards when a changed
-    /// C# path can affect their scan set. A push runs the focused
-    /// dependency-policy composition gate rather than the pre-merge test
-    /// matrix or repository guards; documentation lint, the Browser/Wasm lane
-    /// and the TLA+ lane have no event gate.
+    /// push runs the focused dependency-policy composition gate rather than
+    /// the pre-merge test job; documentation lint, the Browser/Wasm lane
+    /// and the TLA+ and Lean lanes have no event gate.
     /// </summary>
     /// <param name="selections">The raw routing selections.</param>
     /// <param name="kind">The provenance kind supplying the event rule.</param>
@@ -126,19 +95,15 @@ internal sealed class ValidationSelections
         bool preMerge = kind != PlanEventKind.Push;
         return new ValidationSelections(
             test: selections.Code && preMerge,
-            repositoryGuards: selections.RepositoryGuards && preMerge,
             dependencyPolicy: kind == PlanEventKind.Push,
             cSharpDiffSmoke: selections.CSharpDiff && preMerge,
             decompilerGates: selections.Decompiler && preMerge,
             markdownlint: selections.Docs,
             ilDiffSmoke: selections.IlDiff && preMerge,
-            ilRoundTrip: selections.IlRoundtrip && preMerge,
             pack: selections.Packaging && preMerge,
-            buildNet10: selections.Shipped && preMerge,
             inspectWeb: selections.Web,
-            inspectWebComprehensive:
-                selections.Web && selections.WebComprehensive && preMerge,
             skillGate: selections.Skills && preMerge,
-            tla: selections.Tla);
+            tla: selections.Tla,
+            lean: selections.Lean);
     }
 }

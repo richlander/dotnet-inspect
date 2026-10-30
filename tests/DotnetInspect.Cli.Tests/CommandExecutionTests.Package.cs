@@ -21,6 +21,27 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class CommandExecutionTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Package_SecondCoordinateIsRejectedBeforeAcquisition(
+        bool implicitRoute)
+    {
+        const string First = "First.Missing@1.0.0";
+        const string Second = "Second.Missing@1.0.0";
+        string[] arguments = implicitRoute
+            ? [First, Second, "--versions"]
+            : ["package", First, Second];
+
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: Unrecognized command or argument '{Second}'.\n",
+            error.ReplaceLineEndings("\n"));
+    }
+
     [Fact]
     public async Task Package_SourceLinkFileLinesRejectJsonBeforePackageResolution()
     {
@@ -314,332 +335,188 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Tfms_Count_CountsTheListedFrameworks()
+    public async Task Tfms_RealPackageShortcutMatchesSection()
     {
-        var (listExit, listOutput, _) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms");
-        Assert.Equal(0, listExit);
-        var expected = listOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
-        Assert.True(expected > 0, "The package must list frameworks for this test to prove anything.");
-
-        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms", "--count");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Equal(expected, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
-    }
-
-    [Fact]
-    public async Task Tfms_SemanticTailSelectsTheSameFrameworkAcrossFormats()
-    {
-        var (packagePath, tempDir) = CreateLocalLibPackage();
-        try
+        const string package = "System.Text.Json@10.0.12";
+        var shortcut = await RunAppAsync("package", package, "--tfms", "--no-headers");
+        var section = await RunAppAsync("package", package, "-S", "Target Frameworks", "--no-headers");
+        Assert.True(shortcut.Exit == 0, shortcut.Error);
+        Assert.True(section.Exit == 0, section.Error);
+        Assert.Equal(section.Output, shortcut.Output);
+        Assert.Equal(new[] { "net10.0", "net9.0", "net8.0", "netstandard2.0", "net462" },
+            shortcut.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        var selected = await RunAppAsync("package", "System.Text.Json@10.0.12*",
+            "--tfms", "--no-headers");
+        Assert.True(selected.Exit == 0, selected.Error);
+        Assert.Equal(shortcut.Output, selected.Output);
+        var selectedCount = await RunAppAsync("package", "System.Text.Json@10.0.12*",
+            "--tfms", "--count", "-n", "2", "--head");
+        Assert.True(selectedCount.Exit == 0, selectedCount.Error);
+        Assert.Equal("2", selectedCount.Output.Trim());
+        foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
         {
-            string[] args =
-            [
-                "package",
-                packagePath,
-                "--tfms",
-                "-n",
-                "1",
-                "--tail",
-            ];
-
-            var markdown = await RunAppAsync(args);
-            var table = await RunAppAsync([.. args, "--table"]);
-            var tsv = await RunAppAsync([.. args, "--tsv"]);
-            var jsonl = await RunAppAsync([.. args, "--jsonl"]);
-            var json = await RunAppAsync([.. args, "--json"]);
-            var count = await RunAppAsync([.. args, "--count"]);
-
-            foreach (var result in new[]
-            {
-                markdown,
-                table,
-                tsv,
-                jsonl,
-                json,
-            })
-            {
-                Assert.Equal(0, result.Exit);
-                Assert.Empty(result.Error);
-                Assert.Contains("net8.0", result.Output, StringComparison.Ordinal);
-                Assert.DoesNotContain("net10.0", result.Output, StringComparison.Ordinal);
-            }
-
-            Assert.Single(
-                jsonl.Output.Split(
-                    '\n',
-                    StringSplitOptions.RemoveEmptyEntries));
+            var json = await RunAppAsync(["package", package, .. entrance, "--json"]);
+            Assert.True(json.Exit == 0, json.Error);
             using var document = JsonDocument.Parse(json.Output);
-            JsonElement tfm = Assert.Single(
-                document.RootElement.EnumerateArray());
-            Assert.Equal(
-                "net8.0",
-                tfm.GetProperty("tfm").GetString());
-
-            Assert.Equal(0, count.Exit);
-            Assert.Empty(count.Error);
-            Assert.Equal("1", count.Output.Trim());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
+            var root = document.RootElement;
+            Assert.Equal("Microsoft", root.GetProperty("authors").GetString());
+            Assert.Equal("2013/05", root.GetProperty("manifest_version").GetString());
+            Assert.True(root.GetProperty("package_size").GetInt64() > 0);
+            Assert.Equal(5, root.GetProperty("target_frameworks").GetArrayLength());
         }
     }
 
-    [Fact]
-    public async Task Tfms_UnavailableWindowWithholdsOutput()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--markdown")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--json")]
+    [InlineData("--count")]
+    [InlineData("--value")]
+    public async Task Tfms_SectionShortcutMatchesExplicitSection(string? format)
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
-            var (exit, output, error) = await RunAppAsync(
-                "package",
-                packagePath,
-                "--tfms",
-                "--rows",
-                "2..3",
-                "--json");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "Package TFM row selection stage 1 requires row 3, "
-                    + "but only 2 TFM rows are available.",
-                error,
-                StringComparison.Ordinal);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Tfms_LinesMakesRenderedClippingExplicit()
-    {
-        var (packagePath, tempDir) = CreateLocalLibPackage();
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package",
-                packagePath,
-                "--tfms",
-                "--lines",
-                "-n",
-                "1",
-                "--tail");
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Equal("net8.0", output.Trim());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Tfms_RejectInvalidSelectionBeforePackageResolution()
-    {
-        var legacyCount = await RunAppAsync(
-            "--offline",
-            "package",
-            "Package.That.Must.Not.Resolve",
-            "--tfms",
-            "--rows",
-            "1",
-            "--json");
-        var jsonLines = await RunAppAsync(
-            "--offline",
-            "package",
-            "Package.That.Must.Not.Resolve",
-            "--tfms",
-            "--lines",
-            "-n",
-            "1",
-            "--json");
-
-        Assert.Equal(1, legacyCount.Exit);
-        Assert.Empty(legacyCount.Output);
-        Assert.Contains(
-            "--rows requires N..M, N.., or ..M with positive positions.",
-            legacyCount.Error,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Package.That.Must.Not.Resolve",
-            legacyCount.Error,
-            StringComparison.Ordinal);
-
-        Assert.Equal(1, jsonLines.Exit);
-        Assert.Empty(jsonLines.Output);
-        Assert.Contains(
-            "Rendered-line selection cannot be combined with JSON output.",
-            jsonLines.Error,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Package.That.Must.Not.Resolve",
-            jsonLines.Error,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Tfms_CompetingLayoutRetainsRenderedLineFallback()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "--offline",
-            "package",
-            "Package.That.Must.Not.Resolve",
-            "--tfms",
-            "--layout",
-            "--rows",
-            "..1");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--rows", error, StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "Package.That.Must.Not.Resolve",
-            error,
-            StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData(
-        "Package.That.Must.Not.Resolve",
-        "--tree",
-        "--tree cannot be combined with --tfms.")]
-    [InlineData(
-        "Newtonsoft.Json@1.0.0..2.0.0",
-        null,
-        "Package range 'Newtonsoft.Json@1.0.0..2.0.0' requires --versions for package inspection.")]
-    [InlineData(
-        "Example@bad..2.0.0",
-        null,
-        "Invalid package version 'bad' in range 'Example@bad..2.0.0'.")]
-    public async Task Tfms_CompetingTreeAndRangesRetainOwnedDiagnostics(
-        string package,
-        string? competingOption,
-        string expectedError)
-    {
-        var args = new List<string>
-        {
-            "--offline",
-            "package",
-            package,
-            "--tfms",
-        };
-        if (competingOption is not null)
-            args.Add(competingOption);
-        args.AddRange(["--rows", "1"]);
-
-        var (exit, output, error) =
-            await RunAppAsync([.. args]);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            expectedError,
-            error,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "--rows requires",
-            error,
-            StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("--frontmatter", null, "--frontmatter/--yaml-header and --body require --print or --content.")]
-    [InlineData("--body", null, "--frontmatter/--yaml-header and --body require --print or --content.")]
-    [InlineData("--print", null, "--print is not available with --tfms")]
-    [InlineData("--value", null, "--value is not available with --tfms")]
-    [InlineData("--urls", null, "--urls is not available with --tfms")]
-    [InlineData("--paths", null, "--paths is not available with --tfms")]
-    [InlineData("--roots", null, "--tfms cannot be combined with --roots.")]
-    [InlineData("--json-array", null, "--json-array requires --value, --urls, --paths, --roots, or --print.")]
-    [InlineData("--row", "1", "--row requires --print, --value, --urls, --paths, or --roots.")]
-    [InlineData("--columns", "count", "--fields/--columns are not available with --tfms")]
-    [InlineData("--fields", "count", "--fields/--columns are not available with --tfms")]
-    [InlineData("--envelope", null, "--envelope cannot be combined with --tfms.")]
-    public async Task Tfms_CompetingProjectionsRetainOwnedDiagnostics(
-        string option,
-        string? value,
-        string expectedError)
-    {
-        var args = new List<string>
-        {
-            "--offline",
-            "package",
-            "Package.That.Must.Not.Resolve",
-            "--tfms",
-            option,
-        };
-        if (value is not null)
-            args.Add(value);
-        args.AddRange(["--rows", "1"]);
-
-        var (exit, output, error) =
-            await RunAppAsync([.. args]);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(expectedError, error, StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "--rows requires N..M, N.., or ..M with positive positions.",
-            error,
-            StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("--type", "Example")]
-    [InlineData("--lib", null)]
-    [InlineData("--tools", null)]
-    [InlineData("--tfm", "net8.0")]
-    [InlineData("--match", "first")]
-    [InlineData("--skip-empty", null)]
-    [InlineData("--prefer-rendered-urls", null)]
-    [InlineData("--schema", null)]
-    [InlineData("--include-unlisted", null)]
-    public async Task Tfms_CompetingModifiersRetainLegacyWindow(
-        string option,
-        string? value)
-    {
-        var (packagePath, tempDir) = CreateLocalLibPackage();
-        try
-        {
-            var args = new List<string>
+            string[] suffix = format is null ? [] : [format];
+            var shortcut = await RunAppAsync(["package", packagePath, "--tfms", "-n", "1", "--tail", .. suffix]);
+            var section = await RunAppAsync(["package", packagePath, "-S", "Target Frameworks", "-n", "1", "--tail", .. suffix]);
+            Assert.Equal(format == "--value" ? 1 : 0, shortcut.Exit);
+            Assert.Equal(section.Exit, shortcut.Exit);
+            Assert.Equal(section.Output, shortcut.Output);
+            Assert.Equal(section.Error, shortcut.Error);
+            if (format == "--json")
             {
-                "package",
-                packagePath,
-                "--tfms",
-                option,
-            };
-            if (value is not null)
-                args.Add(value);
-            args.AddRange(["--rows", "1"]);
-
-            var (exit, output, error) =
-                await RunAppAsync([.. args]);
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Equal("net10.0", output.Trim());
+                using var document = JsonDocument.Parse(shortcut.Output);
+                var frameworks = document.RootElement.GetProperty("target_frameworks");
+                Assert.Equal(1, frameworks.GetArrayLength());
+                Assert.Equal("net8.0", frameworks[0].GetString());
+            }
+            else Assert.DoesNotContain("net10.0", shortcut.Output);
+            if (format == "--count") Assert.Equal("1", shortcut.Output.Trim());
+            else if (format != "--value") Assert.Contains("net8.0", shortcut.Output);
         }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
+        finally { Directory.Delete(tempDir, recursive: true); }
     }
 
     [Fact]
-    public async Task Tfms_ShapeProjection_IsRefused()
+    public async Task Tfms_LocalArchivePreservesTypedFactsAndNuspecIdentity()
     {
-        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms", "--value");
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.TfmIdentity", "README.md", "readme",
+            extraFiles: [("lib/net8.0/_._", "")]);
+        try
+        {
+            string renamedPath = Path.Combine(tempDir, "unrelated-filename.nupkg");
+            File.Move(packagePath, renamedPath);
+            foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+            {
+                var json = await RunAppAsync(["package", renamedPath, .. entrance, "--json"]);
+                Assert.True(json.Exit == 0, json.Error);
+                using var document = JsonDocument.Parse(json.Output);
+                var root = document.RootElement;
+                Assert.Equal("Test.TfmIdentity", root.GetProperty("package_name").GetString());
+                Assert.Equal("1.0.0", root.GetProperty("version").GetString());
+                Assert.Equal("nuspec", root.GetProperty("manifest_version").GetString());
+                Assert.Equal("tests", root.GetProperty("authors").GetString());
+                Assert.Equal("test package", root.GetProperty("description").GetString());
+                Assert.Equal(new FileInfo(renamedPath).Length, root.GetProperty("package_size").GetInt64());
+                Assert.Equal("net8.0", root.GetProperty("target_frameworks")[0].GetString());
+                var markdown = await RunAppAsync(["package", renamedPath, .. entrance, "--markdown"]);
+                Assert.True(markdown.Exit == 0, markdown.Error);
+                Assert.Contains("Test.TfmIdentity", markdown.Output);
+                Assert.DoesNotContain("unrelated-filename", markdown.Output);
+            }
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
+    }
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--value is not available with --tfms", error);
+    [Fact]
+    public async Task Tfms_SectionShortcutComposesAndWithholdsUnavailableWindow()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var composed = await RunAppAsync("package", packagePath, "--tfms", "-S", "Package Info", "--markdown");
+            Assert.Equal(0, composed.Exit);
+            Assert.Contains("## Target Frameworks", composed.Output);
+            Assert.Contains("## Package Info", composed.Output);
+            var signing = await RunAppAsync("package", packagePath, "--tfms", "-S", "Signature", "--markdown");
+            Assert.Equal(0, signing.Exit);
+            Assert.Contains("## Signature", signing.Output);
+            Assert.Contains("net8.0", signing.Output);
+            foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+            {
+                var window = await RunAppAsync(["package", packagePath, .. entrance, "--rows", "2..3", "--json"]);
+                Assert.Equal(1, window.Exit);
+                Assert.Empty(window.Output);
+                Assert.Contains("only 2 TFM rows", window.Error);
+            }
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Tfms_CanonicalFoldersIncludePlaceholdersAndExcludeOtherAssetRoots()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.TfmFolders", "README.md", "readme", extraFiles:
+            [
+                ("lib/net8.0/_._", ""),
+                ("lib/NET8.0/_._", ""),
+                ("tools/net10.0/any/tool.txt", "tool"),
+                ("tools/any/win-x64/tool.txt", "native"),
+                ("ref/net9.0/A.dll", "reference"),
+                ("runtimes/win/lib/net7.0/A.dll", "runtime"),
+            ]);
+        try
+        {
+            var shortcut = await RunAppAsync("package", packagePath, "--tfms", "--no-headers");
+            var section = await RunAppAsync("package", packagePath, "-S", "Target Frameworks", "--no-headers");
+            Assert.Equal(0, shortcut.Exit);
+            Assert.Equal(section.Output, shortcut.Output);
+            Assert.Equal(new[] { "net10.0", "net8.0" }, shortcut.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(value => value.ToLowerInvariant()));
+            var count = await RunAppAsync("package", packagePath, "--tfms", "--count");
+            Assert.Equal(0, count.Exit);
+            Assert.Equal("2", count.Output.Trim());
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Tfms_EmptySectionCountAndUnsupportedShapeHaveParity()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.EmptyTfms", "README.md", "readme");
+        try
+        {
+            foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+            {
+                var count = await RunAppAsync(["package", packagePath, .. entrance, "--count"]);
+                Assert.Equal(0, count.Exit);
+                Assert.Equal("0", count.Output.Trim());
+                var invalid = await RunAppAsync(["--offline", "package", "Package.Must.Not.Resolve", .. entrance, "--tree"]);
+                Assert.Equal(1, invalid.Exit);
+                Assert.Empty(invalid.Output);
+                Assert.Contains("Target Frameworks", invalid.Error);
+                Assert.DoesNotContain("Could not resolve", invalid.Error);
+            }
+        }
+        finally { Directory.Delete(tempDir, recursive: true); }
+    }
+
+    [Fact]
+    public async Task Tfms_InvalidWindowFailsBeforeAcquisitionForBothEntrances()
+    {
+        foreach (string[] entrance in new[] { new[] { "--tfms" }, new[] { "-S", "Target Frameworks" } })
+        {
+            var invalid = await RunAppAsync(["--offline", "package", "Package.Must.Not.Resolve", .. entrance, "--rows", "1"]);
+            Assert.Equal(1, invalid.Exit);
+            Assert.Empty(invalid.Output);
+            Assert.Contains("--rows requires", invalid.Error);
+            Assert.DoesNotContain("Could not resolve", invalid.Error);
+        }
     }
 
     [Fact]
@@ -1243,29 +1120,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiPackageFormatRefusalPrecedesProjectionHandling()
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage(
-            "Test.Package.MultiProjection",
-            "README.md",
-            "# Test package");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, packagePath, "--columns", "Missing");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains("Multiple package output requires --json or a row format", error);
-            Assert.DoesNotContain("No columns matched projection", error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task Package_DiscoverSchema_ListsPublishedPackageInfoField()
     {
         var (exit, output, error) = await RunAppAsync("package", "-D", "Package Info", "--schema");
@@ -1571,7 +1425,7 @@ public partial class CommandExecutionTests
         {
             (string Lens, string[] Arguments)[] cases =
             [
-                ("--layout", ["--layout"]),
+                ("--files", ["--files"]),
                 ("--tfms", ["--tfms"]),
                 ("--versions", ["--versions"]),
                 ("--content", ["--content", "--path", "README.md"]),
@@ -2050,51 +1904,7 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Package_DependencyTree_ProgrammaticSelectionRejectsLens()
-    {
-        var (packagePath, tempDir) = CreateLocalDependencyPackage();
-        try
-        {
-            var rendered = await ConsoleCapture.RunAsync(
-                () => PackageCommand.ExecuteAsync(
-                    new InspectionOptions
-                    {
-                        PackageArgs = [packagePath],
-                        Tree = true,
-                        IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            PackageSections.DependencyHierarchy,
-                        },
-                        ListLayout = true,
-                    }));
 
-            Assert.Equal(1, rendered.ExitCode);
-            Assert.Empty(rendered.Output);
-            Assert.Contains("--tree cannot be combined with --layout", rendered.Error);
-
-            var rowFormat = await ConsoleCapture.RunAsync(
-                () => PackageCommand.ExecuteAsync(
-                    new InspectionOptions
-                    {
-                        PackageArgs = [packagePath],
-                        Tree = true,
-                        IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            PackageSections.DependencyHierarchy,
-                        },
-                        Tsv = true,
-                    }));
-
-            Assert.Equal(1, rowFormat.ExitCode);
-            Assert.Empty(rowFormat.Output);
-            Assert.Contains("--tree cannot be combined with count, shape, tabular, JSON, or field/column projections", rowFormat.Error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
 
     [Fact]
     public async Task Package_TreeDefaultsToPackageChildren()
@@ -2114,7 +1924,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains(
-                "Test.TreeAlias 1.0.0",
+                "Test.TreeAlias@1.0.0",
                 output);
             Assert.Contains("No compile Libraries", output);
             Assert.Empty(error);
@@ -2122,7 +1932,7 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "omit the section for the Package children tree",
                 categoryError);
-            Assert.DoesNotContain("--layout", categoryError);
+            Assert.DoesNotContain("--files", categoryError);
             Assert.Equal(1, aliasExit);
             Assert.Contains("--dependencies has been removed", aliasError);
             Assert.DoesNotContain("--tree requires", aliasError);
@@ -2144,7 +1954,7 @@ public partial class CommandExecutionTests
                 packagePath);
 
             Assert.Equal(0, exit);
-            Assert.Contains("Test.LibraryFiles 1.0.0", output);
+            Assert.Contains("Test.LibraryFiles@1.0.0", output);
             Assert.Contains(
                 "Latest.One.dll",
                 output);
@@ -2597,7 +2407,7 @@ public partial class CommandExecutionTests
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(
-                "Test.LibraryFiles 1.0.0 (File; net10.0; lib)",
+                "Test.LibraryFiles@1.0.0 (File; net10.0; lib)",
                 lines[0]);
             Assert.DoesNotContain("buildTransitive", result.Output);
         }
@@ -2627,7 +2437,7 @@ public partial class CommandExecutionTests
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(
-                "Test.EmptyCompile 1.0.0 (File; net10.0)",
+                "Test.EmptyCompile@1.0.0 (File; net10.0)",
                 lines[0]);
         }
         finally
@@ -3116,30 +2926,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_RejectDependencyHierarchy()
-    {
-        var (packagePath, tempDir) = CreateLocalDependencyPackage();
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Dependency Hierarchy", "--json");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "Multiple package inspection cannot include Dependency Hierarchy",
-                error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    // ── package command ──────────────────────────────────────────────
-
-    [Fact]
     public async Task Package_NonexistentPackage_ShowsError()
     {
         var options = new InspectionOptions
@@ -3405,341 +3191,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiPackageCount_RendersStructuredSectionMap()
-    {
-        var (packagePath, tempDir) = CreateLocalLayoutPackage();
-        try
-        {
-            var (packageInfoExit, packageInfoOutput, _) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info", "--count", "--json");
-            var (packageInfoWildcardExit, packageInfoWildcardOutput, packageInfoWildcardError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Package Info", "--columns", "*", "--count", "--json");
-            var (normalPackageInfoExit, normalPackageInfoOutput, normalPackageInfoError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Package Info", "--count", "--json", "-v:n");
-            var (targetFrameworksExit, targetFrameworksOutput, _) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Target Frameworks", "--count", "--json");
-
-            Assert.Equal(0, packageInfoExit);
-            Assert.Equal(0, packageInfoWildcardExit);
-            Assert.Empty(packageInfoWildcardError);
-            Assert.Equal(packageInfoOutput, packageInfoWildcardOutput);
-            Assert.Equal(0, normalPackageInfoExit);
-            Assert.Empty(normalPackageInfoError);
-            Assert.Equal(0, targetFrameworksExit);
-            var packageInfoCount = int.Parse(
-                normalPackageInfoOutput.Trim(), CultureInfo.InvariantCulture);
-            var targetFrameworksCount = int.Parse(
-                targetFrameworksOutput.Trim(), CultureInfo.InvariantCulture);
-
-            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info,Target Frameworks", "--count", "--json");
-
-            Assert.Equal(0, jsonExit);
-            Assert.Empty(jsonError);
-            using var json = JsonDocument.Parse(jsonOutput);
-            var counts = json.RootElement
-                .EnumerateArray()
-                .ToDictionary(
-                    row => row.GetProperty("section").GetString()!,
-                    row => row.GetProperty("count").GetInt32(),
-                    StringComparer.Ordinal);
-            Assert.Equal(packageInfoCount, counts["Package Info"]);
-            Assert.Equal(targetFrameworksCount, counts["Target Frameworks"]);
-
-            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info,Target Frameworks", "--count", "--tsv");
-            Assert.Equal(0, tsvExit);
-            Assert.Empty(tsvError);
-            Assert.Equal(
-                $"section\tcount\nPackage Info\t{packageInfoCount}\nTarget Frameworks\t{targetFrameworksCount}\n",
-                tsvOutput.ReplaceLineEndings("\n"));
-
-            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info,Target Frameworks", "--count");
-            Assert.Equal(0, markdownExit);
-            Assert.Empty(markdownError);
-            Assert.Contains($"| Package Info | {packageInfoCount} |\n", markdownOutput);
-            Assert.Contains($"| Target Frameworks | {targetFrameworksCount} |\n", markdownOutput);
-
-            var (projectedExit, projectedOutput, projectedError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info", "--fields", "Version", "--count", "--json");
-            var (projectedRowsExit, projectedRowsOutput, projectedRowsError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info", "--fields", "Version", "--tsv");
-            var (wildcardExit, wildcardOutput, wildcardError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info", "--fields", "V*", "--count");
-            Assert.Equal(0, projectedExit);
-            Assert.Empty(projectedError);
-            Assert.Equal("2\n", projectedOutput.ReplaceLineEndings("\n"));
-            Assert.Equal(0, projectedRowsExit);
-            Assert.Empty(projectedRowsError);
-            Assert.Equal(
-                "package\tfield\tvalue\n"
-                + "Test.Layout\tVersion\t1.0.0\n"
-                + "Test.Layout\tVersion\t1.0.0\n",
-                projectedRowsOutput.ReplaceLineEndings("\n"));
-            Assert.Equal(0, wildcardExit);
-            Assert.Empty(wildcardError);
-            Assert.Equal("2\n", wildcardOutput.ReplaceLineEndings("\n"));
-
-            foreach (var columns in new[] { "Version", "V*" })
-            {
-                var (wrongKindExit, wrongKindOutput, wrongKindError) =
-                    await RunAppAsync(
-                        "package", packagePath, packagePath,
-                        "-S", "Package Info", "--columns", columns, "--count");
-                Assert.Equal(1, wrongKindExit);
-                Assert.Empty(wrongKindOutput);
-                Assert.Contains($"No columns matched projection: {columns}", wrongKindError);
-            }
-
-            var (columnMapExit, columnMapOutput, columnMapError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Package Info,Target Frameworks",
-                    "--columns", "TFM", "--count", "--json");
-            Assert.Equal(0, columnMapExit);
-            Assert.Empty(columnMapError);
-            using (var columnMap = JsonDocument.Parse(columnMapOutput))
-            {
-                var columnCounts = columnMap.RootElement
-                    .EnumerateArray()
-                    .ToDictionary(
-                        row => row.GetProperty("section").GetString()!,
-                        row => row.GetProperty("count").GetInt32(),
-                        StringComparer.Ordinal);
-                Assert.Equal(0, columnCounts["Package Info"]);
-                Assert.Equal(targetFrameworksCount, columnCounts["Target Frameworks"]);
-            }
-
-            var (combinedExit, combinedOutput, combinedError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Package Info,Target Frameworks",
-                    "--fields", "Version", "--columns", "TFM",
-                    "--count", "--json");
-            var (singleCombinedExit, singleCombinedOutput, singleCombinedError) =
-                await RunAppAsync(
-                    "package", packagePath,
-                    "-S", "Package Info,Target Frameworks",
-                    "--fields", "Version", "--columns", "TFM",
-                    "--count", "--json");
-            Assert.Equal(0, combinedExit);
-            Assert.Empty(combinedError);
-            Assert.Equal(0, singleCombinedExit);
-            Assert.Empty(singleCombinedError);
-            using var singleCombined = JsonDocument.Parse(singleCombinedOutput);
-            var singleCombinedCounts = singleCombined.RootElement
-                .EnumerateArray()
-                .ToDictionary(
-                    row => row.GetProperty("section").GetString()!,
-                    row => row.GetProperty("count").GetInt32(),
-                    StringComparer.Ordinal);
-            using (var combined = JsonDocument.Parse(combinedOutput))
-            {
-                var combinedCounts = combined.RootElement
-                    .EnumerateArray()
-                    .ToDictionary(
-                        row => row.GetProperty("section").GetString()!,
-                        row => row.GetProperty("count").GetInt32(),
-                        StringComparer.Ordinal);
-                Assert.Equal(
-                    2 * singleCombinedCounts["Package Info"],
-                    combinedCounts["Package Info"]);
-                Assert.Equal(
-                    2 * singleCombinedCounts["Target Frameworks"],
-                    combinedCounts["Target Frameworks"]);
-            }
-
-            var (fileColumnExit, fileColumnOutput, fileColumnError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "README,Manifest",
-                    "--columns", "Kind", "--count", "--json");
-            Assert.Equal(0, fileColumnExit);
-            Assert.Empty(fileColumnError);
-            using (var fileColumnMap = JsonDocument.Parse(fileColumnOutput))
-            {
-                var fileColumnCounts = fileColumnMap.RootElement
-                    .EnumerateArray()
-                    .ToDictionary(
-                        row => row.GetProperty("section").GetString()!,
-                        row => row.GetProperty("count").GetInt32(),
-                        StringComparer.Ordinal);
-                Assert.Equal(0, fileColumnCounts["README"]);
-                Assert.True(fileColumnCounts["Manifest"] > 0);
-            }
-
-            foreach (var columns in new[] { "Path", "P*" })
-            {
-                var (extractedColumnExit, extractedColumnOutput, extractedColumnError) =
-                    await RunAppAsync(
-                        "package", packagePath, packagePath,
-                        "-S", "README,Manifest",
-                        "--columns", columns, "--count", "--json");
-                Assert.Equal(0, extractedColumnExit);
-                Assert.Empty(extractedColumnError);
-                using var extractedColumnMap = JsonDocument.Parse(extractedColumnOutput);
-                var extractedColumnCounts = extractedColumnMap.RootElement
-                    .EnumerateArray()
-                    .ToDictionary(
-                        row => row.GetProperty("section").GetString()!,
-                        row => row.GetProperty("count").GetInt32(),
-                        StringComparer.Ordinal);
-                Assert.Equal(2, extractedColumnCounts["README"]);
-                Assert.Equal(0, extractedColumnCounts["Manifest"]);
-            }
-
-            var (composedExit, composedOutput, composedError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Package Info,README,Manifest",
-                    "--fields", "Version", "--columns", "Path",
-                    "--count", "--json");
-            Assert.Equal(0, composedExit);
-            Assert.Empty(composedError);
-            using (var composedMap = JsonDocument.Parse(composedOutput))
-            {
-                var composedCounts = composedMap.RootElement
-                    .EnumerateArray()
-                    .ToDictionary(
-                        row => row.GetProperty("section").GetString()!,
-                        row => row.GetProperty("count").GetInt32(),
-                        StringComparer.Ordinal);
-                Assert.Equal(0, composedCounts["Package Info"]);
-                Assert.Equal(2, composedCounts["README"]);
-                Assert.Equal(0, composedCounts["Manifest"]);
-            }
-
-            var (emptyProjectionExit, emptyProjectionOutput, emptyProjectionError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Package Info", "--fields", "Vulnerabilities",
-                    "--tsv", "--no-header");
-            var (emptyCountExit, emptyCountOutput, emptyCountError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Package Info", "--fields", "Vulnerabilities",
-                    "--count");
-            Assert.Equal(0, emptyProjectionExit);
-            Assert.Empty(emptyProjectionOutput);
-            Assert.Contains(
-                "Note: 1 field has no data: Vulnerabilities",
-                emptyProjectionError);
-            Assert.Equal(0, emptyCountExit);
-            Assert.Equal("0\n", emptyCountOutput.ReplaceLineEndings("\n"));
-            Assert.Contains(
-                "Note: 1 field has no data: Vulnerabilities",
-                emptyCountError);
-
-            var (windowedExit, windowedOutput, windowedError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Package Info", "--count", "--tsv", "--rows", "1");
-            Assert.Equal(0, windowedExit);
-            Assert.Empty(windowedError);
-            Assert.Equal("1\n", windowedOutput.ReplaceLineEndings("\n"));
-
-            var (projectedWindowExit, projectedWindowOutput, projectedWindowError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Package Info", "--fields", "Version",
-                    "--count", "--json", "--rows", "3..3");
-            Assert.Equal(0, projectedWindowExit);
-            Assert.Empty(projectedWindowError);
-            Assert.Equal("0\n", projectedWindowOutput.ReplaceLineEndings("\n"));
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiPackageCount_AcquiresSignatureRows()
-    {
-        var (packagePath, tempDir) = CreateLocalLayoutPackage();
-        try
-        {
-            var (singleExit, singleOutput, singleError) = await RunAppAsync(
-                "package", packagePath,
-                "-S", "Signature", "--count");
-            var (multiExit, multiOutput, multiError) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Signature", "--count");
-            var (singleInfoExit, singleInfoOutput, singleInfoError) =
-                await RunAppAsync(
-                    "package", packagePath,
-                    "-S", "Package Info", "--count");
-            var (multiInfoExit, multiInfoOutput, multiInfoError) =
-                await RunAppAsync(
-                    "package", packagePath, packagePath,
-                    "-S", "Package Info", "--count");
-
-            // Signature and Package Info are scalar records: a lone selection
-            // has no Count (Section shapes), while the multi-package count map
-            // keeps its aggregate per-package meaning.
-            Assert.Equal(1, singleExit);
-            Assert.Empty(singleOutput);
-            Assert.Contains("Section 'Signature' is scalar", singleError);
-            Assert.Equal(0, multiExit);
-            Assert.Empty(multiError);
-            Assert.True(
-                int.Parse(multiOutput.Trim(), CultureInfo.InvariantCulture) > 0);
-            Assert.Equal(1, singleInfoExit);
-            Assert.Empty(singleInfoOutput);
-            Assert.Contains("Section 'Package Info' is scalar", singleInfoError);
-            Assert.Equal(0, multiInfoExit);
-            Assert.Empty(multiInfoError);
-            Assert.True(
-                int.Parse(multiInfoOutput.Trim(), CultureInfo.InvariantCulture) > 0);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiPackageExplicitCount_PopulatesSelectedFileSections()
-    {
-        var (packagePath, tempDir) = CreateLocalLayoutPackage();
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "-S", "Nuspec;README",
-                "--skip-empty", "--count", "--json");
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            using var json = JsonDocument.Parse(output);
-            var counts = json.RootElement
-                .EnumerateArray()
-                .ToDictionary(
-                    row => row.GetProperty("section").GetString()!,
-                    row => row.GetProperty("count").GetInt32(),
-                    StringComparer.Ordinal);
-            Assert.Equal(2, counts["Nuspec"]);
-            Assert.Equal(2, counts["README"]);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task Package_LegacyFileSectionNames_StillResolve()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
@@ -3982,360 +3433,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiplePackages_PathAgents_TsvResolvesAgentsRows()
-    {
-        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Agents.One", "README.md", "readme", "agents one");
-        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Agents.Two", "README.md", "readme");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", firstPackage, secondPackage, "--path", "@agents", "--tsv");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("package\tversion\tpath\tsize", output);
-            Assert.Contains("Test.Agents.One\t1.0.0\tAGENTS.md\t10", output);
-            Assert.Contains("Test.Agents.Two\t1.0.0\t\t", output);
-            Assert.DoesNotContain("Tip:", error);
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_PathFirst_UsesFirstMatchingSelector()
-    {
-        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Match.First", "README.md", "readme", "agents");
-        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Match.Second", "README.md", "readme");
-        try
-        {
-            var (exit, output, _) = await RunAppAsync(
-                "package", firstPackage, secondPackage, "--path", "@agents", "--path", "@readme", "--match", "first", "--tsv");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("Test.Match.First\t1.0.0\tAGENTS.md\t6", output);
-            Assert.Contains("Test.Match.Second\t1.0.0\tREADME.md\t6", output);
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_PathAll_ReturnsAllMatchingSelectors()
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Match.All", "README.md", "readme", "agents");
-        try
-        {
-            var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, packagePath, "--path", "@agents", "--path", "README.md", "--tsv");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("Test.Match.All\t1.0.0\tAGENTS.md\t6", output);
-            Assert.Contains("Test.Match.All\t1.0.0\tREADME.md\t6", output);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_PathSkipEmpty_OmitsEmptyPackages()
-    {
-        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Skip.HasAgents", "README.md", "readme", "agents");
-        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Skip.NoAgents", "README.md", "readme");
-        try
-        {
-            var (exit, output, _) = await RunAppAsync(
-                "package", firstPackage, secondPackage, "--path", "@agents", "--skip-empty", "--tsv");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("Test.Skip.HasAgents", output);
-            Assert.DoesNotContain("Test.Skip.NoAgents", output);
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_JsonEmitsArray()
-    {
-        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Json.One", "README.md", "one");
-        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Json.Two", "README.md", "two");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync("package", firstPackage, secondPackage, "--json");
-
-            Assert.Equal(0, exit);
-            using var doc = JsonDocument.Parse(output);
-            Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
-            Assert.Equal(2, doc.RootElement.GetArrayLength());
-            Assert.Equal("Test.Json.One", doc.RootElement[0].GetProperty("package_name").GetString());
-            Assert.Equal("Test.Json.Two", doc.RootElement[1].GetProperty("package_name").GetString());
-            Assert.DoesNotContain("not a valid package version", error);
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_SignatureJsonPopulatesEachSubject()
-    {
-        var (firstPackage, firstDir) =
-            CreateLocalReadmePackage(
-                "Test.Signature.One",
-                "README.md",
-                "one");
-        var (secondPackage, secondDir) =
-            CreateLocalReadmePackage(
-                "Test.Signature.Two",
-                "README.md",
-                "two");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--json");
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            using var document = JsonDocument.Parse(output);
-            Assert.Equal(2, document.RootElement.GetArrayLength());
-            Assert.All(
-                document.RootElement.EnumerateArray(),
-                package =>
-                {
-                    JsonElement signature =
-                        package.GetProperty("signature_result");
-                    Assert.Equal(
-                        JsonValueKind.Object,
-                        signature.ValueKind);
-                    Assert.True(
-                        signature.GetProperty("is_unsigned").GetBoolean());
-                });
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_CountProjectionMissReportsCleanError()
-    {
-        var (firstPackage, firstDir) =
-            CreateLocalReadmePackage(
-                "Test.Signature.Projection.One",
-                "README.md",
-                "one");
-        var (secondPackage, secondDir) =
-            CreateLocalReadmePackage(
-                "Test.Signature.Projection.Two",
-                "README.md",
-                "two");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--json",
-                "--count",
-                "--columns",
-                "Publisher");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "No columns matched projection: Publisher",
-                error);
-            Assert.DoesNotContain(
-                "System.InvalidOperationException",
-                error);
-            Assert.DoesNotContain(
-                "MarkoutWriter.ThrowIfProjectionMatchedNothing",
-                error);
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_SignatureCountIgnoresPresentationAndWindowsCombinedRows()
-    {
-        var (firstPackage, firstDir) =
-            CreateLocalReadmePackage(
-                "Test.Signature.Count.One",
-                "README.md",
-                "one");
-        var (secondPackage, secondDir) =
-            CreateLocalReadmePackage(
-                "Test.Signature.Count.Two",
-                "README.md",
-                "two");
-        try
-        {
-            var json = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--json",
-                "--count");
-            var defaultFormat = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--count");
-            var tsv = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--tsv",
-                "--count");
-            var windowed = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--json",
-                "--count",
-                "--rows",
-                "1");
-            var table = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--table");
-            var tsvRows = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--fields",
-                "Signed",
-                "--columns",
-                "Package;Value",
-                "--tsv");
-            var jsonl = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--fields",
-                "Signed",
-                "--jsonl");
-            var overlappingFields = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--fields",
-                "Signed;*",
-                "--tsv");
-            var overlappingCount = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--fields",
-                "Signed;*",
-                "--count");
-
-            Assert.Equal(0, json.Exit);
-            Assert.Equal(0, defaultFormat.Exit);
-            Assert.Equal(0, tsv.Exit);
-            Assert.Equal(0, windowed.Exit);
-            Assert.Equal(0, table.Exit);
-            Assert.Equal(0, tsvRows.Exit);
-            Assert.Equal(0, jsonl.Exit);
-            Assert.Equal(0, overlappingFields.Exit);
-            Assert.Equal(0, overlappingCount.Exit);
-            Assert.Empty(json.Error);
-            Assert.Empty(defaultFormat.Error);
-            Assert.Empty(tsv.Error);
-            Assert.Empty(windowed.Error);
-            Assert.Empty(table.Error);
-            Assert.Empty(tsvRows.Error);
-            Assert.Empty(jsonl.Error);
-            Assert.Empty(overlappingFields.Error);
-            Assert.Empty(overlappingCount.Error);
-            Assert.Equal(json.Output, defaultFormat.Output);
-            Assert.Equal(json.Output, tsv.Output);
-            Assert.True(
-                int.Parse(json.Output, CultureInfo.InvariantCulture) > 1);
-            Assert.Equal("1", windowed.Output.Trim());
-            Assert.Contains("Test.Signature.Count.One", table.Output);
-            Assert.Contains("Test.Signature.Count.Two", table.Output);
-            Assert.Equal(
-                [
-                    "package\tvalue",
-                    "Test.Signature.Count.One\tNo",
-                    "Test.Signature.Count.Two\tNo",
-                ],
-                SplitOutputLines(tsvRows.Output));
-            foreach (string row in SplitOutputLines(jsonl.Output))
-            {
-                using var document = JsonDocument.Parse(row);
-                Assert.Equal(
-                    ["package", "field", "value"],
-                    document.RootElement
-                        .EnumerateObject()
-                        .Select(property => property.Name));
-                Assert.Equal(
-                    "Signed",
-                    document.RootElement.GetProperty("field").GetString());
-                Assert.Equal(
-                    "No",
-                    document.RootElement.GetProperty("value").GetString());
-            }
-            Assert.Equal(
-                SplitOutputLines(overlappingFields.Output).Length - 1,
-                int.Parse(
-                    overlappingCount.Output,
-                    CultureInfo.InvariantCulture));
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task Package_FixedOverviewCountValidatesFieldsAndRenderedColumns()
     {
         var (firstPackage, firstDir) =
@@ -4343,17 +3440,11 @@ public partial class CommandExecutionTests
                 "Test.Overview.Projection.One",
                 "README.md",
                 "one");
-        var (secondPackage, secondDir) =
-            CreateLocalReadmePackage(
-                "Test.Overview.Projection.Two",
-                "README.md",
-                "two");
         try
         {
             var count = await RunAppAsync(
                 "package",
                 firstPackage,
-                secondPackage,
                 "-S",
                 PackageFixedOverviewSelection,
                 "--count",
@@ -4435,309 +3526,6 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_MixedCountMapUsesCombinedColumns()
-    {
-        var (firstPackage, firstDir) =
-            CreateLocalReadmePackage(
-                "Test.MixedProjection.One",
-                "README.md",
-                "one");
-        var (secondPackage, secondDir) =
-            CreateLocalReadmePackage(
-                "Test.MixedProjection.Two",
-                "README.md",
-                "two");
-        try
-        {
-            var bothSections = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info,README",
-                "--count",
-                "--columns",
-                "Package,Path");
-            var packageInfoOnly = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info,README",
-                "--count",
-                "--columns",
-                "Field");
-            var fixedOverview = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                PackageFixedOverviewSelection,
-                "--count",
-                "--columns",
-                "Package");
-            var valueColumn = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                PackageFixedOverviewSelection,
-                "--count",
-                "--columns",
-                "Value");
-            var signatureCount = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Signature",
-                "--count",
-                "--columns",
-                "Package");
-
-            Assert.Equal(0, bothSections.Exit);
-            Assert.Equal(0, packageInfoOnly.Exit);
-            Assert.Equal(0, fixedOverview.Exit);
-            Assert.Equal(0, valueColumn.Exit);
-            Assert.Equal(0, signatureCount.Exit);
-            Assert.Empty(bothSections.Error);
-            Assert.Empty(packageInfoOnly.Error);
-            Assert.Empty(fixedOverview.Error);
-            Assert.Empty(valueColumn.Error);
-            Assert.Empty(signatureCount.Error);
-            string packageInfoRow = Assert.Single(
-                bothSections.Output.Split(
-                    '\n',
-                    StringSplitOptions.RemoveEmptyEntries),
-                row => row.StartsWith(
-                    "| Package Info |",
-                    StringComparison.Ordinal));
-            Assert.Contains(
-                "| README | 2 |",
-                bothSections.Output);
-            Assert.Contains(packageInfoRow, packageInfoOnly.Output);
-            Assert.DoesNotContain(
-                "| Package Info | 0 |",
-                packageInfoOnly.Output);
-            Assert.Contains(
-                "| README | 0 |",
-                packageInfoOnly.Output);
-            Assert.Contains(packageInfoRow, fixedOverview.Output);
-            Assert.Contains(
-                "| README | 2 |",
-                fixedOverview.Output);
-            Assert.Contains(
-                $"| Signature | {signatureCount.Output.Trim()} |",
-                fixedOverview.Output);
-            Assert.DoesNotContain(
-                "| Signature | 0 |",
-                valueColumn.Output);
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_MultiSectionFileCountsHonorEmptyRows()
-    {
-        var (withReadme, withReadmeDir) =
-            CreateLocalReadmePackage(
-                "Test.CountMap.Readme",
-                "README.md",
-                "readme");
-        var (withoutReadme, withoutReadmeDir) =
-            CreateLocalPackageWithoutReadme(
-                "Test.CountMap.NoReadme");
-        try
-        {
-            var count = await RunAppAsync(
-                "package",
-                withReadme,
-                withoutReadme,
-                "-S",
-                "README,Signature",
-                "--count");
-            var skipEmpty = await RunAppAsync(
-                "package",
-                withReadme,
-                withoutReadme,
-                "-S",
-                "README,Signature",
-                "--count",
-                "--skip-empty");
-            var tail = await RunAppAsync(
-                "package",
-                withReadme,
-                withoutReadme,
-                "-S",
-                "README",
-                "--columns",
-                "Path",
-                "--rows",
-                "1",
-                "--tail",
-                "--tsv");
-            var tailWithoutHeader = await RunAppAsync(
-                "package",
-                withReadme,
-                withoutReadme,
-                "-S",
-                "README",
-                "--columns",
-                "Path",
-                "--rows",
-                "1",
-                "--tail",
-                "--tsv",
-                "--no-header");
-
-            Assert.Equal(0, count.Exit);
-            Assert.Equal(0, skipEmpty.Exit);
-            Assert.Equal(0, tail.Exit);
-            Assert.Equal(0, tailWithoutHeader.Exit);
-            Assert.Empty(count.Error);
-            Assert.Empty(skipEmpty.Error);
-            Assert.Empty(tail.Error);
-            Assert.Empty(tailWithoutHeader.Error);
-            Assert.Contains(
-                "| README | 2 |",
-                count.Output);
-            Assert.Contains(
-                "| README | 1 |",
-                skipEmpty.Output);
-            Assert.Equal(
-                "path\n\n",
-                tail.Output.ReplaceLineEndings("\n"));
-            Assert.Equal(
-                "\n",
-                tailWithoutHeader.Output.ReplaceLineEndings("\n"));
-        }
-        finally
-        {
-            Directory.Delete(withReadmeDir, recursive: true);
-            Directory.Delete(withoutReadmeDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_FileProjectionAgreesAcrossCountAndRows()
-    {
-        var (firstPackage, firstDir) =
-            CreateLocalReadmePackage(
-                "Test.FileProjection.One",
-                "README.md",
-                "one");
-        var (secondPackage, secondDir) =
-            CreateLocalReadmePackage(
-                "Test.FileProjection.Two",
-                "README.md",
-                "two");
-        try
-        {
-            var count = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "README",
-                "--count",
-                "--columns",
-                "Package");
-            var rows = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "README",
-                "--tsv",
-                "--columns",
-                "Package");
-            var pathCount = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "--path",
-                "@readme",
-                "--count",
-                "--columns",
-                "Package");
-            var fieldCount = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Files",
-                "--count",
-                "--fields",
-                "Path");
-
-            Assert.Equal(0, count.Exit);
-            Assert.Equal(0, rows.Exit);
-            Assert.Equal(0, pathCount.Exit);
-            Assert.Equal(0, fieldCount.Exit);
-            Assert.Empty(count.Error);
-            Assert.Empty(rows.Error);
-            Assert.Empty(pathCount.Error);
-            Assert.Empty(fieldCount.Error);
-            Assert.Equal("2", count.Output.Trim());
-            Assert.Equal("2", pathCount.Output.Trim());
-            Assert.True(
-                int.Parse(
-                    fieldCount.Output,
-                    CultureInfo.InvariantCulture) > 2);
-            Assert.Equal(
-                [
-                    "package",
-                    "Test.FileProjection.One",
-                    "Test.FileProjection.Two",
-                ],
-                SplitOutputLines(rows.Output));
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_DiscoverRefusalPrecedesCountProjection()
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage(
-            "Test.Package.MultiDiscoverProjection",
-            "README.md",
-            "# Test package");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package",
-                packagePath,
-                packagePath,
-                "-D",
-                "--count",
-                "--fields",
-                "Name");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "Multiple package inspection cannot be combined with -D/--discover.",
-                error);
-            Assert.DoesNotContain(
-                "No fields matched projection",
-                error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
         }
     }
 
@@ -4757,9 +3545,8 @@ public partial class CommandExecutionTests
                 "@Files",
                 "--jsonl",
                 "--count");
-            var multiple = await RunAppAsync(
+            var tabular = await RunAppAsync(
                 "package",
-                packagePath,
                 packagePath,
                 "-S",
                 "@Files",
@@ -4768,17 +3555,16 @@ public partial class CommandExecutionTests
             var fixedOverview = await RunAppAsync(
                 "package",
                 packagePath,
-                packagePath,
                 "-S",
                 PackageFixedOverviewSelection,
                 "--tsv",
                 "--count");
 
             Assert.Equal(0, single.Exit);
-            Assert.Equal(0, multiple.Exit);
+            Assert.Equal(0, tabular.Exit);
             Assert.Equal(0, fixedOverview.Exit);
             Assert.Empty(single.Error);
-            Assert.Empty(multiple.Error);
+            Assert.Empty(tabular.Error);
             Assert.Empty(fixedOverview.Error);
             Assert.All(
                 single.Output.Split(
@@ -4792,7 +3578,7 @@ public partial class CommandExecutionTests
                 });
             Assert.StartsWith(
                 "section\tcount\n",
-                multiple.Output.ReplaceLineEndings("\n"));
+                tabular.Output.ReplaceLineEndings("\n"));
             Assert.StartsWith(
                 "section\tcount\n",
                 fixedOverview.Output.ReplaceLineEndings("\n"));
@@ -4800,253 +3586,6 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_LibraryModesAreRejected()
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage(
-            "Test.Package.MultiLibraryMode",
-            "README.md",
-            "# Test package");
-        try
-        {
-            var library = await RunAppAsync(
-                "package",
-                packagePath,
-                packagePath,
-                "--library",
-                "Test.Package.MultiLibraryMode.dll",
-                "--tsv");
-            var allLibraries = await RunAppAsync(
-                "package",
-                packagePath,
-                packagePath,
-                "--library",
-                "--tsv");
-
-            Assert.Equal(1, library.Exit);
-            Assert.Equal(1, allLibraries.Exit);
-            Assert.Empty(library.Output);
-            Assert.Empty(allLibraries.Output);
-            Assert.Contains(
-                "Multiple package inspection cannot be combined with --library.",
-                library.Error);
-            Assert.Contains(
-                "Multiple package inspection cannot be combined with --library.",
-                allLibraries.Error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_PackageInfoFieldsAgreeWithCount()
-    {
-        var (firstPackage, firstDir) =
-            CreateLocalReadmePackage(
-                "Test.Fields.One",
-                "README.md",
-                "one",
-                extraNuspecMetadata:
-                """
-                <licenseUrl>https://example.test/license</licenseUrl>
-                """);
-        var (secondPackage, secondDir) =
-            CreateLocalReadmePackage(
-                "Test.Fields.Two",
-                "README.md",
-                "two",
-                extraNuspecMetadata:
-                """
-                <licenseUrl>https://example.test/license</licenseUrl>
-                """);
-        try
-        {
-            var count = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info",
-                "--fields",
-                "Ver*",
-                "--columns",
-                "Package",
-                "--tsv",
-                "--count");
-            var rendered = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info",
-                "--fields",
-                "Ver*",
-                "--tsv");
-            var unprojected = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info",
-                "--tsv");
-            var column = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info",
-                "--columns",
-                "Field",
-                "--tsv",
-                "--rows",
-                "1");
-            var ordered = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info",
-                "--fields",
-                "Authors;Version",
-                "--tsv");
-            var absent = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info",
-                "--fields",
-                "Owners;Version",
-                "--tsv");
-            var valueOnly = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info",
-                "--fields",
-                "Version",
-                "--columns",
-                "Value",
-                "--tsv");
-            var overlappingNames = await RunAppAsync(
-                "package",
-                firstPackage,
-                secondPackage,
-                "-S",
-                "Package Info",
-                "--fields",
-                "License;License URL",
-                "--tsv");
-
-            Assert.Equal(0, count.Exit);
-            Assert.Equal(0, rendered.Exit);
-            Assert.Equal(0, unprojected.Exit);
-            Assert.Equal(0, column.Exit);
-            Assert.Equal(0, ordered.Exit);
-            Assert.Equal(0, absent.Exit);
-            Assert.Equal(0, valueOnly.Exit);
-            Assert.Equal(0, overlappingNames.Exit);
-            Assert.Empty(count.Error);
-            Assert.Empty(rendered.Error);
-            Assert.Empty(unprojected.Error);
-            Assert.Empty(column.Error);
-            Assert.Empty(ordered.Error);
-            Assert.Contains(
-                "Note: 1 field has no data: Owners",
-                absent.Error);
-            Assert.Empty(valueOnly.Error);
-            Assert.Contains(
-                "Note: 1 field has no data: License",
-                overlappingNames.Error);
-            string[] overlappingRows =
-                SplitOutputLines(overlappingNames.Output);
-            Assert.Equal(3, overlappingRows.Length);
-            Assert.All(
-                overlappingRows.Skip(1),
-                row => Assert.Contains(
-                    "\tLicense URL\t",
-                    row,
-                    StringComparison.Ordinal));
-            Assert.Equal(
-                ["value", "1.0.0", "1.0.0"],
-                SplitOutputLines(valueOnly.Output));
-            Assert.Equal("2", count.Output.Trim());
-            string[] rows = SplitOutputLines(rendered.Output);
-            Assert.Equal(3, rows.Length);
-            Assert.All(
-                rows.Skip(1),
-                row => Assert.Contains(
-                    "\tVersion\t",
-                    row,
-                    StringComparison.Ordinal));
-            Assert.Equal(
-                ["field", "Version"],
-                SplitOutputLines(column.Output));
-            Assert.Equal(
-                ["Authors", "Version", "Authors", "Version"],
-                SplitOutputLines(ordered.Output)
-                    .Skip(1)
-                    .Select(row => row.Split('\t')[1]));
-            Assert.Equal(
-                [
-                    "Version",
-                    "Type",
-                    "Package Size (compressed)",
-                    "Ecosystem Dependency Status",
-                    "Built",
-                    "Source",
-                    "Authors",
-                    "License URL",
-                    "Readme",
-                    "Version",
-                    "Type",
-                    "Package Size (compressed)",
-                    "Ecosystem Dependency Status",
-                    "Built",
-                    "Source",
-                    "Authors",
-                    "License URL",
-                    "Readme"
-                ],
-                SplitOutputLines(unprojected.Output)
-                    .Skip(1)
-                    .Select(row => row.Split('\t')[1]));
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_TableCombinesPackageInfoRows()
-    {
-        var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Info.One", "README.md", "one");
-        var (secondPackage, secondDir) = CreateLocalReadmePackage("Test.Info.Two", "README.md", "two");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync("package", firstPackage, secondPackage, "--table");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("Package", output);
-            Assert.Contains("Field", output);
-            Assert.Contains("Value", output);
-            Assert.Contains("Test.Info.One", output);
-            Assert.Contains("Test.Info.Two", output);
-            Assert.Contains("Version", output);
-            Assert.DoesNotContain("not a valid package version", error);
-        }
-        finally
-        {
-            Directory.Delete(firstDir, recursive: true);
-            Directory.Delete(secondDir, recursive: true);
         }
     }
 
@@ -5161,179 +3700,6 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_SignalsCountAggregatesRenderedRows()
-    {
-        var (firstPackagePath, firstTempDir) = CreateLocalRefPackage("System.Runtime");
-        var (secondPackagePath, secondTempDir) = CreateLocalRefPackage("System.Collections");
-        try
-        {
-            var (firstExit, firstOutput, firstError) = await RunAppAsync(
-                "package", firstPackagePath, "-S", "Signals", "--count");
-            var (secondExit, secondOutput, secondError) = await RunAppAsync(
-                "package", secondPackagePath, "-S", "Signals", "--count");
-            var (combinedExit, combinedOutput, combinedError) = await RunAppAsync(
-                "package", firstPackagePath, secondPackagePath,
-                "-S", "Signals", "--count", "--json");
-
-            Assert.Equal(0, firstExit);
-            Assert.Equal(0, secondExit);
-            Assert.Equal(0, combinedExit);
-            Assert.Empty(firstError);
-            Assert.Empty(secondError);
-            Assert.Empty(combinedError);
-            var expected = int.Parse(firstOutput, CultureInfo.InvariantCulture)
-                + int.Parse(secondOutput, CultureInfo.InvariantCulture);
-            Assert.True(expected > 0);
-            Assert.Equal(
-                expected.ToString(CultureInfo.InvariantCulture),
-                combinedOutput.Trim());
-        }
-        finally
-        {
-            Directory.Delete(firstTempDir, recursive: true);
-            Directory.Delete(secondTempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_SelectedCountPopulatesSections()
-    {
-        var (firstPackagePath, firstTempDir) =
-            CreateLocalReadmePackage(
-                "Test.FixedOverview.One",
-                "README.md",
-                "one");
-        var (secondPackagePath, secondTempDir) =
-            CreateLocalReadmePackage(
-                "Test.FixedOverview.Two",
-                "README.md",
-                "two");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package",
-                firstPackagePath,
-                secondPackagePath,
-                "-S",
-                "Nuspec;Signature",
-                "--count",
-                "--json");
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            using var document = JsonDocument.Parse(output);
-            var counts = document.RootElement
-                .EnumerateArray()
-                .ToDictionary(
-                    row => row.GetProperty("section").GetString()!,
-                    row => row.GetProperty("count").GetInt32(),
-                    StringComparer.Ordinal);
-            Assert.Equal(2, counts["Nuspec"]);
-            Assert.Equal(6, counts["Signature"]);
-        }
-        finally
-        {
-            Directory.Delete(firstTempDir, recursive: true);
-            Directory.Delete(secondTempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_SignalsUseSelectedTfm()
-    {
-        var (packagePath, tempDir) = CreateLocalDependencyPackage();
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, packagePath,
-                "--tfm", "net9.0", "-S", "Signals", "--json");
-
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            using var document = JsonDocument.Parse(output);
-            foreach (var package in document.RootElement.EnumerateArray())
-            {
-                var directDependencies = Assert.Single(
-                    package.GetProperty("audit_signals").EnumerateArray(),
-                    signal => signal.GetProperty("signal").GetString() == "Direct dependencies");
-                Assert.Equal("2", directDependencies.GetProperty("value").GetString());
-                Assert.Equal("net9.0", directDependencies.GetProperty("evidence").GetString());
-            }
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MultiplePackages_SignalsIncludePackageFileConcerns()
-    {
-        var (cleanPackage, cleanTempDir) = CreateLocalReadmePackage(
-            "Test.Containment.Clean",
-            "README.md",
-            "readme");
-        var (hostilePackage, hostileTempDir) = CreateLocalReadmePackage(
-            "Test.Containment.Hostile",
-            "README.md",
-            "readme",
-            extraFiles: [("docs/\u202Esecret.txt", "payload")]);
-        try
-        {
-            var single = await RunAppAsync(
-                "package",
-                hostilePackage,
-                "-v:q",
-                "-S",
-                PackageSections.Signals,
-                "--json");
-            var multi = await RunAppAsync(
-                "package",
-                cleanPackage,
-                hostilePackage,
-                "-v:q",
-                "-S",
-                PackageSections.Signals,
-                "--json");
-
-            Assert.True(
-                single.Exit == 0,
-                $"exit={single.Exit}\nstdout:\n{single.Output}\nstderr:\n{single.Error}");
-            Assert.True(
-                multi.Exit == 0,
-                $"exit={multi.Exit}\nstdout:\n{multi.Output}\nstderr:\n{multi.Error}");
-            Assert.Empty(single.Error);
-            Assert.Empty(multi.Error);
-
-            using var singleDocument = JsonDocument.Parse(single.Output);
-            using var multiDocument = JsonDocument.Parse(multi.Output);
-            JsonElement singleSignal = Assert.Single(
-                singleDocument.RootElement.GetProperty("audit_signals").EnumerateArray(),
-                IsArtifactTextContainmentSignal);
-            JsonElement hostileResult = Assert.Single(
-                multiDocument.RootElement.EnumerateArray(),
-                package => package.GetProperty("package_name").GetString()
-                    == "Test.Containment.Hostile");
-            JsonElement multiSignal = Assert.Single(
-                hostileResult.GetProperty("audit_signals").EnumerateArray(),
-                IsArtifactTextContainmentSignal);
-
-            Assert.Equal("Required", singleSignal.GetProperty("value").GetString());
-            Assert.Equal("format/bidi (Cf)", singleSignal.GetProperty("evidence").GetString());
-            Assert.Equal("Required", multiSignal.GetProperty("value").GetString());
-            Assert.Equal("format/bidi (Cf)", multiSignal.GetProperty("evidence").GetString());
-        }
-        finally
-        {
-            Directory.Delete(cleanTempDir, recursive: true);
-            Directory.Delete(hostileTempDir, recursive: true);
-        }
-
-        static bool IsArtifactTextContainmentSignal(JsonElement signal)
-            => signal.GetProperty("signal").GetString() == "Artifact text containment";
     }
 
     [Fact]

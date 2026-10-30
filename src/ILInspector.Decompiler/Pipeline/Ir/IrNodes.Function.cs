@@ -425,6 +425,24 @@ public sealed class IrFunction : IrNode
                 yield return scopedNode;
     }
 
+    internal void ValidateEliminatedLocalSlots()
+    {
+        foreach (int index in _eliminatedLocalSlots.Order())
+        {
+            if (index < 0 || index >= Locals.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Invariant violated: eliminated local slot {index} is out of range for function '{Name}' with {Locals.Length} local slot(s).");
+            }
+
+            if (LocalSlotReferencesInScope(this, index).FirstOrDefault() is { } reference)
+            {
+                throw new InvalidOperationException(
+                    $"Invariant violated: '{reference.Describe()}' references eliminated local slot {index} in function '{Name}'.");
+            }
+        }
+    }
+
     /// <summary>
     /// Whether <paramref name="node"/> binds or reads local slot
     /// <paramref name="index"/> directly, so the C# view would render the slot's

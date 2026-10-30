@@ -33,7 +33,8 @@ public sealed class WorkspaceLibraryDeclarationContextMember
         ExactLibrarySourceCoordinate coordinate,
         AssemblyReferenceIdentity assemblyIdentity,
         WorkspaceDeclarationOrigin origin,
-        AssemblyResolutionProvenance selection)
+        AssemblyResolutionProvenance selection,
+        FindPackageSourceRequest? packageRequest)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(assemblyIdentity);
@@ -44,12 +45,14 @@ public sealed class WorkspaceLibraryDeclarationContextMember
         AssemblyIdentity = assemblyIdentity;
         Origin = origin;
         Selection = selection;
+        PackageRequest = packageRequest;
     }
 
     public ExactLibrarySourceCoordinate Coordinate { get; }
     public AssemblyReferenceIdentity AssemblyIdentity { get; }
     public WorkspaceDeclarationOrigin Origin { get; }
     public AssemblyResolutionProvenance Selection { get; }
+    public FindPackageSourceRequest? PackageRequest { get; }
 }
 
 /// <summary>
@@ -118,7 +121,8 @@ public static class WorkspaceLibraryDeclarationContextAdmission
                     member.Coordinate,
                     member.AssemblyIdentity,
                     member.Origin,
-                    member.Selection));
+                    member.Selection,
+                    member.PackageRequest));
         }
 
         WorkspaceDeclarationContext context = new(

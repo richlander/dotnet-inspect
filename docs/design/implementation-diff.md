@@ -463,7 +463,7 @@ gates visible PDB source identity and exact/normalized checksum evidence. The
 acquisition side is gated by
 `VerifiedLocalSourceReadTests.ReturnsBytes_WhenChecksumMatches`,
 `VerifiedLocalSourceReadTests.ReturnsNull_WhenChecksumMismatches`, and
-`PdbSourceHouseTests.
+`PdbSourceInspectionTests.
 FromContent_MismatchedChecksumProducesFailedInspection`, while
 `FetchVerifiedSourceText_PreservesLineEndingNormalizationEvidence` gates the
 network result's typed verification. A source context is
@@ -1238,6 +1238,18 @@ Metadata owns each selected target and physical address; Analysis owns module
 and body evidence; Findings and the native C#/IL adapters own endpoint
 classification and comparison. This section imports those contracts and
 changes only Research's association and session work basis.
+
+A selected implementation population may also carry caller-owned semantic
+Before/After selections. The Query adapter uses them only when strict target
+correspondence reports an unavailable counterpart, validates each resolved pair
+through `ResearchDesignatedPairAdmission`, and runs it in place of those two
+unavailable work bases. Mixed sessions retain ordinary correspondence for every
+other selected Member. Designated pairs are disjoint, belong to the same
+resolution, and replace only their own unavailable attempts. This permits an
+API-owned method or accessor return-type change without claiming identity
+correspondence or
+expanding the selected public population. Native return-qualified subject keys
+remain intact beside the API relation.
 
 ### Designation boundary
 

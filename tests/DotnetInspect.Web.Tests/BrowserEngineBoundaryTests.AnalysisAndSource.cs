@@ -39,6 +39,7 @@ using BrowserPackageIntegrations = DotnetInspect.Web.Interop.Analysis.BrowserPac
 using BrowserPackageOpportunities = DotnetInspect.Web.Interop.Analysis.BrowserPackageOpportunities;
 using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformance;
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
+using BrowserPackagePerformanceSummary = DotnetInspect.Web.Interop.Analysis.BrowserPackagePerformanceSummary;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserSource = DotnetInspect.Web.Interop.Source.BrowserSource;
 using BrowserCallGraph = DotnetInspect.Web.Interop.CallGraph.BrowserCallGraph;
@@ -90,6 +91,66 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(0, performance.TotalOpportunities);
         Assert.Equal(0, performance.NonPublicOpportunities);
         Assert.Empty(performance.Members);
+    }
+
+    [Fact]
+    public async Task PackagePerformance_PublishesStructuredSyncCallsSeparately()
+    {
+        const string PackageId = "Browser.Performance.SyncCalls";
+        string assemblyPath =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        string assemblyName = Path.GetFileName(assemblyPath);
+        byte[] image = File.ReadAllBytes(assemblyPath);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(image, image, assemblyName),
+                fromCache: false));
+
+        BrowserPackagePerformance performance =
+            Assert.IsType<BrowserPackagePerformance>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackagePerformance(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            assemblyName),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackagePerformance));
+
+        var syncCall = Assert.Single(
+            performance.SyncCallsInAsync,
+            row =>
+                row.Caller.Contains(
+                    "CallsSyncSiblingFromAsync",
+                    StringComparison.Ordinal)
+                && row.Callee.Contains(
+                    "ReadValue(",
+                    StringComparison.Ordinal)
+                && row.Alternative.Contains(
+                    "ReadValueAsync(",
+                    StringComparison.Ordinal));
+        Assert.Equal("Operation", syncCall.PairKind);
+        Assert.Equal(
+            performance.SyncCallsInAsync.Length,
+            performance.SyncCallsInAsyncCount);
+        BrowserPackagePerformanceSummary summary =
+            await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .StreamPackagePerformanceItemsAsync(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    assemblyName,
+                    static _ => { },
+                    CancellationToken.None);
+        Assert.Equal(
+            performance.SyncCallsInAsync,
+            summary.SyncCallsInAsync);
+        Assert.Equal(
+            performance.SyncCallsInAsyncCount,
+            summary.SyncCallsInAsyncCount);
     }
 
     [Fact]
@@ -1446,7 +1507,8 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Equal(
                 $"{surfaceAsset.AssemblyName}:{typeof(BrowserEngineBoundaryTests).FullName}",
                 type.GetProperty("id").GetString());
-            Assert.Single(type.GetProperty("api").EnumerateArray());
+            JsonElement member =
+                Assert.Single(type.GetProperty("api").EnumerateArray());
 
             string declarationJson =
                 await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDeclaration(
@@ -1456,7 +1518,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     surfaceAsset.Id,
                     typeof(BrowserEngineBoundaryTests).FullName!,
                     method.Name,
-                    "stale-selector",
+                    member.GetProperty("graphSelectorKey").GetString()!,
                     method.MetadataToken,
                     implementationMember: true);
             using JsonDocument declarationDocument =
@@ -1540,6 +1602,198 @@ public sealed partial class BrowserEngineBoundaryTests
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Builds a real, loadable assembly with <paramref name="methodCount"/>
+    /// public static methods that each box an <see cref="int"/> and return
+    /// it, escaping through the return — one genuine
+    /// box-value-type optimization opportunity per method. Used to drive the
+    /// real synchronous and streaming performance pipelines through an exact,
+    /// known navigable-member count instead of an arbitrary production
+    /// assembly's member count, which drifts as that assembly's code changes.
+    /// </summary>
+    static byte[] BuildBoxingOpportunityImage(string assemblyName, int methodCount)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName), typeof(object).Assembly);
+        TypeBuilder type = assembly.DefineDynamicModule(assemblyName)
+            .DefineType("Example.BoxingHost", TypeAttributes.Public);
+        for (int index = 0; index < methodCount; index++)
+        {
+            MethodBuilder method = type.DefineMethod(
+                $"Box{index}",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                Type.EmptyTypes);
+            ILGenerator il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldc_I4, index);
+            il.Emit(OpCodes.Box, typeof(int));
+            il.Emit(OpCodes.Ret);
+        }
+        type.CreateType();
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    [Fact]
+    public async Task StreamPackagePerformanceItems_MatchFinalCappedMembersExactly_AboveCap()
+    {
+        const string PackageId = "Browser.Performance.Streamed.AboveCap";
+        byte[] image = BuildBoxingOpportunityImage(PackageId, methodCount: 260);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(image, image, $"{PackageId}.dll"),
+                fromCache: false));
+
+        BrowserPackagePerformance final = await QueryFinalPerformance(PackageId);
+        var items = new List<BrowserPerformanceMember>();
+        BrowserPackagePerformanceSummary summary =
+            await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .StreamPackagePerformanceItemsAsync(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll",
+                    items.Add,
+                    CancellationToken.None);
+
+        // 260 real navigable boxing opportunities exceed the 200-member
+        // triage cap, so this exercises ApplyPerformanceMemberLimit
+        // truncation through the real pipeline, not just a synthetic array.
+        Assert.Equal(200, final.Members.Length);
+        Assert.Contains("truncated", final.InspectionError, StringComparison.Ordinal);
+        AssertStreamingMatchesFinal(final, summary, items);
+    }
+
+    [Fact]
+    public async Task StreamPackagePerformanceItems_MatchFinalCappedMembersExactly_BelowCap()
+    {
+        const string PackageId = "Browser.Performance.Streamed.BelowCap";
+        byte[] image = BuildBoxingOpportunityImage(PackageId, methodCount: 40);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(image, image, $"{PackageId}.dll"),
+                fromCache: false));
+
+        BrowserPackagePerformance final = await QueryFinalPerformance(PackageId);
+        var items = new List<BrowserPerformanceMember>();
+        BrowserPackagePerformanceSummary summary =
+            await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .StreamPackagePerformanceItemsAsync(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll",
+                    items.Add,
+                    CancellationToken.None);
+
+        Assert.Equal(40, final.Members.Length);
+        Assert.Null(final.InspectionError);
+        AssertStreamingMatchesFinal(final, summary, items);
+    }
+
+    [Fact]
+    public async Task StreamPackagePerformanceItems_PreCanceledToken_NeverRunsTheRankingQuery()
+    {
+        // A token canceled before the call reaches package acquisition, so no
+        // Item is ever reported, instead of only being observed afterward in
+        // the per-member replay loop.
+        const string PackageId = "Browser.Performance.Streamed.PreCanceled";
+        byte[] image = BuildBoxingOpportunityImage(PackageId, methodCount: 40);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(image, image, $"{PackageId}.dll"),
+                fromCache: false));
+
+        var items = new List<BrowserPerformanceMember>();
+        using var preCanceled = new CancellationTokenSource();
+        preCanceled.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                .StreamPackagePerformanceItemsAsync(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{PackageId}.dll",
+                    items.Add,
+                    preCanceled.Token));
+        Assert.Empty(items);
+    }
+
+    static async Task<BrowserPackagePerformance> QueryFinalPerformance(
+        string packageId) =>
+        Assert.IsType<BrowserPackagePerformance>(
+            JsonSerializer.Deserialize(
+                await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                    .QueryPackagePerformance(
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        $"{packageId}.dll"),
+                BrowserAnalysisJsonContext.Default
+                    .BrowserPackagePerformance));
+
+    static void AssertStreamingMatchesFinal(
+        BrowserPackagePerformance final,
+        BrowserPackagePerformanceSummary summary,
+        List<BrowserPerformanceMember> items)
+    {
+        // The cap itself is covered by
+        // PerformanceMemberLimit_ReportsOnlyActualTruncation and by the
+        // above-cap case here; this asserts that streaming reports exactly
+        // the final, already-capped array, order-for-order, member-for-
+        // member, and that Completed's accounting is bit-for-bit identical
+        // to the existing synchronous query — not re-derived from the
+        // admitted Item rows, which are a navigation-filtered projection.
+        // BrowserPerformanceMember carries array fields (BodyTokens, Shapes)
+        // and is not reference-stable across two independent
+        // PackagePerformanceAsync calls, so its generated record equality
+        // (reference equality for arrays) cannot be used here; compare each
+        // field, with arrays compared by sequence.
+        Assert.Equal(final.Members.Length, items.Count);
+        for (int index = 0; index < final.Members.Length; index++)
+        {
+            BrowserPerformanceMember expected = final.Members[index];
+            BrowserPerformanceMember actual = items[index];
+            Assert.Equal(expected.Assembly, actual.Assembly);
+            Assert.Equal(expected.TypeId, actual.TypeId);
+            Assert.Equal(expected.MemberName, actual.MemberName);
+            Assert.Equal(expected.StableSelector, actual.StableSelector);
+            Assert.Equal(expected.BodyTokens, actual.BodyTokens);
+            Assert.Equal(expected.OpportunityCount, actual.OpportunityCount);
+            Assert.Equal(expected.InLoopCount, actual.InLoopCount);
+            Assert.Equal(expected.Shapes, actual.Shapes);
+            Assert.Equal(expected.Confidence, actual.Confidence);
+            Assert.Equivalent(
+                expected.DeclaringType,
+                actual.DeclaringType,
+                strict: true);
+        }
+
+        Assert.Equal(final.InspectionError, summary.InspectionError);
+        Assert.Equal(
+            final.NonPublicOpportunities,
+            summary.NonPublicOpportunities);
+        Assert.Equal(
+            final.TotalOpportunities,
+            summary.TotalOpportunities);
+        Assert.Equal(final.CompileLibrary, summary.CompileLibrary);
+        Assert.Equal(
+            final.SyncCallsInAsync,
+            summary.SyncCallsInAsync);
+        Assert.Equal(
+            final.SyncCallsInAsyncCount,
+            summary.SyncCallsInAsyncCount);
+    }
+
+
     [Fact]
     public void PerformanceMemberLimit_ReportsOnlyActualTruncation()
     {
@@ -1553,7 +1807,26 @@ public sealed partial class BrowserEngineBoundaryTests
                 1,
                 0,
                 ["box-value-type"],
-                "high");
+                "high",
+                new(
+                    $"Example.dll:Example.Type{index}",
+                    $"Example.Type{index}",
+                    $"Example.Type{index}",
+                    $"Example.Type{index}",
+                    $"Type{index}",
+                    $"Type{index}",
+                    "Example",
+                    "class",
+                    "api.type-kind.class",
+                    [],
+                    "public",
+                    "public",
+                    "Example.dll",
+                    "example",
+                    "Example",
+                    0,
+                    $"public class Type{index}",
+                    null));
 
         var exactFailures = new List<string>();
         BrowserPerformanceMember[] exact =

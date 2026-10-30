@@ -36,6 +36,7 @@ public enum DependencyEvidenceFailurePhase
     Library,
     Pruning,
     License,
+    LatestVersion,
 }
 
 /// <summary>The closed parent family of one restored graph edge.</summary>
@@ -485,6 +486,22 @@ public sealed record DependencyEvidenceProjection(
                         failedRelationships.Failure)));
         }
 
+        ImmutableArray<PackageDependencyEvidenceProcessingFailure> processingFailures =
+            root.Processing switch
+            {
+                PackageDependencyEvidenceProcessingResult.Available processing =>
+                    processing.Failures,
+                PackageDependencyEvidenceProcessingResult.Failed failedProcessing =>
+                    [failedProcessing.Failure],
+                _ => [],
+            };
+        foreach (PackageDependencyEvidenceProcessingFailure.RestoredProjectPackagePruning
+            pruning in processingFailures.OfType<
+                PackageDependencyEvidenceProcessingFailure.RestoredProjectPackagePruning>())
+        {
+            failures.Add(ProjectPruningFailure(index, root, pruning.Failure));
+        }
+
         roots.Add(
             new DependencyEvidenceRootRow(
                 index,
@@ -763,6 +780,26 @@ public sealed record DependencyEvidenceProjection(
         RestoredProjectGraphFailure failure) =>
         new(
             DependencyEvidenceFailurePhase.Graph,
+            failure.Reason.ToString(),
+            root.Provenance.AcquisitionForm,
+            index,
+            root.Identity,
+            null,
+            null,
+            RootSource(root),
+            root.Display,
+            null,
+            null,
+            root.Provenance.SourceLabel,
+            Prose(failure.Message),
+            failure.Count);
+
+    private static DependencyEvidenceFailureRow ProjectPruningFailure(
+        int index,
+        PackageDependencyEvidenceRoot root,
+        RestoredProjectPackagePruningFailure failure) =>
+        new(
+            DependencyEvidenceFailurePhase.Pruning,
             failure.Reason.ToString(),
             root.Provenance.AcquisitionForm,
             index,

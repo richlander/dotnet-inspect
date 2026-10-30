@@ -144,6 +144,32 @@ public sealed class PackageDependencyGroupsQueryTests
     }
 
     [Fact]
+    public void Execute_ProjectsAlreadySelectedManifestBytes()
+    {
+        byte[] manifest = Encoding.UTF8.GetBytes(
+            Manifest(
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="First.Dependency" version="[1.0.0]" />
+                </group>
+                """));
+
+        PackageDependencyGroups groups = Available(
+            PackageDependencyGroupsQuery.Execute(
+                manifest,
+                "Example.Package",
+                "1.0.0",
+                "net8.0"));
+
+        Assert.Equal(
+            PackageDependencyGroupSelectionStatus.Selected,
+            groups.SelectionStatus);
+        Assert.Equal(
+            "First.Dependency",
+            Assert.Single(groups.SelectedGroup!.Dependencies).Id);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_UsesPackageOwnedFrameworkReferenceFacts()
     {
         const string manifest = """
@@ -246,8 +272,11 @@ public sealed class PackageDependencyGroupsQueryTests
             Assert.Single(result.Groups[0].Dependencies).Id);
     }
 
-    [Fact]
-    public async Task ExecuteAsync_PreservesInterleavedImplicitDependencyRuns()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_PreservesInterleavedImplicitDependencyRuns(
+        bool allowCompatibleFallback)
     {
         InMemoryPackageContent content = Content(
             ("Example.Package.nuspec", Manifest(
@@ -264,7 +293,8 @@ public sealed class PackageDependencyGroupsQueryTests
                 content,
                 "Example.Package",
                 "any",
-                allowCompatibleFallbackForRequestedTfm: true));
+                allowCompatibleFallbackForRequestedTfm:
+                    allowCompatibleFallback));
 
         Assert.Equal(
             ["Before", "Middle", "After"],
@@ -274,7 +304,9 @@ public sealed class PackageDependencyGroupsQueryTests
         Assert.Equal(0, result.SelectedGroupIndex);
         Assert.True(result.SelectedGroup!.IsImplicitManifestGroup);
         Assert.Equal(
-            ["Before", "After"],
+            allowCompatibleFallback
+                ? ["Before", "After"]
+                : ["Before"],
             result.SelectedGroup.Dependencies.Select(dependency =>
                 dependency.Id));
     }

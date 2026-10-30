@@ -450,9 +450,12 @@ source result the caller owner would have consumed on its reference path,
 including that owner's residual usability decision. After a non-empty
 delegated prefix, incomplete Rows are not accepted; supporting them is a
 separate focused extension that would require owner-side equivalence changes.
-The same evidence is not thereby sufficient for Count: one insufficient,
+The same evidence is not thereby sufficient for `ExactCount`: one inexact,
 failed, or absent member forces `NotSatisfied`, and successful-looking counts
-for the other members do not escape.
+for the other members do not escape. L2 reports an incomplete Rows-usable
+member's observed cardinality through row handoff, never through
+`ExactCount`; [Section-row shaping](section-row-shaping.md#physical-execution-freedom)
+decides when an exact-Count candidate may be accepted.
 
 ## `Head(N) -> Count` as the canonical witness
 
@@ -593,7 +596,7 @@ equivalence gates remain unverified until their owning adoptions land.
 | `SourceDelegationNotSatisfiedCarriesEvidence` | An inexact accepted Count or a candidate-scoped row-handoff failure returns exactly one disposition-and-evidence entry for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member and no row or Count payload. The broader failure retains candidate scope through references to one canonical value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
 | `SourceDelegationCompletionEvidenceBasisIsAccepted` | Logical exhaustion and requirement-witness evidence establish Rows usability or exact Count only when the typed completion requirement accepts the basis. Incomplete-stop evidence never establishes Count and establishes Rows usability only under the caller owner's existing source-result contract for an acquisition-only handoff; after any non-empty delegated prefix, the member remains `Unavailable`. Unavailable-outcome evidence establishes neither. A member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, absence is not exhaustion, and exact Count requires proof of every member value. |
 | `OperationalBoundsNeverProveCompletion` | Provider, page, work, time, memory, acquisition, and cancellation bounds remain incomplete-stop evidence even when their numeric value equals a requested semantic bound or returned row count. |
-| `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped acquisition-only handoff preserves the caller owner's typed Rows-usability decision and incompleteness evidence through its residual, while the same evidence remains Count-insufficient. After any non-empty delegated prefix, incomplete-stop evidence keeps the member `Unavailable`, and the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. |
+| `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped acquisition-only handoff preserves the caller owner's typed Rows-usability decision and incompleteness evidence through its residual, while the same evidence never yields `ExactCount`. After any non-empty delegated prefix, incomplete-stop evidence keeps the member `Unavailable`, and the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. |
 | `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after any residuals admitted by the owning composition, matches the complete section-row reference result exactly for values, order, member identity, unavailable-member composition, source evidence, every owner-observable invocation, and terminal failure identity, scope, and precedence. Fixtures exercise an acquisition-only incomplete handoff through a non-empty residual under the caller owner's existing usability contract; incomplete handoffs after non-empty delegated prefixes that remain unavailable; a multi-member Count handoff whose unavailable companion suppresses all residual execution; immutable result snapshots under mutation of every source collection; an exact sentinel callback/comparer/resolver exception; and a case where both the semantic and callback failures are reachable with reference precedence preserved. Query, ordering, and semantic-operation cases are required only when the adoption delegates matching source-closed operations. |
 | `OptimizedCountMatchesSectionRowReference` | The optimized Count path is proven to execute and matches the complete section-row reference result for empty, below-bound exhausted, bound-satisfied, oversized, multi-member, and sentinel-failure cases; insufficient evidence rejects rather than succeeding. |
 

@@ -18,7 +18,6 @@ public class SearchSourceAdapterTests
 
     [Theory]
     [InlineData("find")]
-    [InlineData("implements")]
     [InlineData("extensions")]
     [InlineData("depends")]
     public async Task PackageFormsAndDirectSourcesLowerWithoutRewriting(string command)
@@ -56,7 +55,6 @@ public class SearchSourceAdapterTests
 
     [Theory]
     [InlineData("find")]
-    [InlineData("implements")]
     [InlineData("extensions")]
     public void PrefixDeclarationUsesTheTypeSearchBound(string command)
     {
@@ -239,7 +237,6 @@ public class SearchSourceAdapterTests
 
     [Theory]
     [InlineData("find")]
-    [InlineData("implements")]
     [InlineData("extensions")]
     [InlineData("depends")]
     public async Task NormalizedEmptyGroupDoesNotTriggerLegacyCommandDefaults(string command)
@@ -252,14 +249,6 @@ public class SearchSourceAdapterTests
             {
                 Pattern = "System.String", SourceSelection = selection, Count = true,
             }),
-            "implements" => await ImplementsCommand.ExecuteAsync(
-                new ImplementsOptions
-                {
-                    TargetType = "IDisposable",
-                    SourceSelection = selection,
-                    Count = true,
-                },
-                TestContext.Current.CancellationToken),
             "extensions" => await ExtensionsCommand.ExecuteAsync(
                 new ExtensionsOptions
                 {
@@ -318,7 +307,6 @@ public class SearchSourceAdapterTests
 
     [Theory]
     [InlineData("find", "DotnetInspector.Fixtures.ExternalDerivedFromGeneric")]
-    [InlineData("implements", "DotnetInspector.Fixtures.ExternalGenericBase<int>")]
     [InlineData("extensions", "IEnumerable<T>")]
     [InlineData("depends", "DotnetInspector.Fixtures.ExternalDerivedFromGeneric")]
     public async Task EachCommandInspectsExplicitLocalPackage(string command, string target)
@@ -348,7 +336,6 @@ public class SearchSourceAdapterTests
 
     [Theory]
     [InlineData("find")]
-    [InlineData("implements")]
     [InlineData("extensions")]
     [InlineData("depends")]
     public async Task InvalidSourceTextUsesTheCleanCliErrorBoundary(string command)
@@ -363,7 +350,6 @@ public class SearchSourceAdapterTests
 
     [Theory]
     [InlineData("find", "--package-prefix", "Contoso..Bad")]
-    [InlineData("implements", "--package-prefix", "Contoso..Bad")]
     [InlineData("extensions", "--package-prefix", "Contoso..Bad")]
     [InlineData("find", "--library", " ")]
     [InlineData("find", "--project", " ")]
@@ -386,7 +372,7 @@ public class SearchSourceAdapterTests
         Assert.Equal(1, exit);
         Assert.Equal(
             "Error: find --package-prefix requires a type or member pattern; "
-            + "use 'package query <ID-or-prefix*>' for package rows.",
+            + "use 'find --packages <ID-or-prefix*>' for package rows.",
             error.Trim());
         Assert.DoesNotContain("Invalid package", error);
     }
@@ -402,7 +388,7 @@ public class SearchSourceAdapterTests
             Required<string[]>("--package"),
             Required<string[]>("--library"),
             Required<string[]>("--project"),
-            Required<bool>("--platform"),
+            definition.Options.Single(option => option.Name == "--platform"),
             Required<string[]>(CommandLineHelpers.PlatformLibraryOptionName),
             Required<bool>("--extensions"),
             Required<bool>("--aspnetcore"),

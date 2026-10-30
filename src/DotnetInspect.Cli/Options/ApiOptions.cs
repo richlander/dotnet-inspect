@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
@@ -248,6 +249,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
     public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
+    public RowSelectionIntent<string>? BodyShapeRowSelection { get; init; }
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
     public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
@@ -303,35 +305,74 @@ public partial record ApiOptions : IProjectionOptions
             && Format == OutputFormat.Markdown
             && (!FormatFlagExplicitlySet || VerbosityExplicitlySet));
 
+    /// <summary>
+    /// Explicit output intent under <c>docs/design/section-shapes.md</c>: a format flag or
+    /// environment default, <c>--print</c>, <c>--row</c>, <c>--tree</c>, <c>--count</c>, a
+    /// projection, a shape flag, discovery, an envelope, or an analysis query. When present, a
+    /// lone selected section keeps that intent instead of its shape's native format.
+    /// </summary>
+    internal bool HasExplicitOutputIntent =>
+        FormatExplicitlySet
+        || JsonOutput
+        || Tabular
+        || Tsv
+        || Jsonl
+        || PlainText
+        || MermaidOutput
+        || EmbeddedMermaid
+        || NoHeader
+        || Print
+        || PrintRow is not null
+        || Value
+        || Urls
+        || Paths
+        || Count
+        || Tree
+        || ShapeOutput
+        || Discover is not null
+        || Schema
+        || Fields is { Length: > 0 }
+        || Columns is { Length: > 0 }
+        || BodyKindQuery.HasFilter
+        || PerformanceTriage.HasFilters
+        || CloneCandidateQuery.HasPredicates
+        || this is TypeOptions { EnvelopeOutput: true }
+        || this is MemberOptions { EnvelopeOutput: true };
+
+    /// <summary>
+    /// Whether the selection names sections explicitly: <c>-S</c> with names, or a section that
+    /// carries exact provenance (a typed caller supplying <see cref="IncludeSections"/> directly,
+    /// or the member command's pre-resolved sections). Bare <c>-S</c> is a preset.
+    /// </summary>
+    internal bool SelectionIsExplicit =>
+        !SelectDefault
+        && (Select is { Length: > 0 }
+            || ExactIncludeSections is { Count: > 0 })
+        // A section the command added on the user's behalf (Callers under a
+        // caller scope) was not selected explicitly, so it keeps the composed view.
+        && !(this is MemberOptions { ImplicitIncludeSections: { Count: > 0 } implicitSections }
+            && IncludeSections is { Count: 1 } loneSection
+            && implicitSections.Contains(loneSection.First()));
+
+    /// <summary>
+    /// Set by the preamble when the shared policy resolved a lone Text section to its native
+    /// payload; the computed fallback below answers the same question for a renderer that was
+    /// called without the preamble.
+    /// </summary>
+    internal bool NativeTextPayload { get; init; }
+
+    /// <summary>
+    /// A lone explicitly selected Text renders its undecorated payload when the caller named no
+    /// output intent. The shape decides (<see cref="Sections.ApiSectionShapes"/>), not a list of
+    /// section names; see <c>ApiCommand.ApplyNativeShapeOutput</c>.
+    /// </summary>
     public bool UsesNativePayloadDefault =>
-        !FormatExplicitlySet
-        && !JsonOutput
-        && !Tabular
-        && !Jsonl
-        && !PlainText
-        && !MermaidOutput
-        && !EmbeddedMermaid
-        && !NoHeader
-        && !Print
-        && !Value
-        && !Urls
-        && !Paths
-        && !Count
-        && Discover is null
-        && Columns is not { Length: > 0 }
-        && Fields is not { Length: > 0 }
-        && IncludeSections is { Count: 1 } sections
-        && sections.First() is
-            SectionNames.ApiDeclarations
-            or SectionNames.Source
-            or SectionNames.DecompiledSource
-            or SectionNames.AnnotatedSource
-            or SectionNames.PdbSource
-            or SectionNames.SourceDiff
-            or SectionNames.IL
-            or SectionNames.CostOverlay
-            or SectionNames.SemanticsOverlay
-            or SectionNames.FindingCensus;
+        NativeTextPayload
+        || (!HasExplicitOutputIntent
+            && SelectionIsExplicit
+            && IncludeSections is { Count: 1 } sections
+            && this is not MemberOptions { HasCallerScope: true }
+            && Sections.ApiSectionShapes.IsText(sections.First()));
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
@@ -356,6 +397,13 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    public bool NamesakeLibrary { get; init; }
+    internal bool MermaidExplicitlySet { get; init; }
+    internal bool NonHierarchyFormatExplicitlySet { get; init; }
+    internal bool LineWindowExplicitlySet { get; init; }
+    internal bool ShapeOrDiscoveryControlExplicitlySet { get; init; }
+    internal bool PerformanceTriageControlExplicitlySet { get; init; }
+    internal bool TypeTargetUsedPlatformPrefixFallback { get; init; }
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }
@@ -372,6 +420,9 @@ public record TypeOptions : ApiOptions
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
     internal bool RouterCompletedPlatformLookup { get; init; }
+    internal string[]? AnnotatedRelationIds { get; init; }
+    internal string[] AnnotatedRelationColorIds { get; init; } = [];
+    internal string[] AnnotatedRelationRequiredColorIds { get; init; } = [];
     public InspectionEnvelope<CSharpTypeDocumentOutcome>?
         TypeDocumentInspection
     {
@@ -386,6 +437,14 @@ public record TypeOptions : ApiOptions
     }
     public InspectionEnvelope<TypeApiDeclarationResult>?
         TypeApiDeclarationInspection
+    {
+        get;
+        init;
+    }
+    internal InspectionEnvelope<TypeSignatureInspectionOutcome>?
+        TypeSignatureInspection { get; init; }
+    internal TypeHierarchyRelationsInspection?
+        TypeHierarchyRelations
     {
         get;
         init;
@@ -410,11 +469,53 @@ public record TypeOptions : ApiOptions
         || Count;
 }
 
+internal sealed record TypeHierarchyRelationsInspection(
+    TypeHierarchyRelationSectionInspection? Implementers,
+    TypeHierarchyRelationSectionInspection? DerivedTypes,
+    ImmutableArray<InspectionDiagnostic> Diagnostics = default,
+    bool AdditionalEvidenceComplete = true)
+{
+    internal ImmutableArray<InspectionDiagnostic> EffectiveDiagnostics =>
+        Diagnostics.IsDefault ? [] : Diagnostics;
+
+    internal bool IsComplete =>
+        AdditionalEvidenceComplete
+        && (Implementers?.IsComplete ?? true)
+        && (DerivedTypes?.IsComplete ?? true);
+}
+
+internal sealed record TypeHierarchyRelationSectionInspection(
+    InspectionEnvelope<WorkspaceTypeHierarchySubjectRelationsDocument>
+        Inspection,
+    IReadOnlyList<TypeHierarchyRelationCandidate> Candidates,
+    bool AdditionalEvidenceComplete = true)
+{
+    internal bool IsComplete =>
+        AdditionalEvidenceComplete
+        && (Inspection.Content.Relations.Count is null
+            or SubjectRelationPopulationCountOutcome.Counted)
+        && (Inspection.Content.Relations.Rows is null
+            or SubjectRelationPopulationRowsOutcome.Read
+            {
+                Continuation: null,
+            });
+}
+
+internal sealed record TypeHierarchyRelationCandidate(
+    string Type,
+    string Library,
+    string Source);
+
 /// <summary>
 /// Options specific to the member command.
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    internal MemberDocumentResolutionOutcome? OverloadSectionResolution { get; init; }
+    internal MemberDocumentationAttachmentOutcome? OverloadSectionDocumentation { get; init; }
+    internal int? OverloadSectionCount { get; init; }
+
+    public string? WorkspacePacket { get; init; }
     public ExplanationProjection? Explanation { get; init; }
     public bool EnvelopeOutput { get; init; }
     internal RowSelectionIntent<string>? FactsRowSelection { get; init; }

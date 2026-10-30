@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections.Local;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using InertText;
@@ -80,7 +81,7 @@ public sealed class InspectionQueryContext : IDisposable
     public RowSelectionIntent<string>? NameFamilyRowSelection
     { get; init; }
 
-    public bool NameFamilyRoleTypeRows { get; init; }
+    public bool ArchitecturalFamilyTypeRows { get; init; }
 
     public RowSelectionIntent<string>? DependencyStructureRowSelection
     { get; init; }
@@ -88,6 +89,8 @@ public sealed class InspectionQueryContext : IDisposable
     private MethodBodyInspectionSession? _bodySession;
     private MethodClassificationBindingResult? _methodClassification;
     private IReadOnlyList<ClassificationQuestion>? _methodClassificationQuestions;
+    private SyncCallsInAsyncBindingResult? _syncCallsInAsync;
+    private IReadOnlyList<SyncCallsInAsyncClosing>? _syncCallsInAsyncClosings;
     private AssemblyInspectionSession? _session;
     private Exception? _sessionOpenFailure;
     private bool _sessionOpenAttempted;
@@ -254,6 +257,76 @@ public sealed class InspectionQueryContext : IDisposable
         return _methodClassification;
     }
 
+    public SyncCallsInAsyncBindingResult SyncCallsInAsync()
+    {
+        IReadOnlyList<SyncCallsInAsyncClosing> closings =
+            SyncCallsInAsyncDemand.ClosingsFor(
+                CountOnly,
+                ApplicabilityOnly);
+        if (_syncCallsInAsync is { } cached
+            && closings.All(_syncCallsInAsyncClosings!.Contains))
+        {
+            return cached;
+        }
+
+        _syncCallsInAsyncClosings = closings;
+        _syncCallsInAsync = Query<SyncCallsInAsyncBindingResult>(
+            session =>
+            {
+                try
+                {
+                    return new SyncCallsInAsyncBindingResult.Available(
+                        SyncCallsInAsyncQuery.Execute(
+                            session,
+                            ReferenceBinding(),
+                            closings));
+                }
+                catch (Exception ex)
+                    when (ex is not
+                        Analysis.Planning.ProducerContractException)
+                {
+                    return new SyncCallsInAsyncBindingResult.Failed(ex);
+                }
+            },
+            static ex => new SyncCallsInAsyncBindingResult.Failed(ex));
+        return _syncCallsInAsync;
+    }
+
+    private ResolvedAssemblyReference ReferenceBindingSubject()
+    {
+        if (AssemblyReference is { } assembly
+            && (MetadataContext is null
+                || MetadataContext.IsBoundTo(assembly)))
+        {
+            return assembly;
+        }
+
+        byte[] image = GetMetadataContext()
+            .GetPrefetchedImage()
+            .ToArray();
+        return ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Designated(
+                    "library command snapshot"),
+                lastWriteTimeUtc: null,
+                assetFileName: Path.GetFileName(AssemblyPath))
+            ?? throw new BadImageFormatException(
+                "The selected Library snapshot has no managed metadata.");
+    }
+
+    private AssemblyReferenceBindingAccess ReferenceBinding()
+        => new(
+            ReferenceBindingSubject(),
+            BodyReferenceResolver switch
+            {
+                IAssemblyBindingPolicy policy => policy,
+                not null =>
+                    new AssemblyReferenceBindingPolicy(
+                        BodyReferenceResolver),
+                null => throw new InvalidOperationException(
+                    "The selected query requires reference binding."),
+            });
+
     /// <summary>
     /// How many typed query adapters have taken the shared-session branch of
     /// <see cref="Scan{TScan}"/> or <see cref="Query{TResult}"/>.
@@ -281,15 +354,15 @@ public sealed class InspectionQueryContext : IDisposable
     /// <summary>
     /// Refuses a shared resource to a query that did not declare it could afford one.
     ///
-    /// Body analysis is a whole-assembly IL build. The registry cannot see that an executor
-    /// touches it because focused results and the compatibility <see cref="BodyIndex"/> are
-    /// acquired lazily, so the declaration is enforced at acquisition rather than inferred from
+    /// Body analysis is a whole-assembly IL build. The registry cannot see that
+    /// an executor touches it because focused results are acquired lazily, so
+    /// the declaration is enforced at acquisition rather than inferred from
     /// delegate shape.
     ///
     /// So the declaration is enforced where the cost is actually incurred. Adding a body-analysis
     /// call to a producer that still claims to be cheap fails loudly instead of quietly restoring
     /// the defect. Gates:
-    /// <c>SectionPipelineTests.Query_CannotTakeTheBodyIndexWithoutDeclaringItsCost</c>.
+    /// The section-pipeline cost-declaration tests gate this boundary.
     /// </summary>
     private void RequireUnboundedDeclaration(string resource)
     {
@@ -337,17 +410,43 @@ public sealed class InspectionQueryContext : IDisposable
         return _bodySession!.AnalysisExecution;
     }
 
+    public TopLeverageResult TopLeverage()
+    {
+        RequireUnboundedDeclaration("method leverage analysis");
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        TopLeverageResult result = Query(
+            session =>
+                LocalLibraryTopLeverageInspectionOperation.Execute(
+                    session,
+                    AssemblyPath,
+                    BodyReferenceResolver is null
+                        ? null
+                        : ReferenceBinding())
+                .Content,
+            static error => new TopLeverageResult.Failed(error));
+        Trace?.RecordResource(
+            "method leverage analysis",
+            InertString.Format(
+                TextPolicy.Field,
+                $"built in {Elapsed(start)} (local desktop realization)"));
+        return result;
+    }
+
     private void OpenBodySession(string resource)
     {
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
+            Analysis.LibraryBodyAnalysisRequest request =
+                BodyAnalysisRequest
+                    ?? Analysis.LibraryBodyAnalysisRequest.Create(
+                        BodyAnalysisFeatures);
+            if (Trace is not null)
+                request = request.WithStageParticipation();
             _bodySession = MethodBodyInspectionSession.OpenWithPrefetchedImage(
                 AssemblyPath,
                 GetMetadataContext().GetPrefetchedImage(),
-                BodyAnalysisRequest
-                    ?? Analysis.LibraryBodyAnalysisRequest.Create(
-                        BodyAnalysisFeatures),
+                request,
                 BodyReferenceResolver,
                 assembly: AssemblyReference);
         }
@@ -369,6 +468,22 @@ public sealed class InspectionQueryContext : IDisposable
                 + $"{BodyAnalysisRequest?.Features ?? BodyAnalysisFeatures}; "
                 + $"resource lifecycle: "
                 + $"{BodyAnalysisRequest?.IncludesResourceLifecycle == true})"));
+        if (_bodySession.AnalysisExecution.Receipt.StageParticipation
+            is { } participation)
+        {
+            Trace?.RecordResource(
+                "body analysis stages",
+                new InertString(
+                    TextPolicy.Field,
+                    string.Join(
+                        "; ",
+                        participation.Stages.Select(
+                            static stage =>
+                                $"{stage.Stage} "
+                                + $"{stage.Completions}/"
+                                + $"{stage.Attempts} complete, "
+                                + $"{stage.Failures} failed"))));
+        }
     }
 
     private static string Elapsed(long start)

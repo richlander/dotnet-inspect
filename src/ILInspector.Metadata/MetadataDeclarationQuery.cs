@@ -153,7 +153,7 @@ public static class MetadataDeclarationQuery
                 Name = declaration.MetadataName,
                 Kind = "property",
                 SignatureModel = declaration.Signature,
-                Signature = PropertySignatureText(declaration),
+                Signature = GetPropertySignatureText(declaration),
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 IsStatic = declaration.IsStatic,
                 IsAbstract = declaration.IsAbstract,
@@ -388,22 +388,39 @@ public static class MetadataDeclarationQuery
         TypeDefinition typeDef,
         MethodDefinition method)
     {
-        var signature = GuardedProviderDecode.Method(
-            reader,
-            method,
-            TypeNodeProvider.Instance,
-            GenericContext.ForMethod(reader, typeDef, method),
-            (TypeNode)new DegradedTypeNode());
-        if (signature.ReturnType.IsDegraded)
+        TypeNode returnType = DecodeSetterReturn(reader, typeDef, method);
+        if (returnType.IsDegraded)
         {
             throw new BadImageFormatException(
                 "The property setter return signature could not be decoded.");
         }
 
-        return signature.ReturnType.HasRequiredModifier(
-            "System.Runtime.CompilerServices",
-            "IsExternalInit");
+        return IsInitOnlySetterReturn(returnType);
     }
+
+    /// <summary>
+    /// Whether a decoded property setter return carries the required
+    /// IsExternalInit modifier that C# spells <c>init</c>. A degraded return
+    /// is not init-only, so a caller that does not fail on a degraded setter
+    /// keeps spelling it <c>set</c>.
+    /// </summary>
+    internal static bool IsInitOnlySetterReturn(TypeNode returnType)
+        => !returnType.IsDegraded
+            && returnType.HasRequiredModifier(
+                "System.Runtime.CompilerServices",
+                "IsExternalInit");
+
+    static TypeNode DecodeSetterReturn(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+        => GuardedProviderDecode.Method(
+                reader,
+                method,
+                TypeNodeProvider.Instance,
+                GenericContext.ForMethod(reader, typeDef, method),
+                (TypeNode)new DegradedTypeNode())
+            .ReturnType;
 
     public static MetadataMethodDeclaration GetMethod(
         MetadataReader reader,
@@ -511,7 +528,10 @@ public static class MetadataDeclarationQuery
         {
             accessorModels.Add(new ApiAccessor
             {
-                Kind = "set",
+                Kind = IsInitOnlySetterReturn(
+                    DecodeSetterReturn(reader, typeDef, setter))
+                    ? "init"
+                    : "set",
                 Accessibility = AccessorAccessibility(setter.Attributes & MethodAttributes.MemberAccessMask, bestAccess),
                 ReturnAttributes = ReturnAttributes(reader, setter.GetParameters()).ToList(),
             });
@@ -858,13 +878,8 @@ public static class MetadataDeclarationQuery
             var attributes = parameter.GetCustomAttributes();
             var isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
                 || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
-            var isOut = (parameter.Attributes & ParameterAttributes.Out) != 0;
-            var isIn = (parameter.Attributes & ParameterAttributes.In) != 0;
-            var refKind = isOut && !isIn
-                ? "out"
-                : isIn && !isOut
-                    ? "in"
-                    : null;
+            // Classified for every parameter row; consumed only when the signature type is by-reference.
+            var refKind = ParameterByRefKinds.Classify(reader, parameter).CSharpModifier();
             var defaultParameter = (parameter.Attributes & ParameterAttributes.HasDefault) != 0
                 ? parameter
                 : (Parameter?)null;
@@ -1107,8 +1122,10 @@ public static class MetadataDeclarationQuery
         return MethodSignatureText(declaration);
     }
 
-    static string PropertySignatureText(MetadataPropertyDeclaration declaration)
+    public static string GetPropertySignatureText(
+        MetadataPropertyDeclaration declaration)
     {
+        ArgumentNullException.ThrowIfNull(declaration);
         var returnType = declaration.Signature.ReturnType ?? "void";
         var accessors = declaration.Signature.Accessors.Count == 0
             ? "{ get; }"
@@ -1116,6 +1133,29 @@ public static class MetadataDeclarationQuery
         return declaration.Signature.Parameters.Count == 0
             ? $"{returnType} {declaration.CSharpName} {accessors}"
             : $"{returnType} this[{string.Join(", ", declaration.Signature.Parameters.Select(ParameterDeclaration))}] {accessors}";
+    }
+
+    public static string GetFieldSignatureText(
+        MetadataFieldDeclaration declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        return $"{declaration.ReturnType ?? DegradedType} {declaration.CSharpName}";
+    }
+
+    public static string GetEventSignatureText(
+        MetadataReader reader,
+        TypeDefinition type,
+        EventDefinition eventDefinition)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        string eventType =
+            TypeResolver.GetTypeName(
+                reader,
+                eventDefinition.Type,
+                GenericContext.ForType(reader, type))
+            ?? throw new BadImageFormatException(
+                "The event type could not be decoded.");
+        return $"{eventType} {SanitizeIdentifier(reader.GetString(eventDefinition.Name))}";
     }
 
     static string ParameterDeclaration(ApiParameter parameter)

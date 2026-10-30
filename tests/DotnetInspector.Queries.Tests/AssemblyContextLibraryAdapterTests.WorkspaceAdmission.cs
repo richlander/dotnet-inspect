@@ -243,7 +243,8 @@ public sealed partial class AssemblyContextLibraryAdapterTests
                                     "resident test",
                                     identity.Identity.Name),
                             AssemblyResolutionProvenance.Local(
-                                "resident test")))
+                                "resident test"),
+                            packageRequest: null))
                     .ToArray(),
                 new LibraryTypeDeclarationInventoryInspectionBounds(
                     source.Bytes.Length,

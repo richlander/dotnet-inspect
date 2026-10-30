@@ -326,6 +326,15 @@ public sealed partial class AssemblyContextSourceQueryTests
         var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(inspection.Content);
         var pdb = Assert.IsType<AssemblyMemberSource.Pdb>(available.Source);
         var house = Assert.IsType<SourceHouseOutcome.Available>(available.HouseOutcome);
+        SourceHouseBestAvailableOutcome.Available best =
+            Assert.IsType<
+                SourceHouseBestAvailableOutcome.Available>(
+                available.BestAvailableHouseOutcome);
+        Assert.Equal(
+            SourceHouseSelectedSource.Authored,
+            best.Selected);
+        Assert.Same(house, best.AuthoredOutcome);
+        Assert.Null(best.DecompilationOutcome);
         Assert.StartsWith("public static string? ExtractMemberText(", pdb.Text.TrimStart());
         Assert.Equal(pdb.Text, house.Source.Text);
         Assert.Null(pdb.MemberDocument);
@@ -366,11 +375,24 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(PdbMemberSourceOutcome.ChecksumMismatch, source.PdbAttempt.Outcome);
         Assert.IsType<FindingInspection<string>.Failed>(source.PdbAttempt.Lines.Value);
         Assert.IsType<SourceHouseOutcome.Failed>(available.HouseOutcome);
+        SourceHouseBestAvailableOutcome.Available best =
+            Assert.IsType<
+                SourceHouseBestAvailableOutcome.Available>(
+                available.BestAvailableHouseOutcome);
+        Assert.Equal(
+            SourceHouseSelectedSource.Decompiled,
+            best.Selected);
+        Assert.Same(
+            available.HouseOutcome,
+            best.AuthoredOutcome);
         SourceHouseDecompilationOutcome.Completed decompiled =
             Assert.IsType<
                 SourceHouseDecompilationOutcome.Completed>(
                 available.DecompilationHouseOutcome);
         Assert.Same(source.Decompilation, decompiled.Attempt);
+        Assert.Same(
+            decompiled,
+            best.DecompilationOutcome);
         Assert.Equal(
             embedded
                 ? SourceHousePdbContributionKind.Embedded
@@ -381,6 +403,59 @@ public sealed partial class AssemblyContextSourceQueryTests
         else
             Assert.Single(host.SymbolRequests, uri => uri.AbsolutePath.EndsWith(".snupkg"));
         Assert.Single(host.SourceRequests);
+    }
+
+    [Fact]
+    public async Task
+        MemberSourceInspection_PdbAcquisitionFailureStillDecompiles()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(
+                fixture: FixtureCatalog.SourceDiffV1);
+        using QueryHost host =
+            QueryHost.WithFailedPdbProvider();
+        await using var workspace =
+            new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        InspectionEnvelope<AssemblyMemberSourceEntry> envelope =
+            await MemberSourceInspection.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest("Value", "Counter"),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceEntry.Available>(
+                envelope.Content);
+        var source =
+            Assert.IsType<AssemblyMemberSource.Decompiled>(
+                available.Source);
+        Assert.False(source.Decompilation.PdbSupplied);
+        Assert.Equal(
+            PdbMemberSourceOutcome
+                .PortablePdbAcquisitionFailed,
+            source.PdbAttempt.Outcome);
+        SourceHouseBestAvailableOutcome.Available best =
+            Assert.IsType<
+                SourceHouseBestAvailableOutcome.Available>(
+                available.BestAvailableHouseOutcome);
+        Assert.Equal(
+            SourceHouseSelectedSource.Decompiled,
+            best.Selected);
+        Assert.Equal(
+            SourceHouseBestAvailableAuthoredPrecondition
+                .PortablePdbUnavailable,
+            best.Request.AuthoredPrecondition);
+        Assert.IsType<SourceHouseOutcome.Unavailable>(
+            best.AuthoredOutcome);
+        Assert.Same(
+            available.DecompilationHouseOutcome,
+            best.DecompilationOutcome);
     }
 
     [Fact]
@@ -416,6 +491,8 @@ public sealed partial class AssemblyContextSourceQueryTests
             unavailable.Failure.Kind);
         Assert.Null(unavailable.DecompiledAttempt);
         Assert.Null(unavailable.DecompilationHouseOutcome);
+        Assert.Null(
+            unavailable.BestAvailableHouseOutcome);
         Assert.Equal(
             PdbMemberSourceOutcome.ChecksumMismatch,
             unavailable.PdbAttempt!.Outcome);
@@ -452,6 +529,13 @@ public sealed partial class AssemblyContextSourceQueryTests
 
         var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(envelope.Content);
         var source = Assert.IsType<AssemblyMemberSource.Decompiled>(available.Source);
+        SourceHouseBestAvailableOutcome.Available best =
+            Assert.IsType<
+                SourceHouseBestAvailableOutcome.Available>(
+                available.BestAvailableHouseOutcome);
+        Assert.Equal(
+            SourceHouseSelectedSource.Decompiled,
+            best.Selected);
         Assert.True(source.Decompilation.PdbSupplied);
         Assert.Equal(boundary == "deadline"
             ? PdbMemberSourceOutcome.SourceDeadlineExceeded
@@ -479,6 +563,12 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Same(
             source.Decompilation,
             decompiled.Attempt);
+        Assert.Same(
+            decompiled,
+            best.DecompilationOutcome);
+        Assert.Same(
+            decompiled.PdbContribution,
+            best.PdbContribution);
     }
 
     [Fact]
@@ -541,6 +631,8 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.IsType<FindingInspection<string>.Failed>(
             unavailable.PdbAttempt.Lines.Value);
         Assert.Null(unavailable.HouseOutcome);
+        Assert.Null(
+            unavailable.BestAvailableHouseOutcome);
         Assert.Null(unavailable.DecompiledAttempt);
         Assert.Null(unavailable.DecompilationHouseOutcome);
         Assert.Empty(inspection.Diagnostics);
@@ -562,6 +654,9 @@ public sealed partial class AssemblyContextSourceQueryTests
             PdbMemberSourceOutcome.SourceLimitExceeded,
             authoredUnavailable.PdbAttempt!.Outcome);
         Assert.Null(authoredUnavailable.DecompiledAttempt);
+        Assert.Null(
+            authoredUnavailable
+                .BestAvailableHouseOutcome);
         Assert.Null(
             authoredUnavailable.DecompilationHouseOutcome);
     }

@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Models;
+using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
 using DotnetInspector.Sections;
@@ -72,6 +73,11 @@ public record LibraryOptions : IProjectionOptions
     public bool NamesakeLibrary { get; init; }
 
     /// <summary>
+    /// Select the owner-issued First Library instead of the admitted aggregate.
+    /// </summary>
+    public bool FirstLibrary { get; init; }
+
+    /// <summary>
     /// Include prerelease/preview versions when resolving an unversioned package.
     /// </summary>
     public bool IncludePrerelease { get; init; }
@@ -97,6 +103,16 @@ public record LibraryOptions : IProjectionOptions
     /// Alternative to specifying full assembly path.
     /// </summary>
     public string? Tfm { get; init; }
+
+    /// <summary>
+    /// Runtime identifier of the owner-selected Package Library population.
+    /// </summary>
+    internal string? PackageRuntimeIdentifier { get; init; }
+
+    /// <summary>
+    /// Package-relative Library path selected by the Package population owner.
+    /// </summary>
+    internal string? SelectedPackageLibraryPath { get; init; }
 
     /// <summary>Optional narrowing of ordinary Integration evidence.</summary>
     public IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
@@ -255,6 +271,13 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public HashSet<string>? ExactIncludeSectionsOverride { get; init; }
 
+    /// <summary>
+    /// Whether Count or Rows admission removed scalar sections from an explicit
+    /// mixed selection. The Count result keeps its per-section map even when one
+    /// inventory remains, because the gesture named several sections.
+    /// </summary>
+    public bool ScalarSectionsOmitted { get; init; }
+
     /// <summary>The selected sections that retain exact-selector provenance.</summary>
     public HashSet<string>? ExactIncludeSections
         => ExactIncludeSectionsOverride ?? IncludeSections;
@@ -275,6 +298,13 @@ public record LibraryOptions : IProjectionOptions
     public bool Effective { get; init; }
 
     public bool Tree { get; init; }
+
+    /// <summary>
+    /// The command-level plan selected from the explicit command line. The
+    /// Library Type hierarchy applies only to a bare Library subject request.
+    /// </summary>
+    internal LibraryCommandPlan CommandPlan { get; init; } =
+        new LibraryCommandPlan.Standard();
 
     /// <summary>
     /// Names to select (sections). Null means all.
@@ -349,6 +379,12 @@ public record LibraryOptions : IProjectionOptions
     public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
 
     /// <summary>
+    /// Semantic row selection for an exact lone Body Shapes or Body Shape
+    /// Summary section.
+    /// </summary>
+    public RowSelectionIntent<string>? BodyShapeRowSelection { get; init; }
+
+    /// <summary>
     /// Semantic row selection for direct assembly references.
     /// </summary>
     public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
@@ -374,9 +410,9 @@ public record LibraryOptions : IProjectionOptions
     { get; init; }
 
     /// <summary>
-    /// Selects exact Type support rows for the family-role operation.
+    /// Selects exact Type support rows for the architectural-family operation.
     /// </summary>
-    public bool NameFamilyRoleTypeRows { get; init; }
+    public bool ArchitecturalFamilyTypeRows { get; init; }
 
     /// <summary>
     /// Semantic namespace-edge selection for the exact Dependency Structure

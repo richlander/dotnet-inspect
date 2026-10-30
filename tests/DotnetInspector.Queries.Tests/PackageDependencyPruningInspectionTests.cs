@@ -24,8 +24,14 @@ public sealed class PackageDependencyPruningInspectionTests
             SelectedDeclaration(packageRoot);
         PlatformPruneInventory inventory =
             Inventory("Example.Dependency", "11.0.0");
-        var source = new StubCandidateSource(
-            PackageAcquisitionCandidateResultState.Resolved);
+        var authorization = new CountingAuthorization();
+        await using PackageSourceSettlementLease source =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "Pinned pruning candidates do not create source clients."));
+        using PackageSourceOperationLease operation =
+            source.IssueOperationLease(
+                TestContext.Current.CancellationToken);
 
         InspectionEnvelope<PackageDependencyPruningInspectionResult> envelope =
             await PackageDependencyPruningInspection.ExecuteAsync(
@@ -40,8 +46,8 @@ public sealed class PackageDependencyPruningInspectionTests
                     ],
                     Target(),
                     inventory),
-                source,
-                TestContext.Current.CancellationToken);
+                authorization,
+                operation);
 
         Assert.Equal(2, envelope.Content.Outcomes.Length);
         PackageDependencyPruningInspectionOutcome.NotEvaluated notEvaluated =
@@ -66,7 +72,7 @@ public sealed class PackageDependencyPruningInspectionTests
         Assert.Same(inventory, evaluated.Result.Pruning.Policy.Inventory);
         Assert.True(
             evaluated.Result.Pruning.Supply.DelegatesToPlatform);
-        Assert.Equal(1, source.PinnedCalls);
+        Assert.Equal(1, authorization.Calls);
 
         InspectionShare.NonProjectable share =
             Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
@@ -75,42 +81,105 @@ public sealed class PackageDependencyPruningInspectionTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_KeepsCandidateIncompletionTyped()
+    public async Task
+        ExecuteAsync_OperationDeadlineKeepsIncompletionTypedAndStopsLaterSubjects()
     {
-        PackageDependencyEvidenceRoot root = PackageRoot();
+        PackageDependencyEvidenceRoot root =
+            PackageRoot("[2.0.0,3.0.0)");
         PackageDependencyEvidenceDeclaration declaration =
             SelectedDeclaration(root);
-        var source = new StubCandidateSource(
-            PackageAcquisitionCandidateResultState.Incomplete);
+        var authorization = new CountingAuthorization(
+            TimeSpan.FromMilliseconds(100));
+        await using PackageSourceSettlementLease source =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "Timed-out ranged discovery does not create source clients."));
+        using PackageSourceOperationLease operation =
+            source.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromMilliseconds(25));
 
         InspectionEnvelope<PackageDependencyPruningInspectionResult> envelope =
             await PackageDependencyPruningInspection.ExecuteAsync(
                 new PackageDependencyPruningInspectionRequest(
-                    [new(root, declaration)],
+                    [
+                        new(root, declaration),
+                        new(root, declaration),
+                    ],
                     Target(),
                     Inventory("Example.Dependency", "11.0.0")),
-                source,
-                TestContext.Current.CancellationToken);
+                authorization,
+                operation);
 
-        PackageDependencyPruningInspectionOutcome.CandidateUnavailable
-            unavailable =
-                Assert.IsType<
-                    PackageDependencyPruningInspectionOutcome
-                        .CandidateUnavailable>(
-                            Assert.Single(envelope.Content.Outcomes));
-        PackageDependencyCandidateResult.Incomplete incomplete =
-            Assert.IsType<PackageDependencyCandidateResult.Incomplete>(
-                unavailable.Candidate);
-        Assert.IsType<
-            PackageDependencyCandidateIncomplete.PinnedAuthorization>(
-                incomplete.Evidence);
-        Assert.Equal(1, source.PinnedCalls);
+        Assert.Equal(2, envelope.Content.Outcomes.Length);
+        Assert.All(
+            envelope.Content.Outcomes,
+            outcome =>
+            {
+                PackageDependencyPruningInspectionOutcome
+                    .CandidateUnavailable unavailable =
+                        Assert.IsType<
+                            PackageDependencyPruningInspectionOutcome
+                                .CandidateUnavailable>(outcome);
+                PackageDependencyCandidateResult.Incomplete incomplete =
+                    Assert.IsType<
+                        PackageDependencyCandidateResult.Incomplete>(
+                            unavailable.Candidate);
+                PackageDependencyCandidateIncomplete.VersionDiscovery
+                    evidence =
+                        Assert.IsType<
+                            PackageDependencyCandidateIncomplete
+                                .VersionDiscovery>(
+                                    incomplete.Evidence);
+                Assert.Contains(
+                    evidence.Failures,
+                    failure => failure.Timeout?.Kind
+                        == PackageSourceTimeoutKind.Operation);
+            });
+        Assert.Equal(1, authorization.Calls);
     }
 
-    private static PackageDependencyEvidenceRoot PackageRoot()
+    [Fact]
+    public async Task ExecuteAsync_CallerCancellationDoesNotPublishOutcome()
+    {
+        PackageDependencyEvidenceRoot root = PackageRoot();
+        PackageDependencyEvidenceDeclaration declaration =
+            SelectedDeclaration(root);
+        var authorization = new CountingAuthorization();
+        await using PackageSourceSettlementLease source =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "Canceled pruning does not create source clients."));
+        using var cancellation = CancellationTokenSource
+            .CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        using PackageSourceOperationLease operation =
+            source.IssueOperationLease(cancellation.Token);
+        cancellation.Cancel();
+
+        OperationCanceledException failure =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                    await PackageDependencyPruningInspection.ExecuteAsync(
+                        new PackageDependencyPruningInspectionRequest(
+                            [new(root, declaration)],
+                            Target(),
+                            Inventory(
+                                "Example.Dependency",
+                                "11.0.0")),
+                        authorization,
+                        operation));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(0, authorization.Calls);
+    }
+
+    private static PackageDependencyEvidenceRoot PackageRoot(
+        string version = "[2.0.0]")
     {
         byte[] bytes = Encoding.UTF8.GetBytes(
-            """
+            $$"""
             <package>
               <metadata>
                 <id>Example.Package</id>
@@ -120,7 +189,7 @@ public sealed class PackageDependencyPruningInspectionTests
                 <dependencies>
                   <group targetFramework="net11.0">
                     <dependency id="Example.Dependency"
-                                version="[2.0.0]" />
+                                version="{{version}}" />
                   </group>
                 </dependencies>
               </metadata>
@@ -201,44 +270,26 @@ public sealed class PackageDependencyPruningInspectionTests
                 NuGetVersion.Parse("11.0.0")),
             [$"{packageId}|{suppliedVersion}"]);
 
-    private sealed class StubCandidateSource(
-        PackageAcquisitionCandidateResultState state) :
-        IPackageDependencyCandidateSource
+    private sealed class CountingAuthorization(
+        TimeSpan? delay = null) : IPackageSourceAuthorization
     {
-        private readonly object _issuer = new();
-        private readonly ConfiguredPackageAuthority _authority = new(
-            new PackageSource(
-                "test",
-                "https://test.example/v3/index.json"));
+        private readonly PackageSourceAuthorization _authorization =
+            PackageSourceAuthorization.Authorize(
+                [
+                    new PackageSource(
+                        "test",
+                        "https://test.example/v3/index.json"),
+                ]);
 
-        public int PinnedCalls { get; private set; }
+        public int Calls { get; private set; }
 
-        public ValueTask<PackageAcquisitionCandidateResult>
-            ResolvePinnedCandidateAsync(
-                PackageSourceCoordinate coordinate,
-                CancellationToken cancellationToken = default,
-                NuGetOperationContext? operationContext = null)
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            PinnedCalls++;
-            return ValueTask.FromResult(
-                new PackageAcquisitionCandidateResult(
-                    state,
-                    state == PackageAcquisitionCandidateResultState.Resolved
-                        ? PackageAcquisitionCandidate.CreatePinned(
-                            _issuer,
-                            coordinate,
-                            [_authority])
-                        : null,
-                    []));
+            Calls++;
+            if (delay is { } value)
+                Thread.Sleep(value);
+            return _authorization;
         }
-
-        public Task<PackageVersionDiscoveryResult>
-            DiscoverDependencyVersionsAsync(
-                string packageId,
-                CancellationToken cancellationToken = default,
-                NuGetOperationContext? operationContext = null) =>
-            throw new InvalidOperationException(
-                "The exact dependency should use pinned candidate resolution.");
     }
 }

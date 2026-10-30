@@ -26,6 +26,46 @@ internal sealed record GenericScope(
     }
 }
 
+internal sealed class GenericScopeIdentity
+    : IEquatable<GenericScopeIdentity>
+{
+    readonly int _hashCode;
+
+    internal GenericScopeIdentity(GenericScope scope)
+    {
+        TypeParameters = scope.TypeParameters;
+        MethodParameters = scope.MethodParameters;
+        var hash = new HashCode();
+        foreach (string parameter in TypeParameters)
+            hash.Add(parameter, StringComparer.Ordinal);
+        hash.Add(TypeParameters.Length);
+        foreach (string parameter in MethodParameters)
+            hash.Add(parameter, StringComparer.Ordinal);
+        hash.Add(MethodParameters.Length);
+        _hashCode = hash.ToHashCode();
+    }
+
+    internal ImmutableArray<string> TypeParameters { get; }
+
+    internal ImmutableArray<string> MethodParameters { get; }
+
+    public bool Equals(GenericScopeIdentity? other) =>
+        ReferenceEquals(this, other)
+        || other is not null
+        && _hashCode == other._hashCode
+        && TypeParameters.SequenceEqual(
+            other.TypeParameters,
+            StringComparer.Ordinal)
+        && MethodParameters.SequenceEqual(
+            other.MethodParameters,
+            StringComparer.Ordinal);
+
+    public override bool Equals(object? obj) =>
+        Equals(obj as GenericScopeIdentity);
+
+    public override int GetHashCode() => _hashCode;
+}
+
 internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericScope>
 {
     public static readonly TypeRefDecoder Instance = new();
@@ -33,6 +73,10 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         MetadataReader,
         CurrentAssemblyInfo> s_currentAssemblies = new();
     readonly Action<int>? _reserveStructuralWork;
+    // An observing decoder counts the same work a budgeted one reserves but
+    // keeps the unbudgeted decoder's results, so counting never changes an
+    // identity.
+    readonly bool _observeOnly;
     bool _currentAssemblyWorkReserved;
 
     sealed record CurrentAssemblyInfo(
@@ -72,12 +116,32 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     internal TypeRefDecoder(
         Action<int> reserveStructuralWork)
+        : this(reserveStructuralWork, observeOnly: false)
+    {
+    }
+
+    TypeRefDecoder(
+        Action<int> reserveStructuralWork,
+        bool observeOnly)
     {
         ArgumentNullException.ThrowIfNull(
             reserveStructuralWork);
         _reserveStructuralWork =
             reserveStructuralWork;
+        _observeOnly = observeOnly;
     }
+
+    /// <summary>
+    /// A decoder that reports its structural work to
+    /// <paramref name="observeStructuralWork"/> and otherwise decodes exactly
+    /// as <see cref="Instance"/> does.
+    /// </summary>
+    internal static TypeRefDecoder Observing(
+        Action<int> observeStructuralWork) =>
+        new(observeStructuralWork, observeOnly: true);
+
+    bool ProjectsFailures =>
+        _reserveStructuralWork is null || _observeOnly;
 
     public TypeRef GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
@@ -150,7 +214,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 currentAssembly.AuthenticProtobuf,
                 rawTypeKind);
         }
-        catch (Exception ex) when (_reserveStructuralWork is null
+        catch (Exception ex) when (ProjectsFailures
             && ex is (
                 BadImageFormatException
                     or ArgumentOutOfRangeException))
@@ -242,7 +306,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 rawTypeKind);
         }
 
-        catch (Exception ex) when (_reserveStructuralWork is null
+        catch (Exception ex) when (ProjectsFailures
             && ex is (
                 BadImageFormatException
                     or ArgumentOutOfRangeException))
@@ -459,6 +523,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
         ReserveStructuralWork(
             reader.GetBlobReader(handle).Length);
+        if (_observeOnly)
+            return reader.GetString(handle);
         return MetadataSafetyPolicy.ReadStructuralString(
             reader,
             handle);

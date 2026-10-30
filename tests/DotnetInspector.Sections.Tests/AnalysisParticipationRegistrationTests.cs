@@ -111,6 +111,7 @@ public sealed class AnalysisParticipationRegistrationTests
                 "call-site",
                 "unsafety",
                 "string-literals",
+                "unsafe-member",
                 "csharp",
                 "il",
             ],
@@ -188,7 +189,9 @@ public sealed class AnalysisParticipationRegistrationTests
     {
         InspectionCapabilityCatalog catalog = ProductCatalog();
         ResourceExplanationCatalog explanation =
-            ResourceExplanationCatalog.CreateAnalyses(catalog);
+            ResourceExplanationCatalog.CreateCapabilities(
+                catalog,
+                DiffAnalysisCapabilityResourcePaths.Create(catalog));
 
         // Explanation lists exactly the registered analyses, by identity.
         Assert.Equal(
@@ -196,7 +199,7 @@ public sealed class AnalysisParticipationRegistrationTests
             explanation.Resources
                 .Where(resource =>
                     resource.ResourceType.Value == "analysis")
-                .Select(resource => resource.Path.Value));
+                .Select(resource => resource.Path!.Value));
         var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
             explanation.Resolve("analyses/call-site"));
         ResourceExplanationDocument document = explanation.Explain(
@@ -328,6 +331,14 @@ public sealed class AnalysisParticipationRegistrationTests
         AnalysisReportSurfaceKind.Library,
         "string-literals",
         DiffAnalysisDocumentViews.Transitions)]
+    [InlineData(
+        AnalysisReportSurfaceKind.Library,
+        "unsafe-member",
+        DiffAnalysisDocumentViews.Transitions)]
+    [InlineData(
+        AnalysisReportSurfaceKind.Type,
+        "unsafe-member",
+        DiffAnalysisDocumentViews.Transitions)]
     public void DiffAnalysisViews_AcceptSupportedCombinations(
         AnalysisReportSurfaceKind surface,
         string analysis,
@@ -345,8 +356,11 @@ public sealed class AnalysisParticipationRegistrationTests
     }
 
     [Fact]
-    public void LibraryTransitions_AreDeclaredOnlyByStringLiterals()
+    public void LibraryTransitions_AreDeclaredOnlyByStringLiteralsAndUnsafeMember()
     {
+        Assert.Equal(
+            ["string-literals", "unsafe-member"],
+            DiffAnalysisCatalog.TransitionAnalysesAt(AnalysisReportSurfaceKind.Library));
         InspectionCapabilityCatalog catalog = ProductCatalog();
         AnalysisDescriptor api = catalog.Analyses.Single(
             registration => registration.Analysis.Id.Value == "api").Analysis;

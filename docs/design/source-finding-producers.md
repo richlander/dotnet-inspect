@@ -48,13 +48,36 @@ resolved URL, storage kind, and expected checksum remain typed payload data.
 Document-row renumbering does not make a comparison `Changed`.
 
 Member-source identity is the canonical `MemberAnchor` signature. Metadata
-extracts the raw member token, document row, path, range, primary-document
-choice, finalizer fact, and sorted distinct start lines of every visible
-sequence point in that document. SourceLink decorates that record with
-canonical paths and URLs before `SourceLinkFindings` projects it; it neither
-combines point lines across documents nor interprets their C# meaning.
-Token-scoped queries resolve requested MethodDef rows directly rather than
-scanning the assembly method table.
+extracts the logical member token, physical sequence-point MethodDef token,
+association kind, document row, path, range, primary-document choice,
+finalizer fact, and sorted distinct start lines of every visible sequence point
+in that document. SourceLink decorates that record with canonical paths and
+URLs before `SourceLinkFindings` projects it; it neither combines point lines
+across documents nor interprets their C# meaning. Token-scoped queries resolve
+requested MethodDef rows directly rather than scanning the assembly method
+table.
+
+Direct visible sequence points remain the preferred mapping. When one selected
+MethodDef has no direct visible points, Metadata may publish classic-async
+implementation points only when the existing
+[State-machine relationship index](state-machine-relationship-index.md)
+resolves that kickoff to one exact `MoveNext` MethodDef and that physical
+method's Portable-PDB `StateMachineMethod` association names the same kickoff.
+The resulting row retains the kickoff anchor and logical token while separately
+retaining the physical token and `StateMachineImplementation` association kind.
+It does not rewrite the physical row, infer from generated names, or attribute
+other physical evidence to the kickoff.
+
+Associated implementation mapping is explicit work. Existing queries and raw
+`PdbContext` calls preserve direct-only behavior unless the caller requests
+state-machine implementations. SourceHouse adoption is separately owned by
+[#10024](https://github.com/richlander/dotnet-inspect/issues/10024); the
+producer slice does not silently change existing source-selection policy.
+
+An absent relationship or missing PDB association remains no mapping. A
+rejected relationship or contradictory association fails the atomic member
+census rather than becoming absence. Iterator and async-iterator relationships
+remain outside this source-mapping claim.
 
 For multi-document methods, the portable PDB's
 `MethodDebugInformation.Document` is primary when it has a visible point
@@ -77,10 +100,22 @@ gates an empty correlated document path, and
 gates a rejected unrelated structured TypeDef name.
 
 Member-source comparison treats the exact point-line set as a changeable
-payload facet. Its occurrence sort key includes every compared identity and
-coordinate facet, including the point set, so reversing duplicate mappings
+payload facet. Direct versus state-machine-implementation association is also
+a changeable payload facet; logical and physical MethodDef tokens remain
+same-version coordinates and do not by themselves create cross-version change.
+The occurrence sort key includes every compared identity and coordinate facet,
+including the point set and association kind, so reversing duplicate mappings
 cannot pair unlike observations and manufacture changes. This is gated by
 `MetadataSourceFindingsTests.MemberSourceComparison_ReorderedDuplicateMappingsPairByComparedPayload`.
+
+The main-resident classic-async `ContinuationFixtures.GuardedAwait` method is
+the deterministic compiler-produced gate. The motivating real asset is
+`System.Text.Json` `11.0.0-rc.1.26425.128`
+`System.Text.Json.Utf8JsonWriter.FlushAsync`, with source shape pinned to
+dotnet/runtime commit `ab19415702aa8139d5369e47c73edb47343c34ad`,
+`src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs`.
+The source relationship does not claim that repository text produced the
+inspected runtime binary.
 
 Compilation-option identity is the option name. Compilation-reference identity
 is its normalized reference name; aliases, image kind, embedding, timestamp,
@@ -167,9 +202,10 @@ token. Member queries now use
 The [type query](type-source-acquisition.md) uses the same internal handoff with
 its own bounds and primary-document projection, preserving the correlation and
 fallback semantics below.
-`PdbSourceHouse` remains the legacy consumer of the same token-scoped mapping and
-document census, fetches exact bytes through the SSRF-hardened Services path,
-verifies the portable-PDB checksum, extracts the member body, and returns a
+The reusable `AssemblyContextSourceQuery` session remains the diagnostic
+consumer of the same token-scoped mapping and document census, fetches exact
+bytes through the SSRF-hardened Services path, verifies the portable-PDB
+checksum, extracts the member body, and returns a
 `FindingInspection<string>`. Its type operation resolves only the exact
 `MetadataTypeDefinitionName`, verifies the primary document through the same
 path, and returns the complete checksum-verified PDB document with its typed
@@ -213,7 +249,7 @@ This is gated by
 Whole-document type output refuses more than 500,000 logical lines before
 materializing the Finding census; the verified text then remains a failed
 PDB-source attempt so Decompiler fallback can run.
-`PdbSourceHouseTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceInspectionTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
 gates that bound. A host source-content store that reports a read or write
 failure produces typed evidence and does not publish the fetched bytes to the
 process-local memory cache, so an identical retry cannot silently change from

@@ -161,7 +161,7 @@ public sealed class ArrayKindProjectionFlowTests
         ApiSurface vector = Extract("Vector");
         ApiSurface candidate = Extract(specimen);
 
-        ApiDiff diff = ApiDiffAnalyzer.Compare(vector, candidate);
+        ApiDiff diff = ProductionApiDiff.Compare(vector, candidate);
 
         if (specimen == "Vector")
         {

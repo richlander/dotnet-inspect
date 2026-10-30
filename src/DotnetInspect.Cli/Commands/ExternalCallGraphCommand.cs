@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
@@ -109,16 +110,19 @@ public static class ExternalCallGraphCommand
                     PackageHouseOperationProfile.Realize,
                     fetchOptions.RequestTimeout,
                     fetchOptions.OperationTimeout);
+            TraversalTargetFrameworkPolicy traversalTargetPolicy =
+                options.Tfm is null
+                    ? TraversalTargetFrameworkPolicy.ProductDefault
+                    : new TraversalTargetFrameworkPolicy(
+                        options.Tfm);
+            WorkspacePlan workspacePlan = CreateWorkspacePlan(options);
             var inspectionRequest =
                 new PackageDependencyMemberCallGraphInspectionRequest(
                     loaded.PackageRoots[0],
                     new PackageDependencyMemberCallGraphInspectionFocus(
                         focus.ModuleVersionId,
                         focus.MethodToken),
-                    options.Tfm is null
-                        ? TraversalTargetFrameworkPolicy.ProductDefault
-                        : new TraversalTargetFrameworkPolicy(
-                            options.Tfm),
+                    traversalTargetPolicy,
                     new MemberCallGraphCalleeNeighborhoodRequest(
                         options.Depth,
                         options.MaxNodes),
@@ -129,7 +133,14 @@ public static class ExternalCallGraphCommand
                     supplyChainBaseline:
                         options.SupplyChainBaseline,
                     workspacePlan:
-                        CreateWorkspacePlan(options));
+                        workspacePlan,
+                    platformPruning:
+                        CreateRuntimePlatformPruning(
+                            traversalTargetPolicy,
+                            workspacePlan,
+                            PackageDependencyMemberCallGraphContinuationSource
+                                .FindActiveDotnetRoot(),
+                            InstalledPlatformPruneSource.Read));
             InspectionEnvelope<
                 PackageDependencyMemberCallGraphInspectionOutcome> envelope =
                 inspectionExecutor is null
@@ -158,6 +169,8 @@ public static class ExternalCallGraphCommand
             WriteRouteDiagnostics(envelope.Diagnostics);
             return ExternalCallGraphOutputAdapter.Write(
                 available.Document.Graph,
+                available.Document.NodeClassifications,
+                available.Document.IntrinsicCoreLibraryContinuation,
                 options);
         }
         catch (MemberCallGraphAcquisitionException ex)
@@ -218,6 +231,73 @@ public static class ExternalCallGraphCommand
             ]);
     }
 
+    internal static PackageDependencyMemberCallGraphPlatformPruning?
+        CreateRuntimePlatformPruning(
+            TraversalTargetFrameworkPolicy traversalTargetPolicy,
+            WorkspacePlan workspacePlan,
+            string? activeDotnetRoot,
+            Func<
+                string,
+                string?,
+                InstalledPlatformPruneSource.Result> pruneSource)
+    {
+        ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
+        ArgumentNullException.ThrowIfNull(workspacePlan);
+        ArgumentNullException.ThrowIfNull(pruneSource);
+
+        bool runtimePopulationSelected =
+            workspacePlan.Registrations.Any(
+                static registration =>
+                    registration
+                        is WorkspaceRegistration.Ecosystem ecosystem
+                    && ecosystem.Declaration.Id.Value
+                        == "ecosystem.runtime"
+                    && ecosystem.Declaration.Populations.Any(
+                        static population =>
+                            population
+                                is WorkspaceEcosystemPopulationDeclaration
+                                    .Platform platform
+                            && platform.Population.Family
+                                == PlatformFamily.DotNetRuntime));
+        if (!runtimePopulationSelected
+            || string.IsNullOrWhiteSpace(activeDotnetRoot)
+            || !PlatformResolver.TryGetFrameworkSpecsForTargetFramework(
+                traversalTargetPolicy.TargetFramework,
+                out IReadOnlyList<string> frameworkSpecs))
+        {
+            return null;
+        }
+
+        string? runtimeSpec = frameworkSpecs.FirstOrDefault(
+            static framework =>
+                framework.StartsWith(
+                    "runtime@",
+                    StringComparison.Ordinal));
+        if (runtimeSpec is null)
+        {
+            return null;
+        }
+
+        InstalledPlatformPruneSource.Result result =
+            pruneSource(
+                runtimeSpec,
+                Path.Combine(activeDotnetRoot, "packs"));
+        if (!PackageDependencyMemberCallGraphPlatformPruning
+                .TryCreateDotNetRuntime(
+                    result.Inventory,
+                    out PackageDependencyMemberCallGraphPlatformPruning?
+                        pruning)
+            || !string.Equals(
+                pruning.Target.TargetFramework.ToString(),
+                traversalTargetPolicy.TargetFramework,
+                StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return pruning;
+    }
+
     internal static async ValueTask<
         InspectionEnvelope<
             PackageDependencyMemberCallGraphInspectionOutcome>>
@@ -230,28 +310,29 @@ public static class ExternalCallGraphCommand
         await using var composition =
             new DesktopPackageSourceComposition(
                 fetchOptions.RequestTimeout);
-        var candidateSource =
-            new DesktopPackageDependencyCandidateSource(
-                composition,
-                options.SourceOptions,
-                options.Verbose
-                    ? CommandError.WriteLine
-                    : null);
+        Action<string>? log = options.Verbose
+            ? CommandError.WriteLine
+            : null;
         var source = new PackageDependencyMemberCallGraphInspectionSource(
             new PackageDependencyTraversalCandidateAdapter(
-                candidateSource),
-            new DesktopPackageDependencyTraversalManifestSource(
-                composition),
+                composition.CreateDependencySourceAuthorization(
+                    options.SourceOptions),
+                log),
+            new AuthorizedPackageDependencyManifestSource(),
             composition.CreateDependencySettlementHouse(
                 (_, _) => new FileSystemPackageStore(),
                 options.SourceOptions,
-                options.Verbose
-                    ? CommandError.WriteLine
-                    : null),
+                log),
             (operation, token) =>
-                composition.IssueSettlementOperation(token));
+                composition.IssueSettlementOperation(
+                    operation.OperationTimeout,
+                    token),
+            composition.CreateDependencyContentQueryHouse(
+                (_, _) => new FileSystemPackageStore(),
+                options.SourceOptions,
+                log));
         await using var continuationSource =
-            new DesktopPackageDependencyMemberCallGraphContinuationSource(
+            new PackageDependencyMemberCallGraphContinuationSource(
                 source,
                 request.RealizationOperation,
                 () => new DesktopPackageSourceComposition(

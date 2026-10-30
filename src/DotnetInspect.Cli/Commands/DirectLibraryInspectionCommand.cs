@@ -9,7 +9,7 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class DirectLibraryInspectionCommand
 {
-    internal static readonly ApiSurfaceExtractionBounds s_bounds =
+    internal static readonly LibraryInspectionBounds s_bounds =
         new(
             maxTypes: 5_000,
             maxMembers: 100_000,
@@ -31,7 +31,7 @@ internal static class DirectLibraryInspectionCommand
         options.EnvelopeOutput
         && !LibraryCommand.IsExactLibraryMetricsSelection(options)
         && !LibraryCommand.IsExactNameFamilySelection(options)
-        && !LibraryCommand.IsExactNameFamilyRoleSelection(options)
+        && !LibraryCommand.IsExactArchitecturalFamilySelection(options)
         && !LibraryCommand.IsExactDependencyStructureSelection(options);
 
     internal static async Task<int> ExecuteAsync(

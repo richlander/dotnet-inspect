@@ -77,7 +77,7 @@ that every operation asks the same question:
 
 ```console
 # Package candidates; Package Query owns package aggregation.
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "license=MIT"
 
 # One Graph-owned selector scopes every selected graph projection.
@@ -86,7 +86,7 @@ dotnet-inspect graph cluster 3 \
   --library provider.dll
 
 # Target Library Query: one row per candidate assembly.
-dotnet-inspect library query ./bin \
+dotnet-inspect find --libraries ./bin \
   --where "references=System.Text.Json"
 ```
 
@@ -252,6 +252,12 @@ help row. Every query-term or order binding records:
 - the owner-issued binder used during atomic plan resolution;
 - any capability, acquisition-tier, cost, or work-bound consequences;
 - the structural description projected to discovery.
+
+The structural description may include ordered owner-issued input rules. These
+resource-free declarations describe operand admission, comparison behavior, and
+query bounds;
+an empty list means unregistered rules, not an unrestricted domain. They remain
+separate from the executable binder and do not introduce a validation DSL.
 
 The binding is then one of two disjoint shapes.
 

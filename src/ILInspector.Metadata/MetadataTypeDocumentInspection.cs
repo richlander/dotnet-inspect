@@ -1,4 +1,6 @@
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
 
@@ -8,9 +10,19 @@ public sealed record MetadataTypeDocumentInspectionRequest
         MetadataTypeDefinitionName type,
         MetadataTypeMemberGroupPopulationRequest? declarations = null,
         MetadataTypeDefinitionAddress? expectedDeclarationPopulationType =
-            null)
+            null,
+        MetadataTypeDeclarationPopulationRequest? memberDeclarations =
+            null,
+        MetadataExactTypeInput? exactInput = null,
+        bool includeCompleteSignature = false)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
+        if (exactInput is not null && !type.Equals(exactInput.Type))
+        {
+            throw new ArgumentException(
+                "The exact input must describe the requested Type.",
+                nameof(exactInput));
+        }
         if (declarations is not null && declarations.Type != type)
         {
             throw new ArgumentException(
@@ -24,21 +36,59 @@ public sealed record MetadataTypeDocumentInspectionRequest
                 "A Member-group population binding requires a population request.",
                 nameof(expectedDeclarationPopulationType));
         }
+        if (memberDeclarations is not null
+            && memberDeclarations.Type != type)
+        {
+            throw new ArgumentException(
+                "The Type document and complete Member declarations must identify the same Type.",
+                nameof(memberDeclarations));
+        }
+        if (declarations is not null
+            && memberDeclarations is not null)
+        {
+            throw new ArgumentException(
+                "A Type document request cannot inspect compact and complete Member declarations together.",
+                nameof(memberDeclarations));
+        }
 
         Declarations = declarations;
         ExpectedDeclarationPopulationType =
             expectedDeclarationPopulationType;
+        MemberDeclarations = memberDeclarations;
+        ExactInput = exactInput;
+        IncludeCompleteSignature = includeCompleteSignature;
     }
 
     public MetadataTypeDefinitionName Type { get; }
     public MetadataTypeMemberGroupPopulationRequest? Declarations { get; }
     public MetadataTypeDefinitionAddress? ExpectedDeclarationPopulationType
     { get; }
+    public MetadataTypeDeclarationPopulationRequest? MemberDeclarations
+    { get; }
+    public MetadataExactTypeInput? ExactInput { get; }
+    public bool IncludeCompleteSignature { get; }
 }
 
 public sealed record MetadataTypeDocument(
     MetadataTypeDeclarationEvidence Subject,
-    MetadataTypeDocumentDeclarations Declarations);
+    MetadataTypeDocumentDeclarations Declarations,
+    MetadataTypeDeclarationPopulationOutcome? MemberDeclarations = null)
+{
+    /// <summary>The uniquely matched Metadata identity detached as contained byte ranges.</summary>
+    [JsonIgnore]
+    public MetadataUtf8TypeDefinitionName? MatchedName
+    {
+        get;
+        internal init;
+    }
+
+    [JsonIgnore]
+    public MetadataTypeSignatureEvidence? CompleteSignature
+    {
+        get;
+        internal init;
+    }
+}
 
 public abstract record MetadataTypeDocumentDeclarations
 {
@@ -90,6 +140,7 @@ public abstract record MetadataTypeDocumentInspectionOutcome
 internal static class MetadataTypeDocumentInspection
 {
     internal static MetadataTypeDocumentInspectionOutcome Read(
+        PEReader peReader,
         MetadataReader reader,
         MetadataTypeDocumentInspectionRequest request,
         ApiSurfaceExtractionBounds bounds,
@@ -97,12 +148,18 @@ internal static class MetadataTypeDocumentInspection
             MetadataTypeDefinitionAddress,
             CancellationToken,
             MetadataTypeDeclarationResult> postDeclaration,
+        Func<
+            MetadataTypeDefinitionAddress,
+            CancellationToken,
+            MetadataTypeSignatureResult> postSignature,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(bounds);
         ArgumentNullException.ThrowIfNull(postDeclaration);
+        ArgumentNullException.ThrowIfNull(postSignature);
         cancellationToken.ThrowIfCancellationRequested();
 
         try
@@ -165,6 +222,38 @@ internal static class MetadataTypeDocumentInspection
             MetadataTypeDeclarationEvidence subject =
                 ((MetadataTypeDeclarationResult.Posted)declaration)
                     .Evidence;
+            MetadataTypeSignatureEvidence? completeSignature = null;
+            if (request.IncludeCompleteSignature)
+            {
+                MetadataTypeSignatureResult signature =
+                    postSignature(
+                        subject.Type,
+                        cancellationToken);
+                if (signature
+                    is MetadataTypeSignatureResult.Rejected signatureRejected)
+                {
+                    MetadataTypeDeclarationFailure failure =
+                        signatureRejected.Failure;
+                    return failure.Reason
+                            is MetadataTypeDeclarationFailureReason
+                                .BudgetExceeded
+                        && failure.BudgetDimension
+                            is MetadataOperationDimension.MetadataRows
+                        && failure.BudgetLimit is { } limit
+                        && failure.BudgetAttempted is { } measured
+                            ? new MetadataTypeDocumentInspectionOutcome
+                                .Incomplete(
+                                    MetadataTypeDocumentBound.MetadataRows,
+                                    limit,
+                                    measured)
+                            : new MetadataTypeDocumentInspectionOutcome
+                                .Failed();
+                }
+
+                completeSignature =
+                    ((MetadataTypeSignatureResult.Posted)signature)
+                        .Evidence;
+            }
             MetadataTypeDocumentDeclarations declarations =
                 request.Declarations is null
                     ? new MetadataTypeDocumentDeclarations.NotRequested()
@@ -181,8 +270,39 @@ internal static class MetadataTypeDocumentInspection
                                         bounds,
                                         resolved,
                                         cancellationToken));
+            MetadataTypeDeclarationPopulationOutcome? memberDeclarations =
+                request.MemberDeclarations is null
+                    ? null
+                    : MetadataTypeDeclarationPopulationInspection
+                        .ReadResolved(
+                            reader,
+                            request.MemberDeclarations,
+                            bounds,
+                            resolved,
+                            cancellationToken);
+            MetadataExactTypeMatch? exactMatch =
+                request.ExactInput is null
+                    ? null
+                    : MetadataUtf8TypeDefinitionNameReader.Match(
+                        peReader,
+                        reader,
+                        resolved.Handle,
+                        request.ExactInput);
+            MetadataUtf8TypeDefinitionName matchedName =
+                exactMatch?.Name
+                ?? MetadataUtf8TypeDefinitionNameReader.Detach(
+                    peReader,
+                    reader,
+                    resolved.Handle);
             return new MetadataTypeDocumentInspectionOutcome.Available(
-                new(subject, declarations));
+                new(
+                    subject,
+                    declarations,
+                    memberDeclarations)
+                {
+                    MatchedName = matchedName,
+                    CompleteSignature = completeSignature,
+                });
         }
         catch (Exception exception) when (
             MetadataTypeMemberCompositionInspection.IsMetadataFailure(

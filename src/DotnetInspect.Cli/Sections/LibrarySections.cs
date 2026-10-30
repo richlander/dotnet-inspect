@@ -138,7 +138,7 @@ public static class LibrarySections
             .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeMembers>(
-                UnsafeEvidenceQuery.Definition,
+                UnsafeMemberCensusQuery.Definition,
                 UnsafeMembersDiscoverable)
             .Add<TopLeverage>(
                 TopLeverageQuery.Definition,
@@ -151,10 +151,10 @@ public static class LibrarySections
                 HasMethodBodies)
             .Add<NameFamilies>(
                 LibraryNameFamilyQuery.Definition)
-            .Add<NameFamilyRoles>(
-                LibraryFamilyRoleQuery.Definition)
-            .Add<NameFamilyRoleTypes>(
-                LibraryFamilyRoleQuery.Definition)
+            .Add<ArchitecturalFamilies>(
+                LibraryArchitecturalFamilyQuery.Definition)
+            .Add<ArchitecturalFamilyTypes>(
+                LibraryArchitecturalFamilyQuery.Definition)
             .Add<DependencyStructure>(
                 LibraryDependencyStructureQuery.Definition,
                 HasMethodBodies)
@@ -188,6 +188,9 @@ public static class LibrarySections
                 HasMethodBodies)
             .Add<PerformanceAsync>(
                 OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceSyncCallsInAsync>(
+                SyncCallsInAsyncDemand.Section,
                 HasMethodBodies)
             .Add<PerformanceOther>(
                 OptimizationOpportunitiesQuery.Definition,
@@ -228,7 +231,12 @@ public static class LibrarySections
                 SectionNames.IdentifierConfusion,
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
-                [.. PerformanceKinds.Sections, SectionNames.ArrayPoolEscapes, SectionNames.TopLeverage])
+                [
+                    .. PerformanceKinds.Sections,
+                    SectionNames.PerformanceSyncCallsInAsync,
+                    SectionNames.ArrayPoolEscapes,
+                    SectionNames.TopLeverage,
+                ])
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceLinkFiles,
                 SectionNames.SourceLinkDiagnostics,
@@ -327,6 +335,8 @@ public static class LibrarySections
                 ctx.MethodClassification(MethodClassificationDemand.PInvokeMethods))
             .Add(MethodClassificationDemand.ModelCounts, static ctx =>
                 ctx.MethodClassification(MethodClassificationDemand.ModelCounts))
+            .Add(SyncCallsInAsyncDemand.Section, static ctx =>
+                ctx.SyncCallsInAsync())
             .Add(CustomAttributesQuery.Definition, ctx =>
                 ctx.Scan(
                     CustomAttributesQuery.Execute,
@@ -388,10 +398,10 @@ public static class LibrarySections
                     ctx.AssemblyPath,
                     metadata);
             })
-            .Add(UnsafeEvidenceQuery.Definition, ctx =>
-                ExecuteUnsafeEvidenceQuery(
-                    ctx.MetadataContext?.HasMetadata != false,
-                    () => ctx.BodyAnalysis().Safety))
+            .Add(UnsafeMemberCensusQuery.Definition, ctx =>
+                ExecuteUnsafeMemberCensusQuery(
+                    ctx.AssemblyPath,
+                    ctx.MetadataContext))
             .Add(
                 ResourceTriageQuery.Definition,
                 ExecuteResourceTriageQuery)
@@ -415,8 +425,8 @@ public static class LibrarySections
                 LibraryNameFamilyQuery.Definition,
                 ExecuteLibraryNameFamilyQuery)
             .Add(
-                LibraryFamilyRoleQuery.Definition,
-                ExecuteLibraryFamilyRoleQuery)
+                LibraryArchitecturalFamilyQuery.Definition,
+                ExecuteLibraryArchitecturalFamilyQuery)
             .Add(
                 LibraryDependencyStructureQuery.Definition,
                 ExecuteLibraryDependencyStructureQuery)
@@ -424,29 +434,14 @@ public static class LibrarySections
             .Compile();
     }
 
-    internal static UnsafeEvidenceResult ExecuteUnsafeEvidenceQuery(
-        bool hasMetadata,
-        Func<ILInspector.Analysis.LibrarySafetyAnalysisResult>
-            acquireAnalysis)
-    {
-        ArgumentNullException.ThrowIfNull(acquireAnalysis);
-
-        if (!hasMetadata)
-            return new UnsafeEvidenceResult.NoMetadata();
-
-        try
-        {
-            return UnsafeEvidenceQuery.Execute(acquireAnalysis());
-        }
-        catch (CostDeclarationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            return new UnsafeEvidenceResult.Failed(ex);
-        }
-    }
+    internal static UnsafeMemberCensusQueryResult ExecuteUnsafeMemberCensusQuery(
+        string path,
+        PdbContext? metadata)
+        => metadata is null
+            ? new UnsafeMemberCensusQueryResult.Failed(
+                new InvalidOperationException(
+                    "The unsafe member census requires the command's opened metadata context."))
+            : UnsafeMemberCensusQuery.Execute(path, metadata);
 
     internal static ResourceTriageResult ExecuteResourceTriageQuery(
         InspectionQueryContext context)
@@ -500,9 +495,10 @@ public static class LibrarySections
     internal static TopLeverageResult ExecuteTopLeverageQuery(
         InspectionQueryContext context)
     {
-        TopLeverageResult result = ExecuteTopLeverageQuery(
-            context.MetadataContext?.HasMetadata != false,
-            () => context.BodyAnalysis().Leverage);
+        TopLeverageResult result =
+            context.MetadataContext?.HasMetadata == false
+                ? new TopLeverageResult.NoMetadata()
+                : context.TopLeverage();
         if (result is TopLeverageResult.Available)
             _ = context.DrillMap();
         return result;
@@ -659,42 +655,42 @@ public static class LibrarySections
         }
     }
 
-    internal static LibraryFamilyRoleQueryResult
-        ExecuteLibraryFamilyRoleQuery(
+    internal static LibraryArchitecturalFamilyQueryResult
+        ExecuteLibraryArchitecturalFamilyQuery(
             InspectionQueryContext context)
     {
         if (context.AssemblyReference is not { } assembly)
         {
-            return new LibraryFamilyRoleQueryResult.Failed(
+            return new LibraryArchitecturalFamilyQueryResult.Failed(
                 new InvalidOperationException(
-                    "Library name-family roles require an artifact-backed "
+                    "Library architectural families require an artifact-backed "
                         + "assembly descriptor."));
         }
 
         try
         {
-            LibraryFamilyRoleQueryPlan operation =
-                LibraryFamilyRoleQuery.CreatePlan(
+            LibraryArchitecturalFamilyQueryPlan operation =
+                LibraryArchitecturalFamilyQuery.CreatePlan(
                     context.NameFamilyPopulation);
             RowSelectionIntent<string> rows =
                 context.NameFamilyRowSelection
                 ?? RowSelectionIntent<string>.Create([]);
             QuerySpaceRequest request =
-                context.NameFamilyRoleTypeRows
-                    ? LibraryFamilyRoleQuery.CreateTypeRequest(
+                context.ArchitecturalFamilyTypeRows
+                    ? LibraryArchitecturalFamilyQuery.CreateTypeRequest(
                         operation,
                         rows,
                         context.CountOnly
                             ? QuerySpaceTerminalRequirement.Count
                             : QuerySpaceTerminalRequirement.Rows)
-                    : LibraryFamilyRoleQuery.CreateFamilyRequest(
+                    : LibraryArchitecturalFamilyQuery.CreateFamilyRequest(
                         operation,
                         rows,
                         context.CountOnly
                             ? QuerySpaceTerminalRequirement.Count
                             : QuerySpaceTerminalRequirement.Rows);
             return context.Query(
-                session => LibraryFamilyRoleInspection.Execute(
+                session => LibraryArchitecturalFamilyInspection.Execute(
                     assembly,
                     session,
                     context.MetadataContext?
@@ -702,7 +698,7 @@ public static class LibrarySections
                     operation,
                     request),
                 static error =>
-                    new LibraryFamilyRoleQueryResult.Failed(error));
+                    new LibraryArchitecturalFamilyQueryResult.Failed(error));
         }
         catch (CostDeclarationException)
         {
@@ -710,7 +706,7 @@ public static class LibrarySections
         }
         catch (Exception error)
         {
-            return new LibraryFamilyRoleQueryResult.Failed(error);
+            return new LibraryArchitecturalFamilyQueryResult.Failed(error);
         }
     }
 
@@ -847,7 +843,11 @@ public static class LibrarySections
                 metadata.GetPrefetchedImage(),
                 metadata.PortablePdbPath,
                 context.BodyReferenceResolver);
-            return BodyShapesQuery.Execute(source, kind, methodTokens);
+            return BodyShapesQuery.Execute(
+                source,
+                kind,
+                methodTokens,
+                context.Model.BodyShapeSearchLimit);
         }
         catch (CostDeclarationException)
         {
@@ -958,6 +958,9 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.CloneCandidates;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.CloneCandidates;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
@@ -969,6 +972,9 @@ public static class LibrarySections
     public sealed class LibraryInfo : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.LibraryInfo;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.LibraryInfo;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -978,6 +984,9 @@ public static class LibrarySections
     public sealed class InspectionFailures : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.InspectionFailures;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.InspectionFailures;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static bool CanRender(LibraryInspection model)
@@ -987,6 +996,9 @@ public static class LibrarySections
     public sealed class ILOffset : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.ILOffset;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ILOffset;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -996,6 +1008,9 @@ public static class LibrarySections
     public sealed class MemberContext : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.MemberContext;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.MemberContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -1005,6 +1020,9 @@ public static class LibrarySections
     public sealed class InstructionContext : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.InstructionContext;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.InstructionContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -1014,6 +1032,9 @@ public static class LibrarySections
     public sealed class ExceptionContext : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.ExceptionContext;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ExceptionContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1023,6 +1044,9 @@ public static class LibrarySections
     public sealed class CallsiteContext : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.CallsiteContext;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.CallsiteContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -1032,6 +1056,9 @@ public static class LibrarySections
     public sealed class ReturnAddressContext : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.ReturnAddressContext;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ReturnAddressContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -1041,6 +1068,9 @@ public static class LibrarySections
     public sealed class AllocationContext : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.AllocationContext;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.AllocationContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -1050,6 +1080,9 @@ public static class LibrarySections
     public sealed class SafetyContext : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.SafetyContext;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.SafetyContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -1059,6 +1092,9 @@ public static class LibrarySections
     public sealed class CostContext : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.CostContext;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.CostContext;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -1070,6 +1106,9 @@ public static class LibrarySections
     public sealed class SourceFiles : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.SourceLinkFiles;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.SourceFiles;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1080,6 +1119,9 @@ public static class LibrarySections
     public sealed class Symbols : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.Symbols;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.Symbols;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model) => true;
@@ -1088,6 +1130,9 @@ public static class LibrarySections
     public sealed class Signals : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.Signals;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.Signals;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static bool CanRender(LibraryInspection model)
@@ -1097,6 +1142,9 @@ public static class LibrarySections
     public sealed class IdentifierConfusion : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.IdentifierConfusion;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.IdentifierConfusion;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1108,6 +1156,9 @@ public static class LibrarySections
     public sealed class Switches : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.Switches;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.Switches;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1117,6 +1168,9 @@ public static class LibrarySections
     public sealed class Integrations : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => IntegrationSectionNames.Integrations;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.Integrations;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1126,6 +1180,9 @@ public static class LibrarySections
     public sealed class IntegrationOpportunities : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => IntegrationSectionNames.Opportunities;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.IntegrationOpportunities;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         // The scanner retains at most one row per product-owned concept and opportunity kind.
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
@@ -1156,15 +1213,17 @@ public static class LibrarySections
         => model.HasMethodBodies;
 
     private static bool UnsafeMembersDiscoverable(LibraryInspection model)
-        => model.UnsafeEvidenceInspection is not null
-            ? UnsafeMembers.CanRender(model)
+        => model.UnsafeMemberInspection is not null
+            ? UnsafeMembers.Advertises(model)
             : model.UnsafeEvidencePresent is true
-              || UnsafeMembers.CanRender(model)
               || (model.UnsafeEvidencePresent is null && model.HasMethodBodies);
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.SourceLinkAvailability;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.SourceLinkAudit;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         // Opt-in only: issues one HEAD per source file, which scales with source count and is too
         // slow to render as a full default section. Signals may still summarize this high-value audit.
@@ -1177,6 +1236,9 @@ public static class LibrarySections
     public sealed class MissingSourceFiles : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.SourceLinkMissingFiles;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.MissingSourceFiles;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         // Opt-in only: derived from the same per-file HEAD pass as SourceLink: Availability.
         public static bool ExplicitOnly => true;
@@ -1188,6 +1250,9 @@ public static class LibrarySections
     public sealed class SourceIntegrity : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.SourceLinkIntegrity;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.SourceIntegrity;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -1199,6 +1264,9 @@ public static class LibrarySections
     public sealed class References : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.References;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.References;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1209,6 +1277,9 @@ public static class LibrarySections
         ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.EcosystemDependencies;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.EcosystemDependencies;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass =>
             SectionSizeClass.Verbose;
@@ -1228,6 +1299,9 @@ public static class LibrarySections
         ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.ReferenceHierarchy;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ReferenceHierarchy;
+        public static SectionShape? Shape => SectionShape.Hierarchy;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1239,6 +1313,9 @@ public static class LibrarySections
     public sealed class ExtensionMethods : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.ExtensionMethods;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ExtensionMethods;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1248,19 +1325,37 @@ public static class LibrarySections
     public sealed class UnsafeMembers : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.UnsafeMembers;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.UnsafeMembers;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
+        // A complete census renders its rows or the explicit empty state.
         public static bool CanRender(LibraryInspection model)
-            => model.UnsafeEvidenceInspection.CanRenderWithPresence(
-                model.HasUnsafeCode
-                || model.UnsafeSignatureDecodeStatus is not null);
+            => model.UnsafeMemberInspection
+                is ILInspector.Analysis.UnsafeMemberFindingInspection.Complete
+                    or ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete;
+
+        // Discovery advertises the section only for a finding or an
+        // incomplete census, never for the empty state.
+        internal static bool Advertises(LibraryInspection model)
+            => model.UnsafeMemberInspection switch
+            {
+                ILInspector.Analysis.UnsafeMemberFindingInspection.Complete complete =>
+                    !complete.Inspection.Findings.IsEmpty,
+                ILInspector.Analysis.UnsafeMemberFindingInspection.Incomplete => true,
+                _ => false,
+            };
     }
 
     public sealed class TopLeverage : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.TopLeverage;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.TopLeverage;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1274,6 +1369,9 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.MemberMetrics;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.MemberMetrics;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>
@@ -1289,6 +1387,9 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.LibraryMetrics;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.LibraryMetrics;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>
@@ -1304,6 +1405,9 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.NameFamilies;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.NameFamilies;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
@@ -1315,10 +1419,13 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => true;
     }
 
-    public sealed class NameFamilyRoles
+    public sealed class ArchitecturalFamilies
         : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.NameFamilyRoles;
+        public static string Name => SectionNames.ArchitecturalFamilies;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ArchitecturalFamilies;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
@@ -1330,10 +1437,13 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model) => true;
     }
 
-    public sealed class NameFamilyRoleTypes
+    public sealed class ArchitecturalFamilyTypes
         : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.NameFamilyRoleTypes;
+        public static string Name => SectionNames.ArchitecturalFamilyTypes;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ArchitecturalFamilyTypes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
@@ -1349,6 +1459,12 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.DependencyStructure;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.DependencyStructure;
+        // Dependency Structure offers a Table of namespace edges and a
+        // Document (docs/design/library-dependency-structure.md); its
+        // Mermaid diagram stays an explicit lowering of the same graph.
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass =>
@@ -1362,6 +1478,9 @@ public static class LibrarySections
     public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.BodyShapes;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.BodyShapes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1373,6 +1492,9 @@ public static class LibrarySections
     public sealed class BodyShapeSummary : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.BodyShapeSummary;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.BodyShapeSummary;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1396,6 +1518,9 @@ public static class LibrarySections
     public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceBoxing;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceBoxing;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1405,6 +1530,9 @@ public static class LibrarySections
     public sealed class PerformanceArrays : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceArrays;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceArrays;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1414,6 +1542,9 @@ public static class LibrarySections
     public sealed class PerformanceClosures : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceClosures;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceClosures;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1423,6 +1554,9 @@ public static class LibrarySections
     public sealed class PerformanceEnumerators : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceEnumerators;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceEnumerators;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1432,6 +1566,9 @@ public static class LibrarySections
     public sealed class PerformanceStrings : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceStrings;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceStrings;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1441,6 +1578,9 @@ public static class LibrarySections
     public sealed class PerformanceLoops : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceLoops;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceLoops;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1450,6 +1590,9 @@ public static class LibrarySections
     public sealed class PerformanceHotspots : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceHotspots;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceHotspots;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1459,15 +1602,39 @@ public static class LibrarySections
     public sealed class PerformanceAsync : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceAsync;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceAsync;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceAsync);
     }
 
+    public sealed class PerformanceSyncCallsInAsync
+        : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name =>
+            SectionNames.PerformanceSyncCallsInAsync;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceSyncCallsInAsync;
+        public static SectionShape? Shape => SectionShape.Table;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Verbose;
+        public static bool CanRender(LibraryInspection model)
+            => model.SyncCallsInAsyncFailure is null
+                && (model.SyncCallsInAsyncPresence
+                    ?? model.SyncCallsInAsyncCount > 0
+                    || model.SyncCallsInAsyncRows.Length > 0);
+    }
+
     public sealed class PerformanceOther : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceOther;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceOther;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1477,6 +1644,9 @@ public static class LibrarySections
     public sealed class ArrayPoolEscapes : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.ArrayPoolEscapes;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ArrayPoolEscapes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1487,6 +1657,9 @@ public static class LibrarySections
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PInvokeMethods;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PInvokeMethods;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1499,6 +1672,9 @@ public static class LibrarySections
     public sealed class AsyncMethods : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.AsyncMethods;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.AsyncMethods;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1512,6 +1688,9 @@ public static class LibrarySections
     public sealed class Resources : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.Resources;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.Resources;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool CanRender(LibraryInspection model)
             => model.ResourceInspection.CanRenderWithPresence(model.HasManifestResources);
@@ -1520,6 +1699,9 @@ public static class LibrarySections
     public sealed class CustomAttributes : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.CustomAttributes;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.CustomAttributes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool CanRender(LibraryInspection model)
             => model.AssemblyAttributeInspection.CanRenderWithPresence(model.HasAssemblyAttributes);
@@ -1528,6 +1710,9 @@ public static class LibrarySections
     public sealed class UnionTypes : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.UnionTypes;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.UnionTypes;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1537,6 +1722,9 @@ public static class LibrarySections
     public sealed class TypeForwarders : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.TypeForwarders;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.TypeForwarders;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
@@ -1546,6 +1734,9 @@ public static class LibrarySections
     public sealed class NonNormalizedPaths : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.NonNormalizedPaths;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.NonNormalizedPaths;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };
@@ -1554,6 +1745,9 @@ public static class LibrarySections
     public sealed class SourceLinkDiagnostics : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.SourceLinkDiagnostics;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.SourceLinkDiagnostics;
+        public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;

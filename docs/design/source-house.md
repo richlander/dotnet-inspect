@@ -17,7 +17,7 @@ access.
 
 This is an explicitly approved broad source-composition design. It establishes
 one new owner and transfers the cohesive product source-settlement
-responsibility currently divided between `PdbSourceHouse` and
+responsibility formerly divided between the public PDB-source House and
 `AssemblyContextSourceQuery`. It specifies the SourceHouse request, input
 obligations, producer boundaries, candidate settlement, result, and receipt.
 It does not redefine PackageHouse, PlatformHouse, Workspace, artifact, PDB,
@@ -35,20 +35,35 @@ ordinary PDB Source adopts the shared member operation under #7819, and
 ordinary selected-member Decompiled Source adopts decompiled-only settlement
 under #7918. Exact-type decompilation and Browser Type Source fallback adopt
 the same settlement under #7953. Ordinary CLI whole-type Decompiled Source
-adopts the decompiled-only type operation under #7963. Broader CLI enrichment
-and the full source-policy contract remain later adoption.
+adopts the decompiled-only type operation under #7963. Ordinary exact-member
+Source adopts House-owned `BestAvailable` settlement under #9449: authored
+success short-circuits, otherwise decompilation runs under the same transferred
+Library lease and the result retains both attempts. Serial ordinary exact-type
+Source adopts the same settlement under #9565. Broader CLI enrichment and the
+remaining source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
 The current production orchestrator is `AssemblyContextSourceQuery`, which
-resolves an exact member or type and applies authored-first fallback.
-Type/member authored acquisition, selected-member pairs, and exact member/type
-decompilation use SourceHouse. Browser Type Source consumes the completed
-shared query result with authored-first preference; its explicit authored
-document requests never decompile. `PdbSourceHouse` retains broader enrichment
-ordering. SourceLinkService owns checksum verification and decoding.
-Query-owned fallback ordering remains migration evidence, not the target
-public House policy boundary.
+resolves an exact member or type. Serial ordinary exact-member and exact-type
+Source delegate authored-first fallback to SourceHouse. Type/member authored
+acquisition, selected-member pairs, and exact member/type decompilation also
+use SourceHouse. Browser Type Source deliberately retains its latency hedge
+over independent authored and decompiled operations; explicit authored
+document requests never decompile. SourceLinkService owns checksum
+verification and decoding. The reusable `AssemblyContextSourceQuery`
+authored-member session retains one Library and one serial
+`SourceHouse.AuthoredSession` for certification populations. The first request
+prepares the bounded detached assembly, API target index, Portable PDB,
+SourceLink map, and document inventory. Later requests reuse that preparation
+while supplying a fresh operation plan, transferred Library lease, deadline,
+capability set, exact target mapping, and source-content settlement. The
+session binds the same `SourceHouseLimits` instance for its lifetime and must
+close before the retained Library retires. Each outcome repeats the shared
+preparation observations so it remains standalone; population reports must
+treat those observations as shared setup rather than additive work. Other
+query-owned timing policy remains an explicit host choice, not a second
+product settlement boundary.
 
 ### Authored settlement delivery
 
@@ -125,9 +140,14 @@ or repository source may still succeed, retaining the map's diagnostic; an
 optional URL-map failure does not invalidate otherwise authoritative local-only
 settlement.
 
-This is the settlement-core portion of step 5. The public `PdbSourceHouse`
-retirement obligation remains open until shared source-query adoption replaces
-its callers. The [six-delivery adapter-first path](type-source-acquisition.md#production-adoption-and-retirement)
+Step 5 is complete. Shared source-query adoption replaced the public
+PDB-source House. `PdbSourceInspectionProjection` owns the compatibility
+member/type checksum, decoded-content, and acquisition-failure projections;
+and `VerifiedLocalSourceRead` owns checksum-authenticated PDB-recorded
+local-file reads. The member-only compatibility acquisition adapter, unused
+type-acquisition entry point, and general verified-text compatibility entry
+point are retired. The
+[six-delivery adapter-first path](type-source-acquisition.md#production-adoption-and-retirement)
 and overall twelve-step plan below retain both CLI and Browser/Wasm consumers. The member-source-pair
 cutover in #7448 supplies the first shared completed
 `InspectionEnvelope<TContent>` adoption, extended to member Source and same-member comparison in #7497
@@ -594,10 +614,11 @@ validate each candidate. This preserves the existing family boundary:
 `ILInspector.SourceLink` interprets PDB-associated program evidence, while the
 `DotnetInspector` House owns product policy and transport composition.
 
-The current `PdbSourceHouse` combines those roles. Its product candidate
-settlement transfers to SourceHouse; its PDB and SourceLink interpretation
-uses owner-issued SourceLink service operations. That migration is a separate
-tracked implementation step rather than an expansion of the
+The former public PDB-source House combined those roles. Product candidate
+settlement now belongs to SourceHouse, while PDB and SourceLink interpretation
+uses owner-issued SourceLink service operations. The certification harness
+consumes those operations through a reusable Query-owned SourceHouse session
+without creating another product House or expanding the
 `ILInspector.SourceLink` family.
 
 ### `CSharpDecompilerService`
@@ -731,6 +752,14 @@ Best-available is an ordering contract, not a universal quality claim.
 Authored source is preferred because it carries checksum-verified provenance
 to producer text. Decompiled source remains a distinct reconstructed
 representation with its own diagnostics and fidelity boundaries.
+
+An admitted exact-member or exact-type request may carry typed evidence that
+upstream Portable PDB opening has already settled as unavailable. When the
+request has no matching companion PDB and otherwise satisfies the
+selected-content, lease, and deadline contract, `BestAvailable` records a
+zero-work authored-unavailable attempt and proceeds directly to decompilation.
+A supplied companion or contradictory request state defeats that optimization
+and preserves ordinary authored settlement and typed validation.
 
 An operation that needs both authored and decompiled attempts for comparison
 is not `BestAvailable`. It is a separate explicit comparison demand or query
@@ -900,6 +929,15 @@ decompiled source, identify which PDB contribution was used, inspect why an
 earlier attempt failed, and retain the exact input correspondence without
 parsing a label or diagnostic.
 
+The delivered exact-member and serial exact-type `BestAvailable` result is
+`SourceHouseBestAvailableOutcome`. It retains the complete authored
+`SourceHouseOutcome`, the optional `SourceHouseDecompilationOutcome`, the
+selected provider and text when available, and one lease settlement. Its
+request evidence reports `BestAvailable`; authored-only and decompiled-only
+operations retain their existing closed result families. This focused
+delivery does not convert explicit same-member comparison into
+`BestAvailable`.
+
 Every result contains detached or independently owned values. It retains no
 Library lease, callback, borrow, span, stream, opener, or path-reopening
 authority.
@@ -1060,7 +1098,7 @@ end-to-end tracker. Its current total is 12 steps:
 4. expose content-backed PDB and SourceLink interpretation through
    `SourceLinkService` without moving transport or product policy into it;
 5. implement SourceHouse authored-source candidate settlement and retire the
-   public `PdbSourceHouse` composition;
+   former public PDB-source House composition;
 6. implement SourceHouse decompiler composition, fallback, and receipts;
 7. adopt the shared Library contract in PackageHouse;
 8. adopt it in PlatformHouse;
@@ -1102,7 +1140,10 @@ decompilation. Exact-member decompilation (#7885 and #7918) and exact-type
 decompilation with Browser fallback adoption (#7953) use the same Library
 handoff and native producer attempt. Ordinary CLI whole-type decompilation
 adopts the completed decompiled-only type envelope under #7963 and retires its
-direct `MemberBodyProducer.Project` composition.
+direct `MemberBodyProducer.Project` composition. Serial ordinary exact-type
+Source delegates producer ordering and one transferred lease to
+`SourceHouseBestAvailableOutcome` under #9565; Browser's distinct PDB-latency
+hedge retains its independent settlement lifetimes.
 
 Step 2 is the design correction tracked by
 [#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse

@@ -521,8 +521,15 @@ public sealed partial class PackagePlatformSource
         private PackageRangedRead? CreateRangedRead(
             PlatformFamily family)
         {
-            if (_population
-                is not PackageImplementationPopulationDemand.Assembly assembly)
+            string? assemblyName = _population switch
+            {
+                PackageImplementationPopulationDemand.Assembly assembly =>
+                    assembly.Identity.Name,
+                PackageImplementationPopulationDemand.AssemblyName assembly =>
+                    assembly.Name,
+                _ => null,
+            };
+            if (assemblyName is null)
             {
                 return null;
             }
@@ -535,8 +542,7 @@ public sealed partial class PackagePlatformSource
                 prefix + manifestBase + ".runtimeconfig.json";
             string dependencyManifest =
                 prefix + manifestBase + ".deps.json";
-            string requestedAssembly =
-                assembly.Identity.Name + ".dll";
+            string requestedAssembly = assemblyName + ".dll";
             return new PackageRangedRead(
                 directory =>
                 {
@@ -714,7 +720,9 @@ public sealed partial class PackagePlatformSource
                                 framework.DependencyManifest.ManagedAssets
                                     .Select(asset => (framework, asset)))],
                     PackageImplementationPopulationDemand.Assembly assembly =>
-                        SelectExactAssembly(frameworks, assembly.Identity),
+                        SelectAssembly(frameworks, assembly.Identity.Name),
+                    PackageImplementationPopulationDemand.AssemblyName assembly =>
+                        SelectAssembly(frameworks, assembly.Name),
                     _ => throw new ArgumentOutOfRangeException(
                         nameof(population)),
                 };
@@ -809,11 +817,11 @@ public sealed partial class PackagePlatformSource
 
         private static IReadOnlyList<(
             FrameworkSnapshot Framework,
-            PlatformManifestAssetCoordinate Asset)> SelectExactAssembly(
+            PlatformManifestAssetCoordinate Asset)> SelectAssembly(
                 IReadOnlyList<FrameworkSnapshot> frameworks,
-                AssemblyReferenceIdentity identity)
+                string assemblyName)
         {
-            string requestedFileName = identity.Name + ".dll";
+            string requestedFileName = assemblyName + ".dll";
             var selected = new List<(
                 FrameworkSnapshot,
                 PlatformManifestAssetCoordinate)>();

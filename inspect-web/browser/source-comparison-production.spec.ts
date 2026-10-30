@@ -96,6 +96,7 @@ test.describe("published authored Source comparison transport", () => {
           const source = await import("/inspect-web-source.js");
           const loadResult = await packages.queryPackage(
             "System.Text.Json", "11.0.0-preview.7.26381.103", "netstandard2.0",
+            "",
           );
           const surface = loadResult.surface;
           if (surface === null) {
@@ -120,6 +121,7 @@ test.describe("published authored Source comparison transport", () => {
             type.assemblyId,
             type.definitionId,
             "[]",
+            null,
             "source",
           );
           return {
@@ -185,6 +187,13 @@ test.describe("published authored Source comparison transport", () => {
           headers: { "access-control-allow-origin": "*" },
         }));
       await page.route(
+        "https://symbols.nuget.org/download/symbols/System.Text.Json.pdb/**",
+        route => route.fulfill({
+          path: systemTextJsonPdb!,
+          contentType: "application/octet-stream",
+          headers: { "access-control-allow-origin": "*" },
+        }));
+      await page.route(
         "https://raw.githubusercontent.com/dotnet/dotnet/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonDocument.Parse.cs",
         route => route.fulfill({
           path: systemTextJsonSource!,
@@ -197,6 +206,7 @@ test.describe("published authored Source comparison transport", () => {
         const source = await import("/inspect-web-source.js");
         const loadResult = await packages.queryPackage(
           "System.Text.Json", "11.0.0-preview.7.26381.103", "net10.0",
+          "",
         );
         const surface = loadResult.surface;
         if (surface === null) {
@@ -228,6 +238,7 @@ test.describe("published authored Source comparison transport", () => {
           body.token,
           0,
           "[]",
+          null,
           "source",
         );
         if (result.value === null) {
@@ -307,6 +318,7 @@ test.describe("published authored Source comparison transport", () => {
         const source = await import("/inspect-web-source.js");
         const loadResult = await packages.queryPackage(
           "Microsoft.Extensions.Primitives", "10.0.0", "net10.0",
+          "",
         );
         const surface = loadResult.surface;
         if (surface === null) {
@@ -438,6 +450,7 @@ test.describe("published authored Source comparison transport", () => {
           const packages = await import("/inspect-web-package.js");
           const loadResult = await packages.queryPackage(
             "InspectWeb.SourceComparisonFixture", version, "net11.0",
+            "",
           );
           const surface = loadResult.surface;
           if (surface === null) {
@@ -519,7 +532,8 @@ test.describe("published authored Source comparison transport", () => {
           const result = await source.queryMemberSource(
             request.packageId, request.beforeVersion, request.framework,
             request.assembly, request.typeIdentity, request.memberName,
-            request.selectorKey, request.metadataToken, 0, "[]", request.view);
+            request.selectorKey, request.metadataToken, 0, "[]", null,
+            request.view);
           if (result.value === null)
             throw new Error(result.error ?? "Member source inspection failed.");
           return result.value;
@@ -537,7 +551,7 @@ test.describe("published authored Source comparison transport", () => {
           return source.queryTypeSource(
             `type-source-fixture-${request.beforeVersion}-${request.view}`,
             request.packageId, request.beforeVersion, request.framework,
-            request.assembly, request.typeIdentity, "[]", request.view);
+            request.assembly, request.typeIdentity, "[]", null, request.view);
         }, { ...selected, view });
       }
 
@@ -1133,6 +1147,7 @@ test.describe("published authored Source comparison transport", () => {
         if (!bridge) throw new Error("Source comparison bridge is unavailable.");
         const loadResult = await bridge.package.queryPackage(
           "InspectWeb.SourceComparisonFixture", "1.0.0", "net11.0",
+          "",
         );
         const surface = loadResult.surface;
         if (surface === null) {

@@ -136,7 +136,7 @@ public static class IntegrationOpportunityScanner
         foreach (var handle in reader.TypeDefinitions)
         {
             var typeDefinition = reader.GetTypeDefinition(handle);
-            if (!typeDefinition.IsPublic)
+            if (!ApiSurfaceExtractor.AdmitsPublicScopeType(reader, handle, typeDefinition))
                 continue;
 
             var typeName = reader.GetFullTypeName(typeDefinition);

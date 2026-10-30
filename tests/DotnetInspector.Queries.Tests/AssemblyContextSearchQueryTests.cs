@@ -315,7 +315,7 @@ public sealed class AssemblyContextSearchQueryTests
             ]);
     }
 
-    private static byte[] BuildPartialSurfaceImage()
+    internal static byte[] BuildPartialSurfaceImage()
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(

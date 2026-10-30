@@ -12,7 +12,7 @@ internal static class ProvenancePin
         }
 
         throw new InvalidOperationException(
-            $"jobs.changes EVIL_PROVENANCE_RUN_SHA256 is stale: step.run hashes to " +
+            $"jobs.provenance EVIL_PROVENANCE_RUN_SHA256 is stale: step.run hashes to " +
             $"{provenanceRunSha256}, but the pin is {provenancePin}. " +
             "Refresh it with 'dotnet run eng/test-ci-change-detection.cs -- " +
             "--refresh-evil-provenance-pin'.");
@@ -42,7 +42,7 @@ internal static class ProvenancePin
             "EVIL provenance command");
         GateAssertions.AssertInvalidOperation(
             () => validateWorkflow(stale),
-            "jobs.changes EVIL_PROVENANCE_RUN_SHA256 is stale");
+            "jobs.provenance EVIL_PROVENANCE_RUN_SHA256 is stale");
 
         string refreshed = refreshWorkflow(stale);
         validateWorkflow(refreshed);

@@ -1,6 +1,8 @@
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Net;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
@@ -15,6 +17,258 @@ namespace DotnetInspector.Services.Tests;
 /// </summary>
 public sealed partial class PackageRangedRealizationTests
 {
+    // PR-fast: pinned real multi-Library archive; both host-neutral acquisition paths.
+    [Theory]
+    [InlineData(false, "PCLStorage")]
+    [InlineData(true, "PCLStorage")]
+    [InlineData(false, "Missing")]
+    public async Task ExactCompileLibrary_PreservesInventoryAndNarrowsParticipants(bool complete, string name)
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var request = PackageHouseRequest.CompileLibrary(
+            new PackageHouseDemand.Exact(PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.Exact("net45"), new PackageLibrarySelector(name),
+            PackageAssetDemand.Surface);
+        var store = new InMemoryPackageStore();
+        var house = new PackageHouse(environment.Authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries((_, _) => store,
+                rangedSizeCut: complete ? archive.Length : 0));
+        using var operation = environment.Root.IssueOperationLease(TestContext.Current.CancellationToken,
+            request.Operation.RequestTimeout, request.Operation.OperationTimeout);
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(await house.ExecuteAsync(request, operation));
+        var contribution = Assert.IsType<DotnetInspector.PackageQueries.PackageHouseRootContributionOutcome.Contributed>(
+            DotnetInspector.PackageQueries.PackageHouseRootContributionAdapter.Create(acquired));
+        Assert.NotNull(contribution.Contribution.Binding.Root.AssetSelection);
+        Assert.Equal(2, contribution.Contribution.Binding.Root.AssetSelection.Assets.Count);
+        await using var workspace = new DotnetInspector.Queries.InspectionWorkspace();
+        using var roles = workspace.RealizePackageAssemblyContextRoles([contribution.Contribution.Binding.Root],
+            cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(name == "Missing" ? 0 : 1, roles.SurfaceParticipants.Length);
+        Assert.Empty(roles.ImplementationParticipants);
+        if (!complete)
+        {
+            var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
+            Assert.Equal(name != "Missing", content.IsMaterialized("lib/net45/PCLStorage.dll"));
+            Assert.False(content.IsMaterialized("lib/net45/PCLStorage.Abstractions.dll"));
+            Assert.False(content.IsMaterialized("lib/net45/PCLStorage.xml"));
+        }
+    }
+
+    // PR-fast: pinned small archive, directory and receipt assertions only.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompileInventory_UsesHousePlanningAndPreservesMeasurementReceipts(bool complete)
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var request = PackageHouseRequest.CompileInventory(
+            new PackageHouseDemand.Exact(PackageSourceCoordinate.Create(PclStorage, PclStorageVersion)),
+            PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.Exact("net45"));
+        var house = new PackageHouse(environment.Authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => new InMemoryPackageStore(), rangedSizeCut: complete ? archive.Length : 0));
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(request, environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken, request.Operation.RequestTimeout,
+                request.Operation.OperationTimeout)));
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        var realization = Assert.IsType<PackageHouseRealizationReceipt.Compile>(acquired.Result.Evidence.Realization);
+        Assert.Empty(realization.LibraryHandoffs);
+        Assert.Equal(2, realization.Selection.Assets.Count);
+        PackageHouseFileList files = Assert.IsType<PackageHouseFileList>(acquired.Result.Evidence.FileList);
+        Assert.Contains(files.Entries, entry => entry.Path == "lib/net45/PCLStorage.dll");
+        Assert.Contains(files.Entries, entry => entry.Path == "lib/sl5/PCLStorage.dll");
+        Assert.Equal(acquired.Payload.Content.EnumerateEntries().Count(), files.Entries.Count);
+        Assert.Equal(PackageInfoMeasurementStatus.Measured, PackageInfoMeasurementInspection.Project(acquired).Content.Status);
+        Assert.IsType<DotnetInspector.PackageQueries.PackageHouseRootContributionOutcome.Contributed>(
+            DotnetInspector.PackageQueries.PackageHouseRootContributionAdapter.Create(acquired));
+        if (!complete)
+        {
+            var content = Assert.IsType<RangedPackageContent>(acquired.Payload.Content);
+            Assert.True(content.IsMaterialized("PCLStorage.nuspec"));
+            Assert.False(content.IsMaterialized("lib/net45/PCLStorage.dll"));
+            Assert.False(content.IsMaterialized("lib/net45/PCLStorage.xml"));
+        }
+    }
+
+    // PR-fast: pinned archive, cached House execution, and operation counters only.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task DeclaredCompileDemand_UsesDirectoryWithoutPayloadEnumeration(
+        bool exactLibrary,
+        bool materializeCompileAssets)
+    {
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            environment.Authorization.AuthorizeSourcesFor(PclStorage).Authorities);
+        var content = new ObservedDirectoryPackageContent(
+            new InMemoryPackageContent(
+                archive,
+                fromCache: true,
+                PackageSourceClientFactory.GetProducerIdentity(authority.Source).Key));
+        var demand = new PackageHouseDemand.Exact(
+            PackageSourceCoordinate.Create(PclStorage, PclStorageVersion));
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Realize);
+        var target = PackageHouseTargetContext.Exact("net45");
+        PackageHouseRequest request = exactLibrary
+            ? PackageHouseRequest.CompileLibrary(
+                demand, operation, target,
+                new PackageLibrarySelector("PCLStorage"),
+                PackageAssetDemand.Surface)
+            : materializeCompileAssets
+                ? PackageHouseRequest.CompileInspection(demand, operation, target)
+                : PackageHouseRequest.CompileInventory(demand, operation, target);
+        var house = new PackageHouse(
+            environment.Authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => new CachedContentStore(content)));
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(
+                request,
+                environment.Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    operation.RequestTimeout,
+                    operation.OperationTimeout)));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        var realization = Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+            acquired.Result.Evidence.Realization);
+        Assert.Equal(PackagePayloadOrigin.Cache, acquired.Payload.Origin);
+        Assert.Equal(0, content.Enumerations);
+        Assert.Same(content.GenerationIdentity, realization.Receipt.Generation);
+        Assert.Equal("net45", realization.Selection.TargetFramework);
+        Assert.Equal(2, realization.Selection.Assets.Count);
+        PackageCompileAssetSelection expected = PackageCompileAssetSelector.Select(
+            new InMemoryPackageContent(archive, fromCache: true, content.ProducerKey),
+            PclStorage, "net45");
+        Assert.Equal(expected.AvailableTargetFrameworks,
+            realization.Selection.AvailableTargetFrameworks);
+        Assert.Equal(expected.AvailableSlices.Select(slice => slice.TargetFramework),
+            realization.Selection.AvailableSlices.Select(slice => slice.TargetFramework));
+        Assert.Equal(expected.CandidateAssets, realization.Selection.CandidateAssets);
+        Assert.Empty(realization.LibraryHandoffs);
+        Assert.DoesNotContain(content.OpenedEntries,
+            path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(0, server.FullRequests);
+        Assert.Equal(0, server.RangedRequests);
+    }
+
+    // PR-fast: two in-process feed invocations over the pinned archive.
+    [Fact]
+    public async Task ExactCompileLibrary_ArchiveChangedFallbackUsesWinningDirectorySelection()
+    {
+        byte[] archive = ReadPclStorage();
+        var store = new InMemoryPackageStore();
+        await using (RangedEnvironment initial = RangedEnvironment.Create(
+            new RangeFeed(PclStorage, PclStorageVersion, archive)))
+        {
+            var inventory = await AcquireAsync(initial, inventory: true);
+            Assert.Equal(PackagePayloadOrigin.Ranged, inventory.Payload.Origin);
+        }
+
+        byte[] changed = Republish(
+            archive, "lib/net45/PCLStorage.Abstractions.dll");
+        var server = new RangeFeed(PclStorage, PclStorageVersion, changed);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var acquired = await AcquireAsync(environment, inventory: false);
+
+        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(PackageTransferFallbackReason.ArchiveChanged,
+            Transfer(acquired, PackagePayloadOrigin.Download).FallbackReason);
+        var realization = Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+            acquired.Result.Evidence.Realization);
+        Assert.Same(acquired.Payload.Content.GenerationIdentity,
+            realization.Receipt.Generation);
+        Assert.Equal("lib/net45/PCLStorage.dll",
+            Assert.Single(realization.Selection.Assets).Path);
+        Assert.Empty(new PackageLibrarySelector("PCLStorage.Abstractions")
+            .Select(realization.Selection));
+
+        async Task<PackageHouseSettlement.Acquired> AcquireAsync(
+            RangedEnvironment sourceEnvironment,
+            bool inventory)
+        {
+            var demand = new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PclStorage, PclStorageVersion));
+            var operation = PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+            var target = PackageHouseTargetContext.Exact("net45");
+            PackageHouseRequest request = inventory
+                ? PackageHouseRequest.CompileInventory(demand, operation, target)
+                : PackageHouseRequest.CompileLibrary(
+                    demand, operation, target,
+                    new PackageLibrarySelector("PCLStorage.Abstractions"),
+                    PackageAssetDemand.Surface);
+            var house = new PackageHouse(sourceEnvironment.Authorization,
+                PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store, rangedSizeCut: 0));
+            using var lease = sourceEnvironment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operation.RequestTimeout, operation.OperationTimeout);
+            return Assert.IsType<PackageHouseSettlement.Acquired>(
+                await house.ExecuteAsync(request, lease));
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SemanticFileList_DirectoryFactsRetainEmptyFolders(
+        bool complete, bool filesystem)
+    {
+        using var bytes = new MemoryStream();
+        bytes.Write(ReadPclStorage());
+        DateTimeOffset directoryTimestamp =
+            new(2040, 1, 2, 3, 4, 6, TimeSpan.Zero);
+        using (var zip = new ZipArchive(bytes, ZipArchiveMode.Update, leaveOpen: true))
+        {
+            ZipArchiveEntry entry =
+                zip.CreateEntry("lib/net99.0/");
+            entry.LastWriteTime = directoryTimestamp;
+        }
+        byte[] archive = bytes.ToArray();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        using var disk = new TemporaryFileSystemPackageStore();
+        IPackageStore store = filesystem ? disk : new InMemoryPackageStore();
+        var query = PackageHouseContentQuery.PackageFileList(includeDirectories: true);
+        for (int invocation = 0; invocation < 2; invocation++)
+        {
+            var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+                await environment.AcquireContentAsync(store, query,
+                    sizeCut: complete ? archive.Length : 0));
+            var list = acquired.Result.Evidence.FileList!;
+            Assert.Contains("lib/net99.0", list.Directories!);
+            Assert.Contains("lib/net45", list.Directories!);
+            Assert.DoesNotContain(list.Entries, entry => entry.Path.EndsWith('/'));
+            PackageContentEntry directoryEntry =
+                Assert.Single(
+                    list.DirectoryEntries!,
+                    entry => entry.Path == "lib/net99.0/");
+            Assert.Equal(
+                directoryTimestamp.DateTime,
+                directoryEntry.LastWriteTime!.Value.DateTime);
+            Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+            Assert.Contains("net99.0", TfmSelector.GetPackageFrameworkFolders(list.Directories!));
+        }
+        // Directory-first performs useful ranges without a complete size probe.
+        Assert.Equal(0, server.FullRequests);
+        Assert.Equal(complete ? 2 : 1, server.RangedRequests);
+    }
+
     [Fact]
     public async Task SemanticFiles_RangedReadPublishesOnlyExactEntries()
     {
@@ -56,6 +310,64 @@ public sealed partial class PackageRangedRealizationTests
         Assert.True(receipt.BytesReceived < archive.Length);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompileLibrariesWithFiles_MaterializesEveryTerminal(
+        bool complete)
+    {
+        const string RequestedFile = "lib/net45/PCLStorage.xml";
+        byte[] archive = ReadPclStorage();
+        var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net45");
+        var query = new PackageHouseContentQuery(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [
+                new PackageHouseContentTerminal.CompileLibraries(
+                    PackageAssetDemand.Surface),
+                new PackageHouseContentTerminal.Files([RequestedFile]),
+            ]);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                query,
+                sizeCut: complete ? archive.Length : 0,
+                targetContext: target));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Equal(
+            complete
+                ? PackagePayloadOrigin.Download
+                : PackagePayloadOrigin.Ranged,
+            acquired.Payload.Origin);
+        string[] expected =
+        [
+            .. Net45Assemblies,
+            RequestedFile,
+        ];
+        Assert.Equal(
+            expected.Order(StringComparer.Ordinal),
+            acquired.Payload.Content
+                .EnumerateEntries()
+                .Order(StringComparer.Ordinal));
+        foreach (string path in expected)
+        {
+            Assert.True(
+                acquired.Payload.Content.TryOpenEntry(
+                    path,
+                    out Stream? stream));
+            stream.Dispose();
+        }
+        Assert.False(
+            acquired.Payload.Content.TryOpenEntry(
+                "lib/net45/PCLStorage.Abstractions.xml",
+                out _));
+    }
+
     [Fact]
     public async Task SemanticFiles_CompleteFallbackRetainsArchiveButPublishesOnlyExactEntries()
     {
@@ -89,9 +401,9 @@ public sealed partial class PackageRangedRealizationTests
         PackageTransferReceipt receipt = Transfer(
             acquired,
             PackagePayloadOrigin.Download);
-        Assert.Equal(PackageTransferPath.Download, receipt.Path);
-        Assert.Equal(1, server.FullRequests);
-        Assert.Equal(0, server.RangedRequests);
+        Assert.Equal(PackageTransferPath.CompletedByRanges, receipt.Path);
+        Assert.Equal(0, server.FullRequests);
+        Assert.Equal(2, server.RangedRequests);
     }
 
     [Fact]
@@ -126,7 +438,7 @@ public sealed partial class PackageRangedRealizationTests
         ];
         AssertFileList(first);
         AssertFileList(second);
-        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(0, server.FullRequests);
 
         void AssertFileList(PackageHouseSettlement.Acquired acquired)
         {
@@ -135,6 +447,10 @@ public sealed partial class PackageRangedRealizationTests
             PackageHouseFileList fileList =
                 Assert.IsType<PackageHouseFileList>(
                     acquired.Result.Evidence.FileList);
+            Assert.All(
+                fileList.Entries,
+                static entry => Assert.NotNull(
+                    entry.LastWriteTime));
             Assert.Equal(
                 expected,
                 fileList.Entries.Select(static entry => entry.Path));
@@ -181,7 +497,7 @@ public sealed partial class PackageRangedRealizationTests
             PackagePayloadOrigin.Ranged);
         Assert.Equal(
             [
-                PackageTransferRequestPurpose.SizeProbe,
+
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             receipt.Requests.Select(static request => request.Purpose));
@@ -282,7 +598,7 @@ public sealed partial class PackageRangedRealizationTests
                 [new PackageContentEntry("README.md", 1)]));
         Assert.Equal(
             [
-                PackageTransferRequestPurpose.SizeProbe,
+
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             Transfer(acquired, PackagePayloadOrigin.Ranged)
@@ -399,6 +715,62 @@ public sealed partial class PackageRangedRealizationTests
 
     [Fact]
     public async Task
+        LibraryInventoryOnly_RangedMaterializesNoLibraryAndIssuesExactPdbReference()
+    {
+        byte[] archive = CreateLibraryInventoryArchive();
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                store,
+                PackageHouseContentQuery
+                    .GetLibraryInventoryForTarget(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        Assert.Empty(acquired.Payload.Content.EnumerateEntries());
+        Assert.Null(acquired.Result.Evidence.LibraryAndInventory);
+        PackageHouseLibraryInventory inventory =
+            Assert.IsType<PackageHouseLibraryInventory>(
+                acquired.Result.Evidence.LibraryInventory);
+        PackageHouseLibraryInventoryRow alpha =
+            Assert.Single(
+                inventory.Rows,
+                static row =>
+                    row.CompileEntry.Path
+                    == "ref/net10.0/Alpha.dll");
+        Assert.Equal(
+            "lib/net10.0/Alpha.pdb",
+            alpha.PortablePdbEntry?.Path);
+
+        PackageHouseContentQuery files =
+            inventory.CreateFilesQuery(
+                [alpha.PortablePdbEntry!.Value]);
+        var exact = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                store,
+                files,
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+        Assert.IsType<PackageHouseResult.Settled>(exact.Result);
+        Assert.Equal(
+            ["lib/net10.0/Alpha.pdb"],
+            exact.Payload.Content.EnumerateEntries());
+    }
+
+    [Fact]
+    public async Task
         LibraryInventory_UnmatchedTargetIsTypedNoMatch()
     {
         byte[] archive = CreateLibraryInventoryArchive();
@@ -501,6 +873,67 @@ public sealed partial class PackageRangedRealizationTests
             row.PortablePdbEntry?.Path);
         Assert.Equal(
             ["lib/net10.0/Alpha.dll"],
+            acquired.Payload.Content.EnumerateEntries());
+        PackageHouseLibraryMaterializationOutcome.Completed materialized =
+            Assert.IsType<
+                PackageHouseLibraryMaterializationOutcome.Completed>(
+                await PackageHouseLibraryMaterializer
+                    .MaterializeSelectionAsync(
+                        acquired,
+                        acquired.Result.Evidence
+                            .LibraryAndInventory!
+                            .SelectedLibrary,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken));
+        Assert.Same(
+            materialized.Receipt.Library.ApiAssembly,
+            materialized.Receipt.Library.ImplementationAssembly);
+        await materialized.Owner.DisposeAsync();
+        await materialized.Artifacts.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task
+        LibraryInventory_RootLibraryUsesAnySliceAndSameImplementationEntry()
+    {
+        byte[] assembly = File.ReadAllBytes(
+            System.IO.Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PackageHouse",
+                "System.Text.Json.dll"));
+        byte[] archive = CreateFrameworkArchive(
+            ("lib/Alpha.dll", assembly),
+            ("lib/Alpha.pdb", "alpha-pdb"u8.ToArray()));
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery
+                    .GetLibraryAndInventoryForTarget(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        PackageHouseLibraryInventoryRow row = Assert.Single(
+            acquired.Result.Evidence.LibraryAndInventory!
+                .Inventory.Rows);
+        Assert.Equal("any", row.CompileAsset.TargetFramework);
+        Assert.Equal(row.CompileEntry, row.ImplementationEntry);
+        Assert.Equal(
+            PackageHousePortablePdbEvidenceKind.Listed,
+            row.PortablePdbEvidence);
+        Assert.Equal("lib/Alpha.pdb", row.PortablePdbEntry?.Path);
+        Assert.Equal(
+            ["lib/Alpha.dll"],
             acquired.Payload.Content.EnumerateEntries());
         PackageHouseLibraryMaterializationOutcome.Completed materialized =
             Assert.IsType<
@@ -664,6 +1097,278 @@ public sealed partial class PackageRangedRealizationTests
             binding.Candidate.Row,
             warm.PackageLibraryRow);
         Assert.Equal(2, packageSource.Queries.Count);
+    }
+
+    [Fact]
+    public async Task
+        DeferredPackagePortablePdbSettlement_AccountsForInventoryAndPdbWork()
+    {
+        const string DllPath =
+            "lib/net11.0/SettlementWitness.dll";
+        const string PdbPath =
+            "lib/net11.0/SettlementWitness.pdb";
+        string testAssembly =
+            typeof(PackageRangedRealizationTests)
+                .Assembly.Location;
+        byte[] assemblyBytes =
+            File.ReadAllBytes(testAssembly);
+        byte[] pdbBytes =
+            File.ReadAllBytes(
+                Path.ChangeExtension(
+                    testAssembly,
+                    ".pdb"));
+        byte[] archive = CreateFrameworkArchive(
+            (DllPath, assemblyBytes),
+            (PdbPath, pdbBytes));
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(
+                new RangeFeed(
+                    AddressPackageId,
+                    AddressPackageVersion,
+                    archive)
+                {
+                    Host = "api.nuget.org",
+                },
+                PackageSource.NuGetOrg);
+        var packageSource =
+            new TestPortablePdbPackageContentSource(
+                environment,
+                new InMemoryPackageStore());
+        ResolvedAssemblyReference assembly =
+            CreatePackageAssembly(
+                assemblyBytes,
+                DllPath);
+        using SourceLinkService source =
+            SourceLinkService.OpenEmbeddedPdbOnly(
+                assembly);
+        using var client =
+            new HttpClient(
+                new RejectNetworkHandler());
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(
+                    await PortablePdbSettlement.SettleAsync(
+                        new PortablePdbSettlementRequest(
+                            source.Context,
+                            assembly,
+                            client,
+                            new InMemoryPdbStore(),
+                            new UniformPackageSourceAuthorization(
+                                [PackageSource.NuGetOrg]))
+                        {
+                            PackagePreparation =
+                                PortablePdbPackageComposition
+                                    .DeferForAssembly(
+                                        assembly,
+                                        packageSource,
+                                        PackageProducerIdentity
+                                            .NuGetOrg),
+                        },
+                        TestContext.Current
+                            .CancellationToken));
+
+        Assert.Equal(
+            PortablePdbSettlementSource.PackageLocal,
+            acquired.Source);
+        Assert.True(acquired.NetworkOccurred);
+        PortablePdbSettlementReceipt packageReceipt =
+            Assert.Single(
+                acquired.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate.PackageLocal);
+        Assert.Equal(
+            packageSource.Settlements.Sum(
+                static settlement =>
+                    settlement.Result.Evidence.Acquisition!
+                        .Transfer.RequestCount),
+            packageReceipt.RequestCount);
+        Assert.Equal(
+            packageSource.Settlements[0]
+                .Result.Evidence.Acquisition!
+                .Transfer.BytesReceived
+                + packageSource.Settlements[1]
+                    .Result.Evidence.Acquisition!
+                    .Transfer.BytesReceived,
+            packageReceipt.BodyBytesRead);
+        Assert.True(packageReceipt.Elapsed > TimeSpan.Zero);
+        Assert.Collection(
+            packageSource.Queries,
+            query => Assert.IsType<
+                PackageHouseContentTerminal
+                    .LibraryInventoryForTarget>(
+                    Assert.Single(query.Terminals)),
+            query =>
+            {
+                var files = Assert.IsType<
+                    PackageHouseContentTerminal.Files>(
+                        Assert.Single(query.Terminals));
+                Assert.Equal(
+                    [PdbPath],
+                    files.Entries);
+            });
+        Assert.Empty(
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                    packageSource.Settlements[0])
+                .Payload.Content.EnumerateEntries());
+
+        using SourceLinkService cachedSource =
+            SourceLinkService.OpenEmbeddedPdbOnly(
+                assembly);
+        var cached =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(
+                    await PortablePdbSettlement.SettleAsync(
+                        new PortablePdbSettlementRequest(
+                            cachedSource.Context,
+                            assembly,
+                            client,
+                            new InMemoryPdbStore(),
+                            new UniformPackageSourceAuthorization(
+                                [PackageSource.NuGetOrg]))
+                        {
+                            PackagePreparation =
+                                PortablePdbPackageComposition
+                                    .DeferForAssembly(
+                                        assembly,
+                                        packageSource,
+                                        PackageProducerIdentity
+                                            .NuGetOrg),
+                        },
+                        TestContext.Current
+                            .CancellationToken));
+        PortablePdbSettlementReceipt cachedReceipt =
+            Assert.Single(
+                cached.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate.PackageLocal);
+        Assert.Equal(
+            packageSource.Settlements[2]
+                .Result.Evidence.Acquisition!
+                .Transfer.RequestCount
+                + packageSource.Settlements[3]
+                    .Result.Evidence.Acquisition!
+                    .Transfer.RequestCount,
+            cachedReceipt.RequestCount);
+        Assert.Equal(
+            packageSource.Settlements[2]
+                .Result.Evidence.Acquisition!
+                .Transfer.BytesReceived
+                + packageSource.Settlements[3]
+                    .Result.Evidence.Acquisition!
+                    .Transfer.BytesReceived,
+            cachedReceipt.BodyBytesRead);
+        Assert.Equal(0, cachedReceipt.RequestCount);
+        Assert.Equal(0, cachedReceipt.BodyBytesRead);
+    }
+
+    [Fact]
+    public async Task
+        DeferredPackageBindingFailure_AccountsForInventoryBeforeProviderFallback()
+    {
+        const string DllPath =
+            "lib/net11.0/SettlementWitness.dll";
+        const string MissingPath =
+            "lib/net11.0/Missing.dll";
+        const string PdbPath =
+            "lib/net11.0/SettlementWitness.pdb";
+        string testAssembly =
+            typeof(PackageRangedRealizationTests)
+                .Assembly.Location;
+        byte[] assemblyBytes =
+            File.ReadAllBytes(testAssembly);
+        byte[] pdbBytes =
+            File.ReadAllBytes(
+                Path.ChangeExtension(
+                    testAssembly,
+                    ".pdb"));
+        byte[] archive = CreateFrameworkArchive(
+            (DllPath, assemblyBytes),
+            (PdbPath, pdbBytes));
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(
+                new RangeFeed(
+                    AddressPackageId,
+                    AddressPackageVersion,
+                    archive)
+                {
+                    Host = "api.nuget.org",
+                },
+                PackageSource.NuGetOrg);
+        var packageSource =
+            new TestPortablePdbPackageContentSource(
+                environment,
+                new InMemoryPackageStore());
+        ResolvedAssemblyReference assembly =
+            CreatePackageAssembly(
+                assemblyBytes,
+                MissingPath);
+        using SourceLinkService source =
+            SourceLinkService.OpenEmbeddedPdbOnly(
+                assembly);
+        using var client =
+            new HttpClient(
+                new RawPdbNetworkHandler(pdbBytes));
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(
+                    await PortablePdbSettlement.SettleAsync(
+                        new PortablePdbSettlementRequest(
+                            source.Context,
+                            assembly,
+                            client,
+                            new InMemoryPdbStore(),
+                            new UniformPackageSourceAuthorization(
+                                [PackageSource.NuGetOrg]))
+                        {
+                            PackagePreparation =
+                                PortablePdbPackageComposition
+                                    .DeferForAssembly(
+                                        assembly,
+                                        packageSource,
+                                        PackageProducerIdentity
+                                            .NuGetOrg),
+                        },
+                        TestContext.Current
+                            .CancellationToken));
+
+        Assert.NotEqual(
+            PortablePdbSettlementSource.PackageLocal,
+            acquired.Source);
+        Assert.True(acquired.NetworkOccurred);
+        PortablePdbSettlementReceipt packageReceipt =
+            Assert.Single(
+                acquired.Receipts,
+                receipt =>
+                    receipt.Candidate
+                    == PortablePdbSettlementCandidate.PackageLocal);
+        Assert.Equal(
+            PortablePdbSettlementAttemptOutcome.Failed,
+            packageReceipt.Outcome);
+        Assert.Equal(
+            PortablePdbPackageBindingFailureKind
+                .SelectedLibraryUnavailable,
+            packageReceipt.PackageBindingFailure);
+        PackageTransferReceipt transfer =
+            packageSource.Settlements[0]
+                .Result.Evidence.Acquisition!
+                .Transfer;
+        Assert.Equal(
+            transfer.RequestCount,
+            packageReceipt.RequestCount);
+        Assert.Equal(
+            transfer.BytesReceived,
+            packageReceipt.BodyBytesRead);
+        Assert.True(packageReceipt.Elapsed > TimeSpan.Zero);
+        Assert.Single(packageSource.Queries);
+        Assert.IsType<
+            PackageHouseContentTerminal
+                .LibraryInventoryForTarget>(
+                Assert.Single(
+                    packageSource.Queries[0].Terminals));
     }
 
     [Fact]
@@ -1361,7 +2066,7 @@ public sealed partial class PackageRangedRealizationTests
         AssertEquivalent(ranged);
         AssertEquivalent(complete);
         AssertEquivalent(cached);
-        Assert.Equal(1, completeServer.FullRequests);
+        Assert.Equal(0, completeServer.FullRequests);
 
         static void AssertEquivalent(
             PackageHouseSettlement.Acquired acquired)
@@ -1427,7 +2132,7 @@ public sealed partial class PackageRangedRealizationTests
                 StringComparison.Ordinal));
         Assert.Equal(
             [
-                PackageTransferRequestPurpose.SizeProbe,
+
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             Transfer(acquired, PackagePayloadOrigin.Ranged)
@@ -1520,7 +2225,7 @@ public sealed partial class PackageRangedRealizationTests
         AssertEquivalent(ranged);
         AssertEquivalent(complete);
         AssertEquivalent(cached);
-        Assert.Equal(1, completeServer.FullRequests);
+        Assert.Equal(0, completeServer.FullRequests);
 
         static void AssertEquivalent(
             PackageHouseSettlement.Acquired acquired)
@@ -1567,7 +2272,7 @@ public sealed partial class PackageRangedRealizationTests
         {
             Host = "failed-narrowing.example",
             EntryRangeStatus = HttpStatusCode.InternalServerError,
-            SubsequentFullRequestStatus = HttpStatusCode.BadGateway,
+            FullRequestStatus = HttpStatusCode.BadGateway,
         };
         var successful = new RangeFeed(
             AddressPackageId,
@@ -1603,9 +2308,9 @@ public sealed partial class PackageRangedRealizationTests
                 .Selection
                 .TargetFramework);
         Assert.Empty(acquired.Payload.Content.EnumerateEntries());
-        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
         Assert.True(failing.RangedRequests > 1);
-        Assert.Equal(1, successful.FullRequests);
+        Assert.Equal(0, successful.FullRequests);
     }
 
     [Fact]
@@ -1759,7 +2464,7 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Empty(current.Payload.Content.EnumerateEntries());
         Assert.Equal(
             [
-                PackageTransferRequestPurpose.SizeProbe,
+
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             Transfer(current, PackagePayloadOrigin.Ranged)
@@ -1823,7 +2528,7 @@ public sealed partial class PackageRangedRealizationTests
             rejected.Reason.ToString(),
             StringComparison.Ordinal);
         Assert.Null(settlement.Result.Evidence.FileList);
-        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(0, server.FullRequests);
         Assert.Equal(1, server.RangedRequests);
         Assert.Null(
             await entryStore.ReadEntryAsync(
@@ -2119,9 +2824,15 @@ public sealed partial class PackageRangedRealizationTests
                     () => ReadAllBytes(bounded));
             }
 
+            await using var workspace = new InspectionWorkspace();
+            WorkspacePackageOccurrenceDescriptor occurrence =
+                await PackageFileContentInspectionTests.AdmitAsync(
+                    workspace, acquired.Settlement);
             InspectionEnvelope<PackageFileContentDocument> inspection =
                 await PackageFileContentInspection.ExecuteAsync(
                     new(
+                        workspace,
+                        occurrence,
                         acquired,
                         PackageDocumentContentLimits.MaxDecodedBytes),
                     TestContext.Current.CancellationToken);
@@ -2340,6 +3051,26 @@ public sealed partial class PackageRangedRealizationTests
                 "Package-local settlement performed external network work.");
     }
 
+    private static ResolvedAssemblyReference
+        CreatePackageAssembly(
+        byte[] assemblyBytes,
+        string assetPath) =>
+        ResolvedAssemblyReference.CreateFromStreamIfManaged(
+            () => new MemoryStream(
+                assemblyBytes,
+                writable: false),
+            AssemblyResolutionProvenance.Package(
+                AddressPackageId,
+                AddressPackageVersion,
+                "net11.0",
+                rid: null,
+                assetPath),
+            lastWriteTimeUtc: null,
+            assetFileName:
+                Path.GetFileName(assetPath))
+        ?? throw new InvalidOperationException(
+            "The settlement witness must be a managed assembly.");
+
     private sealed class RawPdbNetworkHandler(
         byte[] pdb)
         : HttpMessageHandler
@@ -2404,6 +3135,54 @@ public sealed partial class PackageRangedRealizationTests
         using var bytes = new MemoryStream();
         stream.CopyTo(bytes);
         return bytes.ToArray();
+    }
+
+    private sealed class ObservedDirectoryPackageContent(
+        InMemoryPackageContent content) :
+        IPackageContent,
+        IPackageArchiveEntryManifest,
+        IPackageHousePayloadSource
+    {
+        public int Enumerations { get; private set; }
+        public List<string> OpenedEntries { get; } = [];
+        public string? RootPath => content.RootPath;
+        public string? NupkgPath => content.NupkgPath;
+        public bool FromCache => content.FromCache;
+        public string ProducerKey => content.ProducerKey;
+        public PackageContentGenerationIdentity GenerationIdentity =>
+            content.GenerationIdentity;
+        public bool RequiresArchiveTreeMatch => content.RequiresArchiveTreeMatch;
+
+        public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream) =>
+            content.TryOpenArchive(out stream);
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            OpenedEntries.Add(relativePath);
+            return content.TryOpenEntry(relativePath, out stream);
+        }
+
+        public IEnumerable<string> EnumerateEntries()
+        {
+            Enumerations++;
+            return content.EnumerateEntries();
+        }
+
+        bool IPackageArchiveEntryManifest.TryGetArchiveEntries(
+            [NotNullWhen(true)] out IReadOnlyList<PackageContentEntry>? entries) =>
+            ((IPackageArchiveEntryManifest)content).TryGetArchiveEntries(out entries);
+
+        bool IPackageHousePayloadSource.TryOpenPayloadRead(
+            string relativePath,
+            long maxExpandedBytes,
+            [NotNullWhen(true)] out Stream? stream)
+        {
+            OpenedEntries.Add(relativePath);
+            return ((IPackageHousePayloadSource)content).TryOpenPayloadRead(
+                relativePath, maxExpandedBytes, out stream);
+        }
     }
 
     private sealed class CachedContentStore(IPackageContent content) :

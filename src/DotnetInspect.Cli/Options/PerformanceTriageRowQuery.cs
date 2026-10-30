@@ -106,7 +106,11 @@ internal static class PerformanceTriageRowQuery
                 available.AllocationFanoutOpportunities,
                 available.GeneratedFrameworkTypes,
                 options.IncludesAllocationFanout);
-        return Apply(candidates, options);
+        return Apply(
+            candidates.Where(static opportunity =>
+                !PerformanceKinds.IsSyncCallsInAsyncShape(
+                    opportunity.Shape)),
+            options);
     }
 
     internal static ImmutableArray<Analysis.OptimizationOpportunity> Apply(

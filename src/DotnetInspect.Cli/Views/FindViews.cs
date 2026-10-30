@@ -248,8 +248,6 @@ public sealed class PackageProfileRow
 [MarkoutContext(typeof(LibraryQueryRow))]
 [MarkoutContext(typeof(LibraryQuerySummaryRow))]
 [MarkoutContext(typeof(EmptyLibraryQueryView))]
-[MarkoutContext(typeof(ImplementsResultView))]
-[MarkoutContext(typeof(ImplementerRow))]
 [MarkoutContext(typeof(ExtensionsResultView))]
 [MarkoutContext(typeof(ExtensionCountRow))]
 [MarkoutContext(typeof(ExtensionRow))]

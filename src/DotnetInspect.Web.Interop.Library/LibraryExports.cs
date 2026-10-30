@@ -20,13 +20,13 @@ public static partial class LibraryExports
         byte[] content)
     {
         ArgumentNullException.ThrowIfNull(content);
-        InspectionEnvelope<EmbeddedLibraryInspectionResult> inspection =
+        EmbeddedLibraryInspectionExecution execution =
             await EmbeddedLibraryInspection.ExecuteAsync(
                 declaredName,
                 ImmutableArray.CreateRange(content),
                 BrowserApiSurfacePolicy.Limits).ConfigureAwait(false);
         return JsonSerializer.Serialize(
-            BrowserLibraryWireProjection.Project(inspection),
+            BrowserLibraryWireProjection.Project(execution),
             BrowserLibraryJsonContext.Default.BrowserUploadedLibraryInspection);
     }
 }

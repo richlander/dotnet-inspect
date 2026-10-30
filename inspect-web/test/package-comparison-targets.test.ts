@@ -5,6 +5,7 @@ import {
   bindPackageComparisonTargets,
   createPackageComparisonTargets,
   diffTargetDescription,
+  implementationComparisonRuntimeIdentifier,
   renderPackageComparisonTargets,
   resolveEffectiveDiffTarget,
   type ComparisonPackage,
@@ -13,7 +14,11 @@ import type { PackageVersionState } from "../src/catalog-requests.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 const pkg = (id = "Example.Package"): ComparisonPackage => ({
-  id, version: "2.0.0", activeFramework: "net11.0", source: { kind: "nuget.org" },
+  id,
+  version: "2.0.0",
+  activeFramework: "net11.0",
+  implementationComparisonRuntimeIdentifier: "linux-x64",
+  source: { kind: "nuget.org" },
 });
 const versions: PackageVersionState = {
   status: "available",
@@ -34,6 +39,23 @@ test("new Packages default to the previous version and live Workspace including 
     diffContent: { kind: "api" },
     clone: { kind: "workspace" },
     mode: "diff",
+  });
+
+  test("implementation comparison uses the retained RID or the Package-owned default", () => {
+    assert.equal(
+      implementationComparisonRuntimeIdentifier(pkg()),
+      "linux-x64",
+    );
+    assert.equal(
+      implementationComparisonRuntimeIdentifier({
+        implementationComparisonRuntimeIdentifier: "win-x64",
+      }),
+      "win-x64",
+    );
+    assert.throws(
+      () => implementationComparisonRuntimeIdentifier({}),
+      /Package did not supply/,
+    );
   });
   assert.equal(diffTargetDescription(targets.get(current).diff, versions),
     "Previous listed release");
@@ -326,4 +348,14 @@ test("Compare mode is retained per Package model and discarded with it", () => {
   assert.equal(targets.get(current).mode, "diff");
   const stranger = pkg("Stranger");
   assert.throws(() => targets.selectMode(stranger, "clone"), /no longer in this Workspace/);
+});
+
+test("restored exact Diff keeps an unlisted baseline instead of applying previous-version policy", () => {
+  const packageModel = pkg();
+  const targets = createPackageComparisonTargets(() => [packageModel]);
+  targets.restoreExactDiff(packageModel, "0.9.0", { kind: "member-body" });
+  assert.deepEqual(targets.get(packageModel).diff, { kind: "exact", version: "0.9.0" });
+  assert.deepEqual(resolveEffectiveDiffTarget(targets.get(packageModel).diff, versions), { kind: "available", version: "0.9.0" });
+  assert.equal(targets.get(packageModel).diffContent.kind, "member-body");
+  assert.equal(targets.get(packageModel).mode, "diff");
 });

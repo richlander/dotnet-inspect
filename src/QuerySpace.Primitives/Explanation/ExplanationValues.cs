@@ -414,6 +414,18 @@ public abstract class ExplanationValue : IEquatable<ExplanationValue>
             HashCode.Combine(Case, Value);
     }
 
+    /// <summary>One text scalar value.</summary>
+    public static ExplanationValue Text(string value) =>
+        new Scalar(ExplanationScalarValue.FromText(value));
+
+    /// <summary>One integer scalar value.</summary>
+    public static ExplanationValue Integer(BigInteger value) =>
+        new Scalar(ExplanationScalarValue.FromInteger(value));
+
+    /// <summary>One Boolean scalar value.</summary>
+    public static ExplanationValue Boolean(bool value) =>
+        new Scalar(ExplanationScalarValue.FromBoolean(value));
+
     public bool Equals(ExplanationValue? other) =>
         ReferenceEquals(this, other)
         || (other is not null

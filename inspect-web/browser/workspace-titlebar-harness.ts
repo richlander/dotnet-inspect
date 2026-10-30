@@ -1,3 +1,4 @@
+import { bindPackageSelections } from "../src/package-controls.ts";
 import {
   bindScopeBar,
   captureScopeBarFocus,
@@ -28,6 +29,7 @@ import {
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderLegendDialog,
   renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   type ApplicationAction,
@@ -58,7 +60,6 @@ import {
 import { renderPackageNav } from "../src/package-view.ts";
 import { renderLibrarySubjectNav } from "../src/library-subject-nav.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
-import { renderPackageComparisonTargets } from "../src/package-comparison-targets.ts";
 import { allocationFactsFixture, analysisDiagnosticsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   memberFindingInteractionFixture,
@@ -118,7 +119,7 @@ const appRoot: HTMLElement = app;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
-let applicationDialog: "settings" | "keyboard-help" | null = null;
+let applicationDialog: "settings" | "legend" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const longDataBarMode = params.has("long-data-bar");
 const workspaceMode = params.has("workspace");
@@ -259,6 +260,7 @@ function workspaceDetailHtml(): string {
         package: item.id,
         version: item.version,
         framework: item.activeFramework,
+        runtimeIdentifier: "",
       })),
     packages: coordinates,
       loading: false,
@@ -323,7 +325,7 @@ const packageStrip: readonly (
   readonly [PackageLens, string]
 )[] = [
   ["overview", "Overview"],
-  ["dependencies", "Dependencies"],
+  ["dependencies", "References"],
 ];
 const libraryStrip: readonly (
   readonly [LibraryLens, string]
@@ -388,7 +390,7 @@ function scopeBarHtml() {
 }
 
 const contentNavigationLabel = activeScope === "package"
-  ? "Frameworks"
+  ? "Frameworks & versions"
   : activeScope === "library"
     ? "Libraries"
   : memberMode ? "Members" : "Types";
@@ -398,9 +400,8 @@ const navigationHtml = workspaceMode
     ? renderPackageNav({
         frameworks: ["net10.0", "net10.0-windows10.0.19041.0"],
         activeFramework: "net10.0",
-        versionFieldHtml: packageOverviewMode
-          ? '<label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>'
-          : "",
+        versions: ["10.0.0", "9.0.0"],
+        activeVersion: "10.0.0",
         escapeHtml,
       })
   : activeScope === "library"
@@ -469,29 +470,6 @@ function detailHtml() {
             ).join("")
           : ""}
       </section>`;
-    const comparisonPackage = {
-      id: "System.Text.Json",
-      version: "10.0.0",
-      activeFramework: "net10.0",
-      source: { kind: "nuget.org" },
-    };
-    const comparisonHtml = `
-      <section id="package-comparison-targets" class="document-section">
-        ${renderPackageComparisonTargets({
-          package: comparisonPackage,
-          packages: [comparisonPackage],
-          diff: { kind: "previous" },
-          clone: { kind: "workspace" },
-          versions: {
-            status: "available",
-            inventory: {
-              versions: ["10.0.0", "9.0.0"],
-              currentVersionInsertionIndex: 0,
-              previousVersion: "9.0.0",
-            },
-          },
-        }, escapeHtml)}
-      </section>`;
     const documentsHtml = renderPackageDocuments([{
       kind: "readme",
       name: longMode ? `${name}.README.md` : "README.md",
@@ -553,7 +531,6 @@ function detailHtml() {
             packageInfoHtml,
             packageChildrenHtml:
               '<section class="document-section"><div class="section-title"><h2>Libraries</h2><span>1</span></div></section>',
-            comparisonHtml,
             documentsHtml,
           })
         : renderLibraryOverviewContent({
@@ -566,17 +543,9 @@ function detailHtml() {
   if (packageDependenciesMode) {
     return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
       <header class="api-surface-head package-dependencies-surface-head">
-        <h1 id="package-dependencies-surface-title">Dependencies</h1>
+        <h1 id="package-dependencies-surface-title">References</h1>
         <p>3 packages · 8 references</p>
       </header>
-      <section class="package-dependencies-controls" aria-label="Dependency coordinate">
-        <div class="package-coordinate-fields">
-          <label class="version-select">
-            <span>Version</span>
-            <select id="package-version"><option selected>10.0.0</option></select>
-          </label>
-        </div>
-      </section>
       <div class="package-dependencies-scroll">
         <div data-dependency-graph-surface>
           <section class="document-section dependency-group-selector">
@@ -604,10 +573,6 @@ function detailHtml() {
           </ul>
         </section>
       </div>
-      <footer class="api-surface-footer package-dependencies-surface-footer">
-        <span>System.Text.Json@10.0.0</span>
-        <span>net10.0</span>
-      </footer>
     </section>`;
   }
   if (packageMetadataMode) {
@@ -618,10 +583,6 @@ function detailHtml() {
       </header>
       <section class="package-metadata-controls" aria-label="Metadata coordinate"></section>
       <div class="package-metadata-scroll"></div>
-      <footer class="metadata-surface-footer package-metadata-surface-footer">
-        <span>System.Text.Json@10.0.0</span>
-        <span>net10.0</span>
-      </footer>
     </section>`;
   }
   if (metadataMode) {
@@ -635,10 +596,6 @@ function detailHtml() {
           <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
         </section>
       </div>
-      <footer class="metadata-surface-footer">
-        <span>System.Text.Json.JsonSerializer</span>
-        <span>net10.0 · System.Text.Json.dll</span>
-      </footer>
     </section>`;
   }
   if (memberMode) {
@@ -826,16 +783,9 @@ function detailHtml() {
       </header>
       <div class="member-browser-controls api-surface-controls"></div>
       <div class="api-surface-scroll"></div>
-      <footer class="api-surface-footer"><span>Select a row to inspect its API</span></footer>
     </section>`;
   }
-  return `<h1>${subjectPath.at(-1)?.label}</h1>
-    <section class="document-section package-coordinate-editor">
-      <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
-      <div class="package-coordinate-fields">
-        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
-      </div>
-    </section>`;
+  return `<h1>${subjectPath.at(-1)?.label}</h1>`;
 }
 const harnessKeybindings = new KeybindingRegistry();
 harnessKeybindings.register({
@@ -1027,6 +977,10 @@ app.innerHTML = `
     'id="keyboard-help-backdrop" class="modal-backdrop"',
     'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
   )}
+  ${renderLegendDialog().replace(
+    'id="legend-backdrop" class="modal-backdrop"',
+    'id="legend-backdrop" class="modal-backdrop" hidden',
+  )}
   ${renderCodeEvidenceViewer({
     backdropId: "annotated-source-backdrop",
     backdropClassName: "annotated-modal-backdrop",
@@ -1073,20 +1027,24 @@ let productNavigationBinding =
   bindProductNavigation(appRoot, productNavigationActions);
 
 function setApplicationDialog(
-  next: "settings" | "keyboard-help" | null,
+  next: "settings" | "legend" | "keyboard-help" | null,
 ): void {
   applicationDialog = next;
   const workbench = document.querySelector<HTMLElement>(".workbench");
   const settings = document.querySelector<HTMLElement>("#settings-backdrop");
   const help =
     document.querySelector<HTMLElement>("#keyboard-help-backdrop");
+  const legend = document.querySelector<HTMLElement>("#legend-backdrop");
   if (workbench) workbench.inert = next !== null;
   if (settings) settings.hidden = next !== "settings";
   if (help) help.hidden = next !== "keyboard-help";
+  if (legend) legend.hidden = next !== "legend";
   if (next === "settings") {
     document.querySelector<HTMLElement>("#settings-title")?.focus();
   } else if (next === "keyboard-help") {
     document.querySelector<HTMLElement>("#keyboard-help-title")?.focus();
+  } else if (next === "legend") {
+    document.querySelector<HTMLElement>("#legend-title")?.focus();
   } else {
     document.querySelector<HTMLElement>("#application-menu-button")?.focus();
   }
@@ -1307,6 +1265,11 @@ function bindHarnessWorkspace() {
 
 bindHarnessScopeBar();
 bindHarnessWorkspace();
+bindPackageSelections(document, {
+  onFrameworkSelect: () => {},
+  onRuntimeIdentifierSelect: () => {},
+  onVersionSelect: () => {},
+});
 bindContentFrame(document, {
   onShowDetail: () => {
     contentFramePane = "detail";

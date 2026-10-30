@@ -1,13 +1,17 @@
 ---
 id: type-shape-and-implements
 description: Inspect type hierarchy — shape, inheritance walks, and implementer discovery
-commands: [type, depends, implements]
+commands: [type, depends]
 areas: [types, shape, inheritance, interfaces, implements, depends]
 ---
 
 # Type Shape and Hierarchy
 
-> Understand a type's structure and its place in the type hierarchy. Three complementary views: `type --tree` shows the full type structure (inheritance, interfaces, members). `depends` walks the hierarchy **upward** — base classes and interfaces a type inherits. `implements` walks **downward** — finding all types that implement an interface or extend a base class.
+> Understand a type's structure and its place in the type hierarchy. Three
+> complementary views: `type --tree` shows the full type structure
+> (inheritance, interfaces, members). `depends` walks the hierarchy **upward**
+> — base classes and interfaces a type inherits. Focused `Implementers` and
+> `Derived Types` sections walk **downward**.
 
 ## Preconditions
 
@@ -208,25 +212,29 @@ What types extend Stream?
 ```
 
 ```bash
-dotnet-inspect implements Stream -v:q
+dotnet-inspect type Stream --platform System.Private.CoreLib \
+  -S "Derived Types" --markdown -v:q
 ```
 
 ```expect
-# Types Implementing Stream
-## Implementers
-extends
+# System.IO.Stream
+## Derived Types
 ```
 
 ### 4b. Limited results
 
 ```bash
-dotnet-inspect implements Stream -n 3 -v:q
+dotnet-inspect type Stream --platform System.Private.CoreLib \
+  -S "Derived Types" --rows 3 --markdown -v:q
+```
+
+```expect-error
+Hierarchy relation output reached the CLI row bound and is incomplete.
 ```
 
 ```expect
-# Types Implementing Stream
-## Implementers
-extends
+# System.IO.Stream
+## Derived Types
 ```
 
 ```query
@@ -248,25 +256,31 @@ What types implement IHost?
 ```
 
 ```bash
-dotnet-inspect implements IHost -v:q
+dotnet-inspect type IHost --platform Microsoft.Extensions.Hosting.Abstractions \
+  -S Implementers --markdown -v:q
 ```
 
 ```expect
-# Types Implementing IHost
+# Microsoft.Extensions.Hosting.IHost
 ## Implementers
-`Microsoft.AspNetCore.Builder.WebApplication` | class | implements
+`Microsoft.AspNetCore.Builder.WebApplication`
 ```
 
 ### 5b. Interface with many implementers
 
 ```bash
-dotnet-inspect implements IDisposable -v:q --platform -n 5
+dotnet-inspect type IDisposable --platform System.Private.CoreLib \
+  -S Implementers --rows 5 --markdown -v:q
+```
+
+```expect-error
+Hierarchy relation output reached the CLI row bound and is incomplete.
 ```
 
 ```expect
-# Types Implementing IDisposable
+# System.IDisposable
 ## Implementers
-implements
+runtime@
 ```
 
 ```query
@@ -286,14 +300,15 @@ five-implementers
 ### 6a. Explicit platform scope
 
 ```bash
-dotnet-inspect implements IJsonTypeInfoResolver --platform -v:q
+dotnet-inspect type IJsonTypeInfoResolver --platform System.Text.Json \
+  -S Implementers --markdown -v:q
 ```
 
 ```expect
-# Types Implementing IJsonTypeInfoResolver
+# System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver
 ## Implementers
-`System.Text.Json.Serialization.JsonSerializerContext` | class | implements
-`System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver` | class | implements
+`System.Text.Json.Serialization.JsonSerializerContext`
+`System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver`
 ```
 
 ## 7. Table output for scripting
@@ -303,13 +318,16 @@ dotnet-inspect implements IJsonTypeInfoResolver --platform -v:q
 ### 7a. With header
 
 ```bash
-dotnet-inspect implements Stream --table -n 3
+dotnet-inspect type Stream --platform System.Private.CoreLib \
+  -S "Derived Types" --table --rows 3
+```
+
+```expect-error
+Hierarchy relation output reached the CLI row bound and is incomplete.
 ```
 
 ```expect
 Type
-Kind
-Relationship
 Library
 Source
 ```
@@ -317,26 +335,31 @@ Source
 ### 7b. Without header for piping
 
 ```bash
-dotnet-inspect implements Stream --table --no-headers -n 3
+dotnet-inspect type Stream --platform System.Private.CoreLib \
+  -S "Derived Types" --table --no-headers --rows 3
+```
+
+```expect-error
+Hierarchy relation output reached the CLI row bound and is incomplete.
 ```
 
 ```expect
-class
-extends
+System.IO.Compression.BrotliStream
+runtime@
 ```
 
 ```expect-not
 Type
-Kind
 ```
 
 ```query
 wc -l | tr -d ' '
 ```
 
-## 8. Shape → depends → implements workflow
+## 8. Shape → depends → implementers workflow
 
-> Goal: Start with `type --tree` to see structure, use `depends` to walk the hierarchy upward, then use `implements` to find sibling types.
+> Goal: Start with `type --tree` to see structure, use `depends` to walk the
+> hierarchy upward, then select `Implementers` to find sibling types.
 
 ### 8a. Discover interfaces via shape
 
@@ -369,11 +392,17 @@ System.Collections.IEnumerable
 ### 8c. Find types implementing the same interface
 
 ```bash
-dotnet-inspect implements IEnumerable -n 5 -v:q
+dotnet-inspect type System.Collections.IEnumerable \
+  --platform System.Private.CoreLib \
+  -S Implementers --rows 5 --markdown -v:q
+```
+
+```expect-error
+Hierarchy relation output reached the CLI row bound and is incomplete.
 ```
 
 ```expect
-# Types Implementing IEnumerable
+# System.Collections.IEnumerable
 ## Implementers
-implements
+runtime@
 ```

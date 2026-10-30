@@ -372,13 +372,16 @@ public static class NavigationLensRecommendation
                 ViewFacetRole.WorkspaceOverview,
             StructuralSubjectIdentity.EcosystemSubject =>
                 ViewFacetRole.EcosystemOverview,
+            StructuralSubjectIdentity.ProjectSubject =>
+                ViewFacetRole.ProjectOverview,
             StructuralSubjectIdentity.PackageSubject =>
-                ViewFacetRole.PackageOverview,
-            StructuralSubjectIdentity.AllLibrariesSubject
-                or StructuralSubjectIdentity.LibrarySubject =>
+                ViewFacetRole.PackageLibraries,
+            StructuralSubjectIdentity.AllLibrariesSubject =>
                 ViewFacetRole.LibraryReferences,
+            StructuralSubjectIdentity.LibrarySubject =>
+                ViewFacetRole.LibraryTypes,
             StructuralSubjectIdentity.TypeSubject =>
-                ViewFacetRole.TypeApi,
+                ViewFacetRole.TypeOverview,
             StructuralSubjectIdentity.MemberSubject =>
                 ViewFacetRole.MemberOverview,
             _ => throw new InvalidOperationException(

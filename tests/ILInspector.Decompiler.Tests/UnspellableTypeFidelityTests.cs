@@ -5,6 +5,32 @@ namespace ILInspector.Decompiler.Tests;
 
 public class UnspellableTypeFidelityTests
 {
+    [Theory]
+    [InlineData("ValueTuple")]
+    [InlineData("ValueTuple`1")]
+    [InlineData("ValueTuple`3")]
+    public void MalformedTupleArity_RemainsPartial(string definitionName)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var tupleType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", definitionName), [intType, intType]);
+        var block = new Block();
+        block.Add(new Return(new TupleExpression(tupleType,
+            [new Constant(1, intType), new Constant(2, intType)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("System", "Object"),
+            new MethodSignature(tupleType, [], HasThis: false, GenericParameterCount: 0),
+            [], body);
+
+        function.CheckInvariant();
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains(FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator == "generic-arity-mismatch");
+    }
+
     [Fact]
     public void PrivateImplementationDetailsDeclaringTypeAlone_DoesNotDegradeMethodBody()
     {

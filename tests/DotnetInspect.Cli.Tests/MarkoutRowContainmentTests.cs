@@ -155,10 +155,6 @@ public class MarkoutRowContainmentTests
         "CallerSiteRow.OperandToken",
         "CallerSiteRow.ReturnAddress",
         "CallerSiteRow.Source",
-        "CliSchemaView.Description",
-        "CliSchemaView.Name",
-        "CliSchemaView.Title",
-        "CliSchemaView.Version",
         "ConstructorOverloadView.Title",
         "ConstructorParameterRow.Notes",
         "ConstructorParameterRow.Parameter",
@@ -227,11 +223,6 @@ public class MarkoutRowContainmentTests
         "ImplementationProfileRow.Selector",
         "ImplementationProfileRow.Stable",
         "ImplementationProfileRow.Unsafe",
-        "ImplementerRow.Kind",
-        "ImplementerRow.Relationship",
-        "ImplementerRow.Source",
-        "ImplementsResultView.Description",
-        "ImplementsResultView.Title",
         "InterfaceRow.Interface",
         "MemberIndexRow.CanonicalSignature",
         "MemberIndexRow.Decode",
@@ -320,12 +311,6 @@ public class MarkoutRowContainmentTests
         "TypeInfoSection.Version",
         "TypeParameterRow.Constraints",
         "TypeParameterRow.Parameter",
-        "TypeShapeView.Assembly",
-        "TypeShapeView.FullName",
-        "TypeShapeView.Kind",
-        "TypeShapeView.Modifiers",
-        "TypeShapeView.Package",
-        "TypeShapeView.Version",
         "TypeSummaryRow.Description",
         "TypeView.Assembly",
         "TypeView.BaseType",
@@ -341,10 +326,8 @@ public class MarkoutRowContainmentTests
         "TypeView.Title",
         "TypeView.TypeParametersInline",
         "TypeView.Version",
-        "UnsafeMemberRow.Detail",
-        "UnsafeMemberRow.IL",
+        "UnsafeMemberRow.Evidence",
         "UnsafeMemberRow.Member",
-        "UnsafeMemberRow.Token",
         "UnsafeOperationRow.Detail",
         "UnsafeOperationRow.IL",
         "UnsafeOperationRow.Kind",
@@ -353,11 +336,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt231MembersAcross46Types()
+    public void ResidualCensus_IsPinnedAt214MembersAcross42Types()
     {
-        Assert.Equal(231, NotSelfContaining.Length);
+        Assert.Equal(214, NotSelfContaining.Length);
         Assert.Equal(
-            46,
+            42,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)
@@ -448,7 +431,7 @@ public class MarkoutRowContainmentTests
             checkedPropertiesByType.GetValueOrDefault(
                 typeof(DotnetInspect.Cli.Views.PackageSourceIntegritySection)));
         Assert.Equal(
-            3,
+            4,
             checkedPropertiesByType.GetValueOrDefault(
                 typeof(DotnetInspect.Cli.Views.PackageQueryRow)));
         Assert.Equal(

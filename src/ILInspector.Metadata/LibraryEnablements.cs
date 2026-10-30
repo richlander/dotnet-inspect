@@ -23,6 +23,18 @@ public enum LibraryEnablementId
     MemorySafetyV2,
 }
 
+/// <summary>
+/// Whether an image is a reference assembly, identified by the assembly-level
+/// <c>ReferenceAssemblyAttribute</c>. An unnameable assembly attribute makes the
+/// rule undecidable.
+/// </summary>
+public enum ReferenceAssemblyState
+{
+    Implementation,
+    Reference,
+    Undecidable,
+}
+
 /// <summary>Why an enablement cannot be decided from the inspected image.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<LibraryEnablementUnavailableReason>))]
 public enum LibraryEnablementUnavailableReason
@@ -146,14 +158,38 @@ public sealed record LibraryEnablementFacts(ImmutableArray<LibraryEnablement> It
     private const string AotCompatibleKey = "IsAotCompatible";
     private const MethodImplAttributes AsyncImplFlag = (MethodImplAttributes)0x2000;
 
-    private enum ReferenceAssemblyState
+    /// <summary>
+    /// Classifies the image under the reference-assembly rule this owner applies
+    /// before every enablement, so other owners reuse one decision.
+    /// </summary>
+    public static ReferenceAssemblyState ClassifyReferenceAssembly(MetadataReader reader)
     {
-        Implementation,
-        Reference,
-        Undecidable,
+        ArgumentNullException.ThrowIfNull(reader);
+        return ReadReferenceAssemblyState(reader);
+    }
+
+    /// <summary>
+    /// Classifies the image as <see cref="ClassifyReferenceAssembly(MetadataReader)"/>
+    /// does, and counts the assembly CustomAttribute rows it read in
+    /// <paramref name="attributeRowsRead"/>, which stays current if the read fails.
+    /// </summary>
+    public static ReferenceAssemblyState ClassifyReferenceAssembly(
+        MetadataReader reader,
+        ref int attributeRowsRead)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        return ReadReferenceAssemblyState(reader, ref attributeRowsRead);
     }
 
     private static ReferenceAssemblyState ReadReferenceAssemblyState(MetadataReader reader)
+    {
+        int attributeRowsRead = 0;
+        return ReadReferenceAssemblyState(reader, ref attributeRowsRead);
+    }
+
+    private static ReferenceAssemblyState ReadReferenceAssemblyState(
+        MetadataReader reader,
+        ref int attributeRowsRead)
     {
         if (!reader.IsAssembly)
             return ReferenceAssemblyState.Implementation;
@@ -161,6 +197,7 @@ public sealed record LibraryEnablementFacts(ImmutableArray<LibraryEnablement> It
         bool undecidable = false;
         foreach (CustomAttributeHandle handle in reader.GetAssemblyDefinition().GetCustomAttributes())
         {
+            attributeRowsRead = checked(attributeRowsRead + 1);
             CustomAttribute attribute = reader.GetCustomAttribute(handle);
             try
             {

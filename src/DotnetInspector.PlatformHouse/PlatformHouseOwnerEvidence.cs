@@ -1,4 +1,5 @@
 using DotnetInspector.Platforms;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.PlatformHouse;
 
@@ -16,6 +17,35 @@ public sealed class PlatformMetadataRequestEvidence<TRequest>
     }
 
     public TRequest Value { get; }
+    public PlatformMetadataRequestIdentity Identity { get; }
+}
+
+/// <summary>
+/// Resource-free evidence for one implementation-start type-resolution
+/// request.
+/// </summary>
+public sealed class PlatformImplementationTypeResolutionRequestEvidence
+{
+    public PlatformImplementationTypeResolutionRequestEvidence(
+        MetadataTypeDefinitionName type,
+        Guid expectedModuleVersionId,
+        string identityName)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        if (expectedModuleVersionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "The expected module version ID cannot be empty.",
+                nameof(expectedModuleVersionId));
+        }
+
+        Type = type;
+        ExpectedModuleVersionId = expectedModuleVersionId;
+        Identity = PlatformMetadataRequestIdentity.Issue(identityName);
+    }
+
+    public MetadataTypeDefinitionName Type { get; }
+    public Guid ExpectedModuleVersionId { get; }
     public PlatformMetadataRequestIdentity Identity { get; }
 }
 

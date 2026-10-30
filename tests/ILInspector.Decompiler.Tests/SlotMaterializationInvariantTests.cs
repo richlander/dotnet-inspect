@@ -128,20 +128,48 @@ public class SlotMaterializationInvariantTests
         Assert.Contains("pre-rewrite testimony", error.Message);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void DirectCopyComponentsMustConvertTogether(bool convertSource)
+    [Fact]
+    public void MaterializedCopyDestinationCannotReadAnUnmaterializedSource()
     {
         var function = Function(Int32,
             new StoreStackSlot(0, new Constant(1, Int32)),
             new StoreStackSlot(1, new LoadStackSlot(0, Int32)),
             new Return(new LoadStackSlot(1, Int32)));
         var invariant = SlotMaterializationInvariant.Capture(function);
-        RewriteSlot(function, convertSource ? 0 : 1, function.AddLocal(Int32), Int32);
+        RewriteSlot(function, 1, function.AddLocal(Int32), Int32);
 
         var error = Assert.Throws<InvalidOperationException>(invariant.Check);
-        Assert.Contains("direct-copy component was only partly materialized", error.Message);
+        Assert.Contains("materialized copy destination reads an unmaterialized source", error.Message);
+    }
+
+    // A source-closed member may materialize while the slot it copies into
+    // stays residual: the value flows out of the decided set.
+    [Fact]
+    public void MaterializedSourceMayCopyIntoAResidualSlot()
+    {
+        var function = Function(Int32,
+            new StoreStackSlot(0, new Constant(1, Int32)),
+            new StoreStackSlot(1, new LoadStackSlot(0, Int32)),
+            new Return(new LoadStackSlot(1, Int32)));
+        var invariant = SlotMaterializationInvariant.Capture(function);
+        RewriteSlot(function, 0, function.AddLocal(Int32), Int32);
+
+        invariant.Check();
+    }
+
+    [Fact]
+    public void ManagedReferenceCopyComponentsMustConvertTogether()
+    {
+        var reference = TypeRef.ByRef(Int32);
+        var function = Function(Int32,
+            new StoreStackSlot(0, new LoadArgumentAddress(0, "x", Int32)),
+            new StoreStackSlot(1, new LoadStackSlot(0, reference)),
+            new Return(new LoadIndirect(Int32, new LoadStackSlot(1, reference))));
+        var invariant = SlotMaterializationInvariant.Capture(function);
+        RewriteSlot(function, 0, function.AddLocal(reference), reference);
+
+        var error = Assert.Throws<InvalidOperationException>(invariant.Check);
+        Assert.Contains("managed-reference copy component was only partly materialized", error.Message);
     }
 
     [Fact]

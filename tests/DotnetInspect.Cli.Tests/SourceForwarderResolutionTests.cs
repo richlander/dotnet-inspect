@@ -2710,6 +2710,7 @@ public class SourceForwarderResolutionTests
                             [nameof(BodyShapeFixture.ReadableLocal)],
                         OverloadIndex = 1,
                         Select = [SectionNames.Calls],
+                        FormatExplicitlySet = true,
                         DocsExplicitlySet = true,
                         CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
@@ -2729,7 +2730,7 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
-    public async Task MemberCodeAcquisition_LeavesExceptionRegionsRoutePathBased()
+    public async Task MemberCodeAcquisition_UsesRetainedAssemblyForExceptionRegions()
     {
         int opens = 0;
         var fixture = CreateTypeSourceFixture(
@@ -2738,8 +2739,8 @@ public class SourceForwarderResolutionTests
             () =>
             {
                 opens++;
-                throw new IOException(
-                    "Exception Regions must retain its existing path route.");
+                return File.OpenRead(
+                    typeof(BodyShapeFixture).Assembly.Location);
             },
             typeof(BodyShapeFixture));
         try
@@ -2759,6 +2760,7 @@ public class SourceForwarderResolutionTests
                             [nameof(BodyShapeFixture.ReadableLocal)],
                         OverloadIndex = 1,
                         Select = [SectionNames.ExceptionRegions],
+                        FormatExplicitlySet = true,
                         DocsExplicitlySet = true,
                         CompanionOutput = CompanionOutput.None,
                         Verbosity = Verbosity.Minimal,
@@ -2771,7 +2773,7 @@ public class SourceForwarderResolutionTests
                 $"## {SectionNames.ExceptionRegions}",
                 output);
             Assert.DoesNotContain("Error:", error);
-            Assert.Equal(0, opens);
+            Assert.Equal(1, opens);
         }
         finally
         {
@@ -3192,6 +3194,7 @@ public class SourceForwarderResolutionTests
                         AssemblyPath = path,
                         TypeName = typeof(EmbeddedSourceFixture).FullName,
                         Select = [SectionNames.CostFacts],
+                        FormatExplicitlySet = true,
                         DocsExplicitlySet = true,
                         CompanionOutput = CompanionOutput.None,
                         RouterDeferredTypeOrMember = true,
@@ -3201,6 +3204,7 @@ public class SourceForwarderResolutionTests
                         AssemblyPath = path,
                         TypeName = typeof(EmbeddedSourceFixture).FullName,
                         Select = [SectionNames.CostFacts],
+                        FormatExplicitlySet = true,
                         DocsExplicitlySet = true,
                         CompanionOutput = CompanionOutput.None,
                     }));

@@ -1421,6 +1421,34 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void SlotsOnly_AdjacentArithmeticCarrier_InlinesWithoutDuplicatingOperands()
+    {
+        var left = new MethodRef(Holder, "Left", Int32, [], HasThis: false);
+        var right = new MethodRef(Holder, "Right", Int32, [], HasThis: false);
+        var function = StraightLine(
+            [],
+            new StoreStackSlot(256, new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new Call(left, isVirtual: false, []),
+                new Call(right, isVirtual: false, []))),
+            new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadStackSlot(256, Int32),
+                new Constant(1, Int32))));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.False(HasStoreStackSlot(function, 256));
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Equal(2, function.Descendants.OfType<Call>().Count());
+        function.CheckInvariant();
+    }
+
     // slots-only refuting negative: the identical shape on a user local is
     // declined by slotsOnly (the local stays) yet still inlined by the default
     // run — so a reconstructed `x++` can never be fed a constant late.

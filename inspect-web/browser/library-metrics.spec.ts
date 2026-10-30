@@ -153,10 +153,6 @@ test("reciprocal relationship evidence remains independently reachable", async (
 
 test("dependency edges reveal exact-type explanations", async ({ page }) => {
   await page.goto("/browser/library-metrics.html?view=dependencies");
-  await expect(page.locator(".metrics-dependency-structure")).toHaveCount(0);
-  await page.getByRole("button", {
-    name: "Load dependency structure",
-  }).click();
   const edge = page.locator('[data-dependency-edge-index="0"]');
   const detail = page.locator('[data-dependency-edge-detail="0"]');
   const activation = page.locator("#metrics-activated-type");
@@ -182,9 +178,6 @@ test("global namespace evidence is hidden by default and explicitly recoverable"
   await page.goto(
     "/browser/library-metrics.html?view=dependencies&dependency=global",
   );
-  await page.getByRole("button", {
-    name: "Load dependency structure",
-  }).click();
 
   const includeGlobal = page.getByRole("checkbox", {
     name: "Include global namespace",
@@ -211,9 +204,6 @@ test("dependency layout preserves issued levels and cycles responsively", async 
 }) => {
   await page.setViewportSize({ width: 620, height: 700 });
   await page.goto("/browser/library-metrics.html?view=dependencies");
-  await page.getByRole("button", {
-    name: "Load dependency structure",
-  }).click();
 
   await expect(page.locator(".metrics-dependency-level")).toHaveText([
     "Level 0",
@@ -254,9 +244,6 @@ test("level-zero reciprocal cycle routes remain inside the viewport", async ({
   await page.goto(
     "/browser/library-metrics.html?view=dependencies&dependency=cycle-zero",
   );
-  await page.getByRole("button", {
-    name: "Load dependency structure",
-  }).click();
 
   const geometry = await page.locator("path.metrics-dependency-edge")
     .evaluateAll(elements => {
@@ -296,9 +283,6 @@ test("deep dependency levels scroll without shrinking labels", async ({
   await page.goto(
     "/browser/library-metrics.html?view=dependencies&dependency=deep",
   );
-  await page.getByRole("button", {
-    name: "Load dependency structure",
-  }).click();
 
   const geometry = await page.locator(".metrics-dependency-viewport")
     .evaluate(element => {

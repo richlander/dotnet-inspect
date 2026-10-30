@@ -120,6 +120,35 @@ public sealed partial class WorkspaceContextLoaderTests
             Assert.IsType<RealizedMemberCoordinate.Package>(ContextOrigin(p2.Receipt.Members[1]).Realized).Producer);
         Assert.NotSame(p1.Receipt.Identity, p2.Receipt.Identity);
         Assert.True(p1.Receipt.IsRealizationComplete);
+        WorkspaceDeclarationMember later = p2.Receipt.Members[1];
+        WorkspaceDeclarationPopulation projected =
+            Assert.IsType<
+                    WorkspaceDeclarationPopulationCapture.Captured>(
+                    workspace.CaptureDeclarationPopulation(
+                        [first, second],
+                        [later.Occurrence]))
+                .Population;
+        Assert.Same(
+            first.Receipt,
+            projected.Receipt.Contexts[0]);
+        Assert.Empty(projected.Receipt.Contexts[1].Members);
+        Assert.Same(
+            earlier.Occurrence,
+            Assert.Single(projected.Receipt.Members).Occurrence);
+        Assert.Equal(
+            WorkspaceDeclarationPopulationFailure.OccurrenceNotSelected,
+            Assert.IsType<WorkspaceDeclarationInventoryOutcome.Unavailable>(
+                    projected.ReadDeclarations(
+                        later.Occurrence,
+                        TestContext.Current.CancellationToken))
+                .Failure);
+        Assert.Equal(
+            WorkspaceDeclarationPopulationFailure.OccurrenceNotSelected,
+            Assert.IsType<WorkspaceDeclarationPopulationCapture.Rejected>(
+                    workspace.CaptureDeclarationPopulation(
+                        [first],
+                        [later.Occurrence]))
+                .Failure);
         var selection =
             Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
                 earlier.Selection);

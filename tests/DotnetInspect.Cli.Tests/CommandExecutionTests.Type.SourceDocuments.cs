@@ -216,7 +216,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "-n", "28", "--lines");
+            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "--markdown", "-n", "28", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -351,7 +351,7 @@ public partial class CommandExecutionTests
         // facility. The combination used to silently drop the column filter and emit the whole
         // typed document; it now fails closed instead.
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Runtime", "-S", "Interfaces", "--columns", "Type", "--json");
+            "type", "-t", "*", "--platform", "System.Runtime", "-S", "Interfaces", "--columns", "Type", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -366,7 +366,7 @@ public partial class CommandExecutionTests
         // used to dump the whole ~20 MB surface and then trip the projection audit. It now fails
         // closed before rendering, and the audit must not add a second, misleading line.
         var (exit, output, error) = await RunAppAsync(
-            "type", "--platform", "System.Runtime", "-S", "Classes", "--value", "--json");
+            "type", "-t", "*", "--platform", "System.Runtime", "-S", "Classes", "--value", "--json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Queries;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using Wire = DotnetInspect.Web.Interop.Metadata.Wire;
 
@@ -34,7 +35,8 @@ public enum BrowserCompileLibraryStatus
 public sealed record BrowserWorkspacePackage(
     string Package,
     string Version,
-    string Framework);
+    string Framework,
+    string? RuntimeIdentifier = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeFindResultStatus>))]
 public enum BrowserTypeFindResultStatus
@@ -90,11 +92,76 @@ public sealed record BrowserTypeFindResult(
 /// </summary>
 public sealed record BrowserTypeMetadata(
     InspectionEnvelope<ExactTypeInspectionResult> ExactTypeInspection,
-    string[] DerivedTypes,
+    BrowserTypeHierarchyMetadata? Hierarchy,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
     InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
-    string[] InspectionFailures);
+    string[] InspectionFailures)
+{
+    public InspectionEnvelope<JsonElement>? TypeSignatureInspection { get; init; }
+    public TypeSignaturePresentation? TypeSignaturePresentation { get; init; }
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserAnnotatedTypeRelationsOutcome>))]
+public enum BrowserAnnotatedTypeRelationsOutcome
+{
+    Available,
+    Rejected,
+    Unavailable,
+    Failed,
+}
+
+public sealed record BrowserAnnotatedTypeRelationsInspection(
+    BrowserAnnotatedTypeRelationsOutcome Outcome,
+    InspectionEnvelope<JsonElement>? Inspection,
+    string? Reason);
+
+public sealed record BrowserTypeHierarchyMetadata(
+    string Form,
+    string Status,
+    int? Count,
+    BrowserTypeHierarchyRow[] Rows,
+    bool IsComplete,
+    bool HasMore,
+    BrowserTypeHierarchyShare Share,
+    BrowserTypeHierarchyDiagnostic[] Diagnostics,
+    BrowserTypeHierarchyProducer[] Producers,
+    BrowserTypeHierarchyCoverage[] Coverage);
+
+public sealed record BrowserTypeHierarchyShare(
+    string Kind,
+    string? FullUrl,
+    string? Packet,
+    string? Path,
+    string? Reason);
+
+public sealed record BrowserTypeHierarchyDiagnostic(
+    string Code,
+    string Severity,
+    string Summary,
+    string? Correspondence);
+
+public sealed record BrowserTypeHierarchyRow(
+    string Type,
+    string Assembly,
+    string PackageId,
+    string Version,
+    string Framework,
+    string Asset);
+
+public sealed record BrowserTypeHierarchyProducer(
+    string Source,
+    string Disposition,
+    string? Detail);
+
+public sealed record BrowserTypeHierarchyCoverage(
+    string Producer,
+    int Considered,
+    int Examined,
+    int Excluded,
+    int Unavailable,
+    int Limited);
 
 public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string Role);
 
@@ -276,8 +343,6 @@ public sealed record BrowserMemberGroupDocumentRow(
     int MetadataToken,
     int BaselineOrdinal,
     string DisplaySignature,
-    string CanonicalSignature,
-    string Fingerprint,
     string Accessibility,
     string Receiver);
 
@@ -352,6 +417,7 @@ public sealed record BrowserTypeMemberFacetCount(
 
 public sealed record BrowserTypeMemberTraitCounts(
     int All,
+    int BodyBacked,
     int Static,
     int Instance,
     int Virtual,
@@ -368,6 +434,64 @@ public sealed record BrowserTypeMemberPopulationGroup(
     string Kind,
     int CompleteCount,
     BrowserMemberSurface[] Members);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeOverviewOutcome>))]
+public enum BrowserTypeOverviewOutcome
+{
+    Available,
+    Rejected,
+    Incomplete,
+    Failed,
+}
+
+public sealed record BrowserTypeOverviewInspection(
+    BrowserTypeOverviewOutcome Outcome,
+    string? Detail,
+    BrowserTypeOverview? Document,
+    InspectionShare Share,
+    BrowserMemberGroupDocumentDiagnostic[] Diagnostics);
+
+public sealed record BrowserTypeOverview(
+    BrowserTypeOverviewAssemblyIdentity Assembly,
+    Guid ModuleVersionId,
+    string TypeIdentity,
+    int TypeDefinitionToken,
+    string Category,
+    bool IsByRefLike,
+    BrowserTypeOverviewGenericParameter[] GenericParameters,
+    BrowserTypeOverviewPopulation Population);
+
+public sealed record BrowserTypeOverviewAssemblyIdentity(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+public sealed record BrowserTypeOverviewGenericParameter(
+    string Name,
+    int MetadataIndex,
+    int DefinitionSegmentIndex,
+    string Attributes);
+
+public sealed record BrowserTypeOverviewPopulation(
+    string Spelling,
+    string Accessibility,
+    string Receiver,
+    string Ordering,
+    bool IncludeHidden,
+    BrowserTypeMemberComposition Composition,
+    BrowserTypeMemberSelectorCounts SelectorCounts,
+    BrowserTypeOverviewGroup[] Groups);
+
+public sealed record BrowserTypeOverviewGroup(
+    string Key,
+    string Name,
+    string DisplayName,
+    string Kind,
+    int BaselineOrdinal,
+    int CompleteCount,
+    string[] Receivers,
+    BrowserTypeMemberTraitCounts Traits);
 
 /// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the
@@ -412,9 +536,6 @@ public sealed record BrowserMemberSurface(
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
     string? DocumentationId,
-    string? Summary,
-    string? Returns,
-    BrowserExceptionSurface[] Exceptions,
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
@@ -435,18 +556,20 @@ public sealed record BrowserParameterSurface(
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue,
-    string? Description);
-
-public sealed record BrowserExceptionSurface(
-    string Type,
-    string Description);
+    string? DefaultValue);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageMetadata))]
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(BrowserAnnotatedTypeRelationsInspection))]
+[JsonSerializable(typeof(BrowserTypeHierarchyMetadata))]
+[JsonSerializable(typeof(BrowserTypeHierarchyShare))]
+[JsonSerializable(typeof(BrowserTypeHierarchyDiagnostic[]))]
+[JsonSerializable(typeof(BrowserTypeHierarchyRow[]))]
+[JsonSerializable(typeof(BrowserTypeHierarchyProducer[]))]
+[JsonSerializable(typeof(BrowserTypeHierarchyCoverage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<ExactTypeInspectionResult>),
     TypeInfoPropertyName = "ExactTypeInspectionEnvelope")]
@@ -522,6 +645,7 @@ public sealed record BrowserExceptionSurface(
     typeof(Wire.AuthoredDocumentationOutcome.Incomplete),
     TypeInfoPropertyName = "AuthoredDocumentationIncomplete")]
 [JsonSerializable(typeof(BrowserTypeMemberPopulationInspection))]
+[JsonSerializable(typeof(BrowserTypeOverviewInspection))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<JsonElement>),
@@ -529,6 +653,9 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserLibraryApiDiffRequest))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffResult))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffCancellation))]
+[JsonSerializable(typeof(BrowserLibraryFindingDiffAnyRequest))]
+[JsonSerializable(typeof(BrowserLibraryFindingDiffAnyResult))]
+[JsonSerializable(typeof(BrowserLibraryFindingDiffAnyCancellation))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

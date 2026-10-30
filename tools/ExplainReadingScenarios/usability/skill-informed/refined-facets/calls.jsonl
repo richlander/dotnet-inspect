@@ -1,0 +1,1 @@
+{"id": 1, "argv": ["explain", "package-query/query", ".data", "--json"], "exit": 0, "stdout_bytes": 15757, "stderr_bytes": 0, "stdout_file": "response-01.out", "stderr_file": "response-01.err"}

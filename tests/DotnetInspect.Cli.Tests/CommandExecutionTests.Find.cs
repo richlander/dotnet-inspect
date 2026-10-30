@@ -26,9 +26,172 @@ public partial class CommandExecutionTests
             "ecosystem.aspire", row.GetProperty("ecosystem").GetString()));
         Assert.Contains(rows, row => row.GetProperty("member").GetString()
             is "AddContainer" or "AddProject");
-        Assert.Contains("not searched: ecosystem.aspnetcore", error);
+        Assert.Contains(
+            "Stopped before unsearched work: ecosystem.aspnetcore",
+            error);
         Assert.DoesNotContain("Searching ecosystem.aspnetcore", error);
         Assert.DoesNotContain("Searching ecosystem.runtime", error);
+    }
+
+    [Fact]
+    public async Task Find_EcosystemRuntimeMemberUsesSemanticProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", ".WriteLine", "--ecosystem", "runtime",
+            "--type", "System.Console",
+            "-n", "3", "--json", "--compact");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(3, rows.Length);
+        Assert.All(
+            rows,
+            row =>
+            {
+                Assert.Equal(
+                    "WriteLine",
+                    row.GetProperty("member").GetString());
+                Assert.Equal(
+                    "System.Console",
+                    row.GetProperty("declaring_type").GetString());
+                Assert.Equal(
+                    "runtime",
+                    row.GetProperty("source").GetString());
+            });
+    }
+
+    [Fact]
+    public async Task Find_EcosystemRuntimeMemberCountMatchesCompleteRows()
+    {
+        var (completeExit, completeOutput, completeError) =
+            await RunAppAsync(
+                "find", ".WriteLine", "--ecosystem", "runtime",
+                "--type", "System.Console",
+                "--json", "--compact");
+        var (countExit, countOutput, countError) =
+            await RunAppAsync(
+                "find", ".WriteLine", "--ecosystem", "runtime",
+                "--type", "System.Console",
+                "--count");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, countExit);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            completeError);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            countError);
+        using JsonDocument complete =
+            JsonDocument.Parse(completeOutput);
+        Assert.Equal(
+            complete.RootElement.GetArrayLength(),
+            int.Parse(
+                countOutput,
+                CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Find_EcosystemRuntimeMemberWindowMatchesCompleteRows()
+    {
+        var (completeExit, completeOutput, completeError) =
+            await RunAppAsync(
+                "find", ".WriteLine", "--ecosystem", "runtime",
+                "--type", "System.Console",
+                "--json", "--compact");
+        var (windowExit, windowOutput, windowError) =
+            await RunAppAsync(
+                "find", ".WriteLine", "--ecosystem", "runtime",
+                "--type", "System.Console",
+                "--rows", "2..3", "--json", "--compact");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, windowExit);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            completeError);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            windowError);
+        using JsonDocument complete =
+            JsonDocument.Parse(completeOutput);
+        using JsonDocument window =
+            JsonDocument.Parse(windowOutput);
+        Assert.Equal(
+            complete.RootElement
+                .EnumerateArray()
+                .Skip(1)
+                .Take(2)
+                .Select(static row =>
+                    row.GetProperty("signature").GetString()),
+            window.RootElement
+                .EnumerateArray()
+                .Select(static row =>
+                    row.GetProperty("signature").GetString()));
+    }
+
+    [Fact]
+    public async Task Find_EcosystemMemberWindowOffsetsAcrossLayers()
+    {
+        var (completeExit, completeOutput, completeError) =
+            await RunAppAsync(
+                "find", ".Dispose", "--ecosystem", "aspire",
+                "--json", "--compact");
+        var (windowExit, windowOutput, windowError) =
+            await RunAppAsync(
+                "find", ".Dispose", "--ecosystem", "aspire",
+                "--rows", "6..9", "--json", "--compact");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, windowExit);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            completeError);
+        Assert.Contains(
+            "Stopped before unsearched work: ecosystem.microsoft-extensions",
+            windowError,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ecosystem.runtime",
+            windowError,
+            StringComparison.Ordinal);
+        using JsonDocument complete =
+            JsonDocument.Parse(completeOutput);
+        using JsonDocument window =
+            JsonDocument.Parse(windowOutput);
+        JsonElement[] expected =
+        [
+            .. complete.RootElement
+                .EnumerateArray()
+                .Skip(5)
+                .Take(4),
+        ];
+        Assert.Contains(
+            expected,
+            static row => row.GetProperty("ecosystem").GetString()
+                == "ecosystem.aspire");
+        Assert.Contains(
+            expected,
+            static row => row.GetProperty("ecosystem").GetString()
+                == "ecosystem.aspnetcore");
+        Assert.Equal(
+            expected.Select(MemberIdentity),
+            window.RootElement
+                .EnumerateArray()
+                .Select(MemberIdentity));
+
+        static string MemberIdentity(JsonElement row) =>
+            string.Join(
+                '\n',
+                row.GetProperty("ecosystem").GetString(),
+                row.GetProperty("source").GetString(),
+                row.GetProperty("declaring_type").GetString(),
+                row.GetProperty("signature").GetString());
     }
 
     [Fact]
@@ -39,7 +202,9 @@ public partial class CommandExecutionTests
             "--json", "--compact");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains(
+            "Package-prefix populations were not searched",
+            error);
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] rows = [.. document.RootElement.EnumerateArray()];
         Assert.Contains(rows, row =>
@@ -299,10 +464,10 @@ public partial class CommandExecutionTests
             ".tips");
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("package query", output);
+        Assert.DoesNotContain("find --packages", output);
         Assert.Empty(output);
         Assert.Contains("No types found", error);
-        Assert.DoesNotContain("package query", error);
+        Assert.DoesNotContain("find --packages", error);
     }
 
     [Fact]
@@ -324,7 +489,7 @@ public partial class CommandExecutionTests
         Assert.Empty(withoutTips.Error);
         Assert.Equal(withoutTips.Output, withTips.Output);
         Assert.Contains(
-            $"package query {MissingPackageLikeApiSymbol}",
+            $"find --packages {MissingPackageLikeApiSymbol}",
             withTips.Error);
         using var document = JsonDocument.Parse(withTips.Output);
         Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
@@ -341,7 +506,7 @@ public partial class CommandExecutionTests
         Assert.Contains("Search pattern required.", error);
         Assert.Contains("Tips:", error);
         Assert.Contains(
-            "package query 'Newtonsoft.*'",
+            "find --packages 'Newtonsoft.*'",
             error);
         Assert.Contains("discover package IDs", error);
     }
@@ -505,6 +670,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_NonEcosystemJsonlDoesNotSelectOmittedMemberRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "TryGetProperty",
+            "--library", typeof(JsonElement).Assembly.Location,
+            "--jsonl", "--rows", "1..1");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires type row 1, but only 0 type rows are available",
+            error);
+    }
+
+    [Fact]
     public async Task Find_MemberSearch_RowWindowUnderProjectedJson_MatchesTheTableFormats()
     {
         // The member search reaches the lowered view through a separate call site; a fix applied to
@@ -532,6 +712,82 @@ public partial class CommandExecutionTests
 
         Assert.Equal(2, expected.Length);
         Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public async Task Find_MemberWindowMatchesCompleteEvaluationAtHighStart()
+    {
+        var (completeExit, completeOutput, _) = await RunAppAsync(
+            "find", "*", "--members", "--library", TestAssemblyPath,
+            "--all", "--json", "--compact");
+        var (windowExit, windowOutput, _) = await RunAppAsync(
+            "find", "*", "--members", "--library", TestAssemblyPath,
+            "--all", "--json", "--compact", "--rows", "100..102");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, windowExit);
+        using JsonDocument completeDocument =
+            JsonDocument.Parse(completeOutput);
+        using JsonDocument windowDocument =
+            JsonDocument.Parse(windowOutput);
+        string[] complete =
+        [
+            .. completeDocument.RootElement
+                .EnumerateArray()
+                .Select(static row => row.GetRawText()),
+        ];
+        string[] window =
+        [
+            .. windowDocument.RootElement
+                .EnumerateArray()
+                .Select(static row => row.GetRawText()),
+        ];
+        Assert.True(
+            complete.Length >= 102,
+            $"Expected at least 102 member rows, got {complete.Length}.");
+        Assert.Equal(
+            complete.Skip(99).Take(3),
+            window);
+    }
+
+    [Fact]
+    public async Task Find_FilteredMemberWindowMatchesCompleteEvaluation()
+    {
+        string type = typeof(CommandExecutionTests).FullName!;
+        var (completeExit, completeOutput, _) = await RunAppAsync(
+            "find", "*", "--members", "--type", type,
+            "--library", TestAssemblyPath, "--all",
+            "--json", "--compact");
+        var (windowExit, windowOutput, _) = await RunAppAsync(
+            "find", "*", "--members", "--type", type,
+            "--library", TestAssemblyPath, "--all",
+            "--json", "--compact",
+            "--rows", "5..7");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, windowExit);
+        using JsonDocument completeDocument =
+            JsonDocument.Parse(completeOutput);
+        using JsonDocument windowDocument =
+            JsonDocument.Parse(windowOutput);
+        string[] complete =
+        [
+            .. completeDocument.RootElement
+                .EnumerateArray()
+                .Select(static row => row.GetRawText()),
+        ];
+        string[] window =
+        [
+            .. windowDocument.RootElement
+                .EnumerateArray()
+                .Select(static row => row.GetRawText()),
+        ];
+        Assert.True(
+            complete.Length >= 7,
+            $"Expected at least 7 member rows, got {complete.Length}.");
+        Assert.Equal(
+            complete.Skip(4).Take(3),
+            window);
     }
 
     [Fact]
@@ -888,7 +1144,7 @@ public partial class CommandExecutionTests
             missing,
             "--json");
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
         Assert.Equal("[]", output.Trim());
         string diagnostic =
             $"Library not found '{missing}', skipping.";
@@ -896,6 +1152,20 @@ public partial class CommandExecutionTests
         Assert.Equal(
             error.IndexOf(diagnostic, StringComparison.Ordinal),
             error.LastIndexOf(diagnostic, StringComparison.Ordinal));
+
+        // The failed Member fallback holds no Member rows, so Count reports the
+        // observed Type rows with the same warning and exit as Rows.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "find",
+            "DefinitelyAbsentReview8977",
+            "--library",
+            missing,
+            "--count");
+
+        Assert.Equal(1, countExit);
+        Assert.Equal("0", countOutput.Trim());
+        Assert.Contains(diagnostic, countError, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cannot count", countError, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1054,6 +1324,84 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_FiniteMemberWindowFailsWhenEndIsUnavailable()
+    {
+        string pattern =
+            nameof(Find_FiniteMemberWindowFailsWhenEndIsUnavailable);
+
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            pattern,
+            "--members",
+            "--library",
+            TestAssemblyPath,
+            "--rows",
+            "1..2",
+            "--json",
+            "--compact");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires member row 2, but only 1 member rows are available",
+            error);
+    }
+
+    [Fact]
+    public async Task Find_FiniteMemberWindowReportsObservedRowsAfterIncompleteSource()
+    {
+        string invalidAssembly = Path.GetTempFileName();
+        await File.WriteAllTextAsync(
+            invalidAssembly,
+            "not a managed assembly",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "find",
+                "*",
+                "--members",
+                "--library",
+                invalidAssembly,
+                "--library",
+                TestAssemblyPath,
+                "--rows",
+                "1..3",
+                "--json",
+                "--compact");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "find",
+                "*",
+                "--members",
+                "--library",
+                invalidAssembly,
+                "--library",
+                TestAssemblyPath,
+                "--rows",
+                "1..3",
+                "--count");
+
+            // The unreadable source precedes the window, so the observed rows
+            // and their Count print with the source warning and a nonzero exit.
+            Assert.Equal(1, exit);
+            using var rows = System.Text.Json.JsonDocument.Parse(output);
+            Assert.Equal(3, rows.RootElement.GetArrayLength());
+            Assert.Contains(
+                $"Could not read {invalidAssembly}",
+                error);
+            Assert.Equal(1, countExit);
+            Assert.Equal("3", countOutput.Trim());
+            Assert.Contains(
+                $"Could not read {invalidAssembly}",
+                countError);
+        }
+        finally
+        {
+            File.Delete(invalidAssembly);
+        }
+    }
+
+    [Fact]
     public async Task
         Find_FilteredFiniteMemberWindowStopsBeforeLaterMemberSource()
     {
@@ -1100,7 +1448,8 @@ public partial class CommandExecutionTests
             "--json",
             "--compact");
 
-        Assert.Equal(0, exit);
+        // Reaching the missing directory leaves the window a partial view.
+        Assert.Equal(1, exit);
         Assert.False(string.IsNullOrWhiteSpace(output));
         Assert.Contains("Directory not found", error);
     }
@@ -1147,7 +1496,8 @@ public partial class CommandExecutionTests
             "--tail",
             "--json");
 
-        Assert.Equal(0, exit);
+        // Reaching the missing directory leaves the window a partial view.
+        Assert.Equal(1, exit);
         Assert.Contains(nameof(CommandExecutionTests), output);
         Assert.Contains("Directory not found", error);
     }
@@ -1476,7 +1826,10 @@ public partial class CommandExecutionTests
         }
         else
         {
-            Assert.Contains(
+            // FSharpKind is a public nested Type of the internal
+            // FSharpCoreReflectionProxy, so neither path admits it without
+            // --all (docs/design/api-population-scope.md).
+            Assert.DoesNotContain(
                 locator,
                 static row =>
                     row.Contains(
@@ -2179,7 +2532,8 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0");
 
-        Assert.Equal(0, exit);
+        // The package source contributes nothing for the TFM: a partial view.
+        Assert.Equal(1, exit);
         Assert.Contains("## Results", output);
         Assert.DoesNotContain("## Coverage", output);
         Assert.DoesNotContain("## Gaps", output);
@@ -2227,6 +2581,29 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.True(int.TryParse(output.Trim(), out var count));
         Assert.True(count >= 1, $"expected at least one member, got {count}");
+    }
+
+    [Fact]
+    public async Task Find_Members_CountMatchesCompleteAcceptedRows()
+    {
+        var (completeExit, completeOutput, _) = await RunAppAsync(
+            "find", "Find_*", "--members", "--library",
+            TestAssemblyPath, "--all", "--json", "--compact");
+        var (countExit, countOutput, countError) =
+            await RunAppAsync(
+                "find", "Find_*", "--members", "--library",
+                TestAssemblyPath, "--all", "--count");
+
+        Assert.Equal(0, completeExit);
+        Assert.Equal(0, countExit);
+        Assert.Empty(countError);
+        using JsonDocument complete =
+            JsonDocument.Parse(completeOutput);
+        Assert.Equal(
+            complete.RootElement.GetArrayLength(),
+            int.Parse(
+                countOutput.Trim(),
+                CultureInfo.InvariantCulture));
     }
 
     [Fact]

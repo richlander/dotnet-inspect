@@ -88,6 +88,68 @@ public sealed class MemberCallGraphSessionTests
                 .Values);
 
     [Fact]
+    public async Task AssemblyContextQuery_SingleParticipantIssuesCallerProjection()
+    {
+        await using GraphContext context =
+            GraphContext.Create(CallerPath);
+        int run = MemberToken(CallerPath, "Entry", "Run");
+
+        AssemblyContextMemberCallGraphDocument document =
+            AssemblyContextMemberCallGraphQuery.Execute(
+                    context.Group,
+                    context.Sources[0].Assembly,
+                    run);
+
+        Assert.Equal(CallGraphTier.Callers, document.Tier);
+        Assert.Equal("Run", document.CalleeRoot!.Member.Name);
+        Assert.Equal("Run", document.CallerRoot!.Member.Name);
+        Assert.Equal(
+            AssemblyContextMemberCallGraphTreeStatus.Expanded,
+            document.CalleeRoot.Status);
+        Assert.False(document.CalleeRoot.InLoop);
+        Assert.NotEmpty(document.CalleeRoot.Member.SelectorKey);
+        Assert.Equal(
+            AssemblyContextMemberCallGraphNodeKind.Focus,
+            document.Nodes[0].Kind);
+        Assert.Contains(
+            document.Nodes,
+            node => node.Member.Name == "Ping");
+        Assert.False(document.NoBody);
+        Assert.Equal(1, context.Sources[0].OpenCount);
+    }
+
+    [Fact]
+    public async Task AssemblyContextQuery_MultipleParticipantsIssuesCrossLibraryProjection()
+    {
+        await using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int run = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunAcrossBoundary");
+
+        AssemblyContextMemberCallGraphDocument document =
+            AssemblyContextMemberCallGraphQuery.Execute(
+                    context.Group,
+                    context.Sources[0].Assembly,
+                    run);
+
+        Assert.Equal(CallGraphTier.CrossLibrary, document.Tier);
+        Assert.Contains(
+            document.Nodes,
+            node => node.Member.Name == "Forward");
+        Assert.Contains(
+            document.Edges,
+            edge =>
+                    document.Nodes[edge.From].Member.Name
+                        == "RunAcrossBoundary"
+                    && document.Nodes[edge.To].Member.Name
+                        == "Forward");
+        Assert.Equal(1, context.Sources[0].OpenCount);
+        Assert.Equal(1, context.Sources[1].OpenCount);
+    }
+
+    [Fact]
     public async Task Callees_ScopedFirstPaint_BuildsScopedIndexOnly()
     {
         await using GraphContext context =

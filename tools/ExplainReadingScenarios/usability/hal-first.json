@@ -1,0 +1,80 @@
+{
+  "commands": [
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain package-query/query .hal --json > /tmp/explain-usability-hal/bootstrap.json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain 'inspect-resource:/package-query/bindings/cli' --json > /tmp/explain-usability-hal/binding.json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain 'inspect-resource:/package-query/query/facets/package?projection=hal' --json > /tmp/explain-usability-hal/package.json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain 'inspect-resource:/package-query/query/facets/library-literal?projection=hal' --json > /tmp/explain-usability-hal/literal.json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain 'inspect-resource:/package-query/query/facets/library-target?projection=hal' --json > /tmp/explain-usability-hal/target.json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain 'inspect-resource:/package-query/routes/default' --json > /tmp/explain-usability-hal/route.json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain 'inspect-resource:/package-query' --json > /tmp/explain-usability-hal/package_query.json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain 'inspect-resource:/package-query/query?projection=contract' --json > /tmp/explain-usability-hal/query_contract.json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain 'inspect-resource:/package-query/query/facets/library-literal?projection=contract' --json > /tmp/explain-usability-hal/literal_contract.json",
+    "python3 /tmp/explain-agent-cli.py /tmp/explain-usability-hal explain 'inspect-resource:/package-query/query/facets/package?projection=contract' --json > /tmp/explain-usability-hal/package_contract.json"
+  ],
+  "displayed_bytes": {
+    "bootstrap.view2.json": 492,
+    "bootstrap.index.json": 5617,
+    "binding.view.json": 1790,
+    "package.view.json": 827,
+    "literal.view.json": 1870,
+    "target.view.json": 900,
+    "package.core.json": 437,
+    "literal.core.json": 907,
+    "target.core.json": 544,
+    "binding.keys.json": 914,
+    "binding.facts.json": 902,
+    "route.view.json": 961,
+    "package_query.view.json": 623,
+    "literal_contract.view.json": 290,
+    "literal_contract.keys.json": 729,
+    "literal_contract.facts.json": 6055,
+    "query_schema.view.json": 2596
+  },
+  "answer": {
+    "argv": [
+      "dotnet-inspect",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--where",
+      "library-literal=https://",
+      "--tfm",
+      "net8.0",
+      "--json"
+    ],
+    "argv_status": "--json output switch unverified in observed HAL/CLI binding; remaining tokens are supported by observed resources",
+    "matching": "The package positional selects an exact package ID. The literal predicate uses eq syntax, but its rule matches https:// as an ordinal substring of each decoded string-literal use in selected implementation libraries, not whole-string equality.",
+    "operand": "1..1024 UTF-16 code units; all text including whitespace, newlines, and case is preserved without normalization.",
+    "repeated_operands": "Identical repeated library-literal operands collapse; distinct values are incompatible.",
+    "framework_context": "library-literal requires library-target; CLI binding supplies it with --tfm net8.0, and library-literal and --tfm require each other.",
+    "empty_values": "The empty values array is no enumerated catalog, not proof that every arbitrary operand is accepted. The stated length and repetition rules constrain input.",
+    "astral_600": "600 astral Unicode characters use 1200 UTF-16 code units, exceeding the 1024-unit bound.",
+    "content_scope": "Literal matching downloads the package and inspects the selected implementation libraries. Exact package selection yields one candidate within the package-content five-candidate limit."
+  },
+  "contract_attempts": [
+    {
+      "resource": "query_contract",
+      "reason": "Check whether empty values means open input and find JSON output syntax",
+      "resolved": false,
+      "note": "Fetched but not displayed or used after request to stop discovery."
+    },
+    {
+      "resource": "literal_contract",
+      "reason": "Check schema meaning of values and exact operand semantics",
+      "resolved": false,
+      "note": "Confirmed the same facet facts; did not establish a general empty-values meaning or JSON output syntax."
+    },
+    {
+      "resource": "package_contract",
+      "reason": "Check exact-package facet semantics",
+      "resolved": false,
+      "note": "Fetched but not displayed or used after request to stop discovery."
+    }
+  ],
+  "uncertainties": [
+    "The HAL resources examined do not state the JSON output flag; --json in final argv is an unverified conventional guess.",
+    "No schema statement was found that equates an empty values list with unrestricted input.",
+    "No package query was executed and no network work was performed."
+  ],
+  "truncation": "No displayed jq projection was truncated by the tool; larger projections were saved but not displayed."
+}

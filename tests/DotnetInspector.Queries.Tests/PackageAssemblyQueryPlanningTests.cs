@@ -233,12 +233,14 @@ public sealed class PackageAssemblyQueryPlanningTests
             var request = new PackageRootReacquisitionRequest(
                 PackageArtifactRootRequest.Create(
                     coordinate,
+                    initial.Root.RequestedTargetFramework,
                     initial.CompileTargetFramework,
                     initial.ImplementationSelectionTargetFramework,
                     initial.Root.RequestedRuntimeIdentifier,
                     initial.HasSelectedImplementationUniverse,
                     initial.UsesCompatibleImplementationSelection,
-                    initial.AllowsCompatibleTargetSelection));
+                    initial.AllowsCompatibleTargetSelection,
+                    initial.RuntimePopulationTargetFramework));
             Assert.True(
                 PackageRootReacquisitionRequest.TryDecode(
                     request.Encode(),

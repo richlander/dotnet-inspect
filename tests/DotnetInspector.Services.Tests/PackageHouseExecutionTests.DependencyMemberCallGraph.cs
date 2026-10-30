@@ -7,6 +7,7 @@ using System.Text;
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
@@ -38,10 +39,17 @@ public sealed partial class PackageHouseExecutionTests
             "IntrinsicCoreLibrary",
             "System.Text.Json.dll");
 
-    [Fact]
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("ref/net11.0/_._", "net11.0")]
+    [InlineData("content/README.txt", null)]
     public async Task
-        DependencyMemberCallGraphInspectionPreparesTraversalAndReturnsEnvelope()
+        DependencyMemberCallGraphInspectionPreparesTraversalAndReturnsEnvelope(
+            string? unselectedEntryPath,
+            string? selectedTargetFramework)
     {
+        const string unselectedPackage = "callgraph.unselected";
+        bool includeUnselectedPackage = unselectedEntryPath is not null;
         await using HouseEnvironment environment =
             HouseEnvironment.CreateForAnyPackage(
                 new SourceBehavior(
@@ -51,13 +59,26 @@ public sealed partial class PackageHouseExecutionTests
                         (
                             "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
                             File.ReadAllBytes(CallGraphTargetPath)),
-                    ]));
+                    ],
+                    PayloadContentEntriesByPackageId:
+                        new Dictionary<
+                            string,
+                            IReadOnlyList<(string EntryPath, byte[] Content)>>
+                        {
+                            [unselectedPackage] =
+                            [
+                                (
+                                    unselectedEntryPath ?? "ref/net11.0/_._",
+                                    []),
+                            ],
+                        }));
         PackageRootBinding rootBinding = CallGraphRootBinding(
-            (CallGraphTargetPackage, RouteVersion));
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
+            includeUnselectedPackage
+                ? [
+                    (CallGraphTargetPackage, RouteVersion),
+                    (unselectedPackage, RouteVersion),
+                ]
+                : [(CallGraphTargetPackage, RouteVersion)]);
         PackageHouseOperation realizationOperation =
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize);
@@ -86,7 +107,7 @@ public sealed partial class PackageHouseExecutionTests
                             maxDeclarationResolutions: 3)),
                 new PackageDependencyMemberCallGraphInspectionSource(
                     new PackageDependencyTraversalCandidateAdapter(
-                        candidateSource),
+                        environment.Authorization),
                     new UnexpectedManifestAcquirer(),
                     environment.CreateHouse(
                         (_, _) => new InMemoryPackageStore()),
@@ -110,11 +131,33 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             MemberCallGraphFocalLength.Everything,
             available.Document.FocalScope.FocalLength);
+        Assert.Equal(
+            includeUnselectedPackage ? 2 : 1,
+            available.Document.Routes.Length);
         PackageDependencyMemberCallGraphInspectionDestination.Package
             destination =
             Assert.IsType<
                 PackageDependencyMemberCallGraphInspectionDestination.Package>(
-                Assert.Single(available.Document.Routes).Destination);
+                Assert.Single(
+                    available.Document.Routes,
+                    route => route.Subject.TargetPackageId
+                        == CallGraphTargetPackage).Destination);
+        if (includeUnselectedPackage)
+        {
+            var unselectedDestination =
+                Assert.IsType<
+                    PackageDependencyMemberCallGraphInspectionDestination.Package>(
+                    Assert.Single(
+                        available.Document.Routes,
+                        route => route.Subject.TargetPackageId
+                            == unselectedPackage).Destination);
+            Assert.Equal(
+                unselectedPackage,
+                unselectedDestination.Descriptor.PackageId);
+            Assert.Equal(
+                selectedTargetFramework,
+                unselectedDestination.Descriptor.SelectedTargetFramework);
+        }
         Assert.Equal(
             CallGraphTargetPackage,
             destination.Descriptor.PackageId);
@@ -146,7 +189,11 @@ public sealed partial class PackageHouseExecutionTests
                     RouteVersion,
                     "net11.0"),
             ],
-            available.Document.PackageSubjects
+            available.Document.NodeClassifications
+                .OfType<
+                    DotnetInspector.Sections
+                        .PackageDependencyMemberCallGraphNodeClassification
+                        .Package>()
                 .OrderBy(subject => subject.NodeId)
                 .Select(subject =>
                     (
@@ -166,8 +213,74 @@ public sealed partial class PackageHouseExecutionTests
             envelope.Diagnostics.Select(
                 diagnostic => diagnostic.Correspondence!.ToString()));
         Assert.Equal(
-            [CallGraphTargetPackage],
+            includeUnselectedPackage
+                ? [CallGraphTargetPackage, unselectedPackage]
+                : [CallGraphTargetPackage],
             environment.Clients[0].PayloadPackageIds);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        DependencyMemberCallGraphUsesImplementationBehindEmptyCompileGroup()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForAnyPackage(
+                new SourceBehavior(
+                    [RouteVersion],
+                    PayloadContentEntries:
+                    [
+                        ("ref/net11.0/_._", []),
+                        (
+                            "lib/net11.0/ILInspector.Analysis.CallerGraphTarget.dll",
+                            File.ReadAllBytes(CallGraphTargetPath)),
+                    ]));
+        PackageHouseOperation realizationOperation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+            await PackageDependencyMemberCallGraphInspection.ExecuteAsync(
+                CallGraphInspectionRequest(
+                    realizationOperation,
+                    "RunAcrossBoundary",
+                    dependencies:
+                    [(CallGraphTargetPackage, RouteVersion)]),
+                CreateCallGraphSource(environment),
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome.Available>(
+                envelope.Content);
+        var destination =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionDestination.Package>(
+                Assert.Single(available.Document.Routes).Destination);
+        Assert.Equal(
+            CallGraphTargetPackage,
+            destination.Descriptor.PackageId);
+        InspectionGraphEdge edge =
+            Assert.Single(available.Document.Graph.Edges);
+        Assert.Equal(
+            ("RunAcrossBoundary", "Forward"),
+            (
+                GraphMember(
+                    available.Document.Graph.Nodes[edge.FromNodeId]).Name,
+                GraphMember(
+                    available.Document.Graph.Nodes[edge.ToNodeId]).Name));
+        Assert.Equal(
+            "exit",
+            ExternalFocusRole(available.Document.Graph, edge));
+        Assert.Contains(
+            available.Document.NodeClassifications.OfType<
+                DotnetInspector.Sections
+                    .PackageDependencyMemberCallGraphNodeClassification
+                    .Package>(),
+            subject =>
+                subject.NodeId == edge.ToNodeId
+                && subject.PackageId == CallGraphTargetPackage);
         await environment.AssertRootSettledAsync();
     }
 
@@ -288,6 +401,14 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Empty(completed.FocalScope.PlatformPopulations);
         Assert.NotEmpty(
             completed.IntrinsicCoreLibraryContextNonParticipation);
+        Assert.Equal(
+            completed.IntrinsicCoreLibraryContextNonParticipation.Length,
+            completed.IntrinsicCoreLibraryContextNonParticipation
+                .DistinctBy(receipt =>
+                    (
+                        receipt.Occurrence.OccurrenceId,
+                        receipt.Occurrence.Correspondence.Type))
+                .Count());
         Assert.True(
             completed.IntrinsicCoreLibraryContextNonParticipation
                 .Select(receipt => receipt.Occurrence.OccurrenceId)
@@ -343,10 +464,6 @@ public sealed partial class PackageHouseExecutionTests
                     ]));
         PackageRootBinding rootBinding = CallGraphRootBinding(
             (CallGraphTargetPackage, RouteVersion));
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
         PackageHouseOperation realizationOperation =
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize);
@@ -387,7 +504,7 @@ public sealed partial class PackageHouseExecutionTests
                                     }),
                             new PackageDependencyMemberCallGraphInspectionSource(
                                 new PackageDependencyTraversalCandidateAdapter(
-                                    candidateSource),
+                                    environment.Authorization),
                                 new UnexpectedManifestAcquirer(),
                                 environment.CreateHouse(
                                     (_, _) => new InMemoryPackageStore()),
@@ -1036,6 +1153,16 @@ public sealed partial class PackageHouseExecutionTests
             preparation.ResolvePackageBinding(lowerRoute);
 
         Assert.Equal(lowerVersion, selected.Coordinate.Version);
+        Assert.Contains(
+            preparation.WorkspaceBindings,
+            binding => ReferenceEquals(binding, selected));
+        Assert.Contains(
+            preparation.WorkspaceBindings,
+            binding =>
+                binding.Coordinate.PackageId.Equals(
+                    CallGraphTargetPackage,
+                    StringComparison.OrdinalIgnoreCase)
+                && binding.Coordinate.Version == higherVersion);
         Assert.DoesNotContain(
             preparation.GraphBindings,
             binding => ReferenceEquals(binding, selected));
@@ -1075,6 +1202,7 @@ public sealed partial class PackageHouseExecutionTests
                     successorBindings,
                     DateTimeOffset.UtcNow.AddMinutes(1),
                     TestContext.Current.CancellationToken)).Snapshot;
+        Assert.NotNull(selected.Root.AssetSelection);
         PackageCompileAsset selectedAsset =
             Assert.Single(selected.Root.AssetSelection.Assets);
         await using PackageDependencyMemberCallGraphGeneration generation =
@@ -1112,7 +1240,10 @@ public sealed partial class PackageHouseExecutionTests
             completed.ScopeRevision,
             completed.FocalScope.ScopeRevision);
         Assert.Contains(
-            completed.NodePackages,
+            completed.NodeClassifications.OfType<
+                DotnetInspector.PackageQueries
+                    .PackageDependencyMemberCallGraphNodeClassification
+                    .Package>(),
             nodePackage =>
                 nodePackage.Descriptor.PackageId.Equals(
                     CallGraphTargetPackage,
@@ -1120,7 +1251,10 @@ public sealed partial class PackageHouseExecutionTests
                 && nodePackage.Descriptor.PackageVersion
                     == lowerVersion);
         Assert.DoesNotContain(
-            completed.NodePackages,
+            completed.NodeClassifications.OfType<
+                DotnetInspector.PackageQueries
+                    .PackageDependencyMemberCallGraphNodeClassification
+                    .Package>(),
             nodePackage =>
                 nodePackage.Descriptor.PackageId.Equals(
                     CallGraphTargetPackage,
@@ -1443,19 +1577,17 @@ public sealed partial class PackageHouseExecutionTests
                         .ProductDefaultTargetFramework,
                     NuGetVersion.Parse("11.0.0")),
                 [$"{CallGraphTargetPackage}|{RouteVersion}"]);
-        PackageDependencyEdgeRealizationExecution execution =
-            PackageDependencyEdgeRealizationQuery.Execute(
-                new PackageDependencyEdgeRealizationRequest(
-                    traversal,
-                    rootOccurrenceIndex: 0,
-                    edgeIndex: 0,
-                    PackageHouseOperation.Create(
-                        PackageHouseOperationProfile.Realize),
-                    PackageHouseTargetContext.Exact(
-                        TraversalTargetFrameworkPolicy
-                            .ProductDefaultTargetFramework,
-                        platformTarget: platformTarget),
-                    inventory));
+        Assert.True(
+            PackageDependencyMemberCallGraphPlatformPruning
+                .TryCreateDotNetRuntime(
+                    inventory,
+                    out PackageDependencyMemberCallGraphPlatformPruning?
+                        createdPruning));
+        PackageDependencyMemberCallGraphPlatformPruning platformPruning =
+            Assert.IsType<
+                PackageDependencyMemberCallGraphPlatformPruning>(
+                createdPruning);
+        Assert.Equal(platformTarget, platformPruning.Target);
 
         var platformEcosystem =
             new WorkspaceEcosystemRegistrationDeclaration(
@@ -1464,6 +1596,10 @@ public sealed partial class PackageHouseExecutionTests
                 [],
                 [],
                 [
+                    new WorkspaceEcosystemPopulationDeclaration
+                        .Platform(
+                            new PlatformLibraryPopulationDeclaration(
+                                PlatformFamily.DotNetRuntime)),
                     new WorkspaceEcosystemPopulationDeclaration
                         .PackagePrefix(
                             new PackagePrefixDeclaration(
@@ -1484,6 +1620,57 @@ public sealed partial class PackageHouseExecutionTests
                     [rootBinding],
                     DateTimeOffset.UtcNow.AddMinutes(1),
                     TestContext.Current.CancellationToken)).Snapshot;
+        PackageHouseOperation realizationOperation =
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize);
+        var inspectionRequest =
+            new PackageDependencyMemberCallGraphInspectionRequest(
+                rootBinding,
+                new PackageDependencyMemberCallGraphInspectionFocus(
+                    ModuleVersionId(CallGraphCallerPath),
+                    MethodToken(
+                        CallGraphCallerPath,
+                        "Entry",
+                        "RunAcrossBoundary")),
+                TraversalTargetFrameworkPolicy.ProductDefault,
+                new(
+                    maxDepth: 2,
+                    maxNodes: 10),
+                realizationOperation,
+                DateTimeOffset.UtcNow.AddMinutes(1),
+                supplyChainBaseline:
+                    PackageSupplyChainBaseline
+                        .SelfAndRegisteredEcosystems,
+                platformPruning:
+                    platformPruning);
+        PackageDependencyEdgeRealizationExecution execution =
+            Assert.Single(
+                PackageDependencyMemberCallGraphInspection
+                    .PrepareExecutions(
+                        inspectionRequest,
+                        traversal,
+                        MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                            rooted,
+                            CurrentRegistrations(workspace))));
+        Assert.True(execution.DelegatesToPlatform);
+        await using (var packageOnlyWorkspace =
+            new InspectionWorkspace())
+        {
+            WorkspaceScopeSnapshot packageOnlyScope =
+                await CurrentScopeAsync(packageOnlyWorkspace);
+            PackageDependencyEdgeRealizationExecution packageExecution =
+                Assert.Single(
+                    PackageDependencyMemberCallGraphInspection
+                        .PrepareExecutions(
+                            inspectionRequest,
+                            traversal,
+                            MemberCallGraphFocalScopeReceipt
+                                .CaptureEverything(
+                                    packageOnlyScope,
+                                    CurrentRegistrations(
+                                        packageOnlyWorkspace))));
+            Assert.False(packageExecution.DelegatesToPlatform);
+        }
         var request = new PackageDependencyMemberCallGraphRequest(
             workspace,
             rooted,
@@ -1536,7 +1723,10 @@ public sealed partial class PackageHouseExecutionTests
             [CallGraphRootPackage.ToLowerInvariant()],
             completed.Baseline.RootPackageIds);
         Assert.DoesNotContain(
-            completed.NodePackages,
+            completed.NodeClassifications.OfType<
+                DotnetInspector.PackageQueries
+                    .PackageDependencyMemberCallGraphNodeClassification
+                    .Package>(),
             subject => string.Equals(
                 subject.Descriptor.PackageId,
                 CallGraphTargetPackage,
@@ -1632,13 +1822,9 @@ public sealed partial class PackageHouseExecutionTests
     private static PackageDependencyMemberCallGraphInspectionSource
         CreateCallGraphSource(HouseEnvironment environment)
     {
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
         return new(
             new PackageDependencyTraversalCandidateAdapter(
-                candidateSource),
+                environment.Authorization),
             new UnexpectedManifestAcquirer(),
             environment.CreateHouse(
                 (_, _) => new InMemoryPackageStore()),
@@ -1725,6 +1911,29 @@ public sealed partial class PackageHouseExecutionTests
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException(
                 "Initial Workspace failure must precede Platform population admission.");
+
+        public override ValueTask<PlatformTargetDiscoveryOutcome>
+            DiscoverIntrinsicCoreLibraryTargetAsync(
+            PlatformFamily family,
+            string targetFramework,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede intrinsic CoreLib target discovery.");
+
+        public override ValueTask<
+            PlatformPopulationArtifactMaterializationOutcome>
+            RealizeIntrinsicCoreLibraryPopulationAsync(
+            PlatformFamilyTarget target,
+            AssemblyReferenceResolutionWorkLedger work,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede intrinsic CoreLib population realization.");
+
+        public override PlatformTypeCatalogDerivationBounds
+            IntrinsicCoreLibraryCatalogBounds =>
+            throw new InvalidOperationException(
+                "Initial Workspace failure must precede intrinsic CoreLib catalog derivation.");
     }
 
     private static PackageRootBinding CallGraphRootBindingFromAssembly(

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DotnetInspector.Packages;
+using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
@@ -379,6 +380,16 @@ public sealed partial class WorkspaceContextLoaderTests
             DotnetInspector.SourceSelection
                 .ExactLibrarySourceCoordinate.Package>(
                     match.Declaration.Source.Coordinate);
+        Assert.Equal(
+            block.Matches[0].Declaration.Source.Selection,
+            match.Declaration.Source.Selection);
+        Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
+            match.Declaration.Source.Selection);
+        FindPackageSourceRequest request =
+            Assert.IsType<FindPackageSourceRequest>(
+                match.Declaration.Source.PackageRequest);
+        Assert.Equal("net10.0", request.RequestedTargetFramework);
+        Assert.Null(request.RequestedRuntimeIdentifier);
     }
 
     private static TypeFindBlock SemanticBlock(

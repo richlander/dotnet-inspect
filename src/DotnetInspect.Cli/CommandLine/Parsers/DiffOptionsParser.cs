@@ -50,7 +50,8 @@ public static class DiffOptionsParser
         Option<string[]> AnalysisOption,
         Option<bool> LegendOption,
         Option<string[]> RepoOption,
-        Option<bool> CompactOption);
+        Option<bool> CompactOption,
+        Option<bool> AnnotatedSourceIlOption);
 
     /// <summary>
     /// Result of parsing diff command options.
@@ -162,6 +163,8 @@ public static class DiffOptionsParser
             JsonOutput = !envelopeOutput && opts.ResolveFormat(parseResult) == OutputFormat.Json,
             EnvelopeOutput = envelopeOutput,
             CompactJson = parseResult.GetValue(args.CompactOption),
+            IncludeAnnotatedSourceIl =
+                parseResult.GetValue(args.AnnotatedSourceIlOption),
             VerbosityExplicitlySet =
                 parseResult.GetResult(opts.Verbosity) is { Implicit: false },
             HasRenderedLineWindow =

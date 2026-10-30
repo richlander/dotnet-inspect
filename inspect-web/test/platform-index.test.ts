@@ -5,6 +5,7 @@ import {
   parsePlatformCatalogTarget,
   parsePlatformIndex,
   platformCatalogFramework,
+  platformRuntimePruningInventory,
 } from "../src/platform-index.ts";
 
 function row(assembly: string, overrides: Record<string, unknown> = {}) {
@@ -64,6 +65,57 @@ test("catalog preserves reference membership independently of runtime role", () 
     version: "11.0.0-preview.7.26381.103",
   }]);
   assert.equal(index.target("net10.0"), null);
+});
+
+test("call graph pruning receives only the exact Runtime supply inventory", () => {
+  const value = catalog().targets[0];
+  assert.ok(value);
+  const target = parsePlatformCatalogTarget({
+    ...value,
+    supplies: [
+      ...value.supplies,
+      {
+        pack: "aspnetcore.app",
+        family: "Microsoft.AspNetCore.App",
+        package: "Microsoft.Extensions.Http",
+        version: value.version,
+      },
+    ],
+  });
+  assert.deepEqual(
+    platformRuntimePruningInventory(target, target.tfm),
+    {
+      tfm: target.tfm,
+      version: target.version,
+      supplies: [{
+        package: "System.Text.Json",
+        version: target.version,
+      }],
+    });
+  assert.deepEqual(
+    platformRuntimePruningInventory({
+      ...target,
+      supplies: null,
+    }, target.tfm),
+    {
+      tfm: target.tfm,
+      version: target.version,
+      supplies: null,
+    });
+  assert.deepEqual(
+    platformRuntimePruningInventory(target, `${target.tfm}-ios`),
+    {
+      tfm: `${target.tfm}-ios`,
+      version: null,
+      supplies: null,
+    });
+  assert.deepEqual(
+    platformRuntimePruningInventory(null, "net12.0"),
+    {
+      tfm: "net12.0",
+      version: null,
+      supplies: null,
+    });
 });
 
 test("new exact catalogs coexist without changing the selected shipped target", () => {

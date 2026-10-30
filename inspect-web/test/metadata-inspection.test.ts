@@ -20,6 +20,8 @@ import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
 function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
   return {
+    typeSignatureInspection: null,
+    typeSignaturePresentation: null,
     exactTypeInspection: {
       content: {
         outcome: 0,
@@ -69,7 +71,7 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
       },
       diagnostics: [],
     },
-    derivedTypes: [],
+    hierarchy: null,
     graphNodes: [],
     graphEdges: [],
     typeDependencyInspection: {
@@ -183,6 +185,7 @@ function typeRequest(
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package.dll",
     type: "Example.Widget",
     typeIdentity: "Example.Widget",
@@ -250,6 +253,7 @@ test("type metadata publishes the current result and restores visible focus", as
             value.packageId,
             value.version,
             value.framework,
+            value.runtimeIdentifier,
             value.assembly,
             value.type,
             value.workspaceJson,
@@ -258,6 +262,7 @@ test("type metadata publishes the current result and restores visible focus", as
             "Example.Package",
             "1.2.3",
             "net10.0",
+            null,
             "Example.Package.dll",
             "Example.Widget",
             '[{"package":"Example.Package","version":"1.2.3","framework":"net10.0"}]',

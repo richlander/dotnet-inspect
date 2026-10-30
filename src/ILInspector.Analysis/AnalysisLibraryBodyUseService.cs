@@ -362,7 +362,9 @@ public static class AnalysisLibraryBodyUseService
             static diagnostic =>
                 diagnostic.Kind
                     is not AnalysisLibraryBodyUseDiagnosticKind
-                        .UnavailableLogicalOwner);
+                        .UnavailableLogicalOwner
+                    and not AnalysisLibraryBodyUseDiagnosticKind
+                        .RejectedLogicalOwner);
         return partial
             ? AnalysisLibraryBodyUseDisposition.Partial
             : value.Coverage.BodiesPhysicalOnly != 0

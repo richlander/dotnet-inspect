@@ -195,7 +195,14 @@ public static class PackageNamespaceDiscoveryInspection
                                     ApiTypeInventoryKinds.All,
                                     request.Namespace,
                                     request.NamespaceMatch),
-                                request.Bounds)),
+                                new LibraryInspectionBounds(
+                                    request.Bounds.MaxTypes,
+                                    request.Bounds.MaxMembers,
+                                    request.Bounds.MaxInspectionFailures,
+                                    request.Bounds.MaxTypeForwarders,
+                                    request.Bounds.MaxMetadataRows,
+                                    request.Bounds
+                                        .MaxRetainedTextCharacters))),
                         lease,
                         cancellationToken);
                 foreach (InspectionDiagnostic diagnostic

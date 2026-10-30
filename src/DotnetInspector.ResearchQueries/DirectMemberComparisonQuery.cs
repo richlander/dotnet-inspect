@@ -13,7 +13,31 @@ namespace DotnetInspector.Queries;
 /// <summary>An idless physical designation attached to its borrowed source occurrence.</summary>
 public sealed record DirectMemberComparisonEndpoint(
     AssemblyContextParticipant Participant,
-    MetadataMethodAddress? Address);
+    MetadataMethodAddress? Address)
+{
+    public DirectMemberComparisonEndpoint(
+        AssemblyContextParticipant participant,
+        ProjectedMethodAddress designation)
+        : this(participant, AddressFrom(designation))
+    {
+    }
+
+    static MetadataMethodAddress AddressFrom(
+        ProjectedMethodAddress designation)
+    {
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(designation.MetadataToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+        {
+            throw new ArgumentException(
+                "A direct member comparison designation must identify a MethodDef.",
+                nameof(designation));
+        }
+        return new(
+            designation.ModuleVersionId,
+            (MethodDefinitionHandle)handle);
+    }
+}
 
 public sealed class DirectMemberComparisonRequest
 {

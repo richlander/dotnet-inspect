@@ -42,6 +42,12 @@ public static class SectionNames
     /// <summary>Section for base class.</summary>
     public const string Baseclass = "Baseclass";
 
+    /// <summary>Types that implement the selected interface.</summary>
+    public const string Implementers = "Implementers";
+
+    /// <summary>Types that derive from the selected base type.</summary>
+    public const string DerivedTypes = "Derived Types";
+
     /// <summary>Section for remote source file links (SourceLink).</summary>
     public const string RemoteSource = "Remote Source";
 
@@ -62,6 +68,9 @@ public static class SectionNames
 
     /// <summary>Section for method overload rows.</summary>
     public const string Methods = "Methods";
+
+    public const string Overloads = "Overloads";
+    public const string DocumentedOverloads = "Documented Overloads";
 
     /// <summary>Section for copyable member selectors and canonical signatures.</summary>
     public const string MemberIndex = "Member Index";
@@ -229,8 +238,8 @@ public static class SectionNames
     /// exact library.
     /// </summary>
     public const string NameFamilies = "Name Families";
-    public const string NameFamilyRoles = "Name Family Roles";
-    public const string NameFamilyRoleTypes = "Name Family Role Types";
+    public const string ArchitecturalFamilies = "Architectural Families";
+    public const string ArchitecturalFamilyTypes = "Architectural Family Types";
     public const string DependencyStructure = "Dependency Structure";
 
     public static bool IncludesBodyMetrics(
@@ -275,6 +284,10 @@ public static class SectionNames
 
     /// <summary>Async state-machine performance findings.</summary>
     public const string PerformanceAsync = "Performance: Async";
+
+    /// <summary>Synchronous calls in async methods with callable async siblings.</summary>
+    public const string PerformanceSyncCallsInAsync =
+        "Performance: Sync Calls in Async";
 
     /// <summary>Catch-all for performance findings whose shape has no dedicated section (keeps the scan non-lossy).</summary>
     public const string PerformanceOther = "Performance: Other";

@@ -71,13 +71,10 @@ public sealed class IrInvariantCheckTests
         Assert.Throws<InvalidOperationException>(root.CheckInvariant);
     }
 
-    // ---- Semantic invariant: local-slot range (CheckInvariant(includeSemantics: true)) ----
-    // These pass includeSemantics:true DIRECTLY, never reading the global
-    // IrInvariants.CheckSemantics level, so they stay hermetic under xUnit's
-    // parallel collections — raising that level process-wide would false-positive
-    // the 5 minimal-fixture pass tests that reference slots without populating
-    // Locals (#3302), which is why it has no setter and moves only via
-    // DOTNET_INSPECT_IR_INVARIANTS=full.
+    // ---- Semantic invariants (CheckInvariant(includeSemantics: true)) ----
+    // These pass includeSemantics:true directly, never reading the global
+    // IrInvariants.CheckSemantics level, so their coverage stays hermetic under
+    // xUnit's parallel collections.
 
     [Fact]
     public void SemanticCheck_PassesWhenLocalSlotIsInRange()
@@ -114,6 +111,49 @@ public sealed class IrInvariantCheckTests
         // ...but the semantic mode, meant for real importer output, does.
         Assert.Throws<InvalidOperationException>(
             () => function.CheckInvariant(includeSemantics: true));
+    }
+
+    [Fact]
+    public void SemanticCheck_ThrowsWhenEliminatedLocalIsReferenced()
+    {
+        var (function, block) = MinimalFunction();
+        function.MarkLocalEliminated(0);
+        block.Add(new StoreLocal(0, IntType, new Constant(0, IntType)));
+
+        function.CheckInvariant();
+        var error = Assert.Throws<InvalidOperationException>(
+            () => function.CheckInvariant(includeSemantics: true));
+
+        Assert.Contains("references eliminated local slot 0", error.Message);
+    }
+
+    [Fact]
+    public void SemanticCheck_ThrowsWhenEliminatedLocalIsOutOfRange()
+    {
+        var (function, _) = MinimalFunction();
+        function.ResetLocals([IntType], [null], new HashSet<int> { 1 });
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => function.CheckInvariant(includeSemantics: true));
+
+        Assert.Contains("eliminated local slot 1 is out of range", error.Message);
+    }
+
+    [Fact]
+    public void SemanticCheck_UsesTheOwningLocalScopeForEliminatedSlots()
+    {
+        var (function, block) = MinimalFunction();
+        function.MarkLocalEliminated(0);
+        block.Add(LocalFunctionStoringLocal(isStatic: false, locals: [], slot: 0));
+
+        Assert.Throws<InvalidOperationException>(
+            () => function.CheckInvariant(includeSemantics: true));
+
+        var (isolated, isolatedBlock) = MinimalFunction();
+        isolated.MarkLocalEliminated(0);
+        isolatedBlock.Add(LocalFunctionStoringLocal(isStatic: true, locals: [IntType], slot: 0));
+
+        isolated.CheckInvariant(includeSemantics: true);
     }
 
     [Fact]
@@ -293,6 +333,22 @@ public sealed class IrInvariantCheckTests
         Assert.Contains("local slot", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PipelineRunner_ThrowsWhenAPassReferencesAnEliminatedLocal()
+    {
+        Assert.True(IrInvariants.CheckSemantics,
+            "Semantic IR invariants should be armed by default for any host that does not explicitly opt out.");
+
+        var (function, block) = MinimalFunction();
+        function.MarkLocalEliminated(0);
+        var passes = ImmutableArray.Create<IIrPass>(new EliminatedLocalReferencePass(block));
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => IrPasses.Run(function, passes));
+
+        Assert.Contains("references eliminated local slot 0", error.Message);
+    }
+
     /// <summary>
     /// Proves the pass above is caught by the <em>semantic</em> level and not
     /// incidentally by the structural one: the same corrupted tree passes a
@@ -321,6 +377,27 @@ public sealed class IrInvariantCheckTests
         return (function, block);
     }
 
+    static LocalFunctionStatement LocalFunctionStoringLocal(
+        bool isStatic,
+        ImmutableArray<TypeRef> locals,
+        int slot)
+    {
+        var block = new Block(0);
+        block.Add(new StoreLocal(slot, IntType, new Constant(0, IntType)));
+        var body = new BlockContainer();
+        body.Add(block);
+        return new LocalFunctionStatement(
+            "Local",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            isStatic,
+            locals,
+            Enumerable.Repeat((string?)null, locals.Length).ToImmutableArray(),
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            body);
+    }
+
     sealed class SlotCorruptingPass(Block target) : IIrPass
     {
         public string Name => "SlotCorrupting(test)";
@@ -340,5 +417,13 @@ public sealed class IrInvariantCheckTests
 
         public void Run(IrFunction function, PassContext context) =>
             target.Add(new StoreLocal(5, IntType, new Constant(0, IntType)));
+    }
+
+    sealed class EliminatedLocalReferencePass(Block target) : IIrPass
+    {
+        public string Name => "EliminatedLocalReference(test)";
+
+        public void Run(IrFunction function, PassContext context) =>
+            target.Add(new StoreLocal(0, IntType, new Constant(0, IntType)));
     }
 }

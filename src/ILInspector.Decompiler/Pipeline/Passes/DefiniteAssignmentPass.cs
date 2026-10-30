@@ -20,15 +20,29 @@ public sealed class DefiniteAssignmentPass : IIrPass
 {
     public string Name => "definite-assignment";
 
-    public void Run(IrFunction function, PassContext context) => Issue(function);
+    public PassAnalysisKind RequiredAnalyses
+        => PassAnalysisKind.BranchTargets;
+
+    public PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.BranchTargets;
+
+    public void Run(IrFunction function, PassContext context)
+        => Issue(function, context.BranchTargets(function));
 
     /// <summary>Issues the decided zero-initialized locals on the function and every nested body.</summary>
     public static void Issue(IrFunction function)
+        => Issue(
+            function,
+            ReferenceOwnership.CollectBranchTargets(function));
+
+    static void Issue(
+        IrFunction function,
+        IReadOnlySet<int> branchTargets)
     {
         function.ZeroInitializedLocals = Decide(
             function.Body,
             function.Locals.Length,
-            ReferenceOwnership.CollectBranchTargets(function),
+            branchTargets,
             function.ResidualSlotBindings);
         foreach (var node in function.Descendants)
         {

@@ -6,11 +6,631 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata.ConsumerCanary;
+using InertText;
 
 namespace ILInspector.Metadata.Tests;
 
 public sealed class MetadataTypeDeclarationEvidenceTests
 {
+    [Fact]
+    public void CompleteSignatureIsCachedSeparatelyFromDeclaration()
+    {
+        string path =
+            typeof(TypeSignatureSubject<,>).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(
+                    reader,
+                    "ILInspector.Metadata.Tests",
+                    "TypeSignatureSubject`2"));
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+
+        MetadataTypeDeclarationResult declaration =
+            declarations.PostTypeDeclaration(
+                address,
+                TestContext.Current.CancellationToken);
+        MetadataOperationCounters declarationCounters =
+            operation.Counters;
+        MetadataTypeSignatureResult signature =
+            declarations.PostTypeSignature(
+                address,
+                TestContext.Current.CancellationToken);
+        MetadataOperationCounters signatureCounters =
+            operation.Counters;
+
+        var declarationPosted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                declaration);
+        var signaturePosted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                signature);
+        Assert.Same(
+            declarationPosted.Evidence,
+            signaturePosted.Evidence.Declaration);
+        Assert.NotEqual(
+            declarationCounters,
+            signatureCounters);
+        Assert.Same(
+            declaration,
+            declarations.PostTypeDeclaration(
+                address,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(signatureCounters, operation.Counters);
+        Assert.Same(
+            signature,
+            declarations.PostTypeSignature(
+                address,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(signatureCounters, operation.Counters);
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.Throws<OperationCanceledException>(
+            () => declarations.PostTypeSignature(
+                address,
+                cancellation.Token));
+    }
+
+    [Fact]
+    public void RepeatedSignatureRejectionIsCachedWithoutAdditionalWork()
+    {
+        using Fixture fixture =
+            Fixture.CreateMalformedConstraintType();
+        using var assembly =
+            AssemblyInspectionSession.Open(fixture.Path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+
+        MetadataTypeSignatureResult first =
+            declarations.PostTypeSignature(
+                fixture["Generic"],
+                TestContext.Current.CancellationToken);
+        MetadataOperationCounters counters = operation.Counters;
+        MetadataTypeSignatureResult second =
+            declarations.PostTypeSignature(
+                fixture["Generic"],
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<MetadataTypeSignatureResult.Rejected>(
+            first);
+        Assert.Same(first, second);
+        Assert.Equal(counters, operation.Counters);
+    }
+
+    [Fact]
+    public void CompleteSignatureChargesEveryOwnedWorkDimension()
+    {
+        string path =
+            typeof(TypeSignatureSubject<,>).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(
+                    reader,
+                    "ILInspector.Metadata.Tests",
+                    "TypeSignatureSubject`2"));
+        var baseline = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(path, address));
+        MetadataOperationCounters counters =
+            baseline.Counters;
+        var exact = new MetadataOperationPolicy(
+            long.MaxValue,
+            maxDeclarationCandidates:
+                counters.DeclarationCandidates,
+            maxRelationshipEdges:
+                counters.RelationshipEdges,
+            maxSignatureBytes: counters.SignatureBytes,
+            maxStructuredNodes: counters.StructuredNodes,
+            maxRetainedText: counters.RetainedText);
+        Assert.IsType<MetadataTypeSignatureResult.Posted>(
+            RunSignature(path, address, exact));
+
+        foreach ((MetadataOperationDimension dimension, long limit)
+            in new[]
+            {
+                (
+                    MetadataOperationDimension
+                        .RelationshipEdges,
+                    counters.RelationshipEdges),
+                (
+                    MetadataOperationDimension.SignatureBytes,
+                    counters.SignatureBytes),
+                (
+                    MetadataOperationDimension.StructuredNodes,
+                    counters.StructuredNodes),
+                (
+                    MetadataOperationDimension.RetainedText,
+                    counters.RetainedText),
+            })
+        {
+            Assert.True(limit > 0);
+            var rejected = Assert.IsType<
+                MetadataTypeSignatureResult.Rejected>(
+                    RunSignature(
+                        path,
+                        address,
+                        Limit(dimension, limit - 1)));
+            Assert.Equal(
+                MetadataTypeDeclarationFailureReason
+                    .BudgetExceeded,
+                rejected.Failure.Reason);
+            Assert.Equal(
+                dimension,
+                rejected.Failure.BudgetDimension);
+        }
+    }
+
+    [Fact]
+    public void CompleteSignaturePostsBaseConstraintsAndImmediateNestedTypes()
+    {
+        string path =
+            typeof(TypeSignatureSubject<,>).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(
+                    reader,
+                    "ILInspector.Metadata.Tests",
+                    "TypeSignatureSubject`2"));
+
+        MetadataTypeSignatureResult result =
+            RunSignature(path, address);
+        var posted =
+            Assert.IsType<MetadataTypeSignatureResult.Posted>(
+                result);
+        MetadataTypeSignatureEvidence evidence =
+            posted.Evidence;
+
+        Assert.Equal(3, evidence.NestedTypeCount);
+        Assert.NotNull(evidence.BaseType);
+        var baseInstance = Assert.IsType<
+            MetadataTypeSignatureType.GenericInstance>(
+                evidence.BaseType.Type);
+        Assert.True(
+            baseInstance.Definition.Name.Namespace
+                .ValueTextEquals(
+                    "ILInspector.Metadata.Tests"u8));
+        Assert.True(
+            Assert.Single(
+                baseInstance.Definition.Name.Segments)
+                .ValueTextEquals("TypeSignatureBase`1"u8));
+        var baseArray = Assert.IsType<
+            MetadataTypeSignatureType.SzArray>(
+                Assert.Single(baseInstance.Arguments));
+        Assert.Equal(
+            0,
+            Assert.IsType<
+                MetadataTypeSignatureType.TypeParameter>(
+                    baseArray.Element)
+                .Index);
+
+        Assert.Equal(2, evidence.GenericParameters.Length);
+        Assert.Empty(
+            evidence.GenericParameters[0].TypeConstraints);
+        ImmutableArray<
+            MetadataTypeSignatureConstraintEvidence>
+            constraints = evidence.GenericParameters[1]
+                .TypeConstraints;
+        Assert.Equal(4, constraints.Length);
+        Assert.True(
+            NamedDefinition(constraints[0].Type)
+                .Segments[^1]
+                .ValueTextEquals(
+                    "TypeSignatureConstraintMarker"u8));
+        Assert.True(
+            NamedDefinition(constraints[1].Type)
+                .Segments[^1]
+                .ValueTextEquals("IComparable`1"u8));
+        Assert.True(
+            NamedDefinition(constraints[2].Type)
+                .Segments[^1]
+                .ValueTextEquals("IEnumerable`1"u8));
+        Assert.True(
+            NamedDefinition(constraints[3].Type)
+                .Segments[^1]
+                .ValueTextEquals("IDisposable"u8));
+        Assert.All(
+            constraints,
+            constraint => Assert.Equal(
+                (byte)1,
+                constraint.NullableFlag));
+    }
+
+    [Fact]
+    public void CompleteSignatureNamesRemainDetachedAfterSessionDisposal()
+    {
+        string path =
+            typeof(TypeSignatureSubject<,>).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(
+                    reader,
+                    "ILInspector.Metadata.Tests",
+                    "TypeSignatureSubject`2"));
+
+        MetadataTypeSignatureResult result =
+            RunSignature(path, address);
+        var posted =
+            Assert.IsType<MetadataTypeSignatureResult.Posted>(
+                result);
+        Assert.NotNull(posted.Evidence.BaseType);
+        var baseInstance = Assert.IsType<
+            MetadataTypeSignatureType.GenericInstance>(
+                posted.Evidence.BaseType.Type);
+
+        Assert.True(
+            baseInstance.Definition.Name.Namespace
+                .ValueTextEquals(
+                    "ILInspector.Metadata.Tests"u8));
+        Assert.True(
+            Assert.Single(
+                baseInstance.Definition.Name.Segments)
+                .ValueTextEquals("TypeSignatureBase`1"u8));
+    }
+
+    [Fact]
+    public void TypeSpecificationBasePostsByteBackedGenericShape()
+    {
+        using Fixture fixture =
+            Fixture.CreateTypeSpecificationBases();
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["ClassSpec"]));
+        Assert.NotNull(posted.Evidence.BaseType);
+        var generic = Assert.IsType<
+            MetadataTypeSignatureType.GenericInstance>(
+                posted.Evidence.BaseType.Type);
+
+        Assert.True(
+            generic.Definition.Name.Namespace
+                .ValueTextEquals("Samples"u8));
+        Assert.Equal(
+            MetadataTypeSignatureNamedKind.Class,
+            generic.Definition.Kind);
+        Assert.True(
+            Assert.Single(generic.Definition.Name.Segments)
+                .ValueTextEquals("GenericBase`1"u8));
+        Assert.Equal(
+            PrimitiveTypeCode.Int32,
+            Assert.IsType<
+                MetadataTypeSignatureType.Primitive>(
+                    Assert.Single(generic.Arguments))
+                .Code);
+        Assert.Equal(0, posted.Evidence.NestedTypeCount);
+    }
+
+    [Theory]
+    [InlineData(
+        typeof(TypeSignatureConstraintMarker),
+        "System",
+        "Object")]
+    [InlineData(
+        typeof(TypeSignatureLocalDerived),
+        "ILInspector.Metadata.Tests",
+        "TypeSignatureConstraintMarker")]
+    [InlineData(typeof(int), "System", "ValueType")]
+    public void CompleteSignaturePostsDirectNamedBase(
+        Type type,
+        string expectedNamespace,
+        string expectedName)
+    {
+        string path = type.Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(
+                    reader,
+                    type.Namespace!,
+                    type.Name));
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(path, address));
+        Assert.NotNull(posted.Evidence.BaseType);
+        var named = Assert.IsType<
+            MetadataTypeSignatureType.Named>(
+                posted.Evidence.BaseType.Type);
+
+        Assert.Equal(
+            MetadataTypeSignatureNamedKind.Unspecified,
+            named.Kind);
+        Assert.True(
+            named.Name.Namespace.ValueTextEquals(
+                System.Text.Encoding.UTF8.GetBytes(
+                    expectedNamespace)));
+        Assert.True(
+            Assert.Single(named.Name.Segments)
+                .ValueTextEquals(
+                    System.Text.Encoding.UTF8.GetBytes(
+                        expectedName)));
+    }
+
+    [Fact]
+    public void DirectBaseTypeNameKeepsLiteralBacktickBytes()
+    {
+        using Fixture fixture =
+            Fixture.CreateLiteralBacktickTypeNames();
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Derived"]));
+        Assert.NotNull(posted.Evidence.BaseType);
+        var named = Assert.IsType<
+            MetadataTypeSignatureType.Named>(
+                posted.Evidence.BaseType.Type);
+
+        Assert.True(
+            Assert.Single(named.Name.Segments)
+                .ValueTextEquals("Base`Literal"u8));
+        Assert.Equal(
+            [0],
+            named.Name.IntroducedGenericParameterCounts);
+    }
+
+    [Fact]
+    public void DirectConstraintTypeNameKeepsLiteralBacktickBytes()
+    {
+        using Fixture fixture =
+            Fixture.CreateLiteralBacktickTypeNames();
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Generic"]));
+        MetadataTypeSignatureConstraintEvidence constraint =
+            Assert.Single(
+                Assert.Single(posted.Evidence.GenericParameters)
+                    .TypeConstraints);
+        var named = Assert.IsType<
+            MetadataTypeSignatureType.Named>(
+                constraint.Type);
+
+        Assert.True(
+            Assert.Single(named.Name.Segments)
+                .ValueTextEquals("Constraint`Literal"u8));
+        Assert.Equal(
+            [0],
+            named.Name.IntroducedGenericParameterCounts);
+    }
+
+    [Fact]
+    public void CanonicalTypeDefArityMustMatchGenericParameters()
+    {
+        using Fixture fixture =
+            Fixture.CreateContradictoryTypeNameArity();
+
+        var rejected = Assert.IsType<
+            MetadataTypeSignatureResult.Rejected>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Derived"]));
+
+        Assert.Equal(
+            MetadataTypeDeclarationFailureReason
+                .MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataTypeDeclarationStage
+                .SignatureBaseProjection,
+            rejected.Failure.Stage);
+    }
+
+    [Fact]
+    public void CompleteSignatureRejectsUnrenderableArrayRank()
+    {
+        using Fixture fixture =
+            Fixture.CreateUnrenderableArrayConstraint();
+
+        var rejected = Assert.IsType<
+            MetadataTypeSignatureResult.Rejected>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Generic"]));
+
+        Assert.Equal(
+            MetadataTypeDeclarationFailureReason
+                .MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataTypeDeclarationStage
+                .SignatureConstraintProjection,
+            rejected.Failure.Stage);
+    }
+
+    [Fact]
+    public void CompleteSignaturePostsNoBaseForSystemObject()
+    {
+        string path = typeof(object).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(reader, "System", "Object"));
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(path, address));
+
+        Assert.Null(posted.Evidence.BaseType);
+        Assert.Empty(posted.Evidence.GenericParameters);
+    }
+
+    [Fact]
+    public void CompleteSignaturePostsBaseDynamicTransformFlags()
+    {
+        string path =
+            typeof(TypeSignatureDynamicSubject).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(
+                    reader,
+                    "ILInspector.Metadata.Tests",
+                    nameof(TypeSignatureDynamicSubject)));
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(path, address));
+        Assert.NotNull(posted.Evidence.BaseType);
+
+        Assert.Equal(
+            [false, true],
+            posted.Evidence.BaseType.DynamicFlags.Select(
+                flag => flag != 0));
+    }
+
+    [Fact]
+    public void CompleteSignaturePostsConstraintNullableFlag()
+    {
+        string path =
+            typeof(TypeSignatureNullableConstraint<>)
+                .Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(
+                    reader,
+                    "ILInspector.Metadata.Tests",
+                    "TypeSignatureNullableConstraint`1"));
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(path, address));
+        MetadataTypeSignatureConstraintEvidence constraint =
+            Assert.Single(
+                Assert.Single(posted.Evidence.GenericParameters)
+                    .TypeConstraints);
+
+        Assert.Equal((byte)2, constraint.NullableFlag);
+    }
+
+    [Fact]
+    public void DeclarationDoesNotDecodeMalformedConstraintType()
+    {
+        using Fixture fixture =
+            Fixture.CreateMalformedConstraintType();
+
+        var declaration = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(fixture.Path, fixture["Generic"]));
+        Assert.Equal(
+            1,
+            Assert.Single(
+                declaration.Evidence.Signature
+                    .GenericParameters)
+                .ConstraintCount);
+
+        var rejected = Assert.IsType<
+            MetadataTypeSignatureResult.Rejected>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Generic"]));
+        Assert.Equal(
+            MetadataTypeDeclarationFailureReason
+                .MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataTypeDeclarationStage
+                .SignatureConstraintProjection,
+            rejected.Failure.Stage);
+    }
+
+    [Fact]
+    public void OuterConstraintCannotReferenceNestedTypeParameter()
+    {
+        using Fixture fixture =
+            Fixture.CreateOuterConstraintWithNestedParameter();
+
+        var declaration = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(fixture.Path, fixture["Inner"]));
+        Assert.Equal(
+            2,
+            declaration.Evidence.Signature
+                .GenericParameters.Length);
+
+        var rejected = Assert.IsType<
+            MetadataTypeSignatureResult.Rejected>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Inner"]));
+        Assert.Equal(
+            MetadataTypeDeclarationFailureReason
+                .MalformedMetadata,
+            rejected.Failure.Reason);
+        Assert.Equal(
+            MetadataTypeDeclarationStage
+                .SignatureConstraintProjection,
+            rejected.Failure.Stage);
+    }
+
+    [Fact]
+    public void ConstraintTypeNameKeepsIllFormedUtf8Bytes()
+    {
+        using Fixture fixture =
+            Fixture.CreateIllFormedConstraintTypeName();
+
+        var posted = Assert.IsType<
+            MetadataTypeSignatureResult.Posted>(
+                RunSignature(
+                    fixture.Path,
+                    fixture["Generic"]));
+        MetadataTypeSignatureConstraintEvidence constraint =
+            Assert.Single(
+                Assert.Single(posted.Evidence.GenericParameters)
+                    .TypeConstraints);
+        var named = Assert.IsType<
+            MetadataTypeSignatureType.Named>(
+                constraint.Type);
+        byte[] expected =
+            System.Text.Encoding.UTF8.GetBytes(
+                "QQConstraint");
+        expected[0] = 0xff;
+        expected[1] = 0xfe;
+
+        Assert.True(
+            Assert.Single(named.Name.Segments)
+                .ValueTextEquals(expected));
+    }
+
     [Fact]
     public void RepeatedExactRequestReusesPostedResultWithoutAdditionalWork()
     {
@@ -137,6 +757,12 @@ public sealed class MetadataTypeDeclarationEvidenceTests
         Assert.Equal(
             MetadataTypeDeclarationCategory.Struct,
             posted.Evidence.Category);
+        Assert.Equal(
+            MetadataTypeDeclarationBaseKind.ValueType,
+            posted.Evidence.BaseKind);
+        Assert.True(posted.Evidence.InterfaceCount > 0);
+        Assert.False(posted.Evidence.IsHidden);
+        Assert.False(posted.Evidence.IsCompilerGenerated);
         Assert.False(posted.Evidence.IsByRefLike);
         Assert.True(posted.Evidence.DefinesCoreLibraryRoot);
         Assert.Null(posted.Evidence.DeclaringType);
@@ -172,6 +798,85 @@ public sealed class MetadataTypeDeclarationEvidenceTests
     }
 
     [Fact]
+    public void RealStringBuilderPostsBaseAndInterfaceSummaryEvidence()
+    {
+        string path =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle handle = FindType(
+            reader,
+            "System.Text",
+            nameof(System.Text.StringBuilder));
+
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        handle)));
+
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Class,
+            posted.Evidence.Category);
+        Assert.Equal(
+            MetadataTypeDeclarationBaseKind.Object,
+            posted.Evidence.BaseKind);
+        Assert.True(posted.Evidence.InterfaceCount > 0);
+    }
+
+    [Fact]
+    public void CompilerProducedHiddenTypePostsAdmissionEvidence()
+    {
+        string path =
+            typeof(TypeDeclarationHiddenClass).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle handle = FindType(
+            reader,
+            "ILInspector.Metadata.Tests",
+            nameof(TypeDeclarationHiddenClass));
+
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        handle)));
+
+        Assert.True(posted.Evidence.IsHidden);
+    }
+
+    [Fact]
+    public void CompilerGeneratedNamePostsAdmissionEvidence()
+    {
+        string path =
+            typeof(__CompilerGeneratedTypeDeclarationProbe)
+                .Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle handle = FindType(
+            reader,
+            "ILInspector.Metadata.Tests",
+            nameof(__CompilerGeneratedTypeDeclarationProbe));
+
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        handle)));
+
+        Assert.True(posted.Evidence.IsCompilerGenerated);
+    }
+
+    [Fact]
     public void CompilerProducedRefStructPostsModifierEvidence()
     {
         string path =
@@ -196,6 +901,38 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             MetadataTypeDeclarationCategory.Struct,
             posted.Evidence.Category);
         Assert.True(posted.Evidence.IsByRefLike);
+        Assert.False(posted.Evidence.IsReadOnly);
+    }
+
+    [Theory]
+    [InlineData(typeof(TypeDeclarationReadonlyStruct), false)]
+    [InlineData(typeof(TypeDeclarationReadonlyRefStruct), true)]
+    public void CompilerProducedReadonlyStructPostsModifierEvidence(
+        Type type,
+        bool isByRefLike)
+    {
+        string path = type.Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle handle = FindType(
+            reader,
+            "ILInspector.Metadata.Tests",
+            type.Name);
+
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        handle)));
+
+        Assert.Equal(
+            MetadataTypeDeclarationCategory.Struct,
+            posted.Evidence.Category);
+        Assert.Equal(isByRefLike, posted.Evidence.IsByRefLike);
+        Assert.True(posted.Evidence.IsReadOnly);
     }
 
     [Fact]
@@ -331,6 +1068,200 @@ public sealed class MetadataTypeDeclarationEvidenceTests
     }
 
     [Fact]
+    public void CompilerProducedParametersPostTheirConstraintAnnotations()
+    {
+        string path =
+            typeof(TypeDeclarationAnnotatedParameters<,,,,>)
+                .Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(
+                    path,
+                    MetadataTypeDefinitionAddress.FromHandle(
+                        reader,
+                        FindType(
+                            reader,
+                            "ILInspector.Metadata.Tests",
+                            "TypeDeclarationAnnotatedParameters`5"))));
+
+        Assert.Equal(
+            [
+                ("TNotNull", "notnull", 0),
+                ("TNullableClass", "class?", 0),
+                ("TClass", "class", 0),
+                ("TUnmanaged", "unmanaged", 1),
+                ("TPlain", null, 0),
+            ],
+            posted.Evidence.Signature.GenericParameters.Select(
+                parameter =>
+                {
+                    Assert.True(parameter.Annotations.IsCanonical);
+                    return (
+                        parameter.Name
+                            .Contain(TextPolicy.Field)
+                            .ToString(),
+                        GenericConstraintKeywords.PrimaryKeyword(
+                            parameter.Attributes,
+                            parameter.Annotations.NullableFlag,
+                            parameter.Annotations.IsUnmanaged),
+                        parameter.ConstraintCount);
+                }));
+    }
+
+    [Fact]
+    public void ConstraintAnnotationsAgreeWithTheApiSurfaceProjection()
+    {
+        string path = typeof(int).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            includeAll: true,
+            typesOnly: true);
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+
+        int compared = 0;
+        foreach (ApiType type in surface.Types)
+        {
+            if (type.TypeParameters.Count == 0
+                || type.MetadataToken is not { } token)
+            {
+                continue;
+            }
+
+            var posted = Assert.IsType<
+                MetadataTypeDeclarationResult.Posted>(
+                    declarations.PostTypeDeclaration(
+                        MetadataTypeDefinitionAddress.FromHandle(
+                            reader,
+                            MetadataTokens.TypeDefinitionHandle(
+                                token)),
+                        TestContext.Current.CancellationToken));
+            ImmutableArray<
+                MetadataTypeGenericParameterDeclarationEvidence>
+                parameters =
+                    posted.Evidence.Signature.GenericParameters;
+            // A nested Type repeats its enclosing GenericParam rows, which the post retains
+            // from their declaring owner; only rows the leaf introduces are the same rows.
+            int leaf =
+                posted.Evidence.DefinitionIdentity.Segments.Length - 1;
+            if (parameters.Length != type.TypeParameters.Count
+                || parameters.Any(parameter =>
+                    parameter.DefinitionSegmentIndex != leaf))
+            {
+                continue;
+            }
+
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                MetadataTypeGenericParameterDeclarationEvidence
+                    parameter = parameters[i];
+                TypeParameter expected = type.TypeParameters[i];
+                Assert.True(
+                    parameter.Name.ValueTextEquals(
+                        System.Text.Encoding.UTF8.GetBytes(
+                            expected.Name)));
+                Assert.True(parameter.Annotations.IsCanonical);
+                if (parameter.ConstraintCount != 0)
+                    continue;
+
+                Assert.Equal(
+                    expected.Constraints,
+                    new[]
+                    {
+                        GenericConstraintKeywords.PrimaryKeyword(
+                            parameter.Attributes,
+                            parameter.Annotations.NullableFlag,
+                            parameter.Annotations.IsUnmanaged),
+                        GenericConstraintKeywords
+                            .NewConstraintKeyword(
+                                parameter.Attributes),
+                        GenericConstraintKeywords
+                            .AllowsRefStructKeyword(
+                                parameter.Attributes),
+                    }.OfType<string>());
+                compared++;
+            }
+        }
+
+        Assert.True(
+            compared > 500,
+            $"Only {compared} CoreLib generic parameters were compared.");
+    }
+
+    [Fact]
+    public void NonCanonicalAnnotationsPostWithoutAClaim()
+    {
+        using Fixture fixture =
+            Fixture.CreateGenericParameterAnnotations(
+                illFormedName: false);
+
+        MetadataTypeGenericParameterAnnotations Annotations(
+            string name) =>
+            Assert.Single(
+                Posted(fixture, name).Signature.GenericParameters)
+                .Annotations;
+
+        Assert.Equal(
+            new MetadataTypeGenericParameterAnnotations(
+                true,
+                1,
+                false),
+            Annotations("Canonical`1"));
+        Assert.Equal(
+            new MetadataTypeGenericParameterAnnotations(
+                true,
+                2,
+                false),
+            Annotations("Contextual`1"));
+        Assert.False(Annotations("Truncated`1").IsCanonical);
+        Assert.False(Annotations("Duplicated`1").IsCanonical);
+        Assert.False(Annotations("EmptyArray`1").IsCanonical);
+        Assert.False(Annotations("MalformedContext`1").IsCanonical);
+    }
+
+    [Fact]
+    public void IllFormedParameterNameKeepsItsBytes()
+    {
+        using Fixture control =
+            Fixture.CreateGenericParameterAnnotations(
+                illFormedName: false);
+        using Fixture patched =
+            Fixture.CreateGenericParameterAnnotations(
+                illFormedName: true);
+
+        var expected = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(control.Path, control["Named`1"]));
+        var posted = Assert.IsType<
+            MetadataTypeDeclarationResult.Posted>(
+                Run(patched.Path, patched["Named`1"]));
+        MetadataUtf8Name expectedName =
+            Assert.Single(
+                expected.Evidence.Signature.GenericParameters).Name;
+        MetadataUtf8Name name =
+            Assert.Single(
+                posted.Evidence.Signature.GenericParameters).Name;
+
+        Assert.Equal(7, name.Length);
+        Assert.NotEqual(expectedName, name);
+        Assert.Equal(
+            "\\uDCFF\\uDCFEParam",
+            name.Contain(TextPolicy.Field).ToString());
+        Assert.Equal(
+            expected.Counters.RetainedText + 10,
+            posted.Counters.RetainedText);
+    }
+
+    [Fact]
     public void CompilerProducedNestedGenericPostsExactOpenSelf()
     {
         string path =
@@ -371,7 +1302,8 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             {
                 Assert.Equal(0, parameter.DefinitionSegmentIndex);
                 Assert.Equal(0, parameter.MetadataIndex);
-                Assert.Equal("T", parameter.Name.ToString());
+                Assert.True(parameter.Name.ValueTextEquals("T"u8));
+                Assert.Equal(0, parameter.ConstraintCount);
                 Assert.Equal(
                     GenericParameterAttributes
                         .ReferenceTypeConstraint
@@ -383,7 +1315,8 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             {
                 Assert.Equal(1, parameter.DefinitionSegmentIndex);
                 Assert.Equal(1, parameter.MetadataIndex);
-                Assert.Equal("U", parameter.Name.ToString());
+                Assert.True(parameter.Name.ValueTextEquals("U"u8));
+                Assert.Equal(0, parameter.ConstraintCount);
                 Assert.Equal(
                     GenericParameterAttributes.None,
                     parameter.Attributes);
@@ -872,6 +1805,43 @@ public sealed class MetadataTypeDeclarationEvidenceTests
         RunPublicationCancellation(fixture);
     }
 
+    [Fact]
+    public void SignatureCancellationIsObservedAtPublicationBoundary()
+    {
+        string path =
+            typeof(TypeSignatureSubject<,>).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MetadataTypeDefinitionAddress address =
+            MetadataTypeDefinitionAddress.FromHandle(
+                reader,
+                FindType(
+                    reader,
+                    "ILInspector.Metadata.Tests",
+                    "TypeSignatureSubject`2"));
+        using var cancellation = new CancellationTokenSource();
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            MetadataOperationPolicy.Unbounded,
+            kind =>
+            {
+                if (kind
+                    == MetadataOperationWorkKind
+                        .TypeSignaturePublication)
+                {
+                    cancellation.Cancel();
+                }
+            });
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+
+        Assert.Throws<OperationCanceledException>(() =>
+            declarations.PostTypeSignature(
+                address,
+                cancellation.Token));
+    }
+
     static void RunPublicationCancellation(Fixture fixture)
     {
         using var cancellation = new CancellationTokenSource();
@@ -1014,6 +1984,11 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 typeof(MetadataTypeDeclarationResult.Rejected),
                 typeof(MetadataTypeDeclarationEvidence),
                 typeof(MetadataTypeDeclarationFailure),
+                typeof(MetadataTypeSignatureResult),
+                typeof(MetadataTypeSignatureResult.Posted),
+                typeof(MetadataTypeSignatureResult.Rejected),
+                typeof(MetadataTypeSignatureEvidence),
+                typeof(MetadataTypeSignatureType),
             });
         var visited = new HashSet<Type>();
 
@@ -1127,6 +2102,33 @@ public sealed class MetadataTypeDeclarationEvidenceTests
             address,
             TestContext.Current.CancellationToken);
     }
+
+    static MetadataTypeSignatureResult RunSignature(
+        string path,
+        MetadataTypeDefinitionAddress address,
+        MetadataOperationPolicy? policy = null)
+    {
+        using var assembly = AssemblyInspectionSession.Open(path);
+        using var operation = new MetadataOperationContext(
+            policy ?? MetadataOperationPolicy.Unbounded);
+        using MetadataDeclarationSession declarations =
+            assembly.CreateDeclarationSession(operation);
+        return declarations.PostTypeSignature(
+            address,
+            TestContext.Current.CancellationToken);
+    }
+
+    static MetadataTypeSignatureNamedType NamedDefinition(
+        MetadataTypeSignatureType type) =>
+        type switch
+        {
+            MetadataTypeSignatureType.Named named =>
+                named.Name,
+            MetadataTypeSignatureType.GenericInstance generic =>
+                generic.Definition.Name,
+            _ => throw new Xunit.Sdk.XunitException(
+                $"Expected a named Type shape, not {type.GetType().Name}."),
+        };
 
     static TypeDefinitionHandle FindType(
         MetadataReader reader,
@@ -1910,6 +2912,51 @@ public sealed class MetadataTypeDeclarationEvidenceTests
         }
 
         internal static Fixture
+            CreateUnrenderableArrayConstraint()
+        {
+            var metadata = CreateBuilder(
+                "unrenderable-array-constraint.dll",
+                "UnrenderableArrayConstraint");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            AddModuleType(metadata);
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x14);
+            signature.WriteByte(0x08);
+            signature.WriteCompressedInteger(
+                ArrayShapeText.MaxRenderableRank + 1);
+            signature.WriteCompressedInteger(0);
+            signature.WriteCompressedInteger(0);
+            TypeSpecificationHandle array =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+            TypeDefinitionHandle type = AddType(
+                metadata,
+                "Generic`1",
+                TypeAttributes.Public,
+                @object);
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                array);
+            return Write(
+                metadata,
+                new Dictionary<string, TypeDefinitionHandle>
+                {
+                    ["Generic"] = type,
+                });
+        }
+
+        internal static Fixture
             CreateMissingEnclosingRelationship()
         {
             var metadata = CreateBuilder(
@@ -1933,6 +2980,360 @@ public sealed class MetadataTypeDeclarationEvidenceTests
                 {
                     ["Inner"] = inner,
                 });
+        }
+
+        internal static Fixture CreateGenericParameterAnnotations(
+            bool illFormedName)
+        {
+            var metadata = CreateBuilder(
+                "generic-annotations.dll",
+                "GenericAnnotations");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            MemberReferenceHandle nullable =
+                AddAttributeConstructor(
+                    metadata,
+                    core,
+                    "NullableAttribute");
+            MemberReferenceHandle context =
+                AddAttributeConstructor(
+                    metadata,
+                    core,
+                    "NullableContextAttribute");
+            AddModuleType(metadata);
+
+            var handles =
+                new Dictionary<string, TypeDefinitionHandle>();
+            void Add(
+                string name,
+                string parameterName,
+                byte[][] parameterAnnotations,
+                byte[][]? typeContexts = null)
+            {
+                TypeDefinitionHandle type = AddType(
+                    metadata,
+                    name,
+                    TypeAttributes.Public,
+                    @object);
+                GenericParameterHandle parameter =
+                    metadata.AddGenericParameter(
+                        type,
+                        GenericParameterAttributes.None,
+                        metadata.GetOrAddString(parameterName),
+                        0);
+                foreach (byte[] value in parameterAnnotations)
+                {
+                    metadata.AddCustomAttribute(
+                        parameter,
+                        nullable,
+                        metadata.GetOrAddBlob(value));
+                }
+                foreach (byte[] value in typeContexts ?? [])
+                {
+                    metadata.AddCustomAttribute(
+                        type,
+                        context,
+                        metadata.GetOrAddBlob(value));
+                }
+                handles[name] = type;
+            }
+
+            byte[] notAnnotated = [0x01, 0x00, 0x01, 0x00, 0x00];
+            byte[] annotated = [0x01, 0x00, 0x02, 0x00, 0x00];
+            Add("Canonical`1", "T", [notAnnotated]);
+            Add("Contextual`1", "T", [], [annotated]);
+            Add("Truncated`1", "T", [[0x01, 0x00, 0x01]]);
+            Add("Duplicated`1", "T", [notAnnotated, annotated]);
+            Add(
+                "EmptyArray`1",
+                "T",
+                [[0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]]);
+            Add(
+                "MalformedContext`1",
+                "T",
+                [],
+                [[0x01, 0x00, 0x02]]);
+            Add("Named`1", "QQParam", [notAnnotated]);
+
+            return Write(
+                metadata,
+                handles,
+                illFormedName
+                    ? static (image, _, _) =>
+                        PatchStringBytes(
+                            image,
+                            "\0QQParam\0"u8,
+                            1,
+                            [0xFF, 0xFE])
+                    : null);
+        }
+
+        internal static Fixture CreateMalformedConstraintType()
+        {
+            var metadata = CreateBuilder(
+                "malformed-constraint.dll",
+                "MalformedConstraint");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            AddModuleType(metadata);
+            TypeDefinitionHandle type = AddType(
+                metadata,
+                "Generic`1",
+                TypeAttributes.Public,
+                @object);
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                MetadataTokens.TypeReferenceHandle(999));
+            return Write(
+                metadata,
+                new Dictionary<string, TypeDefinitionHandle>
+                {
+                    ["Generic"] = type,
+                });
+        }
+
+        internal static Fixture
+            CreateLiteralBacktickTypeNames()
+        {
+            var metadata = CreateBuilder(
+                "literal-backtick-type-names.dll",
+                "LiteralBacktickTypeNames");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            AddModuleType(metadata);
+            TypeDefinitionHandle baseType = AddType(
+                metadata,
+                "Base`Literal",
+                TypeAttributes.Public,
+                @object);
+            TypeDefinitionHandle derived = AddType(
+                metadata,
+                "Derived",
+                TypeAttributes.Public,
+                baseType);
+            TypeDefinitionHandle constraint = AddType(
+                metadata,
+                "Constraint`Literal",
+                TypeAttributes.Public,
+                @object);
+            TypeDefinitionHandle generic = AddType(
+                metadata,
+                "Generic`1",
+                TypeAttributes.Public,
+                @object);
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    generic,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                constraint);
+            return Write(
+                metadata,
+                new Dictionary<string, TypeDefinitionHandle>
+                {
+                    ["Derived"] = derived,
+                    ["Generic"] = generic,
+                });
+        }
+
+        internal static Fixture
+            CreateContradictoryTypeNameArity()
+        {
+            var metadata = CreateBuilder(
+                "contradictory-type-name-arity.dll",
+                "ContradictoryTypeNameArity");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            AddModuleType(metadata);
+            TypeDefinitionHandle baseType = AddType(
+                metadata,
+                "Base`1",
+                TypeAttributes.Public,
+                @object);
+            TypeDefinitionHandle derived = AddType(
+                metadata,
+                "Derived",
+                TypeAttributes.Public,
+                baseType);
+            return Write(
+                metadata,
+                new Dictionary<string, TypeDefinitionHandle>
+                {
+                    ["Derived"] = derived,
+                });
+        }
+
+        internal static Fixture
+            CreateOuterConstraintWithNestedParameter()
+        {
+            var metadata = CreateBuilder(
+                "outer-constraint-nested-parameter.dll",
+                "OuterConstraintNestedParameter");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            AddModuleType(metadata);
+            TypeDefinitionHandle outer = AddType(
+                metadata,
+                "Outer`1",
+                TypeAttributes.Public,
+                @object);
+            TypeDefinitionHandle inner = AddType(
+                metadata,
+                "Inner`1",
+                TypeAttributes.NestedPublic,
+                @object);
+            GenericParameterHandle outerParameter =
+                metadata.AddGenericParameter(
+                    outer,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    0);
+            metadata.AddGenericParameter(
+                inner,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+            metadata.AddGenericParameter(
+                inner,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("U"),
+                1);
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x13);
+            signature.WriteCompressedInteger(1);
+            TypeSpecificationHandle invalidConstraint =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+            metadata.AddGenericParameterConstraint(
+                outerParameter,
+                invalidConstraint);
+            metadata.AddNestedType(inner, outer);
+            return Write(
+                metadata,
+                new Dictionary<string, TypeDefinitionHandle>
+                {
+                    ["Inner"] = inner,
+                });
+        }
+
+        internal static Fixture
+            CreateIllFormedConstraintTypeName()
+        {
+            var metadata = CreateBuilder(
+                "ill-formed-constraint-name.dll",
+                "IllFormedConstraintName");
+            AssemblyReferenceHandle core = AddAssemblyReference(
+                metadata,
+                "System.Runtime",
+                recognized: true);
+            TypeReferenceHandle @object =
+                AddTypeReference(metadata, core, "Object");
+            AssemblyReferenceHandle dependency =
+                AddAssemblyReference(
+                    metadata,
+                    "Dependency",
+                    recognized: false);
+            TypeReferenceHandle constraint =
+                metadata.AddTypeReference(
+                    dependency,
+                    metadata.GetOrAddString("Samples"),
+                    metadata.GetOrAddString("QQConstraint"));
+            AddModuleType(metadata);
+            TypeDefinitionHandle type = AddType(
+                metadata,
+                "Generic`1",
+                TypeAttributes.Public,
+                @object);
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                constraint);
+            return Write(
+                metadata,
+                new Dictionary<string, TypeDefinitionHandle>
+                {
+                    ["Generic"] = type,
+                },
+                static (image, _, _) =>
+                    PatchStringBytes(
+                        image,
+                        "\0QQConstraint\0"u8,
+                        1,
+                        [0xff, 0xfe]));
+        }
+
+        static MemberReferenceHandle AddAttributeConstructor(
+            MetadataBuilder metadata,
+            AssemblyReferenceHandle core,
+            string name)
+        {
+            TypeReferenceHandle type = metadata.AddTypeReference(
+                core,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString(name));
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature(isInstanceMethod: true)
+                .Parameters(
+                    1,
+                    returnType => returnType.Void(),
+                    parameters => parameters
+                        .AddParameter()
+                        .Type()
+                        .Byte());
+            return metadata.AddMemberReference(
+                type,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(signature));
+        }
+
+        static void PatchStringBytes(
+            byte[] image,
+            ReadOnlySpan<byte> unique,
+            int offset,
+            ReadOnlySpan<byte> replacement)
+        {
+            int index = image.AsSpan().IndexOf(unique);
+            Assert.True(index >= 0);
+            Assert.Equal(
+                -1,
+                image.AsSpan(index + 1).IndexOf(unique));
+            replacement.CopyTo(image.AsSpan(index + offset));
         }
 
         static MetadataBuilder CreateBuilder(
@@ -2160,7 +3561,86 @@ public sealed class TypeDeclarationGenericOuter<T>
     }
 }
 
+public sealed class TypeDeclarationAnnotatedParameters<
+    TNotNull,
+    TNullableClass,
+    TClass,
+    TUnmanaged,
+    TPlain>
+    where TNotNull : notnull
+    where TNullableClass : class?
+    where TClass : class
+    where TUnmanaged : unmanaged
+{
+}
+
+public class TypeSignatureBase<T>
+{
+}
+
+public sealed class TypeSignatureDynamicSubject
+    : TypeSignatureBase<dynamic>
+{
+}
+
+public abstract class TypeSignatureConstraintMarker
+{
+}
+
+public sealed class TypeSignatureNullableConstraint<T>
+    where T : TypeSignatureConstraintMarker?
+{
+}
+
+public sealed class TypeSignatureLocalDerived
+    : TypeSignatureConstraintMarker
+{
+}
+
+public class TypeSignatureSubject<T, U>
+    : TypeSignatureBase<T[]>
+    where T : class?
+    where U : TypeSignatureConstraintMarker,
+        IComparable<U>,
+        IEnumerable<T>,
+        IDisposable,
+        new()
+{
+    public class PublicNested
+    {
+    }
+
+    private class PrivateNested
+    {
+    }
+
+    public class NestedParent
+    {
+        public class Grandchild
+        {
+        }
+    }
+}
+
 public ref struct TypeDeclarationRefStruct
+{
+}
+
+public readonly struct TypeDeclarationReadonlyStruct
+{
+}
+
+public readonly ref struct TypeDeclarationReadonlyRefStruct
+{
+}
+
+[System.ComponentModel.EditorBrowsable(
+    System.ComponentModel.EditorBrowsableState.Never)]
+public sealed class TypeDeclarationHiddenClass
+{
+}
+
+public sealed class __CompilerGeneratedTypeDeclarationProbe
 {
 }
 

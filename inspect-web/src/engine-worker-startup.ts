@@ -1,4 +1,8 @@
 import type { EngineClient } from "./engine-client.ts";
+import type { PackageQueryFacetData } from "./package-query-source.ts";
+import type {
+  PackageQueryDurableRowPresentationLayout,
+} from "./package-query-durable-row.ts";
 import {
   createOperationAuthorityPage,
   type OperationDiagnostic,
@@ -23,11 +27,17 @@ export interface EngineStartupClient {
   readonly catalog: Pick<
     EngineClient["catalog"],
     "inspectVocabulary" | "listEcosystems" | "listHomeDemos"
+      | "listLibraryViewFacets" | "listMemberViewFacets"
+      | "listPackageViewFacets" | "listTypeViewFacets"
   >;
-  readonly package: Pick<
-    EngineClient["package"],
-    "listPackageActivityEcosystems" | "listPackageQueryCatalog"
-  >;
+  readonly package:
+    Pick<EngineClient["package"], "listPackageActivityEcosystems">
+    & {
+      readonly inspectPackageQueryFacets:
+        () => Promise<PackageQueryFacetData>;
+      readonly packageQueryDurableRowLayout:
+        () => Promise<PackageQueryDurableRowPresentationLayout>;
+    };
 }
 
 interface StartupReads {
@@ -35,9 +45,20 @@ interface StartupReads {
   readonly inspectVocabulary: EngineStartupClient["catalog"]["inspectVocabulary"];
   readonly listEcosystems: EngineStartupClient["catalog"]["listEcosystems"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
+  readonly listLibraryViewFacets:
+    EngineStartupClient["catalog"]["listLibraryViewFacets"];
+  readonly listMemberViewFacets:
+    EngineStartupClient["catalog"]["listMemberViewFacets"];
+  readonly listPackageViewFacets:
+    EngineStartupClient["catalog"]["listPackageViewFacets"];
+  readonly listTypeViewFacets:
+    EngineStartupClient["catalog"]["listTypeViewFacets"];
   readonly listPackageActivityEcosystems:
     EngineStartupClient["package"]["listPackageActivityEcosystems"];
-  readonly listPackageQueryCatalog: EngineStartupClient["package"]["listPackageQueryCatalog"];
+  readonly inspectPackageQueryFacets:
+    () => Promise<unknown>;
+  readonly packageQueryDurableRowLayout:
+    EngineStartupClient["package"]["packageQueryDurableRowLayout"];
 }
 
 interface StartupOperation<TValue> {
@@ -49,7 +70,10 @@ export function registerEngineWorkerStartupOperations(
   operations: WorkerOperationCatalog,
   reads: StartupReads,
 ): void {
-  function register<TValue>(operation: StartupOperation<TValue>, read: () => Promise<TValue>) {
+  function register<TValue>(
+    operation: StartupOperation<TValue>,
+    read: () => Promise<unknown>,
+  ) {
     operations.register({
       kind: operation.kind,
       allowance: { kind: "unbounded" },
@@ -68,11 +92,28 @@ export function registerEngineWorkerStartupOperations(
   register(engineStartupOperations.buildIdentity, reads.buildIdentity);
   register(engineStartupOperations.inspectVocabulary, reads.inspectVocabulary);
   register(engineStartupOperations.listEcosystems, reads.listEcosystems);
+  register(
+    engineStartupOperations.packageQueryDurableRowLayout,
+    reads.packageQueryDurableRowLayout);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
+  register(
+    engineStartupOperations.listLibraryViewFacets,
+    reads.listLibraryViewFacets);
+  register(
+    engineStartupOperations.listMemberViewFacets,
+    reads.listMemberViewFacets);
+  register(
+    engineStartupOperations.listPackageViewFacets,
+    reads.listPackageViewFacets);
+  register(
+    engineStartupOperations.listTypeViewFacets,
+    reads.listTypeViewFacets);
   register(
     engineStartupOperations.listPackageActivityEcosystems,
     reads.listPackageActivityEcosystems);
-  register(engineStartupOperations.listPackageQueryCatalog, reads.listPackageQueryCatalog);
+  register(
+    engineStartupOperations.inspectPackageQueryFacets,
+    reads.inspectPackageQueryFacets);
 }
 
 export function bindEngineWorkerStartupClient(
@@ -152,11 +193,22 @@ export function bindEngineWorkerStartupClient(
       inspectVocabulary: readVocabulary,
       listEcosystems: bind(engineStartupOperations.listEcosystems),
       listHomeDemos: bind(engineStartupOperations.listHomeDemos),
+      listLibraryViewFacets:
+        bind(engineStartupOperations.listLibraryViewFacets),
+      listMemberViewFacets:
+        bind(engineStartupOperations.listMemberViewFacets),
+      listPackageViewFacets:
+        bind(engineStartupOperations.listPackageViewFacets),
+      listTypeViewFacets:
+        bind(engineStartupOperations.listTypeViewFacets),
     },
     package: {
       listPackageActivityEcosystems:
         bind(engineStartupOperations.listPackageActivityEcosystems),
-      listPackageQueryCatalog: bind(engineStartupOperations.listPackageQueryCatalog),
+      inspectPackageQueryFacets:
+        bind(engineStartupOperations.inspectPackageQueryFacets),
+      packageQueryDurableRowLayout:
+        bind(engineStartupOperations.packageQueryDurableRowLayout),
     },
   };
 }

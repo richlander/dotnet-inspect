@@ -33,6 +33,8 @@ public static class HelpWriter
 
         // Usage
         view.Usage = [BuildUsageLine(command)];
+        if (command.Name == WorkspaceActivationCommandDefinitions.CommandName)
+            view.Usage = ["dotnet-inspect -w <packet> [options]", "dotnet-inspect <packet> [options]"];
 
         // Arguments
         var args = command.Arguments.Where(a => !a.Hidden).ToList();

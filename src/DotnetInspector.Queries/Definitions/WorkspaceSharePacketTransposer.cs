@@ -147,7 +147,8 @@ public static class WorkspaceSharePacketTransposer
         var workspace = new WorkspaceDefinition(
             InspectionDefinitionSchema.Version1,
             WorkspaceId,
-            contexts);
+            contexts,
+            traversalTargetPolicy: canonical.TraversalTargetPolicy);
 
         var navigationTabs = new NavigationTabDefinition[canonical.Tabs.Count];
         for (int tabIndex = 0; tabIndex < canonical.Tabs.Count; tabIndex++)
@@ -254,7 +255,8 @@ public static class WorkspaceSharePacketTransposer
             packageSources:
                 schemaVersion == InspectionDefinitionSchema.Version5
                     ? canonical.PackageSources
-                    : null);
+                    : null,
+            traversalTargetPolicy: canonical.TraversalTargetPolicy);
         var navigation = new CommittedNavigationDefinition(
             schemaVersion,
             NavigationId,
@@ -310,11 +312,14 @@ public static class WorkspaceSharePacketTransposer
         foreach (PortableQueryDefinitionDescriptor descriptor in
             queryDescriptors ?? [])
         {
-            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId)
+            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId
+                || descriptor.QueryId == WorkspaceDiffIntent.QueryId)
             {
                 if (!ReferenceEquals(
                         descriptor,
-                        PackageQuery.DefinitionDescriptor))
+                        descriptor.QueryId == WorkspaceDiffIntent.QueryId
+                            ? WorkspaceDiffIntent.Descriptor
+                            : PackageQuery.DefinitionDescriptor))
                 {
                     throw new InspectionDefinitionException(
                         $"Portable query descriptor '{descriptor.QueryId}' conflicts "
@@ -441,7 +446,8 @@ public static class WorkspaceSharePacketTransposer
             InspectionDefinitionSchema.Version3,
             WorkspaceId,
             legacyWorkspace.Contexts,
-            registrations: []);
+            registrations: [],
+            traversalTargetPolicy: legacyWorkspace.TraversalTargetPolicy);
         var navigation = new CommittedNavigationDefinition(
             InspectionDefinitionSchema.Version3,
             NavigationId,
@@ -495,6 +501,64 @@ public static class WorkspaceSharePacketTransposer
                 ScenarioId,
                 cancellationToken),
             InspectionDefinitionSchema.Version3);
+        return ToPacket(committed, cancellationToken);
+    }
+
+    /// <summary>
+    /// Projects an exact Package Hierarchy with its complete Workspace registration context.
+    /// </summary>
+    public static WorkspaceSharePacketProjectionResult ToPackageHierarchyPacket(
+        WorkspaceDefinition workspace,
+        CommittedNavigationDefinition navigation,
+        string? selectedContext,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(navigation);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (navigation.Tabs.SingleOrDefault(
+                tab => tab.Id == navigation.Focus)?.Coordinate
+            is not DefinitionMemberCoordinate.PackageCoordinate)
+        {
+            return NonProjectable(
+                "navigation.focus",
+                "Hierarchy sharing requires one exact direct Package selection.");
+        }
+
+        int schema = workspace.SchemaVersion;
+        var states = new List<CommittedViewStateDefinition>
+        {
+            new(navigation: null, subject: new PortableSubjectRequest.Workspace()),
+        };
+        foreach (NavigationTabDefinition tab in navigation.Tabs)
+        {
+            states.Add(
+                tab.Coordinate is DefinitionMemberCoordinate.PackageCoordinate
+                    ? new(
+                        tab.Id,
+                        new PortableSubjectRequest.Package(),
+                        new PortableRetainedSubjectContext.Package(),
+                        facet: tab.Id == navigation.Focus
+                            ? "package.dependency-hierarchy"
+                            : null)
+                    : new(tab.Id));
+        }
+        var view = new CommittedViewDefinition(schema, ViewId, states);
+        var scenario = new ScenarioDefinition(
+            schema, ScenarioId,
+            workspace: workspace.Id,
+            context: selectedContext,
+            view: view.Id,
+            navigation: navigation.Id);
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(view);
+        registry.Add(scenario);
+        CommittedScenarioDefinitionSet committed = AssertCommitted(
+            registry.PreparePacketScenarioWithCancellation(
+                ScenarioId, cancellationToken),
+            schema);
         return ToPacket(committed, cancellationToken);
     }
 
@@ -987,7 +1051,8 @@ public static class WorkspaceSharePacketTransposer
             view.MemberSignature,
             view.Section,
             libraries,
-            view.SourceView);
+            view.SourceView,
+            workspace.TraversalTargetPolicy);
 
         if (!canonicalizeFormat1)
             return WorkspaceSharePacketProjectionResult.Success(packet);
@@ -1157,7 +1222,8 @@ public static class WorkspaceSharePacketTransposer
                     focusedTabIndex,
                     basis?.SelectedContextIndex,
                     packetStates,
-                    packetQueries),
+                    packetQueries,
+                    workspace.TraversalTargetPolicy),
             InspectionDefinitionSchema.Version4 =>
                 WorkspaceSharePacket.CreateV4(
                     basis is null ? [] : [.. basis.Tabs],
@@ -1166,7 +1232,8 @@ public static class WorkspaceSharePacketTransposer
                     focusedTabIndex,
                     basis?.SelectedContextIndex,
                     packetStates,
-                    packetQueries),
+                    packetQueries,
+                    workspace.TraversalTargetPolicy),
             InspectionDefinitionSchema.Version3 =>
                 new WorkspaceSharePacket(
                     basis is null ? [] : [.. basis.Tabs],
@@ -1175,7 +1242,8 @@ public static class WorkspaceSharePacketTransposer
                     focusedTabIndex,
                     basis?.SelectedContextIndex,
                     packetStates,
-                    packetQueries),
+                    packetQueries,
+                    workspace.TraversalTargetPolicy),
             _ =>
                 new WorkspaceSharePacket(
                     [.. basis!.Tabs],
@@ -1184,7 +1252,8 @@ public static class WorkspaceSharePacketTransposer
                     basis.SelectedContextIndex
                         ?? throw new UnreachableException(),
                     packetStates,
-                    packetQueries),
+                    packetQueries,
+                    workspace.TraversalTargetPolicy),
         };
         try
         {
@@ -1273,7 +1342,8 @@ public static class WorkspaceSharePacketTransposer
                 .Select(binding => binding.Descriptor)
                 .DistinctBy(descriptor => descriptor.QueryId))
         {
-            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId)
+            if (descriptor.QueryId == PackageQuery.DefinitionDescriptor.QueryId
+                || descriptor.QueryId == WorkspaceDiffIntent.QueryId)
                 continue;
             registry.AddQueryDescriptor(descriptor);
         }
@@ -1395,7 +1465,8 @@ public static class WorkspaceSharePacketTransposer
         var legacyWorkspace = new WorkspaceDefinition(
             InspectionDefinitionSchema.Version1,
             workspace.Id,
-            workspace.Contexts);
+            workspace.Contexts,
+            traversalTargetPolicy: workspace.TraversalTargetPolicy);
         var legacyNavigation = new NavigationDefinition(
             InspectionDefinitionSchema.Version1,
             navigation.Id,

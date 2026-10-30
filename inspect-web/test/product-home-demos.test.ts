@@ -5,7 +5,10 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import { parseSync } from "oxc-parser";
 import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
-import { memberRequestKey } from "../src/data.ts";
+import {
+  callGraphTargetPlatformCoordinate,
+  memberRequestKey,
+} from "../src/data.ts";
 import type {
   MemberCallGraphRequest,
   PlatformDrillRequest,
@@ -23,6 +26,9 @@ import {
   productHomeDemosViewHtml,
   setProductHomeDemoCatalog,
 } from "../src/product-home-demos.ts";
+import {
+  implementationComparisonRuntimeIdentifier,
+} from "../src/package-comparison-targets.ts";
 
 test("Demos renders the ordered catalog separately from Workspace contents", () => {
   setProductHomeDemoCatalog([{
@@ -155,10 +161,22 @@ function result(
   focusFramework: string,
   focusAssembly: string | null,
   packages: readonly BrowserPackageSurface[],
+  comparisonRuntimeIdentifier = "osx-arm64",
+  runtimeIdentifier: string | null = "win-x64",
 ): BrowserHomeDemoRunResult {
   return {
     found: true,
-    packages,
+    packages: packages.map(packageSurface => ({
+      surface: packageSurface,
+      runtimeIdentifier:
+        focusKind === "package"
+          ? runtimeIdentifier
+          : null,
+      implementationComparisonRuntimeIdentifier:
+        focusKind === "package"
+          ? comparisonRuntimeIdentifier
+          : null,
+    })),
     activation: {
       focusKind,
       focusId,
@@ -224,7 +242,41 @@ test("package activation retains a non-first exact focus", () => {
   assert.deepEqual(
     prepared.packages.map(packageModel => packageModel.id),
     ["Peer.Package", "Focus.Package"]);
+  assert.deepEqual(
+    prepared.packages.map(packageModel => packageModel.packageInfo),
+    [undefined, undefined]);
+  assert.deepEqual(
+    prepared.packages.map(packageModel =>
+      packageModel.implementationComparisonRuntimeIdentifier),
+    ["osx-arm64", "osx-arm64"]);
+  assert.deepEqual(
+    prepared.packages.map(packageModel => packageModel.runtimeIdentifier),
+    ["win-x64", "win-x64"]);
   assert.equal(prepared.focusPackage.id, "Focus.Package");
+  assert.equal(
+    implementationComparisonRuntimeIdentifier(prepared.focusPackage),
+    "osx-arm64",
+  );
+});
+
+test("Package activation rejects a missing owner-issued comparison RID", () => {
+  const demo = result(
+    "package",
+    "Focus.Package",
+    "2.0.0",
+    "net10.0",
+    null,
+    [surface("Focus.Package", "2.0.0", "net10.0", "Focus")],
+  );
+  assert.throws(
+    () => prepareProductHomeDemoSource({
+      ...demo,
+      packages: [{
+        ...demo.packages[0]!,
+        implementationComparisonRuntimeIdentifier: null,
+      }],
+    }),
+    /omitted its implementation comparison runtime identifier/);
 });
 
 test("Platform activation merges one exact target around its non-first focus", () => {
@@ -310,6 +362,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
       assembly: "System.Text.Json", memberName: "Serialize",
       typeFullName: type.definitionId, selectorKey: "selector",
     },
+    callGraphTargetPlatformCoordinate,
     memberRequestKey,
     ensurePlatformCatalog: async () => ({ tfm: "net10.0", version: "10.0.12" }),
     navigationSequence: { isCurrent: () => true },
@@ -328,6 +381,7 @@ test("actual app activation, member reload, drill and workspace reset preserve c
       load: async (request: MemberCallGraphRequest) => { loads.push(request); },
       drill: async (request: PlatformDrillRequest) => { drills.push(request); },
     },
+    directUseClusterInspection: { reset: () => {} },
     platformCatalogFramework: () => "net10.0",
     runtimePackPackage: () => pkg,
     runtimePackForFramework: () => pkg,

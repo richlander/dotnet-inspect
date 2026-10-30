@@ -29,6 +29,9 @@ public static class AnalysisFindings
     public static readonly FindingDescriptor UnsafeEvidenceDescriptor =
         new("analysis.unsafe-evidence", "Unsafe evidence");
 
+    public static readonly FindingDescriptor UnsafeMemberDescriptor =
+        new("analysis.unsafe-member", "Unsafe member");
+
     public static readonly FindingDescriptor ResourceLifecycleDescriptor =
         new("analysis.resource-lifecycle", "Resource lifecycle occurrence");
 
@@ -37,7 +40,8 @@ public static class AnalysisFindings
 
     /// <summary>
     /// Projects one method's allocation occurrences into IL order. An empty occurrence sequence is
-    /// a complete empty census; acquisition failures belong to the caller that builds the body index.
+    /// a complete empty census; acquisition failures belong to the caller that
+    /// starts body analysis.
     /// </summary>
     public static ImmutableArray<Finding<AllocationOccurrence>> InspectAllocations(
         IEnumerable<AllocationOccurrence> occurrences,
@@ -87,6 +91,19 @@ public static class AnalysisFindings
         FindingInspection<AllocationOccurrence> newInspection =
             new FindingInspection<AllocationOccurrence>.Complete(
                 InspectAllocations(newOccurrences, subject));
+        return CompareAllocations(
+            oldInspection,
+            newInspection,
+            acceptanceThreshold);
+    }
+
+    public static FindingComparison<AllocationOccurrence> CompareAllocations(
+        FindingInspection<AllocationOccurrence> oldInspection,
+        FindingInspection<AllocationOccurrence> newInspection,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentNullException.ThrowIfNull(oldInspection);
+        ArgumentNullException.ThrowIfNull(newInspection);
         return FindingComparison.Compare<AllocationOccurrence>(
                 oldInspection,
                 newInspection,
@@ -322,6 +339,194 @@ public static class AnalysisFindings
     }
 
     /// <summary>
+    /// Projects the unsafe member census into one Finding per declared member,
+    /// an identity set keyed by the member's signature. An incomplete census is
+    /// never returned as complete; see docs/design/unsafe-member-findings.md.
+    /// </summary>
+    public static UnsafeMemberFindingInspection InspectUnsafeMembers(
+        UnsafeMemberCensus census,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(census);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        var findings = ImmutableArray.CreateBuilder<Finding<UnsafeMemberFinding>>(
+            census.Members.Length);
+        foreach (UnsafeMemberFinding member in census.Members
+            .OrderBy(static member => member.Member.MetadataToken))
+        {
+            findings.Add(new Finding<UnsafeMemberFinding>(
+                subject,
+                UnsafeMemberDescriptor,
+                new FindingKey(GetUnsafeMemberIdentityKey(member.Member)),
+                member,
+                Ordinal: null,
+                Detail: null));
+        }
+
+        var inspection = new FindingInspection<UnsafeMemberFinding>.Complete(
+            findings.MoveToImmutable());
+        return census.IsComplete
+            ? new UnsafeMemberFindingInspection.Complete(inspection)
+            : new UnsafeMemberFindingInspection.Incomplete(
+                inspection,
+                census.Limitations);
+    }
+
+    /// <summary>
+    /// Projects a census operation's result: an available census as its
+    /// findings, and a failed inspection as a failure, not an observation.
+    /// </summary>
+    public static UnsafeMemberFindingInspection InspectUnsafeMembers(
+        Planning.UnsafeMemberCensusResult result,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return result switch
+        {
+            Planning.UnsafeMemberCensusResult.Available available =>
+                InspectUnsafeMembers(available.Census, subject),
+            Planning.UnsafeMemberCensusResult.Failed failed =>
+                new UnsafeMemberFindingInspection.Failed(
+                    new InspectionError(
+                        subject,
+                        UnsafeMemberDescriptor,
+                        failed.Error.Message)),
+            _ => throw new InvalidOperationException(
+                "Unknown unsafe member census result."),
+        };
+    }
+
+    /// <summary>
+    /// Compares two unsafe member censuses as an identity set of declared
+    /// members. A matched member is changed when its provenance-free
+    /// <see cref="UnsafeMemberFindingSummary"/> differs. An incomplete census
+    /// on either side is never compared as complete, so the comparison fails
+    /// and keeps both sides' observed findings; a failed census fails it too.
+    /// </summary>
+    public static FindingComparison<UnsafeMemberFinding> CompareUnsafeMembers(
+        UnsafeMemberFindingInspection oldInspection,
+        UnsafeMemberFindingInspection newInspection)
+    {
+        ArgumentNullException.ThrowIfNull(oldInspection);
+        ArgumentNullException.ThrowIfNull(newInspection);
+
+        if (oldInspection is UnsafeMemberFindingInspection.Incomplete
+            || newInspection is UnsafeMemberFindingInspection.Incomplete)
+        {
+            return FindingComparison.Failed(
+                FindingsOf(oldInspection),
+                FindingsOf(newInspection),
+                "The unsafe member census is incomplete: before "
+                    + LimitationText(oldInspection)
+                    + ", after "
+                    + LimitationText(newInspection)
+                    + ".");
+        }
+
+        return FindingComparison.Compare(
+                FindingsOf(oldInspection),
+                FindingsOf(newInspection),
+                new FindingMatchOptions { MatchMode = FindingMatchMode.IdentitySet })
+            .TransformPairs(ClassifyUnsafeMemberChanges);
+
+        static FindingInspection<UnsafeMemberFinding> FindingsOf(
+            UnsafeMemberFindingInspection inspection) =>
+            inspection switch
+            {
+                UnsafeMemberFindingInspection.Complete complete => complete.Inspection,
+                UnsafeMemberFindingInspection.Incomplete incomplete => incomplete.Inspection,
+                UnsafeMemberFindingInspection.Failed failed =>
+                    new FindingInspection<UnsafeMemberFinding>.Failed(failed.Error),
+                _ => throw new InvalidOperationException(
+                    "Unknown unsafe member inspection outcome."),
+            };
+
+        static string LimitationText(UnsafeMemberFindingInspection inspection) =>
+            inspection switch
+            {
+                UnsafeMemberFindingInspection.Incomplete { Limitations.Length: 1 } =>
+                    "has 1 limitation",
+                UnsafeMemberFindingInspection.Incomplete incomplete =>
+                    $"has {incomplete.Limitations.Length} limitations",
+                UnsafeMemberFindingInspection.Failed => "failed",
+                _ => "is complete",
+            };
+    }
+
+    static ImmutableArray<PairFinding<UnsafeMemberFinding>> ClassifyUnsafeMemberChanges(
+        ImmutableArray<PairFinding<UnsafeMemberFinding>> pairs)
+    {
+        var builder = ImmutableArray.CreateBuilder<PairFinding<UnsafeMemberFinding>>(pairs.Length);
+        foreach (var pair in pairs)
+        {
+            if (pair is PairFinding<UnsafeMemberFinding>.Present present
+                && UnsafeMemberFindingSummary.Of(present.Old.Payload)
+                    is var oldSummary
+                && UnsafeMemberFindingSummary.Of(present.New.Payload)
+                    is var newSummary
+                && oldSummary != newSummary)
+            {
+                builder.Add(new PairFinding<UnsafeMemberFinding>.Changed(
+                    present.Old,
+                    present.New,
+                    present.Difference,
+                    DescribeUnsafeMemberChanges(oldSummary, newSummary)));
+            }
+            else
+            {
+                builder.Add(pair);
+            }
+        }
+
+        return builder.MoveToImmutable();
+    }
+
+    static string DescribeUnsafeMemberChanges(
+        UnsafeMemberFindingSummary oldSummary,
+        UnsafeMemberFindingSummary newSummary)
+    {
+        var changes = new List<string>();
+        AddChange(
+            changes,
+            "exposure",
+            UnsafeMemberFindingSummary.ExposureText(oldSummary.Exposure),
+            UnsafeMemberFindingSummary.ExposureText(newSummary.Exposure));
+        AddChange(
+            changes,
+            "explicit contract",
+            oldSummary.HasExplicitUnsafeContract,
+            newSummary.HasExplicitUnsafeContract);
+        AddChange(changes, "evidence", RolesText(oldSummary), RolesText(newSummary));
+        return string.Join("; ", changes);
+
+        // Bracketed, so a role's callee list cannot be read as another facet.
+        static string RolesText(UnsafeMemberFindingSummary summary) =>
+            "["
+            + string.Join(
+                "; ",
+                summary.Roles.Select(static role =>
+                    UnsafeMemberFindingSummary.RoleText(role, static callee => callee)))
+            + "]";
+    }
+
+    /// <summary>
+    /// The declared member's identity through the shared member-identity
+    /// fragment. Module version, metadata token, and caller-unsafe mode are not
+    /// identity.
+    /// </summary>
+    public static string GetUnsafeMemberIdentityKey(MethodIdentity member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+
+        var key = new StringBuilder();
+        AppendMethodIdentity(key, member);
+        return key.ToString();
+    }
+
+    /// <summary>
     /// Projects one method's definite unsafe IL operations into IL order. An empty sequence is a
     /// complete safe-operation census; declaration and signature evidence use
     /// <see cref="InspectUnsafeEvidence"/> instead.
@@ -549,27 +754,72 @@ public static class AnalysisFindings
     }
 
     static void AppendMemberIdentity(StringBuilder key, MemberRef member)
+        => AppendMemberIdentityFragment(
+            key,
+            member.Kind,
+            member.DeclaringType,
+            member.Name,
+            member.HasThis,
+            member.SignatureHeader,
+            member.GenericArity,
+            member.TypeArguments,
+            member.ParameterTypes,
+            member.ReturnType,
+            member.OpenSignatureParameters,
+            member.OpenSignatureReturn);
+
+    // A definition's signature is already its open signature.
+    static void AppendMethodIdentity(StringBuilder key, MethodIdentity method)
+        => AppendMemberIdentityFragment(
+            key,
+            method.Name is ".ctor" or ".cctor"
+                ? MemberKind.Constructor
+                : MemberKind.Method,
+            method.DeclaringType,
+            method.Name,
+            !method.IsStatic,
+            method.SignatureHeader,
+            method.GenericArity,
+            [],
+            method.ParameterTypes,
+            method.ReturnType,
+            method.ParameterTypes,
+            method.ReturnType);
+
+    static void AppendMemberIdentityFragment(
+        StringBuilder key,
+        MemberKind kind,
+        TypeRef declaringType,
+        string name,
+        bool hasThis,
+        byte signatureHeader,
+        int genericArity,
+        ImmutableArray<TypeRef> typeArguments,
+        ImmutableArray<TypeRef> parameterTypes,
+        TypeRef returnType,
+        ImmutableArray<TypeRef> openParameterTypes,
+        TypeRef openReturnType)
     {
         AppendKeyPart(
             key,
-            ((int)member.Kind).ToString(
+            ((int)kind).ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
-        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(member.DeclaringType));
-        AppendKeyPart(key, member.Name);
-        AppendKeyPart(key, member.HasThis ? "instance" : "static");
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(declaringType));
+        AppendKeyPart(key, name);
+        AppendKeyPart(key, hasThis ? "instance" : "static");
         AppendKeyPart(
             key,
-            member.SignatureHeader.ToString(
+            signatureHeader.ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
         AppendKeyPart(
             key,
-            member.GenericArity.ToString(
+            genericArity.ToString(
                 System.Globalization.CultureInfo.InvariantCulture));
-        AppendTypes(key, member.TypeArguments);
-        AppendTypes(key, member.ParameterTypes);
-        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(member.ReturnType));
-        AppendTypes(key, member.OpenSignatureParameters);
-        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(member.OpenSignatureReturn));
+        AppendTypes(key, typeArguments);
+        AppendTypes(key, parameterTypes);
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(returnType));
+        AppendTypes(key, openParameterTypes);
+        AppendKeyPart(key, GenericMemberIdentity.KeyFragment(openReturnType));
     }
 
     static void AppendKeyPart(StringBuilder key, string part)

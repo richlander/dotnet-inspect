@@ -1,0 +1,22 @@
+Description:
+Explain an exact product resource or search installed capabilities
+
+Usage:
+dotnet-inspect explain <resource-or-search> [<projection>] [options]
+
+Arguments:
+<resource-or-search>  Exact product-resource path, such as library/sections/reference-hierarchy or package-query/query/facets/library-literal; otherwise bounded capability-search text such as literal
+<projection>          .data selects a self-contained reading dataset; .hal selects HAL resource data and navigation; .contract selects declarations
+
+Options:
+--depth <depth>                  Related-resource expansion depth (default: 0, maximum: 8)
+--json                           Output as JSON
+--markdown                       Output as markdown
+--plaintext                      Output as plain text
+--table                          Output as a pretty table (space-padded columns)
+--tsv                            Output as normalized tab-separated values
+--jsonl                          Output as JSON Lines (one object per row)
+--nh, --no-header, --no-headers  Suppress table/TSV column headers
+--envelope                       Output the complete inspection envelope as JSON where supported
+-n <n>                           Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end
+-o, --out, --output <out>        Write output to file instead of stdout

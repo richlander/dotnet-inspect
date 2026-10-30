@@ -100,30 +100,18 @@ public static class PackageIconQuery
                     PackageIconUnavailableReason.InvalidManifest);
             }
 
-            PackageManifestFactsResult facts =
-                PackageManifestFactsQuery.Execute(
-                    manifestBytes,
-                    PackageSourceCoordinate.Create(
-                        packageId,
-                        packageVersion));
-            if (facts is not PackageManifestFactsResult.Available available)
-            {
-                return new PackageIconResult.Unavailable(
-                    PackageIconUnavailableReason.InvalidManifest);
-            }
-
-            string? declaredPath = available.Value.IconFile;
-            if (string.IsNullOrEmpty(declaredPath))
-                return new PackageIconResult.Missing();
-            if (!TryNormalizePath(declaredPath, out string iconPath))
-            {
-                return new PackageIconResult.Unavailable(
-                    PackageIconUnavailableReason.InvalidPath);
-            }
+            PackageIconResult? manifestResult = InspectManifest(
+                manifestBytes,
+                PackageSourceCoordinate.Create(
+                    packageId,
+                    packageVersion),
+                out string? iconPath);
+            if (manifestResult is not null)
+                return manifestResult;
 
             if (!TryReadEntry(
                     content,
-                    iconPath,
+                    iconPath!,
                     MaxIconBytes,
                     out byte[] iconBytes))
             {
@@ -131,13 +119,7 @@ public static class PackageIconQuery
                     PackageIconUnavailableReason.MissingEntry);
             }
 
-            return TryReadImage(iconBytes, out string mediaType)
-                ? new PackageIconResult.Available(
-                    new PackageIcon(mediaType, [.. iconBytes]))
-                : new PackageIconResult.Unavailable(
-                    SniffSupportedFormat(iconBytes)
-                        ? PackageIconUnavailableReason.InvalidImage
-                        : PackageIconUnavailableReason.UnsupportedFormat);
+            return InspectImage(iconBytes);
         }
         catch (InvalidDataException)
         {
@@ -156,7 +138,46 @@ public static class PackageIconQuery
         }
     }
 
-    static bool TryNormalizePath(
+    internal static PackageIconResult? InspectManifest(
+        ReadOnlyMemory<byte> manifestBytes,
+        PackageSourceCoordinate expectedCoordinate,
+        out string? iconPath)
+    {
+        ArgumentNullException.ThrowIfNull(expectedCoordinate);
+        iconPath = null;
+        PackageManifestFactsResult facts =
+            PackageManifestFactsQuery.Execute(
+                manifestBytes,
+                expectedCoordinate);
+        if (facts is not PackageManifestFactsResult.Available available)
+        {
+            return new PackageIconResult.Unavailable(
+                PackageIconUnavailableReason.InvalidManifest);
+        }
+
+        string? declaredPath = available.Value.IconFile;
+        if (string.IsNullOrEmpty(declaredPath))
+            return new PackageIconResult.Missing();
+        if (!TryNormalizePath(declaredPath, out string normalizedPath))
+        {
+            return new PackageIconResult.Unavailable(
+                PackageIconUnavailableReason.InvalidPath);
+        }
+
+        iconPath = normalizedPath;
+        return null;
+    }
+
+    internal static PackageIconResult InspectImage(ReadOnlySpan<byte> iconBytes) =>
+        TryReadImage(iconBytes, out string mediaType)
+            ? new PackageIconResult.Available(
+                new PackageIcon(mediaType, [.. iconBytes]))
+            : new PackageIconResult.Unavailable(
+                SniffSupportedFormat(iconBytes)
+                    ? PackageIconUnavailableReason.InvalidImage
+                    : PackageIconUnavailableReason.UnsupportedFormat);
+
+    internal static bool TryNormalizePath(
         string declaredPath,
         out string normalizedPath)
     {
@@ -206,7 +227,7 @@ public static class PackageIconQuery
         }
     }
 
-    static bool TryReadImage(byte[] bytes, out string mediaType)
+    static bool TryReadImage(ReadOnlySpan<byte> bytes, out string mediaType)
     {
         if (TryReadPngDimensions(bytes, out int width, out int height))
         {

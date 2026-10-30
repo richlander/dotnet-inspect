@@ -12,10 +12,10 @@ public static class ApiCoordinateMatchInspection
 {
     public static async Task<InspectionEnvelope<ApiCoordinateMatchContent>> ExecuteAsync(
         ApiCoordinateMatchRequest request,
-        IPackageRootPayloadProvider provider,
+        ApiCoordinateMatchHouseExecution execution,
         CancellationToken cancellationToken = default) =>
         Complete(Project(await ApiCoordinateMatchQuery.ExecuteAsync(
-            request, provider, cancellationToken).ConfigureAwait(false)));
+            request, execution, cancellationToken).ConfigureAwait(false)));
 
     public static async Task<InspectionEnvelope<ApiCoordinateMatchContent>> ExecuteAsync(
         InspectionWorkspace workspace,

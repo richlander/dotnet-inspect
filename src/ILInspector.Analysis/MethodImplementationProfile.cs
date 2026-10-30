@@ -38,6 +38,7 @@ public sealed record MethodImplementationProfile(
     int OutgoingOverloadTargetCount,
     bool IsComplete,
     ImmutableArray<string> IncompleteReasons)
+    : ILibraryStructuralMethodEvidence
 {
     /// <summary>
     /// Cyclomatic complexity of the ordinary-flow IL graph.
@@ -52,6 +53,9 @@ public sealed record MethodImplementationProfile(
     /// </remarks>
     public int NormalFlowCyclomaticComplexity =>
         1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
+
+    public int ExceptionRegionCount =>
+        CatchCount + FilterCount + FinallyCount + FaultCount;
 }
 
 /// <summary>An exact direct call between distinct methods in one overload family.</summary>
@@ -84,14 +88,18 @@ internal sealed record MethodBodyImplementationMetrics(
 
 internal readonly record struct MethodImplementationContextMeasurements(
     ImplementationMetricInstructionShape? InstructionShape,
-    ImplementationMetricControlFlow? ControlFlow);
+    ImplementationMetricControlFlow? ControlFlow,
+    ImplementationMetricDirectCallCount? DirectCallCount,
+    ImplementationMetricCallSiteCount? CallSiteCount);
 
 internal static class MethodImplementationProfileAnalysis
 {
     internal static MethodImplementationContextMeasurements MeasureContext(
         MethodBodyAnalysisContext context,
         bool includeInstructionShape,
-        bool includeControlFlow)
+        bool includeControlFlow,
+        bool includeDirectCallCount,
+        bool includeCallSiteCount)
     {
         HashSet<ILOpCode>? distinctOpcodes =
             includeInstructionShape ? [] : null;
@@ -99,9 +107,25 @@ internal static class MethodImplementationProfileAnalysis
         int conditionalBranches = 0;
         int switches = 0;
         int switchTargets = 0;
+        int directCalls = 0;
+        int callSites = 0;
         foreach (DecodedInstruction instruction
             in context.Instructions.Instructions)
         {
+            switch (instruction.OpCode)
+            {
+                case ILOpCode.Call:
+                case ILOpCode.Callvirt:
+                case ILOpCode.Newobj:
+                    directCalls++;
+                    callSites++;
+                    break;
+                case ILOpCode.Ldftn:
+                case ILOpCode.Ldvirtftn:
+                case ILOpCode.Calli:
+                    callSites++;
+                    break;
+            }
             distinctOpcodes?.Add(instruction.OpCode);
             if (!includeControlFlow)
                 continue;
@@ -132,6 +156,12 @@ internal static class MethodImplementationProfileAnalysis
                     switches,
                     switchTargets,
                     context.LoopRegions.Distinct().Count())
+                : null,
+            includeDirectCallCount
+                ? new(directCalls)
+                : null,
+            includeCallSiteCount
+                ? new(callSites)
                 : null);
     }
 
@@ -198,7 +228,7 @@ internal static class MethodImplementationProfileAnalysis
             IncompleteReasons(context));
     }
 
-    static ImmutableArray<string> IncompleteReasons(
+    internal static ImmutableArray<string> IncompleteReasons(
         MethodBodyAnalysisContext context)
     {
         var reasons = ImmutableArray.CreateBuilder<string>();
@@ -310,6 +340,121 @@ internal static class MethodImplementationProfileAnalysis
         ];
     }
 
+    internal static ImmutableArray<MethodImplementationProfile>
+        CollectFocusedCompleteProfiles(
+            ImmutableArray<MethodImplementationMetricEvidence> bodies,
+            ImmutableArray<OverloadCallRelationship> relationships,
+            ImmutableArray<AnalysisDiagnostic> diagnostics)
+    {
+        var incomingCallers = relationships
+            .GroupBy(static relationship =>
+                relationship.Callee.MetadataToken)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(static relationship =>
+                        relationship.Caller.MetadataToken)
+                    .Distinct()
+                    .Count());
+        var outgoingTargets = relationships
+            .GroupBy(static relationship => (
+                relationship.Caller.MetadataToken,
+                relationship.EvidenceMethod.MetadataToken))
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(static relationship =>
+                        relationship.Callee.MetadataToken)
+                    .Distinct()
+                    .Count());
+        Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
+            diagnostics
+                .GroupBy(static diagnostic =>
+                    diagnostic.MethodToken)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.First());
+        var profiles =
+            ImmutableArray.CreateBuilder<MethodImplementationProfile>();
+        foreach (MethodImplementationMetricEvidence body in bodies)
+        {
+            if (body.ILBytes is not { } ilBytes
+                || body.InstructionShape is not { } instructionShape
+                || body.ControlFlow is not { } controlFlow
+                || body.ExceptionRegions is not { } exceptionRegions
+                || body.Locals is not { } locals
+                || body.DirectCalls is not { } directCalls
+                || body.IsAsync is not { } isAsync)
+            {
+                continue;
+            }
+
+            var incompleteReasons =
+                body.IncompleteReasons.ToBuilder();
+            if (directCalls.IncompleteReason is { } callReason)
+                incompleteReasons.Add(callReason);
+            if (diagnosticsByToken.TryGetValue(
+                    body.EvidenceMethod.MetadataToken,
+                    out AnalysisDiagnostic? diagnostic)
+                && !incompleteReasons.Contains(
+                    diagnostic.Message,
+                    StringComparer.Ordinal))
+            {
+                incompleteReasons.Add(diagnostic.Message);
+            }
+            ImmutableArray<string> reasons =
+                incompleteReasons.ToImmutable();
+            profiles.Add(
+                new(
+                    body.Method,
+                    body.EvidenceMethod,
+                    ilBytes,
+                    instructionShape.InstructionCount,
+                    instructionShape.DistinctOpcodeCount,
+                    controlFlow.BasicBlockCount,
+                    controlFlow.BranchCount,
+                    controlFlow.ConditionalBranchCount,
+                    controlFlow.SwitchCount,
+                    controlFlow.SwitchTargetCount,
+                    controlFlow.LoopCount,
+                    exceptionRegions.CatchCount,
+                    exceptionRegions.FilterCount,
+                    exceptionRegions.FinallyCount,
+                    exceptionRegions.FaultCount,
+                    locals.DeclaredCount,
+                    directCalls.InvocationCount,
+                    directCalls.DistinctTargetCount,
+                    body.AllocationCount ?? 0,
+                    body.ThrowCount ?? 0,
+                    isAsync,
+                    body.Unsafe ?? false,
+                    body.ReflectionCallCount ?? 0,
+                    body.EvidenceMethod.MetadataToken
+                        == body.Method.MetadataToken
+                            ? incomingCallers.GetValueOrDefault(
+                                body.Method.MetadataToken)
+                            : 0,
+                    outgoingTargets.GetValueOrDefault((
+                        body.Method.MetadataToken,
+                        body.EvidenceMethod.MetadataToken)),
+                    reasons.IsEmpty,
+                    reasons));
+        }
+
+        return
+        [
+            .. profiles
+                .OrderByDescending(static profile =>
+                    profile.InstructionCount)
+                .ThenByDescending(static profile =>
+                    profile.DistinctOpcodeCount)
+                .ThenByDescending(static profile =>
+                    profile.BasicBlockCount)
+                .ThenBy(static profile =>
+                    profile.Method.MetadataToken),
+        ];
+    }
+
     internal static ImplementationMetricDirectCalls MeasureDirectCalls(
         IEnumerable<DirectCall> calls,
         MethodDefinitionMap methodMap,
@@ -334,7 +479,10 @@ internal static class MethodImplementationProfileAnalysis
     {
         return new(
             invocationCount,
-            CountDistinctCallees(calls, methodMap),
+            CountDistinctCallees(
+                calls.Where(static call =>
+                    IsInvocation(call.Kind)),
+                methodMap),
             incompleteReason);
     }
 

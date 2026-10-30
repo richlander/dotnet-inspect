@@ -32,10 +32,13 @@ public sealed partial class PackageQueryTests
         var sink = new RecordingPackageQueryNonterminalSink();
         var assessmentSink =
             new RecordingLibraryLiteralAssessmentSink();
+        var authorization =
+            new FixedAuthorization(fixture.Authorization);
         var semanticExecution = new PackageQueryAssemblySemanticExecution(
-            new FixedAuthorization(fixture.Authorization),
-            fixture.IssueOperation,
-            fixture.PayloadAcquisition,
+            authorization,
+            fixture.CreateExecution(
+                authorization,
+                PackageAssemblySemanticFindBudget.Default),
             PackageAssemblySemanticFindBudget.Default,
             assessmentSink);
 
@@ -105,10 +108,13 @@ public sealed partial class PackageQueryTests
         var sink = new RecordingPackageQueryNonterminalSink();
         var assessmentSink =
             new RecordingLibraryLiteralAssessmentSink();
+        var authorization =
+            new FixedAuthorization(fixture.Authorization);
         var semanticExecution = new PackageQueryAssemblySemanticExecution(
-            new FixedAuthorization(fixture.Authorization),
-            fixture.IssueOperation,
-            fixture.PayloadAcquisition,
+            authorization,
+            fixture.CreateExecution(
+                authorization,
+                PackageAssemblySemanticFindBudget.Default),
             PackageAssemblySemanticFindBudget.Default,
             assessmentSink);
 
@@ -171,22 +177,22 @@ public sealed partial class PackageQueryTests
         var assessmentSink =
             new RecordingLibraryLiteralAssessmentSink();
         TimeSpan timeout = TimeSpan.FromMilliseconds(100);
+        var budget = new PackageAssemblySemanticFindBudget(
+            PackageAssemblySemanticFindBudget.Default.Payload,
+            new PackageAssemblyEvaluationBudget(
+                PackageAssemblyEvaluationBudget.Default.MaximumEntryBytes,
+                PackageAssemblyEvaluationBudget.Default
+                    .MaximumRetainedImageBytes,
+                PackageAssemblyEvaluationBudget.Default.SemanticBudget,
+                timeout));
+        var authorization = new DelayedAuthorization(
+            fixture.Authorization,
+            delayOnCall: 2,
+            TimeSpan.FromMilliseconds(250));
         var semanticExecution = new PackageQueryAssemblySemanticExecution(
-            new DelayedAuthorization(
-                fixture.Authorization,
-                delayOnCall: 2,
-                TimeSpan.FromMilliseconds(250)),
-            cancellationToken =>
-                fixture.IssueOperation(cancellationToken, timeout),
-            fixture.PayloadAcquisition,
-            new PackageAssemblySemanticFindBudget(
-                PackageAssemblySemanticFindBudget.Default.Payload,
-                new PackageAssemblyEvaluationBudget(
-                    PackageAssemblyEvaluationBudget.Default.MaximumEntryBytes,
-                    PackageAssemblyEvaluationBudget.Default
-                        .MaximumRetainedImageBytes,
-                    PackageAssemblyEvaluationBudget.Default.SemanticBudget,
-                    timeout)),
+            authorization,
+            fixture.CreateExecution(authorization, budget),
+            budget,
             assessmentSink);
 
         PackageQueryDocument document =
@@ -240,14 +246,16 @@ public sealed partial class PackageQueryTests
             targetFramework: "net11.0"));
         var assessmentSink =
             new RecordingLibraryLiteralAssessmentSink();
+        var budget = new PackageAssemblySemanticFindBudget(
+            PackageAssemblySemanticFindBudget.Default.Payload,
+            PackageAssemblySemanticFindBudget.Default.Evaluation,
+            maximumAggregateOccurrences: 1);
+        var authorization =
+            new FixedAuthorization(fixture.Authorization);
         var semanticExecution = new PackageQueryAssemblySemanticExecution(
-            new FixedAuthorization(fixture.Authorization),
-            fixture.IssueOperation,
-            fixture.PayloadAcquisition,
-            new PackageAssemblySemanticFindBudget(
-                PackageAssemblySemanticFindBudget.Default.Payload,
-                PackageAssemblySemanticFindBudget.Default.Evaluation,
-                maximumAggregateOccurrences: 1),
+            authorization,
+            fixture.CreateExecution(authorization, budget),
+            budget,
             assessmentSink);
 
         PackageQueryDocument document =
@@ -345,8 +353,6 @@ public sealed partial class PackageQueryTests
 
         private InMemoryPackageStore Store { get; } = new();
 
-        internal PackagePayloadAcquisitionPlan PayloadAcquisition { get; }
-
         internal SemanticQueryFixture()
         {
             Source = PackageSourceClientFactory.CreateCustom(
@@ -355,9 +361,20 @@ public sealed partial class PackageQueryTests
                 factory => new MissingPayloadSource(factory));
             Settlement = PackageSourceSettlementService.IssueLease(
                 _ => Source);
-            PayloadAcquisition = new PackagePayloadAcquisitionPlan(
-                (_, _) => Store);
         }
+
+        internal PackageAssemblySemanticFindExecution CreateExecution(
+            IPackageSourceAuthorization authorization,
+            PackageAssemblySemanticFindBudget budget) =>
+            new(
+                authorization,
+                new PackagePayloadAcquisitionPlan(
+                    (_, _) => Store,
+                    budget.Payload),
+                cancellationToken =>
+                    IssueOperation(
+                        cancellationToken,
+                        budget.MaximumDuration));
 
         internal PackageSourceOperationLease IssueOperation(
             CancellationToken cancellationToken) =>

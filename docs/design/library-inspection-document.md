@@ -185,6 +185,12 @@ LibraryInspectionPlan
   finite aggregate work bounds
 ```
 
+`LibraryInspectionBounds` is a Sections-owned detached value. Its six finite
+limits govern retained Types, Members, inspection failures, type forwarders,
+metadata rows, and retained text characters without exposing the
+Metadata-owned extraction request. The same value is retained on the completed
+document as governing evidence.
+
 The plan uses closed typed requests rather than section names, verbosity,
 fields, columns, or renderer settings. Its first population request is:
 
@@ -250,7 +256,12 @@ later slices; until then the Browser plan exposes only the terms it lowers.
 The core request and CLI operation remain independent of Browser adoption.
 Browser adoption uses the generated input binding rather than adding a
 handwritten TypeScript request shape, flattened interim export, or duplicate
-JSON wrapper.
+JSON wrapper. The Browser adapter consumes the detached plan, bounds, and
+Enablements values; it does not construct or project `ILInspector.Metadata`
+contract values. Its exact positive project and assembly ceilings plus this
+typed lowering contract enforce product ownership; its compiler ban input is
+limited to runtime platform hazards that dependency layering cannot
+distinguish, not an open-ended inventory of internal product APIs.
 
 ## Library document
 
@@ -300,7 +311,9 @@ closed groups because their costs differ:
   attribute text, contained as inert field text.
 - **Enablements** — every enablement named by
   [Library enablements](library-enablements.md), with that owner's states and
-  reasons.
+  reasons. The Library document carries a detached immutable projection of
+  those identifiers, states, reasons, and labels rather than the
+  Metadata-owned result types.
 
 Identity is always present and is not a requestable group. Image and
 Description describe the `ApiAssembly` content. Enablements ask how the
@@ -458,8 +471,10 @@ about declaration kind, public-surface or accessibility selection, Type kind,
 Type trait, hidden/compiler-generated admission, Library snapshot, or
 completion.
 
-Count is exact or visibly non-successful. It never reports retained Rows,
-current page length, a prefix, or zero after failure.
+Count is exact, observed over usable incomplete evidence under the section-row
+owner's [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation),
+or visibly non-successful. It never reports retained Rows, current page
+length, or a prefix as the population count, nor zero after failure.
 
 The initial Count preserves disjoint declaration evidence:
 
@@ -541,6 +556,78 @@ renderer suppresses redundant columns for a homogeneous result group.
 The Type row is not a `TypeDocument`. It does not contain complete member,
 source, documentation, analysis, or decompilation results. Those require a
 separate exact Type request.
+
+### Hierarchy projection
+
+Hierarchy is an explicit host-neutral request over this owner's Type
+population, not an inference from a selected renderer. The Library document
+admits the `LibraryNamespacesAndTypes` topology:
+
+```text
+Library
+  -> Namespace
+    -> Type declaration
+      -> Member (optional Count)
+```
+
+The default profile requests namespace Rows by Name and Type declaration Rows
+by Name or FullSpelling as leaves. The Type declarations are the one row
+population; namespaces group those same rows. Member detail belongs to the
+inner `type` command, so the default requests no Member Count and the
+producer enumerates no members. The root may be spelled by Name (the Library
+name) or FullSpelling (name and version).
+
+```text
+System.Text.Json 10.0.0.0
+├─ System.Text.Json (20 types)
+│  ├─ class JsonSerializer
+│  └─ …
+└─ System.Text.Json.Nodes (5 types)
+   └─ …
+```
+
+An explicit profile may add a Member Count beneath each declaration. Its plan
+must request a Member Count on every definition; the leaf profile must request
+none, so a plan never pays for a Count it cannot present.
+
+Every profile requests complete, unfaceted, public-surface Type Rows. The owner
+rejects a continued, partial, or faceted population, a Member Count outcome
+that disagrees with the profile, and any other terminal or spelling choice
+before the sink receives a node; it never emits a shortened hierarchy.
+
+The owner defines the hierarchy's sibling order: namespaces by ordinal name,
+then declarations within each namespace by ordinal display name. Rows ordering
+remains Metadata order; the hierarchy groups and orders the complete
+population rather than changing the Rows terminal. A namespace node carries
+its exact declaration Count over that complete population. A Type node carries
+the owner-issued row and its owner-issued spelling: FullSpelling is the
+qualified display name, and Name removes only the namespace qualifier, so a
+nested declaration keeps its containing Type (`JsonElement.ArrayEnumerator`).
+The namespace and qualified name are independently encoded values, so the
+owner removes the qualifier from their raw text and re-encodes only the
+remainder. The empty namespace is the global namespace. The owner forms every
+node, including its spelling, before the sink receives the first one.
+
+A complete population with no declarations is empty, not absent. Every
+lowering marks it on the root node, for example
+`Empty.Library 1.0.0.0 (no public types)`, so the result is never a
+success-shaped bare identity line.
+
+A forwarder remains a first-class declaration node and never resolves a target
+definition. In the Member Count profile, a definition's Count is the row's
+counted outcome and a forwarder's is not applicable, never zero.
+
+[Host-neutral hierarchy projection](host-neutral-hierarchy-projection.md)
+owns the request vocabulary, the streaming sink, and shared format lowering.
+Tree and Mermaid do not regroup, recount, reorder, or respell these nodes.
+
+The CLI is the first host adopter. Bare `library L` selects the default leaf
+profile for one resolved Library. It executes the presentation plan's Type
+request under the CLI Library bounds and lowers the completed document to Tree
+or Mermaid. A rejected, failed, incomplete, or continued population is a
+visible error rather than a shortened Tree.
+[Primary subject views](primary-subject-views.md#adoption) owns the admitted
+gestures.
 
 ## Source execution
 

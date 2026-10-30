@@ -170,7 +170,7 @@ public class CrossBlockSlotMaterializationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void CrossBlockCopyComponentsRemainAtomic(bool incomplete)
+    public void CrossBlockCopyComponentsMaterializeSourceClosedMembers(bool incomplete)
     {
         var firstValue = new Constant("first", StringType);
         var secondValue = new Constant("second", StringType);
@@ -196,9 +196,16 @@ public class CrossBlockSlotMaterializationTests
         Assert.Equal(2, decisions.Count);
         if (incomplete)
         {
-            Assert.All(decisions, decision =>
-                Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent)));
-            AssertRetained(function);
+            // Decided S_0 copies into S_1, which does not decide: S_0 is
+            // source-closed and materializes; S_1 stays a slot.
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 0).WillMaterialize);
+            Assert.True(Assert.Single(decisions, decision => decision.Slot == 1).Vetoes
+                .HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+            var split = SlotMaterializationInvariant.Capture(function);
+            new SlotMaterializationPass().Run(function, PassContext.None);
+            split.Check();
+            Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 1);
+            Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == 0);
             return;
         }
 

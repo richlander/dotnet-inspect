@@ -79,8 +79,8 @@ public static class AssemblyContextTypeDependencyQuery
     /// participant's same-named type cannot become the dependency root.
     /// Participant-qualified lookup requires the exact normalized type name,
     /// and the Metadata-issued match registration verifies that the selected
-    /// participant contributed the root. Published outcomes retain the group's
-    /// committed participant order.
+    /// participant contributed the root, including an exact non-public root.
+    /// Published outcomes retain the group's committed participant order.
     /// </summary>
     public static AssemblyContextTypeDependencyResult ExecuteParticipant(
         AssemblyContextGroup group,
@@ -180,7 +180,8 @@ public static class AssemblyContextTypeDependencyQuery
                 : TypeDependencyScanner.BuildExactDependencyPopulation(
                     targetType,
                     retained.ToImmutable(),
-                    maximumDepth);
+                    maximumDepth,
+                    rootParticipant.Assembly.Registration);
         var metadataOutcomes =
             new Dictionary<
                 AssemblyAcquisitionRegistration,

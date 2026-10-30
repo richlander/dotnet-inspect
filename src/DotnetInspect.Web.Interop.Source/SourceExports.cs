@@ -41,6 +41,32 @@ public static partial class SourceExports
             BrowserSourceJsonContext.Default.BrowserTypeSourceCancellation);
     }
 
+    public static Task<string> QueryMemberSource(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        int documentBaselineOrdinal,
+        string styleOptionsJson,
+        string view = "source") =>
+        QueryMemberSource(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken,
+            documentBaselineOrdinal,
+            styleOptionsJson,
+            runtimeIdentifier: null,
+            view);
+
     [JSExport]
     public static async Task<string> QueryMemberSource(
         string packageId,
@@ -53,6 +79,7 @@ public static partial class SourceExports
         int metadataToken,
         int documentBaselineOrdinal,
         string styleOptionsJson,
+        string? runtimeIdentifier,
         string view = "source")
     {
         BrowserMemberSourceResult result = await QueryMemberSourceCore(
@@ -67,7 +94,8 @@ public static partial class SourceExports
             documentBaselineOrdinal,
             styleOptionsJson,
             view,
-            includeParts: true);
+            includeParts: true,
+            runtimeIdentifier);
         return JsonSerializer.Serialize(
             result,
             BrowserSourceJsonContext.Default.BrowserMemberSourceResult);
@@ -197,6 +225,26 @@ public static partial class SourceExports
         return new(source, null, source.Diagnostics);
     }
 
+    public static Task<string> QueryTypeSource(
+        string operationId,
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string styleOptionsJson,
+        string view = "source") =>
+        QueryTypeSource(
+            operationId,
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            styleOptionsJson,
+            runtimeIdentifier: null,
+            view);
+
     [JSExport]
     public static async Task<string> QueryTypeSource(
         string operationId,
@@ -206,6 +254,7 @@ public static partial class SourceExports
         string assemblyName,
         string typeIdentity,
         string styleOptionsJson,
+        string? runtimeIdentifier,
         string view = "source")
     {
         BrowserManagedOperationResult<BrowserTypeCodeView, string, string>
@@ -220,6 +269,7 @@ public static partial class SourceExports
                         typeIdentity,
                         styleOptionsJson,
                         view,
+                        runtimeIdentifier,
                         requestEvidence: false,
                         cancellationToken: token)).View);
         return JsonSerializer.Serialize(
@@ -293,6 +343,24 @@ public static partial class SourceExports
     }
 
 #if DEBUG
+    public static Task<string> QueryTypeSourceEvidence(
+        string operationId,
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string styleOptionsJson) =>
+        QueryTypeSourceEvidence(
+            operationId,
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            styleOptionsJson,
+            runtimeIdentifier: null);
+
     [JSExport]
     public static async Task<string> QueryTypeSourceEvidence(
         string operationId,
@@ -301,7 +369,8 @@ public static partial class SourceExports
         string targetFramework,
         string assemblyName,
         string typeIdentity,
-        string styleOptionsJson)
+        string styleOptionsJson,
+        string? runtimeIdentifier)
     {
         BrowserManagedOperationId id =
             BrowserManagedOperationId.From(operationId);
@@ -338,6 +407,7 @@ public static partial class SourceExports
                                 typeIdentity,
                                 styleOptionsJson,
                                 view: "source",
+                                runtimeIdentifier,
                                 requestEvidence: true,
                                 cancellationToken: token);
                         return new BrowserManagedOperationBodyResult<
@@ -374,6 +444,7 @@ public static partial class SourceExports
         string typeIdentity,
         string styleOptionsJson,
         string view,
+        string? runtimeIdentifier,
         bool requestEvidence,
         CancellationToken cancellationToken)
     {
@@ -386,6 +457,7 @@ public static partial class SourceExports
                     view == "all-declarations"
                         ? TypeApiDeclarationScope.All
                         : TypeApiDeclarationScope.ApiVisible,
+                    runtimeIdentifier,
                     cancellationToken),
                 Evidence: null);
         }
@@ -403,6 +475,7 @@ public static partial class SourceExports
             targetFramework,
             assemblyName,
             typeIdentity,
+            runtimeIdentifier,
             cancellationToken);
         await using (scopeLease)
         {
@@ -587,6 +660,7 @@ public static partial class SourceExports
         string assemblyName,
         string typeIdentity,
         TypeApiDeclarationScope declarationScope,
+        string? runtimeIdentifier,
         CancellationToken cancellationToken)
     {
         if (MetadataTypeDefinitionName.ParseSerialized(typeIdentity)
@@ -598,7 +672,11 @@ public static partial class SourceExports
 
         await using BrowserScopeLease<BrowserInspectionScope> lease =
             await BrowserPackageWorkspace.OpenScopeAsync(
-                packageId, version, targetFramework, cancellationToken);
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier,
+                cancellationToken);
         BrowserInspectionScope scope = lease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserWorkspaceParticipant participant = scope.SurfaceParticipant(
@@ -651,6 +729,28 @@ public static partial class SourceExports
         return new BrowserTypeCodeView.ApiDeclarations(inspection);
     }
 
+    public static Task<string> QueryTypeMemberSource(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        string styleOptionsJson) =>
+        QueryTypeMemberSource(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken,
+            styleOptionsJson,
+            runtimeIdentifier: null);
+
     [JSExport]
     public static async Task<string> QueryTypeMemberSource(
         string packageId,
@@ -661,7 +761,8 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson)
+        string styleOptionsJson,
+        string? runtimeIdentifier)
     {
         BrowserMemberSourceResult result = await QueryMemberSourceCore(
             packageId,
@@ -675,7 +776,8 @@ public static partial class SourceExports
             documentBaselineOrdinal: 0,
             styleOptionsJson,
             view: "source",
-            includeParts: false);
+            includeParts: false,
+            runtimeIdentifier);
         BrowserMemberSource source = result.Value
             ?? throw new InvalidOperationException(result.Error);
         return JsonSerializer.Serialize(
@@ -695,7 +797,8 @@ public static partial class SourceExports
         int documentBaselineOrdinal,
         string styleOptionsJson,
         string view,
-        bool includeParts)
+        bool includeParts,
+        string? runtimeIdentifier)
     {
         bool decompilerOnly = MemberSourceDecompilerOnly(view);
         if (documentBaselineOrdinal > 0 && !decompilerOnly)
@@ -709,7 +812,8 @@ public static partial class SourceExports
                     memberName,
                     documentBaselineOrdinal,
                     styleOptionsJson,
-                    includeParts)
+                    includeParts,
+                    runtimeIdentifier)
                 .ConfigureAwait(false);
         }
 
@@ -725,10 +829,11 @@ public static partial class SourceExports
                 memberName,
                 selectorKey,
                 metadataToken,
+                runtimeIdentifier,
                 operation.CancellationToken);
         BrowserInspectionScope scope = resolved.Scope;
         BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
-        CallGraphMemberResolution resolution = resolved.Member;
+        AssemblyContextMemberBody resolution = resolved.Member;
         operation.CancellationToken.ThrowIfCancellationRequested();
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
@@ -788,7 +893,8 @@ public static partial class SourceExports
             string memberName,
             int baselineOrdinal,
             string styleOptionsJson,
-            bool includeParts)
+            bool includeParts,
+            string? runtimeIdentifier)
     {
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
@@ -797,6 +903,7 @@ public static partial class SourceExports
                     packageId,
                     version,
                     targetFramework,
+                    runtimeIdentifier,
                     operation.CancellationToken)
                 .ConfigureAwait(false);
         BrowserInspectionScope scope = scopeLease.Scope;
@@ -1055,7 +1162,7 @@ public static partial class SourceExports
     }
 
     static AssemblyMemberSourceRequest MemberSourceRequest(
-        CallGraphMemberResolution resolution,
+        AssemblyContextMemberBody resolution,
         string typeIdentity,
         string memberName,
         string styleOptionsJson,
@@ -1093,12 +1200,33 @@ public static partial class SourceExports
             string assemblyName,
             string typeIdentity,
             CancellationToken cancellationToken)
+        => await SourceTypeAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            runtimeIdentifier: null,
+            cancellationToken);
+
+    static async Task<(
+        BrowserScopeLease<BrowserInspectionScope> ScopeLease,
+        BrowserWorkspaceParticipant Participant,
+        ApiType Type)> SourceTypeAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyName,
+            string typeIdentity,
+            string? runtimeIdentifier,
+            CancellationToken cancellationToken)
     {
         BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
                 targetFramework,
+                runtimeIdentifier,
                 cancellationToken);
         BrowserInspectionScope scope = scopeLease.Scope;
         try
@@ -1410,7 +1538,7 @@ public static partial class SourceExports
             AssemblyMemberSource.Pdb pdb => new BrowserSource(
                 "pdb",
                 PdbSourceProvenance(pdb.Provenance),
-                pdb.Inspection.Document?.ResolvedUrl,
+                pdb.Inspection.ResolvedUrl,
                 null,
                 pdb.Text),
             AssemblyMemberSource.Decompiled decompiled => new BrowserSource(
@@ -1565,7 +1693,7 @@ public static partial class SourceExports
             AssemblyTypeSource.Pdb pdb => new BrowserSource(
                 "pdb",
                 PdbSourceProvenance(pdb.Provenance),
-                pdb.Inspection.Document?.ResolvedUrl,
+                pdb.Inspection.ResolvedUrl,
                 null,
                 pdb.Text),
             AssemblyTypeSource.Decompiled decompiled => new BrowserSource(

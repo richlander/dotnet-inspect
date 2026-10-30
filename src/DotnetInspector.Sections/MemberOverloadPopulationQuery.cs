@@ -300,6 +300,8 @@ public static class MemberOverloadPopulationQuery
             MemberOverloadReceiverFilter.This => "this",
             MemberOverloadReceiverFilter.Static => "static",
             MemberOverloadReceiverFilter.Extension => "extension",
+            MemberOverloadReceiverFilter.NonExtension =>
+                "non-extension",
             _ => throw new ArgumentOutOfRangeException(nameof(receiver)),
         };
 
@@ -491,6 +493,7 @@ public static class MemberOverloadPopulationQuery
 
     private static Predicate? BindReceiver(string value) =>
         value is "all" or "this" or "static" or "extension"
+            or "non-extension"
             ? new(ReceiverTermKey, value)
             : null;
 
@@ -520,6 +523,8 @@ public static class MemberOverloadPopulationQuery
             "this" => MemberOverloadReceiverFilter.This,
             "static" => MemberOverloadReceiverFilter.Static,
             "extension" => MemberOverloadReceiverFilter.Extension,
+            "non-extension" =>
+                MemberOverloadReceiverFilter.NonExtension,
             _ => throw new InvalidOperationException(
                 "Exact-Member QuerySpace resolved an unknown receiver."),
         };
@@ -578,8 +583,9 @@ public static class MemberOverloadPopulationQuery
                     new(
                         "Receiver",
                         "receiver kind",
-                        ["all", "this", "static", "extension"],
-                        "Selects exact Members by this, static, or extension receiver kind."),
+                        ["all", "this", "static", "extension",
+                            "non-extension"],
+                        "Selects exact Members by this, static, extension, or non-extension receiver kind."),
                     []),
                 new(
                     IncludeHiddenTermIdentity,

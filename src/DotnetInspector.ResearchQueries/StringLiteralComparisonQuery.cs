@@ -14,6 +14,17 @@ public sealed record StringLiteralComparisonQueryPlan(
     PortableQueryTerm Term,
     StringLiteralUsePredicate Predicate);
 
+public sealed record StringLiteralComparisonPath(string AssemblyName, string Path);
+
+/// <summary>
+/// One Library assembly an endpoint compares, as an implementation
+/// participant read in the group that holds it.
+/// </summary>
+public sealed record StringLiteralComparisonParticipant(
+    string AssemblyName,
+    AssemblyContextGroup Group,
+    AssemblyContextParticipant Participant);
+
 public abstract record StringLiteralComparisonQueryPlanResult
 {
     private StringLiteralComparisonQueryPlanResult()
@@ -95,6 +106,129 @@ public static class StringLiteralComparisonQuery
             budget ?? StringLiteralUsePatternBudget.Default,
             cancellationToken);
         return Comparison(subject, before, after);
+    }
+
+    public static RetainedFindingComparisonSet ExecutePathSets(
+        IReadOnlyList<StringLiteralComparisonPath> beforePaths,
+        IReadOnlyList<StringLiteralComparisonPath> afterPaths,
+        string subjectId,
+        StringLiteralComparisonQueryPlan plan,
+        StringLiteralUsePatternBudget? budget = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(beforePaths);
+        ArgumentNullException.ThrowIfNull(afterPaths);
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subjectId);
+        StringLiteralUsePatternBudget effectiveBudget =
+            budget ?? StringLiteralUsePatternBudget.Default;
+        return ExecuteSets(
+            Index(beforePaths, PathAssemblyName, nameof(beforePaths)),
+            Index(afterPaths, PathAssemblyName, nameof(afterPaths)),
+            subjectId,
+            (path, _, subject) => InspectPath(path.Path, subject,
+                plan.Predicate, effectiveBudget, cancellationToken),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Compares each Library assembly the endpoints share by name, as
+    /// <see cref="ExecutePathSets"/> does, over implementation participants
+    /// rather than files.
+    /// </summary>
+    public static RetainedFindingComparisonSet ExecuteParticipantSets(
+        IReadOnlyList<StringLiteralComparisonParticipant> before,
+        IReadOnlyList<StringLiteralComparisonParticipant> after,
+        string subjectId,
+        StringLiteralComparisonQueryPlan plan,
+        StringLiteralUsePatternBudget? budget = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subjectId);
+        StringLiteralUsePatternBudget effectiveBudget =
+            budget ?? StringLiteralUsePatternBudget.Default;
+        return ExecuteSets(
+            Index(before, static participant => participant.AssemblyName, nameof(before)),
+            Index(after, static participant => participant.AssemblyName, nameof(after)),
+            subjectId,
+            (participant, side, subject) => InspectParticipant(
+                participant.Group,
+                participant.Participant,
+                side,
+                subject,
+                plan.Predicate,
+                effectiveBudget,
+                cancellationToken),
+            cancellationToken);
+    }
+
+    private static RetainedFindingComparisonSet ExecuteSets<T>(
+        Dictionary<string, T> before,
+        Dictionary<string, T> after,
+        string subjectId,
+        Func<T, string, FindingSubject, FindingInspection<StringLiteralUseOccurrence>> inspect,
+        CancellationToken cancellationToken)
+    {
+        if (before.Count == 0 || after.Count == 0)
+        {
+            throw new ArgumentException(
+                "Each endpoint must supply at least one Library assembly.");
+        }
+
+        var comparisons = new List<RetainedFindingComparison>();
+        foreach (string name in before.Keys.Concat(after.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static name => name, StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var subject = Subject($"{subjectId}/{name}", name);
+            var findingSubject = new FindingSubject(subject.Id, subject.Display);
+            FindingInspection<StringLiteralUseOccurrence> oldInspection =
+                before.TryGetValue(name, out T? beforeItem)
+                    ? inspect(beforeItem, "before", findingSubject)
+                    : new FindingInspection<StringLiteralUseOccurrence>.Complete([]);
+            FindingInspection<StringLiteralUseOccurrence> newInspection =
+                after.TryGetValue(name, out T? afterItem)
+                    ? inspect(afterItem, "after", findingSubject)
+                    : new FindingInspection<StringLiteralUseOccurrence>.Complete([]);
+            comparisons.Add(
+                new RetainedFindingComparison<StringLiteralUseOccurrence>(
+                    subject,
+                    StringLiteralUseFindings.Descriptor,
+                    FindingComparison.Compare(oldInspection, newInspection)));
+        }
+        return new RetainedFindingComparisonSet(comparisons);
+    }
+
+    private static string PathAssemblyName(StringLiteralComparisonPath path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path.Path);
+        return path.AssemblyName;
+    }
+
+    private static Dictionary<string, T> Index<T>(
+        IReadOnlyList<T> items,
+        Func<T, string> assemblyName,
+        string parameterName)
+    {
+        var indexed = new Dictionary<string, T>(StringComparer.OrdinalIgnoreCase);
+        foreach (T item in items)
+        {
+            ArgumentNullException.ThrowIfNull(item, parameterName);
+            string name = assemblyName(item);
+            ArgumentException.ThrowIfNullOrWhiteSpace(name, parameterName);
+            if (!indexed.TryAdd(name, item))
+            {
+                throw new ArgumentException(
+                    $"Duplicate Library assembly '{name}'.",
+                    parameterName);
+            }
+        }
+        return indexed;
     }
 
     public static RetainedFindingComparisonSet ExecuteParticipants(

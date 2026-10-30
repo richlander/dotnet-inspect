@@ -553,10 +553,12 @@ public sealed class PackageImplementationPlatformSourceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public async Task RangedCapableFeedSelectsAccessByPopulation(
-        bool exact)
+        bool exact,
+        bool byName)
     {
         byte[] runtime =
             PackagePlatformTestData.Assembly("System.Runtime");
@@ -594,7 +596,10 @@ public sealed class PackageImplementationPlatformSourceTests
                 rangedSizeCut: 0));
 
         PackageImplementationPopulationDemand population =
-            exact
+            byName
+                ? new PackageImplementationPopulationDemand.AssemblyName(
+                    "System.Text.Json")
+                : exact
                 ? new PackageImplementationPopulationDemand.Assembly(
                     PackagePlatformTestData.Identity(json))
                 : new PackageImplementationPopulationDemand
@@ -619,7 +624,7 @@ public sealed class PackageImplementationPlatformSourceTests
         Assert.Equal(
             exact ? 1 : 2,
             succeeded.Value.Libraries.Length);
-        Assert.Equal(1, feed.FullRequests);
+        Assert.Equal(exact ? 0 : 1, feed.FullRequests);
         if (exact)
         {
             Assert.Equal(
@@ -637,6 +642,38 @@ public sealed class PackageImplementationPlatformSourceTests
         {
             Assert.Equal(0, feed.RangedRequests);
         }
+    }
+
+    [Theory]
+    [InlineData("Missing", "System.Runtime", PackagePlatformSourceDiagnosticKind.MemberUnavailable)]
+    [InlineData("System.Runtime", "Renamed", PackagePlatformSourceDiagnosticKind.AssemblyIdentityMismatch)]
+    public async Task NamedImplementationRequiresManifestAndMetadataAgreement(
+        string requestedName,
+        string metadataName,
+        PackagePlatformSourceDiagnosticKind diagnostic)
+    {
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment.RuntimeImplementationPackageId,
+                    entries: PackagePlatformTestData.RuntimePackEntries(
+                        "Microsoft.NETCore.App",
+                        PackagePlatformTestData.RuntimeConfiguration(),
+                        PackagePlatformTestData.DependencyManifest("System.Runtime.dll"),
+                        ("System.Runtime.dll", PackagePlatformTestData.Assembly(metadataName)))),
+            ]);
+
+        var result = Assert.IsAssignableFrom<
+            PackagePlatformSourceOutcome<PackageImplementationRealization>.NotSucceeded>(
+                await environment.CreateSource().RealizeImplementationAsync(
+                    Coordinate(PlatformFamily.DotNetRuntime),
+                    new PackageImplementationPopulationDemand.AssemblyName(requestedName),
+                    Work(),
+                    environment.IssueOperation(TestContext.Current.CancellationToken)));
+
+        Assert.Equal(diagnostic, result.Diagnostic.Kind);
+        await environment.AssertSettledAsync();
     }
 
     [Theory]

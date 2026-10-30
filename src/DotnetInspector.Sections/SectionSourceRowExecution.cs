@@ -131,7 +131,7 @@ public sealed class SectionSourceRowExecutionRequest<
             {
                 usableIdentities.Add(source.Identity);
             }
-            if (source.CountIsSufficient
+            if (source.RowsAreUsable
                 && source.ExactCount is null)
             {
                 countResidualIdentities.Add(source.Identity);
@@ -268,8 +268,12 @@ public static class SectionSourceRowExecutor
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // Only a set with nothing observed refuses Count; an incomplete
+        // usable set reports its observed cardinality.
         if (request.Sources.Any(
-                static source => !source.CountIsSufficient))
+                static source =>
+                    !source.RowsAreUsable
+                    && source.ExactCount is null))
         {
             var sources =
                 new SectionCountSourceEvidence<
@@ -362,26 +366,36 @@ public static class SectionSourceRowExecutor
 
         var counts =
             new SectionCountEntry<TIdentity>[request.Sources.Count];
+        var evidence =
+            new SectionCountSourceEvidence<
+                TIdentity,
+                SectionRowSourceEvidence<
+                    TDisposition,
+                    TCompletionEvidence>>[request.Sources.Count];
         for (int index = 0;
              index < request.Sources.Count;
              index++)
         {
-            TIdentity identity =
-                request.Sources[index].Identity;
+            SectionRowSourceState<
+                TIdentity,
+                TDisposition,
+                TCompletionEvidence> source =
+                    request.Sources[index];
             if (!countsByIdentity.TryGetValue(
-                    identity,
+                    source.Identity,
                     out int count))
             {
                 throw new InvalidOperationException(
                     "Source-aware Count omitted a participating row set.");
             }
-            counts[index] = new(identity, count);
+            counts[index] = new(source.Identity, count, source.IsComplete);
+            evidence[index] = new(source.Identity, source.Evidence);
         }
 
         return new SectionCountOutcome<
             TIdentity,
             SectionRowSourceEvidence<
                 TDisposition,
-                TCompletionEvidence>>.Completed(counts);
+                TCompletionEvidence>>.Completed(counts, evidence);
     }
 }

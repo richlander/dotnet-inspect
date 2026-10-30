@@ -41,6 +41,80 @@ public sealed class PackageAssemblyContextCompletionTests
     static ImmutableArray<EcosystemIntegrationClassification> EmptyClassification(
         EcosystemIntegrationObservationContext context) => [];
 
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("linux-x64", false)]
+    [InlineData(null, true)]
+    public async Task
+        PackageRealizationProjection_EmptyCompileDependencyRetainsImplementation(
+            string? runtimeIdentifier,
+            bool namedImplementation)
+    {
+        const string libraryPath = "lib/net11.0/RuntimeDependency.dll";
+        string implementationPath = runtimeIdentifier is null
+            ? libraryPath
+            : $"runtimes/{runtimeIdentifier}/{libraryPath}";
+        byte[] image = File.ReadAllBytes(
+            typeof(PackageAssemblyContextCompletionTests).Assembly.Location);
+        var entries = new List<(string Path, byte[] Content)>
+        {
+            ("ref/net11.0/_._", []),
+            (libraryPath, image),
+        };
+        if (runtimeIdentifier is not null)
+            entries.Add((implementationPath, image));
+        var content = new InMemoryPackageContent(
+            Archive([.. entries]),
+            fromCache: false,
+            producerKey: "tests");
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create("RuntimeDependency", "1.0.0"),
+            content,
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding binding = PackageRootBinding.CreateFromSource(
+            payload,
+            Framework,
+            runtimeIdentifier);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            binding.Root.AssetSelection!.Status);
+        if (namedImplementation)
+        {
+            binding = binding.WithAssetDemand(
+                PackageAssetDemand.SurfaceAndImplementation,
+                PackageImplementationNames.Create(["RuntimeDependency.dll"]));
+        }
+        PackageRootBinding caller = Binding(
+            "Caller",
+            (
+                "lib/net11.0/Caller.dll",
+                File.ReadAllBytes(
+                    typeof(AssemblyReferenceIdentity).Assembly.Location)));
+        PackageRootBinding[] bindings = [caller, binding];
+        await using var workspace = new InspectionWorkspace();
+
+        PackageAssemblyContextCompletion completion =
+            await ExecuteAsync(workspace, bindings);
+        PackageAssemblyContextProjection projection =
+            completion.CreateProjection(bindings);
+
+        Assert.Same(
+            caller.Root.Identity,
+            Assert.Single(projection.SurfaceParticipants).Package);
+        Assert.NotNull(projection.ImplementationRole);
+        PackageAssemblyRoleParticipant implementation =
+            Assert.Single(
+                projection.ImplementationRole.Participants,
+                participant =>
+                    ReferenceEquals(
+                        binding.Root.Identity,
+                        participant.Package));
+        Assert.Equal(implementationPath, implementation.Asset.Path);
+        await projection.ReturnAsync();
+        await completion.CloseAsync();
+    }
+
     [Fact]
     public async Task PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder()
     {
@@ -663,7 +737,7 @@ public sealed class PackageAssemblyContextCompletionTests
             PackageRootBinding.CreateFromSource(
                 payload,
                 Framework);
-        Assert.True(binding.Root.AssetSelection.IsSelected);
+        Assert.True(Assert.IsType<PackageCompileAssetSelection>(binding.Root.AssetSelection).IsSelected);
         return binding;
     }
 

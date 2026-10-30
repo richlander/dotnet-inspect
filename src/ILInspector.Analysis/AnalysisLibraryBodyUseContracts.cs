@@ -43,6 +43,7 @@ public enum AnalysisLibraryBodyUseDiagnosticKind
     UnresolvedOperand,
     UnavailableLogicalOwner,
     Limit,
+    RejectedLogicalOwner,
 }
 
 public enum AnalysisLibraryBodyUseRejectionKind

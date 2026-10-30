@@ -14,6 +14,12 @@ public interface IIrPass
 {
     string Name { get; }
 
+    PassAnalysisKind RequiredAnalyses
+        => PassAnalysisKind.None;
+
+    PassAnalysisKind PreservedAnalyses
+        => PassAnalysisKind.None;
+
     void Run(IrFunction function, PassContext context);
 }
 
@@ -21,8 +27,12 @@ public interface IIrPass
 public static class IrPasses
 {
     public static ImmutableArray<IIrPass> Default { get; } =
+    IrPassComposition.Validate("default",
     [
         new TypedConstantsPass(),
+        // Retire exact receiver aliases before raising when storage would lose
+        // value-type identity or require an unspellable generic receiver local.
+        new ReceiverAliasPass(),
         // Drop identity conversions (the ldlen/conv.i4 array-length idiom)
         // before structuring so loop conditions match on clean lengths.
         new IdentityConvertPass(),
@@ -269,9 +279,11 @@ public static class IrPasses
         // flat it renders `b > false` (CS0019) and the method never binds. Runs
         // after inlining so the bool operand is in its final position.
         new BoolToIntNormalizationPass(),
-        // A comparison or bool slot consumed by integer arithmetic is an i4 0/1
-        // value in IL, but C# rejects `int + bool`; materialize the bool operand
-        // before the printer sees the binary.
+        // A comparison consumed by integer arithmetic is an i4 0/1 value in
+        // IL, but C# rejects `int + bool`; materialize the bool operand before
+        // the printer sees the binary. When a complete slot carries the result
+        // of that arithmetic back into arithmetic, preserve its integer result
+        // identity before normalizing the producer operands.
         new ArithmeticBoolOperandPass(),
         // The operand-side complement of the bool→int normalization: a bool
         // operand of an integer bitwise &/|/^ (a comparison result or bool slot
@@ -404,6 +416,12 @@ public static class IrPasses
         // mismatch) renders an honest marker instead of an uncompilable fp(x).
         new CallIndirectSpellabilityPass(),
         new RefKindDiagnosticsPass(),
+        // Typed raising can leave a struct rvalue spill immediately before a
+        // consumer whose earlier operand is the exact now-decided stack-slot
+        // carrier. Recompose that receiver without crossing effects, then let
+        // the existing final slots-only inliner consume the carrier the removed
+        // local had separated from its use (#9969).
+        new StructReceiverInliningPass(lateStackCarrierTail: true),
         // Wrap every in-domain typed-sink value not provably at its target in
         // a Coerce node, so the printer receives a decided tree and
         // CoercionInvariant is checkable (value-typed-emission.md, slice 3).
@@ -428,6 +446,11 @@ public static class IrPasses
         // Refresh reference assignment testimony immediately before storage
         // consumes it. Final binding still runs after later rewrites.
         new ReferenceSlotTargetBindingPass(),
+        // A function-scope slot component with no surviving observer has no
+        // storage identity. Remove pure producer loads and direct copies; keep
+        // every other producer evaluation in place as an explicitly typed
+        // discard so contextual expressions such as lambdas remain valid.
+        new ProducerOnlySlotRetirementPass(),
         // A decided slot (one testified type, every store exact, renderably
         // coercible, or carrying issued assignment testimony) is a finished
         // variable: materialize it as a
@@ -497,7 +520,7 @@ public static class IrPasses
         // with residual provenance as an input (value-typed-emission.md,
         // Instance 3). Last: every statement-rewriting pass has run.
         new DefiniteAssignmentPass(),
-    ];
+    ], IrPassPipelineProfile.Complete);
 
     /// <summary>
     /// The "lowered" pipeline — <see cref="Default"/> with the cosmetic
@@ -514,16 +537,25 @@ public static class IrPasses
     /// output, like SharpLab's, must always be valid C#.
     /// </summary>
     public static ImmutableArray<IIrPass> Lowered { get; } =
-        [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass or PointerElementCompoundAssignmentPass or PointerCompoundAssignmentPass))];
+        IrPassComposition.Validate(
+            "lowered",
+            [.. Default.Where(p => p is not (ForLoopPass or IncrementDecrementPass or LockSugarPass or PointerElementCompoundAssignmentPass or PointerCompoundAssignmentPass))],
+            IrPassPipelineProfile.Complete);
 
     // Capture substitution exposes argument reads in place of environment-field
     // reads. Let the existing final slots-only inliner see those before storage
     // becomes locals; keep the rest of the emission tail in its normal order.
     internal static ImmutableArray<IIrPass> CapturingLambdaPreparation { get; } =
-        [.. Default.Take(Default.IndexOf(Default.OfType<ExpressionInliningPass>().Last()))];
+        IrPassComposition.Validate(
+            "capturing-lambda preparation",
+            [.. Default.Take(Default.IndexOf(Default.OfType<ExpressionInliningPass>().Last()))],
+            IrPassPipelineProfile.CapturingLambdaPreparation);
 
     internal static ImmutableArray<IIrPass> CapturingLambdaCompletion { get; } =
-        [.. Default.Skip(CapturingLambdaPreparation.Length)];
+        IrPassComposition.Validate(
+            "capturing-lambda completion",
+            [.. Default.Skip(CapturingLambdaPreparation.Length)],
+            IrPassPipelineProfile.Complete);
 
     /// <summary>
     /// <see cref="Default"/> for a reconstructed body that re-enters the host
@@ -534,12 +566,17 @@ public static class IrPasses
     /// <c>this</c> spill) into a local it cannot.
     /// </summary>
     internal static ImmutableArray<IIrPass> ForIntermediateBody { get; } =
-        [.. Default.Where(p => p is not (ResidualSlotBindingPass or DefiniteAssignmentPass))];
+        IrPassComposition.Validate(
+            "intermediate body",
+            [.. Default.Where(p => p is not (ResidualSlotBindingPass or DefiniteAssignmentPass))],
+            IrPassPipelineProfile.IntermediateBody);
 
     /// <summary>
     /// The sub-pipeline for cross-method reconstruction imports (async and
     /// iterator <c>MoveNext</c> bodies): <see cref="Default"/> without the
-    /// requesting pass and without <see cref="SlotMaterializationPass"/>.
+    /// requesting pass and without
+    /// <see cref="ProducerOnlySlotRetirementPass"/> or
+    /// <see cref="SlotMaterializationPass"/>.
     /// Reconstruction pattern-matches structural slot nodes (the state
     /// machine's spilled stores/loads), so materializing them inside the
     /// sub-pipeline breaks the match — and it buys nothing: the transplanted
@@ -549,7 +586,11 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or SlotMaterializationPass or ResidualSlotBindingPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass or DefiniteAssignmentPass))];
+        IrPassComposition.Validate(
+            $"reconstruction for {typeof(TPass).Name}",
+            [.. Default.Where(p => p is not (TPass or ReferenceSlotTargetBindingPass or ReferenceCoalesceBindingPass or ReferenceConditionalBindingPass or PrimitiveJoinBindingPass or ProducerOnlySlotRetirementPass or SlotMaterializationPass or ResidualSlotBindingPass or PdbScopeEntryLocalPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass or DefiniteAssignmentPass))],
+            IrPassPipelineProfile.Reconstruction,
+            typeof(TPass));
 
     public static void Run(IrFunction function) => Run(function, Default);
 
@@ -558,16 +599,14 @@ public static class IrPasses
 
     public static void Run(IrFunction function, ImmutableArray<IIrPass> passes, PassContext context)
     {
-        foreach (var pass in passes)
-        {
-            pass.Run(function, context);
-            if (IrInvariants.Enabled)
-            {
-                function.CheckInvariant(IrInvariants.CheckSemantics);
-                if (IrInvariants.CheckSemantics && function.IsMetadataBacked)
-                    function.ValidateArgumentBindings();
-            }
-        }
+        ValidateForExecution(passes);
+        RunPasses(
+            function,
+            passes,
+            context,
+            completed: null,
+            analysisReceipts: null,
+            validateArgumentBindings: true);
     }
 
     /// <summary>The synthetic stage name for the importer output — the pre-transform tree, before any pass runs.</summary>
@@ -617,19 +656,112 @@ public static class IrPasses
         Func<MethodRef, IrFunction?>? importMethodBody,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
+        ValidateForExecution(passes);
         var context = PassContext.ForImport(importMethodBody, typesProvablyDisjoint);
         var stages = new List<PipelineStage>(passes.Length + 1)
         {
             new(ImportStageName, project(function), function.Fidelity),
         };
-        foreach (var pass in passes)
-        {
-            pass.Run(function, context);
-            if (IrInvariants.Enabled)
-                function.CheckInvariant(IrInvariants.CheckSemantics);
-            stages.Add(new(pass.Name, project(function), function.Fidelity));
-        }
+        RunObserved(function, passes, context,
+            (_, pass) => stages.Add(new(pass.Name, project(function), function.Fidelity)));
         return stages;
+    }
+
+    /// <summary>
+    /// Runs the default pipeline and issues one ordered receipt per completed
+    /// pass. Change attribution compares adjacent <see cref="IrPrinter.Dump"/>
+    /// projections while retaining only the preceding projection.
+    /// </summary>
+    public static IReadOnlyList<PassExecutionReceipt> RunWithReceipts(IrFunction function)
+        => RunWithReceipts(function, Default, IrPrinter.Dump, PassContext.None);
+
+    /// <summary>
+    /// As <see cref="RunWithReceipts(IrFunction)"/>, but wires the cross-method
+    /// import and type-disjointness capabilities used by metadata-backed runs.
+    /// </summary>
+    public static IReadOnlyList<PassExecutionReceipt> RunWithReceipts(
+        IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => RunWithReceipts(
+            function,
+            Default,
+            IrPrinter.Dump,
+            PassContext.ForImport(importMethodBody, typesProvablyDisjoint));
+
+    internal static IReadOnlyList<PassExecutionReceipt> RunWithReceipts(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        Func<IrFunction, string> project,
+        PassContext context)
+    {
+        ValidateForExecution(passes);
+        string previous = project(function);
+        var receipts = new List<PassExecutionReceipt>(passes.Length);
+        RunObserved(function, passes, context, (index, pass) =>
+        {
+            string current = project(function);
+            receipts.Add(new(index + 1, pass.Name,
+                !string.Equals(previous, current, StringComparison.Ordinal)));
+            previous = current;
+        });
+        return receipts;
+    }
+
+    /// <summary>
+    /// Runs the default pipeline and issues one receipt for every completed
+    /// manager-owned analysis boundary.
+    /// </summary>
+    public static IReadOnlyList<PassAnalysisReceipt> RunWithAnalysisReceipts(
+        IrFunction function)
+        => RunWithAnalysisReceipts(
+            function,
+            Default,
+            PassContext.None);
+
+    /// <summary>
+    /// As <see cref="RunWithAnalysisReceipts(IrFunction)"/>, but wires the
+    /// cross-method import and type-disjointness capabilities used by
+    /// metadata-backed runs.
+    /// </summary>
+    public static IReadOnlyList<PassAnalysisReceipt> RunWithAnalysisReceipts(
+        IrFunction function,
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => RunWithAnalysisReceipts(
+            function,
+            Default,
+            PassContext.ForImport(
+                importMethodBody,
+                typesProvablyDisjoint));
+
+    internal static IReadOnlyList<PassAnalysisReceipt> RunWithAnalysisReceipts(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        PassContext context)
+    {
+        var receipts = new List<PassAnalysisReceipt>();
+        RunWithAnalysisReceipts(
+            function,
+            passes,
+            context,
+            receipts);
+        return receipts;
+    }
+
+    internal static void RunWithAnalysisReceipts(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        PassContext context,
+        List<PassAnalysisReceipt> receipts)
+    {
+        ValidateForExecution(passes);
+        RunPasses(
+            function,
+            passes,
+            context,
+            completed: null,
+            analysisReceipts: receipts,
+            validateArgumentBindings: true);
     }
 
     /// <summary>
@@ -668,12 +800,13 @@ public static class IrPasses
             typesProvablyDisjoint: typesProvablyDisjoint);
         try
         {
-            foreach (var pass in Default)
-            {
-                pass.Run(function, context);
-                if (IrInvariants.Enabled)
-                    function.CheckInvariant(IrInvariants.CheckSemantics);
-            }
+            RunPasses(
+                function,
+                Default,
+                context,
+                completed: null,
+                analysisReceipts: null,
+                validateArgumentBindings: false);
         }
         catch (StepLimitReachedException)
         {
@@ -682,5 +815,67 @@ public static class IrPasses
             // to inspect.
         }
         return stepper;
+    }
+
+    static void RunObserved(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        PassContext context,
+        Action<int, IIrPass> completed)
+    {
+        RunPasses(
+            function,
+            passes,
+            context,
+            completed,
+            analysisReceipts: null,
+            validateArgumentBindings: false);
+    }
+
+    static void RunPasses(
+        IrFunction function,
+        ImmutableArray<IIrPass> passes,
+        PassContext context,
+        Action<int, IIrPass>? completed,
+        List<PassAnalysisReceipt>? analysisReceipts,
+        bool validateArgumentBindings)
+    {
+        PassContext runContext =
+            context.ForPipeline(function, analysisReceipts);
+        for (int i = 0; i < passes.Length; i++)
+        {
+            IIrPass pass = passes[i];
+            runContext.BeginPass(i + 1, pass);
+            pass.Run(function, runContext);
+            if (IrInvariants.Enabled)
+            {
+                function.CheckInvariant(IrInvariants.CheckSemantics);
+                if (validateArgumentBindings
+                    && IrInvariants.CheckSemantics
+                    && function.IsMetadataBacked)
+                {
+                    function.ValidateArgumentBindings();
+                }
+            }
+            runContext.CompletePass();
+            completed?.Invoke(i, pass);
+        }
+    }
+
+    static void ValidateForExecution(ImmutableArray<IIrPass> passes)
+    {
+        if (passes.Equals(Default)
+            || passes.Equals(Lowered)
+            || passes.Equals(CapturingLambdaPreparation)
+            || passes.Equals(CapturingLambdaCompletion)
+            || passes.Equals(ForIntermediateBody))
+        {
+            return;
+        }
+
+        IrPassComposition.Validate(
+            "caller-supplied",
+            passes,
+            IrPassPipelineProfile.Partial);
     }
 }

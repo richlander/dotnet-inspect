@@ -83,8 +83,8 @@ public sealed class EmptyPackageQueryView
         {
             TitleText = view.TitleText,
             Results = new(
-                ["Package", "Version", "Tier", "Source", "Answer"],
-                ["package", "version", "tier", "source", "answer"],
+                ["Package", "Version", "Tier", "Source", "Answer", "Evidence"],
+                ["package", "version", "tier", "source", "answer", "evidence"],
                 []),
             LiteralStrings = view.LiteralStrings,
             QuerySummary = view.QuerySummary,
@@ -110,6 +110,7 @@ public sealed class PackageQueryRow
         SourceText = match.Package.Source.Producer.Display;
         EvaluationTier = match.Tier;
         AnswerItems = match.Answers;
+        EvidenceText = FormatEvidence(match.Evidence);
     }
 
     [MarkoutIgnore] public InertString PackageText { get; }
@@ -117,6 +118,7 @@ public sealed class PackageQueryRow
     [MarkoutIgnore] public InertString SourceText { get; }
     [MarkoutIgnore] public PackageQueryAcquisitionTier EvaluationTier { get; }
     [MarkoutIgnore] public ImmutableArray<PackageQueryAnswer> AnswerItems { get; }
+    [MarkoutIgnore] public InertString EvidenceText { get; }
     public string Package => PackageText.ToString();
     public string Version => VersionText.ToString();
     public string Tier => EvaluationTier.ToString();
@@ -124,6 +126,58 @@ public sealed class PackageQueryRow
     public string Answer => string.Join(
         "; ",
         AnswerItems.Select(item => item.Value));
+    public string Evidence => EvidenceText.ToString();
+
+    private static InertString FormatEvidence(
+        ImmutableArray<PackageQueryEvidence> evidence) =>
+        new(
+            TextPolicy.Field,
+            string.Join(
+                "; ",
+                evidence
+                    .Where(item =>
+                        item.Scope == PackageQueryEvidenceScope.Package)
+                    .Select(FormatEvidenceItem)));
+
+    private static string FormatEvidenceItem(
+        PackageQueryEvidence evidence)
+    {
+        var details = new List<string>(
+            evidence.Properties.Length + 2);
+        details.AddRange(evidence.Properties.Select(property =>
+            $"{property.Name}={property.Value}"));
+        if (evidence.Number is long number)
+        {
+            details.Add(number.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        }
+        if (evidence.Summary is { } summary)
+        {
+            details.Add(FormatSummary(summary));
+        }
+
+        return details.Count == 0
+            ? evidence.Id
+            : $"{evidence.Id}: {string.Join(", ", details)}";
+    }
+
+    private static string FormatSummary(
+        PackageQueryEvidenceSummary summary)
+    {
+        string count =
+            $"{summary.Count} "
+            + (summary.Count == 1 ? "occurrence" : "occurrences");
+        if (summary.Preview.IsEmpty)
+        {
+            return count;
+        }
+
+        int remaining = summary.Count - summary.Preview.Length;
+        string preview = string.Join(", ", summary.Preview);
+        return remaining > 0
+            ? $"{count}: {preview} (+{remaining} more)"
+            : $"{count}: {preview}";
+    }
 }
 
 [MarkoutSerializable(TitleProperty = nameof(Title))]

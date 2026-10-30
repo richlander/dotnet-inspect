@@ -80,7 +80,7 @@ internal sealed class LineLimitingTextWriter : TextWriter
 
         if (_limitReached) return;
 
-        _inner.WriteLine();
+        _inner.Write('\n');
         _lineCount++;
         if (_lineCount >= _maxLines)
             _limitReached = true;
@@ -90,7 +90,7 @@ internal sealed class LineLimitingTextWriter : TextWriter
     {
         if (_limitReached) return;
 
-        _inner.WriteLine();
+        _inner.Write('\n');
         _lineCount++;
         if (_lineCount >= _maxLines)
             _limitReached = true;

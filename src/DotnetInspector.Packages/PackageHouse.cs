@@ -644,6 +644,80 @@ public sealed partial class PackageHouse
                                 failures: failures)));
                 }
 
+                if (request.Operation.Profile
+                        == PackageHouseOperationProfile.Acquire
+                    && request.ContentQuery is
+                    {
+                        NuspecTerminal: not null,
+                        Terminals.Count: 1,
+                    })
+                {
+                    ConfiguredPackageManifestResult? manifestResult;
+                    try
+                    {
+                        manifestResult =
+                            await sourceOperation
+                                .AcquireCandidateManifestAsync(candidate)
+                                .ConfigureAwait(false);
+                    }
+                    catch (NotSupportedException)
+                    {
+                        manifestResult = null;
+                    }
+                    if (manifestResult is not null)
+                    {
+                        failures.AddRange(
+                            AdaptFailures(request, manifestResult.Failures));
+                    }
+                    if (manifestResult is
+                        {
+                            Authority: { } manifestAuthority,
+                            Manifest: { } manifest,
+                        })
+                    {
+                        if (manifest.Content.Length
+                            > PackageManifestFactsProjection.MaxManifestBytes)
+                        {
+                            InertString reason = Reason(
+                                "The package manifest exceeds the configured manifest byte limit.");
+                            failures.Add(
+                                new PackageHouseFailure.Stage(
+                                    PackageHouseFailureStage.Selection,
+                                    reason));
+                            return ResourceFree(
+                                new PackageHouseResult.Failed(
+                                    new PackageHouseEvidence(
+                                        request,
+                                        decision,
+                                        failures: failures),
+                                    reason));
+                        }
+
+                        PackageHouseNuspec directNuspec = new(
+                            decision,
+                            manifestAuthority,
+                            manifest);
+                        return ResourceFree(
+                            new PackageHouseResult.Settled(
+                                new PackageHouseEvidence(
+                                    request,
+                                    decision,
+                                    failures: failures,
+                                    nuspec: directNuspec)));
+                    }
+                    if (failures.Any(IsOperationTimeout))
+                    {
+                        return ResourceFree(
+                            new PackageHouseResult.Failed(
+                                new PackageHouseEvidence(
+                                    request,
+                                    decision,
+                                    failures: failures),
+                                Reason(
+                                    "The PackageHouse operation deadline expired.")));
+                    }
+                }
+
                 PackagePayloadAcquisitionPlan payloadAcquisition =
                     _payloadAcquisition
                     ?? throw new InvalidOperationException(
@@ -659,8 +733,15 @@ public sealed partial class PackageHouse
                     plannedContentNarrowing = null;
                 PackageHouseLibraryInventoryResolution?
                     plannedLibraryInventory = null;
+                PackageCompileAssetSelectionReceipt?
+                    plannedCompileSelection = null;
                 PackagePayloadAccess payloadAccess =
                     SelectPayloadAccess(request, payloadAcquisition);
+                ReadOnlyMemory<byte>? libraryPopulationNuspec = null;
+                ConfiguredPackageManifestResult?
+                    libraryPopulationManifestResult = null;
+                bool libraryPopulationManifestUnsupported = false;
+                bool libraryPopulationManifestTooLarge = false;
                 PackageRangedRead? rangedRead =
                     payloadAccess == PackagePayloadAccess.Ranged
                         ? new PackageRangedRead(
@@ -669,16 +750,21 @@ public sealed partial class PackageHouse
                                 PackageRangedSelection selected =
                                     SelectRangedEntries(
                                         request,
-                                        rangedPackageId,
+                                        candidate.Coordinate,
                                         directory,
+                                        libraryPopulationNuspec,
                                         out PackageHouseContentNarrowingResolution?
                                             contentNarrowing,
                                         out PackageHouseLibraryInventoryResolution?
-                                            libraryInventory);
+                                            libraryInventory,
+                                        out PackageCompileAssetSelectionReceipt?
+                                            compileSelection);
                                 plannedContentNarrowing =
                                     contentNarrowing;
                                 plannedLibraryInventory =
                                     libraryInventory;
+                                plannedCompileSelection =
+                                    compileSelection;
                                 return selected;
                             },
                             payloadAcquisition.RangedSizeCut)
@@ -696,6 +782,80 @@ public sealed partial class PackageHouse
                         .ConfigureAwait(false);
                 failures.AddRange(
                     AdaptFailures(request, payloadResult.Failures));
+                if (payloadResult.Payload is { } initialPayload
+                    && payloadResult.Authority is { } payloadAuthority
+                    && request.AssetSelection
+                        == PackageHouseAssetSelectionKind.LibraryPopulation
+                    && NeedsDeferredToolManifest(
+                        request,
+                        initialPayload.Content,
+                        candidate.Coordinate))
+                {
+                    try
+                    {
+                        libraryPopulationManifestResult =
+                            await sourceOperation
+                                .AcquireCandidateManifestFromAuthorityAsync(
+                                    candidate,
+                                    payloadAuthority)
+                                .ConfigureAwait(false);
+                        if (libraryPopulationManifestResult.Manifest
+                                is { } manifest
+                            && manifest.Content.Length
+                                <= PackageExtractor.MaxNuspecBytes)
+                        {
+                            libraryPopulationNuspec =
+                                manifest.Content.ToArray();
+                            PackageLibraryPopulationSelection stagedSelection =
+                                EvaluateLibraryPopulation(
+                                    request,
+                                    initialPayload.Content,
+                                    candidate.Coordinate,
+                                    libraryPopulationNuspec,
+                                    readManifestFromContent: false);
+                            if (stagedSelection
+                                is PackageLibraryPopulationSelection.Tool)
+                            {
+                                ConfiguredPackagePayloadResult
+                                    selectedPayloadResult =
+                                    await sourceOperation
+                                        .AcquireCandidatePayloadFromAuthorityAsync(
+                                            candidate,
+                                            payloadAuthority,
+                                            payloadAcquisition.GetStore,
+                                            log: payloadAcquisition.Log,
+                                            limits: payloadAcquisition.Limits,
+                                            transferPolicy:
+                                                payloadAcquisition.TransferPolicy,
+                                            rangedRead: new PackageRangedRead(
+                                                directory =>
+                                                    SelectRangedLibraryPopulationEntries(
+                                                        request,
+                                                        candidate.Coordinate,
+                                                        directory,
+                                                        libraryPopulationNuspec),
+                                                payloadAcquisition.RangedSizeCut))
+                                        .ConfigureAwait(false);
+                                failures.AddRange(
+                                    AdaptFailures(
+                                        request,
+                                        selectedPayloadResult.Failures));
+                                payloadResult = CombineStagedPayloadResults(
+                                    payloadResult,
+                                    selectedPayloadResult);
+                            }
+                        }
+                        else if (libraryPopulationManifestResult.Manifest
+                            is not null)
+                        {
+                            libraryPopulationManifestTooLarge = true;
+                        }
+                    }
+                    catch (NotSupportedException)
+                    {
+                        libraryPopulationManifestUnsupported = true;
+                    }
+                }
                 if (payloadResult.Payload is not { } payload)
                 {
                     if (priorScope is { } scope
@@ -734,12 +894,28 @@ public sealed partial class PackageHouse
                         selectionUsesOriginalSources);
                 }
 
+                IReadOnlyList<string>? semanticDirectories = null;
+                IReadOnlyList<PackageContentEntry>?
+                    semanticDirectoryEntries = null;
+                if (request.ContentQuery?.FileListTerminal?.IncludeDirectories == true)
+                {
+                    if (payload.Content is IPackageArchiveEntryManifest directoryManifest)
+                    {
+                        directoryManifest.TryGetArchiveDirectories(out semanticDirectories);
+                        directoryManifest.TryGetArchiveDirectoryEntries(
+                            out semanticDirectoryEntries);
+                    }
+                }
                 IReadOnlyList<PackageContentEntry>? semanticEntries = null;
                 PackageHouseContentNarrowingResolution?
                     contentNarrowingResolution = null;
                 PackageHouseLibraryInventoryResolution?
                     libraryInventoryResolution = null;
+                PackageCompileAssetSelectionReceipt?
+                    compileSelectionReceipt = null;
                 bool semanticManifestUnavailable = false;
+                string? nuspecEntryPath = null;
+                InertString? nuspecSelectionFailure = null;
                 if (request.ContentQuery is not null)
                 {
                     if (payload.Content
@@ -752,6 +928,19 @@ public sealed partial class PackageHouse
                                 entries,
                                 payload.Content.ProducerKey,
                                 payload.Content.GenerationIdentity);
+                        if (request.IsCompileInventory || request.IsCompileLibrary)
+                        {
+                            compileSelectionReceipt =
+                                plannedCompileSelection is not null
+                                && ReferenceEquals(
+                                    plannedCompileSelection.Generation,
+                                    payload.Content.GenerationIdentity)
+                                    ? plannedCompileSelection
+                                    : EvaluateCompileSelection(
+                                        request,
+                                        directory,
+                                        rangedPackageId);
+                        }
                         contentNarrowingResolution =
                             plannedContentNarrowing is null
                             || !ReferenceEquals(
@@ -770,6 +959,12 @@ public sealed partial class PackageHouse
                             contentNarrowingResolution.EntryPaths);
                         if (request.ContentQuery
                                 .LibraryAndInventoryTerminal
+                                is not null
+                            || request.ContentQuery
+                                .LibraryInventoryTerminal
+                                is not null
+                            || request.ContentQuery
+                                .CompileLibrariesTerminal
                                 is not null)
                         {
                             libraryInventoryResolution =
@@ -783,6 +978,25 @@ public sealed partial class PackageHouse
                                         contentNarrowingResolution,
                                         semanticEntries)
                                     : plannedLibraryInventory;
+                        }
+                        if (request.ContentQuery.NuspecTerminal is not null)
+                        {
+                            try
+                            {
+                                nuspecEntryPath =
+                                    PackageManifestContent.FindRootManifest(
+                                        directory);
+                                if (nuspecEntryPath is null)
+                                {
+                                    nuspecSelectionFailure = Reason(
+                                        "The acquired package does not contain a root nuspec.");
+                                }
+                            }
+                            catch (InvalidDataException)
+                            {
+                                nuspecSelectionFailure = Reason(
+                                    "The acquired package does not contain one valid root nuspec.");
+                            }
                         }
                     }
                     else
@@ -805,16 +1019,20 @@ public sealed partial class PackageHouse
                 IReadOnlyList<string> unmatchedLegacyFiles =
                     request.FileDemand?.Unmatched(acquiredEntryPaths)
                     ?? [];
-                if (request.ContentQuery is not null)
+                if (request.ContentQuery is not null && !request.IsCompileInventory && !request.IsCompileLibrary)
                 {
                     IReadOnlyList<string> selectedSemanticEntries =
                         contentFiles?.SelectedEntries ?? [];
                     if (libraryInventoryResolution is
-                        {
-                            Completion:
-                                PackageHouseContentNarrowingCompletion.Settled,
-                            SelectionFailure: null,
-                        } projectedInventory)
+                            {
+                                Completion:
+                                    PackageHouseContentNarrowingCompletion
+                                        .Settled,
+                                SelectionFailure: null,
+                            } projectedInventory
+                        && request.ContentQuery
+                            .LibraryAndInventoryTerminal
+                            is not null)
                     {
                         selectedSemanticEntries =
                         [
@@ -826,6 +1044,65 @@ public sealed partial class PackageHouse
                                 .CompileEntry
                                 .Path,
                         ];
+                    }
+                    if (libraryInventoryResolution is
+                            {
+                                Completion:
+                                    PackageHouseContentNarrowingCompletion
+                                        .Settled,
+                                SelectionFailure: null,
+                            } compileLibraries
+                        && request.ContentQuery
+                            .CompileLibrariesTerminal
+                            is { } librariesTerminal)
+                    {
+                        string[] implementationEntries =
+                            librariesTerminal.AssetDemand
+                                == PackageAssetDemand
+                                    .SurfaceAndImplementation
+                                ? [
+                                    .. compileLibraries.Rows
+                                    .Select(static row =>
+                                        row.ImplementationEntry?.Path)
+                                    .OfType<string>()
+                                    .Where(path =>
+                                        request.ImplementationNames
+                                            ?.MatchesPath(path)
+                                        ?? true),
+                                ]
+                                : [];
+                        IEnumerable<string> companionEntries =
+                            request.LibraryCompanionDemand
+                                is PackageHouseLibraryCompanionDemand
+                                    .ImplementationPortablePdb
+                                ? ListedPortablePdbCompanions(
+                                    implementationEntries,
+                                    payload.Content)
+                                : [];
+                        selectedSemanticEntries =
+                        [
+                            .. selectedSemanticEntries
+                                .Concat(
+                                    compileLibraries.Rows.Select(
+                                        static row =>
+                                            row.CompileEntry.Path))
+                                .Concat(implementationEntries)
+                                .Concat(companionEntries)
+                                .Distinct(StringComparer.Ordinal),
+                        ];
+                    }
+                    if (nuspecEntryPath is not null)
+                    {
+                        if (!selectedSemanticEntries.Contains(
+                                nuspecEntryPath,
+                                StringComparer.OrdinalIgnoreCase))
+                        {
+                            selectedSemanticEntries =
+                            [
+                                .. selectedSemanticEntries,
+                                nuspecEntryPath,
+                            ];
+                        }
                     }
                     payloadResult = ProjectSemanticContent(
                         payloadResult,
@@ -854,11 +1131,13 @@ public sealed partial class PackageHouse
                     && contentNarrowing is not null
                         ? new PackageHouseFileList(
                             contentNarrowing,
-                            semanticEntries)
+                            semanticEntries,
+                            semanticDirectories,
+                            semanticDirectoryEntries)
                         : null;
                 PackageHouseLibraryAndInventory? libraryAndInventory =
                     request.ContentQuery?.LibraryAndInventoryTerminal
-                            is { } selectedLibraryTerminal
+                            is not null
                     && libraryInventoryResolution is
                         {
                             Completion:
@@ -868,10 +1147,74 @@ public sealed partial class PackageHouse
                     && contentNarrowing is not null
                         ? CreateLibraryAndInventory(
                             acquisition,
-                            contentNarrowing,
+                            CreateLibraryInventory(
+                                contentNarrowing,
+                                selectedInventoryResolution),
                             selectedInventoryResolution,
                             rangedPackageId)
                         : null;
+                PackageHouseLibraryInventory? libraryInventory =
+                    libraryAndInventory?.Inventory
+                    ?? ((request.ContentQuery?.LibraryInventoryTerminal
+                                is not null
+                            || request.ContentQuery
+                                ?.CompileLibrariesTerminal
+                                is not null)
+                            && libraryInventoryResolution is
+                            {
+                                Completion:
+                                    PackageHouseContentNarrowingCompletion
+                                        .Settled,
+                                SelectionFailure: null,
+                            } inventoryResolution
+                            && contentNarrowing is not null
+                        ? CreateLibraryInventory(
+                            contentNarrowing,
+                            inventoryResolution)
+                        : null);
+                PackageHouseNuspec? nuspec = null;
+                if (nuspecEntryPath is not null)
+                {
+                    try
+                    {
+                        if (!payload.Content.TryOpenEntry(
+                                nuspecEntryPath,
+                                PackageManifestFactsProjection.MaxManifestBytes,
+                                out Stream? nuspecStream))
+                        {
+                            nuspecSelectionFailure = Reason(
+                                "The selected package nuspec is not materialized.");
+                        }
+                        else
+                        {
+                            await using (nuspecStream.ConfigureAwait(false))
+                            {
+                                byte[] bytes =
+                                    await BoundedContentReader
+                                        .ReadAllBytesAsync(
+                                            nuspecStream,
+                                            PackageManifestFactsProjection
+                                                .MaxManifestBytes,
+                                            cancellationToken:
+                                                sourceOperation
+                                                    .OperationCancellationToken)
+                                        .ConfigureAwait(false);
+                                nuspec = new PackageHouseNuspec(
+                                    acquisition,
+                                    nuspecEntryPath,
+                                    bytes);
+                            }
+                        }
+                    }
+                    catch (Exception exception) when (
+                        exception is InvalidDataException
+                            or IOException
+                            or UnauthorizedAccessException)
+                    {
+                        nuspecSelectionFailure = Reason(
+                            "The selected package nuspec exceeds the configured manifest byte limit or is invalid.");
+                    }
+                }
                 if (semanticManifestUnavailable)
                 {
                     InertString reason = Reason(
@@ -889,6 +1232,25 @@ public sealed partial class PackageHouse
                         new PackageHouseResult.Failed(
                             evidence,
                             reason),
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
+                }
+                if (nuspecSelectionFailure is { } nuspecFailure)
+                {
+                    failures.Add(
+                        new PackageHouseFailure.Stage(
+                            PackageHouseFailureStage.Selection,
+                            nuspecFailure));
+                    PackageHouseEvidence evidence = new(
+                        request,
+                        decision,
+                        acquisition,
+                        failures: failures);
+                    return new PackageHouseSettlement.Acquired(
+                        new PackageHouseResult.Failed(
+                            evidence,
+                            nuspecFailure),
                         payload,
                         payloadResult,
                         selectionUsesOriginalSources);
@@ -1074,7 +1436,9 @@ public sealed partial class PackageHouse
                         failures: failures,
                         fileList: fileList,
                         contentNarrowing: contentNarrowing,
-                        libraryAndInventory: libraryAndInventory);
+                        libraryAndInventory: libraryAndInventory,
+                        libraryInventory: libraryInventory,
+                        nuspec: nuspec);
                     return new PackageHouseSettlement.Acquired(
                         new PackageHouseResult.Settled(
                             acquiredEvidence),
@@ -1113,41 +1477,71 @@ public sealed partial class PackageHouse
                         failures);
                 }
 
-                if (request.AssetSelection
-                        == PackageHouseAssetSelectionKind.Runtime
-                    && request.TargetContext?.RequestedFramework is null)
-                {
-                    failures.Add(
-                        new PackageHouseFailure.Stage(
-                            PackageHouseFailureStage.Selection,
-                            Reason(
-                                "Runtime package realization requires an exact target framework.")));
-                    PackageHouseEvidence rejectedEvidence = new(
-                        request,
-                        decision,
-                        acquisition,
-                        failures: failures);
-                    return new PackageHouseSettlement.Acquired(
-                        new PackageHouseResult.Rejected(
-                            rejectedEvidence,
-                            Reason(
-                                "Runtime package realization requires an exact target framework.")),
-                        payload,
-                        payloadResult,
-                        selectionUsesOriginalSources);
-                }
-
                 PackageHouseRealizationReceipt realization =
                     CreateRealization(
                         request,
                         acquisition,
-                        payload.Content);
+                        payload.Content,
+                        libraryPopulationNuspec,
+                        compileSelectionReceipt);
+                if (payloadAccess == PackagePayloadAccess.Ranged
+                    && realization is
+                        PackageHouseRealizationReceipt.LibraryPopulation
+                            libraryPopulation
+                    && libraryPopulation.Selection is
+                        PackageLibraryPopulationSelection.Tool
+                        or PackageLibraryPopulationSelection.NonSuccess
+                        {
+                            RuntimeReceipt.Selection:
+                                PackageAssetSelection.NoMatch,
+                        })
+                {
+                    if (libraryPopulationManifestResult is not null)
+                    {
+                        failures.AddRange(
+                            AdaptFailures(
+                                request,
+                                libraryPopulationManifestResult.Failures));
+                    }
+                    if (libraryPopulationManifestTooLarge)
+                    {
+                        failures.Add(
+                            new PackageHouseFailure.Stage(
+                                PackageHouseFailureStage.Selection,
+                                Reason(
+                                    "The exact candidate manifest exceeds the configured manifest byte limit required for ranged tool Library selection.")));
+                    }
+                    else if (libraryPopulationManifestUnsupported)
+                    {
+                        failures.Add(
+                            new PackageHouseFailure.Stage(
+                                PackageHouseFailureStage.Selection,
+                                Reason(
+                                    "The package source does not support exact candidate-manifest acquisition required for ranged tool Library selection.")));
+                    }
+
+                    if (libraryPopulationManifestResult?.Manifest is null
+                        && failures.Any(IsOperationTimeout))
+                    {
+                        return OperationTimedOut(
+                            request,
+                            payload,
+                            payloadResult,
+                            selectionUsesOriginalSources,
+                            decision,
+                            acquisition,
+                            realization,
+                            failures);
+                    }
+                }
                 PackageHouseEvidence settledEvidence = new(
                     request,
                     decision,
                     acquisition,
                     realization,
-                    failures: failures);
+                    failures: failures,
+                    fileList: fileList,
+                    contentNarrowing: contentNarrowing);
 
                 try
                 {
@@ -1692,9 +2086,21 @@ public sealed partial class PackageHouse
 
     private static PackageCompileAssetSelectionPolicy CompilePolicy(
         PackageHouseRequest request) =>
-        request.TargetContext?.RequestedFramework is null
-            ? PackageCompileAssetSelectionPolicy.HighestAvailable
-            : PackageCompileAssetSelectionPolicy.ExplicitTarget;
+        request.TargetContext?.Mode switch
+        {
+            PackageHouseTargetSelectionMode.Exact =>
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            PackageHouseTargetSelectionMode.ExactTarget =>
+                PackageCompileAssetSelectionPolicy.ExactTarget,
+            PackageHouseTargetSelectionMode.FrozenTarget =>
+                PackageCompileAssetSelectionPolicy.ExactTarget,
+            PackageHouseTargetSelectionMode.OwnerDefault or null =>
+                PackageCompileAssetSelectionPolicy.HighestAvailable,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(request),
+                request.TargetContext?.Mode,
+                null),
+        };
 
     private enum PackageHouseContentNarrowingCompletion
     {
@@ -1824,13 +2230,17 @@ public sealed partial class PackageHouse
     /// </summary>
     private static PackageRangedSelection SelectRangedEntries(
         PackageHouseRequest request,
-        string packageId,
+        PackageSourceCoordinate coordinate,
         IPackageContent directory,
+        ReadOnlyMemory<byte>? libraryPopulationNuspec,
         out PackageHouseContentNarrowingResolution? contentNarrowing,
-        out PackageHouseLibraryInventoryResolution? libraryInventory)
+        out PackageHouseLibraryInventoryResolution? libraryInventory,
+        out PackageCompileAssetSelectionReceipt? compileSelection)
     {
+        string packageId = coordinate.PackageId;
         contentNarrowing = null;
         libraryInventory = null;
+        compileSelection = null;
         if (request.ContentQuery is { } contentQuery)
         {
             contentNarrowing = ResolveContentNarrowing(
@@ -1838,20 +2248,139 @@ public sealed partial class PackageHouse
                 packageId,
                 directory,
                 [.. directory.EnumerateEntries()]);
-            if (contentQuery.LibraryAndInventoryTerminal
-                    is { } libraryTerminal)
+            if (contentQuery.CompileLibraryTerminal is { } library)
             {
+                compileSelection =
+                    EvaluateCompileSelection(
+                        request,
+                        directory,
+                        packageId);
+                PackageCompileAssetSelection selection =
+                    compileSelection.Selection;
+                IReadOnlyList<PackageCompileAsset> matches = library.Selector.Select(selection);
+                if (matches.Count != 1)
+                {
+                    if (selection.IsSelected)
+                        return new PackageRangedSelection([]);
+                    PackageToolSliceSelection tools = PackageToolSliceMeasurementProjection.SelectEntries(
+                        directory.EnumerateEntries(), request.TargetContext?.RequestedFramework);
+                    return AddRootManifest(new PackageRangedSelection([
+                        .. directory.EnumerateEntries().Where(PackageEntryPath.IsToolSettingsPath),
+                        .. tools.SelectedEntries.Where(path => path.Equals(library.Selector.Value, StringComparison.Ordinal)),
+                    ]), directory);
+                }
+                PackageCompileAsset surface = matches[0];
+                PackageCompileAsset? implementation = library.AssetDemand == PackageAssetDemand.Surface
+                    ? null : selection.FindImplementationAsset(surface);
+                return new PackageRangedSelection([surface.Path],
+                    implementation is null || implementation.Path == surface.Path
+                        ? [] : Anchors([implementation.Path], directory));
+            }
+            if (request.IsCompileInventory)
+            {
+                // Package children require manifest and tool settings, while
+                // Library rows and measurements come from directory evidence.
+                string[] settings =
+                    [.. directory.EnumerateEntries().Where(PackageEntryPath.IsToolSettingsPath)];
+                if (request.MaterializeCompileAssets)
+                {
+                    compileSelection = EvaluateCompileSelection(
+                        request,
+                        directory,
+                        packageId);
+                    PackageRangedSelection selectedAssets =
+                        SelectRangedCompileEntries(
+                            request,
+                            directory,
+                            names: null,
+                            compileSelection.Selection);
+                    return AddRootManifest(
+                        new PackageRangedSelection(
+                            [
+                                .. selectedAssets.Entries,
+                                .. settings,
+                            ],
+                            selectedAssets.BlockAnchors),
+                        directory);
+                }
+                return AddRootManifest(new PackageRangedSelection(settings), directory);
+            }
+            if (contentQuery.LibraryAndInventoryTerminal is not null
+                || contentQuery.LibraryInventoryTerminal is not null
+                || contentQuery.CompileLibrariesTerminal is not null)
+            {
+                IReadOnlyList<string> selectedExactFiles =
+                    contentQuery.FilesTerminal?.Resolve(
+                        contentNarrowing.EntryPaths)
+                        .SelectedEntries
+                    ?? [];
                 libraryInventory = ResolveLibraryInventory(
                     contentNarrowing,
                     SnapshotEntries(directory));
-                return new PackageRangedSelection(
-                    libraryInventory.MaterializedEntryPaths);
+                if (contentQuery.CompileLibrariesTerminal
+                        is { } compileLibraries
+                    && libraryInventory.Completion
+                        == PackageHouseContentNarrowingCompletion.Settled)
+                {
+                    string[] implementationEntries =
+                        compileLibraries.AssetDemand
+                            == PackageAssetDemand
+                                .SurfaceAndImplementation
+                            ? [
+                                .. libraryInventory.Rows
+                                .Select(static row =>
+                                    row.ImplementationEntry?.Path)
+                                .OfType<string>()
+                                .Where(path =>
+                                    request.ImplementationNames
+                                        ?.MatchesPath(path)
+                                    ?? true),
+                            ]
+                            : [];
+                    IEnumerable<string> companionEntries =
+                        request.LibraryCompanionDemand
+                            == PackageHouseLibraryCompanionDemand
+                                .ImplementationPortablePdb
+                            ? ListedPortablePdbCompanions(
+                                implementationEntries,
+                                directory)
+                            : [];
+                    return new PackageRangedSelection(
+                    [
+                        .. libraryInventory.Rows
+                            .Select(static row =>
+                                row.CompileEntry.Path)
+                            .Concat(implementationEntries)
+                            .Concat(companionEntries)
+                            .Concat(selectedExactFiles)
+                            .Distinct(StringComparer.Ordinal),
+                    ]);
+                }
+                PackageRangedSelection selectedLibraryEntries = new(
+                    contentQuery.LibraryAndInventoryTerminal is not null
+                    && libraryInventory.Completion
+                        == PackageHouseContentNarrowingCompletion.Settled
+                        ? [
+                            libraryInventory
+                                .Rows[libraryInventory.SelectedRowIndex]
+                                .CompileEntry
+                                .Path,
+                        ]
+                        : []);
+                if (contentQuery.CompileLibrariesTerminal is not null)
+                    return new PackageRangedSelection(selectedExactFiles);
+                return contentQuery.NuspecTerminal is not null
+                    ? AddRootManifest(selectedLibraryEntries, directory)
+                    : selectedLibraryEntries;
             }
-            return new PackageRangedSelection(
+            PackageRangedSelection selectedFiles = new(
                 contentQuery.FilesTerminal?.Resolve(
                     contentNarrowing.EntryPaths)
                     .SelectedEntries
                     ?? []);
+            return contentQuery.NuspecTerminal is not null
+                ? AddRootManifest(selectedFiles, directory)
+                : selectedFiles;
         }
         if (request.FileDemand is { } legacyFiles)
         {
@@ -1874,6 +2403,12 @@ public sealed partial class PackageHouse
                     request,
                     directory,
                     names),
+            PackageHouseAssetSelectionKind.LibraryPopulation =>
+                SelectRangedLibraryPopulationEntries(
+                    request,
+                    coordinate,
+                    directory,
+                    libraryPopulationNuspec),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(request),
                 request.AssetSelection,
@@ -1933,11 +2468,27 @@ public sealed partial class PackageHouse
             }
             or
             {
+                CompileLibraryTerminal: not null
+            }
+            or
+            {
                 FileListTerminal: not null
             }
             or
             {
                 LibraryAndInventoryTerminal: not null
+            }
+            or
+            {
+                LibraryInventoryTerminal: not null
+            }
+            or
+            {
+                CompileLibrariesTerminal: not null
+            }
+            or
+            {
+                NuspecTerminal: not null
             }
             ? PackagePayloadAccess.Ranged
             : throw new NotSupportedException(
@@ -1975,19 +2526,58 @@ public sealed partial class PackageHouse
             transfer: payloadResult.Transfer);
     }
 
+    private static ConfiguredPackagePayloadResult CombineStagedPayloadResults(
+        ConfiguredPackagePayloadResult initial,
+        ConfiguredPackagePayloadResult selected)
+    {
+        IReadOnlyList<PackageAuthorityFailure> failures =
+            [.. initial.Failures, .. selected.Failures];
+        IReadOnlyList<ConfiguredPackageAuthority> notFoundAuthorities =
+            [.. initial.NotFoundAuthorities, .. selected.NotFoundAuthorities];
+        PackageTransferReceipt? transfer = selected.Transfer;
+        if (initial.Transfer is { RequestCount: > 0 } initialTransfer
+            && selected.Transfer is { } selectedTransfer
+            && selectedTransfer.Path
+                is not (
+                    PackageTransferPath.Cache
+                    or PackageTransferPath.EntryCache))
+        {
+            transfer = PackageTransferReceipt.Combine(
+                initialTransfer,
+                selectedTransfer);
+        }
+
+        return new ConfiguredPackagePayloadResult(
+            selected.Authority,
+            selected.Source,
+            selected.Payload,
+            failures,
+            notFoundAuthorities,
+            initial.ReportingAuthorities,
+            initial.SelectionUsesOriginalSources,
+            transfer: transfer);
+    }
+
     private static PackageRangedSelection SelectRangedCompileEntries(
         PackageHouseRequest request,
         string packageId,
         IPackageContent directory,
-        PackageImplementationNames? names)
-    {
-        PackageCompileAssetSelection compile =
-            PackageCompileAssetSelector.Evaluate(
+        PackageImplementationNames? names) =>
+        SelectRangedCompileEntries(
+            request,
+            directory,
+            names,
+            EvaluateCompileSelection(
+                request,
                 directory,
-                packageId,
-                CompilePolicy(request),
-                request.TargetContext?.RequestedFramework,
-                request.TargetContext?.RuntimeIdentifier).Selection;
+                packageId).Selection);
+
+    private static PackageRangedSelection SelectRangedCompileEntries(
+        PackageHouseRequest request,
+        IPackageContent directory,
+        PackageImplementationNames? names,
+        PackageCompileAssetSelection compile)
+    {
         IEnumerable<string> surface =
             compile.Assets.Select(static asset => asset.Path);
         if (request.AssetDemand == PackageAssetDemand.Surface)
@@ -2057,18 +2647,70 @@ public sealed partial class PackageHouse
         return companions;
     }
 
+    private static IReadOnlyList<string> ListedPortablePdbCompanions(
+        IReadOnlyList<string> implementationPaths,
+        IPackageContent directory)
+    {
+        IReadOnlyList<string> listed =
+            [.. directory.EnumerateEntries()];
+        var companions =
+            new List<string>(implementationPaths.Count);
+        foreach (string implementationPath in implementationPaths)
+        {
+            int separator =
+                implementationPath.LastIndexOf('/');
+            int extension =
+                implementationPath.LastIndexOf('.');
+            if (extension <= separator
+                || !implementationPath.AsSpan(extension).Equals(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string expectedPath =
+                string.Concat(
+                    implementationPath.AsSpan(0, extension),
+                    ".pdb");
+            string? listedPath =
+                listed.FirstOrDefault(entry =>
+                    entry.Equals(
+                        expectedPath,
+                        StringComparison.OrdinalIgnoreCase));
+            if (listedPath is not null
+                && !companions.Contains(
+                    listedPath,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                companions.Add(listedPath);
+            }
+        }
+
+        return companions;
+    }
+
     private static PackageRangedSelection SelectRangedRuntimeEntries(
         PackageHouseRequest request,
         IPackageContent directory,
         PackageImplementationNames? names)
     {
-        if (request.TargetContext?.RequestedFramework is not { } framework)
-            return new([]);
-        if (PackageAssetSelector.Evaluate(
-                directory,
-                framework,
-                request.TargetContext.RuntimeIdentifier).Selection
-            is not PackageAssetSelection.Selected selected)
+        PackageAssetSelection selection =
+            EvaluateRuntimeSelection(
+                request,
+                directory).Selection;
+        return SelectRangedRuntimeEntries(
+            directory,
+            names,
+            selection);
+    }
+
+    private static PackageRangedSelection SelectRangedRuntimeEntries(
+        IPackageContent directory,
+        PackageImplementationNames? names,
+        PackageAssetSelection selection)
+    {
+        if (selection is not PackageAssetSelection.Selected selected)
         {
             return new([]);
         }
@@ -2077,6 +2719,40 @@ public sealed partial class PackageHouse
         return names is null
             ? new(WholeFolders(universe, directory))
             : new([], Anchors(universe.Where(names.MatchesPath), directory));
+    }
+
+    private static PackageRangedSelection
+        SelectRangedLibraryPopulationEntries(
+            PackageHouseRequest request,
+            PackageSourceCoordinate coordinate,
+            IPackageContent directory,
+            ReadOnlyMemory<byte>? nuspecBytes)
+    {
+        PackageLibraryPopulationSelection selection =
+            EvaluateLibraryPopulation(
+            request,
+            directory,
+            coordinate,
+            nuspecBytes,
+            readManifestFromContent: false);
+        PackageRangedSelection selected = selection switch
+        {
+            PackageLibraryPopulationSelection.Compile compile =>
+                SelectRangedCompileEntries(
+                    request,
+                    directory,
+                    names: null,
+                    compile.CompileReceipt.Selection),
+            PackageLibraryPopulationSelection.Runtime runtime =>
+                SelectRangedRuntimeEntries(
+                    directory,
+                    names: null,
+                    runtime.RuntimeReceipt.Selection),
+            PackageLibraryPopulationSelection.Tool tool =>
+                new(tool.ToolSelection.SelectedEntries),
+            _ => new([]),
+        };
+        return selected;
     }
 
     private static PackageRangedSelection AddRootManifest(
@@ -2145,7 +2821,8 @@ public sealed partial class PackageHouse
     }
 
     /// <summary>
-    /// The realization, evaluated over the materialized content. With named
+    /// Declared compile demands reuse their directory selection; other
+    /// realizations are evaluated over the materialized content. With named
     /// implementation demand the selection keeps only the named
     /// implementation assets, so the receipt names only entries the read
     /// fetched; a name that selects no implementation asset leaves the
@@ -2154,29 +2831,37 @@ public sealed partial class PackageHouse
     private static PackageHouseRealizationReceipt CreateRealization(
         PackageHouseRequest request,
         PackageHouseAcquisitionReceipt acquisition,
-        IPackageContent content) =>
+        IPackageContent content,
+        ReadOnlyMemory<byte>? libraryPopulationNuspec,
+        PackageCompileAssetSelectionReceipt? compileSelection) =>
         request.AssetSelection switch
         {
             PackageHouseAssetSelectionKind.Compile =>
                 new PackageHouseRealizationReceipt.Compile(
                     acquisition,
                     NameImplementation(
-                        PackageCompileAssetSelector.Evaluate(
-                            content,
-                            acquisition.Candidate.Coordinate.PackageId,
-                            CompilePolicy(request),
-                            request.TargetContext?.RequestedFramework,
-                            request.TargetContext?.RuntimeIdentifier),
+                        compileSelection
+                            ?? EvaluateCompileSelection(
+                                request,
+                                content,
+                                acquisition.Candidate.Coordinate.PackageId),
                         request.ImplementationNames)),
             PackageHouseAssetSelectionKind.Runtime =>
                 new PackageHouseRealizationReceipt.Runtime(
                     acquisition,
                     NameImplementation(
-                        PackageAssetSelector.Evaluate(
-                            content,
-                            request.TargetContext!.RequestedFramework!,
-                            request.TargetContext.RuntimeIdentifier),
+                        EvaluateRuntimeSelection(
+                            request,
+                            content),
                         request.ImplementationNames)),
+            PackageHouseAssetSelectionKind.LibraryPopulation =>
+                new PackageHouseRealizationReceipt.LibraryPopulation(
+                    acquisition,
+                    EvaluateLibraryPopulation(
+                        request,
+                        content,
+                        acquisition.Candidate.Coordinate,
+                        libraryPopulationNuspec)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(request),
                 request.AssetSelection,
@@ -2194,6 +2879,7 @@ public sealed partial class PackageHouse
                 receipt.Policy,
                 receipt.RequestedTargetFramework,
                 receipt.RequestedRuntimeIdentifier,
+                receipt.IncludesNestedCompileAssets,
                 receipt.Selection with
                 {
                     ImplementationAssets = Array.AsReadOnly(
@@ -2202,6 +2888,86 @@ public sealed partial class PackageHouse
                             asset => names.MatchesPath(asset.Path)),
                     ]),
                 });
+
+    private static PackageCompileAssetSelectionReceipt
+        EvaluateCompileSelection(
+            PackageHouseRequest request,
+            IPackageContent content,
+            string packageId) =>
+        PackageCompileAssetSelector.Evaluate(
+            content,
+            packageId,
+            CompilePolicy(request),
+            request.TargetContext?.RequestedFramework,
+            request.TargetContext?.RuntimeIdentifier,
+            request.TargetContext?.IncludesNestedCompileAssets ?? true);
+
+    private static PackageAssetSelectionReceipt EvaluateRuntimeSelection(
+        PackageHouseRequest request,
+        IPackageContent content)
+    {
+        PackageHouseTargetContext? target = request.TargetContext;
+        if (target?.RequestedFramework is { } framework)
+        {
+            PackageAssetSelectionReceipt explicitSelection =
+                PackageAssetSelector.Evaluate(
+                    content,
+                    framework,
+                    target.RuntimeIdentifier);
+            if (target.RuntimeIdentifier is not null
+                || explicitSelection.Selection
+                    is not PackageAssetSelection.NoMatch)
+            {
+                return explicitSelection;
+            }
+        }
+
+        return PackageAssetSelector.EvaluateSingleRuntime(
+            content,
+            target?.RequestedFramework,
+            target?.RuntimeIdentifier);
+    }
+
+    private static PackageLibraryPopulationSelection
+        EvaluateLibraryPopulation(
+            PackageHouseRequest request,
+            IPackageContent content,
+            PackageSourceCoordinate coordinate,
+            ReadOnlyMemory<byte>? nuspecBytes = null,
+            bool? readManifestFromContent = null) =>
+        PackageLibraryPopulationSelector.Evaluate(
+            content,
+            coordinate.PackageId,
+            CompilePolicy(request),
+            request.TargetContext?.RequestedFramework,
+            request.TargetContext?.RuntimeIdentifier,
+            request.TargetContext?.IncludesNestedCompileAssets ?? true,
+            coordinate,
+            nuspecBytes,
+            readManifestFromContent
+                ?? content is not RangedPackageContent);
+
+    private static bool NeedsDeferredToolManifest(
+        PackageHouseRequest request,
+        IPackageContent content,
+        PackageSourceCoordinate coordinate)
+    {
+        if (content is not RangedPackageContent)
+            return false;
+
+        return EvaluateLibraryPopulation(
+                request,
+                content,
+                coordinate,
+                nuspecBytes: null,
+                readManifestFromContent: false)
+            is PackageLibraryPopulationSelection.NonSuccess
+            {
+                RuntimeReceipt.Selection:
+                    PackageAssetSelection.NoMatch,
+                ToolDeclarationUnavailable: true,
+            };
+    }
 
     private static PackageAssetSelectionReceipt NameImplementation(
         PackageAssetSelectionReceipt receipt,
@@ -2213,6 +2979,7 @@ public sealed partial class PackageHouse
                 receipt.Generation,
                 receipt.RequestedTargetFramework,
                 receipt.RequestedRuntimeIdentifier,
+                receipt.AvailableRuntimePopulations,
                 new PackageAssetSelection.Selected(
                     new PackageAssetUniverse(
                         selected.Universe.TargetFramework,
@@ -2284,9 +3051,123 @@ public sealed partial class PackageHouse
                         _ =>
                             "The acquired package runtime assets could not be selected.",
                     }),
+            PackageHouseRealizationReceipt.LibraryPopulation population =>
+                LibraryPopulationReason(population.Selection),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(realization)),
         };
+
+    private static InertString LibraryPopulationReason(
+        PackageLibraryPopulationSelection selection)
+    {
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                ToolDeclarationUnavailable: true,
+            })
+        {
+            return Reason(
+                "The package's exact tool declaration was unavailable; "
+                    + "no tool Libraries were selected.");
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                ToolSelection.Status:
+                    PackageToolSliceSelectionStatus.InvalidSelection,
+                ToolSelection.Detail: { } detail,
+            })
+        {
+            return Reason(detail);
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                ToolSelection.Status:
+                    PackageToolSliceSelectionStatus.NoApplicableSlice,
+                ToolEvidence.RequestedTargetFramework: { } targetFramework,
+            })
+        {
+            return Reason(
+                $"No tool Library slice matches target "
+                    + $"'{targetFramework}'.");
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                ToolSelection.Status:
+                    PackageToolSliceSelectionStatus.NoToolSlices,
+            })
+        {
+            return Reason(
+                "The declared tool package contains no tool Library slice.");
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                ToolSelection.Status:
+                    PackageToolSliceSelectionStatus.Selected,
+                ToolSelection.SelectedEntries.IsEmpty: true,
+            })
+        {
+            return Reason(
+                "The selected tool payload contains no managed Libraries.");
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                CompileReceipt.Selection.Status:
+                    PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+                RuntimeReceipt.Selection:
+                    PackageAssetSelection.NoMatch,
+            })
+        {
+            return Reason(
+                "The selected compile Library group is explicitly empty.");
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                RuntimeReceipt.Selection:
+                    PackageAssetSelection.NoMatch noMatch,
+            })
+        {
+            return Reason(noMatch.Message);
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                RuntimeReceipt.Selection:
+                    PackageAssetSelection.Ambiguous ambiguous,
+            })
+        {
+            return Reason(ambiguous.Message);
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                RuntimeReceipt.Selection:
+                    PackageAssetSelection.Invalid invalid,
+            })
+        {
+            return Reason(invalid.Message);
+        }
+
+        PackageCompileAssetSelection compile =
+            selection.CompileReceipt.Selection;
+        return Reason(
+            compile.Message
+            ?? compile.Status switch
+            {
+                PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                    "The acquired package carries no compile or runtime Library population.",
+                PackageCompileAssetSelectionStatus
+                        .NoMatchingTargetFramework =>
+                    "The acquired package has no Library population matching the requested target framework.",
+                _ =>
+                    "The acquired package Library population could not be selected.",
+            });
+    }
 
     private static bool IsOperationTimeout(
         PackageHouseFailure failure) =>

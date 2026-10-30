@@ -687,36 +687,43 @@ public sealed partial class PackageHouseExecutionTests
     [Fact]
     public async Task VersionPopulationOperationTimeoutRetainsEnumeratedVersions()
     {
-        const int versionCount = 8_000;
+        CancellationToken operationToken = default;
         await using HouseEnvironment environment = HouseEnvironment.Create(
-            new SourceBehavior(VersionPopulation(versionCount)));
+            new SourceBehavior(["1.0.0", "2.0.0"]),
+            new SourceBehavior(
+                ["3.0.0"],
+                BeforeVersions: async (_, _) =>
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                        () => Task.Delay(
+                            Timeout.InfiniteTimeSpan,
+                            operationToken))));
         PackageHouseVersionPopulationRequest request =
             PopulationRequest(
-                $"1.0.0..1.0.{versionCount - 1}",
-                operationTimeout: TimeSpan.FromMilliseconds(150));
+                "1.0.0..2.0.0",
+                operationTimeout: TimeSpan.FromSeconds(1));
+        PackageHouse house = environment.CreateHouse();
+        PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                request.Operation.RequestTimeout,
+                request.Operation.OperationTimeout);
+        operationToken = operation.OperationCancellationToken;
 
         PackageHouseVersionPopulationResult result =
-            await environment.CreateHouse()
-                .SettleVersionPopulationAsync(
-                    request,
-                    environment.Root.IssueOperationLease(
-                        TestContext.Current.CancellationToken,
-                        request.Operation.RequestTimeout,
-                        request.Operation.OperationTimeout));
+            await house.SettleVersionPopulationAsync(request, operation);
 
         Assert.IsType<PackageHouseVersionPopulationResult.Failed>(
             result);
         PackageVersionDiscoveryResult discovery =
             Assert.IsType<PackageVersionDiscoveryResult>(
                 result.Evidence.Discovery);
-        // The deadline can be observed by discovery's final check or by the
-        // population's final check; both must retain the completed evidence.
-        Assert.True(
-            discovery.State is PackageVersionDiscoveryState.Authoritative
-                or PackageVersionDiscoveryState.Failed);
+        Assert.Equal(PackageVersionDiscoveryState.Failed, discovery.State);
         Assert.Equal(
-            versionCount,
-            discovery.Versions.Count);
+            ["2.0.0", "1.0.0"],
+            discovery.Versions);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(1, client.VersionRequests));
         PackageHouseFailure.Timeout timeout =
             Assert.IsType<PackageHouseFailure.Timeout>(
                 result.Evidence.Failures.Last());
@@ -804,17 +811,22 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
-    public async Task VersionPopulationCallerCancellationDuringVectorConstructionRemainsCancellation()
+    public async Task VersionPopulationCallerCancellationAfterVersionEnumerationRemainsCancellation()
     {
-        const int versionCount = 8_000;
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
-        cancellation.CancelAfter(TimeSpan.FromMilliseconds(150));
         await using HouseEnvironment environment = HouseEnvironment.Create(
-            new SourceBehavior(VersionPopulation(versionCount)));
+            new SourceBehavior(["1.0.0", "2.0.0"]),
+            new SourceBehavior(
+                ["3.0.0"],
+                BeforeVersions: (_, _) =>
+                {
+                    cancellation.Cancel();
+                    return Task.CompletedTask;
+                }));
         PackageHouseVersionPopulationRequest request =
-            PopulationRequest($"1.0.0..1.0.{versionCount - 1}");
+            PopulationRequest("1.0.0..2.0.0");
 
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -827,6 +839,9 @@ public sealed partial class PackageHouseExecutionTests
                             request.Operation.OperationTimeout)));
 
         Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(1, client.VersionRequests));
         await environment.AssertRootSettledAsync();
     }
 
@@ -1130,6 +1145,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             "linux-x64",
             contribution.Binding.Root.RequestedRuntimeIdentifier);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Same(
             realization.Selection.DefaultAsset,
             contribution.Binding.Root.AssetSelection.DefaultAsset);
@@ -1197,11 +1213,112 @@ public sealed partial class PackageHouseExecutionTests
 
         Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
         Assert.Equal("net8.0", rootRequest.SelectionTargetFramework);
+        Assert.Equal("net10.0", rootRequest.RequestedTargetFramework);
         Assert.True(rootRequest.AllowsCompatibleTargetSelection);
         Assert.True(rootRequest.UsesCompatibleImplementationSelection);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Equal(
             "net8.0",
             contribution.Binding.Root.AssetSelection.TargetFramework);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task ExactTargetCompileRealizeDoesNotSelectCompatibleFramework()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    $"lib/net8.0/{PackageId}.dll",
+                ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.ExactTarget("net10.0"),
+            PackageHouseAssetSelectionKind.Compile);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseSettlement.Acquired acquired =
+            Assert.IsType<PackageHouseSettlement.Acquired>(settlement);
+        PackageHouseRealizationReceipt.Compile realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+                Assert.IsType<PackageHouseResult.NoMatch>(
+                    acquired.Result).Evidence.Realization);
+
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExactTarget,
+            realization.Receipt.Policy);
+        Assert.False(realization.Receipt.IncludesNestedCompileAssets);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            realization.Selection.Status);
+        Assert.Equal("net10.0", realization.Receipt.RequestedTargetFramework);
+        Assert.Equal(["net8.0"], realization.Selection.AvailableTargetFrameworks);
+        Assert.False(realization.Selection.IsSelected);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        FrozenTargetCompileRealizePreservesNestedOwnerEligibility()
+    {
+        string path =
+            $"lib/net10.0/nested/{PackageId}.dll";
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    path,
+                    $"lib/net8.0/{PackageId}.dll",
+                ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.FrozenTarget("net10.0"),
+            PackageHouseAssetSelectionKind.Compile);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseRealizationReceipt.Compile realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+                Assert.IsType<PackageHouseResult.Settled>(
+                    Assert.IsType<PackageHouseSettlement.Acquired>(
+                        settlement).Result).Evidence.Realization);
+
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExactTarget,
+            realization.Receipt.Policy);
+        Assert.True(realization.Receipt.IncludesNestedCompileAssets);
+        Assert.Equal("net10.0", realization.Selection.TargetFramework);
+        Assert.Equal(
+            [path],
+            realization.Selection.Assets.Select(asset => asset.Path));
         await environment.AssertRootSettledAsync();
     }
 
@@ -1261,7 +1378,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.True(rootRequest.AllowsCompatibleTargetSelection);
         Assert.True(rootRequest.UsesCompatibleImplementationSelection);
         Assert.Equal(
-            "net8.0",
+            "net10.0",
             contribution.Binding.Root.RequestedTargetFramework);
         await environment.AssertRootSettledAsync();
     }
@@ -1352,6 +1469,7 @@ public sealed partial class PackageHouseExecutionTests
             realization.Selection.UsesCompatibleImplementationSelection);
         Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
         Assert.Equal("net8.0", rootRequest.SelectionTargetFramework);
+        Assert.Null(rootRequest.RequestedTargetFramework);
         Assert.False(rootRequest.AllowsCompatibleTargetSelection);
         Assert.False(rootRequest.UsesCompatibleImplementationSelection);
         await environment.AssertRootSettledAsync();
@@ -1535,6 +1653,7 @@ public sealed partial class PackageHouseExecutionTests
                 PackageHouseRootContributionAdapter.Create(
                     settlement)).Contribution;
         Assert.Same(realization, contribution.Realization);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             contribution.Binding.Root.AssetSelection.Status);
@@ -1611,6 +1730,7 @@ public sealed partial class PackageHouseExecutionTests
                     settlement)).Contribution;
         Assert.Same(noMatch, contribution.Result);
         Assert.Same(realization, contribution.Realization);
+        Assert.NotNull(contribution.Binding.Root.AssetSelection);
         Assert.Equal(
             PackageCompileAssetSelectionStatus
                 .NoMatchingTargetFramework,
@@ -1935,10 +2055,18 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
-    public async Task RuntimeOwnerDefaultRealizeIsVisiblyRejected()
+    public async Task
+        RuntimeOwnerDefaultRealizeInfersSingleRidAndHighestTarget()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
-            new SourceBehavior([Version]));
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    $"runtimes/linux-x64/lib/net8.0/{PackageId}.dll",
+                    $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
+                    $"runtimes/linux-x64/native/{PackageId}.dll",
+                ]));
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Exact(
                 PackageSourceCoordinate.Create(
@@ -1947,7 +2075,8 @@ public sealed partial class PackageHouseExecutionTests
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize),
             PackageHouseTargetContext.OwnerDefault(),
-            PackageHouseAssetSelectionKind.Runtime);
+            PackageHouseAssetSelectionKind.Runtime,
+            PackageHouseLibraryHandoffMode.SelectedLibraries);
 
         PackageHouseSettlement settlement =
             await environment.CreateHouse(
@@ -1961,24 +2090,144 @@ public sealed partial class PackageHouseExecutionTests
         PackageHouseSettlement.Acquired acquired =
             Assert.IsType<PackageHouseSettlement.Acquired>(
                 settlement);
-        PackageHouseResult.Rejected rejected =
-            Assert.IsType<PackageHouseResult.Rejected>(
+        PackageHouseResult.Settled settled =
+            Assert.IsType<PackageHouseResult.Settled>(
                 acquired.Result);
-        Assert.Null(rejected.Evidence.Realization);
-        PackageHouseFailure.Stage failure =
-            Assert.IsType<PackageHouseFailure.Stage>(
-                Assert.Single(rejected.Evidence.Failures));
+        PackageHouseRealizationReceipt.Runtime realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Runtime>(
+                settled.Evidence.Realization);
+        Assert.Null(realization.Receipt.RequestedTargetFramework);
+        Assert.Null(realization.Receipt.RequestedRuntimeIdentifier);
+        PackageAssetSelection.Selected selected =
+            Assert.IsType<PackageAssetSelection.Selected>(
+                realization.Selection);
+        Assert.Equal("net10.0", selected.Universe.TargetFramework);
+        Assert.Equal("linux-x64", selected.Universe.RuntimeIdentifier);
+        PackageHouseLibraryHandoff.Runtime handoff =
+            Assert.IsType<PackageHouseLibraryHandoff.Runtime>(
+                Assert.Single(realization.LibraryHandoffs));
         Assert.Equal(
-            PackageHouseFailureStage.Selection,
-            failure.StageKind);
-        Assert.Contains(
-            "exact target framework",
-            rejected.Reason.ToString(),
-            StringComparison.Ordinal);
+            $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
+            handoff.Asset.EntryPath);
         Assert.Same(
             acquired.Payload,
             acquired.SourcePayloadResult!.Payload);
         Assert.True(acquired.SelectionUsesOriginalSources);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task RuntimeExactTargetWithoutRidInfersSingleRid()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    "ref/netstandard2.0/_._",
+                    $"runtimes/unix/lib/netstandard1.0/{PackageId}.dll",
+                    "runtimes/unix/lib/netstandard1.0/Companion.dll",
+                ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.Exact("netstandard2.0"),
+            PackageHouseAssetSelectionKind.Runtime,
+            PackageHouseLibraryHandoffMode.SelectedLibraries,
+            implementationNames: [$"{PackageId}.dll"]);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseRealizationReceipt.Runtime realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Runtime>(
+                Assert.IsType<PackageHouseResult.Settled>(
+                    settlement.Result).Evidence.Realization);
+        Assert.Equal(
+            "netstandard2.0",
+            realization.Receipt.RequestedTargetFramework);
+        Assert.Null(realization.Receipt.RequestedRuntimeIdentifier);
+        PackageAssetUniverse universe =
+            Assert.IsType<PackageAssetSelection.Selected>(
+                realization.Selection).Universe;
+        Assert.Equal("netstandard1.0", universe.TargetFramework);
+        Assert.Equal("unix", universe.RuntimeIdentifier);
+        Assert.Equal(
+            $"runtimes/unix/lib/netstandard1.0/{PackageId}.dll",
+            Assert.Single(universe.Assets).EntryPath);
+        PackageRuntimeAssetPopulation population =
+            Assert.Single(
+                realization.Receipt.AvailableRuntimePopulations);
+        Assert.Equal("unix", population.RuntimeIdentifier);
+        Assert.Equal("netstandard1.0", population.TargetFramework);
+        Assert.Equal(2, population.Assets.Count);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task RuntimeOwnerDefaultDoesNotMergeMultipleRids()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
+                    $"runtimes/win-x64/lib/net10.0/{PackageId}.dll",
+                ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Runtime,
+            PackageHouseLibraryHandoffMode.SelectedLibraries);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseResult.Ambiguous ambiguous =
+            Assert.IsType<PackageHouseResult.Ambiguous>(
+                settlement.Result);
+        PackageHouseRealizationReceipt.Runtime realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Runtime>(
+                ambiguous.Evidence.Realization);
+        Assert.IsType<PackageAssetSelection.Ambiguous>(
+            realization.Selection);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            realization.Receipt.AvailableRuntimePopulations
+                .Select(population =>
+                    population.RuntimeIdentifier));
+        Assert.All(
+            realization.Receipt.AvailableRuntimePopulations,
+            population => Assert.Equal(
+                $"runtimes/{population.RuntimeIdentifier}/lib/net10.0/",
+                population.PopulationPath));
+        Assert.Empty(realization.LibraryHandoffs);
+        Assert.Contains(
+            "explicit runtime identifier",
+            ambiguous.Reason.ToString(),
+            StringComparison.Ordinal);
         await environment.AssertRootSettledAsync();
     }
 
@@ -2449,6 +2698,258 @@ public sealed partial class PackageHouseExecutionTests
             "another Package Source root generation",
             exception.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_DirectManifestSettlesWithoutPayload()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version], IncludeManifest: true));
+        int storeRequests = 0;
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) =>
+            {
+                storeRequests++;
+                return new InMemoryPackageStore();
+            });
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        PackageHouseSettlement settlement =
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<PackageHouseSettlement.ResourceFree>(settlement);
+        var settled = Assert.IsType<PackageHouseResult.Settled>(
+            settlement.Result);
+        PackageHouseNuspec nuspec =
+            Assert.IsType<PackageHouseNuspec>(
+                settled.Evidence.Nuspec);
+        Assert.Null(nuspec.Acquisition);
+        Assert.Equal(
+            PackageHouseNuspecOrigin.SourceManifest,
+            nuspec.Origin);
+        Assert.Null(nuspec.EntryPath);
+        Assert.Contains(
+            $"<id>{PackageId}</id>",
+            System.Text.Encoding.UTF8.GetString(nuspec.ToArray()),
+            StringComparison.Ordinal);
+        byte[] mutableCopy = nuspec.ToArray();
+        mutableCopy[0] ^= 0xff;
+        Assert.NotEqual(mutableCopy, nuspec.ToArray());
+        Assert.Equal(1, environment.Clients[0].ManifestRequests);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        Assert.Equal(0, storeRequests);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_ArchiveFallbackPublishesOnlyRootManifest()
+    {
+        byte[] manifest =
+            System.Text.Encoding.UTF8.GetBytes(
+                $"""
+                <package>
+                  <metadata>
+                    <id>{PackageId}</id>
+                    <version>{Version}</version>
+                  </metadata>
+                </package>
+                """);
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadContentEntries:
+                [
+                    ($"{PackageId}.nuspec", manifest),
+                    ($"lib/net11.0/{PackageId}.dll", [1, 2, 3]),
+                ]));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken)));
+
+        var settled = Assert.IsType<PackageHouseResult.Settled>(
+            acquired.Result);
+        PackageHouseNuspec nuspec =
+            Assert.IsType<PackageHouseNuspec>(
+                settled.Evidence.Nuspec);
+        Assert.Same(settled.Evidence.Acquisition, nuspec.Acquisition);
+        Assert.Equal(
+            PackageHouseNuspecOrigin.PackageArchive,
+            nuspec.Origin);
+        Assert.Equal($"{PackageId}.nuspec", nuspec.EntryPath);
+        Assert.Equal(manifest, nuspec.ToArray());
+        Assert.Equal(
+            [$"{PackageId}.nuspec"],
+            acquired.Payload.Content.EnumerateEntries());
+        Assert.Equal(1, environment.Clients[0].ManifestRequests);
+        Assert.Equal(1, environment.Clients[0].PayloadRequests);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_MissingRootManifestFailsVisibly()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadContentEntries:
+                [
+                    ($"lib/net11.0/{PackageId}.dll", [1, 2, 3]),
+                ]));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken)));
+
+        PackageHouseResult.Failed failed =
+            Assert.IsType<PackageHouseResult.Failed>(acquired.Result);
+        Assert.Contains(
+            "does not contain a root nuspec",
+            failed.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Null(failed.Evidence.Nuspec);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_DuplicateRootManifestsFailVisibly()
+    {
+        byte[] manifest = "<package />"u8.ToArray();
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadContentEntries:
+                [
+                    ($"{PackageId}.nuspec", manifest),
+                    ("other.nuspec", manifest),
+                ]));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken)));
+
+        PackageHouseResult.Failed failed =
+            Assert.IsType<PackageHouseResult.Failed>(acquired.Result);
+        Assert.Contains(
+            "one valid root nuspec",
+            failed.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Null(failed.Evidence.Nuspec);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_OversizedRootManifestFailsVisibly()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadContentEntries:
+                [
+                    (
+                        $"{PackageId}.nuspec",
+                        new byte[
+                            PackageManifestFactsProjection.MaxManifestBytes
+                                + 1]),
+                ]));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken)));
+
+        PackageHouseResult.Failed failed =
+            Assert.IsType<PackageHouseResult.Failed>(acquired.Result);
+        Assert.Contains(
+            "manifest byte limit",
+            failed.Reason.ToString(),
+            StringComparison.Ordinal);
+        Assert.Null(failed.Evidence.Nuspec);
+    }
+
+    [Fact]
+    public async Task NuspecTerminal_OperationTimeoutIsTerminal()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                IncludeManifest: true,
+                BeforeManifest: async (_, token) =>
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(60),
+                        token)));
+        PackageHouse house = environment.CreateContentHouse(
+            (_, _) => new InMemoryPackageStore());
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire,
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromMilliseconds(20)),
+            contentQuery: PackageHouseContentQuery.PackageNuspec());
+
+        PackageHouseSettlement settlement =
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<PackageHouseSettlement.ResourceFree>(settlement);
+        PackageHouseResult.Failed failed =
+            Assert.IsType<PackageHouseResult.Failed>(settlement.Result);
+        Assert.True(failed.Evidence.HasOperationTimeout);
+        Assert.Null(failed.Evidence.Nuspec);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
     }
 
     [Fact]
@@ -3026,12 +3527,6 @@ public sealed partial class PackageHouseExecutionTests
             includePrerelease,
             includeUnlisted);
 
-    private static string[] VersionPopulation(int count) =>
-    [
-        .. Enumerable.Range(0, count).Select(
-            index => $"1.0.{index}"),
-    ];
-
     private static PackageAcquisitionCandidate ResolveCandidate(
         HouseEnvironment environment,
         string packageId = PackageId,
@@ -3083,7 +3578,11 @@ public sealed partial class PackageHouseExecutionTests
             string,
             IReadOnlyList<(string EntryPath, byte[] Content)>>?
             PayloadContentEntriesByPackageId = null,
-        bool IncludeManifest = false);
+        bool IncludeManifest = false,
+        Func<
+            NuGetOperationContext?,
+            CancellationToken,
+            Task>? BeforeManifest = null);
 
     private sealed class HouseEnvironment : IAsyncDisposable
     {
@@ -3369,6 +3868,8 @@ public sealed partial class PackageHouseExecutionTests
 
         public int PayloadRequests { get; private set; }
 
+        public int ManifestRequests { get; private set; }
+
         public List<string> PayloadPackageIds { get; } = [];
 
         public Task<PackageSourceOperationResult<PackageVersionResult>>
@@ -3512,13 +4013,21 @@ public sealed partial class PackageHouseExecutionTests
             NuGetOperationContext? operationContext = null) =>
             throw new NotSupportedException();
 
-        public Task<PackageSourceOperationResult<PackageSourceManifest>>
+        public async Task<
+            PackageSourceOperationResult<PackageSourceManifest>>
             GetManifestAsync(
             string packageId,
             string version,
             CancellationToken cancellationToken = default,
             NuGetOperationContext? operationContext = null)
         {
+            ManifestRequests++;
+            if (behavior.BeforeManifest is not null)
+            {
+                await behavior.BeforeManifest(
+                    operationContext,
+                    cancellationToken);
+            }
             PackageSourceCoordinate coordinate =
                 PackageSourceCoordinate.Create(packageId, version);
             if (!behavior.IncludeManifest)
@@ -3527,10 +4036,10 @@ public sealed partial class PackageHouseExecutionTests
                     version,
                     StringComparer.OrdinalIgnoreCase))
             {
-                return Task.FromResult(
+                return
                     factory.FailedManifest(
                         coordinate,
-                        PackageSourceFailureKind.NotFound));
+                        PackageSourceFailureKind.NotFound);
             }
 
             ReadOnlyMemory<byte> content =
@@ -3546,12 +4055,12 @@ public sealed partial class PackageHouseExecutionTests
                       </metadata>
                     </package>
                     """);
-            return Task.FromResult(
+            return
                 factory.SucceededManifest(
                     coordinate,
                     factory.Manifest(
                         coordinate,
-                        content)));
+                        content));
         }
 
         public Task<PackageSourceOperationResult<PackageSourcePayload>>

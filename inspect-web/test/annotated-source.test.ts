@@ -1099,14 +1099,14 @@ test("C# highlighting crosses product segments without changing source text", ()
   const length = source.length - 4;
   const html = highlighter.render(start, length);
 
-  assert.match(html, /class="token keyword">turn<\/span>/);
-  assert.match(html, /class="token class-name">Widget<\/span>/);
-  assert.match(html, /class="token function">Create<\/span>/);
   assert.equal(
-    html
-      .replaceAll(/<[^>]+>/g, "")
-      .replaceAll("&quot;", '"'),
-    source.slice(start, start + length),
+    html,
+    '<span class="token keyword">turn</span> '
+      + '<span class="token class-name">Widget</span>'
+      + '<span class="token punctuation">.</span>'
+      + '<span class="token function">Create</span>'
+      + '<span class="token punctuation">(</span>'
+      + '<span class="token string">&quot;x&quot;</span>',
   );
 });
 
@@ -1130,13 +1130,11 @@ test("C# highlighting leaves excluded IL ranges unstyled inside one Prism token"
   );
   const html = highlighter.render(0, source.length);
 
-  assert.match(html, /class="token string">var s = @&quot;start\n<\/span>IL_0000: nop/);
-  assert.doesNotMatch(html, /class="token string">IL_0000: nop/);
   assert.equal(
-    html
-      .replaceAll(/<[^>]+>/g, "")
-      .replaceAll("&quot;", '"'),
-    source,
+    html,
+    '<span class="token string">var s = @&quot;start\n</span>'
+      + 'IL_0000: nop'
+      + '<span class="token string">\nend&quot;;</span>',
   );
 });
 

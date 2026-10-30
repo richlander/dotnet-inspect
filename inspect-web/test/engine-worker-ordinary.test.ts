@@ -28,9 +28,14 @@ import {
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
-import { inertStringFixture } from "./inert-string-fixture.ts";
+import {
+  catalogInertStringFixture,
+  inertStringFixture,
+  packageInertStringFixture,
+} from "./inert-string-fixture.ts";
 import type {
   BrowserEcosystemPackageWorkspaceAdmissionResult,
+  BrowserIndexedTypeFindResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDefinitionState,
   BrowserRetainedWorkspacePackageAdmissionResult,
@@ -42,6 +47,8 @@ import type {
   BrowserTypeFindResult,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import type {
+  BrowserDocumentLeafContainmentOutcome,
+  BrowserDocumentPresentationLeaf,
   BrowserPackageLoadResult,
   BrowserPackageSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -99,11 +106,14 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
     classifyPackageGraphIdentities: () =>
       unexpected("classifyPackageGraphIdentities"),
+    classifyEcosystemAssemblyNames: () => unexpected("classifyEcosystemAssemblyNames"),
+    classifyEcosystemPackages: () => unexpected("classifyEcosystemPackages"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
     getPlatformVersions: () => unexpected("getPlatformVersions"),
     matchPackageDependencyCoordinate: () =>
       unexpected("matchPackageDependencyCoordinate"),
     searchCapabilities: () => unexpected("searchCapabilities"),
+    explainPackageQuery: () => unexpected("explainPackageQuery"),
     searchTypes: () => unexpected("searchTypes"),
     activateWorkspacePackageOccurrence: () =>
       unexpected("activateWorkspacePackageOccurrence"),
@@ -118,14 +128,24 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    containPackageDocumentLeaves: () =>
+      unexpected("containPackageDocumentLeaves"),
     queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
+    queryLibrarySurface: () => unexpected("queryLibrarySurface"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
     queryPlatformMemberDocumentation: () =>
       unexpected("queryPlatformMemberDocumentation"),
-    queryPackageDependencies: () =>
-      unexpected("queryPackageDependencies"),
+    inspectPackageDependencies: () =>
+      unexpected("inspectPackageDependencies"),
+    queryLibraryReferences: () =>
+      unexpected("queryLibraryReferences"),
+    queryReferencePackageSuppliers: () =>
+      unexpected("queryReferencePackageSuppliers"),
+    queryPackageHierarchy: () =>
+      unexpected("queryPackageHierarchy"),
+    queryPackageIcon: () => unexpected("queryPackageIcon"),
     queryPackageVulnerabilities: () =>
       unexpected("queryPackageVulnerabilities"),
     queryPackageVersions: () => unexpected("queryPackageVersions"),
@@ -137,15 +157,25 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   metadata: {
     cancelLibraryApiDiff: () =>
       unexpected("cancelLibraryApiDiff"),
+    cancelLibraryFindingDiffAny: () =>
+      unexpected("cancelLibraryFindingDiffAny"),
     findTypes: () => unexpected("findTypes"),
+    queryAnnotatedTypeRelations: () =>
+      unexpected("queryAnnotatedTypeRelations"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
+    queryLibraryFindingDiffAny: () =>
+      unexpected("queryLibraryFindingDiffAny"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
     queryMemberDocument: () =>
       unexpected("queryMemberDocument"),
     queryMemberGroupDocument: () =>
       unexpected("queryMemberGroupDocument"),
+    queryPerformanceTypeMemberPopulation: () =>
+      unexpected("queryPerformanceTypeMemberPopulation"),
+    queryTypeOverviewDocument: () =>
+      unexpected("queryTypeOverviewDocument"),
     queryTypeMemberPopulation: () =>
       unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
@@ -154,14 +184,22 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocument"),
     queryPlatformMemberGroupDocument: () =>
       unexpected("queryPlatformMemberGroupDocument"),
+    queryPlatformPerformanceTypeMemberPopulation: () =>
+      unexpected("queryPlatformPerformanceTypeMemberPopulation"),
+    queryPlatformTypeOverviewDocument: () =>
+      unexpected("queryPlatformTypeOverviewDocument"),
     queryUploadedLibraryMemberDocument: () =>
       unexpected("queryUploadedLibraryMemberDocument"),
     queryPlatformTypeMemberPopulation: () =>
       unexpected("queryPlatformTypeMemberPopulation"),
     queryUploadedLibraryMemberGroupDocument: () =>
       unexpected("queryUploadedLibraryMemberGroupDocument"),
+    queryUploadedLibraryPerformanceTypeMemberPopulation: () =>
+      unexpected("queryUploadedLibraryPerformanceTypeMemberPopulation"),
     queryUploadedLibraryTypeMemberPopulation: () =>
       unexpected("queryUploadedLibraryTypeMemberPopulation"),
+    queryUploadedLibraryTypeOverviewDocument: () =>
+      unexpected("queryUploadedLibraryTypeOverviewDocument"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -197,6 +235,11 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformOpportunities"),
     queryPackagePerformance: () =>
       unexpected("queryPackagePerformance"),
+    renderTriageCaret: () => unexpected("renderTriageCaret"),
+    queryPackageResourceTriage: () =>
+      unexpected("queryPackageResourceTriage"),
+    queryPackageUnsafeMembers: () =>
+      unexpected("queryPackageUnsafeMembers"),
     queryPackageLibraryDependencyStructure: () =>
       unexpected("queryPackageLibraryDependencyStructure"),
     queryPackageLibraryMetrics: () =>
@@ -211,8 +254,14 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformLibraryStructuralSalience"),
     queryPlatformPerformance: () =>
       unexpected("queryPlatformPerformance"),
+    queryPlatformResourceTriage: () =>
+      unexpected("queryPlatformResourceTriage"),
+    queryPlatformUnsafeMembers: () =>
+      unexpected("queryPlatformUnsafeMembers"),
   },
   source: {
+    queryMemberBodyDiff: () => { throw new Error("unused"); },
+    cancelMemberBodyDiff: () => { throw new Error("unused"); },
     queryMemberSource: () => unexpected("queryMemberSource"),
     queryPlatformMemberSource: () =>
       unexpected("queryPlatformMemberSource"),
@@ -239,10 +288,13 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   },
   callGraph: {
     queryMemberCallGraph: () => unexpected("queryMemberCallGraph"),
+    queryDirectUseClusters: () => unexpected("queryDirectUseClusters"),
     expandPlatformCallGraph: () =>
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    selectProjectInspector: () => unexpected("selectProjectInspector"),
+    findIndexedTypes: () => unexpected("findIndexedTypes"),
     abandonRetainedWorkspaceNavigation: () =>
       unexpected("abandonRetainedWorkspaceNavigation"),
     acknowledgeRetainedWorkspaceNavigation: () =>
@@ -275,6 +327,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("deactivateRetainedWorkspaceDefinition"),
     describeWorkspacePackageSources: () =>
       unexpected("describeWorkspacePackageSources"),
+    explainVocabularies: () => unexpected("explainVocabularies"),
+    explainResources: () => unexpected("explainResources"),
+    describeWorkspaceComponents: () => unexpected("describeWorkspaceComponents"),
+    explainWorkspaceComponent: () => unexpected("explainWorkspaceComponent"),
     resolveHomeDemo: () => unexpected("resolveHomeDemo"),
     decodeWorkspaceShareState: () =>
       unexpected("decodeWorkspaceShareState"),
@@ -284,10 +340,14 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("observeRetainedWorkspaceSettlement"),
     prepareEcosystemWorkspaceDefinition: () =>
       unexpected("prepareEcosystemWorkspaceDefinition"),
+    prepareProjectWorkspaceDefinition: () =>
+      unexpected("prepareProjectWorkspaceDefinition"),
     preparePackageQueryWorkspaceDefinition: () =>
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
       unexpected("prepareRetainedWorkspaceDefinition"),
+    prepareRetainedWorkspaceDefinitionFromRecords: () =>
+      unexpected("prepareRetainedWorkspaceDefinitionFromRecords"),
     prepareRetainedWorkspaceDefinitionWithCredentials: () =>
       unexpected("prepareRetainedWorkspaceDefinitionWithCredentials"),
     recordRetainedWorkspaceNavigationPosting: () =>
@@ -523,11 +583,33 @@ test("uploaded Library input uses a bounded structured-clone byte tuple", () => 
   }
 });
 
+test("uploaded Project input admits supplied bytes without the ordinary text budget", () => {
+  const operation =
+    engineWorkerOrdinaryOperations.catalog.prepareProjectWorkspaceDefinition;
+  const input: Parameters<typeof operation.encodeInput>[0] = [
+    "project-1", "Local Project", "/", "authoredProject", "Example.csproj",
+    Array.from({ length: 1024 * 1024 }, () => 32), "",
+  ];
+  assert.equal(operation.encodeInput(input).kind, "decoded");
+  assert.equal(operation.input.decode(input).kind, "decoded");
+  assert.equal(operation.input.decode([...input, "extra"]).kind, "rejected");
+  assert.equal(operation.input.decode([
+    ...input.slice(0, 5), [256], "",
+  ]).kind, "rejected");
+  const oversized: number[] = [];
+  oversized.length = engineWorkerUploadedLibraryMaximumBytes + 1;
+  const rejected = operation.input.decode([
+    ...input.slice(0, 5), oversized, "",
+  ]);
+  assert.equal(rejected.kind, "rejected");
+  if (rejected.kind === "rejected") assert.equal(rejected.reason, "oversized");
+});
+
 test("uploaded Library Member document queries use the retained exact image", async () => {
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
-    [string, number[], string, string] | undefined;
+    [string, number[], string, string, string, string, boolean] | undefined;
   let exactReceived:
     [string, number[], string, string, number, string] | undefined;
   let receivedPopulation:
@@ -603,8 +685,12 @@ test("uploaded Library Member document queries use the retained exact image", as
         bytes,
         typeIdentity,
         memberName,
+        accessibility,
+        receiver,
+        includeHidden,
       ) {
-        received = [declaredName, bytes, typeIdentity, memberName];
+        received = [declaredName, bytes, typeIdentity, memberName,
+          accessibility, receiver, includeHidden];
         return {
           outcome: "Available",
           detail: null,
@@ -659,6 +745,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       identity,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   await state.environment.flushAsync();
 
@@ -668,6 +757,9 @@ test("uploaded Library Member document queries use the retained exact image", as
     content,
     "Example.Widget",
     "Run",
+    "protected",
+    "all",
+    false,
   ]);
   const population =
     state.client.metadata.queryUploadedLibraryTypeMemberPopulation(
@@ -710,6 +802,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       `sha256:${"b".repeat(64)}`,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   const mismatchFailure = assert.rejects(
     mismatched,
@@ -762,6 +857,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     }],
     activeTabId: null,
     selectedContextId: null,
+    traversalTargetFramework: "net11.0",
   } satisfies BrowserRetainedWorkspaceDefinitionState;
   const posting = {
     retainedDefinitionId: "definition-exact",
@@ -844,6 +940,9 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "package-subject",
+      runtimeIdentifier: "win-x64",
+      implementationComparisonRuntimeIdentifier: "osx-arm64",
+      defaultLibrary: null,
       summary: {
         selectedCompileFramework: null,
         libraryCount: 1,
@@ -950,6 +1049,44 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     },
     reason: null,
   } satisfies BrowserTypeFindResult;
+  const indexedTypeFind = {
+    status: "Completed",
+    operation: {
+      find: {
+        content: {
+          matches: [{
+            source: {
+              packageId: "Aspire.Hosting",
+              version: "9.0.0",
+              targetFramework: "net8.0",
+              assemblyName: "Aspire.Hosting",
+            },
+            type: {
+              namespace: "Aspire.Hosting",
+              names: [{
+                name: "DistributedApplication",
+                arity: 0,
+              }],
+            },
+          }],
+          publishedSourceIdentities: [],
+          coverage: [],
+          completion: "Completed",
+        },
+        share: {
+          kind: "nonProjectable",
+          fullUrl: null,
+          packet: null,
+          path: "indexed-type-find",
+          reason: catalogInertStringFixture(
+            "Indexed Type Find is not projectable.",
+          ),
+        },
+        diagnostics: [],
+      },
+    },
+    reason: null,
+  } satisfies BrowserIndexedTypeFindResult;
   const spotlightActivation = {
     status: "navigation",
     navigation: posting.navigation,
@@ -971,6 +1108,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
   const ecosystemPackageArguments: (readonly unknown[])[] = [];
   const packageArguments: (readonly unknown[])[] = [];
   const platformArguments: (readonly unknown[])[] = [];
+  const indexedTypeFindArguments: (readonly unknown[])[] = [];
   const typeFindArguments: (readonly unknown[])[] = [];
   const spotlightActivationArguments: (readonly unknown[])[] = [];
   const state = fixture({
@@ -981,6 +1119,10 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       },
     },
     catalog: {
+      findIndexedTypes: async (...args) => {
+        indexedTypeFindArguments.push(args);
+        return indexedTypeFind;
+      },
       activateRetainedWorkspaceDefinition: async () => activation,
       activateSpotlightDestination: async (...args) => {
         spotlightActivationArguments.push(args);
@@ -1023,11 +1165,19 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     11,
     "JsonSerializer",
   );
+  const indexedFindResult = state.client.catalog.findIndexedTypes(
+    "definition-exact",
+    "realization-exact",
+    12,
+    "DistributedApplication",
+    25,
+  );
   const spotlightResult = state.client.catalog.activateSpotlightDestination(
     "action-exact",
   );
   await state.environment.flushAsync();
   assert.deepEqual(await findResult, typeFind);
+  assert.deepEqual(await indexedFindResult, indexedTypeFind);
   assert.deepEqual(await spotlightResult, spotlightActivation);
 
   const packageResult =
@@ -1138,6 +1288,13 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     "oversized-navigation",
     0,
   ]]);
+  assert.deepEqual(indexedTypeFindArguments, [[
+    "definition-exact",
+    "realization-exact",
+    12,
+    "DistributedApplication",
+    25,
+  ]]);
   assert.deepEqual(typeFindArguments, [[
     "definition-exact",
     "realization-exact",
@@ -1159,6 +1316,8 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     activated: false,
     superseded: false,
     package: null,
+    runtimeIdentifier: "",
+    implementationComparisonRuntimeIdentifier: null,
     future: { message: "preserved" },
   };
   let cleared = 0;
@@ -1275,6 +1434,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "net10.0",
     "Example.dll",
     "M:Example.Api.Run",
+    null,
   );
   const libraryQuery = state.client.package.queryLibraries(
     "Example",
@@ -1553,8 +1713,11 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: "linux-x64",
     documents: surface.documents,
     surface,
+    defaultLibraryId: surface.defaultAssemblyId,
   } satisfies BrowserPackageLoadResult;
   const notSettled = {
     versionSettlement: {
@@ -1588,8 +1751,11 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     },
     packageInfo: null,
     packageChildren: null,
+    runtimePopulation: null,
+    implementationComparisonRuntimeIdentifier: "linux-x64",
     documents: [],
     surface: null,
+    defaultLibraryId: null,
   } satisfies BrowserPackageLoadResult;
   const state = fixture({
     package: {
@@ -1604,11 +1770,13 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     "System.Text.Json",
     "latest",
     "net10.0",
+    "",
   );
   const notSettledResult = state.client.package.queryPackage(
     "Missing.Package",
     "latest",
     "net10.0",
+    "",
   );
   await state.environment.flushAsync();
 
@@ -1618,6 +1786,49 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     settled.versionSettlement);
   assert.deepEqual(await notSettledResult, notSettled);
   assert.equal((await notSettledResult).surface, null);
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
+test("ordinary package transport preserves contained presentation leaves", async () => {
+  const leaves = [
+    { identity: 3, policy: "Prose", text: "line\u202Eone" },
+    { identity: 1, policy: "Field", text: "field\nvalue" },
+  ] satisfies ReadonlyArray<BrowserDocumentPresentationLeaf>;
+  const contained = {
+    outcome: "contained",
+    generation: "document-4",
+    leaves: [
+      {
+        identity: 3,
+        policy: "Prose",
+        text: packageInertStringFixture("line\\u202Eone"),
+      },
+      {
+        identity: 1,
+        policy: "Field",
+        text: packageInertStringFixture("field\\^Jvalue"),
+      },
+    ],
+  } satisfies BrowserDocumentLeafContainmentOutcome;
+  const calls: unknown[][] = [];
+  const state = fixture({
+    package: {
+      containPackageDocumentLeaves: (generation, requested) => {
+        calls.push([generation, requested]);
+        return contained;
+      },
+    },
+  });
+
+  const result = state.client.package.containPackageDocumentLeaves(
+    "document-4",
+    leaves,
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await result, contained);
+  assert.deepEqual(calls, [["document-4", leaves]]);
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
 });
@@ -1678,6 +1889,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     0x06000001,
     0,
     "[]",
+    null,
     "source",
   );
   const graphResult = state.client.source.queryTypeMemberSource(
@@ -1690,6 +1902,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "selector",
     0x06000001,
     "[]",
+    null,
   );
   const platformMemberResult = state.client.source.queryPlatformMemberSource(
     "net11.0",
@@ -1816,6 +2029,7 @@ test("Platform graph transport preserves retained context selection and ordinary
           callers: node,
           callees: node,
           targets: [],
+          boundaries: [],
           scope: { packages: 0, assemblies: 3, callerAssemblies: 3, calleeScope: "Self" },
           diagnostics: {
             incompleteNodes: 0, incompleteEdges: 0, bindingIdentityConflicts: 0,
@@ -1878,6 +2092,42 @@ test("concurrent ordinary calls use independent authority sessions", async () =>
   state.host.dispose();
 });
 
+test("background bindings are not Worker activity", async () => {
+  const findingDiffAny = deferred<void>();
+  const state = fixture({
+    metadata: {
+      queryLibraryFindingDiffAny: async () => {
+        await findingDiffAny.promise;
+        return contractViolation({ schemaVersion: 3, kind: "Canceled" });
+      },
+    },
+  });
+  const background = state.client.metadata.queryLibraryFindingDiffAny(
+    "finding-diff-any-1",
+    {
+      schemaVersion: 3,
+      packageId: "Fixture",
+      currentVersion: "2.0.0",
+      targetVersion: "1.0.0",
+      targetFramework: "net10.0",
+      runtimeIdentifier: "win-x64",
+      compileAssetId: "compile:lib/net10.0/Fixture.dll",
+      axes: "ApiAndBody",
+    },
+  );
+  await state.environment.flushAsync();
+
+  assert.equal(state.host.snapshot().activeOperations, 1);
+  assert.equal(state.client.activity.outstanding(), 0);
+  // Idle resolves even though the background operation is still active.
+  await state.client.activity.whenIdle();
+
+  findingDiffAny.resolve();
+  await background;
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
 test("generated rejection fails visibly without poisoning neighboring calls", async () => {
   const state = fixture({
     catalog: {
@@ -1936,7 +2186,8 @@ test("malformed and oversized generated results reject only their calls", async 
       queryPackageVersions: async () =>
         contractViolation({ versions: [undefined] }),
       loadRuntimePack: async () =>
-        "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+        contractViolation(
+          "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters)),
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
@@ -2014,6 +2265,100 @@ test("oversized prepared activation is cancelled before rejection", async () => 
   );
   assert.deepEqual(cancellations, ["receipt-oversized"]);
   assert.equal(state.host.snapshot().phase, "ready");
+  state.host.dispose();
+});
+
+test("oversized Project preparation cancels its nested activation receipt", async () => {
+  const cancellations: string[] = [];
+  const state = fixture({
+    catalog: {
+      prepareProjectWorkspaceDefinition: async () => contractViolation({
+        inspection: { content: { declaredName: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters) } },
+        preparation: { status: "prepared", receipt: "project-receipt" },
+      }),
+      cancelRetainedWorkspaceActivation: async receipt => {
+        cancellations.push(receipt);
+        return { status: "superseded", posting: null, failure: null };
+      },
+    },
+  });
+  const pending = state.client.catalog.prepareProjectWorkspaceDefinition(
+    "project", "Project", "/", "authoredProject", "Example.csproj", [60], "");
+  await state.environment.flushAsync();
+  await assert.rejects(pending, /exceeds .* characters/);
+  assert.deepEqual(cancellations, ["project-receipt"]);
+  state.host.dispose();
+});
+
+test("rejected Project inspector postings settle authority and report failed cleanup", async () => {
+  for (const status of ["accepted", "failed"]) {
+    const abandonments: unknown[][] = [];
+    const state = fixture({
+      catalog: {
+        selectProjectInspector: async () => contractViolation({
+          label: "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+          realizationId: "realization", publicationOrdinal: 3,
+          navigation: { authority: {
+            session: "session", revision: "revision", intent: "intent", epoch: "epoch",
+          } },
+        }),
+        abandonRetainedWorkspaceNavigation: (...args) => {
+          abandonments.push(args);
+          return status;
+        },
+      },
+    });
+    const pending = state.client.catalog.selectProjectInspector(
+      "project", "realization", "dependencies-action");
+    await state.environment.flushAsync();
+    await assert.rejects(pending, status === "accepted"
+      ? /exceeds .* characters/
+      : /Recovery failed:.*abandonment returned 'failed'/);
+    assert.deepEqual(abandonments, [[
+      "realization", 3, "session", "revision", "intent", "epoch",
+    ]]);
+    state.host.dispose();
+  }
+});
+
+test("serialized definition records cross ordinary transport", async () => {
+  const requests: unknown[][] = [];
+  const state = fixture({
+    catalog: {
+      prepareRetainedWorkspaceDefinitionFromRecords: async (...args) => {
+        requests.push(args);
+        return {
+          status: "failed",
+          receipt: null,
+          preparation: null,
+          posting: null,
+          failure: {
+            kind: "Fixture",
+            message: "Fixture definition-record preparation failed.",
+          },
+        };
+      },
+    },
+  });
+
+  const preparation =
+    state.client.catalog.prepareRetainedWorkspaceDefinitionFromRecords(
+      "definition",
+      "Definition",
+      "/?w=view#workspace",
+      "product.demo",
+      ["{\"kind\":\"scenario\"}"],
+    );
+  await state.environment.flushAsync();
+
+  assert.equal((await preparation).failure?.kind, "Fixture");
+  assert.deepEqual(requests, [[
+    "definition",
+    "Definition",
+    "/?w=view#workspace",
+    "product.demo",
+    ["{\"kind\":\"scenario\"}"],
+  ]]);
   state.host.dispose();
 });
 
@@ -2118,8 +2463,8 @@ test("malformed and oversized inputs are rejected before facade invocation", asy
 });
 
 test("large generated results cross the former ordinary transport bounds", async () => {
-  const formerMaximumJsonCharacters = 8_388_608;
-  const formerMaximumCollectionEntries = 262_144;
+  const formerMaximumJsonCharacters = 33_554_432;
+  const formerMaximumCollectionEntries = 1_310_720;
   const versions = Array.from(
     { length: formerMaximumCollectionEntries },
     (_unused, index) => index === 0
@@ -2195,6 +2540,89 @@ test("JSON tuple codec rejects unsafe trees and enforces explicit bounds", () =>
     () => null,
   );
   assert.equal(encode(["id", null, excessive]).kind, "rejected");
+});
+
+test("query explanation transport preserves keys, addresses, and visible failure", async () => {
+  const calls: unknown[][] = [];
+  const result = { outcome: "InvalidSelection" as const, content: null, message: "Unknown facet key." };
+  const state = fixture({
+    package: {
+      explainPackageQuery: (...args) => {
+        calls.push(args);
+        return result;
+      },
+    },
+  });
+  const request = state.client.package.explainPackageQuery(
+    "inspect-resource:/package-query/query?projection=hal", ["depends", "dependency-target"],
+  );
+  const full = state.client.package.explainPackageQuery("package-query/query", null);
+  await state.environment.flushAsync();
+  assert.deepEqual(await request, result);
+  assert.deepEqual(await full, result);
+  assert.deepEqual(calls, [
+    ["inspect-resource:/package-query/query?projection=hal", ["depends", "dependency-target"]],
+    ["package-query/query", null],
+  ]);
+});
+
+test("vocabulary explanation transport preserves native arrays and typed rejection", async () => {
+  const calls: unknown[][] = [];
+  const address = "inspect-resource:/vocabularies/csharp.body-kinds?projection=hal";
+  const result = {
+    outcome: "InvalidSelection" as const,
+    explanation: null,
+    rejection: { requestedPath: address, message: "Unknown vocabulary value identity.", suggestions: [] },
+  };
+  const state = fixture({
+    catalog: {
+      explainVocabularies: (...args) => {
+        calls.push(args);
+        return result;
+      },
+    },
+  });
+  const selected = state.client.catalog.explainVocabularies(address, 0,
+    ["ObjectCreationExpression", "AddressExpression"]);
+  const full = state.client.catalog.explainVocabularies(address, 0, null);
+  const empty = state.client.catalog.explainVocabularies(address, 0, []);
+  await state.environment.flushAsync();
+  assert.deepEqual(await selected, result);
+  assert.deepEqual(await full, result);
+  assert.deepEqual(await empty, result);
+  assert.deepEqual(calls, [
+    [address, 0, ["ObjectCreationExpression", "AddressExpression"]],
+    [address, 0, null], [address, 0, []],
+  ]);
+});
+
+test("component explanation transport keeps owner JSON, parent and failures intact", async () => {
+  const calls: unknown[][] = [];
+  const result = { outcome: "UnsupportedVersion", explanation: null, error: "Unsupported schema." };
+  const inventory = { outcome: "Described", components: [
+    { path: "packet-local", name: "Package", declaration: "owner-issued JSON" },
+  ], error: null };
+  const state = fixture({
+    catalog: {
+      explainResources: (...args) => { calls.push(["root", ...args]); return result; },
+      describeWorkspaceComponents: (...args) => { calls.push(["list", ...args]); return inventory; },
+      explainWorkspaceComponent: (...args) => { calls.push(["component", ...args]); return result; },
+    },
+  });
+  const root = state.client.catalog.explainResources("root", "hal");
+  const list = state.client.catalog.describeWorkspaceComponents("owner-packet");
+  const detached = state.client.catalog.explainWorkspaceComponent("owner-issued JSON", null, "hal");
+  const qualified = state.client.catalog.explainWorkspaceComponent("owner-issued JSON", "owner-packet", "data");
+  await state.environment.flushAsync();
+  assert.deepEqual(await root, result);
+  assert.deepEqual(await list, inventory);
+  assert.deepEqual(await detached, result);
+  assert.deepEqual(await qualified, result);
+  assert.deepEqual(calls, [
+    ["root", "root", "hal"], ["list", "owner-packet"],
+    ["component", "owner-issued JSON", null, "hal"],
+    ["component", "owner-issued JSON", "owner-packet", "data"],
+  ]);
 });
 
 test("forwarder transport preserves opaque actions, route evidence, and non-success", async () => {
@@ -2297,9 +2725,12 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     package: [
       "activatePlatformForwarder",
       "activateWorkspacePackageOccurrence",
+      "classifyEcosystemAssemblyNames",
+      "classifyEcosystemPackages",
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "closePlatformForwarderView",
+      "containPackageDocumentLeaves",
       "getPackageDocument",
       "getPlatformCatalog",
       "getPlatformVersions",
@@ -2311,10 +2742,15 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "prefetchPlatformPacks",
       "queryLibraries",
       "queryLibraryApi",
+      "queryLibrarySurface",
       "queryMemberDocumentation",
       "queryPlatformMemberDocumentation",
       "queryPackage",
-      "queryPackageDependencies",
+      "inspectPackageDependencies",
+      "queryLibraryReferences",
+      "queryReferencePackageSuppliers",
+      "queryPackageHierarchy",
+      "queryPackageIcon",
       "queryPackageVulnerabilities",
       "queryPackageRoot",
       "queryPackageSummary",
@@ -2322,21 +2758,28 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
       "searchCapabilities",
+      "explainPackageQuery",
       "searchTypes",
     ],
     metadata: [
       "cancelLibraryApiDiff",
+      "cancelLibraryFindingDiffAny",
       "findTypes",
       "queryLibraryApiDiff",
+      "queryLibraryFindingDiffAny",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
       "queryMemberDocument",
       "queryMemberGroupDocument",
+      "queryPerformanceTypeMemberPopulation",
       "queryTypeMemberPopulation",
+      "queryTypeOverviewDocument",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
+      "queryPlatformPerformanceTypeMemberPopulation",
       "queryPlatformTypeMemberPopulation",
+      "queryPlatformTypeOverviewDocument",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2344,9 +2787,12 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMetadata",
       "queryPlatformMetadataTable",
       "queryTypeProjection",
+      "queryAnnotatedTypeRelations",
       "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
+      "queryUploadedLibraryPerformanceTypeMemberPopulation",
       "queryUploadedLibraryTypeMemberPopulation",
+      "queryUploadedLibraryTypeOverviewDocument",
     ],
     analysis: [
       "queryCloneCandidates",
@@ -2357,18 +2803,25 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageLibraryStructuralSalience",
       "queryPackageOpportunities",
       "queryPackagePerformance",
+      "queryPackageResourceTriage",
       "queryPackageTypeImplementationHeat",
       "queryPackageTypeMethodLeverage",
+      "queryPackageUnsafeMembers",
       "queryPlatformIntegrations",
       "queryPlatformLibraryDependencyStructure",
       "queryPlatformLibraryMetrics",
       "queryPlatformLibraryStructuralSalience",
       "queryPlatformOpportunities",
       "queryPlatformPerformance",
+      "queryPlatformResourceTriage",
       "queryPlatformTypeImplementationHeat",
       "queryPlatformTypeMethodLeverage",
+      "queryPlatformUnsafeMembers",
+      "renderTriageCaret",
     ],
     source: [
+      "cancelMemberBodyDiff",
+      "queryMemberBodyDiff",
       "cancelMemberSourceComparison",
       "cancelMethodBodyComparison",
       "cancelSourceQuery",
@@ -2385,6 +2838,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     ],
     callGraph: [
       "expandPlatformCallGraph",
+      "queryDirectUseClusters",
       "queryMemberCallGraph",
     ],
     catalog: [
@@ -2406,14 +2860,22 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "describeWorkspacePackageSources",
       "decodeWorkspaceShareState",
       "encodeWorkspaceShareState",
+      "explainVocabularies",
+      "explainResources",
+      "findIndexedTypes",
+      "describeWorkspaceComponents",
+      "explainWorkspaceComponent",
       "observeRetainedWorkspaceSettlement",
       "prepareEcosystemWorkspaceDefinition",
       "preparePackageQueryWorkspaceDefinition",
+      "prepareProjectWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
+      "prepareRetainedWorkspaceDefinitionFromRecords",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
       "recordRetainedWorkspaceNavigationPosting",
       "resolveHomeDemo",
       "runHomeDemo",
+      "selectProjectInspector",
       "validateRetainedWorkspaceNavigationAuthority",
     ],
   } as const;
@@ -2430,7 +2892,11 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 112);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 146);
+  assert.equal(
+    new Set(engineWorkerOrdinaryOperationKinds).size,
+    engineWorkerOrdinaryOperationKinds.length,
+    "every operation kind is distinct");
 
   const state = fixture();
   const groups = [
@@ -2464,5 +2930,44 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
   }
   assert.equal("dispatch" in state.client, false);
   assert.equal("invoke" in state.client, false);
+  state.host.dispose();
+});
+
+
+test("triage caret transport preserves exact source extent and managed output", async () => {
+  const sourceLine = "    Call();";
+  const printed = "//  ^^^^";
+  const state = fixture({
+    analysis: {
+      renderTriageCaret: (line, column, length) => {
+        assert.deepEqual([line, column, length], [sourceLine, 4, 4]);
+        return printed;
+      },
+    },
+  });
+  const result = state.client.analysis.renderTriageCaret(sourceLine, 4, 4);
+  await state.environment.flushAsync();
+  assert.equal(await result, printed);
+  state.host.dispose();
+});
+
+test("unsafe member transport carries the census scope to both owners", async () => {
+  const empty = { outcome: "available", assembly: "Fixture", counts: { members: 0, public: 0, propagating: 0, safeBoundaries: 0, safeBoundaryUndecided: 0 }, types: [], limitations: [], inspectionError: null };
+  const calls: string[][] = [];
+  const state = fixture({
+    analysis: {
+      queryPackageUnsafeMembers: async (...args) => { calls.push(["package", ...args]); return empty; },
+      queryPlatformUnsafeMembers: async (...args) => { calls.push(["platform", ...args]); return empty; },
+    },
+  });
+  const packageResult = state.client.analysis.queryPackageUnsafeMembers("Pkg", "1.0.0", "net10.0", "lib/net10.0/Pkg.dll", "Pkg.Type", "Run~1");
+  const platformResult = state.client.analysis.queryPlatformUnsafeMembers("net10.0", "10.0.0", "System.Text.Json.dll", "pack:System.Text.Json", "System.Text.Json.JsonDocument", "");
+  await state.environment.flushAsync();
+  assert.deepEqual(await packageResult, empty);
+  assert.deepEqual(await platformResult, empty);
+  assert.deepEqual(calls, [
+    ["package", "Pkg", "1.0.0", "net10.0", "lib/net10.0/Pkg.dll", "Pkg.Type", "Run~1"],
+    ["platform", "net10.0", "10.0.0", "System.Text.Json.dll", "pack:System.Text.Json", "System.Text.Json.JsonDocument", ""],
+  ]);
   state.host.dispose();
 });

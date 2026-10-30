@@ -1,9 +1,7 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
-using ILInspector.Analysis;
 using ILInspector.Metadata;
-using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
 
 namespace DotnetInspect.Web.Interop.Source.Operations;
@@ -77,26 +75,26 @@ internal static class MethodBodyComparisonOperations
                 participant));
         BrowserMethodBodySelection[] inventory =
             MethodBodyOperations.Inventory(surface);
-        CallGraphMemberResolution before = Resolve(request.Before);
-        CallGraphMemberResolution after = Resolve(request.After);
-        MetadataMethodAddress beforeAddress =
-            MethodBodyOperations.RequireAddress(
+        AssemblyContextMemberBody before = Resolve(request.Before);
+        AssemblyContextMemberBody after = Resolve(request.After);
+        ProjectedMethodAddress beforeDesignation =
+            MethodBodyOperations.RequireDesignation(
                 group,
                 participant,
                 before.BodyToken);
-        MetadataMethodAddress afterAddress =
-            MethodBodyOperations.RequireAddress(
+        ProjectedMethodAddress afterDesignation =
+            MethodBodyOperations.RequireDesignation(
                 group,
                 participant,
                 after.BodyToken);
         Guid expectedModule = Guid.Parse(request.ModuleVersionId);
-        if (beforeAddress.ModuleVersionId != expectedModule
-            || afterAddress.ModuleVersionId != expectedModule)
+        if (beforeDesignation.ModuleVersionId != expectedModule
+            || afterDesignation.ModuleVersionId != expectedModule)
         {
             throw new MethodBodyUnavailableException(
                 $"WrongImage: inventory module {expectedModule:D} "
                 + "is not the retained implementation module "
-                + $"{beforeAddress.ModuleVersionId:D}; the pair "
+                + $"{beforeDesignation.ModuleVersionId:D}; the pair "
                 + "was not retargeted.");
         }
 
@@ -111,8 +109,8 @@ internal static class MethodBodyComparisonOperations
             DirectMemberComparisonQuery.Execute(
                 group,
                 new(
-                    new(participant, beforeAddress),
-                    new(participant, afterAddress),
+                    new(participant, beforeDesignation),
+                    new(participant, afterDesignation),
                     [
                         ResearchProducerKind.CSharp,
                         ResearchProducerKind.IlBody,
@@ -122,7 +120,7 @@ internal static class MethodBodyComparisonOperations
             request,
             comparison);
 
-        CallGraphMemberResolution Resolve(
+        AssemblyContextMemberBody Resolve(
             BrowserMethodBodySelection selection)
         {
             if (!inventory.Any(method =>
@@ -136,7 +134,7 @@ internal static class MethodBodyComparisonOperations
                     + "MethodDef are not in this implementation "
                     + "inventory.");
             }
-            CallGraphMemberResolution resolved =
+            AssemblyContextMemberBody resolved =
                 MethodBodyOperations.Select(() =>
                     BrowserMemberResolution
                         .ResolveImplementationMember(

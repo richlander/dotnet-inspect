@@ -40,9 +40,8 @@ public static class AssemblyContextSourceCapabilities
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            byte[]? bytes =
-                PdbSourceHouse.TryReadVerifiedLocalSource(
-                    candidate.Document);
+            byte[]? bytes = VerifiedLocalSourceRead.TryRead(
+                candidate.Document);
             cancellationToken.ThrowIfCancellationRequested();
             return ValueTask.FromResult(
                 CapturedSource(

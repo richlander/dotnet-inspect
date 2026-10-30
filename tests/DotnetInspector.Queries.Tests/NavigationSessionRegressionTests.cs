@@ -107,8 +107,8 @@ public sealed partial class NavigationSessionTests
         bool applicable = true;
         bool throwOnDiscovery = false;
         var references = new ViewFacetDescriptor(
-            new ViewFacetId("library.references"), StructuralSubjectKind.Library,
-            "References", "Library references", 0, ViewFacetRole.LibraryReferences);
+            new ViewFacetId("library.types"), StructuralSubjectKind.Library,
+            "Types", "Library types", 0, ViewFacetRole.LibraryTypes);
         var metadata = new ViewFacetDescriptor(
             new ViewFacetId("library.metadata"), StructuralSubjectKind.Library,
             "Metadata", "Library metadata", 1);
@@ -727,8 +727,8 @@ public sealed partial class NavigationSessionTests
     {
         bool applicable = true;
         var references = new ViewFacetDescriptor(
-            new("library.references"), StructuralSubjectKind.Library, "References", "References",
-            0, ViewFacetRole.LibraryReferences);
+            new("library.types"), StructuralSubjectKind.Library, "Types", "Types",
+            0, ViewFacetRole.LibraryTypes);
         var compare = new ViewFacetDescriptor(
             new("type.compare"), StructuralSubjectKind.Type, "Compare", "Compare", 1);
         var first = new ViewFacetRegistration.Active(

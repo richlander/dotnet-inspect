@@ -1,0 +1,213 @@
+using DotnetInspector.Sections;
+using ILInspector.Metadata;
+using InertText;
+using Markout;
+
+namespace DotnetInspector.Presentation;
+
+public enum LibraryTypeHierarchyPresentationFormat
+{
+    Tree,
+    Mermaid,
+}
+
+public sealed record LibraryTypeHierarchyPresentationPlan
+{
+    internal const int MaximumTypeRows = 16_384;
+
+    public LibraryTypeHierarchyPresentationPlan(
+        LibraryTypeHierarchyPresentationFormat format,
+        LibraryTypePopulationRequest types,
+        InspectionHierarchyRequest<LibraryTypeHierarchyTopology>
+            hierarchy)
+    {
+        if (!Enum.IsDefined(format))
+            throw new ArgumentOutOfRangeException(nameof(format));
+
+        Format = format;
+        Types = types
+            ?? throw new ArgumentNullException(nameof(types));
+        Hierarchy = hierarchy
+            ?? throw new ArgumentNullException(nameof(hierarchy));
+        LibraryTypeHierarchyProjection.ValidateRequest(
+            Hierarchy,
+            Types,
+            nameof(hierarchy));
+    }
+
+    public LibraryTypeHierarchyPresentationFormat Format { get; }
+    public LibraryTypePopulationRequest Types { get; }
+    public InspectionHierarchyRequest<LibraryTypeHierarchyTopology>
+        Hierarchy { get; }
+}
+
+public static class LibraryTypeHierarchyPresentation
+{
+    /// <summary>
+    /// Creates the default Library hierarchy plan: the Library, its
+    /// namespaces, and each namespace's public-surface Type declarations by
+    /// Name. The default requests no Member Counts; deeper data belongs to the
+    /// inner <c>type</c> command.
+    /// </summary>
+    public static LibraryTypeHierarchyPresentationPlan CreateDefaultPlan(
+        LibraryTypeHierarchyPresentationFormat format)
+    {
+        var types =
+            new LibraryTypePopulationRequest(
+                LibraryTypeAccessibility.Public,
+                count: null,
+                rows: new LibraryTypePopulationRowsRequest(
+                    LibraryTypeHierarchyPresentationPlan.MaximumTypeRows));
+        var hierarchy =
+            new InspectionHierarchyRequest<LibraryTypeHierarchyTopology>(
+                LibraryTypeHierarchyTopology.LibraryNamespacesAndTypes,
+                InspectionHierarchyNodeSpelling.FullSpelling,
+                new InspectionHierarchyPopulationRequest.Rows(
+                    InspectionHierarchyNodeSpelling.Name,
+                    new InspectionHierarchyPopulationRequest.Rows(
+                        InspectionHierarchyNodeSpelling.Name)));
+        return new(format, types, hierarchy);
+    }
+
+    public static void Write(
+        LibraryDocument document,
+        LibraryTypeHierarchyPresentationPlan plan,
+        TextWriter output,
+        InertString libraryName,
+        IReadOnlyList<ResultProperty>? properties = null)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(output);
+        LibraryTypeHierarchyProjection.ValidateDocument(
+            document,
+            plan.Hierarchy,
+            plan.Types);
+
+        string root = plan.Hierarchy.RootSpelling
+            is InspectionHierarchyNodeSpelling.FullSpelling
+                ? ResultTitle.Compose(
+                    libraryName.ToString(),
+                    properties ?? [])
+                : libraryName.ToString();
+        // An empty population renders as such rather than as a bare root.
+        if (document.Types!.Rows
+            is LibraryTypePopulationRowsOutcome.Read { Items.IsEmpty: true })
+        {
+            root += " (no public types)";
+        }
+        switch (plan.Format)
+        {
+            case LibraryTypeHierarchyPresentationFormat.Tree:
+                WriteTree(document, plan.Hierarchy, root, output);
+                break;
+            case LibraryTypeHierarchyPresentationFormat.Mermaid:
+                WriteMermaid(document, plan.Hierarchy, root, output);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Library hierarchy presentation format.");
+        }
+    }
+
+    private static void WriteTree(
+        LibraryDocument document,
+        InspectionHierarchyRequest<LibraryTypeHierarchyTopology>
+            hierarchy,
+        string root,
+        TextWriter output)
+    {
+        output.WriteLine(root);
+        var writer =
+            new MarkoutWriter(
+                output,
+                new MarkdownFormatter());
+        writer.WriteTree(tree =>
+        {
+            var sink =
+                new MarkoutHierarchySink<LibraryTypeHierarchyNode>(
+                    tree,
+                    FormatNode);
+            LibraryTypeHierarchyProjection.Write(
+                document,
+                hierarchy,
+                sink);
+        });
+        writer.Flush();
+    }
+
+    private static void WriteMermaid(
+        LibraryDocument document,
+        InspectionHierarchyRequest<LibraryTypeHierarchyTopology>
+            hierarchy,
+        string root,
+        TextWriter output)
+    {
+        output.WriteLine("graph TD");
+        output.Write("  n0[\"");
+        output.Write(MermaidHierarchySink<LibraryTypeHierarchyNode>
+            .Escape(root));
+        output.WriteLine("\"]");
+        var sink =
+            new MermaidHierarchySink<LibraryTypeHierarchyNode>(
+                output,
+                rootNodeId: 0,
+                FormatNode);
+        LibraryTypeHierarchyProjection.Write(
+            document,
+            hierarchy,
+            sink);
+    }
+
+    private static string FormatNode(LibraryTypeHierarchyNode node) =>
+        node switch
+        {
+            LibraryTypeHierarchyNode.Namespace @namespace =>
+                FormatNamespace(@namespace),
+            LibraryTypeHierarchyNode.Type type =>
+                FormatType(type),
+            _ => throw new InvalidOperationException(
+                "Unknown Library hierarchy node."),
+        };
+
+    private static string FormatNamespace(
+        LibraryTypeHierarchyNode.Namespace @namespace)
+    {
+        string name =
+            @namespace.Name.IsEmpty
+                ? "(global namespace)"
+                : @namespace.Name.ToString();
+        return @namespace.DeclarationCount == 1
+            ? $"{name} (1 type)"
+            : $"{name} ({@namespace.DeclarationCount} types)";
+    }
+
+    private static string FormatType(LibraryTypeHierarchyNode.Type type)
+    {
+        LibraryTypeShape declaration = type.Value;
+        string spelling = type.Spelling.ToString();
+        if (declaration.DeclarationKind is LibraryTypeDeclarationKind.Forwarder)
+            return $"{spelling} (forwarded)";
+
+        string kind = declaration.DefinitionKind switch
+        {
+            ApiTypeInventoryKind.Class => "class",
+            ApiTypeInventoryKind.Struct => "struct",
+            ApiTypeInventoryKind.Interface => "interface",
+            ApiTypeInventoryKind.Enum => "enum",
+            ApiTypeInventoryKind.Delegate => "delegate",
+            _ => throw new InvalidOperationException(
+                "A Library hierarchy Type definition is missing its kind."),
+        };
+        return declaration.MemberCount switch
+        {
+            null => $"{kind} {spelling}",
+            LibraryTypeMemberCountOutcome.Counted { Value: 1 } =>
+                $"{kind} {spelling} (1 member)",
+            LibraryTypeMemberCountOutcome.Counted counted =>
+                $"{kind} {spelling} ({counted.Value} members)",
+            _ => throw new InvalidOperationException(
+                "A Library hierarchy Type definition has an unsupported Member Count outcome."),
+        };
+    }
+}

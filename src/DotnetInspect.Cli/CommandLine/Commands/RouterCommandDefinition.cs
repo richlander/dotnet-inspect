@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
@@ -14,6 +15,7 @@ using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using NuGet.Versioning;
+using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -81,6 +83,30 @@ public static class RouterCommandDefinition
             {
                 HelpWriter.WriteHelp(rootCommand);
                 return 0;
+            }
+
+            WorkspaceSharePacketRecognition recognition =
+                WorkspaceSharePacketCodec.Recognize(tokens[0], ct);
+            if (recognition is WorkspaceSharePacketRecognition.Invalid invalidPacket)
+            {
+                CommandError.Write($"Invalid Workspace packet ({invalidPacket.Kind}): {invalidPacket.Message}");
+                return 1;
+            }
+            if (recognition is WorkspaceSharePacketRecognition.Recognized)
+            {
+                string[] activation =
+                    [WorkspaceActivationCommandDefinitions.CommandName, .. tokens];
+                return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                    rootCommand.Parse(activation), activation);
+            }
+
+            if (PackageReferenceAdmission.IsCandidate(tokens[0]))
+            {
+                string[] referenceRoute = CommandLineBuilder.PreprocessArgs(
+                    [PackageCommand.Name, .. tokens], rootCommand);
+                RouterDecisionLog.Record("exact-package-reference", "package");
+                return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                    rootCommand.Parse(referenceRoute), referenceRoute);
             }
 
             // The router intentionally captures all options as raw tokens so the rewritten
@@ -299,6 +325,8 @@ public static class RouterCommandDefinition
                                         allowStaticDiscovery: true),
                                 PackageOptionsParser.UnrecognizedOption unknown =>
                                     new OptionError($"Unrecognized option '{unknown.Option}'."),
+                                PackageOptionsParser.InvalidArguments invalid =>
+                                    new OptionError(invalid.Message),
                                 _ => throw new InvalidOperationException("Unexpected package parse result."),
                             };
                         }
@@ -359,11 +387,13 @@ public static class RouterCommandDefinition
                 return 1;
             }
 
+            string? selectedPlatformFramework = null;
             var rewritten = await RouterTokenRewriter.RewriteAsync(
                 tokens,
                 sourceOptions,
                 rootCommand,
-                ct);
+                ct,
+                framework => selectedPlatformFramework = framework);
             RouterDecisionLog.Record(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
@@ -380,8 +410,18 @@ public static class RouterCommandDefinition
             rewritten = CommandLineBuilder.PreprocessArgs(
                 rewritten,
                 rootCommand);
+            ParseResult childParse = rootCommand.Parse(rewritten);
+            if (childParse.Errors.Count == 0
+                && !RouterTokenRewriter.HasExplicitApiSource(tokens)
+                && !opts.IsDiscoveryMode(sourceParseResult)
+                && !CommandLineBuilder.HasParsedOption(childParse, "--workspace")
+                && !CommandLineBuilder.HasParsedOption(childParse, "--version"))
+            {
+                RouterEcosystemExplanation.Write(
+                    tokens[0], rewritten[0], selectedPlatformFramework);
+            }
             return await CommandLineBuilder.InvokeWithLineWindowAsync(
-                rootCommand.Parse(rewritten),
+                childParse,
                 rewritten);
         });
 
@@ -547,7 +587,6 @@ public static class RouterCommandDefinition
         DiffCommand.Name,
         FindCommand.Name,
         "extensions",
-        "implements",
         "depends",
         "cache",
         "skill",
@@ -592,7 +631,8 @@ public static class RouterCommandDefinition
             string[] tokens,
             NuGetSourceOptions sourceOptions,
             RootCommand rootCommand,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Action<string?>? selectedPlatform = null)
         {
             var target = tokens[0];
             var tail = tokens[1..];
@@ -624,9 +664,9 @@ public static class RouterCommandDefinition
                 || hasLibraryValue;
 
             var context = new CommandContext(verbose: false);
-            if (PlatformResolver.IsPlatformCandidate(target))
+            if (EcosystemPackCatalog.ShouldSearchPlatform(target))
             {
-                var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
+                var (resolvedPath, resolvedFramework, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
                     target,
                     context.HttpClient,
                     context.Logger.Log,
@@ -647,13 +687,17 @@ public static class RouterCommandDefinition
                         ((AssemblySurfaceClassificationOutcome.Classified)
                             classification).Classification.Kind
                         == AssemblySurfaceKind.Facade;
+                    if (!hasExplicitApiSource
+                        && !ContainsOption(tail, "--framework"))
+                        selectedPlatform?.Invoke(resolvedFramework);
                     return target.Count(c => c == '.') >= 2 && isFacade
                         ? ["type", target, .. tail]
                         : ["library", target, .. tail];
                 }
             }
 
-            var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
+            var allowPlatformPrefixFallback =
+                EcosystemPackCatalog.ShouldSearchPlatform(target);
 
             var frameworkSpec = GetOptionValue(tail, "--framework");
             bool completeLocatorMiss = false;
@@ -978,7 +1022,7 @@ public static class RouterCommandDefinition
                     tail,
                     completeLocatorMiss);
 
-            if (PlatformResolver.IsPlatformCandidate(target))
+            if (EcosystemPackCatalog.ShouldSearchPlatform(target))
             {
                 if (await PackageExistsAsync(target, sourceOptions, context))
                     return ["package", .. tokens];
@@ -1025,7 +1069,8 @@ public static class RouterCommandDefinition
             string target = tokens[0];
             string[] tail = tokens[1..];
             if (ContainsOption(tokens, "--all-libraries")
-                || ContainsOption(tokens, "--namesake-library"))
+                || ContainsOption(tokens, "--namesake-library")
+                || ContainsOption(tokens, "--first-library"))
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;
@@ -1226,7 +1271,8 @@ public static class RouterCommandDefinition
             if (hasExplicitApiSource)
             {
                 rewritten =
-                    structuralSchema
+                    (structuralSchema
+                        || ContainsOption(tail, "--mermaid"))
                     && hasExplicitGenericNotation
                     && StructuralViewRegistry
                         .HasExplicitGenericTypeTail(target)
@@ -1247,6 +1293,7 @@ public static class RouterCommandDefinition
 
             if (ContainsOption(tokens, "--library")
                 || ContainsOption(tokens, "--namesake-library")
+                || ContainsOption(tokens, "--first-library")
                 || ContainsOption(tokens, "--all-libraries"))
             {
                 rewritten = [PackageCommand.Name, .. tokens];
@@ -1260,8 +1307,8 @@ public static class RouterCommandDefinition
                 if (CommandLineBuilder.HasParsedOption(packageParse, "--versions")
                     || CommandLineBuilder.HasParsedOption(packageParse, "--versions-with-feed"))
                 {
-                    // A plural package lens owns its positional capacity; an extra
-                    // package must not become an implicit type target.
+                    // Package version listing owns the route; an extra coordinate
+                    // must fail Package cardinality instead of becoming a Type target.
                     rewritten = [PackageCommand.Name, .. tokens];
                     return true;
                 }
@@ -1318,6 +1365,15 @@ public static class RouterCommandDefinition
                     : target.Contains('.')
                     ? RouteDeferredTypeOrMember(target, tail)
                     : ["type", target, .. tail];
+                return true;
+            }
+
+            if (!structuralSchema
+                && !ContainsHelpOption(tokens)
+                && target.Contains('.')
+                && !EcosystemPackCatalog.ShouldSearchPlatform(target))
+            {
+                rewritten = [PackageCommand.Name, .. tokens];
                 return true;
             }
 
@@ -1721,7 +1777,7 @@ public static class RouterCommandDefinition
                 ]
                 : ["member", target, .. tail];
 
-        private static bool HasExplicitApiSource(string[] tokens) =>
+        internal static bool HasExplicitApiSource(string[] tokens) =>
             ContainsOption(tokens, "--package")
             || ContainsOption(tokens, "--library")
             || ContainsOption(tokens, "--platform")

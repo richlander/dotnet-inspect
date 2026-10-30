@@ -31,7 +31,7 @@ public sealed record SectionQueryCatalog(
         StructuralSchemaProjection[] projections = command switch
         {
             "library" => [Project(StructuralViewIdentity.DirectLibrary, InspectionCatalogIdentity.Library)],
-            "library query" => [],
+            "find --libraries" => [],
             "type" =>
             [
                 Project(StructuralViewIdentity.Type, InspectionCatalogIdentity.ApiType),
@@ -44,20 +44,22 @@ public sealed record SectionQueryCatalog(
                 Project(StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberDetail),
             ],
             "package" => [Project(StructuralViewIdentity.Package, InspectionCatalogIdentity.Package)],
-            "package query" => [],
+            "find --packages" => [],
             "find" => [],
             "depends" => [],
+            "diff" => [Project(StructuralViewIdentity.Diff, InspectionCatalogIdentity.Diff)],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
         List<SectionQueryDescriptor> queries = [];
-        if (command == "package query")
+        if (command == "find --packages")
         {
             queries.Add(new(
                 PackageProfileSections.Packages,
-                PackageQueryOptions.DiscoverySummary,
+                string.Join(" ", new[] { PackageQueryCapability.Route.Descriptor.Summary }
+                    .Concat(PackageQueryCommandCapability.Binding.InputRules)),
                 PackageQueryOptions.QueryKeys));
         }
-        if (command == "library query")
+        if (command == "find --libraries")
         {
             queries.Add(new(
                 LibraryQuerySections.LibrariesName,
@@ -66,6 +68,15 @@ public sealed record SectionQueryCatalog(
         }
         if (command == "package")
         {
+            queries.Add(new(
+                PackageSections.Files,
+                "Filter file rows by package-relative identity and directory ancestry.",
+                RowQueryKeyProjection.Create(
+                    PackageFileInventoryQuery.FileRowsScope.Vocabulary,
+                    key => key.Key == "Target"
+                        ? new("tfm", [], "net8.0")
+                        : new("text/glob", [], key.Key == "Root" ? "lib" : "*"),
+                    [])));
             queries.Add(new(
                 PackageSections.DependencyHierarchy,
                 DependencyQueryOptions.HierarchySummary,
@@ -85,6 +96,8 @@ public sealed record SectionQueryCatalog(
                 DependencyQueryOptions.QueryKeys(
                     DependencyQueryRouteKind.AssetHierarchy)));
         }
+        if (command == "diff")
+            queries.Add(DiffAnalysisCommandCapability.StringLiteralTransitionsQuery);
         if (command is "library" or "type" or "member")
         {
             queries.Add(new(
@@ -152,8 +165,8 @@ public sealed record SectionQueryCatalog(
                 FindQueryOptions.Section(
                     FindQueryRouteKind.MemberResults),
             ],
-            "package query" => [PackageProfileSections.Packages],
-            "library query" => [LibraryQuerySections.LibrariesName],
+            "find --packages" => [PackageProfileSections.Packages],
+            "find --libraries" => [LibraryQuerySections.LibrariesName],
             "depends" =>
             [
                 DependsTypeSections.DependencyGraph,

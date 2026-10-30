@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using QuerySpace.Composition;
@@ -15,6 +16,16 @@ namespace DotnetInspector.Sections.Tests;
 
 public sealed class LibraryAddressInspectionOperationTests
 {
+    static object AllocateForCoordinate() => new();
+
+    static int CallVirtualForCoordinate(CostTarget target) =>
+        target.Compute();
+
+    class CostTarget
+    {
+        public virtual int Compute() => 1;
+    }
+
     [Fact]
     public void PopulationQueryCachesCanonicalRequestsAndPlans()
     {
@@ -279,6 +290,182 @@ public sealed class LibraryAddressInspectionOperationTests
         Assert.Equal(
             "System.Net.Sockets",
             resolved.Projection.MemberContext!.Assembly);
+    }
+
+    [Fact]
+    public async Task AllocationContextResolvesFromImplementation()
+    {
+        string path =
+            typeof(LibraryAddressInspectionOperationTests)
+                .Assembly.Location;
+        byte[] implementation =
+            await File.ReadAllBytesAsync(
+                path,
+                TestContext.Current.CancellationToken);
+        int methodToken =
+            typeof(LibraryAddressInspectionOperationTests)
+                .GetMethod(
+                    nameof(AllocateForCoordinate),
+                    System.Reflection.BindingFlags.Static
+                        | System.Reflection.BindingFlags.NonPublic)!
+                .MetadataToken;
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.Allocations,
+                    new HashSet<int> { methodToken }));
+        int ilOffset = Assert.Single(
+            analysis.Allocations.Occurrences[methodToken]).ILOffset;
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(
+                    implementation));
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(
+                library,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    ilOffset,
+                    ILOffsetProjectionCapabilities
+                        .AllocationContext));
+
+        var completed = Assert.IsType<
+            LibraryAddressInspectionOutcome.Completed>(
+                envelope.Content);
+        var document =
+            Assert.IsType<LibraryAddressDocument.IlPoint>(
+                completed.Document);
+        var resolved =
+            Assert.IsType<LibraryIlAddressOutcome.Resolved>(
+                document.Result);
+        Assert.Single(
+            resolved.Projection.AllocationContext!);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task CostContextResolvesFromImplementation()
+    {
+        string path =
+            typeof(LibraryAddressInspectionOperationTests)
+                .Assembly.Location;
+        byte[] implementation =
+            await File.ReadAllBytesAsync(
+                path,
+                TestContext.Current.CancellationToken);
+        int methodToken =
+            typeof(LibraryAddressInspectionOperationTests)
+                .GetMethod(
+                    nameof(CallVirtualForCoordinate),
+                    System.Reflection.BindingFlags.Static
+                        | System.Reflection.BindingFlags.NonPublic)!
+                .MetadataToken;
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence,
+                    new HashSet<int> { methodToken }));
+        DirectCall call = Assert.Single(
+            analysis.CallGraph.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == methodToken
+                && call.Callee.Name
+                    == nameof(CostTarget.Compute));
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(
+                    implementation));
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(
+                library,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    call.ILOffset,
+                    ILOffsetProjectionCapabilities.CostContext));
+
+        var completed = Assert.IsType<
+            LibraryAddressInspectionOutcome.Completed>(
+                envelope.Content);
+        var document =
+            Assert.IsType<LibraryAddressDocument.IlPoint>(
+                completed.Document);
+        var resolved =
+            Assert.IsType<LibraryIlAddressOutcome.Resolved>(
+                document.Result);
+        ILOffsetCostContext cost = Assert.Single(
+            resolved.Projection.CostContext!);
+        Assert.Equal("virtual dispatch", cost.CostKind);
+        Assert.Contains(
+            nameof(CostTarget.Compute),
+            cost.Operation,
+            StringComparison.Ordinal);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task MixedSemanticContextsResolveFromImplementation()
+    {
+        string path =
+            typeof(LibraryAddressInspectionOperationTests)
+                .Assembly.Location;
+        byte[] implementation =
+            await File.ReadAllBytesAsync(
+                path,
+                TestContext.Current.CancellationToken);
+        int methodToken =
+            typeof(LibraryAddressInspectionOperationTests)
+                .GetMethod(
+                    nameof(CallVirtualForCoordinate),
+                    System.Reflection.BindingFlags.Static
+                        | System.Reflection.BindingFlags.NonPublic)!
+                .MetadataToken;
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence,
+                    new HashSet<int> { methodToken }));
+        DirectCall call = Assert.Single(
+            analysis.CallGraph.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == methodToken
+                && call.Callee.Name
+                    == nameof(CostTarget.Compute));
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                implementation,
+                LibraryInspectionTestLibrary.Identity(
+                    implementation));
+
+        InspectionEnvelope<LibraryAddressInspectionOutcome> envelope =
+            Execute(
+                library,
+                new LibraryAddressIntent.IlPoint(
+                    methodToken,
+                    call.ILOffset,
+                    ILOffsetProjectionCapabilities.AllocationContext
+                        | ILOffsetProjectionCapabilities.CostContext));
+
+        var completed = Assert.IsType<
+            LibraryAddressInspectionOutcome.Completed>(
+                envelope.Content);
+        var document =
+            Assert.IsType<LibraryAddressDocument.IlPoint>(
+                completed.Document);
+        var resolved =
+            Assert.IsType<LibraryIlAddressOutcome.Resolved>(
+                document.Result);
+        Assert.NotNull(resolved.Projection.AllocationContext);
+        ILOffsetCostContext cost = Assert.Single(
+            resolved.Projection.CostContext!);
+        Assert.Equal("virtual dispatch", cost.CostKind);
+        Assert.Empty(envelope.Diagnostics);
     }
 
     [Fact]

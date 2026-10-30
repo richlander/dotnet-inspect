@@ -1,0 +1,132 @@
+{
+  "task": "Find byte-preserving endorsed registered C# style choices and declared conflict groups",
+  "data_scope": {
+    "choices": {"completeness": "Complete"},
+    "tiers": {"completeness": "Complete"},
+    "selected_member_data_states": null,
+    "selected_tier_data_states": null
+  },
+  "results": [
+    {
+      "id": "wrap-splittable-expressions",
+      "option": "wrap-splittable-expressions",
+      "value": "true",
+      "tier_id": "Formatting",
+      "tier_name": "Formatting",
+      "tier_description": "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+      "byte_divergent": false,
+      "oracle_endorsed": false,
+      "corpus_endorsed": true
+    },
+    {
+      "id": "qualify-field-access",
+      "option": "qualify-field-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "byte_divergent": false,
+      "oracle_endorsed": true,
+      "corpus_endorsed": false
+    },
+    {
+      "id": "qualify-property-access",
+      "option": "qualify-property-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "byte_divergent": false,
+      "oracle_endorsed": true,
+      "corpus_endorsed": false
+    },
+    {
+      "id": "qualify-method-access",
+      "option": "qualify-method-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "byte_divergent": false,
+      "oracle_endorsed": true,
+      "corpus_endorsed": false
+    },
+    {
+      "id": "qualify-event-access",
+      "option": "qualify-event-access",
+      "value": "true",
+      "tier_id": "Spelling",
+      "tier_name": "Spelling",
+      "tier_description": "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+      "byte_divergent": false,
+      "oracle_endorsed": true,
+      "corpus_endorsed": false
+    }
+  ],
+  "conflict_groups": {
+    "guarded-boolean-return-style": [
+      "guarded-boolean-return-style:conditional-expression",
+      "guarded-boolean-return-style:branchless"
+    ],
+    "var-spelling-style": [
+      "var-spelling-style:var-for-built-in-types",
+      "var-spelling-style:var-when-type-apparent",
+      "var-spelling-style:var-elsewhere"
+    ]
+  },
+  "conflict_group_applicability": "The vocabulary declares product-owned mutually exclusive groups of its registered choice IDs. These group names do not establish rules for arbitrary configuration keys, and this vocabulary does not supply invocation behavior for those keys.",
+  "omitted_boolean_interpretation": {
+    "known_choice_in_complete_dataset": "False when the Boolean property is available and its map coverage is complete; an absent ID in the corresponding property_sets list means the known choice does not have the true property.",
+    "unknown_id": "Unknown; absence does not prove false for an ID outside the known membership.",
+    "incomplete_dataset": "Unknown; an unlisted member may be missing from the selected data.",
+    "unavailable_property": "Unknown; property unavailability prevents interpreting absence as false."
+  },
+  "fetch_decision": {
+    "tier_descriptions_require_another_fetch": false,
+    "whole_task_requires_another_fetch": false,
+    "contract_or_schema_fetch_required": false,
+    "reason": "The choices HAL response embeds all referenced tier values and summaries, its selected dataset is complete, and the relevant maps state complete coverage. The contract projection is for explanation-schema/client-development details and is unnecessary for this reading task. A separate tier HAL response was fetched but was not needed to answer."
+  },
+  "evidence": [
+    {
+      "response_id": 1,
+      "response_file": "response-01.out",
+      "resource_path": "vocabularies",
+      "role": "Ordinary discovery of registered vocabulary resource paths."
+    },
+    {
+      "response_id": 2,
+      "response_file": "response-02.out",
+      "resource_path": "vocabularies/csharp.style-choices",
+      "representation": ".hal --json",
+      "role": "Complete choice membership, property maps and sets, conflict groups, and embedded referenced tier names and descriptions.",
+      "data_scope": {"completeness": "Complete"},
+      "relevant_map_coverage": {
+        "tier": "complete",
+        "byte_divergent": "complete",
+        "oracle_endorsed": "complete",
+        "corpus_endorsed": "complete",
+        "conflict_group": "complete"
+      },
+      "selected_member_data_states": null,
+      "embedded_tier_data_states": null
+    },
+    {
+      "response_id": 3,
+      "response_file": "response-03.out",
+      "resource_path": "vocabularies/csharp.style-tiers",
+      "representation": ".hal --json",
+      "role": "Redundant confirmation of four tier descriptions and complete tier scope.",
+      "data_scope": {"completeness": "Complete"}
+    }
+  ],
+  "uncertainties": [
+    "The vocabulary does not specify how arbitrary configuration keys are accepted, combined, or invoked; no such behavior is inferred."
+  ],
+  "qualitative_friction": [
+    "The first guide rendering was truncated by the outer tool budget; a second recorder guide call with a larger outer budget delivered the full text.",
+    "The discovery JSON and HAL document use different shapes, so the first exploratory jq projection failed and required a key inspection.",
+    "Boolean properties are represented as sparse property_sets, which requires checking membership, scope, and map coverage before treating absence as false.",
+    "Tier descriptions were embedded in the choice response; the separate tier fetch was unnecessary."
+  ]
+}

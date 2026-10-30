@@ -16,6 +16,49 @@ public sealed partial class BrowserEngineBoundaryTests
 {
     const string ForwarderPlatformVersion = "11.0.0-rc.1.26425.128";
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Speed", "Slow")]
+    public async Task PlatformForwarders_CoreLibWireBudget(bool throughForwarder)
+    {
+        var handler = new PlatformCatalogHandler(ForwarderPlatformVersion)
+        {
+            Packages = new()
+            {
+                [CatalogPackages[1]] = await File.ReadAllBytesAsync(
+                    Path.Combine(AppContext.BaseDirectory, "RealAssets", "PlatformForwarderActivation", "runtime.nupkg"),
+                    TestContext.Current.CancellationToken),
+            },
+        };
+        using IPackageSourceClient packageClient = CatalogSource(handler);
+        using var networkClient = new HttpClient(handler, disposeHandler: false);
+        using var navigation = new BrowserPlatformForwarderNavigation(
+            networkClient, packageClient, BrowserPackageWorkspace.SourceAuthorizationFor(packageClient), TimeSpan.FromSeconds(30));
+        CancellationToken token = TestContext.Current.CancellationToken;
+        var opened = RequireForwarderView(await navigation.OpenAsync(
+            "net11.0", ForwarderPlatformVersion,
+            throughForwarder ? "System.Runtime.dll" : "System.Private.CoreLib.dll", "netcore.app", token));
+        if (throughForwarder)
+        {
+            var row = Assert.Single(opened.View.Forwarders,
+                row => row.Declaration.Identity.ToEscapedFullName()
+                    == "Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid");
+            opened = RequireForwarderView(await navigation.ActivateAsync(row.Action, token));
+            Assert.Equal("System.Private.CoreLib:Microsoft.Win32.SafeHandles.SafeHandleZeroOrMinusOneIsInvalid", opened.View.SelectedTypeId);
+        }
+        Assert.Equal("System.Private.CoreLib", opened.View.Coordinate.Assembly);
+        string json = Interop.Package.PackageExports.SerializeForwarderResult(opened);
+        using JsonDocument wire = JsonDocument.Parse(json);
+        long entries = BrowserOrdinaryWorkerJsonBudget.CollectionEntries(wire.RootElement) + 2;
+        long characters = BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(wire.RootElement) + 2;
+        Console.WriteLine($"CORELIB_WIRE forwarder={throughForwarder} characters={characters} entries={entries}");
+        Assert.InRange(characters, 33_554_433, 83_886_080);
+        Assert.InRange(entries, 1_310_721, 2_621_440);
+        Assert.NotEmpty(opened.View.Surface.Types);
+        Assert.True(navigation.Close(opened.View.Id));
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public async Task PlatformForwarders_ProductionSourceOpensEachXmlLibraryAndRenewsActions()
@@ -29,15 +72,12 @@ public sealed partial class BrowserEngineBoundaryTests
                     TestContext.Current.CancellationToken),
             },
         };
-        PackageSourceAuthorization authority =
-            PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
-        using IPackageSourceClient packageClient = PackageSourceClientFactory.CreateGallery(
-            authority.Authorities[0].Association, handler);
+        using IPackageSourceClient packageClient = CatalogSource(handler);
         using var networkClient = new HttpClient(handler, disposeHandler: false);
         using var navigation = new BrowserPlatformForwarderNavigation(
             networkClient,
             packageClient,
-            new FixedPackageSourceAuthorization(authority),
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient),
             TimeSpan.FromSeconds(30));
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;
 
@@ -57,7 +97,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Null(row.Declaration.MemberCount);
         });
         BrowserPlatformForwarderRowInfo first = XmlReaderForwarder(initial.View);
-        Assert.Equal("System.Xml.ReaderWriter", first.Declaration.Forwarding!.TargetAssembly.Name.ToString());
+        Assert.Equal("System.Xml.ReaderWriter", first.TargetAssembly);
         Assert.Equal(
             "canceled",
             Assert.IsType<BrowserPlatformForwarderNavigationResult.Blocked>(
@@ -75,7 +115,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
         BrowserPlatformForwarderRowInfo second = XmlReaderForwarder(intermediate.View);
         Assert.NotEqual(first.Action, second.Action);
-        Assert.Equal("System.Private.Xml", second.Declaration.Forwarding!.TargetAssembly.Name.ToString());
+        Assert.Equal("System.Private.Xml", second.TargetAssembly);
         var terminal = RequireForwarderView(
             await navigation.ActivateAsync(second.Action, cancellationToken));
         Assert.Equal("System.Private.Xml", terminal.View.Coordinate.Assembly);
@@ -91,10 +131,23 @@ public sealed partial class BrowserEngineBoundaryTests
         using JsonDocument wire = JsonDocument.Parse(
             Interop.Package.PackageExports.SerializeForwarderResult(intermediate));
         Assert.Equal("opened", wire.RootElement.GetProperty("status").GetString());
-        Assert.Equal(2, wire.RootElement.GetProperty("hops").GetArrayLength());
+        JsonElement hops = wire.RootElement.GetProperty("hops");
+        Assert.Equal(2, hops.GetArrayLength());
+        Assert.Equal("System.Xml", hops[0].GetProperty("sourceAssembly").GetString());
+        Assert.Equal("System.Xml.ReaderWriter", hops[0].GetProperty("targetAssembly").GetString());
+        Assert.Equal("System.Xml.ReaderWriter", hops[1].GetProperty("sourceAssembly").GetString());
+        Assert.Equal("System.Private.Xml", hops[1].GetProperty("targetAssembly").GetString());
+        Assert.Equal("Resolved", wire.RootElement.GetProperty("resolutionKind").GetString());
+        Assert.Equal("System.Private.Xml", wire.RootElement.GetProperty("terminalAssembly").GetString());
         Assert.Equal(
             intermediate.View.SelectedTypeId,
             wire.RootElement.GetProperty("view").GetProperty("selectedTypeId").GetString());
+        JsonElement xmlReader = Assert.Single(
+            wire.RootElement.GetProperty("view").GetProperty("forwarders").EnumerateArray(),
+            row => row.GetProperty("id").GetString() == "System.Xml.ReaderWriter:System.Xml.XmlReader");
+        Assert.Equal("System.Xml.XmlReader", xmlReader.GetProperty("name").GetString());
+        Assert.Equal("System.Xml", xmlReader.GetProperty("namespace").GetString());
+        Assert.Equal("System.Private.Xml", xmlReader.GetProperty("targetAssembly").GetString());
         Assert.True(navigation.Close(terminal.View.Id));
         Assert.Equal(
             "stale",
@@ -149,13 +202,10 @@ public sealed partial class BrowserEngineBoundaryTests
     public async Task PlatformForwarders_OpenFailureReturnsTypedNonSuccess(bool cancel, string expectedStatus)
     {
         var handler = new PlatformCatalogHandler("11.0.999");
-        PackageSourceAuthorization authority =
-            PackageSourceAuthorization.Authorize([PackageSource.NuGetOrg]);
-        using IPackageSourceClient packageClient = PackageSourceClientFactory.CreateGallery(
-            authority.Authorities[0].Association, handler);
+        using IPackageSourceClient packageClient = CatalogSource(handler);
         using var networkClient = new HttpClient(handler, disposeHandler: false);
         using var navigation = new BrowserPlatformForwarderNavigation(
-            networkClient, packageClient, new FixedPackageSourceAuthorization(authority), TimeSpan.FromSeconds(10));
+            networkClient, packageClient, BrowserPackageWorkspace.SourceAuthorizationFor(packageClient), TimeSpan.FromSeconds(10));
         CancellationToken cancellationToken = cancel
             ? new CancellationToken(canceled: true)
             : TestContext.Current.CancellationToken;
@@ -167,7 +217,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.NotEmpty(blocked.Message);
         Assert.Null(blocked.Resolution);
         if (!cancel)
-            Assert.Contains("PlatformPackUnavailable", blocked.Message, StringComparison.Ordinal);
+            Assert.Contains("PackageUnavailable", blocked.Message, StringComparison.Ordinal);
 
         using JsonDocument wire = JsonDocument.Parse(
             Interop.Package.PackageExports.SerializeForwarderResult(blocked));
@@ -178,7 +228,7 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static BrowserPlatformForwarderRowInfo XmlReaderForwarder(BrowserPlatformForwarderViewInfo view) =>
         Assert.Single(view.Forwarders,
-            row => row.Declaration.Identity.ToEscapedFullName() == "System.Xml.XmlReader");
+            row => row.EscapedDefinitionId == "System.Xml.XmlReader");
 
     static BrowserPlatformForwarderNavigationResult.Opened RequireForwarderView(
         BrowserPlatformForwarderNavigationResult result)

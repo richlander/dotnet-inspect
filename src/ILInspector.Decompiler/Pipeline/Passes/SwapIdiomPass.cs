@@ -68,7 +68,7 @@ public sealed class SwapIdiomPass : IIrPass
 
         // List q first so Roslyn lowers the tuple to the same one-temp swap.
         var tupleType = TypeRef.GenericInstance(
-            TypeRef.CoreLib("System", "ValueTuple"), [p.Type, q.Type]);
+            TypeRef.CoreLib("System", "ValueTuple`2"), [p.Type, q.Type]);
         var source = new TupleExpression(tupleType, [p.Load(), q.Load()]);
         var deconstruction = new DeconstructionAssignment(
             [q.Target(), p.Target()], source);

@@ -55,7 +55,7 @@ export function renderBrand(options: {
       `<button type="button" role="menuitem" tabindex="-1" data-product-destination="${destination}">${label}</button>`).join("")}
     <div class="product-navigation-separator" role="separator"></div>
     <button type="button" role="menuitem" tabindex="-1"
-      data-product-action="open-library">Open Library…</button>
+      data-product-action="open-library">Open file…</button>
   </nav>`;
 }
 
@@ -389,7 +389,6 @@ export function bindProductNavigation(
         || !item
         || !menu.contains(item)
         || !isProductDestination(destination)
-        || !isProductDestination(renderedDestination)
         || actions.currentDestination() !== renderedDestination) {
         return;
       }

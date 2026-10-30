@@ -1,7 +1,7 @@
 # Analysis body-use terminal-kernel lifecycle model
 
-This model pairs with the standalone Lean prototype in
-[`prototypes/body-use-terminal-folding`](../../../../prototypes/body-use-terminal-folding/).
+This model pairs with the
+[body-use terminal folding Lean model](../body-use-terminal-folding/).
 It evaluates whether TLA+ adds distinct evidence at the boundary between a
 selected fused terminal kernel and its runtime host.
 
@@ -23,7 +23,7 @@ that kernel once, advance every active terminal atomically for each physical
 operand, publish independently settled results, preserve them through later
 failure, and eventually publish every terminal?
 
-The model uses the same two pathological source shapes as the prototype:
+The model uses the same two pathological source shapes as the Lean model:
 
 - failure after `Exists` settles, where later `Count` and `Rows` fail; and
 - complete exhaustion, where `Count` and `Rows` retain all three admitted

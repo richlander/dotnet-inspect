@@ -28,8 +28,10 @@ Library occurrence in that population.
 
 When a package-grain question depends on library evidence, it uses aggregate
 scope. A library-grain or coordinate-sensitive question uses exact scope.
-A primary, namesake, or first-Library recommendation may help a host enter an
-exact-only operation, but it is not an implicit package-grain scope.
+A namesake or First Library request, owned by
+[Inspection Subject Navigation](inspection-subject-navigation.md#initial-aggregate-and-package),
+may help a host enter an exact-only operation. It selects one exact
+occurrence; it is not an implicit package-grain scope.
 
 This is a semantic classification, not a performance mode. Execution may be
 sparse, sequential, streamed, short-circuited where the result contract
@@ -65,6 +67,64 @@ independent evidence merely because both occur in the package. Package asset
 selection and role realization retain ownership of correspondence, role
 preference, implementation overlays, reference-only participants, and
 implementation-only participants.
+
+### Library probes
+
+A Library probe is how an exact-scope operation obtains its one Library
+occurrence: an exact asset-path request, the Namesake Library or
+[First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
+request, or the bare rule that a population with one Library selects it.
+Navigation owns the namesake and First Library matching rules, and the bare
+rule follows the
+[Library subject resolution](primary-subject-views.md#library-owner-library-inspection-documents-and-populations)
+item of Primary subject views; this owner fixes only the population they run
+over.
+
+The operation declares one asset role, and that role's owner issues exactly
+one role population before any probe runs, for example the selected compile
+projection issued by
+[compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim).
+The probe runs only inside that population. It never searches a second
+population, never merges roles, target slices, or RIDs, and never enumerates
+archive paths; members that the issuing owner already qualifies by RID, such as
+nested assets of a tool-Library population, remain ordinary members. When the
+role owner cannot issue one population, the request returns that owner's typed
+non-success before any probe runs. A probe's non-success names the population it
+searched, for example `No namesake library found in lib/net10.0/`, in addition
+to the ordered candidates and participant evidence that Navigation requires.
+
+Which roles a probe may declare beyond the compile projection and how a
+package with no compile Library but RID-specific implementation assets selects
+its role belong to Navigation. When that role is implementation,
+`PackageAssetSelector` can issue one owner-default runtime population by
+inferring a RID only when exactly one eligible
+`runtimes/<rid>/lib/<tfm>` RID occurs; it never merges RIDs or uses the broader
+platform-pack population. Direct framework-less `lib/*.dll` assets form the
+framework-agnostic `any` compile slice owned by
+[compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim).
+[#9833](https://github.com/richlander/dotnet-inspect/issues/9833) carries the
+remaining Navigation role adoption and archive-search retirement.
+
+A survey of the 500 most downloaded nuget.org packages at their latest stable
+versions, under #9833, informs them:
+
+- 341 carry `lib/` Libraries without `ref/` or `runtimes/<rid>/lib/`, 6 carry
+  `ref/` plus `lib/`, and 3 targeting packs carry only `ref/`.
+- 15 also carry `runtimes/<rid>/lib/`. Every RID framework also has a
+  same-framework `lib/` slice, and every RID asset except the
+  implementation-only `System.Diagnostics.EventLog.Messages.dll` has a
+  same-file `lib/` counterpart.
+- 4, all runtime packs, carry managed Libraries only under one
+  `runtimes/<rid>/lib/`.
+- 3 carry only framework-less root `lib/*.dll`: WebGrease, Antlr, and
+  EO.WebBrowser.
+- The rest carry no Library assembly: 53 with no DLLs or native assets, 48
+  only satellite resource assemblies, 10 only native assets, 8 only tool
+  payloads, 5 only analyzers, and 4 only `build/` or `tasks/` DLLs.
+
+Several namesakes in one population can therefore arise only from distinct
+assets in that population that carry the same assembly simple name, such as
+nested or renamed copies.
 
 ## Scope classification
 
@@ -212,8 +272,8 @@ keeps the legacy `DefaultAsset` convenience outside its aggregate projection
 claim.
 
 [Inspection Subject Navigation](inspection-subject-navigation.md) owns the
-target aggregate-first Package subject and exact or namesake narrowing for
-structural inspection. Its recommendation behavior is a consumer of this
+target aggregate-first Package subject and exact, namesake, or First Library
+narrowing for structural inspection. Its recommendation behavior is a consumer of this
 policy, not its authority.
 
 [Package Query assembly evaluation](package-query-assembly-evaluation.md)
@@ -261,9 +321,12 @@ gates; this policy document does not redefine those internals.
 The Package children document preserves the exact ordered compile population
 issued by Package selection without entering Package Library Scope. It retains
 every compile asset ID and path but does not inspect the occurrence or carry
-facts from its Type population. The CLI uses that document for its native Tree,
-structured JSON and envelope, row formats, row windows, projections, and
-scalar Count. Every Library row carries the exact asset path used by
+facts from its Type population. Without `--tfm all`, the CLI uses that
+document for its native Tree, structured JSON and envelope, row formats, row
+windows, projections, and scalar Count. Under `--tfm all`, every one of those
+outputs instead comes from the discovery projection that
+[All-frameworks package discovery](package-tfm-all-discovery.md) owns.
+Without `--tfm all`, every Library row carries the exact asset path used by
 `package P --library <path>`; every RID Package row carries its exact Package
 selector. Inspect Web carries the same document and uses its exact asset IDs
 for Library navigation. Tool-package
@@ -285,6 +348,37 @@ population Count. CLI and Browser/Wasm consume the same Package-owned planning
 strategy and identity-row provision; hosts do not infer one provision from
 another.
 
+CLI Package Library aggregate, exact, and Namesake requests adopt Library
+probes under #10240. PackageHouse receives one `LibraryPopulation`
+realization demand before payload transfer. It preserves compile precedence
+and evaluates the one-RID runtime implementation policy only for
+`NoCompileAssets` or `EmptyCompileGroup`; ranged planning and the retained
+realization receipt consume that same generation-bound decision. When that
+runtime policy returns `NoMatch`, a nuspec-authenticated `DotnetTool` or
+`DotnetToolRidPackage` may supply the one tool-Library population selected by
+the Package Info tool-measurement owner. Eligible nested managed runtime DLLs
+remain ordinary members of that selected tool slice. Analyzer, build, native,
+satellite, second-RID, and unrelated framework entries do not become probe
+candidates. The CLI consumes the retained role population and no longer uses
+`TfmSelector` to recover from `NoCompileAssets`. When that population is
+runtime-specific, exact and aggregate inspection retain its selected RID in
+Package provenance. After an exact probe selects one asset, the CLI opens that
+retained package-relative path directly rather than running another archive or
+target-framework selection.
+
+Direct framework-less `lib/*.dll` packages continue to use their
+framework-agnostic compile population, and a real framework-qualified slice
+still outranks it. Exact and Namesake `--tfm all` requests are rejected because
+one probe cannot merge framework projections. Aggregate `--tfm all` remains
+package discovery under
+[All-frameworks package discovery](package-tfm-all-discovery.md), rather than
+one Library Scope population. Package children continue to consume their
+separate settings-issued tool population; Library probes consume the
+declaration-authenticated measurement population and do not redefine tool
+layout or settings correspondence. Browser adoption remains separately owned.
+Issue #9833 records First Library, remaining host adoption, and final
+archive-search retirement.
+
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
 
@@ -303,6 +397,16 @@ settings status and case-insensitive entry-point correspondence, while
 `QueryPackage_ToolPayloadPublishesExactManagedLibraries` and
 `QueryPackage_DeclaredToolWithoutSettingsRemainsUnavailable` gate Browser
 adoption.
+
+CLI runtime-role adoption is gated by
+`LibraryCommand_RuntimeOnlyPackageSelectsHighestAndExplicitTarget`,
+`LibraryCommand_MarkerOnlyCompileGroupUsesRuntimePopulation`,
+`LibraryCommand_AnalyzerAndNativeDllsAreNotLibraries`, and
+`LibraryAddressCommand_PackageNonCompileSelectionsAreRejected`.
+`LibraryCommand_ToolPayloadExactPathStaysInToolPopulation` gates the boundary
+between a retained Package Library path and the declaration-authenticated tool
+population, including terminal non-success when the requested target cannot
+issue one tool slice.
 `ProducerCapabilityPlanSelectsBeforeEnrichment` gates selection before
 per-Library work, while
 `PackageTreeCapabilitiesPreserveHostsAndWorkReduction` gates equivalent

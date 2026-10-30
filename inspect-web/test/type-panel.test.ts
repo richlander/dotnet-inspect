@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import Prism from "prismjs";
+import "prismjs/components/prism-clike.js";
+import "prismjs/components/prism-csharp.js";
 import {
   bindTypePanel,
   createMemberSourcePartSelector,
@@ -148,6 +151,10 @@ function escapeHtml(value: unknown) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function prismHighlightCSharp(value: string) {
+  return Prism.highlight(value, Prism.languages.csharp!, "csharp");
 }
 
 function availableExactTypeInspection(
@@ -325,6 +332,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`type-access:${value}`),
     onTypeTraitSelect: value => calls.push(`type-trait:${value}`),
     onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
+    onTypeAnalysisOpen: () => calls.push("type-analysis"),
+    onTypeMembersOpen: () => calls.push("type-members"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
       calls.push(`list:${event.key}`);
@@ -398,6 +407,19 @@ test("type panel binds the qualified Type leverage retry", () => {
   retry.dispatch("click");
 
   assert.deepEqual(calls, ["type-leverage-retry"]);
+});
+
+test("type panel binds Type Overview navigation", () => {
+  const root = new FakeRoot();
+  const members = root.add("[data-type-members]", new FakeElement());
+  const typeAnalysis = root.add("[data-type-analysis]", new FakeElement());
+  const calls: string[] = [];
+
+  bindPanel(root, recordingActions(calls));
+  members.dispatch("click");
+  typeAnalysis.dispatch("click");
+
+  assert.deepEqual(calls, ["type-members", "type-analysis"]);
 });
 
 test("type panel bindings dispatch member filters and leverage retry", () => {
@@ -874,7 +896,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
   assert.match(html, /data-type-filter-disclosure open/);
 });
 
-test("the type nav renders dual accessible pole cues", () => {
+test("the type nav renders diff before one accessible salience cue", () => {
     const html = renderTypeNav({
       current: jsonSerializer,
       visible: [jsonSerializer, jsonDocument],
@@ -905,18 +927,13 @@ test("the type nav renders dual accessible pole cues", () => {
         if (item.id === jsonSerializer.id) {
           return [
             {
-              kind: "surface-sea-level",
-              description:
-                "8 incoming Type peers; 6 outgoing Type peers; surface sea-level Type",
+              kind: "diff",
+              description: "API differences",
             },
             {
               kind: "implementation-sea-level",
               description:
-                "12 incoming Type peers; 2 outgoing Type peers; implementation sea-level Type",
-            },
-            {
-              kind: "api-diff",
-              description: "API differences",
+                "8 incoming Type peers; 6 outgoing Type peers; surface sea-level Type; 12 incoming Type peers; 2 outgoing Type peers; implementation sea-level Type",
             },
           ];
         }
@@ -934,9 +951,9 @@ test("the type nav renders dual accessible pole cues", () => {
     assert.doesNotMatch(html, /data-type-leverage-filter/);
     assert.match(
       html,
-      /type-row selected surface-sea-level implementation-sea-level api-diff/,
+      /type-row selected diff implementation-sea-level/,
     );
-    assert.match(
+    assert.doesNotMatch(
       html,
       /class="item-achievement-glyph surface-sea-level"/,
     );
@@ -948,12 +965,12 @@ test("the type nav renders dual accessible pole cues", () => {
       html,
       /class="item-achievement-glyph implementation-sea-level"/,
     );
-    assert.match(html, /class="item-achievement-glyph api-diff"/);
+    assert.match(html, /class="item-achievement-glyph diff"/);
     assert.match(html, /class="item-achievement-rail"/);
     assert.doesNotMatch(html, /[▁▲]/);
     assert.match(
       html,
-      /role="img" aria-label="8 incoming Type peers; 6 outgoing Type peers/,
+      /role="img" aria-label="API differences; 8 incoming Type peers; 6 outgoing Type peers/,
     );
     assert.doesNotMatch(html, /class="sr-only"/);
     assert.match(html, /class="namespace-leverage-cue"/);
@@ -962,14 +979,14 @@ test("the type nav renders dual accessible pole cues", () => {
       /aria-label="8 external source Types; top-leverage namespace"/,
     );
     const seaRow = html.match(
-      /class="type-row selected surface-sea-level implementation-sea-level api-diff"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
+      /class="type-row selected diff implementation-sea-level"[^>]*data-type="System\.Text\.Json\.JsonSerializer"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
     const peakRow = html.match(
       /class="type-row  implementation-mountain-peak"[^>]*data-type="System\.Text\.Json\.JsonDocument"[\s\S]*?<\/button>/,
     )?.[0] ?? "";
-    assert.match(seaRow, /surface-sea-level/);
+    assert.match(seaRow, /surface sea-level Type/);
     assert.match(seaRow, /implementation-sea-level/);
-    assert.match(seaRow, /api-diff/);
+    assert.match(seaRow, /item-achievement-glyph diff"/);
     assert.doesNotMatch(seaRow, /implementation-mountain-peak/);
     assert.doesNotMatch(peakRow, /surface-sea-level/);
 });
@@ -1072,7 +1089,7 @@ test("the member nav marks the active group and its selected overload", () => {
     html,
     /data-nav-selection="overload:method:Serialize:1"/);
   assert.match(html, /id="member-filters"/);
-  assert.match(html, /←→ sections/);
+  assert.doesNotMatch(html, /pane-footer/);
 });
 
 test("the member nav renders one active declaration as an exact member", () => {
@@ -1462,6 +1479,7 @@ test("type source signature routes through the shared decompiler-taste-aware key
       "net9.0",
       "",
       "",
+      "",
       "System.Text.Json.dll",
       "T:System.Text.Json.JsonSerializer",
       "source",
@@ -1502,6 +1520,13 @@ test("platform type source identity includes pack and retained context", () => {
     typeSourceSignature(
       item,
       { ...packageContext, platformContextId: null },
+      [],
+      requestKey));
+  assert.notEqual(
+    signature,
+    typeSourceSignature(
+      item,
+      { ...packageContext, runtimeIdentifier: "win-x64" },
       [],
       requestKey));
 });
@@ -1576,6 +1601,7 @@ test("type metadata renders a loading state while the projection is in flight", 
     },
     memberCompositionHtml: "",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
     factRows,
   });
@@ -1583,13 +1609,11 @@ test("type metadata renders a loading state while the projection is in flight", 
   assert.match(html, /Projecting type metadata…/);
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…[\s\S]*?class="metadata-surface-footer"/);
-  assert.match(html, /System\.Text\.Json\.JsonSerializer/);
-  assert.match(html, /net9\.0 · System\.Text\.Json\.dll · System\.Text\.Json@9\.0\.0/);
+    /class="metadata-surface type-overview-surface"[\s\S]*?<h1 id="type-overview-title">Overview<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…/);
   assert.doesNotMatch(html, /class="type-heading"/);
 });
 
-test("type metadata renders composition, interfaces, and derived types once loaded", () => {
+test("type metadata renders composition, interfaces, and hierarchy once loaded", () => {
   const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
   const key = typeMetadataSignature(jsonSerializer, packageContext);
   const html = renderTypeMetadata({
@@ -1601,6 +1625,7 @@ test("type metadata renders composition, interfaces, and derived types once load
       typeMetadataError: null,
       typeMetadata: {
         exactTypeInspection: availableExactTypeInspection({
+          baseType: "Wrong.CompatibilityBase",
           interfaces: ["System.IDisposable"],
           members: [{
             name: "Serialize",
@@ -1608,27 +1633,178 @@ test("type metadata renders composition, interfaces, and derived types once load
             signature: null,
           }],
         }),
-        derivedTypes: ["System.Text.Json.MyJsonSerializer"],
+        typeSignaturePresentation: {
+          type: "System.Text.Json.JsonSerializer",
+          kind: "class",
+          modifiers: [],
+          accessibility: "public",
+          namespace: "System.Text.Json",
+          baseType: "Example.GenericBase<T>",
+          typeParameters: "T : class, new()",
+          interfaceCount: 1,
+          nestedTypeCount: 2,
+        },
+        hierarchy: {
+          form: "Derived Types",
+          status: "available",
+          count: 1,
+          rows: [{
+            type: "System.Text.Json.MyJsonSerializer",
+            assembly: "System.Text.Json",
+            packageId: "System.Text.Json",
+            version: "9.0.0",
+            framework: "net9.0",
+            asset: "lib/net9.0/System.Text.Json.dll",
+          }],
+          isComplete: true,
+          hasMore: false,
+          share: {
+            kind: "nonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "hierarchy",
+            reason: "Fixture hierarchy is not shareable.",
+          },
+          diagnostics: [],
+          producers: [],
+          coverage: [],
+        },
       },
     },
     memberCompositionHtml: `
       <div class="composition-filters">
         <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
       </div>`,
+    analysisSummaryHtml:
+      '<button type="button" data-type-analysis>5 called types</button>',
     escapeHtml,
-    relatedTypeChip: name => `<button data-graph-type="${escapeHtml(name)}">${escapeHtml(name)}</button>`,
+    highlightCSharp,
+    relatedTypeChip: (name, occurrence) =>
+      `<button data-graph-type="${escapeHtml(name)}"${
+        occurrence
+          ? ` data-graph-package="${escapeHtml(occurrence.packageId)}"`
+            + ` data-graph-version="${escapeHtml(occurrence.version)}"`
+            + ` data-graph-framework="${escapeHtml(occurrence.framework)}"`
+            + ` data-graph-asset="${escapeHtml(occurrence.asset)}"`
+          : ""
+      }>${escapeHtml(name)}</button>`,
     factRows,
   });
 
   assert.match(
     html,
     /class="metadata-surface-scroll"[\s\S]*?class="document-section metadata-shape-section"[\s\S]*?Type shape/);
+  assert.match(
+    html,
+    /<h1 id="type-overview-title">Overview<\/h1>[\s\S]*Type metadata[\s\S]*data-overview-badge="class"[\s\S]*data-overview-badge="public"/);
+  assert.match(html, /data-type-members>12 members<\/button>/);
+  assert.match(html, /data-type-analysis>5 called types<\/button>/);
+  assert.match(
+    html,
+    /data-type-members>12 members<\/button>[\s\S]*data-type-analysis>5 called types<\/button>[\s\S]*Type shape/);
+  assert.match(
+    html,
+    /Type shape[\s\S]*<dl><div><dt>Kind<\/dt><dd>class<\/dd>/);
+  assert.doesNotMatch(html, /<h1[^>]*>Metadata<\/h1>|fact-grid/);
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
-  assert.match(html, /Known derived types/);
+  assert.match(html, /Derived types/);
+  assert.match(html, /1 total/);
+  assert.match(html, /data-graph-package="System\.Text\.Json"/);
+  assert.match(html, /data-graph-version="9\.0\.0"/);
+  assert.match(html, /data-graph-framework="net9\.0"/);
+  assert.match(
+    html,
+    /data-graph-asset="lib\/net9\.0\/System\.Text\.Json\.dll"/);
   assert.match(html, /Members/);
   assert.match(html, /data-member-jump-kind="method"/);
+  assert.match(html, /Base type<\/dt><dd>Example\.GenericBase&lt;T&gt;/);
+  assert.match(html, /Type parameters<\/dt><dd>T : class, new\(\)/);
+  assert.match(html, /Nested types<\/dt><dd>2/);
+  assert.doesNotMatch(html, /Wrong\.CompatibilityBase/);
+  assert.doesNotMatch(html, /Custom attributes|custom-attribute-list/);
 });
+
+test("unavailable Signature does not substitute compatibility Base or hide relationships", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const html = renderTypeMetadata({
+    item: jsonSerializer,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+      typeMetadataLoading: false,
+      typeMetadataError: null,
+      typeMetadata: {
+        exactTypeInspection: availableExactTypeInspection({
+          baseType: "Wrong.CompatibilityBase",
+          interfaces: ["System.IDisposable"],
+        }),
+        typeSignaturePresentation: null,
+      },
+    },
+    memberCompositionHtml: "",
+    escapeHtml,
+    highlightCSharp,
+    relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
+    factRows,
+  });
+
+  assert.match(html, /Type signature<\/dt><dd>Unavailable/);
+  assert.match(html, /System\.IDisposable/);
+  assert.doesNotMatch(html, /Wrong\.CompatibilityBase/);
+});
+
+for (const count of [2, 40]) {
+  test(`type metadata renders ${count} attributes as ordered C# syntax rows`, () => {
+    const packageContext = {
+      id: "System.Text.Json",
+      version: "11.0.0-preview.7.26381.103",
+      activeFramework: "net11.0",
+    };
+    const attributes = [
+      'System.Obsolete("Types with embedded references are not supported in this version of your compiler.", true)',
+      'System.Diagnostics.DebuggerDisplay("{DebuggerDisplay,nq}")',
+      ...Array.from({ length: count - 2 }, (_, index) =>
+        `Example.Label("Attribute ${index} <value> & detail")`),
+    ];
+    const html = renderTypeMetadata({
+      item: jsonSerializer,
+      packageContext,
+      metadataState: {
+        typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+        typeMetadataLoading: false,
+        typeMetadataError: null,
+        typeMetadata: {
+          exactTypeInspection: availableExactTypeInspection({
+            fullName: "System.Text.Json.Utf8JsonReader",
+            attributes,
+          }),
+        },
+      },
+      memberCompositionHtml: "",
+      escapeHtml,
+      highlightCSharp: prismHighlightCSharp,
+      relatedTypeChip: escapeHtml,
+      factRows,
+    });
+
+    assert.match(html, new RegExp(`<h2>Custom attributes</h2><span>${count}</span>`));
+    const list = /<ul class="custom-attribute-list"[^>]*>([\s\S]*?)<\/ul>/.exec(html)?.[1];
+    assert.ok(list);
+    const rows = [...list.matchAll(/<li><code class="language-csharp">([\s\S]*?)<\/code><\/li>/g)];
+    assert.equal(rows.length, count);
+    rows.forEach((row, index) => {
+      const expected = prismHighlightCSharp(`[${attributes[index]}]`);
+      assert.equal(row[1], expected);
+    });
+    assert.match(rows[0]![1]!, /class="token string"/);
+    assert.match(rows[0]![1]!, /class="token boolean">true/);
+    assert.doesNotMatch(list, /attr-chip|<value>/);
+    if (count > 2) {
+      assert.match(list, /&lt;value> &amp; detail/);
+    }
+  });
+}
 
 test("type metadata keeps projection failures inside the full-area surface", () => {
   const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
@@ -1644,13 +1820,14 @@ test("type metadata keeps projection failures inside the full-area surface", () 
     },
     memberCompositionHtml: "",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
     factRows,
   });
 
   assert.match(
     html,
-    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable[\s\S]*?class="metadata-surface-footer"/);
+    /class="metadata-surface type-overview-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable/);
   assert.match(html, /data-type-graph-surface/);
 });
 
@@ -1675,6 +1852,7 @@ test("type metadata renders exact ambiguity instead of a legacy Type surface", (
     },
     memberCompositionHtml: "<div>legacy members</div>",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: escapeHtml,
     factRows,
   });
@@ -1709,6 +1887,7 @@ test("type metadata renders exact diagnostics for incomplete available content",
     },
     memberCompositionHtml: "",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: escapeHtml,
     factRows,
   });
@@ -1743,6 +1922,7 @@ test("type metadata renders nonfatal exact constraint diagnostics", () => {
     },
     memberCompositionHtml: "",
     escapeHtml,
+    highlightCSharp,
     relatedTypeChip: escapeHtml,
     factRows,
   });
@@ -1771,6 +1951,7 @@ for (const nodeCount of [0, 1, 2]) {
       },
       memberCompositionHtml: "",
       escapeHtml,
+      highlightCSharp,
       relatedTypeChip: escapeHtml,
       factRows,
     });
@@ -1780,11 +1961,11 @@ for (const nodeCount of [0, 1, 2]) {
       assert.match(html, /data-type-graph-surface>[\s\S]*?type-graph-diagram[\s\S]*?metadata-warning/);
     }
     assert.match(html, /Type shape/);
-    assert.match(html, /metadata-surface-footer/);
+    assert.doesNotMatch(html, /metadata-surface-footer/);
   });
 }
 
-test("type PDB source renders code above provenance once loaded", () => {
+test("type PDB source retains provenance above code once loaded", () => {
   const html = renderTypeSource({
     item: jsonSerializer,
     currentSignature: "sig",
@@ -1816,7 +1997,7 @@ test("type PDB source renders code above provenance once loaded", () => {
   assert.match(html, /SourceLink/);
   assert.match(
     html,
-    /<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>[\s\S]*<footer class="source-provenance">/);
+    /<aside class="source-provenance"[\s\S]*<pre[^>]*role="region"[^>]*aria-label="Source code"[\s\S]*class JsonSerializer \{\}[\s\S]*<\/pre>/);
   assert.doesNotMatch(html, /copy-type-source|open source/);
 });
 

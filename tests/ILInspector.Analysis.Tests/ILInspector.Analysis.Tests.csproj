@@ -17,7 +17,7 @@
 
   <ItemGroup>
     <PackageDownload Include="Jurassic" Version="[3.2.9]" />
-    <PackageDownload Include="MessagePack" Version="[2.5.192]" />
+    <PackageDownload Include="MessagePack" Version="[2.5.303]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
                      Version="[11.0.0-rc.1.26425.128]" />
     <PackageDownload Include="System.Text.Json" Version="[10.0.0]" />
@@ -28,7 +28,7 @@
     <None Include="$(NuGetPackageRoot)jurassic/3.2.9/lib/netstandard2.0/Jurassic.dll"
           Link="RealAssets/AllocationLifetime/Jurassic.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)messagepack/2.5.192/lib/net6.0/MessagePack.dll"
+    <None Include="$(NuGetPackageRoot)messagepack/2.5.303/lib/net6.0/MessagePack.dll"
           Link="RealAssets/ResourceTriage/MessagePack.dll"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.dll"
@@ -75,9 +75,11 @@
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CalleeResolutionFixtures\ILInspector.Analysis.CalleeResolutionFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.CallFunctionPointerScopeFixtures\ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.TopLevelAsyncFixtures\ILInspector.Analysis.TopLevelAsyncFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.IteratorFixtures\ILInspector.Analysis.IteratorFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.TopLevelClassicAsyncFixtures\ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.UnoptimizedAsyncFixtures\ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.StateMachineFixtures\ILInspector.Metadata.StateMachineFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\diff\DiffAsmFixtures.Target\DiffAsmFixtures.Target.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffAsmFixtures.Caller\DiffAsmFixtures.Caller.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />

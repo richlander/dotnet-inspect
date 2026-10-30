@@ -2,8 +2,11 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Planning;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Tests.Parsers;
 
@@ -19,6 +22,7 @@ public class TypeOptionsParserTests
         var packageOption = new Option<string?>("--package");
         var atOption = new Option<string?>("--at");
         var assemblyOption = new Option<string?>("--library");
+        var namesakeLibraryOption = new Option<bool>("--namesake-library");
         var platformOption = new Option<string?>("--platform");
         var projectOption = new Option<string?>("--project");
         var frameworkOption = new Option<string?>("--framework");
@@ -36,11 +40,27 @@ public class TypeOptionsParserTests
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = false };
         var memberOption = new Option<string[]>("-m") { AllowMultipleArgumentsPerToken = true };
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
+        var relationsOption = new Option<string[]>("--relations")
+        {
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var relationColorOption =
+            new Option<string[]>("--relation-color")
+            {
+                AllowMultipleArgumentsPerToken = false,
+            };
+        var requireRelationColorOption =
+            new Option<string[]>("--require-relation-color")
+            {
+                AllowMultipleArgumentsPerToken = false,
+            };
 
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
         typeCommand.Options.Add(assemblyOption);
+        typeCommand.Options.Add(namesakeLibraryOption);
         typeCommand.Options.Add(platformOption);
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
@@ -57,10 +77,15 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(repoOption);
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
+        typeCommand.Options.Add(relationsOption);
+        typeCommand.Options.Add(relationColorOption);
+        typeCommand.Options.Add(requireRelationColorOption);
         opts.AddSectionOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Details);
+        opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
+        typeCommand.Options.Add(opts.Mermaid);
         typeCommand.Options.Add(opts.Envelope);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
@@ -73,9 +98,183 @@ public class TypeOptionsParserTests
             allOption, typeFilterOption, compactOption, opts.NoHeaders,
             unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption,
-            suppressRuntimeTypeFallbackOption);
+            relationsOption, relationColorOption, requireRelationColorOption,
+            suppressRuntimeTypeFallbackOption, namesakeLibraryOption);
 
         return (root, opts, args);
+    }
+
+    [Theory]
+    [InlineData()]
+    [InlineData("--mermaid")]
+    [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1")]
+    [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1", "--json")]
+    [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1", "--markdown")]
+    [InlineData("--package", "Microsoft.Azure.SignalR@1.33.1", "--mermaid")]
+    [InlineData("--platform", "System.Text.Json", "--count")]
+    [InlineData("--platform", "System.Text.Json", "--mermaid")]
+    [InlineData("--platform", "System.Private.CoreLib", "--mermaid")]
+    [InlineData("--library", "/missing/no-type.dll")]
+    [InlineData("--project", "/missing/project.assets.json")]
+    [InlineData("System.Text.Json")]
+    [InlineData("System.Text.Json", "--mermaid")]
+    [InlineData("Serilog", "--mermaid")]
+    [InlineData("Microsoft.Azure.SignalR@1.33.1")]
+    [InlineData("Microsoft.Azure.SignalR@1.33.1", "--mermaid")]
+    [InlineData("/missing/no-type.nupkg")]
+    [InlineData("/missing/no-type.nupkg", "--mermaid")]
+    [InlineData("/missing/no-type.dll", "--mermaid")]
+    [InlineData("", "--package", "Microsoft.Azure.SignalR@1.33.1")]
+    [InlineData("-t", " ", "--package", "Microsoft.Azure.SignalR@1.33.1")]
+    public async Task MissingType_FailsWithoutInspectionOutput(
+        params string[] arguments)
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", .. arguments], root);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type name or pattern required.", error);
+        Assert.Contains("type <Type> --package <Package>", error);
+        Assert.Contains("library --package <Package>", error);
+        Assert.DoesNotContain("Warning:", error);
+    }
+
+    [Theory]
+    [InlineData("System.Math")]
+    [InlineData("System.Math*")]
+    [InlineData("-t", "System.Math*")]
+    public async Task ExplicitTypeSelector_StillProducesTypeOutput(
+        params string[] selector)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", .. selector, "--platform", "System.Private.CoreLib"], root);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Math", output);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("--help")]
+    [InlineData("-D")]
+    [InlineData("-D", "--schema")]
+    [InlineData("-Q")]
+    public async Task TargetFreeDiscovery_StillSucceeds(
+        params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] tokens = CommandLineBuilder.PreprocessArgs(
+            ["type", .. arguments], root);
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task NamesakeLibrary_PreservesPackageAndTypeSelector()
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out var args);
+        ParseResult parsed = command.Parse(
+        [
+            "Microsoft.Azure.SignalR.ServiceRouteBuilder",
+            "--package", "Microsoft.Azure.SignalR@1.33.1",
+            "--namesake-library",
+        ]);
+
+        Assert.Empty(parsed.Errors);
+        var result = Assert.IsType<TypeOptionsParser.Success>(
+            await TypeOptionsParser.ParseAsync(parsed, opts, args));
+        Assert.True(result.Options.NamesakeLibrary);
+        Assert.Equal(
+            "Microsoft.Azure.SignalR@1.33.1",
+            result.Options.PackagePath);
+        Assert.Equal(
+            "Microsoft.Azure.SignalR.ServiceRouteBuilder",
+            result.Options.TypeName);
+        Assert.Null(result.Options.AssemblyPath);
+        Assert.False(
+            Commands.TypeCommand.TryCreateSharedExactTypeRequest(
+                result.Options with { Tfm = "net8.0" },
+                out _));
+    }
+
+    [Theory]
+    [InlineData("--library", "Other.dll")]
+    [InlineData("--platform", "System.Runtime")]
+    [InlineData("--project", "project.assets.json")]
+    [InlineData("--workspace", "packet")]
+    public void NamesakeLibrary_RejectsCompetingSources(
+        string option,
+        string value)
+    {
+        Command command = ApiCommandDefinitions.CreateTypeCommand(
+            new SharedOptions(),
+            out _);
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--package", "Some.Package",
+            "--namesake-library",
+            option, value,
+        ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--namesake-library cannot be combined",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void NamesakeLibrary_RequiresExplicitPackage()
+    {
+        Command command = ApiCommandDefinitions.CreateTypeCommand(
+            new SharedOptions(),
+            out _);
+        ParseResult result = command.Parse(
+            ["Some.Package", "Some.Type", "--namesake-library"]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message ==
+                "--namesake-library requires --package.");
+    }
+
+    [Fact]
+    public void NamesakeLibrary_RejectsAllFrameworks()
+    {
+        Command command = ApiCommandDefinitions.CreateTypeCommand(
+            new SharedOptions(),
+            out _);
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--package", "Some.Package",
+            "--namesake-library",
+            "--tfm", "all",
+        ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--namesake-library requires one target framework",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -83,7 +282,7 @@ public class TypeOptionsParserTests
     {
         var options = await ParseSuccessAsync(
             "type", "Some.Type",
-            "--library", "x.dll",
+            "--library", "./x.dll",
             "--repo", @"C:\clone-a",
             "--repo", @"C:\clone-b");
 
@@ -119,12 +318,155 @@ public class TypeOptionsParserTests
     {
         var options = await ParseSuccessAsync(
             "type", "Some.Type",
-            "--library", "x.dll");
+            "--library", "./x.dll");
 
         Assert.Empty(options.SourceRepositories);
     }
 
+    [Fact]
+    public async Task AnnotatedRelationsOptions_LowerRepeatedAndCommaValues()
+    {
+        TypeOptions options = await ParseSuccessAsync(
+            "type", "Some.Type",
+            "--library", "./x.dll",
+            "--relations", "call,implements",
+            "--relations", "inherits",
+            "--relation-color", "color.one,color.two",
+            "--require-relation-color", "color.two",
+            "--json");
+
+        Assert.NotNull(options.AnnotatedRelationIds);
+        Assert.Equal(
+            ["call", "implements", "inherits"],
+            options.AnnotatedRelationIds);
+        Assert.Equal(
+            ["color.one", "color.two"],
+            options.AnnotatedRelationColorIds);
+        Assert.Equal(
+            ["color.two"],
+            options.AnnotatedRelationRequiredColorIds);
+    }
+
+    [Theory]
+    [InlineData(
+        "--relation-color",
+        "member.requires-dynamic-code",
+        "--relation-color requires --relations.")]
+    [InlineData(
+        "--relations",
+        "all,call",
+        "--relations all cannot be combined with family ids.")]
+    [InlineData(
+        "--relations",
+        "all",
+        "--relations requires --json or --envelope.")]
+    public void AnnotatedRelations_InvalidGesturesFailParsing(
+        string option,
+        string value,
+        string expected)
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+
+        ParseResult result = command.Parse(
+            ["Some.Type", "--library", "x.dll", option, value]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                expected,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnnotatedRelations_CountEnvelopeIsAccepted()
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--library", "x.dll",
+            "--relations", "all",
+            "--count",
+            "--envelope",
+        ]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void OrdinaryType_CountEnvelopeRemainsRejected()
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--library", "x.dll",
+            "--count",
+            "--envelope",
+        ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--envelope cannot be combined with --count.",
+                StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("--rows", "1")]
+    [InlineData("-n", "1")]
+    [InlineData("--head", null)]
+    [InlineData("--tail", null)]
+    [InlineData("--lines", null)]
+    [InlineData("--tail-lines", null)]
+    public void AnnotatedRelations_RowAndLineSelectionIsRejected(
+        string option,
+        string? value)
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+        string[] arguments = value is null
+            ?
+            [
+                "Some.Type",
+                "--library", "x.dll",
+                "--relations", "all",
+                "--json",
+                option,
+            ]
+            :
+            [
+                "Some.Type",
+                "--library", "x.dll",
+                "--relations", "all",
+                "--json",
+                option, value,
+            ];
+
+        ParseResult result = command.Parse(arguments);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--relations cannot be combined with row or line selection "
+                    + "gestures.",
+                StringComparison.Ordinal));
+    }
+
     static async Task<TypeOptions> ParseSuccessAsync(params string[] args)
+        => (await ParsePlanSuccessAsync(args)).Options;
+
+    static async Task<TypeOptionsParser.Success> ParsePlanSuccessAsync(
+        params string[] args)
     {
         ArgumentPreprocessor.Reset();
         var (root, opts, cmdArgs) = CreateTestCommand();
@@ -132,8 +474,124 @@ public class TypeOptionsParserTests
         Assert.Empty(parseResult.Errors);
 
         var result = await TypeOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
-        var success = Assert.IsType<TypeOptionsParser.Success>(result);
-        return success.Options;
+        if (result is TypeOptionsParser.VersionError versionError)
+        {
+            Assert.Fail(versionError.Error.Message);
+        }
+        return Assert.IsType<TypeOptionsParser.Success>(result);
+    }
+
+    [Theory]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Tree,
+        "type", "System.Math", "--platform", "System.Private.CoreLib")]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Tree,
+        "type", "System.Math", "--platform", "System.Private.CoreLib", "--tree")]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Mermaid,
+        "type", "System.Math", "--platform", "System.Private.CoreLib", "--mermaid")]
+    [InlineData(
+        TypeOverviewHierarchyPresentationFormat.Tree,
+        "type", "System.Math", "--platform", "System.Private.CoreLib", "--all")]
+    public async Task ExactTypePresentation_IsPlannedAfterParsing(
+        TypeOverviewHierarchyPresentationFormat expected,
+        params string[] args)
+    {
+        TypeOptionsParser.Success success =
+            await ParsePlanSuccessAsync(args);
+
+        var plan =
+            Assert.IsType<TypeCommandPlan.ExactTypeOverview>(
+                success.CommandPlan);
+        Assert.Equal(expected, plan.Format);
+    }
+
+    [Theory]
+    [InlineData("type", "System.*", "--platform", "System.Private.CoreLib")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "--json")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-S", "Methods")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-m", "M")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "-n", "2")]
+    [InlineData("type", "System.Math", "--platform", "System.Private.CoreLib", "--top", "0")]
+    public async Task CompetingTypeRequests_KeepStandardPlan(
+        params string[] args)
+    {
+        TypeOptionsParser.Success success =
+            await ParsePlanSuccessAsync(args);
+
+        Assert.IsType<TypeCommandPlan.Standard>(success.CommandPlan);
+    }
+
+    [Theory]
+    [InlineData("--top", "0")]
+    [InlineData("--tree")]
+    public async Task TargetFreeMermaidCompetingRequest_UsesStandaloneDiagnostic(
+        params string[] competingArgs)
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        ParseResult parseResult = root.Parse(
+            ["type", "--mermaid", .. competingArgs]);
+        Assert.Empty(parseResult.Errors);
+
+        TypeOptionsParser.TypeParseResult result =
+            await TypeOptionsParser.ParseAsync(
+                parseResult,
+                opts,
+                cmdArgs);
+
+        var error =
+            Assert.IsType<TypeOptionsParser.VersionError>(result);
+        Assert.Equal(
+            TypeCommandPlanner.StandaloneMermaidError,
+            error.Error.Message);
+    }
+
+    [Fact]
+    public void ImplicitPlatformPrefixFallback_IsNotAnExactTypePlan()
+    {
+        var options = new TypeOptions
+        {
+            TypeName = "DefinitelyNotAType9620",
+            PlatformAssembly = "System.Private.CoreLib",
+            TypeTargetUsedPlatformPrefixFallback = true,
+        };
+        ResolvedMemberInspectionPlan inspectionPlan =
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
+
+        var planned =
+            Assert.IsType<TypeCommandPlanningResult.Planned>(
+                TypeCommandPlanner.Plan(
+                    options,
+                    inspectionPlan));
+        Assert.IsType<TypeCommandPlan.Standard>(planned.Plan);
+    }
+
+    [Fact]
+    public void ImplicitPlatformPrefixFallback_MermaidIsRejected()
+    {
+        var options = new TypeOptions
+        {
+            TypeName = "DefinitelyNotAType9620",
+            PlatformAssembly = "System.Private.CoreLib",
+            MermaidExplicitlySet = true,
+            MermaidOutput = true,
+            TypeTargetUsedPlatformPrefixFallback = true,
+        };
+        ResolvedMemberInspectionPlan inspectionPlan =
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options);
+
+        var rejected =
+            Assert.IsType<TypeCommandPlanningResult.Rejected>(
+                TypeCommandPlanner.Plan(
+                    options,
+                    inspectionPlan));
+        Assert.Equal(
+            TypeCommandPlanner.ExactTypeMermaidError,
+            rejected.Error);
     }
 
     [Fact]

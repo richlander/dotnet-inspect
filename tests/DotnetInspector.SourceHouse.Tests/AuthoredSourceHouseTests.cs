@@ -29,6 +29,97 @@ public sealed partial class AuthoredSourceHouseTests
             maxRetainedTextCharacters: 8_000_000);
 
     [Fact]
+    public async Task AuthoredSession_SettlesRepeatedOperations()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        byte[] sourceBytes =
+            File.ReadAllBytes(asset.SourcePath);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                asset.PdbPath);
+        SourceHouseLimits limits = Limits();
+        await using SourceHouse.AuthoredSession session =
+            SourceHouse.OpenAuthoredSession(
+                library.Reference,
+                library.Reference.ApiAssembly,
+                limits);
+        int reads = 0;
+        ISourceHouseSourceCapability source =
+            Capability(
+                "session-source",
+                SourceHouseCapabilityCategory.Local,
+                (_, _, _) =>
+                {
+                    reads++;
+                    return ValueTask.FromResult<
+                        SourceHouseCapabilityOutcome>(
+                            new SourceHouseCapabilityOutcome
+                                .Available(
+                                    sourceBytes));
+                });
+
+        SourceHouseOutcome first =
+            await session.ExecuteAsync(
+                Request(
+                    library,
+                    asset.MemberTarget,
+                    [source],
+                    limits),
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+        SourceHouseOutcome second =
+            await session.ExecuteAsync(
+                Request(
+                    library,
+                    asset.MemberTarget,
+                    [source],
+                    limits),
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<SourceHouseOutcome.Available>(
+            first);
+        Assert.IsType<SourceHouseOutcome.Available>(
+            second);
+        Assert.Equal(2, reads);
+    }
+
+    [Fact]
+    public async Task AuthoredSession_RejectsDifferentLimitsInstance()
+    {
+        RealAsset asset = MemberSlicingAsset();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                asset.AssemblyPath,
+                asset.PdbPath);
+        SourceHouseLimits sessionLimits = Limits();
+        SourceHouseLimits requestLimits = Limits();
+        await using SourceHouse.AuthoredSession session =
+            SourceHouse.OpenAuthoredSession(
+                library.Reference,
+                library.Reference.ApiAssembly,
+                sessionLimits);
+        LibraryOperationLease operation =
+            library.IssueOperation();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => session.ExecuteAsync(
+                    Request(
+                        library,
+                        asset.MemberTarget,
+                        [],
+                        requestLimits),
+                    operation,
+                    TestContext.Current.CancellationToken)
+                .AsTask());
+
+        AssertOperationSettled(
+            operation,
+            library.Reference.ApiAssembly);
+    }
+
+    [Fact]
     public async Task
         RealRepositoryMember_OrdersCapabilitiesAndReturnsExactSlice()
     {
@@ -106,6 +197,9 @@ public sealed partial class AuthoredSourceHouseTests
         Assert.Equal(
             SourceHouseSourceUnitScope.ExactMember,
             memberMapping.Scope);
+        Assert.Equal(
+            SourceHouseMappingStrength.ExactSequencePoints,
+            memberMapping.Strength);
         Assert.Equal(
             asset.MemberTarget.MetadataToken,
             memberMapping.Observation.MetadataToken);
@@ -2024,6 +2118,24 @@ public sealed partial class AuthoredSourceHouseTests
                 assemblyPath,
                 typeof(MemberTextSlicer).FullName!,
                 nameof(MemberTextSlicer.ExtractMemberText)));
+    }
+
+    private static RealAsset AsyncMemberSlicingAsset()
+    {
+        string assemblyPath =
+            typeof(AuthoredSourceHouseTests).Assembly.Location;
+        return new(
+            assemblyPath,
+            Path.ChangeExtension(assemblyPath, ".pdb"),
+            Path.Combine(
+                RepositoryRoot(),
+                "tests",
+                "DotnetInspector.SourceHouse.Tests",
+                "AuthoredSourceHouseTests.MemberParts.cs"),
+            MemberTarget(
+                assemblyPath,
+                typeof(AuthoredSourceHouseTests).FullName!,
+                nameof(AsyncSourceMappingProbe)));
     }
 
     private static RealAsset EmbeddedSourceComparisonAsset()

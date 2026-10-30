@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -15,12 +16,15 @@ public sealed record SelectedContextExactTypeSource
     public SelectedContextExactTypeSource(
         TypeDeclarationLocatorSectionCoordinate library,
         ExactTypeDefinitionIdentity type,
+        WorkspaceDeclarationOccurrence occurrence,
         TypeDeclarationLocatorObservation observation)
     {
         Library = library
             ?? throw new ArgumentNullException(nameof(library));
         Type = type
             ?? throw new ArgumentNullException(nameof(type));
+        Occurrence = occurrence
+            ?? throw new ArgumentNullException(nameof(occurrence));
         Observation = observation
             ?? throw new ArgumentNullException(nameof(observation));
     }
@@ -29,12 +33,15 @@ public sealed record SelectedContextExactTypeSource
 
     public ExactTypeDefinitionIdentity Type { get; }
 
+    [JsonIgnore]
+    public WorkspaceDeclarationOccurrence Occurrence { get; }
+
     public TypeDeclarationLocatorObservation Observation { get; }
 }
 
 /// <summary>
-/// Live full Type inspection target valid while the paired Workspace
-/// realization operation remains admitted.
+/// Live full Type inspection target valid while the paired Workspace context
+/// remains admitted.
 /// </summary>
 public sealed record SelectedContextExactTypeLiveTarget(
     ApiSurface Surface,
@@ -43,8 +50,16 @@ public sealed record SelectedContextExactTypeLiveTarget(
     AssemblyBindingOccurrence Occurrence,
     IAssemblyBindingPolicy BindingPolicy,
     string? AssemblyPath,
+    string? PackageAssetPath,
     string? PackageExtractPath)
 {
+    /// <summary>
+    /// The listed adjacent Portable PDB retained with the defining package
+    /// implementation, or <see langword="null"/> when none was demanded or
+    /// listed.
+    /// </summary>
+    public ImmutableArray<byte>? ImplementationPortablePdb { get; init; }
+
     /// <summary>
     /// Opens the selected Package compile asset's XML companion within the
     /// caller-supplied expanded-byte limit, or returns <c>null</c> when absent.
@@ -153,6 +168,29 @@ public static class SelectedContextExactTypeInspectionOperation
             activation,
             request,
             facet,
+            scope,
+            liveTargetConsumer);
+    }
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteWithLiveTarget(
+            InspectionWorkspace workspace,
+            WorkspaceDeclarationContext context,
+            SelectedContextExactTypeInspectionRequest request,
+            Action<SelectedContextExactTypeLiveTarget> liveTargetConsumer,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(liveTargetConsumer);
+        return ExecuteCore(
+            workspace,
+            context,
+            request,
+            projectionLimits: null,
+            activation: null,
+            facet: null,
             scope,
             liveTargetConsumer);
     }
@@ -286,6 +324,85 @@ public static class SelectedContextExactTypeInspectionOperation
             liveTargetConsumer);
     }
 
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteWithLiveTarget(
+            InspectionWorkspace workspace,
+            WorkspaceDeclarationContext context,
+            AssemblyAcquisitionRegistration definingRegistration,
+            SelectedContextExactTypeInspectionRequest request,
+            Action<SelectedContextExactTypeLiveTarget> liveTargetConsumer,
+            ExactTypeInspectionRequest? shareRequest = null,
+            ApiSurfaceProjectionLimits? projectionLimits = null,
+            CompleteWorkspaceActivation? activation = null,
+            ViewFacetId? facet = null,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(definingRegistration);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(liveTargetConsumer);
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> result =
+            Complete(
+                ExactTypeInspectionQuery.ExecuteSelectedContext(
+                    workspace,
+                    context,
+                    request,
+                    definingRegistration,
+                    scope,
+                    projectionLimits),
+                context,
+                request,
+                activation,
+                facet,
+                liveTargetConsumer);
+        return shareRequest is null
+            ? result
+            : new(
+                result.Content,
+                ProjectSelectedContextShare(
+                    workspace,
+                    context,
+                    definingRegistration,
+                    shareRequest,
+                    result.Content.Inspection,
+                    projectionLimits),
+                result.Diagnostics);
+    }
+
+    static InspectionShare ProjectSelectedContextShare(
+        InspectionWorkspace workspace,
+        WorkspaceDeclarationContext context,
+        AssemblyAcquisitionRegistration definingRegistration,
+        ExactTypeInspectionRequest request,
+        ExactTypeInspectionResult selected,
+        ApiSurfaceProjectionLimits? projectionLimits)
+    {
+        ExactTypeInspectionExecution portable =
+            ExactTypeInspectionQuery.ExecutePackageContext(
+                workspace,
+                context,
+                request,
+                projectionLimits);
+        if (!selected.IsAvailable
+            || portable.Target is not { } target
+            || !ReferenceEquals(
+                target.Occurrence.Assembly.Registration,
+                definingRegistration))
+        {
+            return new InspectionShare.NonProjectable(
+                "exact-type/share",
+                "The portable package coordinate cannot restore the exact "
+                    + "selected Type occurrence.");
+        }
+
+        return ExactTypeInspectionOperation.ProjectShare(
+            request,
+            selected);
+    }
+
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         ExecuteCore(
             InspectionWorkspace workspace,
@@ -364,6 +481,7 @@ public static class SelectedContextExactTypeInspectionOperation
                         selected.Occurrence,
                         selected.BindingPolicy,
                         selected.AssemblyPath,
+                        selected.PackageAssetPath,
                         selected.PackageExtractPath)
                     {
                         OpenCompiledDocumentation =
@@ -381,6 +499,7 @@ public static class SelectedContextExactTypeInspectionOperation
                     TypeDeclarationLocatorSectionCoordinate.FromSource(
                         source.Member.Coordinate!),
                     ExactTypeDefinitionIdentity.From(source.Type),
+                    source.Member.Occurrence,
                     TypeDeclarationLocatorSection.ProjectObservation(
                         source.Member,
                         references))),

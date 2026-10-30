@@ -81,6 +81,20 @@ public sealed record ReturnToSenderTargetSourceCount(
     int DeclarationCandidateCount,
     int MaterializedRowCount);
 
+/// <summary>
+/// One capped selection and the work it performed. API evidence is
+/// materialized only for target Types in the first
+/// <paramref name="ApiEvidencePrefixLength"/> ranked candidates.
+/// </summary>
+public sealed record ReturnToSenderCappedTargetSelection(
+    IReadOnlyList<ReturnToSenderTarget> Targets,
+    int RankedBodyCount,
+    int EvaluatedBodyCount,
+    int DeclarationCandidateCount,
+    int ExcludedDeclarationCandidateCount,
+    int ApiEvidencePrefixLength,
+    int ApiTypesMaterialized);
+
 public sealed class ReturnToSenderTargetSourceSession : IDisposable
 {
     private readonly string _assemblyIdentity;
@@ -88,7 +102,8 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
     private readonly MetadataOperationContext _operation;
     private readonly MetadataDeclarationSession _declarations;
     private readonly CSharpLanguageProfile _languageProfile;
-    private readonly TargetApiEvidence _targetApiEvidence;
+    private readonly TargetApiEvidence _targetApiEvidence = new();
+    private bool _allTargetTypesMaterialized;
 
     public ReturnToSenderTargetSourceSession(
         string assemblyIdentity,
@@ -106,8 +121,6 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
         _languageProfile =
             languageProfile
             ?? new CSharpLanguageProfile(CSharpLanguageVersion.Preview);
-        _targetApiEvidence = assembly.InspectImage(
-            static pe => CreateTargetApiEvidence(pe));
     }
 
     public ReturnToSenderTargetDecision? Decide(
@@ -117,11 +130,18 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
     {
         TargetEvaluation evaluation =
             _assembly.InspectImage(
-                pe => Evaluate(
-                    pe.GetMetadataReader(),
-                    candidate,
-                    typeFilter,
-                    materializeDecision: true));
+                pe =>
+                {
+                    // Callers decide a population one candidate at a time,
+                    // so decode every target Type in one walk on first use
+                    // rather than repeating the extractor's setup per Type.
+                    MaterializeTargetTypes(pe, typeFilter: null);
+                    return Evaluate(
+                        pe.GetMetadataReader(),
+                        candidate,
+                        typeFilter,
+                        materializeDecision: true);
+                });
         declarationCandidate = evaluation.DeclarationCandidate;
         return evaluation.Decision;
     }
@@ -130,8 +150,35 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
         string? typeFilter = null) =>
         _assembly.InspectImage(
             pe => Count(
-                pe.GetMetadataReader(),
+                pe,
                 typeFilter));
+
+    public ReturnToSenderCappedTargetSelection SelectCappedTargets(
+        MetadataSource metadata,
+        int cap,
+        string? typeFilter = null)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cap);
+
+        IReadOnlyList<IrImporter.StableRankedSampleCandidate>
+            ranked =
+                IrImporter.GetStableRankedSampleCandidates(
+                    metadata,
+                    typeFilter is null
+                        ? null
+                        : candidate =>
+                            candidate.TypeName.Contains(
+                                typeFilter,
+                                StringComparison.Ordinal),
+                    includeGenericArity: true);
+        return _assembly.InspectImage(
+            pe => SelectCappedTargets(
+                pe,
+                ranked,
+                cap,
+                typeFilter));
+    }
 
     public void Dispose()
     {
@@ -140,9 +187,12 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
     }
 
     private ReturnToSenderTargetSourceCount Count(
-        MetadataReader reader,
+        PEReader pe,
         string? typeFilter)
     {
+        MetadataReader reader = pe.GetMetadataReader();
+        MaterializeTargetTypes(pe, typeFilter);
+
         int scannedBodyCount = 0;
         int declarationCandidateCount = 0;
         int eligibleCount = 0;
@@ -191,25 +241,98 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
             MaterializedRowCount: 0);
     }
 
+    private ReturnToSenderCappedTargetSelection SelectCappedTargets(
+        PEReader pe,
+        IReadOnlyList<IrImporter.StableRankedSampleCandidate>
+            ranked,
+        int cap,
+        string? typeFilter)
+    {
+        MetadataReader reader = pe.GetMetadataReader();
+
+        // API evidence is materialized for the ranked prefix the loop can
+        // reach: first the cap, then a doubling prefix only when the loop
+        // runs past it. Types the target filter rejects are never decoded.
+        int preparedPrefix = 0;
+        int typesMaterialized = 0;
+        void Prepare(int end)
+        {
+            var types = new List<TypeDefinitionHandle>();
+            for (int i = preparedPrefix; i < end; i++)
+            {
+                IrImporter.StableSampleCandidate candidate =
+                    ranked[i].Candidate;
+                if (IsTargetType(reader, candidate, typeFilter))
+                    types.Add(candidate.TypeDefHandle);
+            }
+            typesMaterialized += _targetApiEvidence.Materialize(pe, types);
+            preparedPrefix = end;
+        }
+        Prepare(Math.Min(cap, ranked.Count));
+
+        var selected =
+            new List<(int Sequence, ReturnToSenderTarget Target)>(
+                Math.Min(cap, ranked.Count));
+        int evaluatedBodyCount = 0;
+        int declarationCandidateCount = 0;
+        int excludedDeclarationCandidateCount = 0;
+        for (int rank = 0; rank < ranked.Count; rank++)
+        {
+            if (rank == preparedPrefix)
+            {
+                Prepare(Math.Min(
+                    ranked.Count,
+                    Math.Max(preparedPrefix * 2, preparedPrefix + 1)));
+            }
+            IrImporter.StableRankedSampleCandidate rankedCandidate =
+                ranked[rank];
+            evaluatedBodyCount++;
+            TargetEvaluation evaluation =
+                Evaluate(
+                    reader,
+                    rankedCandidate.Candidate,
+                    typeFilter,
+                    materializeDecision: true);
+            if (evaluation.DeclarationCandidate)
+                declarationCandidateCount++;
+            if (!evaluation.Eligible)
+            {
+                if (evaluation.DeclarationCandidate)
+                    excludedDeclarationCandidateCount++;
+                continue;
+            }
+
+            ReturnToSenderTarget target =
+                evaluation.Decision?.Target
+                ?? throw new InvalidOperationException(
+                    "An eligible ranked RTS candidate lost its target.");
+            selected.Add(
+                (rankedCandidate.MetadataSequence, target));
+            if (selected.Count == cap)
+                break;
+        }
+
+        return new(
+            [
+                .. selected
+                    .OrderBy(item => item.Sequence)
+                    .Select(item => item.Target),
+            ],
+            ranked.Count,
+            evaluatedBodyCount,
+            declarationCandidateCount,
+            excludedDeclarationCandidateCount,
+            preparedPrefix,
+            typesMaterialized);
+    }
+
     private TargetEvaluation Evaluate(
         MetadataReader reader,
         IrImporter.StableSampleCandidate candidate,
         string? typeFilter,
         bool materializeDecision)
     {
-        TypeDefinition typeDef =
-            reader.GetTypeDefinition(candidate.TypeDefHandle);
-        if (!typeDef.GetDeclaringType().IsNil
-            || ShapeOf(reader, typeDef) is not (
-                TypeKind.Class or TypeKind.Struct)
-            || (typeFilter is not null
-                && !candidate.TypeName.Contains(
-                    typeFilter,
-                    StringComparison.Ordinal))
-            || IsGeneratedType(
-                reader,
-                typeDef,
-                candidate.TypeName))
+        if (!IsTargetType(reader, candidate, typeFilter))
         {
             return default;
         }
@@ -495,70 +618,58 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
                 type),
             method);
 
-    private static TargetApiEvidence CreateTargetApiEvidence(
-        PEReader pe)
+    private void MaterializeTargetTypes(
+        PEReader pe,
+        string? typeFilter)
     {
-        var index =
-            new Dictionary<int, (ApiType Type, ApiMember Member)>();
-        var accessorTokens = new HashSet<int>();
-        foreach (ApiType type in ApiSurfaceExtractor.Extract(
-            pe,
-            includeAll: true,
-            includeCompilerGenerated: true).Types)
+        if (_allTargetTypesMaterialized)
+            return;
+
+        MetadataReader reader = pe.GetMetadataReader();
+        var targetTypes = new List<TypeDefinitionHandle>();
+        foreach (TypeDefinitionHandle typeHandle
+            in reader.TypeDefinitions)
         {
-            foreach (ApiMember member in type.Members)
+            TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            if (IsTargetType(
+                    reader,
+                    typeHandle,
+                    reader.GetFullTypeName(type),
+                    typeFilter))
             {
-                if (member.MetadataToken is { } token)
-                {
-                    if (member.Kind == "extension-method")
-                        index.TryAdd(token, (type, member));
-                    else
-                        index[token] = (type, member);
-                }
-                if (member.Kind == "property")
-                {
-                    if (member.GetterToken is { } getterToken)
-                    {
-                        accessorTokens.Add(getterToken);
-                        if (!member.Name.Contains(
-                                '.',
-                                StringComparison.Ordinal))
-                        {
-                            index.TryAdd(
-                                getterToken,
-                                (type, member));
-                        }
-                    }
-                    if (member.SetterToken is { } setterToken)
-                    {
-                        accessorTokens.Add(setterToken);
-                        if (!member.Name.Contains(
-                                '.',
-                                StringComparison.Ordinal))
-                        {
-                            index.TryAdd(
-                                setterToken,
-                                (type, member));
-                        }
-                    }
-                }
-                if (member.Kind == "event")
-                {
-                    if (member.AdderToken is { } adderToken)
-                    {
-                        accessorTokens.Add(adderToken);
-                        index.TryAdd(adderToken, (type, member));
-                    }
-                    if (member.RemoverToken is { } removerToken)
-                    {
-                        accessorTokens.Add(removerToken);
-                        index.TryAdd(removerToken, (type, member));
-                    }
-                }
+                targetTypes.Add(typeHandle);
             }
         }
+        _targetApiEvidence.Materialize(pe, targetTypes);
+        _allTargetTypesMaterialized = typeFilter is null;
+    }
 
-        return new(index, accessorTokens);
+    private static bool IsTargetType(
+        MetadataReader reader,
+        IrImporter.StableSampleCandidate candidate,
+        string? typeFilter) =>
+        IsTargetType(
+            reader,
+            candidate.TypeDefHandle,
+            candidate.TypeName,
+            typeFilter);
+
+    // The Types whose methods Evaluate can decide; every other candidate is
+    // rejected before it consults API evidence.
+    private static bool IsTargetType(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string typeName,
+        string? typeFilter)
+    {
+        TypeDefinition typeDef = reader.GetTypeDefinition(typeHandle);
+        return typeDef.GetDeclaringType().IsNil
+            && ShapeOf(reader, typeDef) is TypeKind.Class or TypeKind.Struct
+            && (typeFilter is null
+                || typeName.Contains(
+                    typeFilter,
+                    StringComparison.Ordinal))
+            && !IsGeneratedType(reader, typeDef, typeName);
     }
 
     private static bool IsGeneratedType(
@@ -685,9 +796,98 @@ public sealed class ReturnToSenderTargetSourceSession : IDisposable
         Delegate,
     }
 
-    private sealed record TargetApiEvidence(
-        IReadOnlyDictionary<
-            int,
-            (ApiType Type, ApiMember Member)> Index,
-        IReadOnlySet<int> AccessorTokens);
+    /// <summary>
+    /// API declarations for the target Types materialized so far. A Type's
+    /// members index by their own token and by their accessor tokens.
+    /// </summary>
+    private sealed class TargetApiEvidence
+    {
+        private readonly Dictionary<int, (ApiType Type, ApiMember Member)>
+            index = [];
+        private readonly HashSet<int> accessorTokens = [];
+        private readonly HashSet<TypeDefinitionHandle> materialized = [];
+
+        public IReadOnlyDictionary<int, (ApiType Type, ApiMember Member)>
+            Index => index;
+
+        public IReadOnlySet<int> AccessorTokens => accessorTokens;
+
+        /// <summary>
+        /// Decodes the not-yet-materialized Types among
+        /// <paramref name="types"/> and returns how many it decoded.
+        /// </summary>
+        public int Materialize(
+            PEReader pe,
+            IEnumerable<TypeDefinitionHandle> types)
+        {
+            var pending = new HashSet<TypeDefinitionHandle>();
+            foreach (TypeDefinitionHandle handle in types)
+            {
+                if (!materialized.Contains(handle))
+                    pending.Add(handle);
+            }
+            if (pending.Count == 0)
+                return 0;
+
+            foreach (ApiType type in ApiSurfaceExtractor.ExtractDeclarations(
+                pe,
+                ApiSurfaceExtractionScope.IncludeAll,
+                pending.Contains,
+                includeCompilerGenerated: true).Types)
+            {
+                foreach (ApiMember member in type.Members)
+                {
+                    if (member.MetadataToken is { } token)
+                    {
+                        if (member.Kind == "extension-method")
+                            index.TryAdd(token, (type, member));
+                        else
+                            index[token] = (type, member);
+                    }
+                    if (member.Kind == "property")
+                    {
+                        if (member.GetterToken is { } getterToken)
+                        {
+                            accessorTokens.Add(getterToken);
+                            if (!member.Name.Contains(
+                                    '.',
+                                    StringComparison.Ordinal))
+                            {
+                                index.TryAdd(
+                                    getterToken,
+                                    (type, member));
+                            }
+                        }
+                        if (member.SetterToken is { } setterToken)
+                        {
+                            accessorTokens.Add(setterToken);
+                            if (!member.Name.Contains(
+                                    '.',
+                                    StringComparison.Ordinal))
+                            {
+                                index.TryAdd(
+                                    setterToken,
+                                    (type, member));
+                            }
+                        }
+                    }
+                    if (member.Kind == "event")
+                    {
+                        if (member.AdderToken is { } adderToken)
+                        {
+                            accessorTokens.Add(adderToken);
+                            index.TryAdd(adderToken, (type, member));
+                        }
+                        if (member.RemoverToken is { } removerToken)
+                        {
+                            accessorTokens.Add(removerToken);
+                            index.TryAdd(removerToken, (type, member));
+                        }
+                    }
+                }
+            }
+            materialized.UnionWith(pending);
+            return pending.Count;
+        }
+    }
 }

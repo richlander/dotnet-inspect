@@ -468,11 +468,19 @@ public sealed class StructuralSignatureBuilder
     {
     }
 
+    /// <param name="assemblyScope">
+    /// Optional canonical spelling for assembly-reference scopes. When it returns a
+    /// token for a referenced assembly's simple name, keys encode that token in place
+    /// of the reference's full identity (name, version, culture, key, flags), so two
+    /// readers whose references differ only in ways the caller already treats as
+    /// equivalent produce equal keys. Null keeps every identity exact.
+    /// </param>
     internal StructuralSignatureBuilder(
         MetadataReader reader,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
         StructuralSignatureWorkBudget workBudget,
-        bool requireUniqueLocalDefinitions = false)
+        bool requireUniqueLocalDefinitions = false,
+        Func<string, string?>? assemblyScope = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(workBudget);
@@ -481,7 +489,8 @@ public sealed class StructuralSignatureBuilder
         _workBudget = workBudget;
         _provider = new StructuralSignatureTypeProvider(
             workBudget,
-            requireUniqueLocalDefinitions);
+            requireUniqueLocalDefinitions,
+            assemblyScope);
     }
 
     /// <summary>Builds a method key, optionally substituting its name.</summary>
@@ -771,7 +780,7 @@ public sealed class StructuralSignatureBuilder
                 new PartPrefixStructuralSignatureType(
                     'r',
                     new EncodedStructuralSignatureType(
-                        StructuralTypeName.OfReference(
+                        _provider.ReferenceName(
                             _reader,
                             (TypeReferenceHandle)handle))),
             HandleKind.TypeSpecification =>
@@ -965,18 +974,28 @@ static class StructuralSignatureKey
 
     internal static string ReferenceScope(
         MetadataReader reader,
-        EntityHandle scope)
+        EntityHandle scope,
+        Func<string, string?>? assemblyScope = null)
     {
         var builder = new StringBuilder();
         switch (scope.Kind)
         {
             case HandleKind.AssemblyReference:
                 var assembly = reader.GetAssemblyReference((AssemblyReferenceHandle)scope);
+                string assemblyName = MetadataSafetyPolicy.ReadStructuralString(
+                    reader,
+                    assembly.Name);
+                // A canonical token is tagged 'c', never 'a', so it cannot collide
+                // with any exact assembly identity encoding.
+                if (assemblyScope?.Invoke(assemblyName) is { } canonical)
+                {
+                    builder.Append('c');
+                    AppendPart(builder, canonical);
+                    break;
+                }
                 AppendAssembly(
                     builder,
-                    MetadataSafetyPolicy.ReadStructuralString(
-                        reader,
-                        assembly.Name),
+                    assemblyName,
                     assembly.Version,
                     assembly.Culture.IsNil
                         ? ""
@@ -1341,6 +1360,7 @@ sealed class StructuralSignatureTypeProvider
 {
     readonly StructuralSignatureWorkBudget _workBudget;
     readonly bool _requireUniqueLocalDefinitions;
+    readonly Func<string, string?>? _assemblyScope;
     readonly Dictionary<EntityHandle, string> _constraintTypes = [];
     readonly Dictionary<BlobHandle, string> _constraintTypeSpecifications = [];
     readonly Dictionary<BlobHandle, StructuralSignatureType> _typeSpecifications = [];
@@ -1349,11 +1369,18 @@ sealed class StructuralSignatureTypeProvider
 
     internal StructuralSignatureTypeProvider(
         StructuralSignatureWorkBudget workBudget,
-        bool requireUniqueLocalDefinitions = false)
+        bool requireUniqueLocalDefinitions = false,
+        Func<string, string?>? assemblyScope = null)
     {
         _workBudget = workBudget;
         _requireUniqueLocalDefinitions = requireUniqueLocalDefinitions;
+        _assemblyScope = assemblyScope;
     }
+
+    internal string ReferenceName(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+        => StructuralTypeName.OfReference(reader, handle, _assemblyScope);
 
     public StructuralSignatureType GetPrimitiveType(
         PrimitiveTypeCode typeCode)
@@ -1380,7 +1407,7 @@ sealed class StructuralSignatureTypeProvider
             reader,
             'r',
             rawTypeKind,
-            StructuralTypeName.OfReference(reader, handle));
+            ReferenceName(reader, handle));
 
     public StructuralSignatureType GetTypeFromSpecification(
         MetadataReader reader,
@@ -1435,7 +1462,7 @@ sealed class StructuralSignatureTypeProvider
                 new PartPrefixStructuralSignatureType(
                     'r',
                     NamedType(
-                        StructuralTypeName.OfReference(
+                        ReferenceName(
                             reader,
                             (TypeReferenceHandle)handle))),
             HandleKind.TypeSpecification =>
@@ -1680,7 +1707,8 @@ static class StructuralTypeName
 
     internal static string OfReference(
         MetadataReader reader,
-        TypeReferenceHandle handle)
+        TypeReferenceHandle handle,
+        Func<string, string?>? assemblyScope = null)
     {
         Span<TypeReferenceHandle> chain =
             stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -1700,7 +1728,7 @@ static class StructuralTypeName
         var builder = new StringBuilder("R");
         StructuralSignatureKey.AppendPart(
             builder,
-            StructuralSignatureKey.ReferenceScope(reader, terminal));
+            StructuralSignatureKey.ReferenceScope(reader, terminal, assemblyScope));
         var outer = reader.GetTypeReference(chain[0]);
         StructuralSignatureKey.AppendPart(
             builder,

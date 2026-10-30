@@ -62,6 +62,23 @@ const longFrameworkSurface: BrowserPackageSurface = {
 const longFrameworkRoot =
   `/?package=System.Text.Json&version=10.0.0&framework=${longFramework}#pkg`;
 
+test("first Library load does not report the deferred package surface as unavailable", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "System.Text.Json", version: "10.0.0", framework: "net10.0" }]),
+  ));
+  await installPackageLoadingFacades(page);
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .not.toHaveClass(/engine-pending/);
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="System.Text.Json"]').click();
+
+  await expect(page.locator(".library-overview-surface")).toBeVisible();
+  await expect(page.locator(".library-subject-list"))
+    .not.toContainText("unavailable");
+});
+
 function packageCoordinateControl(
   page: Page,
   change: typeof packageCoordinateChanges[number],
@@ -69,7 +86,7 @@ function packageCoordinateControl(
 ) {
   return change.name === "TFM"
     ? page.locator(`[data-package-framework="${value}"]`)
-    : page.locator(change.selector);
+    : page.locator(`[data-package-version="${value}"]`);
 }
 
 async function expectPackageCoordinateSelection(
@@ -81,7 +98,7 @@ async function expectPackageCoordinateSelection(
   if (change.name === "TFM")
     await expect(control).toHaveAttribute("aria-current", "page");
   else
-    await expect(control).toHaveValue(value);
+    await expect(control).toHaveAttribute("aria-current", "page");
 }
 
 async function selectPackageCoordinate(
@@ -92,16 +109,30 @@ async function selectPackageCoordinate(
   const control = packageCoordinateControl(page, change, value);
   const navigationToggle = page.getByRole(
     "button",
-    { name: "Frameworks", exact: true });
+    { name: "Frameworks & versions", exact: true });
   await expect.poll(async () =>
     await control.isVisible() || await navigationToggle.isVisible()).toBe(true);
   if (!await control.isVisible()) await navigationToggle.click();
   await control.focus();
-  if (change.name === "TFM")
-    await control.click();
-  else
-    await control.selectOption(value);
+  await control.click();
   return control;
+}
+
+async function openPackageChildLibrary(page: Page, assetId: string) {
+  await expect(async () => {
+    const row = page.locator(`[data-package-child-library="${assetId}"]`);
+    await expect(row).toBeVisible({ timeout: 1_000 });
+    await row.evaluate(element => {
+      if (!(element instanceof HTMLElement))
+        throw new Error("Package child Library row is not HTML");
+      element.click();
+    });
+    await expect(subjectTab(page, "library")).toHaveAttribute(
+      "aria-selected",
+      "true",
+      { timeout: 1_000 },
+    );
+  }).toPass();
 }
 
 const packageCoordinateViews = [{
@@ -110,7 +141,7 @@ const packageCoordinateViews = [{
   surface: ".package-overview-surface",
 }, {
   id: "dependencies",
-  name: "Dependencies",
+  name: "References",
   surface: ".package-dependencies-surface",
 }, {
   id: "vulnerabilities",
@@ -126,31 +157,28 @@ async function expectPackageCoordinateView(
   width: number,
 ) {
   await expect(page.locator(view.surface)).toBeVisible();
-  await expect(page.locator("#package-version")).toHaveCount(1);
-  if (width === 390 && view.id !== "dependencies")
-    await expect(page.locator("#package-version")).toBeHidden();
+  await expect(page.locator(".package-version-nav")).toHaveCount(1);
+  if (width === 390)
+    await expect(page.locator(".package-version-nav")).toBeHidden();
   else
-    await expect(page.locator("#package-version")).toBeVisible();
+    await expect(page.locator(".package-version-nav")).toBeVisible();
   await expect(page.locator(view.surface).locator("#package-version"))
-    .toHaveCount(view.id === "dependencies" ? 1 : 0);
+    .toHaveCount(0);
   await expect(page.locator(view.surface).locator("#framework"))
     .toHaveCount(0);
   if (view.id === "dependencies") {
-    await expect(page.locator("[data-package-dependencies-status]")).toHaveText("0 packages");
+    await expect(page.locator("[data-package-dependencies-status]")).toHaveText("0 packages · 0 platforms");
     await expect(page.locator("html")).toHaveAttribute(
       "data-package-dependencies-request",
       JSON.stringify(["System.Text.Json", version, framework]));
-    await expect(page.locator(".package-dependencies-surface footer"))
-      .toContainText(`System.Text.Json@${version}`);
-    await expect(page.locator(".package-dependencies-surface footer")).toContainText(framework);
+    await expect(page.locator(".package-dependencies-surface footer")).toHaveCount(0);
   } else if (view.id === "vulnerabilities") {
     await expect(page.locator("html")).toHaveAttribute(
       "data-package-vulnerabilities-request",
       JSON.stringify(["System.Text.Json", version]));
     await expect(page.locator(".package-vulnerabilities-surface"))
       .toContainText("No matching reviewed advisories");
-    await expect(page.locator(".package-vulnerabilities-footer"))
-      .toContainText(`System.Text.Json@${version}`);
+    await expect(page.locator(".package-vulnerabilities-footer")).toHaveCount(0);
   }
 }
 
@@ -252,11 +280,7 @@ test("Package Overview opens an owner-issued tool Library child", async ({
   await expect(row).toContainText("Tool.Payload");
   await expect(row).toContainText("entry point");
   await expect(row).not.toContainText("Type declarations");
-  await row.click();
-
-  await expect(subjectTab(page, "library")).toHaveAttribute(
-    "aria-selected",
-    "true");
+  await openPackageChildLibrary(page, asset);
   await expect(page.getByText(/Tool\.Payload/).first()).toBeVisible();
 
   await selectLibrary(page, "all");
@@ -353,9 +377,7 @@ test("lazy Library acquisition does not restore the removed Package overview row
   });
   await page.goto(frameworkRoot);
 
-  await page.locator(`[data-package-child-library="${core.id}"]`).click();
-  await expect(subjectTab(page, "library")).toHaveAttribute(
-    "aria-selected", "true");
+  await openPackageChildLibrary(page, core.id);
   await chooseSubject(page, "package", "Package");
 
   const overview = page.locator(".package-overview-surface");
@@ -406,6 +428,41 @@ test("Package Overview opens an owner-issued RID Package child", async ({
     JSON.stringify(["Tool.Pointer.linux-x64", "10.0.0", ""]));
   await expect(page.locator(".package-overview-surface h1"))
     .toHaveText("Tool.Pointer.linux-x64");
+});
+
+test("selecting an empty framework retires a retained Library and offers only Overview", async ({ page }) => {
+  await installFacades(page, frameworkSurface, [{
+    ...frameworkSurface,
+    activeFramework: "net9.0",
+    defaultAssemblyId: null,
+    compileLibrary: {
+      status: "EmptyCompileGroup", targetFramework: "net9.0", message: null,
+    },
+    assemblies: [], types: [], accessibility: [], totalMembers: 0,
+  }]);
+  await page.goto(frameworkRoot);
+  await selectLibrary(page, other.id);
+  await chooseSubject(page, "package", "Package");
+  await selectPackageCoordinate(page, packageCoordinateChanges[0]!, "net9.0");
+
+  const expectEmptyOverview = async () => {
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+    await expect(page.locator("[data-inspector-tab][data-package-lens]"))
+      .toHaveCount(1);
+    await expect(page.locator('[data-inspector-tab][data-package-lens="overview"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".query-notice-text"))
+      .toContainText("selected compile group contains no Libraries");
+    await expect(page.locator(".query-notice-text"))
+      .not.toContainText("not uniquely available");
+  };
+  await expectEmptyOverview();
+  await page.reload();
+  await expectEmptyOverview();
+  await selectPackageCoordinate(page, packageCoordinateChanges[0]!, "net10.0");
+  await expect(page.locator('[data-inspector-tab][data-package-lens="compare"]'))
+    .toBeVisible();
 });
 
 for (const change of packageCoordinateChanges) {
@@ -510,12 +567,13 @@ for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await installPackageLoadingFacades(page);
     await page.goto(frameworkRoot);
+    if (width === 390) {
+      await page.getByRole("button", { name: "Frameworks & versions", exact: true }).click();
+      await expect(page.locator('[data-package-framework="net10.0"]')).toBeFocused();
+    }
     const current = page.locator('[data-package-framework="net10.0"]');
     const next = page.locator('[data-package-framework="net9.0"]');
-    if (width === 390)
-      await page.getByRole("button", { name: "Frameworks", exact: true }).click();
-    else
-      await current.focus();
+    await current.focus();
     await expect(current).toBeFocused();
 
     await page.keyboard.press("ArrowDown");
@@ -540,7 +598,7 @@ for (const width of [1280, 390]) {
 }
 
 for (const change of packageCoordinateChanges) {
-  for (const view of packageCoordinateViews) {
+  for (const view of packageCoordinateViews.filter(candidate => change.name !== "TFM" || candidate.id === "overview")) {
     for (const width of [1280, 390]) {
       test(`package ${change.name} loading retains ${view.name} at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
@@ -586,8 +644,7 @@ for (const change of packageCoordinateChanges) {
         await expectPackageCoordinateView(
           page, view, change.version, change.framework, width);
         await expect(width === 390
-          && (change.name === "TFM" || view.id !== "dependencies")
-          ? page.getByRole("button", { name: "Frameworks", exact: true })
+          ? page.getByRole("button", { name: "Frameworks & versions", exact: true })
           : packageCoordinateControl(
               page, change, change.selected)).toBeFocused();
         await expect(page.locator("#inspector-panel")).not.toHaveAttribute("aria-busy", "true");
@@ -599,8 +656,7 @@ for (const change of packageCoordinateChanges) {
         await expectPackageCoordinateView(
           page, view, "10.0.0", "net10.0", width);
         await expect(width === 390
-          && (change.name === "TFM" || view.id !== "dependencies")
-          ? page.getByRole("button", { name: "Frameworks", exact: true })
+          ? page.getByRole("button", { name: "Frameworks & versions", exact: true })
           : packageCoordinateControl(
               page, change, change.original)).toBeFocused();
         await expect(page.locator("#package-content-loading")).toHaveCount(0);
@@ -627,10 +683,9 @@ for (const change of packageCoordinateChanges) {
         await expectPackageCoordinateView(
           page, view, "10.0.0", "net10.0", width);
         await expect(width === 390
-          && (change.name === "TFM" || view.id !== "dependencies")
-          ? page.getByRole("button", { name: "Frameworks", exact: true })
+          ? page.getByRole("button", { name: "Frameworks & versions", exact: true })
           : packageCoordinateControl(
-              page, change, change.selected)).toBeFocused();
+              page, change, change.name === "version" ? change.original : change.selected)).toBeFocused();
         await expect(page.locator(".query-notice")).toContainText(change.error);
         await expect(page.locator(".loading-screen")).toHaveCount(0);
         const retry = page.locator(".query-notice").getByRole("button", { name: "Retry" });
@@ -646,8 +701,7 @@ for (const change of packageCoordinateChanges) {
           page, view, change.version, change.framework, width);
         await expect(page.locator(".query-notice")).toHaveCount(0);
         await expect(width === 390
-          && (change.name === "TFM" || view.id !== "dependencies")
-          ? page.getByRole("button", { name: "Frameworks", exact: true })
+          ? page.getByRole("button", { name: "Frameworks & versions", exact: true })
           : packageCoordinateControl(
               page, change, change.selected)).toBeFocused();
       });
@@ -717,9 +771,7 @@ test("newer Package child navigation supersedes pending Type activation", async 
   page,
 }) => {
   await beginPendingTypeActivation(page);
-  await page.locator(`[data-package-child-library="${core.id}"]`).click();
-  await expect(subjectTab(page, "library")).toHaveAttribute(
-    "aria-selected", "true");
+  await openPackageChildLibrary(page, core.id);
 
   await releaseFacade(page, "finish-package-query");
   await expect(subjectTab(page, "library")).toHaveAttribute(

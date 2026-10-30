@@ -53,6 +53,7 @@ Three shared systems keep the command core small while inspection stays deep:
 | [`ComparisonDocument<T>`](design/comparison-document.md) | Composition of compared subjects and their comparison payloads |
 | [`InspectionGraphDocument`](design/inspection-graph-document.md) | Topology |
 | `AnnotatedSourceDocument` ([Member body substrate](design/member-body-substrate.md)) | Placement at source and IL coordinates |
+| [`IInspectionHierarchySink<TNode>`](design/host-neutral-hierarchy-projection.md) | Synchronous host-neutral hierarchy projection without a retained presentation tree |
 | Markout | Format lowering |
 
 New analyses and operations reach users through these structures. An analysis
@@ -87,7 +88,7 @@ producers that will extend that space.
   schemas or rendered fields.
   [Query Space Composition](design/query-space-composition.md) owns the target
   host-neutral composition of one operation route with explicit row spaces,
-  Rows or exact Count, structural plan descriptions, and preservation of an
+  Rows or Count, structural plan descriptions, and preservation of an
   adjacent source owner's continuation. It keeps semantic selection, work
   bounds, source batching, consumer paging, and rendering distinct while
   exposing one capability descriptor to CLI, Browser/Wasm, generated .NET
@@ -129,7 +130,7 @@ producers that will extend that space.
   settlement while retaining exact caller associations; Metadata retains
   candidate facts and the command retains presentation.
   [Ecosystem Find Search](design/ecosystem-find-search.md) owns the
-  host-neutral bounded-before-prefix scheduler that deduplicates concrete
+  host-neutral index-before-bounded-before-live scheduler that deduplicates concrete
   source work, reduces owner-issued Find blocks to every admitting Ecosystem,
   and preserves phase, membership, failure, and completion evidence for CLI
   and Browser adoption.
@@ -285,8 +286,9 @@ producers that will extend that space.
   extraction and matching, canonical document paths, URL decoration,
   provenance grammar, high-level type/member/IL-offset resolution,
   source-document/member-source Findings, and SourceLink-aware debug audits.
-- `src/ILInspector.MetadataPrimitives/` is the dependency-free leaf for shared
-  SRM mechanics and neutral name matching. `StringDistance` lives there so
+- `src/ILInspector.MetadataPrimitives/` is the floor for shared SRM
+  mechanics, neutral name matching, and the Symbol Key; its one repository
+  edge is `InertText`. `StringDistance` lives there so
   Metadata suggestion ranking does not acquire the Finding-backed Text layer;
   `MetadataNameMatching_DoesNotDependOnFindingBackedText` gates that boundary.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, [type-declaration identifier admission](design/csharp-type-declaration-identifier-admission.md), identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
@@ -381,7 +383,14 @@ producers that will extend that space.
   [platform package supply policy](design/platform-package-supply-policy.md)
   owns the host-neutral decision from a Packages-owned coordinate and an
   independently owned target-bound prune inventory to preserved supply
-  evidence and conservative platform delegation.
+  evidence and conservative platform delegation. The proposed
+  [Package Runtime Population Choice](design/package-runtime-population-choice.md)
+  owner defines package-local Selection RID policy when neutral implementation
+  assets cannot answer: infer one eligible RID, prefer the product
+  `linux-x64` RID among several, or retain typed ambiguity. Package Navigation
+  exposes the owner-issued RID inventory beneath TFMs; Source and Compare
+  consume the retained Package coordinate while keeping separate operation
+  semantics.
 - `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
   bounded package-prefix requests, and pure search normalization under
   [the typed source domain](design/search-scope-domain.md). Its
@@ -584,6 +593,14 @@ producers that will extend that space.
 - `src/DotnetInspector.Sections/` also owns the cross-host completed-inspection
   envelope, portable-share outcome, and contained supplemental diagnostics.
   CLI and Inspect Web consume the same contract without either host owning it.
+  Its
+  [Library Reference Inspection](design/library-reference-inspection.md)
+  owns the detached, canonically ordered available, rejected, or failed answer
+  for one exact managed Library's direct metadata references.
+  [Package Dependency Inspection](design/package-dependency-inspection.md)
+  owns the detached available, no-manifest, or failed Package manifest
+  dependency answer, including exact declared groups and target-framework
+  selection.
   The sibling
   [host-observable content-kinds](design/host-observable-content-kinds.md)
   owner classifies the envelope's serialized content as a Result, Document, or
@@ -667,8 +684,9 @@ producers that will extend that space.
   locator evidence, and active-realization authority without adding Platform
   subjects to shared Navigation.
 - [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
-  session-local Package Diff baseline, inheritance during subject navigation,
-  and target-setting controls. Clone candidate scope has transferred to the
+  session-local Package comparison targets (the Supply chain and API evolution
+  scenarios, their depths, and the Specific version baseline), inheritance
+  during subject navigation, and target-setting controls. Clone candidate scope has transferred to the
   shared [Structural Clone Search Scope](design/structural-clone-search-scope.md)
   owner. The Browser owner does not own acquisition authority, comparison
   execution, or portable Workspace fields.
@@ -763,6 +781,13 @@ producers that will extend that space.
   durable partial items and item failures, one semantic completion, and
   adapter-side pull, batching, and cancellation obligations before Browser
   publication.
+- [`docs/design/streaming-library-performance-analysis.md`](design/streaming-library-performance-analysis.md)
+  owns binding the `library:analysis` surface to the engine-to-browser async
+  event stream: a replaceable Progress preview during classification (gated on
+  a not-yet-existing per-member compute-observability prerequisite) and
+  durable, order-preserving Item streaming of the already-ranked, already-capped
+  result once classification completes, plus the cooperative-yield obligation
+  that keeps either phase observable on a single Wasm thread.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the bounding, fail-closed, and fidelity invariants
@@ -827,9 +852,12 @@ rules, this document describes subsystem ownership, and
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Ecosystem Find Search](design/ecosystem-find-search.md): host-neutral
-  bounded-before-prefix scheduling, distinct-source deduplication,
+  index-before-bounded-before-live scheduling, distinct-source deduplication,
   cross-Ecosystem membership reduction, durable Find blocks, and terminal
   completion for CLI and Browser adoption.
+- [Ecosystem Find Index](design/ecosystem-find-index.md): deterministic
+  scanner-admitted Integration symbols and generation coverage for early
+  Ecosystem prefix Find evaluation before authoritative live search.
 - [Type Find population
   selection](design/type-find-population-selection.md): host-neutral
   first-nonempty Prefix, Substring, and Partial settlement over one complete
@@ -935,6 +963,10 @@ rules, this document describes subsystem ownership, and
 - [Multi-part inspection documents](design/multi-part-inspection-documents.md):
   one authoritative typed Document for correlated semantic parts, with
   independent section projections and optional authored-category composition.
+- [Type and Member inspection documents](design/type-member-inspection-documents.md):
+  compact and complete Type declarations, complete same-named Member
+  populations, exact Member declarations, and their resolved explanation
+  handoff.
 - [Source delegation](design/source-delegation.md): delegated source
   execution — the effect protocol, result algebra, completion-evidence
   binding, and exact upstream Count acceptance.
@@ -1023,6 +1055,56 @@ rules, this document describes subsystem ownership, and
 - [Library API diff presentation](design/library-api-diff-presentation.md):
   portable Library-root changed-Type composition, complete compatibility
   changes, and distinct changed-member summaries for shared host adoption.
+- [Diff system](design/diff-system.md): the one vertical diff path both hosts
+  call, its layers, its base data structures and change vocabulary, its diff
+  documents and annotations, Markout lowering, the GNU diff and annotated
+  rendering models, its host-neutral request and operation, the rule that
+  reusable comparison infrastructure lives in `ILInspector`, and the adoption
+  steps that retire per-host diff orchestration.
+- [Diff observability](design/diff-observability.md): the cross-cutting
+  pattern that a reported change is observable in a complete diff view at that
+  view's level, and how diff producers and views reason about subtle
+  differences.
+- [Scope symmetry](design/scope-symmetry.md): the cross-cutting pattern that
+  Library, Type, and Member are first-class analysis scopes with
+  scope-proportional work, one infrastructure for Rows, Count, and exact
+  Exists, lean roots and heavy leaves, and retention only of requested results.
+- [Annotated Type Map](design/annotated-type-map.md): one Type's shape and a
+  keyed collection of its Members' findings at one version, and the map diff
+  of two such maps by the same implementation, with Rows as a projection, at
+  Library, Type, and Member scope.
+- [Annotated Type Relations](design/annotated-type-relations.md): one Type's
+  exact external logical relations, producer-native occurrences,
+  producer-owned relation color, focus-relative incidence, and independently
+  complete relationship and color-family outcomes, with Rows, Count, and
+  Exists at Library, Type, and Member scope.
+- [Annotated Type Relations planning](design/annotated-type-relations-planning.md):
+  exact relationship and color registration, Type-focus and direction
+  admission, terminal-specialized adapter-query binding, and immutable typed
+  query demand without duplicating QuerySpace or inspection query execution.
+- [Annotated Type Relations request](design/annotated-type-relations-request.md):
+  explicit all-applicable or canonical-id family selection, deterministic
+  binding to one admitted relations catalog, preservation of requested and
+  resolved identities, and typed rejection before producer work.
+- [Annotated Type Relations Browser adoption](design/annotated-type-relations-browser.md):
+  one explicit lazy package-Type gesture, retained implementation-workspace
+  execution through the shared request and operation, owner-issued JSON
+  projection, and compact Browser presentation without implicit relation work.
+- [Annotated Type Relations generation](design/annotated-type-relations-generation.md):
+  concrete typed contribution correspondence, independent relationship and
+  color-family settlement, and canonical Rows/Count/Exists document generation
+  without execution or acquisition.
+- [Annotated Type Relations call adoption](design/annotated-type-relations-call-adoption.md):
+  exact outgoing call relations from one Type, physical call-site receipts,
+  direct trimming and NativeAOT compatibility color on external callees, and
+  producer-native terminal settlement over independently qualified topology
+  and color evidence.
+- [Finding Diff Any](design/finding-diff-any.md): per-Type API and Body change
+  states for a Library image pair, sound for the facts each axis compares,
+  without building either complete diff.
+- [Inspect-web background analysis](design/inspect-web-background-analysis.md):
+  the page-side queue for analysis the website starts on its own, its
+  foreground-first order, and the default Finding Diff Any baselines.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.

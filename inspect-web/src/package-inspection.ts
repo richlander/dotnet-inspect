@@ -1,13 +1,16 @@
 import {
   packageIdentityKey,
+  type DependencyGroup,
   type DependencyGroupData,
   type LibraryLens,
   type PackageLens,
   type PackageIdentity,
 } from "./data.ts";
 import type {
-  BrowserPackageDependencies,
+  BrowserPackageDependencyInspection,
   BrowserPackageVulnerabilityResult,
+  InspectionEnvelope,
+  LibraryReferenceInspectionOutcome,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   BrowserLibraryDependencyStructure,
@@ -15,6 +18,8 @@ import type {
   BrowserLibraryMetrics,
   BrowserPackageOpportunities,
   BrowserPackagePerformance,
+  BrowserResourceTriage,
+  BrowserUnsafeMembers,
   BrowserPerformanceMember,
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
@@ -26,18 +31,101 @@ import type {
   AppPackage,
   AppTypeSurface,
 } from "./package-acquisition.ts";
+import { createAppTypeSurface } from "./package-acquisition.ts";
 import type {
   LibraryMetricsRelationshipState,
 } from "./library-metrics.ts";
 
 export type PackagePerformance = BrowserPackagePerformance;
+export type PackageResourceTriage = BrowserResourceTriage;
+export type PackageUnsafeMembers = BrowserUnsafeMembers;
+export type PackageUnsafeMembersState =
+  PackageInspectionRequestState<PackageUnsafeMembers>;
+
+// The census breadth a request asks for: the whole Library when both are
+// empty, one Type, or one member of that Type.
+export interface UnsafeMembersScope {
+  readonly typeIdentity: string;
+  readonly stableSelector: string;
+}
+
+export const libraryUnsafeMembersScope: UnsafeMembersScope = {
+  typeIdentity: "",
+  stableSelector: "",
+};
 export type PackageLibraryMetrics = BrowserLibraryMetrics;
 export type PackageLibraryDependencyStructure =
   BrowserLibraryDependencyStructure;
 
+export type PackageInspectionRequestState<TResult> =
+  | { readonly status: "idle" }
+  | {
+    readonly status: "loading";
+    readonly request: { readonly key: string };
+  }
+  | {
+    readonly status: "ready";
+    readonly key: string;
+    readonly result: TResult;
+  }
+  | {
+    readonly status: "failed";
+    readonly key: string;
+    readonly error: string;
+  };
+
+export function packageInspectionRequestStateKey<TResult>(
+  state: PackageInspectionRequestState<TResult>,
+): string | null {
+  if (state.status === "idle") return null;
+  return state.status === "loading" ? state.request.key : state.key;
+}
+
+export function normalizePackageInspectionRequestSnapshot<TResult>(
+  state: PackageInspectionRequestState<TResult> | null | undefined,
+): PackageInspectionRequestState<TResult> {
+  return !state || state.status === "loading" ? { status: "idle" } : state;
+}
+
+export type PackageDependenciesState =
+  PackageInspectionRequestState<BrowserPackageDependencyInspection>;
+export type LibraryReferenceInspectionEnvelope =
+  InspectionEnvelope<LibraryReferenceInspectionOutcome | null>;
+export type LibraryReferenceInspectionState =
+  PackageInspectionRequestState<LibraryReferenceInspectionEnvelope>;
+export type PackageVulnerabilityState =
+  PackageInspectionRequestState<BrowserPackageVulnerabilityResult>;
+export type PackageIntegrationsState =
+  PackageInspectionRequestState<BrowserPackageIntegrations>;
+export type PackageOpportunitiesState =
+  PackageInspectionRequestState<BrowserPackageOpportunities>;
+export type PackageMetadataState =
+  PackageInspectionRequestState<PackageMetadata>;
+
 export interface ResolvedPackagePerformanceMember {
   type: AppTypeSurface;
   member: AppMemberSurface;
+}
+
+export function resolvePackagePerformanceType(
+  packageModel: AppPackage,
+  performanceMember: Pick<
+    BrowserPerformanceMember,
+    "assembly" | "typeId"
+  >,
+): AppTypeSurface | null {
+  return packageModel.types.find(candidate =>
+    candidate.assembly === performanceMember.assembly
+    && candidate.definitionId === performanceMember.typeId) ?? null;
+}
+
+export function projectPackagePerformanceType(
+  performanceMember: Pick<BrowserPerformanceMember, "declaringType">,
+): AppTypeSurface {
+  return createAppTypeSurface({
+    ...performanceMember.declaringType,
+    api: [],
+  });
 }
 
 export function resolvePackagePerformanceMember(
@@ -47,29 +135,147 @@ export function resolvePackagePerformanceMember(
     "assembly" | "typeId" | "stableSelector"
   >,
 ): ResolvedPackagePerformanceMember | null {
-  const type = packageModel.types.find(candidate =>
-    candidate.assembly === performanceMember.assembly
-    && candidate.definitionId === performanceMember.typeId);
+  const type = resolvePackagePerformanceType(packageModel, performanceMember);
   const member = type?.api.find(candidate =>
     candidate.stableSelector === performanceMember.stableSelector);
   return type && member ? { type, member } : null;
 }
 
-function dependencyProjectionError(
-  result: BrowserPackageDependencies,
-): string {
-  const errors: string[] = [];
-  if (result.dependencyGroupError) {
-    errors.push(result.dependencyGroupError);
+export interface PackageDependencyGroupProjection extends DependencyGroup {
+  readonly dependencies: readonly {
+    readonly id: string;
+    readonly versionRange: string;
+  }[];
+}
+
+export interface PackageDependencyProjection
+  extends DependencyGroupData<PackageDependencyGroupProjection> {
+  readonly dependencyGroups: readonly PackageDependencyGroupProjection[];
+  readonly selectedDependencyGroup: PackageDependencyGroupProjection | null;
+  readonly dependencyGroupError: string;
+  readonly platformReferences: readonly {
+    readonly family: string;
+    readonly label: string;
+  }[];
+  readonly defaultPlatformReference: {
+    readonly family: string;
+    readonly label: string;
+  } | null;
+  readonly platformReferenceError: string | null;
+  readonly inspectionError: string;
+}
+
+function projectPackageDependencyFramework(framework: string): string | null {
+  if (framework.trim().length === 0) return "any";
+  if (framework.length > 128
+    || !/^[A-Za-z0-9.\-+_,= ]+$/.test(framework)) {
+    return null;
+  }
+  return framework;
+}
+
+export function projectPackageDependencyInspection(
+  result: BrowserPackageDependencyInspection | null | undefined,
+): PackageDependencyProjection {
+  const inspection = result?.inspection;
+  const content = inspection?.content;
+  const platform = {
+    platformReferences: result?.platformReferences ?? [],
+    defaultPlatformReference: result?.defaultPlatformReference ?? null,
+    platformReferenceError: result?.platformReferenceError ?? null,
+  };
+  if (!content) {
+    return {
+      ...platform,
+      dependencyGroups: [],
+      selectedDependencyGroup: null,
+      dependencyGroupError: "",
+      inspectionError:
+        "Package dependency inspection returned no shared content.",
+    };
+  }
+  if (content.kind === "no-manifest") {
+    return {
+      ...platform,
+      dependencyGroups: [],
+      selectedDependencyGroup: null,
+      dependencyGroupError: "",
+      inspectionError:
+        "The package contains no root manifest; dependencies are unavailable.",
+    };
+  }
+  if (content.kind === "failed") {
+    const diagnostic = inspection.diagnostics
+      .map(candidate => candidate.summary)
+      .find(summary => summary.trim());
+    return {
+      ...platform,
+      dependencyGroups: [],
+      selectedDependencyGroup: null,
+      dependencyGroupError: "",
+      inspectionError: diagnostic
+        ?? "The package dependency manifest could not be inspected.",
+    };
   }
 
-  const failureCount = result.declarationFailures.length;
-  if (failureCount > 0) {
-    errors.push(
-      `Dependency declaration projection is incomplete (${failureCount} ${
-        failureCount === 1 ? "failure" : "failures"
-      }).`,
-    );
+  const selectedGroupIndex = content.dependencies.selectedGroupIndex;
+  const selectedGroup = content.dependencies.selectedGroup;
+  const frameworks = content.dependencies.groups.map(group =>
+    projectPackageDependencyFramework(group.targetFramework));
+  if (frameworks.some(framework => framework === null)) {
+    return {
+      ...platform,
+      dependencyGroups: [],
+      selectedDependencyGroup: null,
+      dependencyGroupError: "",
+      inspectionError:
+        "A dependency group framework identifier cannot be represented safely.",
+    };
+  }
+  const dependencyGroups = content.dependencies.groups.map((group, index) => ({
+    index,
+    framework: frameworks[index] ?? "any",
+    isActive: index === selectedGroupIndex,
+    isComplete: true,
+    dependencies: group.dependencies.map(dependency => ({
+      id: dependency.id,
+      versionRange: dependency.versionRange,
+    })),
+  }));
+  const selectedDependencyGroup =
+    selectedGroup && selectedGroupIndex !== null
+      ? {
+          index: selectedGroupIndex,
+          framework: frameworks[selectedGroupIndex] ?? "any",
+          isActive: true,
+          isComplete: true,
+          dependencies: selectedGroup.dependencies.map(dependency => ({
+            id: dependency.id,
+            versionRange: dependency.versionRange,
+          })),
+        }
+      : null;
+  return {
+    ...platform,
+    dependencyGroups,
+    selectedDependencyGroup,
+    dependencyGroupError:
+      dependencyGroups.length > 0 && selectedGroupIndex === null
+        ? "The manifest declares no dependency group for the active target framework."
+        : "",
+    inspectionError: "",
+  };
+}
+
+function dependencyProjectionError(
+  result: PackageDependencyProjection,
+): string {
+  const errors: string[] = [];
+  if (result.inspectionError) {
+    errors.push(result.inspectionError);
+  }
+  if (result.dependencyGroupError) {
+    errors.push(result.dependencyGroupError);
   }
 
   return errors.join(" ");
@@ -81,29 +287,28 @@ export interface PackageInspectionState {
   atLibraryRoot: boolean;
   packageLens: PackageLens;
   libraryLens: LibraryLens;
-  packageDependencies: BrowserPackageDependencies | null;
-  packageDependenciesLoading: boolean;
-  packageDependenciesError: string;
-  packageDependenciesKey: string;
-  packageVulnerabilities: BrowserPackageVulnerabilityResult | null;
-  packageVulnerabilitiesLoading: boolean;
-  packageVulnerabilitiesError: string;
-  packageVulnerabilitiesKey: string;
+  packageDependencies: PackageDependenciesState;
+  libraryReferences: LibraryReferenceInspectionState;
+  packageVulnerabilities: PackageVulnerabilityState;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
-  packageIntegrations: BrowserPackageIntegrations | null;
-  packageIntegrationsLoading: boolean;
-  packageIntegrationsError: string;
-  packageIntegrationsKey: string;
-  packageOpportunities: BrowserPackageOpportunities | null;
-  packageOpportunitiesLoading: boolean;
-  packageOpportunitiesError: string;
-  packageOpportunitiesKey: string;
+  packageIntegrations: PackageIntegrationsState;
+  packageOpportunities: PackageOpportunitiesState;
   packagePerformance: PackagePerformance | null;
   packagePerformanceLoading: boolean;
   packagePerformanceError: string;
   packagePerformanceKey: string;
+  packageResourceTriage: PackageResourceTriage | null;
+  packageResourceTriageLoading: boolean;
+  packageResourceTriageError: string;
+  packageResourceTriageKey: string;
+  packageUnsafeMembers: PackageUnsafeMembers | null;
+  packageUnsafeMembersLoading: boolean;
+  packageUnsafeMembersError: string;
+  packageUnsafeMembersKey: string;
+  packageTypeUnsafeMembers: PackageUnsafeMembersState;
+  packageMemberUnsafeMembers: PackageUnsafeMembersState;
   packageLibraryMetrics: PackageLibraryMetrics | null;
   packageLibraryMetricsLoading: boolean;
   packageLibraryMetricsError: string;
@@ -115,19 +320,19 @@ export interface PackageInspectionState {
   packageLibraryDependencyStructureLoading: boolean;
   packageLibraryDependencyStructureError: string;
   packageLibraryDependencyStructureKey: string;
-  packageMetadata: PackageMetadata | null;
-  packageMetadataLoading: boolean;
-  packageMetadataError: string;
-  packageMetadataKey: string;
+  packageMetadata: PackageMetadataState;
   packageMetadataRoot: MetadataRootSelection;
 }
 
 export interface PackageInspectionDependencies {
   state: PackageInspectionState;
   queryDependencies(
+    packageModel: PackageIdentity & Pick<AppPackage, "runtimeIdentifier">,
+  ): Promise<BrowserPackageDependencyInspection>;
+  queryLibraryReferences(
     packageModel: PackageIdentity
       & Pick<AppPackage, "assemblyId" | "selectedCompileAssetId">,
-  ): Promise<BrowserPackageDependencies>;
+  ): Promise<LibraryReferenceInspectionEnvelope>;
   queryVulnerabilities(
     packageModel: AppPackage,
   ): Promise<BrowserPackageVulnerabilityResult>;
@@ -155,6 +360,15 @@ export interface PackageInspectionDependencies {
     packageModel: AppPackage,
     library: string,
   ): Promise<PackagePerformance>;
+  queryPackageResourceTriage(
+    packageModel: AppPackage,
+    library: string,
+  ): Promise<PackageResourceTriage>;
+  queryPackageUnsafeMembers(
+    packageModel: AppPackage,
+    library: string,
+    scope: UnsafeMembersScope,
+  ): Promise<PackageUnsafeMembers>;
   queryPackageLibraryMetrics(
     packageModel: AppPackage,
     library: string,
@@ -169,6 +383,20 @@ export interface PackageInspectionDependencies {
     assemblyFileName: string,
     pack: string,
   ): Promise<PackagePerformance>;
+  queryPlatformResourceTriage(
+    framework: string,
+    platformVersion: string,
+    assemblyFileName: string,
+    pack: string,
+  ): Promise<PackageResourceTriage>;
+  queryPlatformUnsafeMembers(
+    framework: string,
+    platformVersion: string,
+    assemblyFileName: string,
+    pack: string,
+    typeIdentity: string,
+    stableSelector: string,
+  ): Promise<PackageUnsafeMembers>;
   queryPlatformLibraryMetrics(
     framework: string,
     platformVersion: string,
@@ -207,6 +435,10 @@ export interface PackageInspectionCoordinator {
     packageModel: AppPackage,
     signature: string,
   ): Promise<void>;
+  loadLibraryReferences(
+    packageModel: AppPackage,
+    signature: string,
+  ): Promise<void>;
   loadVulnerabilities(
     packageModel: AppPackage,
     signature: string,
@@ -226,6 +458,17 @@ export interface PackageInspectionCoordinator {
     packageModel: AppPackage,
     signature: string,
     scopedLibrary: string | null,
+  ): Promise<void>;
+  loadResourceTriage(
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null,
+  ): Promise<void>;
+  loadUnsafeMembers(
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null,
+    scope?: UnsafeMembersScope,
   ): Promise<void>;
   loadLibraryMetrics(
     packageModel: AppPackage,
@@ -265,8 +508,6 @@ export function createPackageInspectionCoordinator(
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
   let packageResultGeneration = 0;
-  let metadataRequestSequence = 0;
-  let vulnerabilityRequestSequence = 0;
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -297,15 +538,11 @@ export function createPackageInspectionCoordinator(
       state.workspaceDependencyLoads.add(key);
       try {
         const result = await dependencies.queryDependencies(packageModel);
+        const projection = projectPackageDependencyInspection(result);
         if (generation !== packageResultGeneration) return;
         if (!packageIsResident(state.packages, packageModel)) continue;
-        state.workspaceDependencies[key] = {
-          dependencyGroups: result?.dependencyGroups || [],
-          dependencyGroupError: result?.dependencyGroupError || "",
-        };
-        const projectionError = result
-          ? dependencyProjectionError(result)
-          : "";
+        state.workspaceDependencies[key] = projection;
+        const projectionError = dependencyProjectionError(projection);
         if (projectionError) {
           state.workspaceDependencyErrors[key] = projectionError;
         } else {
@@ -338,26 +575,25 @@ export function createPackageInspectionCoordinator(
     invalidatePackageResults() {
       packageResultGeneration++;
       state.workspaceDependencyLoads.clear();
-      state.packageDependencies = null;
-      state.packageDependenciesLoading = false;
-      state.packageDependenciesError = "";
-      state.packageDependenciesKey = "";
-      state.packageVulnerabilities = null;
-      state.packageVulnerabilitiesLoading = false;
-      state.packageVulnerabilitiesError = "";
-      state.packageVulnerabilitiesKey = "";
-      state.packageIntegrations = null;
-      state.packageIntegrationsLoading = false;
-      state.packageIntegrationsError = "";
-      state.packageIntegrationsKey = "";
-      state.packageOpportunities = null;
-      state.packageOpportunitiesLoading = false;
-      state.packageOpportunitiesError = "";
-      state.packageOpportunitiesKey = "";
+      state.packageDependencies = { status: "idle" };
+      state.libraryReferences = { status: "idle" };
+      state.packageVulnerabilities = { status: "idle" };
+      state.packageIntegrations = { status: "idle" };
+      state.packageOpportunities = { status: "idle" };
       state.packagePerformance = null;
       state.packagePerformanceLoading = false;
       state.packagePerformanceError = "";
       state.packagePerformanceKey = "";
+      state.packageResourceTriage = null;
+      state.packageResourceTriageLoading = false;
+      state.packageResourceTriageError = "";
+      state.packageResourceTriageKey = "";
+      state.packageUnsafeMembers = null;
+      state.packageUnsafeMembersLoading = false;
+      state.packageUnsafeMembersError = "";
+      state.packageUnsafeMembersKey = "";
+      state.packageTypeUnsafeMembers = { status: "idle" };
+      state.packageMemberUnsafeMembers = { status: "idle" };
       state.packageLibraryMetrics = null;
       state.packageLibraryMetricsLoading = false;
       state.packageLibraryMetricsError = "";
@@ -367,51 +603,46 @@ export function createPackageInspectionCoordinator(
       state.packageLibraryDependencyStructureLoading = false;
       state.packageLibraryDependencyStructureError = "";
       state.packageLibraryDependencyStructureKey = "";
-      state.packageMetadata = null;
-      state.packageMetadataLoading = false;
-      state.packageMetadataError = "";
-      state.packageMetadataKey = "";
+      state.packageMetadata = { status: "idle" };
       state.packageMetadataRoot = "cli";
     },
 
     async loadDependencies(packageModel, signature) {
-      if (state.packageDependenciesKey === signature
-        && (state.packageDependencies || state.packageDependenciesError)) {
+      const current = state.packageDependencies;
+      if (current.status !== "idle"
+        && packageInspectionRequestStateKey(current) === signature) {
         dependencies.render();
         return;
       }
+      const request = { key: signature };
       const generation = packageResultGeneration;
       const ownsRequest = () =>
-        state.packageDependenciesKey === signature
+        state.packageDependencies.status === "loading"
+        && state.packageDependencies.request === request
         && generation === packageResultGeneration;
-      state.packageDependenciesKey = signature;
-      state.packageDependencies = null;
-      state.packageDependenciesError = "";
-      state.packageDependenciesLoading = true;
+      state.packageDependencies = { status: "loading", request };
       dependencies.render();
       const packageRequest = {
         id: packageModel.id,
         version: packageModel.version,
         activeFramework: packageModel.activeFramework,
-        assemblyId: packageModel.assemblyId,
-        ...(packageModel.selectedCompileAssetId
-          ? { selectedCompileAssetId: packageModel.selectedCompileAssetId }
-          : {}),
+        runtimeIdentifier: packageModel.runtimeIdentifier ?? null,
       };
       const workspaceKey = workspaceDependencyKey(packageRequest);
       try {
         const result = await dependencies.queryDependencies(packageRequest);
         if (ownsRequest()) {
-          state.packageDependencies = result;
-        }
-        if (result?.dependencyGroups
-          && generation === packageResultGeneration
-          && packageIsResident(state.packages, packageRequest)) {
-          state.workspaceDependencies[workspaceKey] = {
-            dependencyGroups: result.dependencyGroups,
-            dependencyGroupError: result.dependencyGroupError || "",
+          state.packageDependencies = {
+            status: "ready",
+            key: signature,
+            result,
           };
-          const projectionError = dependencyProjectionError(result);
+        }
+        const projection = projectPackageDependencyInspection(result);
+        if (generation === packageResultGeneration
+          && packageIsResident(state.packages, packageRequest)) {
+          state.workspaceDependencies[workspaceKey] = projection;
+          const projectionError = dependencyProjectionError(projection);
           if (projectionError) {
             state.workspaceDependencyErrors[workspaceKey] = projectionError;
           } else {
@@ -420,12 +651,16 @@ export function createPackageInspectionCoordinator(
         }
       } catch (error) {
         if (ownsRequest()) {
-          state.packageDependenciesError = dependencies.describeError(error);
+          const diagnostic = dependencies.describeError(error);
+          state.packageDependencies = {
+            status: "failed",
+            key: signature,
+            error: diagnostic.trim()
+              ? diagnostic
+              : "Dependency query failed.",
+          };
         }
       } finally {
-        if (ownsRequest()) {
-          state.packageDependenciesLoading = false;
-        }
         if (generation === packageResultGeneration) {
           dependencies.refreshPackageStats();
           dependencies.render();
@@ -436,59 +671,107 @@ export function createPackageInspectionCoordinator(
       }
     },
 
-    async loadVulnerabilities(packageModel, signature) {
-      if (state.packageVulnerabilitiesKey === signature
-        && (state.packageVulnerabilities
-          || state.packageVulnerabilitiesError)) {
+    async loadLibraryReferences(packageModel, signature) {
+      const current = state.libraryReferences;
+      if (current.status !== "idle"
+        && packageInspectionRequestStateKey(current) === signature) {
         dependencies.render();
         return;
       }
-      const requestSequence = ++vulnerabilityRequestSequence;
+      const request = { key: signature };
       const generation = packageResultGeneration;
       const ownsRequest = () =>
-        state.packageVulnerabilitiesKey === signature
-        && vulnerabilityRequestSequence === requestSequence
+        state.libraryReferences.status === "loading"
+        && state.libraryReferences.request === request
         && generation === packageResultGeneration;
-      state.packageVulnerabilitiesKey = signature;
-      state.packageVulnerabilities = null;
-      state.packageVulnerabilitiesError = "";
-      state.packageVulnerabilitiesLoading = true;
+      state.libraryReferences = { status: "loading", request };
       dependencies.render();
+      const packageRequest = {
+        id: packageModel.id,
+        version: packageModel.version,
+        activeFramework: packageModel.activeFramework,
+        runtimeIdentifier: packageModel.runtimeIdentifier ?? null,
+        assemblyId: packageModel.assemblyId,
+        ...(packageModel.selectedCompileAssetId
+          ? { selectedCompileAssetId: packageModel.selectedCompileAssetId }
+          : {}),
+      };
       try {
-        const result = await dependencies.queryVulnerabilities(packageModel);
+        const result =
+          await dependencies.queryLibraryReferences(packageRequest);
         if (ownsRequest()) {
-          state.packageVulnerabilities = result;
+          state.libraryReferences = {
+            status: "ready",
+            key: signature,
+            result,
+          };
         }
       } catch (error) {
         if (ownsRequest()) {
-          state.packageVulnerabilitiesError =
-            dependencies.describeError(error);
+          const diagnostic = dependencies.describeError(error);
+          state.libraryReferences = {
+            status: "failed",
+            key: signature,
+            error: diagnostic.trim()
+              ? diagnostic
+              : "Reference query failed.",
+          };
         }
       } finally {
-        if (ownsRequest()) {
-          state.packageVulnerabilitiesLoading = false;
+        if (generation === packageResultGeneration) {
+          dependencies.refreshPackageStats();
           dependencies.render();
         }
       }
+    },
+
+    async loadVulnerabilities(packageModel, signature) {
+      const current = state.packageVulnerabilities;
+      if ((current.status === "ready" || current.status === "failed")
+        && current.key === signature) {
+        dependencies.render();
+        return;
+      }
+      const request = { key: signature };
+      const ownsRequest = () =>
+        state.packageVulnerabilities.status === "loading"
+        && state.packageVulnerabilities.request === request;
+      state.packageVulnerabilities = { status: "loading", request };
+      dependencies.render();
+      try {
+        const result = await dependencies.queryVulnerabilities(packageModel);
+        if (!ownsRequest()) return;
+        state.packageVulnerabilities = {
+          status: "ready",
+          key: signature,
+          result,
+        };
+      } catch (error) {
+        if (!ownsRequest()) return;
+        state.packageVulnerabilities = {
+          status: "failed",
+          key: signature,
+          error: dependencies.describeError(error),
+        };
+      }
+      dependencies.render();
     },
 
     ensureWorkspaceDependencies,
 
     async loadIntegrations(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packageIntegrationsKey === signature
-        && (state.packageIntegrations || state.packageIntegrationsError)) {
+      const current = state.packageIntegrations;
+      if ((current.status === "ready" || current.status === "failed")
+        && current.key === signature) {
         dependencies.render();
         return;
       }
-      const generation = packageResultGeneration;
+      const request = { key: signature };
       const ownsRequest = () =>
-        state.packageIntegrationsKey === signature
-        && generation === packageResultGeneration;
-      state.packageIntegrationsKey = signature;
-      state.packageIntegrations = null;
-      state.packageIntegrationsError = "";
-      state.packageIntegrationsLoading = true;
+        state.packageIntegrations.status === "loading"
+        && state.packageIntegrations.request === request;
+      state.packageIntegrations = { status: "loading", request };
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -503,38 +786,36 @@ export function createPackageInspectionCoordinator(
           : await dependencies.queryPackageIntegrations(
               packageModel,
               scopedLibrary ?? "");
-        if (ownsRequest()) {
-          state.packageIntegrations = result;
-        }
+        if (!ownsRequest()) return;
+        state.packageIntegrations = {
+          status: "ready",
+          key: signature,
+          result,
+        };
       } catch (error) {
-        if (ownsRequest()) {
-          state.packageIntegrationsError = dependencies.describeError(error);
-        }
-      } finally {
-        if (ownsRequest()) {
-          state.packageIntegrationsLoading = false;
-        }
-        if (generation === packageResultGeneration) {
-          dependencies.render();
-        }
+        if (!ownsRequest()) return;
+        state.packageIntegrations = {
+          status: "failed",
+          key: signature,
+          error: dependencies.describeError(error),
+        };
       }
+      dependencies.render();
     },
 
     async loadOpportunities(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packageOpportunitiesKey === signature
-        && (state.packageOpportunities || state.packageOpportunitiesError)) {
+      const current = state.packageOpportunities;
+      if ((current.status === "ready" || current.status === "failed")
+        && current.key === signature) {
         dependencies.render();
         return;
       }
-      const generation = packageResultGeneration;
+      const request = { key: signature };
       const ownsRequest = () =>
-        state.packageOpportunitiesKey === signature
-        && generation === packageResultGeneration;
-      state.packageOpportunitiesKey = signature;
-      state.packageOpportunities = null;
-      state.packageOpportunitiesError = "";
-      state.packageOpportunitiesLoading = true;
+        state.packageOpportunities.status === "loading"
+        && state.packageOpportunities.request === request;
+      state.packageOpportunities = { status: "loading", request };
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -549,21 +830,24 @@ export function createPackageInspectionCoordinator(
           : await dependencies.queryPackageOpportunities(
               packageModel,
               scopedLibrary ?? "");
-        if (ownsRequest()) {
-          state.packageOpportunities = result;
-        }
+        if (!ownsRequest()) return;
+        state.packageOpportunities = {
+          status: "ready",
+          key: signature,
+          result,
+        };
       } catch (error) {
-        if (ownsRequest()) {
-          state.packageOpportunitiesError = dependencies.describeError(error);
-        }
-      } finally {
-        if (ownsRequest()) {
-          state.packageOpportunitiesLoading = false;
-        }
-        if (generation === packageResultGeneration) {
-          dependencies.render();
-        }
+        if (!ownsRequest()) return;
+        const diagnostic = dependencies.describeError(error);
+        state.packageOpportunities = {
+          status: "failed",
+          key: signature,
+          error: diagnostic.trim()
+            ? diagnostic
+            : "Opportunity inspection failed.",
+        };
       }
+      dependencies.render();
     },
 
     async loadPerformance(packageModel, signature, scopedLibrary) {
@@ -605,6 +889,145 @@ export function createPackageInspectionCoordinator(
       } finally {
         if (ownsRequest()) {
           state.packagePerformanceLoading = false;
+        }
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
+      }
+    },
+
+    async loadResourceTriage(packageModel, signature, scopedLibrary) {
+      if (packageModel.isRuntimePack && !scopedLibrary) return;
+      if (state.packageResourceTriageKey === signature
+        && (state.packageResourceTriage || state.packageResourceTriageError)) {
+        dependencies.render();
+        return;
+      }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageResourceTriageKey === signature
+        && generation === packageResultGeneration;
+      state.packageResourceTriageKey = signature;
+      state.packageResourceTriage = null;
+      state.packageResourceTriageError = "";
+      state.packageResourceTriageLoading = true;
+      dependencies.render();
+      try {
+        const coordinates = packageModel.isRuntimePack
+          ? platformCoordinates(packageModel, scopedLibrary ?? "")
+          : null;
+        const result = coordinates
+          ? await dependencies.queryPlatformResourceTriage(
+              coordinates.framework,
+              coordinates.platformVersion,
+              coordinates.assemblyFileName,
+              coordinates.pack)
+          : await dependencies.queryPackageResourceTriage(
+              packageModel,
+              scopedLibrary ?? "");
+        if (ownsRequest()) {
+          state.packageResourceTriage = result;
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          state.packageResourceTriageError = dependencies.describeError(error);
+        }
+      } finally {
+        if (ownsRequest()) {
+          state.packageResourceTriageLoading = false;
+        }
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
+      }
+    },
+
+    // Only the current request for this exact Library and coordinate, and
+    // for a narrow scope its Type or member, may publish; replacement and
+    // invalidation retire it without publication.
+    async loadUnsafeMembers(
+      packageModel,
+      signature,
+      scopedLibrary,
+      scope = libraryUnsafeMembersScope,
+    ) {
+      if (packageModel.isRuntimePack && !scopedLibrary) return;
+      const query = () => {
+        const coordinates = packageModel.isRuntimePack
+          ? platformCoordinates(packageModel, scopedLibrary ?? "")
+          : null;
+        return coordinates
+          ? dependencies.queryPlatformUnsafeMembers(
+              coordinates.framework,
+              coordinates.platformVersion,
+              coordinates.assemblyFileName,
+              coordinates.pack,
+              scope.typeIdentity,
+              scope.stableSelector)
+          : dependencies.queryPackageUnsafeMembers(
+              packageModel,
+              scopedLibrary ?? "",
+              scope);
+      };
+      if (scope.typeIdentity) {
+        const field = scope.stableSelector
+          ? "packageMemberUnsafeMembers"
+          : "packageTypeUnsafeMembers";
+        const current = state[field];
+        if ((current.status === "ready" || current.status === "failed")
+          && current.key === signature) {
+          dependencies.render();
+          return;
+        }
+        if (current.status === "loading" && current.request.key === signature) return;
+        const request = { key: signature };
+        const ownsRequest = () => {
+          const live = state[field];
+          return live.status === "loading" && live.request === request;
+        };
+        state[field] = { status: "loading", request };
+        dependencies.render();
+        try {
+          const result = await query();
+          if (!ownsRequest()) return;
+          state[field] = { status: "ready", key: signature, result };
+        } catch (error) {
+          if (!ownsRequest()) return;
+          state[field] = {
+            status: "failed",
+            key: signature,
+            error: dependencies.describeError(error),
+          };
+        }
+        dependencies.render();
+        return;
+      }
+      if (state.packageUnsafeMembersKey === signature
+        && (state.packageUnsafeMembers || state.packageUnsafeMembersError)) {
+        dependencies.render();
+        return;
+      }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageUnsafeMembersKey === signature
+        && generation === packageResultGeneration;
+      state.packageUnsafeMembersKey = signature;
+      state.packageUnsafeMembers = null;
+      state.packageUnsafeMembersError = "";
+      state.packageUnsafeMembersLoading = true;
+      dependencies.render();
+      try {
+        const result = await query();
+        if (ownsRequest()) {
+          state.packageUnsafeMembers = result;
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          state.packageUnsafeMembersError = dependencies.describeError(error);
+        }
+      } finally {
+        if (ownsRequest()) {
+          state.packageUnsafeMembersLoading = false;
         }
         if (generation === packageResultGeneration) {
           dependencies.render();
@@ -713,21 +1136,20 @@ export function createPackageInspectionCoordinator(
 
     async loadMetadata(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packageMetadataKey === signature
-        && (state.packageMetadataLoading || state.packageMetadata)) {
+      const current = state.packageMetadata;
+      if ((current.status === "loading"
+          && current.request.key === signature)
+        || (current.status === "ready" && current.key === signature)) {
         dependencies.render();
         return;
       }
-      const requestSequence = ++metadataRequestSequence;
+      const request = { key: signature };
       const generation = packageResultGeneration;
       const ownsRequest = () =>
-        state.packageMetadataKey === signature
-        && metadataRequestSequence === requestSequence
+        state.packageMetadata.status === "loading"
+        && state.packageMetadata.request === request
         && generation === packageResultGeneration;
-      state.packageMetadataKey = signature;
-      state.packageMetadata = null;
-      state.packageMetadataError = "";
-      state.packageMetadataLoading = true;
+      state.packageMetadata = { status: "loading", request };
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -742,23 +1164,31 @@ export function createPackageInspectionCoordinator(
           : await dependencies.queryPackageMetadata(
               packageModel,
               scopedLibrary ?? "");
-        if (ownsRequest()) {
-          const completeFailure = (result.assemblies?.length ?? 0) === 0
-            ? result.inspectionError
-            : null;
-          state.packageMetadata = completeFailure ? null : result;
-          state.packageMetadataError = completeFailure || "";
-        }
+        if (!ownsRequest()) return;
+        const completeFailure = (result.assemblies?.length ?? 0) === 0
+          ? result.inspectionError
+          : null;
+        state.packageMetadata = completeFailure
+          ? {
+            status: "failed",
+            key: signature,
+            error: completeFailure.trim()
+              ? completeFailure
+              : "Metadata inspection failed.",
+          }
+          : { status: "ready", key: signature, result };
       } catch (error) {
-        if (ownsRequest()) {
-          state.packageMetadataError = dependencies.describeError(error);
-        }
-      } finally {
-        if (ownsRequest()) {
-          state.packageMetadataLoading = false;
-          dependencies.render();
-        }
+        if (!ownsRequest()) return;
+        const diagnostic = dependencies.describeError(error);
+        state.packageMetadata = {
+          status: "failed",
+          key: signature,
+          error: diagnostic.trim()
+            ? diagnostic
+            : "Metadata inspection failed.",
+        };
       }
+      dependencies.render();
     },
   };
 }

@@ -15,6 +15,7 @@ import {
   platformPackToken,
   resolveRuntimeGraphTargetCandidate,
   runtimePackForFramework,
+  setTypeViewFacetCatalog,
   typeLensesFor,
 } from "../src/data.ts";
 
@@ -26,6 +27,7 @@ import {
   onlySyntaxNode,
   type DeclaredFunction,
   functionDeclaration,
+  functionSource,
   onlyCallExpressionNamed,
   objectArgument,
   statementAt,
@@ -66,12 +68,18 @@ import {
   commandBarSource,
 } from "./composition-root-test-fixture.ts";
 
+setTypeViewFacetCatalog([
+  { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
+  { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.analysis", kind: "Type", title: "Analysis", order: 250 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
+  { id: "type.source", kind: "Type", title: "Source", order: 400 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
+]);
+
 test("qualified Type leverage exposes a cache-bypassing retry", () => {
-  const control = sourceText(functionDeclaration("typeLeverageStatus"));
-  assert.match(
-    control,
-    /qualified[\s\S]*data-type-leverage-retry>Retry/,
-  );
+  assert.match(dataBarSource, /data-type-leverage-retry>Retry/);
+  assert.match(appSource, /typeLeverageFeedback\(published\.presentation\)/);
   assert.match(
     appSource,
     /onTypeLeverageRetry:\s*\(\) => loadTypeLeverage\(true\)/,
@@ -82,7 +90,7 @@ test("qualified Type leverage exposes a cache-bypassing retry", () => {
   );
 });
 
-test("ordinary Type lists request and present exhaustive structural salience", () => {
+test("Type Members requests and presents exhaustive structural salience", () => {
   const renderer = sourceText(
     functionDeclaration("renderPackageLibraryMetrics"),
   );
@@ -92,13 +100,11 @@ test("ordinary Type lists request and present exhaustive structural salience", (
   const typePresentation = sourceText(
     functionDeclaration("currentTypeLeveragePresentation"),
   );
-  const status = sourceText(
-    functionDeclaration("typeLeverageStatus"),
-  );
+  const status = dataBarSource;
 
   assert.match(
     typeAutoLoad,
-    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*createCurrentTypeLeverageTargets\(\)[\s\S]*typeLeverage\.presentation\(target\.key\) === null[\s\S]*!typeLeverage\.pending\(target\.key\)[\s\S]*loadTypeLeverage\(\)/,
+    /scope\(\) !== "type"[\s\S]*scope\(\) !== "member"[\s\S]*state\.lens !== "api"[\s\S]*createCurrentTypeLeverageTargets\(\)[\s\S]*typeLeverage\.presentation\(target\.key\) === null[\s\S]*!typeLeverage\.pending\(target\.key\)[\s\S]*loadTypeLeverage\(\)/,
   );
   assert.match(
     typePresentation,
@@ -130,31 +136,33 @@ test("shared HTML escaping covers text and attribute delimiters", () => {
 test("platform type and member navigation hides package-only operations", () => {
   assert.deepEqual(
     typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
-    ["api", "source"]);
+    ["overview", "api", "analysis", "source"]);
   assert.deepEqual(
     typeLensesFor({ source: { kind: "file" } }).map(([id]) => id),
-    ["api"]);
+    ["overview", "api"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, true),
-    ["overview", "call-graph", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
-    ["overview", "call-graph", "facts", "source", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source", "compare"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, true),
-    ["overview", "call-graph", "source"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "source"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method", overloads: [{}, {}] }, false),
     [
       "overview",
       "call-graph",
       "facts",
+      "resource-triage",
+      "analysis",
       "source",
       "compare",
     ]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "compare"]);
 });
 
 test("implementation evidence remains subtle member-list heat", () => {
@@ -244,13 +252,25 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
   assert.match(
     typeNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*diffPresence\.typeIdentifiers\.has\(item\.definitionId \?\? item\.id\)[\s\S]*achievements\.push\(apiDiffAchievement\)/,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*const findingDiffAnyCues = libraryFindingDiffAnyCueSource\(\)[\s\S]*const identifier = item\.definitionId \?\? item\.id;\s*const diff = findingDiffAnyCues\s*\? libraryFindingDiffAnyAchievement\(\s*findingDiffAnyTypes\?\.get\(identifier\),\s*findingDiffAnyCues\.baseline\.targetVersion\)\s*: diffPresence\.typeIdentifiers\.has\(identifier\)\s*\? typeApiDiffAchievement\s*: null;\s*return typeLeverageAchievements\(/,
+  );
+  // Outside Library Compare, Type cues come from the last-patch Finding Diff Any
+  // baseline; inside it, from the Compare result. Both are the change glyph.
+  assert.match(
+    sourceText(functionDeclaration("libraryFindingDiffAnyCueSource")),
+    /if \(currentCompareSubject\(\) !== null\) return null;/,
   );
 
   const memberNav = sourceText(functionDeclaration("renderMemberNavPane"));
   assert.match(
     memberNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*memberApiDiffAchievements\(\s*diffPresence\.memberFingerprints,\s*group,\s*index\)/,
+    /memberAchievements: \(group, index\) => \[\s*\.\.\.methodLeverageAchievements\(group, index\),\s*\.\.\.memberChangeAchievements\(group, index\),\s*\]/,
+  );
+  // Inside Library Compare, member cues come from the Compare result;
+  // outside it, from the selected Type's background API Diff.
+  assert.match(
+    sourceText(functionDeclaration("memberChangeAchievements")),
+    /if \(currentCompareSubject\(\) !== null\) \{\s*return memberApiDiffAchievements\(\s*libraryApiDiffPresence\(state\.libraryApiDiff\)\.memberFingerprints,\s*group,\s*index\);\s*\}[\s\S]*typeApiDiffCues\.entry\(request\)/,
   );
 
   const memberDiff = sourceText(
@@ -262,6 +282,10 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   assert.match(
     stylesSource,
     /\.item-achievement-glyph\.api-diff[\s\S]*color: var\(--purple\)/,
+  );
+  assert.match(
+    stylesSource,
+    /\.item-achievement-glyph\.diff \{[\s\S]*?color: var\(--purple\)/,
   );
 });
 
@@ -436,11 +460,8 @@ test("runtime graph acquisition ignores a resident pack from another TFM", () =>
     "unique");
   assert.equal(
     appSource.match(
-      /const pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*platformCatalogFramework\(state\.package\?\.activeFramework \|\| ""\)\)/g)?.length,
-    2);
-  assert.match(
-    appSource,
-    /let pack = runtimePackForFramework\(\s*runtimePackPackage\(\),\s*framework\)/);
+      /runtimePackForFramework\(\s*runtimePackPackage\(\),/g)?.length,
+    4);
 });
 
 test("platform library selection remains distinct from canonical Platform identity", () => {
@@ -589,7 +610,7 @@ test("data bar has no expansion state or interaction binding", () => {
   assert.doesNotMatch(dataBarSource, /addEventListener|querySelector/);
 });
 
-test("typed package controls own framework and version selection bindings", () => {
+test("typed package controls own framework, runtime, and version selection bindings", () => {
   const packageControlsCreation =
     appSource.match(/const packageControls = createPackageControls\(\{[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -607,13 +628,13 @@ test("typed package controls own framework and version selection bindings", () =
     /export function bindPackageSelections\([\s\S]*data-package-framework[\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
     appSource,
-    /function packageVersionField\(\)[\s\S]*id="package-version"/);
+    /packageNavigationVersions\(pkg\.version, entry\)/);
   assert.doesNotMatch(
     appSource,
     /function packageFrameworkField|function packageCoordinateFields/);
   assert.match(
     packageControlsBinding,
-    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
+    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onRuntimeIdentifierSelect: selectRuntimeIdentifier,\s*onVersionSelect: selectVersion,\s*\}\)/);
   assert.equal(
     workspaceBinding.match(/\bpackageControls\.bind\(document\)/g)?.length,
     1);
@@ -685,7 +706,7 @@ test("typed package inspection owns package-root request coordination", () => {
     /createPackageInspectionCoordinator\(\{[\s\S]*render: renderPreservingMemberFocus,[\s\S]*renderDependencyGraph,/);
   assert.match(
     appSource,
-    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\)\)/);
+    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\),\s*packageModel\.runtimeIdentifier \?\? null\)/);
   for (const engine of [
     "inspectPackageIntegrations",
     "inspectPackageOpportunities",
@@ -720,8 +741,8 @@ test("typed package inspection owns package-root request coordination", () => {
   assert.match(appSource, /packageInspection\.loadMetadata\(/);
   assert.match(
     packageInspectionSource,
-    /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
-  assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
+    /async loadDependencies\(packageModel, signature\)[\s\S]*packageInspectionRequestStateKey\(current\) === signature[\s\S]*state\.packageDependencies\.request === request/);
+  assert.doesNotMatch(dependenciesLoader, /state\.packageDependencies/);
 });
 
 test("typed package view owns package navigation bindings", () => {
@@ -773,15 +794,20 @@ test("typed package view owns package navigation bindings", () => {
     /onDependencyGroupSelect: index => \{[\s\S]*state\.dependenciesGroupIndex === index[\s\S]*state\.dependenciesGroupIndex = index;[\s\S]*patchDependenciesGroup\(\)/);
   assert.match(
     binding,
-    /onDependencyLoad: \(id, version\) =>\s*observeAsync\(\s*openDependencyPackage\(id, version\),\s*"Opening a dependency package"\),\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToTypeByName/);
+    /onDependencyLoad: \(id, version\) =>\s*observeAsync\(\s*openDependencyPackage\(id, version\),\s*"Opening a dependency package"\),\s*onDependencyOpen: switchToPackageForDependencies,\s*onGraphTypeSelect: navigateToRelatedType/);
   const kindJump = actionSource("onKindJump");
   const libraryJump = actionSource("onLibraryScopeSelect");
   const namespaceJump = actionSource("onNamespaceJump");
   const packageChildLibrary =
     actionSource("onPackageChildLibrarySelect");
+  const libraryReference =
+    actionSource("onLibraryReferenceSelect");
   assert.match(
     packageChildLibrary,
     /navigationSequence\.begin\(\)[\s\S]*selectLibrarySubject\(assetId\)/);
+  assert.match(
+    libraryReference,
+    /state\.packages\.find[\s\S]*packageIdentityKey\(candidate\) === packageKey[\s\S]*selectWorkspacePackage\(target, \{ renderSelection: false \}\)[\s\S]*selectLibrarySubject\(libraryId\)/);
   assert.match(
     kindJump,
     /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
@@ -833,10 +859,47 @@ test("typed package view owns package navigation bindings", () => {
   assert.equal(libraryJump.match(/\brender\(\)/g)?.length, 1);
   assert.match(
     binding,
-    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
+    /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId, target\.resourceMethodToken\)/);
+  assert.match(
+    binding,
+    /onUnsafeMemberSelect: target => \{[\s\S]*drillToUnsafeMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
+  assert.match(
+    functionSource("drillToPerfMember"),
+    /drillToAnalysisMember\(\s*retainPerformanceNavigationType\(pkg, ranked\),\s*stableSelector,\s*resourceMethodToken === undefined \? "facts" : "resource-triage",\s*resourceMethodToken\)/);
+  assert.match(
+    binding,
+    /onUnsafeTypeSelect: target => \{[\s\S]*drillToUnsafeType\(target\.assembly, target\.typeId\)/);
+  assert.match(
+    functionSource("resolveUnsafeNavigationType"),
+    /retainPerformanceNavigationType\(pkg, \{ assembly, typeId, declaringType \}\)[\s\S]*resolvePackagePerformanceType\(pkg, \{ assembly, typeId \}\)/);
+  assert.match(
+    functionSource("drillToUnsafeMember"),
+    /resolveUnsafeNavigationType\([\s\S]*state\.memberAnalysisMode = "unsafe";[\s\S]*drillToAnalysisMember\(\s*targetType,\s*stableSelector,\s*"analysis",/);
+  // A view loads only its own scope; a covering wider census answers it.
+  assert.match(
+    functionSource("unsafeCensusFor"),
+    /unsafeCensusSourceFor\(view, \{\s*library: library\.fresh,\s*type: view === "member" && type\.fresh,\s*\}\)/);
+  assert.match(
+    functionSource("visibleUnsafeCensus"),
+    /if \(state\.atLibraryRoot\) return unsafeCensusFor\("library"\);[\s\S]*if \(scope\(\) === "type"\) return unsafeCensusFor\("type", unsafeTypeIdentity\(type\)\);[\s\S]*unsafeCensusFor\("member", unsafeTypeIdentity\(type\), selector\)/);
+  assert.match(
+    functionSource("loadPackageUnsafeMembers"),
+    /if \(census\.source !== census\.view\) return;[\s\S]*packageInspection\.loadUnsafeMembers\(\s*pkg,\s*census\.key,\s*scopedLib,\s*census\.scope\)/);
+  assert.match(
+    functionSource("maybeAutoLoadPackageUnsafeMembers"),
+    /if \(!census \|\| census\.source !== census\.view \|\| census\.request\.fresh\) return;/);
+  assert.match(
+    functionSource("drillToUnsafeType"),
+    /resolveUnsafeNavigationType\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp"\);[\s\S]*state\.lens = "analysis";\s*state\.typeAnalysisMode = "unsafe";[\s\S]*render\(\);/);
+  assert.match(
+    functionSource("drillToAnalysisMember"),
+    /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*section,\s*resourceMethodToken,\s*usePerformanceBody\)/);
   assert.match(
     appSource,
-    /function drillToPerfMember\([\s\S]*setTypeMemberPopulationIntent\("public", "csharp"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent\)/);
+    /implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\)/);
+  assert.match(
+    appSource,
+    /performanceMemberBrowseContext\.populationReceipt\.key\s*=== typeMemberPopulationKey\(type, "performance"\)/);
   const drillToPerfMember =
     appSource.match(/function drillToPerfMember\([\s\S]*?\n}/)?.[0] ?? "";
   const selectPerformanceMember =
@@ -844,7 +907,13 @@ test("typed package view owns package navigation bindings", () => {
     ?? "";
   assert.match(
     selectPerformanceMember,
-    /const populationReceipt = await loadSelectedTypeMemberPopulation\(\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*await loadSelectedMemberDocumentation\(\)/);
+    /const populationReceipt = await loadSelectedTypeMemberPopulation\(true\);[\s\S]*viewSignature\(\) !== expectedView[\s\S]*typeMemberPopulationReceipt !== populationReceipt[\s\S]*typeMemberPopulationIntentGeneration !== expectedPopulationIntent[\s\S]*typeMemberPopulationKey\(type\) !== expectedPopulationKey[\s\S]*state\.typeMemberPopulationKey !== expectedPopulationKey[\s\S]*overload\.stableSelector === stableSelector[\s\S]*state\.selectedMemberKey = group\.key[\s\S]*performanceMemberBrowseContext = \{[\s\S]*populationReceipt,[\s\S]*state\.memberSection = section;[\s\S]*section === "analysis"\s*\?\s*loadSelectedMemberAnalysisMode\(\)\s*:\s*loadSelectedMemberAnalysisSurface\(\)/);
+  // An Unsafe drill opens Member Analysis, whose selected mode alone loads:
+  // no Member Facts or Annotated Source work starts for it.
+  const drillToUnsafeMember =
+    appSource.match(/function drillToUnsafeMember\([\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(drillToUnsafeMember, /drillToAnalysisMember\([\s\S]*"analysis"/);
+  assert.doesNotMatch(drillToUnsafeMember, /loadSelectedMemberFacts|loadSelectedMemberAnnotatedSource|loadSelectedMemberAnalysisSurface/);
   assert.match(
     appSource,
     /const receipt: TypeMemberPopulationReceipt = \{[\s\S]*generation: \+\+typeMemberPopulationGeneration,[\s\S]*typeMemberPopulationReceipt = receipt;[\s\S]*return receipt;/);
@@ -982,7 +1051,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /replaceChildrenPreservingRenderedInteractions\(app, `[\s\S]*bindLoadErrorShell\(document, loadErrorShellActions\)/);
   assert.match(
     workbenchActions,
-    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onOpenPackageTargetFramework: \(\) => \{[\s\S]*contentFramePane = "navigation";[\s\S]*state\.atPackageRoot = true;[\s\S]*render\(\);[\s\S]*focusContentNavigation\(document\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
+    /onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*currentInspectedSubjectPath\(\)\[index\][\s\S]*copyText\(segment\.label, `\$\{segment\.kind\} name copied`\)[\s\S]*onOpenPackageTargetFramework: \(\) => \{[\s\S]*contentFramePane = "navigation";[\s\S]*state\.atPackageRoot = true;[\s\S]*state\.packageLens = "overview";[\s\S]*render\(\);[\s\S]*focusPackageCoordinateControl\("package-framework", currentPackage\(\)\.activeFramework\)[\s\S]*onDismissNotice: dismissQueryNotice,\n  onDismissPackageNotice:/);
   assert.match(
     workbenchActions,
     /onDismissPackageNotice: \(\) => \{[\s\S]*pkg\.inspectionErrors = \[\];[\s\S]*pkg\.inspectionError = "";[\s\S]*render\(\);\s*\},\n  onNavigateBack:/);
@@ -1024,10 +1093,7 @@ test("keyboard help projects available global and current graph bindings", () =>
     appSource,
     /const workspaceDrillInIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && state\.package !== null/);
   const renderWorkspaceFocus =
-    appSource.match(
-      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?\n}\n\nfunction renderWorkspaceCatalogView/,
-    )?.[0]
-    ?? "";
+    functionSource("renderCore");
   assert.equal(
     renderWorkspaceFocus.match(
       /restoreWorkspaceFocus\(document, workspaceFocus\)/g,
@@ -1127,23 +1193,19 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
   const typeGraph =
-    appSource.match(/async function renderTypeGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction navigateToTypeByName)/)?.[0]
-    ?? "";
+    functionSource("renderTypeGraph");
   const annotatedRelationshipGraph =
-    appSource.match(/async function renderAnnotatedRelationshipDiagram\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Projects the neutral type-relationship)/)?.[0]
-    ?? "";
+    functionSource("renderAnnotatedRelationshipDiagram");
   const dependencyGraph =
-    appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nasync function renderLibraryReferenceGraph)/)?.[0]
-    ?? "";
+    functionSource("renderDependencyGraph");
   const libraryReferenceGraph =
-    appSource.match(/async function renderLibraryReferenceGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
-    ?? "";
+    functionSource("renderLibraryReferenceGraph");
   const callGraph =
-    appSource.match(/function renderMermaidCallGraph\(\): Promise<CallGraphRenderResult> \{[\s\S]*?\n}(?=\n\nfunction callGraphNodeBinding)/)?.[0]
-    ?? "";
+    functionSource("renderMermaidCallGraph");
+  const callGraphNodeBinding =
+    functionSource("callGraphNodeBinding");
   const callGraphBinding =
-    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction currentCallGraph)/)?.[0]
-    ?? "";
+    functionSource("callGraphTargetBinding");
   assert.match(
     graphInteractionsSource,
     /export function bindGraphBack\([\s\S]*\[data-graph-back\]/);
@@ -1194,7 +1256,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveDependencyGraphNode: nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
   assert.match(
     dependencyGraph,
-    /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
+    /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self" \|\| info\.kind === "platform"\)\s*return null/);
   assert.match(
     libraryReferenceGraph,
     /buildAssemblyReferenceGraphMermaid\([\s\S]*graphControlsHtml\(\)[\s\S]*bindGraphPanZoom\(container, viewport, \{ keybindings \}\)/);
@@ -1208,8 +1270,11 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     callGraph,
     /catch \(error\) \{[\s\S]*const message = errorMessage\(error\);[\s\S]*graph-render-error[\s\S]*return \{ status: "failed", message \}/);
   assert.match(
+    callGraphNodeBinding,
+    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*return callGraphTargetBinding\(target\)/);
+  assert.match(
     callGraphBinding,
-    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
+    /const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
   assert.match(
     callGraphBinding,
     /if \(disposition === "member" && pack && resident\) \{[\s\S]*openRuntimeMemberFromGraph\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
@@ -1231,7 +1296,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     graphInteractionsSource,
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*"dependency-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
-  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 5);
+  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 6);
   assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
   assert.doesNotMatch(
     `${annotatedRelationshipGraph}\n${typeGraph}\n${dependencyGraph}\n${libraryReferenceGraph}\n${callGraph}`,
@@ -1248,7 +1313,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 8);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 11);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {
@@ -1265,7 +1330,7 @@ test("typed document inspection owns package document request coordination", () 
     ?? "";
   assert.match(
     appSource,
-    /createDocumentInspectionCoordinator\(\{[\s\S]*queryDocument:[\s\S]*renderMarkdown,[\s\S]*renderMarkdownInline,/);
+    /createDocumentInspectionCoordinator\(\{[\s\S]*queryDocument:[\s\S]*renderDocument: renderPackageDocument,/);
   assert.match(
     appSource,
     /queryDocument: request => inspectPackageDocument\(\s*request\.packageId,\s*request\.version,\s*request\.document\.path\)/);
@@ -1576,7 +1641,7 @@ test("typed scope bar owns its rendered control bindings", () => {
                     if: 'target === "type"',
                     whenTrue: [
                       {
-                        if: "!selectedType() && packageSurfaceCanLoadTypes(state.package)",
+                        if: "!selectedType() && packageSurfaceIsEligible(state.package)",
                         whenTrue: [
                           "call:observeAsync(enterTypeSubjectFromPackageSummary(state.package, navigationSeq), `Loading ${state.package.id} Type navigation`)",
                           "statement:ReturnStatement:return;",
@@ -1638,7 +1703,7 @@ test("typed scope bar owns its rendered control bindings", () => {
       'assign:state.selectedMemberKey = ""',
       'assign:state.memberBrowseTypeId = ""',
       "call:render()",
-      "call:loadCurrentTypeApiData()",
+      "call:loadCurrentTypeLensData()",
     ]);
   assert.match(
     scopeBarSource,
@@ -1658,6 +1723,15 @@ test("typed scope bar owns its rendered control bindings", () => {
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
+});
+
+test("package Type and Member inspection retain exact runtime identity", () => {
+  assert.match(
+    appSource,
+    /inspectTypeMemberPopulation\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*type\.assembly,\s*type\.definitionId \?\? type\.id,\s*state\.memberSpelling,\s*state\.memberAccessibilityFilter,\s*pkg\.runtimeIdentifier \?\? null\)/);
+  assert.match(
+    appSource,
+    /\(performance\s*\? inspectPerformanceTypeMemberPopulation\s*: inspectTypeOverviewDocument\)\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*type\.assembly,\s*type\.definitionId \?\? type\.id,\s*state\.memberSpelling,\s*state\.memberAccessibilityFilter,\s*pkg\.runtimeIdentifier \?\? null\)/);
 });
 
 test("typed settings panel owns its rendered control bindings", () => {
@@ -2089,8 +2163,8 @@ test("annotated source Escape and history ownership track the mounted surface", 
     popstate,
     /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isDiagnosticsPath/);
   assert.match(
-    appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
+    functionSource("renderCore"),
+    /if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
 });
 
 test("package search state owner settles pending work and projects visible cache", () => {
@@ -2123,7 +2197,7 @@ test("Spotlight async work is receipt-gated and refreshes either mounted surface
     /generation|spotlightPkgGeneration|spotlightPkgTimer/);
   assert.match(
     appSource,
-    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen\) spotlight\.refresh\(\)/);
+    /window\.__platformIndex\.then\(index => \{[\s\S]*if \(state\.spotlightOpen \|\| state\.home\) spotlight\.refresh\(\)/);
   assert.doesNotMatch(appSource, /rtpack-suggest|data-sl-load-runtime/);
   assert.doesNotMatch(appSource, /function activateRuntimePack\(/);
 });
@@ -2234,7 +2308,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function pickSpotlightMember\([\s\S]*if \(!pkg \|\| !type\)[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
-    /async function pickSpotlight\([\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*packageSurfaceCanLoadTypes\(pkg\)[\s\S]*loadPackageSurface\(pkg\)[\s\S]*if \(!pkg \|\| !type\)[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
+    /async function pickSpotlight\([\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*packageSurfaceIsEligible\(pkg\)[\s\S]*loadPackageSurface\(pkg\)[\s\S]*if \(!pkg \|\| !type\)[\s\S]*spotlightPlatformTypeIsAvailable\([\s\S]*const navigationGeneration = beginSpotlightNavigation\(\)/);
   assert.match(
     appSource,
     /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\([\s\S]*focusGeneration = documentFocusGeneration,[\s\S]*canRestoreWorkbenchFocus\(generation, focusGeneration\)/);
@@ -2244,4 +2318,32 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
   assert.match(
     spotlightSource,
     /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
+});
+
+// docs/design/inspect-web-surface-composition.md#library-analysis: Type
+// Analysis starts only its selected mode's work, so an Overview-opened
+// package Type runs no unsafe census, a Platform Type requests no
+// relationships, and a tab switch loads the newly selected mode.
+test("Type Analysis starts only the selected mode's work", () => {
+  const body = (name: string) =>
+    appSource.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}`))?.[0] ?? "";
+  assert.match(
+    body("loadSelectedTypeAnalysisMode"),
+    /case "relationships": return loadSelectedTypeAnalysis\(\);\s*case "unsafe": return loadPackageUnsafeMembers\(\);/);
+  assert.match(
+    body("unsafeMembersScopeIsVisible"),
+    /activeScope === "type"\s*&& state\.lens === "analysis"\s*&& currentTypeAnalysisMode\(\) === "unsafe"/);
+  assert.match(
+    body("typeAnalysisContext"),
+    /relationshipsOffered: state\.rootKind !== "library"\s*&& typeRelationshipsOfferedFor\(state\.package\)/);
+  assert.match(
+    body("inspectSelectedTypeRelations"),
+    /if \(pkg\.isRuntimePack \|\| state\.rootKind === "library"\) return;/);
+  assert.match(
+    body("bindAnalysisInspectorEvents"),
+    /render\(\);[\s\S]*if \(selection\.scope === "type"\) \{[\s\S]*loadSelectedTypeAnalysisMode\(\)/);
+  assert.equal(body("renderLens").match(/case "analysis":/g)?.length, 1);
+  assert.match(body("renderLens"), /case "analysis":\s*return renderTypeAnalysis\(item\);/);
+  assert.equal(body("loadSelectedTypeLensData").match(/case "analysis":/g)?.length, 1);
+  assert.match(body("loadSelectedTypeLensData"), /case "analysis": return loadSelectedTypeAnalysisMode\(\);/);
 });

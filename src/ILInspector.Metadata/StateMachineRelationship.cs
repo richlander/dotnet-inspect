@@ -178,7 +178,8 @@ public sealed record StateMachineRelationship
     internal static bool CanBeAbsent(
         StateMachineClaimKind kind,
         StateMachineMethodRole role) =>
-        kind == StateMachineClaimKind.ClassicAsync
+        kind is (StateMachineClaimKind.ClassicAsync
+            or StateMachineClaimKind.AsyncIterator)
         && role == StateMachineMethodRole.SetStateMachine;
 }
 

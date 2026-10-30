@@ -1,0 +1,410 @@
+using System.Collections.Immutable;
+
+using ILInspector.Metadata;
+
+namespace ILInspector.Analysis;
+
+/// <summary>
+/// One physical method's facts for the unsafe member census: its body
+/// availability and analysis outcome, its authenticated owner, and its
+/// inventory roles.
+/// </summary>
+internal readonly record struct UnsafeMemberBodyFacts(
+    int Token,
+    MethodIdentity? Body,
+    bool InScope,
+    bool IsExtensionDeclarationSkeleton,
+    MethodBodyAvailability Availability,
+    bool AnalysisFailed,
+    string? FailureDetail,
+    bool RequiresDeclaredOwner,
+    DeclaredOwnerResolution OwnerResolution,
+    bool OwnerResolutionFailed,
+    MethodIdentity? DeclaredOwner,
+    ImmutableArray<UnsafeMemberUseEvidence> Evidence,
+    UnsafeMemberModuleRules ModuleRules = UnsafeMemberModuleRules.NotRead);
+
+/// <summary>
+/// The module's memory-safety rules as one body read them. Only a body with
+/// inner-unsafe evidence reads them, because only that evidence can make its
+/// member a safe boundary.
+/// </summary>
+internal enum UnsafeMemberModuleRules
+{
+    NotRead,
+    Legacy,
+    Updated,
+    Unknown,
+}
+
+/// <summary>Public root membership for exposure.</summary>
+internal sealed record UnsafeMemberRootSet(
+    IReadOnlySet<int> RootTokens,
+    bool IsComplete,
+    bool Failed)
+{
+    public static UnsafeMemberRootSet Unavailable { get; } =
+        new(new HashSet<int>(), IsComplete: false, Failed: true);
+}
+
+/// <summary>
+/// Folds physical-body inventory roles into one finding per declared member
+/// under docs/design/unsafe-member-findings.md.
+/// </summary>
+internal static class UnsafeMemberCensusBuilder
+{
+    public static UnsafeMemberCensus Build(
+        IReadOnlyList<UnsafeMemberBodyFacts> bodies,
+        bool hasFullMethodEvidenceScope,
+        ReferenceAssemblyState referenceAssembly,
+        UnsafeMemberRootSet roots,
+        bool attributionBounded = false)
+    {
+        ArgumentNullException.ThrowIfNull(bodies);
+        ArgumentNullException.ThrowIfNull(roots);
+
+        var limitations =
+            ImmutableArray.CreateBuilder<UnsafeMemberLimitation>();
+        if (!hasFullMethodEvidenceScope)
+            limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.ScopedReceipt));
+        if (attributionBounded)
+            limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.AttributionBounded));
+        if (referenceAssembly == ReferenceAssemblyState.Reference)
+            limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.ReferenceAssembly));
+        else if (referenceAssembly == ReferenceAssemblyState.Undecidable)
+            limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.ReferenceAssemblyUndecidable));
+        if (roots.Failed)
+            limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.PublicRootInventoryFailed));
+        else if (!roots.IsComplete)
+            limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.PublicRootInventoryBounded));
+
+        var identities = new Dictionary<int, MethodIdentity>();
+        foreach (UnsafeMemberBodyFacts body in bodies)
+        {
+            if (body.Body is { } identity)
+                identities[body.Token] = identity;
+        }
+
+        var evidenceByOwner =
+            new SortedDictionary<int, ImmutableArray<UnsafeMemberFindingEvidence>.Builder>();
+        var owners = new Dictionary<int, MethodIdentity>();
+        var rulesByOwner = new Dictionary<int, UnsafeMemberModuleRules>();
+        var uninspectedByOwner =
+            new Dictionary<int, ImmutableArray<UnsafeMemberLimitation>.Builder>();
+        var bodyLimitations =
+            new List<(int Token, UnsafeMemberLimitation Limitation)>();
+
+        foreach (UnsafeMemberBodyFacts body in bodies)
+        {
+            // A scoped receipt does not classify bodies outside its scope;
+            // its one receipt-level limitation stands for them.
+            if (!hasFullMethodEvidenceScope && !body.InScope)
+                continue;
+            // An extension declaration copy duplicates its implementation
+            // method's contract and has no implementation body.
+            if (body.IsExtensionDeclarationSkeleton)
+                continue;
+            if (body.Body is not { } physical)
+            {
+                if (body.AnalysisFailed)
+                {
+                    bodyLimitations.Add((
+                        body.Token,
+                        new UnsafeMemberLimitation(
+                            UnsafeMemberLimitationReason.BodyAnalysisFailed,
+                            body.Token,
+                            Body: null,
+                            DeclaredMember: null,
+                            Evidence: [],
+                            body.FailureDetail)));
+                }
+                continue;
+            }
+
+            MethodIdentity? owner = ResolveOwner(body, physical, identities);
+            UnsafeMemberLimitationReason? failure =
+                body.AnalysisFailed
+                    ? UnsafeMemberLimitationReason.BodyAnalysisFailed
+                    : null;
+            ImmutableArray<UnsafeMemberFindingEvidence> evidence =
+                ProjectEvidence(body, physical, ownBody: owner == physical);
+
+            if (owner is null)
+            {
+                // An unattributed body joins no finding; it is a limitation
+                // only when it could hide or carries evidence.
+                if (failure is not null || !evidence.IsEmpty)
+                {
+                    bodyLimitations.Add((
+                        body.Token,
+                        new UnsafeMemberLimitation(
+                            failure ?? UnsafeMemberLimitationReason.UnattributedGeneratedBody,
+                            body.Token,
+                            physical,
+                            DeclaredMember: null,
+                            evidence,
+                            body.FailureDetail)));
+                }
+                continue;
+            }
+
+            owners.TryAdd(owner.MetadataToken, owner);
+            if (!evidence.IsEmpty)
+            {
+                if (!evidenceByOwner.TryGetValue(owner.MetadataToken, out var ownerEvidence))
+                {
+                    ownerEvidence = ImmutableArray.CreateBuilder<UnsafeMemberFindingEvidence>();
+                    evidenceByOwner.Add(owner.MetadataToken, ownerEvidence);
+                }
+                ownerEvidence.AddRange(evidence);
+                if (body.ModuleRules != UnsafeMemberModuleRules.NotRead)
+                {
+                    rulesByOwner[owner.MetadataToken] =
+                        rulesByOwner.TryGetValue(owner.MetadataToken, out var known)
+                        && known != body.ModuleRules
+                            ? UnsafeMemberModuleRules.Unknown
+                            : body.ModuleRules;
+                }
+            }
+
+            if (failure is { } reason)
+            {
+                var limitation = new UnsafeMemberLimitation(
+                    reason,
+                    body.Token,
+                    physical,
+                    owner,
+                    evidence,
+                    body.FailureDetail);
+                bodyLimitations.Add((body.Token, limitation));
+                if (!uninspectedByOwner.TryGetValue(owner.MetadataToken, out var ownerGaps))
+                {
+                    ownerGaps = ImmutableArray.CreateBuilder<UnsafeMemberLimitation>();
+                    uninspectedByOwner.Add(owner.MetadataToken, ownerGaps);
+                }
+                ownerGaps.Add(limitation);
+            }
+        }
+
+        var members = ImmutableArray.CreateBuilder<UnsafeMemberFinding>(evidenceByOwner.Count);
+        foreach ((int token, var evidence) in evidenceByOwner)
+        {
+            MethodIdentity member = owners[token];
+            members.Add(new UnsafeMemberFinding(
+                member,
+                member.CallerUnsafeMode == CallerUnsafeMode.Explicit,
+                evidence.ToImmutable(),
+                uninspectedByOwner.TryGetValue(token, out var gaps)
+                    ? gaps.ToImmutable()
+                    : [],
+                Exposure(token, roots),
+                SafeBoundary(
+                    member,
+                    rulesByOwner.GetValueOrDefault(token, UnsafeMemberModuleRules.NotRead))));
+        }
+
+        foreach ((_, UnsafeMemberLimitation limitation) in bodyLimitations
+            .OrderBy(static entry => entry.Token))
+        {
+            limitations.Add(limitation);
+        }
+
+        return new UnsafeMemberCensus(
+            members.MoveToImmutable(),
+            limitations.ToImmutable());
+    }
+
+    // A body that needs no declared owner is its own declared member; a
+    // generated body joins only an owner the resolution authenticated.
+    static MethodIdentity? ResolveOwner(
+        UnsafeMemberBodyFacts body,
+        MethodIdentity physical,
+        IReadOnlyDictionary<int, MethodIdentity> identities)
+    {
+        if (!body.RequiresDeclaredOwner)
+            return physical;
+        if (body.OwnerResolutionFailed
+            || body.OwnerResolution != DeclaredOwnerResolution.Resolved
+            || body.DeclaredOwner is not { } declared
+            || declared.ModuleVersionId != physical.ModuleVersionId)
+        {
+            return null;
+        }
+        return identities.TryGetValue(declared.MetadataToken, out MethodIdentity? canonical)
+            ? canonical
+            : declared;
+    }
+
+    // An explicit contract belongs to the member that declares it; generated
+    // bodies contribute body roles and explicit-contract calls only.
+    static ImmutableArray<UnsafeMemberFindingEvidence> ProjectEvidence(
+        UnsafeMemberBodyFacts body,
+        MethodIdentity physical,
+        bool ownBody)
+    {
+        if (body.Evidence.IsDefaultOrEmpty)
+            return [];
+        var evidence = ImmutableArray.CreateBuilder<UnsafeMemberFindingEvidence>(body.Evidence.Length);
+        foreach (UnsafeMemberUseEvidence item in body.Evidence)
+        {
+            if (!ownBody && item.Kind == UnsafeMemberUseKind.ExplicitContract)
+                continue;
+            evidence.Add(new UnsafeMemberFindingEvidence(
+                item.Kind,
+                physical,
+                item.ILOffset,
+                item.Detail,
+                item.ContractSource));
+        }
+        return evidence.ToImmutable();
+    }
+
+    // A member that propagates is never a safe boundary, whatever the rules.
+    // Otherwise inner-unsafe evidence read under the updated rules makes one.
+    // Every non-propagating finding has such evidence, whose body read the
+    // rules, so an unread state is undecided rather than a negative.
+    static UnsafeMemberSafeBoundary SafeBoundary(
+        MethodIdentity member,
+        UnsafeMemberModuleRules rules)
+        => member.CallerUnsafeMode == CallerUnsafeMode.Explicit
+            ? UnsafeMemberSafeBoundary.No
+            : rules switch
+            {
+                UnsafeMemberModuleRules.Updated => UnsafeMemberSafeBoundary.Yes,
+                UnsafeMemberModuleRules.Legacy => UnsafeMemberSafeBoundary.NotApplicable,
+                _ => UnsafeMemberSafeBoundary.Unknown,
+            };
+
+    static UnsafeMemberExposure Exposure(int token, UnsafeMemberRootSet roots)
+        => roots.RootTokens.Contains(token)
+            ? UnsafeMemberExposure.Public
+            : roots.IsComplete && !roots.Failed
+                ? UnsafeMemberExposure.NonPublic
+                : UnsafeMemberExposure.Unknown;
+
+    static UnsafeMemberLimitation ImageLimitation(UnsafeMemberLimitationReason reason)
+        => new(reason, BodyToken: null, Body: null, DeclaredMember: null, Evidence: []);
+}
+
+/// <summary>
+/// The unsafe-member inventory's per-body rules, shared by every census path:
+/// which roles one physical body contributes and which source an
+/// explicit-contract call carries.
+/// </summary>
+internal static class UnsafeMemberUseRules
+{
+    // One physical body's unsafe-member inventory roles, in the order the
+    // inventory owns: the explicit contract, the unsafe-context operations,
+    // and then the explicit-contract calls that no span lowering explains.
+    internal static ImmutableArray<UnsafeMemberUseEvidence>
+        CollectEvidence(
+            CallerUnsafeMode mode,
+            ImmutableArray<UnsafetyOccurrence> unsafety,
+            ImmutableHashSet<int> constantDataSpanConstructors,
+            IEnumerable<(
+                    int ILOffset,
+                    MemberRef Callee,
+                    UnsafeContractSource Source)>
+                explicitCalls)
+    {
+        var evidence =
+            ImmutableArray.CreateBuilder<UnsafeMemberUseEvidence>();
+        if (mode == CallerUnsafeMode.Explicit)
+        {
+            evidence.Add(new(
+                UnsafeMemberUseKind.ExplicitContract,
+                ILOffset: null,
+                "The member has an explicit updated-model caller-unsafe contract."));
+        }
+
+        ImmutableArray<UnsafetyOccurrence> occurrences =
+            unsafety.IsDefault ? [] : unsafety;
+        foreach (UnsafetyOccurrence occurrence in occurrences)
+        {
+            if (!occurrence.RequiresUnsafeContext)
+                continue;
+
+            evidence.Add(new(
+                occurrence.Kind switch
+                {
+                    UnsafetyKind.Deref =>
+                        UnsafeMemberUseKind.PointerDereference,
+                    UnsafetyKind.CallIndirect =>
+                        UnsafeMemberUseKind.IndirectCall,
+                    UnsafetyKind.StackAlloc =>
+                        UnsafeMemberUseKind.StackAllocation,
+                    _ => throw new InvalidOperationException(
+                        $"Unsupported unsafe-member occurrence kind '{occurrence.Kind}'."),
+                },
+                occurrence.ILOffset,
+                occurrence.Detail
+                    ?? occurrence.Kind.ToString()));
+        }
+
+        HashSet<int>? loweredSpanConstructors = null;
+        foreach ((int ilOffset, MemberRef callee, UnsafeContractSource source)
+            in explicitCalls)
+        {
+            loweredSpanConstructors ??=
+            [
+                .. constantDataSpanConstructors,
+                .. occurrences
+                    .Where(static occurrence =>
+                        occurrence.SpanConstructorOffset is not null)
+                    .Select(static occurrence =>
+                        occurrence.SpanConstructorOffset!.Value),
+            ];
+            if (loweredSpanConstructors.Contains(ilOffset))
+                continue;
+            evidence.Add(new(
+                UnsafeMemberUseKind.ExplicitContractCall,
+                ilOffset,
+                callee.ToQualifiedDisplayString(),
+                source));
+        }
+
+        return evidence.ToImmutable();
+    }
+
+    // A primary-image marker is authoritative. An image compiled under the
+    // updated rules is also authoritative for its unmarked definitions;
+    // otherwise the platform projection supplies the contract
+    // (docs/design/platform-caller-unsafe-contracts.md#contract-source).
+    // Roslyn synthesizes <PrivateImplementationDetails> helpers, such as
+    // InlineArrayAsSpan, to lower safe collection expressions and inline
+    // arrays; their platform calls are lowering, not source calls.
+    static bool IsPrivateImplementationDetailsBody(MethodIdentity body)
+        => body.DeclaringType.Kind == TypeRefKind.Definition
+            && body.DeclaringType.Namespace.Length == 0
+            && body.DeclaringType.Name.StartsWith(
+                "<PrivateImplementationDetails>",
+                StringComparison.Ordinal);
+
+    internal static UnsafeContractSource? ExplicitCallContractSource(
+        CallKind kind,
+        MemberRef callee,
+        CallerUnsafeMode? targetCallerUnsafeMode,
+        MethodIdentity evidenceMethod,
+        bool primaryImageUsesUpdatedRules)
+    {
+        if (targetCallerUnsafeMode == CallerUnsafeMode.Explicit)
+            return UnsafeContractSource.SameImage.Instance;
+        if (IsPrivateImplementationDetailsBody(evidenceMethod))
+            return null;
+        if (kind is not (
+                CallKind.Call
+                or CallKind.CallVirtual
+                or CallKind.NewObject)
+            || (primaryImageUsesUpdatedRules
+                && targetCallerUnsafeMode is not null))
+        {
+            return null;
+        }
+
+        PlatformCallerUnsafeContracts platform =
+            PlatformCallerUnsafeContracts.Embedded;
+        return platform.Contains(callee)
+            ? platform.Source
+            : null;
+    }
+}

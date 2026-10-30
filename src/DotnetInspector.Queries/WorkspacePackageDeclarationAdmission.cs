@@ -288,7 +288,16 @@ public sealed partial class InspectionWorkspace
                 new WorkspaceDeclarationOrigin.PackageScope(
                     occurrence,
                     entry.Asset),
-                selection));
+                selection,
+                new(
+                    occurrence.Occurrence.Package
+                        .RequestedTargetFramework
+                    ?? occurrence.Occurrence.Package
+                        .Coordinate.Framework,
+                    occurrence.Occurrence.Package
+                        .RuntimeIdentifier
+                    ?? occurrence.Occurrence.Package
+                        .Coordinate.RuntimeIdentifier)));
         }
 
         return new WorkspaceDeclarationContext(

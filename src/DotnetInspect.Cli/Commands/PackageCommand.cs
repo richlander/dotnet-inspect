@@ -35,18 +35,24 @@ namespace DotnetInspect.Cli.Commands;
 public partial class PackageCommand
 {
     public const string Name = "package";
-    public static Task<int> ExecuteAsync(InspectionOptions options)
+    public static Task<int> ExecuteAsync(
+        InspectionOptions options,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return ExecuteAsync(
-            options,
-            new CommandContext(options.Verbose));
+        var context = new CommandContext(options.Verbose);
+        return PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? ExecutePackageReferenceAsync(
+                options, context, cancellationToken: cancellationToken)
+            : ExecuteAsync(options, context);
     }
 
     internal static async Task<int> ExecuteAsync(
         InspectionOptions options,
         CommandContext context) =>
-        await ExecuteCoreAsync(
+        PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? await ExecutePackageReferenceAsync(options, context).ConfigureAwait(false)
+            : await ExecuteCoreAsync(
             options,
             context,
             preResolved: null,
@@ -61,7 +67,10 @@ public partial class PackageCommand
         InspectionOptions options,
         CommandContext context,
         WorkspaceContextLoadOptions workspaceLoadOptions) =>
-        await ExecuteCoreAsync(
+        PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? await ExecutePackageReferenceAsync(options, context, workspaceLoadOptions)
+                .ConfigureAwait(false)
+            : await ExecuteCoreAsync(
             options,
             context,
             preResolved: null,
@@ -97,18 +106,27 @@ public partial class PackageCommand
         var sectionNames = sectionCatalog.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
         if (options.WorkspacePacket is null
+            && options.ShareFormat is not null
+            && options.Discover is not null)
+        {
+            CommandError.Write("--share cannot preserve package discovery in the Browser.");
+            return 1;
+        }
+        if (packageLibraryMode
+            && options.WorkspacePacket is null
             && options.ShareFormat is not null)
         {
-            CommandError.Write(
-                "--share on package requires --workspace.");
+            CommandError.Write("--share on package library routes requires --workspace.");
             return 1;
         }
 #if DEBUG
         if (options.WorkspacePacket is null
-            && options.EvidenceEnvelopePath is not null)
+            && options.EvidenceEnvelopePath is not null
+            && (!options.ShowContent || packageArgs.Length != 1))
         {
             CommandError.Write(
-                "--evidence-envelope on package requires --workspace.");
+                "--evidence-envelope on package requires --workspace "
+                + "or one pinned literal file with --content.");
             return 1;
         }
 #endif
@@ -129,12 +147,6 @@ public partial class PackageCommand
         if (options.WorkspacePacket is not null
             && options.Discover is not null
             && !TryCreateWorkspacePackageRequest(options, out _))
-        {
-            return 1;
-        }
-
-        if (packageArgs.Length > 1
-            && !ValidateMultiPackageMode(options))
         {
             return 1;
         }
@@ -275,12 +287,32 @@ public partial class PackageCommand
             if (SelectOutput.WriteUnresolved(selectResult)) return 1;
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
-            if (packageArgs.Length > 1
-                && options.IncludeSections?.Contains(
-                    PackageSections.DependencyHierarchy) == true)
+            if (options.WorkspacePacket is null
+                && options.ShareFormat is not null
+                && !IsSingleDependencyHierarchySelection(options))
             {
                 CommandError.Write(
-                    "Multiple package inspection cannot include Dependency Hierarchy.");
+                    "--share on package currently supports one explicit "
+                        + "'Dependency Hierarchy' section, or requires --workspace.");
+                return 1;
+            }
+            if (options.WorkspacePacket is null
+                && options.ShareFormat is not null
+                && (options.Count
+                    || options.Raw
+                    || options.Value
+                    || options.Paths
+                    || options.Roots
+                    || options.Print
+                    || options.ShowContent
+                    || options.Urls
+                    || options.ListVersions
+                    || options.Fields is not null
+                    || options.Columns is not null))
+            {
+                CommandError.Write(
+                    "--share cannot preserve this Dependency Hierarchy "
+                        + "output selection in the Browser.");
                 return 1;
             }
             if (packageArgs.Length == 1)
@@ -299,7 +331,7 @@ public partial class PackageCommand
             // filter, so requiring -S here would force the caller to name a section that is then
             // ignored. LensProjection answers the projection for those modes instead, and -S is
             // rejected outright below rather than silently dropped.
-            var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
+            var lensMode = options.ListVersions
                 || options.ShowContent;
             var dependencyHierarchyProjection = options.Tree
                 && options.Discover == null
@@ -319,8 +351,6 @@ public partial class PackageCommand
                     || options.Tree))
             {
                 var lensName = options.ListVersions ? "--versions"
-                    : options.ListLayout ? "--layout"
-                    : options.ListTfms ? "--tfms"
                     : "--content";
                 if (options.Tree
                     && !options.SelectExplicitlySet)
@@ -333,13 +363,9 @@ public partial class PackageCommand
 
             string? packageLens = options.ListVersions
                 ? GetVersionQueryLens(options)
-                : options.ListLayout
-                    ? "--layout"
-                    : options.ListTfms
-                        ? "--tfms"
-                        : options.ShowContent
-                            ? "--content"
-                            : null;
+                    : options.ShowContent
+                        ? "--content"
+                        : null;
 
             // Opaque lens payload projections are target-independent failures. Reject them
             // before version lookup, package resolution, or extraction; --count needs the rows.
@@ -484,7 +510,6 @@ public partial class PackageCommand
 
             if (!ValidatePackageProjection(
                     options,
-                    packageArgs.Length,
                     pipeline))
                 return 1;
         }
@@ -509,7 +534,7 @@ public partial class PackageCommand
             return 1;
         }
         if (options.PackageLibrary is not null
-            && LibrarySectionCardinality.ValidateExactTerminals(
+            && LibrarySectionCardinality.AdmitExactTerminals(
                 options.Select,
                 options.SelectDefault,
                 options.IncludeSections,
@@ -517,7 +542,12 @@ public partial class PackageCommand
                 options.Verbosity,
                 options.Count,
                 options.Rows is not null,
-                options.Discover is not null) is { } cardinalityError)
+                options.Discover is not null,
+                // A package library has no address, so only a body-kind
+                // filter can supply a section input.
+                options.BodyKindQuery.HasFilter
+                    ? StructuralSectionInput.BodyKindFilter
+                    : StructuralSectionInput.None).Error is { } cardinalityError)
         {
             CommandError.Write(cardinalityError);
             return 1;
@@ -531,7 +561,24 @@ public partial class PackageCommand
                 workspaceLoadOptions).ConfigureAwait(false);
         }
 
-        if (options.ShowContent && packageArgs.Length == 1)
+        if (preResolved is null && packageArgs.Length == 1)
+        {
+            PackageReferenceTarget houseTarget =
+                options.DeclaredPackageTarget
+                ?? PackageExtractor.ParsePackageTarget(
+                    packageArgs[0],
+                    explicitVersion);
+            int? readmeResult =
+                await TryWriteHouseReadmeSectionAsync(
+                        houseTarget,
+                        options,
+                        context)
+                    .ConfigureAwait(false);
+            if (readmeResult is { } exitCode)
+                return exitCode;
+        }
+
+        if (preResolved is null && options.ShowContent && packageArgs.Length == 1)
         {
             PackageReferenceTarget houseTarget =
                 options.DeclaredPackageTarget
@@ -539,7 +586,7 @@ public partial class PackageCommand
                     packageArgs[0],
                     explicitVersion);
             int? houseResult =
-                await TryWriteLiteralHouseDocumentContentAsync(
+                await TryWriteLiteralHouseFileContentAsync(
                         [houseTarget],
                         options,
                         context)
@@ -553,23 +600,6 @@ public partial class PackageCommand
             userVerbosity,
             pipeline);
         var logger = context.Logger;
-
-        if (packageArgs.Length > 1)
-        {
-            PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
-                sectionCatalog,
-                queryCatalog,
-                producerOptions,
-                excludeUnbounded:
-                    options.Discover is not null && !options.Schema);
-            return await ExecuteMultiPackageAsync(
-                packageArgs,
-                options,
-                producerOptions,
-                context,
-                sectionCatalog,
-                sourceQueryPlan);
-        }
 
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
@@ -1130,8 +1160,7 @@ public partial class PackageCommand
 
             if (!PackageExtractor.IsValidPackageReferenceVersion(version))
             {
-                string badVersion = packageArgs.Length >= 2 ? packageArgs[1] : version;
-                CommandError.Write($"'{badVersion}' is not a valid package version.");
+                CommandError.Write($"'{version}' is not a valid package version.");
                 CommandError.WriteLine("Versions look like: 1.0.0, 8.0.5, 13.0.3-beta1, 11.0.0-preview*");
                 CommandError.WriteLine($"To list available versions: dotnet-inspect package {packageName} --versions");
                 return 1;
@@ -1149,6 +1178,11 @@ public partial class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
+        if (preResolved is null
+            && await TryExecuteArchiveTargetFrameworksAsync(target, options, context, pipeline)
+                .ConfigureAwait(false) is { } tfmExitCode)
+            return tfmExitCode;
+
         int? packageFileInventoryExitCode =
             preResolved is null
                 ? await TryExecutePackageFileInventoryAsync(
@@ -1161,10 +1195,6 @@ public partial class PackageCommand
         if (packageFileInventoryExitCode is { } inventoryExitCode)
             return inventoryExitCode;
 
-        string? extractPath = null;
-        PackageExtractionResult? resolution = null;
-        InspectionResult? observedInspection = null;
-
         if (!TryCreatePackageInfoTargetContext(
                 options,
                 producerOptions,
@@ -1173,6 +1203,35 @@ public partial class PackageCommand
         {
             return 1;
         }
+
+        if (preResolved is null)
+        {
+            int? packageInfoInventoryExitCode =
+                await TryExecutePackageInfoInventoryAsync(
+                        target,
+                        options,
+                        producerOptions,
+                        context,
+                        pipeline,
+                        packageInfoTargetContext)
+                    .ConfigureAwait(false);
+            if (packageInfoInventoryExitCode is { } infoInventoryExitCode)
+                return infoInventoryExitCode;
+
+            int? admittedPackageExitCode =
+                await TryExecuteOnlinePackageAsync(
+                    target,
+                    options with { Verbosity = userVerbosity },
+                    context,
+                    packageInfoTargetContext)
+                    .ConfigureAwait(false);
+            if (admittedPackageExitCode is { } onlineExitCode)
+                return onlineExitCode;
+        }
+
+        string? extractPath = null;
+        PackageExtractionResult? resolution = null;
+        InspectionResult? observedInspection = null;
 
         try
         {
@@ -1197,13 +1256,21 @@ public partial class PackageCommand
                             client, packageName, pinnedVersion, logger.Log,
                             sourceOptions: options.SourceOptions,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext)
+                            compileTargetContext: packageInfoTargetContext,
+                            assetSelection:
+                                PackageInfoAssetSelection(
+                                    options,
+                                    packageInfoTargetContext))
                         : await PackageExtractor.ExtractSelectedPackageAsync(
                             client, packageName, version.Length > 0 ? version : null, logger.Log,
                             sourceOptions: options.SourceOptions,
                             includePrerelease: options.IncludePrerelease,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext);
+                            compileTargetContext: packageInfoTargetContext,
+                            assetSelection:
+                                PackageInfoAssetSelection(
+                                    options,
+                                    packageInfoTargetContext));
                 }
                 else
                 {
@@ -1234,24 +1301,29 @@ public partial class PackageCommand
             // Update version from resolution (may have been auto-discovered)
             version = resolution.Version ?? version;
 
-            // Handle --layout mode: show file tree and exit early
-            if (options.ListLayout)
-                return ListPackageLayout(extractPath, options, packageName, options.CompanionOutput);
-
-            // Handle --tfms mode: list target frameworks and exit early
-            if (options.ListTfms)
-                return ListPackageTfms(extractPath, options);
+            bool lightweightTargetFrameworks = options.Discover is null
+                && options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(PackageSections.TargetFrameworks)
+                && (!options.JsonOutput || options.Count);
 
             bool wantsEcosystemDependencies =
                 RequestsPackageEcosystemDependencies(
                     producerOptions,
                     pipeline);
 
-            // Parse nuspec for full package inspection.
-            NuspecData? nuspec = FindPackageNuspecForInspection(
-                extractPath,
-                resolution,
-                wantsEcosystemDependencies);
+            bool needsLegacyNuspec =
+                options.ShowContent
+                || options.AllLibraries
+                || lightweightTargetFrameworks
+                    && (target.IsLocalFile
+                        || !options.Count
+                            && options.Format == OutputFormat.Markdown);
+            NuspecData? nuspec = needsLegacyNuspec
+                ? FindPackageNuspecForInspection(
+                    extractPath,
+                    resolution,
+                    wantsEcosystemDependencies)
+                : null;
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
@@ -1355,7 +1427,14 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline,
                     includeSignals: enrichesSignals);
-            var result = await PackageInspector.InspectAsync(
+            var result = lightweightTargetFrameworks
+                ? new InspectionResult
+                {
+                    PackageName = nuspec?.PackageName ?? packageName,
+                    Version = nuspec?.Version ?? version,
+                    TargetFrameworks = TfmSelector.GetPackageFrameworkFolders(extractPath),
+                }
+                : await PackageInspector.InspectAsync(
                 resolution, packageName, version, target.IsLocalFile,
                 target.IsLocalFile ? target.OriginalArgument : null,
                 nuspec, client, logger,
@@ -1365,8 +1444,19 @@ public partial class PackageCommand
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 scanBinarySignals:
                     !IsPackageChildrenProjection(options),
-                sourceOptions: options.SourceOptions);
+                sourceOptions: options.SourceOptions,
+                requestedTargetFramework: options.Tfm);
             observedInspection = result;
+
+            if (!effectiveDiscovery
+                && RequestsSelectedDiscoveredOrAutomaticSection(
+                    producerOptions,
+                    PackageSections.Dependencies,
+                    pipeline)
+                && WritePackageDependencyInspectionFailure(result))
+            {
+                return 1;
+            }
 
             if (admittedPackageInfoMeasurements is not null
                 && RequestsPackageInfoMeasurements(
@@ -1378,7 +1468,7 @@ public partial class PackageCommand
                     admittedPackageInfoMeasurements(),
                     logger.Log);
             }
-            else
+            else if (!lightweightTargetFrameworks)
             {
                 await ApplyPackageInfoMeasurementsAsync(
                     result,
@@ -1415,36 +1505,40 @@ public partial class PackageCommand
             await PopulatePackageSignatureAsync(
                 result,
                 resolution.NupkgPath,
-                ShouldVerifyPackageSignature(options, wantsSignals),
+                !lightweightTargetFrameworks && ShouldVerifyPackageSignature(options, wantsSignals),
                 logger.Log);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
-            PopulatePackageFileSectionsLegacy(
-                result,
-                extractPath,
-                options);
+            if (!lightweightTargetFrameworks)
+                PopulatePackageFileSectionsLegacy(
+                    result,
+                    extractPath,
+                    options);
             if (ShouldPopulatePackageContentAudit(
                     producerOptions,
                     pipeline))
                 PopulatePackageContentAudit(result, extractPath);
-            PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
-                sectionCatalog,
-                queryCatalog,
-                producerOptions,
-                excludeUnbounded: effectiveDiscovery);
-            if (ShouldPopulatePackageSourceFiles(producerOptions)
-                || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
+            if (!lightweightTargetFrameworks)
             {
-                await PopulatePackageSourceLinkAsync(
-                    result,
-                    extractPath,
-                    packageName,
-                    version,
+                PackageSourceQueryPlan sourceQueryPlan = CreatePackageSourceQueryPlan(
+                    sectionCatalog,
+                    queryCatalog,
                     producerOptions,
-                    context,
-                    logger,
-                    sourceQueryPlan);
+                    excludeUnbounded: effectiveDiscovery);
+                if (ShouldPopulatePackageSourceFiles(producerOptions)
+                    || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
+                {
+                    await PopulatePackageSourceLinkAsync(
+                        result,
+                        extractPath,
+                        packageName,
+                        version,
+                        producerOptions,
+                        context,
+                        logger,
+                        sourceQueryPlan);
+                }
             }
 
             if (!effectiveDiscovery
@@ -1518,6 +1612,9 @@ public partial class PackageCommand
                 return ((DependencyQueryPlanResult.Accepted)result).Plan;
             }
 
+            if (!TrySelectPackageTargetFrameworks(result, options))
+                return 1;
+
             // Filter output based on options
             FilterResultForOutput(result, options);
 
@@ -1551,7 +1648,8 @@ public partial class PackageCommand
                     extractPath,
                     packageName,
                     version,
-                    options);
+                    options,
+                    admittedPackageRoot?.Root.AssetSelection);
             }
 
             if (options.Tree && !effectiveDiscovery)
@@ -1560,7 +1658,9 @@ public partial class PackageCommand
                     WritePackageFilesTree(result, options);
                 else
                     WritePackageDependencyHierarchyTree(result, options);
-                return PackageIntegrityExitCode(result);
+                return WriteDirectHierarchyShare(
+                    PackageIntegrityExitCode(result), options, target,
+                    resolution);
             }
 
             if (wantsSignals && options.Count && !effectiveDiscovery)
@@ -1716,7 +1816,9 @@ public partial class PackageCommand
                 {
                     return 1;
                 }
-                return PackageIntegrityExitCode(result);
+                return WriteDirectHierarchyShare(
+                    PackageIntegrityExitCode(result), options, target,
+                    resolution);
             }
             if (options.Tabular)
             {
@@ -1876,7 +1978,9 @@ public partial class PackageCommand
                     });
             }
 
-            return PackageIntegrityExitCode(result);
+            return WriteDirectHierarchyShare(
+                PackageIntegrityExitCode(result), options, target,
+                resolution);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -1986,4 +2090,95 @@ public partial class PackageCommand
         result.EcosystemDependencyRows = selected;
         return true;
     }
+
+    private static bool WritePackageDependencyInspectionFailure(
+        InspectionResult result)
+    {
+        InspectionEnvelope<PackageDependencyInspectionOutcome>? inspection =
+            result.PackageDependencyInspection;
+        if (inspection is null
+            || inspection.Content is PackageDependencyInspectionOutcome.Available)
+        {
+            return false;
+        }
+
+        if (inspection.Content is PackageDependencyInspectionOutcome.NoManifest)
+        {
+            CommandError.Write(
+                "The package manifest is unavailable; dependencies were not projected.");
+            return true;
+        }
+
+        if (!inspection.Diagnostics.IsEmpty)
+        {
+            foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+                CommandError.Write(diagnostic.Summary.ToString());
+        }
+        else
+        {
+            CommandError.Write(
+                "The package manifest could not be inspected; dependencies were not projected.");
+        }
+        return true;
+    }
+
+    internal static int PackageIntegrityExitCode(params InspectionResult[] results)
+        => PackageIntegrityExitCode(0, results);
+
+    internal static int PackageIntegrityExitCode(
+        int currentExitCode,
+        params InspectionResult[] results)
+    {
+        foreach (DependsAssetProjection projection in results
+                     .Select(static result =>
+                         result.DependencyHierarchyProjection)
+                     .OfType<DependsAssetProjection>())
+        {
+            DependsCommand.WriteAssetDiagnostics(projection);
+            currentExitCode = Math.Max(
+                currentExitCode,
+                DependsCommand.AssetExitCode(projection));
+        }
+
+        var identifierFailures = results
+            .Select(
+                (result, index) =>
+                    (
+                        Input: index + 1,
+                        Failure:
+                            result.IdentifierConfusionFailure))
+            .Where(
+                failure =>
+                    failure.Failure is not null)
+            .Select(
+                failure =>
+                    (
+                        failure.Input,
+                        Failure: failure.Failure!.Value))
+            .ToList();
+        foreach (var (input, failure) in identifierFailures)
+        {
+            CommandError.WriteWarning(
+                $"Identifier audit failed for package input #{input}: "
+                + IdentifierConfusionAudit.DescribeFailure(failure));
+        }
+
+        if (currentExitCode != 0)
+            return currentExitCode;
+
+        return results.Any(
+                static result =>
+                    result.SourceIntegrity?.Mismatched is > 0)
+            || identifierFailures.Count > 0
+                ? 1
+                : 0;
+    }
+
+    private static bool IsUnmatchedColumnProjection(
+        InspectionOptions options,
+        InvalidOperationException exception)
+        => options.Columns is { Length: > 0 }
+            && exception.Message.StartsWith(
+                "No columns matched projection:",
+                StringComparison.Ordinal);
 }

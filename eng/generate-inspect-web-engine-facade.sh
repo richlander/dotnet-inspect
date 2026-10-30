@@ -55,12 +55,13 @@ trap cleanup EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 
-usage="Usage: generate-inspect-web-engine-facade.sh [--compile | --fast-check | --check | --contract <assembly> <declaration-output-directory> <version-prefix>]"
+usage="Usage: generate-inspect-web-engine-facade.sh [--compile | --verify-digest | --fast-check | --check | --contract <assembly> <declaration-output-directory> <version-prefix> [<source-output-directory>]]"
 
 mode=write
 source_assembly="$engine_dll"
 contract_output=
 contract_version_prefix=
+contract_sources_output=
 case "${1:-}" in
   "")
     ;;
@@ -70,6 +71,13 @@ case "${1:-}" in
       exit 1
     fi
     exec "$node" "$compiler" --install
+    ;;
+  --verify-digest)
+    if [[ "$#" != 1 ]]; then
+      echo "$usage" >&2
+      exit 1
+    fi
+    mode=verify-digest
     ;;
   --fast-check)
     if [[ "$#" != 1 ]]; then
@@ -86,7 +94,7 @@ case "${1:-}" in
     mode=check
     ;;
   --contract)
-    if [[ "$#" != 4 ]]; then
+    if [[ "$#" != 4 && "$#" != 5 ]]; then
       echo "$usage" >&2
       exit 1
     fi
@@ -94,12 +102,21 @@ case "${1:-}" in
     source_assembly="$2"
     contract_output="$3"
     contract_version_prefix="$4"
+    contract_sources_output="${5:-}"
     if [[ ! -f "$source_assembly" ]]; then
       echo "Assembly not found: $source_assembly" >&2
       exit 1
     fi
     if [[ -z "$contract_version_prefix" ]]; then
       echo "Version prefix must not be empty." >&2
+      exit 1
+    fi
+    if [[ "$#" == 5 && -z "$contract_sources_output" ]]; then
+      echo "Source output directory must not be empty." >&2
+      exit 1
+    fi
+    if [[ -n "$contract_sources_output" && -e "$contract_sources_output" ]]; then
+      echo "Source output directory already exists: $contract_sources_output" >&2
       exit 1
     fi
     ;;
@@ -109,15 +126,66 @@ case "${1:-}" in
     ;;
 esac
 
+# The manifest records the SHA-256 of each generated facade so a hand edit is
+# detectable without building anything. It does not prove the facades match the
+# current C# contracts; --fast-check and --check own that.
+digest_manifest="$ts_output_directory/facades.sha256"
+
+if [[ "$mode" == verify-digest ]]; then
+  if command -v sha256sum > /dev/null; then
+    sha256=(sha256sum)
+  else
+    sha256=(shasum -a 256)
+  fi
+  regenerate="Run eng/generate-inspect-web-engine-facade.sh and commit the generated facades and facades.sha256; do not edit them by hand."
+  if [[ ! -f "$digest_manifest" ]]; then
+    echo "error: $digest_manifest is missing. $regenerate" >&2
+    exit 1
+  fi
+  listed="$(awk '{ print $2 }' "$digest_manifest" | sort)"
+  expected_listed="$(printf '%s.ts\n' "${facade_modules[@]}" | sort)"
+  if [[ "$listed" != "$expected_listed" ]]; then
+    echo "error: $digest_manifest does not list exactly the consumer map's facades. $regenerate" >&2
+    diff <(printf '%s\n' "$expected_listed") <(printf '%s\n' "$listed") >&2 || true
+    exit 1
+  fi
+  if ! (cd "$ts_output_directory" && "${sha256[@]}" -c --quiet "$digest_manifest") >&2; then
+    echo "error: a generated facade differs from its recorded digest. $regenerate" >&2
+    exit 1
+  fi
+  echo "inspect-web facades match their recorded digests."
+  exit 0
+fi
+
 if [[ ! -f "$compiler" ]]; then
   echo "Facade compiler not found at $compiler." >&2
   exit 1
+fi
+
+generation_version_prefix="$contract_version_prefix"
+if [[ "$mode" == check ]]; then
+  generation_version_prefix=$(
+    "$dotnet" msbuild \
+      "$repo_root/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" \
+      -getProperty:VersionPrefix \
+      -nologo
+  )
+  if [[ -z "$generation_version_prefix" ]]; then
+    echo "The authoritative product VersionPrefix is empty." >&2
+    exit 1
+  fi
+fi
+generator_build_properties=()
+if [[ -n "$generation_version_prefix" ]]; then
+  generator_build_properties+=(
+    "-p:VersionPrefix=$generation_version_prefix")
 fi
 
 if [[ "$mode" != contract ]]; then
   "$dotnet" build \
     "$engine_csproj" \
     -c Release \
+    ${generator_build_properties[@]+"${generator_build_properties[@]}"} \
     -p:InspectWebIncludeFrontend=true >&2
 fi
 
@@ -125,10 +193,6 @@ fi
 # whole facade set is emitted as one operation or not at all.
 context_output="$scratch/context-facades"
 source_assembly_directory="$(dirname "$source_assembly")"
-generator_build_properties=()
-if [[ -n "$contract_version_prefix" ]]; then
-  generator_build_properties+=("-p:VersionPrefix=$contract_version_prefix")
-fi
 "$dotnet" run \
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
@@ -152,33 +216,12 @@ if [[ "$emitted_artifacts" != "$expected_artifacts" ]]; then
   exit 1
 fi
 
-# Each rooted assembly is also generated on its own. The recipe decides membership; this
-# proves it changes no artifact, so the checked-in source of one facade stays the handoff
-# for exactly one managed export assembly.
-mkdir -p "$scratch/sources" "$scratch/direct"
+# The focused generator test proves that context and direct generation are byte-identical.
+# This consumer gate needs only the context's exact artifact set and canonical module map.
+mkdir -p "$scratch/sources"
 for index in "${!context_artifacts[@]}"; do
   artifact="${context_artifacts[$index]}"
   module="${facade_modules[$index]}"
-  root_assembly="$source_assembly_directory/${artifact%.ts}.dll"
-  if [[ ! -f "$root_assembly" ]]; then
-    echo "Rooted export assembly not found: $root_assembly" >&2
-    exit 1
-  fi
-  "$dotnet" run \
-    --project "$repo_root/src/ts-jsexport" \
-    -c Release \
-    --no-build \
-    ${generator_build_properties[@]+"${generator_build_properties[@]}"} \
-    -- \
-    "$root_assembly" \
-    --assembly-search-path "$source_assembly_directory" \
-    --runtime-module ./runtime-loader.js \
-    --warnings-as-errors \
-    --output "$scratch/direct/$artifact"
-  if ! cmp "$context_output/$artifact" "$scratch/direct/$artifact"; then
-    echo "The JsExportRoot recipe differs from direct generation for $artifact." >&2
-    exit 1
-  fi
   cp "$context_output/$artifact" "$scratch/sources/$module.ts"
 done
 
@@ -277,6 +320,12 @@ typecheck_consumers() {
 }
 
 if [[ "$mode" == contract ]]; then
+  if [[ -n "$contract_sources_output" ]]; then
+    mkdir "$contract_sources_output"
+    cp "$context_output"/*.ts "$contract_sources_output/"
+    assert_directory_inventory \
+      "$contract_sources_output" '*.ts' "$expected_artifacts"
+  fi
   mkdir -p "$contract_output"
   for module in "${facade_modules[@]}"; do
     cp "$compiled/$module.d.ts" "$contract_output/$module.d.ts"
@@ -307,30 +356,10 @@ elif [[ "$mode" == check || "$mode" == fast-check ]]; then
   fi
 
   if [[ "$mode" == check ]]; then
-    version_prefix=$(
-      "$dotnet" msbuild \
-        "$repo_root/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj" \
-        -getProperty:VersionPrefix \
-        -nologo
-    )
-    if [[ -z "$version_prefix" ]]; then
-      echo "The authoritative product VersionPrefix is empty." >&2
-      exit 1
-    fi
-    verify_msbuild_facade_build "-p:VersionPrefix=$version_prefix"
-    versioned_contract="$scratch/versioned-declarations"
-    "$0" \
-      --contract \
-      "$engine_dll" \
-      "$versioned_contract" \
-      "$version_prefix" >&2
-    for module in "${facade_modules[@]}"; do
-      if ! cmp "$versioned_contract/$module.d.ts" "$compiled/$module.d.ts"; then
-        echo "The deployment-version context changed the $module declaration." >&2
-        exit 1
-      fi
-    done
-    verify_msbuild_facade_publish "-p:VersionPrefix=$version_prefix"
+    verify_msbuild_facade_build \
+      "-p:VersionPrefix=$generation_version_prefix"
+    verify_msbuild_facade_publish \
+      "-p:VersionPrefix=$generation_version_prefix"
   else
     verify_msbuild_facade_build
   fi
@@ -349,6 +378,14 @@ else
     echo "Wrote $ts_output_directory/$module.ts"
   done
   assert_directory_inventory "$ts_output_directory" '*.ts' "$expected_sources"
+  if command -v sha256sum > /dev/null; then
+    sha256=(sha256sum)
+  else
+    sha256=(shasum -a 256)
+  fi
+  (cd "$ts_output_directory" && "${sha256[@]}" "${facade_modules[@]/%/.ts}") \
+    > "$digest_manifest"
+  echo "Wrote $digest_manifest"
   install_compiled_outputs
   typecheck_consumers
 fi

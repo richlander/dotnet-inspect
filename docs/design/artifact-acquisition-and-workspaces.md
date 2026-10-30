@@ -992,13 +992,23 @@ The operation:
    `AssemblyContextGroup` containing only that descriptor;
 5. executes the existing bounded assembly-context API-surface query; and
 6. disposes the workspace before returning a resource-free
-   `InspectionEnvelope<EmbeddedLibraryInspectionResult>`.
+   `EmbeddedLibraryInspectionExecution`.
 
-The returned Content preserves the declared name, digest, byte length,
-embedded provenance, assembly identity, API surface, accessibility buckets,
-completeness, and typed failure. Share is non-projectable because the bytes
-are intentionally session-local. Inspection failures remain visible as
-envelope diagnostics.
+The execution's `InspectionEnvelope<EmbeddedLibraryInspectionResult>` preserves
+the declared name, digest, byte length, detached embedded provenance, detached
+assembly identity, accessibility buckets, completeness, outcome, and typed
+inspection failures. Its public Content closure exposes no Metadata-owned type.
+Share is non-projectable because the bytes are intentionally session-local.
+Inspection failures remain visible as envelope diagnostics.
+
+The execution retains the bounded query's resource-free `ApiSurface` beside
+the envelope so a presentation adapter can lower the declaration graph without
+cloning it into a second host-neutral object graph. This raw operational value
+is not envelope content, is absent for rejected executions, and confers no
+workspace or image lifetime. Inspect Web passes the execution through its
+Library facade without reading the surface; Web Core alone lowers it into the
+existing Browser surface records.
+
 A successful result never implies sibling discovery, dependency acquisition,
 platform closure, package identity, local-file identity, source or PDB
 acquisition, persistence, or restoration.
@@ -1012,10 +1022,11 @@ ordinary Worker's serialized-character or collection-entry bound, the Browser
 facade converts that truncation to the same typed `ProjectionTruncated`
 rejection shape; it never serializes partial Library content as available.
 `EmbeddedLibraryInspectionTests` gates
-managed-image projection, upload provenance, byte bounds, native and malformed
-rejection, netmodule rejection, and Windows Metadata rejection. Inspect Web's
-Browser boundary and TypeScript Open tests gate the production call sites and
-Browser transport-truncation rejection.
+the portable Content closure, execution-surface separation, managed-image
+projection, upload provenance, byte bounds, native and malformed rejection,
+netmodule rejection, and Windows Metadata rejection. Inspect Web's Browser
+boundary and TypeScript Open tests gate the production call sites, detached
+failure adaptation, and Browser transport-truncation rejection.
 
 ### Explicit local/designated/platform assembly context
 
@@ -2261,12 +2272,18 @@ or replace either half after acquisition issues it.
 PackageHouse compile realization enters the same Root construction through an
 internal receipt-binding primitive. It receives the exact
 `AcquiredPackageSourcePayload` and
-`PackageCompileAssetSelectionReceipt`, revalidates package-id and
-content-generation correspondence, and freezes the receipt's existing
-selection without another selector invocation. The public adapter remains in
-`DotnetInspector.PackageQueries`: its contribution pairs the resulting
-House-agnostic binding with the exact House result and compile receipt rather
-than storing House history on `PackageRootBinding`.
+`PackageCompileAssetSelectionReceipt` plus the original request's target
+intent, revalidates package-id and content-generation correspondence, and
+freezes the receipt's existing selection without another selector invocation.
+The receipt's selected output cannot reconstruct caller intent: owner-default
+and frozen House requests, including House's equivalent absent target context,
+retain an absent original requested target, while explicit House and API-match
+requests retain their authored target. Receipt-backed binding rejects compile
+or implementation-selection targets outside the durable Root target grammar
+before any contribution can issue an unreopenable request. The public adapter
+remains in `DotnetInspector.PackageQueries`: its contribution pairs the
+resulting House-agnostic binding with the exact House result and compile receipt
+rather than storing House history on `PackageRootBinding`.
 
 The current realized package-coordinate grammar admits the bounded published
 package-id grammar, Package Source portable producer tokens, the modern
@@ -2282,6 +2299,12 @@ field layout: the producer field's `nfp-1` namespace versioned that value.
 The later authorization/outcome split adds a field and therefore uses the
 `pkgroot4` prefix. Preserving whether implementation selection produced one
 universe adds another field and therefore uses the `pkgroot5` prefix.
+Preserving the Root's original requested target separately from frozen compile
+and implementation-selection targets adds another field and therefore uses the
+`pkgroot6` prefix.
+Preserving the runtime-population target-framework input independently from the
+selected RID population adds another field and therefore uses the `pkgroot7`
+prefix.
 
 A destination coordinate grants no source authority. Reacquisition first
 intersects the requested producer with currently authorized sources by asking
@@ -2372,9 +2395,95 @@ folders, and resolved framework/RID correspondence are gated by
 and `PackageRootBinding_SourceRuntimeRequiresFramework`.
 Neutral-library compile fallback and RID-specific implementation
 correspondence are gated by
-`RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` and
+`RidSpecificImplementation_ReplacesWholeNeutralImplementationGroup` and
 `RidSpecificImplementation_UsesSeparateNeutralCompileRole`; Browser adoption
 is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
+
+#### Content-only package admission
+
+An acquire-only package payload may enter a content-only Root without Library
+selection. Admission preserves the acquired coordinate, producer, and exact
+content generation; it neither runs a selector nor fabricates an empty
+successful selection. Absence of selection remains distinct from every
+selector-issued outcome, including no compile assets and explicit empty
+groups. Content-only Roots cannot be upgraded to Library realization in place.
+Library inspection requires a separately realized binding.
+`PackageRootBinding.CreateForContentInspection()` accepts the acquired payload
+directly. The Root and its Scope descriptors retain absent selection rather
+than reporting a selector-issued status.
+
+Package inspection may admit an acquired Root for content-only use. This
+retains its exact coordinate, content generation, requested target, and complete
+selector-issued evidence, when present, without preparing Library participants. A missing
+compile target or invalid implementation selection does not prevent inspecting
+the package itself. Content-only admission does not turn that selection into
+an empty successful selection.
+
+`PackageRootBinding.ForContentInspection()` requests this invocation-local
+admission. Its correspondence differs from Library-realizing admission, so a
+content-only generation cannot satisfy an existing Library realization request.
+The same Workspace publication, query admission, cancellation, and retirement
+protocol applies; no new scheduling transition is introduced. Content-only
+Roots prepare no assembly images and expose no Library role groups. Ordinary
+admission still validates and prepares its selected Libraries.
+
+Root construction and content-only admission do not request the Library
+compatibility fact about unselected target-framework assembly candidates.
+That fact is evaluated only when a consumer requests it, against the Root's
+retained content and frozen selection. Unrequested evidence is not replaced
+with a successful false or empty fact. Changing only admission purpose shares
+the pending or computed fact for the unchanged content generation and
+selection; a separately selected Root resolves its own evidence.
+
+The real `Newtonsoft.Json@13.0.4` and
+`Microsoft.NETCore.App.Ref@10.0.0` Package survey exposed this redundant walk:
+content-only Package inspection inherited preparation used by the
+declaration-locator's Library compatibility decision. #10596 adopts the
+[House consumer-result requirement](package-house-semantic-content-demand.md#consumer-result-requirements)
+at this shared handoff, before CLI and Browser requirement lowering in #10594
+and #10598. Readable reference-plus-implementation and Library-only
+fixtures retain both possible compatibility outcomes without requiring
+network access or retained package binaries.
+`ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence` gates sharing
+before and after the fact is requested, preserving both false and true
+outcomes.
+`ContentOnlyPackageAdmission_FromSelectionDefersCompatibilityEnumeration`
+gates zero payload enumeration and DLL opens from retained-selection binding
+through content-only Workspace publication, followed by the unchanged
+compatibility result when requested. Existing Root publication, retirement,
+and Library-realization gates retain their authority; this does not change
+their protocols or introduce an in-place Library upgrade.
+
+The current durable Root token represents Library realization and does not
+encode this additional admission purpose. A content-only binding therefore
+refuses to issue that token rather than silently changing purpose on reopening.
+This does not change a host's existing package-coordinate Share projection.
+Durable content-only Root reopening is outside this slice.
+
+The acquire-only motivating asset is nuget.org `System.Text.Json@10.0.0`,
+whose `System.Text.Json.nuspec` is 3,543 bytes alongside multiple Library
+frameworks and source-generator assets. Reading that exact file needs no
+Library selection. Its published archive was verified at
+`https://api.nuget.org/v3-flatcontainer/system.text.json/10.0.0/system.text.json.10.0.0.nupkg`.
+`AcquireOnlyPackageAdmission_QueriesContentWithoutSelectingLibraries` gates
+retained generation identity, readable package content, absent selection and
+Library participants, no selector-driven entry enumeration, and query rejection
+after retirement. `HouseAcquireOnlyContent_AdmitsWithoutCompileRealization`
+gates the native handoff from a House Acquire result. The CLI exact-file
+consumer and Browser content consumer adopt this substrate in separate slices
+under #6638; prerequisite #10591 does not change their routing or add evidence
+capture. Evidence remains independent of operational admission.
+
+The motivating asset is `Microsoft.NETCore.App.Ref@10.0.0`: inspecting package
+facts while requesting `net9.0` remains useful even though its compile assets
+are for `net10.0`. Package-level inspection must also not require opening or
+validating DLL bytes merely to inspect the containing package.
+`ContentOnlyPackageAdmission_PreservesUnmatchedFramework` retains this target
+mismatch in a deterministic package-shaped fixture.
+`ContentOnlyPackageAdmission_PreservesSelectionWithoutOpeningDlls` gates the
+unchanged selection evidence, distinct correspondence, absence of DLL reads,
+ordinary malformed-DLL rejection, live package queries, and query refusal after
+Workspace close.
 
 #### Durable package-content identity adoption
 
@@ -2966,6 +3075,11 @@ artifact-scope and compile-role cases in `BrowserEngineBoundaryTests`.
 gates the real CLI command over a source-scoped cached package, including
 default, explicit, legacy framework spellings, all-framework, and mixed
 surface/implementation selections.
+Its all-framework case and the `all-frameworks` case of
+`PackageCommand_LocalInspectionSelectionPreservesSupportedShapes` are
+rejection gates: under
+[All-frameworks package discovery](package-tfm-all-discovery.md),
+`package --library --tfm all` fails before acquisition.
 The verbose artifact-backed route message is emitted only after successful
 shared realization, so the gate covers actual adoption rather than eligibility
 alone. #5917 supplied the bounded compile-role expansion; #5840 preserves that
@@ -3239,10 +3353,12 @@ requests are equal exactly when this owner classifies them as the same logical
 Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
 identity.
 
-The request preserves seven facts separately:
+The request preserves eight facts separately:
 
 - the realized producer-pinned acquisition coordinate, whose acquisition
   framework may be absent for framework-neutral source acquisition; and
+- the normalized target originally requested for the realized Root, which
+  remains absent when target selection was owner-default; and
 - the normalized compile target used to reduce reference assets and explicit
   empty groups; and
 - the normalized implementation-selection target and runtime identifier that
@@ -3272,11 +3388,18 @@ compile or implementation outcome.
 
 Framework-neutral acquisition remains separate from selection fidelity. When a
 caller supplies no target, the realized coordinate and the Root's requested
-target remain absent, while the binding freezes any selector-issued compile and
-implementation targets into the reacquisition request. Reopening therefore
-repeats the selected target against newly authorized content rather than
-silently choosing that content's new highest target. A Root with no compile or
-implementation target retains both request targets as absent.
+target remain absent, while the binding freezes each selector-issued compile
+and implementation target that the durable House exact-target grammar can
+represent. Reopening therefore repeats the selected target against newly
+authorized content without compatible fallback while retaining the
+owner-default candidate eligibility that produced it, including nested compile
+assets. It does not silently choose that content's new highest target or narrow
+the prior candidate space merely because the selected framework is now exact.
+If owner-default selection observes a target outside that grammar,
+Root acquisition returns typed `InvalidCoordinate` before issuing an
+unreopenable request. A previously issued or decoded request containing such a
+target returns the same typed failure before House execution. A Root with no
+compile or implementation target retains both request targets as absent.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
@@ -3293,14 +3416,42 @@ same thing: one package Root, acquired under the destination host's own policy,
 without full-role assembly realization.
 
 Artifact Acquisition therefore exposes **one** acquisition entry with two
-request forms rather than two acquisition paths. Both forms run the same
-authorization, resolution, and payload acquisition the Workspace loader
-already runs, so neither invents a source policy, a producer preference, or a
-second set of payload bounds. The entry creates no Workspace group and
-realizes no assembly universe, which is what separates it from
-`WorkspaceContextLoader`: that loader realizes every assembly in the Root and
-requires an acquisition target, so it cannot serve framework-neutral
+request forms rather than two acquisition paths. Both forms issue one exact
+PackageHouse `Realize` request with compile selection and
+`SurfaceAndImplementation` demand, consume its exact compile receipt, and bind
+the Root without reacquiring raw payload or rerunning asset selection.
+Authorization, source composition, transfer policy, payload limits, package
+stores, and operation lifetime remain host capabilities. The entry creates no
+Workspace group and realizes no assembly universe, which is what separates it
+from `WorkspaceContextLoader`: that loader realizes every assembly in the Root
+and requires an acquisition target, so it cannot serve framework-neutral
 acquisition paired with a real selection target.
+
+The House target mode follows the request's owned selection intent:
+
+- no compile target uses owner-default `HighestAvailable`;
+- an ordinary explicit Root request uses exact-target-only `ExactTarget`, so a
+  neighboring compatible compile slice cannot replace the requested slice;
+- a durable owner-default request uses `FrozenTarget`, so it accepts only the
+  frozen framework while preserving owner-default candidate eligibility,
+  including nested compile assets; and
+- a durable request that explicitly authorizes compatible target selection
+  uses `ExplicitTarget`.
+
+The host passes a durable producer token as a required producer, not a
+preference. PackageHouse intersects it with current authorization and returns
+typed producer-unavailable evidence when no authorized authority matches.
+Root acquisition validates request identity, receipt identity, compile and
+implementation targets, runtime, compatibility authorization and observed
+compatibility before issuing the rebound request. A different selection is
+`SelectionRequestNotReproduced`, never a substitute Root. Caller-authored and
+durable targets outside the House exact-target grammar are
+`InvalidCoordinate`; owner-default realization that selects such a target is
+also `InvalidCoordinate` before any durable request is issued. A negative
+replacement outcome retains the frozen implementation-selection input even
+when it selects no implementation universe, so it also returns
+`SelectionRequestNotReproduced` rather than failing while reconstructing the
+durable request.
 
 The caller-authored form names an exact package id and version, because this
 owner performs no gallery, prefix, or floating-version discovery — a request
@@ -3369,16 +3520,24 @@ single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
 encoding are owner-owned, and only the owner's decode reads it. Current
-`pkgroot5` tokens carry selected-implementation presence separately from the
-selection input, compatible authorization, and observed implementation use.
-Previous `pkgroot4` tokens carry the two compatible facts but cannot represent
-an absent implementation universe independently, so decoding conservatively
-treats a present selection target as selected. Earlier `pkgroot3` tokens carry
-only the observed field, so decoding additionally grants compatible
-authorization exactly when that field is true. Older `pkgroot2` tokens infer
-both compatible facts when their two targets differ. Legacy `pkgroot1` tokens
-decode only with their one target applied to both roles and neither compatible
-fact. Older tokens re-encode in the current format.
+`pkgroot7` tokens carry the runtime-population target-framework input separately
+from the original Root-requested target, frozen compile and
+implementation-selection targets, selected-implementation presence, compatible
+authorization, and observed implementation use. Previous `pkgroot6` tokens do
+not carry the runtime-population input, so decoding derives it from the original
+requested target when present and otherwise from the frozen compile target.
+`pkgroot5` tokens carry selected-implementation presence but not the original
+Root-requested target, so decoding uses their implementation-selection target
+as the legacy requested-target interpretation. `pkgroot4`
+tokens carry the two compatible facts but cannot represent an absent
+implementation universe
+independently, so decoding conservatively treats a present selection target as
+selected. Earlier `pkgroot3` tokens carry only the observed field, so decoding
+additionally grants compatible authorization exactly when that field is true.
+Older `pkgroot2` tokens infer both compatible facts when their two targets
+differ. Legacy `pkgroot1` tokens decode only with their one target applied to
+both roles and neither compatible fact. Older tokens re-encode in the current
+format.
 No form carries content,
 generation, Workspace identity, session, lease, path, source URL, or
 credential.
@@ -3415,8 +3574,13 @@ post-disposal replacement against a new content generation.
 
 In `PackageRootAcquisitionTests`:
 `ExplicitCoordinate_AcquiresRootAndIssuesExactRequest`,
+`ExplicitCoordinate_UntargetedRootPreservesCallerIntent`,
+`UntargetedRoot_ReacquiresNestedOwnerSelectedCompileAsset`,
+`UntargetedRoot_ReplacementWithoutCompileAssetsReturnsTypedMismatch`,
+`OwnerDefault_UnrepresentableSelectionFailsBeforeIssuanceOrReacquisition`,
 `Acquired_ExposesTheLiveContentTheBindingReads`,
 `ExactRequest_ReacquiresSameLogicalRootThroughToken`,
+`ExactRequest_ReacquiresEmptyCompileGroup`,
 `ExactRequest_SeparatesAcquisitionAndSelectionTargets`,
 `ExactRequest_RejectsReplacementImplementationTarget`,
 `ExactRequest_ReopensAfterCandidateWorkspaceDisposal`,
@@ -3431,9 +3595,17 @@ acquisition whose `ref/net10.0` compile slice selects a `lib/net8.0`
 implementation universe, then rejects replacement content that changes the
 implementation universe to `lib/net7.0`.
 
-`Token_RoundTripsExactRequest` additionally gates independent `pkgroot5`
-implementation-presence, compatible-selection authorization, and observed-use
-fields plus `pkgroot1` through `pkgroot4` migration.
+`UntargetedRoot_ReacquiresNestedOwnerSelectedCompileAsset` gates unchanged
+reopening through token transport when the owner-default selection contains
+only a nested compile asset.
+`UntargetedRoot_ReplacementWithoutCompileAssetsReturnsTypedMismatch` gates a
+negative replacement outcome as typed `SelectionRequestNotReproduced` rather
+than a durable-request reconstruction exception.
+
+`Token_RoundTripsExactRequest` additionally gates independent `pkgroot7`
+runtime-population target, Root-requested target, implementation-presence,
+compatible-selection authorization, and observed-use fields plus `pkgroot1`
+through `pkgroot6` migration.
 `Token_RejectsMalformedOrNonCanonicalInput` rejects an observed compatible-use
 claim without its authorization, invalid implementation-presence values,
 selected implementation presence without a selection target, compatible
@@ -3613,6 +3785,77 @@ This focused addition does not define logical Workspace membership, Root
 occurrence identity or order, Add/Replace/Remove/Clear, dependency-expansion
 eligibility, closure evidence, Navigation focus, browser history, packet
 schema, source authorization, or a new preparation/adoption transaction.
+
+### Package-prefix registration realization into Scope
+
+Issue [#9660](https://github.com/richlander/dotnet-inspect/issues/9660)
+composes existing package-prefix discovery, exact Package Root preparation, and
+Workspace Scope publication without changing any of their ownership. It makes
+one claim:
+
+> Given one exact current package-prefix registration revision, caller-supplied
+> package-source authority, target framework, Package Query-admissible finite
+> candidate policy, and current Scope snapshot, the optional package adapter
+> can resolve candidates in source order, prepare only the candidates admitted
+> by remaining Scope capacity, and publish the successfully prepared batch
+> through the ordinary Scope gate. Its result retains prefix completion,
+> per-candidate failures, capacity declines, the Scope operation, and the final
+> committed/no-effect occurrences.
+
+The retained registration remains inert state. The caller applies finite
+consumer policy by creating a `PackagePrefixRequest` over the exact retained
+declaration. Package Query owns prefix search, candidate validation, source
+identity, ordering, and terminal completion. Each accepted candidate becomes a
+producer-pinned `RealizedMemberCoordinate.Package`; Root preparation must
+reacquire through that exact producer rather than falling back to another
+authorized feed. A consumer policy above Package Query's public candidate
+ceiling is rejected as `CandidateLimitExceeded` before search or package
+acquisition; the shared inert request remains free to serve consumers with
+different finite policies.
+
+The operation reads remaining capacity from the supplied current Scope
+snapshot. Existing exact package coordinates consume no new slot. New
+candidates receive slots in Package Query order; a failed preparation frees
+that slot for the next candidate. After the available slots have successful
+preparations, later candidates are `CapacityDeclined` without package payload
+acquisition. A Root whose asset-selection status Workspace Scope would reject
+is a per-candidate `PreparationFailed`; it does not reserve capacity or enter
+the batch. The successful Root bindings enter one ordinary
+`AddPackagesAsync` batch against the supplied revision and publication base.
+Concurrent Scope movement therefore produces the existing typed rejection
+rather than merging against a different population.
+
+The result distinguishes `Existing`, `Admitted`, `PreparationFailed`,
+`CapacityDeclined`, and `NotCommitted`. `Existing` and `Admitted` both require
+a committed or no-effect Scope result and an exact matching occurrence from
+that final snapshot. Membership from the caller-supplied snapshot is not
+reported as current when publication rejects, fails, or is cancelled. Search
+truncation, search failure, preparation failure, capacity decline,
+cancellation, supersession, or Scope rejection keeps realization incomplete.
+Partial Root preparation evidence remains visible, but no candidate is
+described as a Scope member when the batch does not commit.
+
+The motivating real asset is the nuget.org prefix
+`Microsoft.Extensions.Logging`. Production
+`implements Microsoft.Extensions.Logging.ILoggerProvider --package-prefix
+Microsoft.Extensions.Logging --count` returns 13 useful Types; a retained
+prefix currently contributes none to focused hierarchy because no operation
+realizes it. #9660 establishes only the Scope population prerequisite.
+[Subject Relations #9661](https://github.com/richlander/dotnet-inspect/issues/9661)
+separately admits those current Package occurrences to the declaration
+population, and #8528 owns both-host adoption and command retirement.
+
+This operation does not define Subject Relations, declaration-population
+admission, ecosystem flattening, exact-Library realization, Navigation, or a
+new Workspace mutation protocol. It preserves the 64-Package Scope profile and
+does not silently raise or bypass it.
+
+The Release gates cover exact-producer reacquisition, stable candidate order,
+existing-package coalescing, preparation failure followed by later admission,
+capacity decline without acquisition, stale registration rejection before
+network work, the exact Package Query candidate-limit boundary,
+Scope-unpreparable Root rejection followed by later admission, and Scope
+movement during realization.
 
 ### Scoped execution over a committed package Root
 

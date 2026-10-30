@@ -1,3 +1,5 @@
+using System.Numerics;
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.PortableQueries.Tests;
@@ -63,7 +65,7 @@ public sealed class VocabularyMappingsTests
         string unpairedSurrogate = "\U0001F680"[..1];
 
         Assert.Throws<ArgumentException>(
-            () => VocabularyScalarValue.FromText(unpairedSurrogate));
+            () => ExplanationScalarValue.FromText(unpairedSurrogate));
         Assert.Throws<ArgumentException>(
             () => new VocabularyCatalogIdentity(unpairedSurrogate));
 
@@ -72,7 +74,7 @@ public sealed class VocabularyMappingsTests
         VocabularyMapDefinition textMap = ScalarMap(
             vocabulary,
             "text",
-            VocabularyScalarKind.Text);
+            ExplanationScalarKind.Text);
         Assert.Throws<ArgumentException>(() => new VocabularyDefinition(
             vocabulary,
             unpairedSurrogate,
@@ -118,7 +120,7 @@ public sealed class VocabularyMappingsTests
         VocabularyMapDefinition optional = ScalarMap(
             source,
             "optional",
-            VocabularyScalarKind.Text,
+            ExplanationScalarKind.Text,
             VocabularyMapCardinality.OptionalOne,
             VocabularyMapCoverage.Complete);
 
@@ -168,7 +170,7 @@ public sealed class VocabularyMappingsTests
         VocabularyMapDefinition scalar = ScalarMap(
             source,
             "scalar",
-            VocabularyScalarKind.Boolean);
+            ExplanationScalarKind.Boolean);
         VocabularyMapDefinition relation = new(
             new(source, "relation"),
             "Relation",
@@ -205,6 +207,100 @@ public sealed class VocabularyMappingsTests
             relation,
             [Term(target, "missing")],
             target);
+    }
+
+    [Theory]
+    [InlineData(ExplanationScalarKind.Decimal)]
+    [InlineData(ExplanationScalarKind.BinaryFloatingPoint)]
+    [InlineData(ExplanationScalarKind.Octets)]
+    public void ConstructionRejectsScalarKindsMapsDoNotAdmit(
+        ExplanationScalarKind kind)
+    {
+        VocabularyCatalogIdentity catalog = new("test");
+        VocabularyIdentity source = new(catalog, "source");
+
+        AssertFailure(
+            "unsupported scalar kind",
+            catalog,
+            ScalarMap(source, "scalar", kind),
+            [],
+            new(catalog, "target"));
+    }
+
+    [Fact]
+    public void ConstructionAdmitsOnlyTheMapSubsetOfExplanationValues()
+    {
+        VocabularyCatalogIdentity catalog = new("test");
+        VocabularyIdentity source = new(catalog, "source");
+        VocabularyIdentity target = new(catalog, "target");
+        VocabularyMapDefinition integer = ScalarMap(
+            source,
+            "integer",
+            ExplanationScalarKind.Integer);
+        VocabularyMapDefinition text = ScalarMap(
+            source,
+            "text",
+            ExplanationScalarKind.Text);
+
+        AssertFailure(
+            "signed 64-bit range",
+            catalog,
+            integer,
+            [ExplanationValue.Integer((BigInteger)long.MaxValue + 1)],
+            target);
+        AssertFailure(
+            "signed 64-bit range",
+            catalog,
+            integer,
+            [ExplanationValue.Integer((BigInteger)long.MinValue - 1)],
+            target);
+        AssertFailure(
+            "wrong kind",
+            catalog,
+            text,
+            [new ExplanationValue.Scalar(
+                ExplanationScalarValue.FromDecimal(1m))],
+            target);
+        AssertFailure(
+            "wrong kind",
+            catalog,
+            text,
+            [new ExplanationValue.Record(
+                Array.Empty<ExplanationRecordFieldValue>())],
+            target);
+        AssertFailure(
+            "wrong kind",
+            catalog,
+            text,
+            [new ExplanationValue.Choice(new(
+                new(new(new("test"), "schema"), "shape"),
+                "case"))],
+            target);
+
+        foreach (long boundary in new[] { long.MinValue, long.MaxValue })
+        {
+            VocabularySnapshot snapshot = VocabularySnapshot.Create(
+                1,
+                catalog,
+                [
+                    new(
+                        source,
+                        "Source",
+                        "Source terms.",
+                        [integer],
+                        [
+                            new(
+                                new(source, "value"),
+                                "Value",
+                                null,
+                                [new(integer, ExplanationValue.Integer(boundary))]),
+                        ]),
+                ]);
+            Assert.Equal(
+                ExplanationValue.Integer(boundary),
+                Assert.Single(snapshot.GetTerm(new(source, "value"))
+                    .GetRequiredValues(integer.Identity)));
+        }
     }
 
     [Fact]
@@ -260,7 +356,7 @@ public sealed class VocabularyMappingsTests
             snapshot.GetVocabulary(source)
                 .GetTerm("value")
                 .GetRequiredValues(relation.Identity)
-                .Cast<VocabularyMapValue.Term>()
+                .Cast<ExplanationValue.VocabularyTerm>()
                 .Select(value => value.Identity.Value));
     }
 
@@ -407,7 +503,7 @@ public sealed class VocabularyMappingsTests
         string expectedMessage,
         VocabularyCatalogIdentity catalog,
         VocabularyMapDefinition map,
-        VocabularyMapValue[] values,
+        ExplanationValue[] values,
         VocabularyIdentity target)
     {
         VocabularyIdentity source = map.Identity.SourceVocabulary;
@@ -441,7 +537,7 @@ public sealed class VocabularyMappingsTests
     private static VocabularyMapDefinition ScalarMap(
         VocabularyIdentity source,
         string identity,
-        VocabularyScalarKind kind,
+        ExplanationScalarKind kind,
         VocabularyMapCardinality cardinality =
             VocabularyMapCardinality.ExactlyOne,
         VocabularyMapCoverage coverage =
@@ -454,12 +550,12 @@ public sealed class VocabularyMappingsTests
             cardinality,
             coverage);
 
-    private static VocabularyMapValue Text(string value) =>
-        new VocabularyMapValue.Scalar(
-            VocabularyScalarValue.FromText(value));
+    private static ExplanationValue Text(string value) =>
+        new ExplanationValue.Scalar(
+            ExplanationScalarValue.FromText(value));
 
-    private static VocabularyMapValue Term(
+    private static ExplanationValue Term(
         VocabularyIdentity vocabulary,
         string identity) =>
-        new VocabularyMapValue.Term(new(vocabulary, identity));
+        new ExplanationValue.VocabularyTerm(new(vocabulary, identity));
 }

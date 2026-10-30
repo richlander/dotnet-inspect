@@ -1,27 +1,37 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Executes one exact package Type inspection through a fresh directly owned
-/// Workspace and returns only its detached terminal envelope.
+/// Executes one exact package Type inspection through PackageHouse and an
+/// admitted Workspace realization, returning only its detached terminal
+/// envelope.
 /// </summary>
-public static class ExactTypeInspectionOperation
+public static partial class ExactTypeInspectionOperation
 {
     public static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
         ExecuteAsync(
             ExactTypeInspectionRequest request,
-            WorkspaceContextLoadOptions capabilities,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation,
             CancellationToken cancellationToken = default)
-        => await ExecuteAsyncCore(
-            request,
-            capabilities,
-            projectionLimits: null,
-            cancellationToken).ConfigureAwait(false);
+        => await ExecuteWithLiveTargetAsyncCore(
+                request,
+                house,
+                sourceOperation,
+                projectionLimits: null,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                static (inspection, _, _) =>
+                    ValueTask.FromResult(inspection),
+                cancellationToken)
+            .ConfigureAwait(false);
 
     /// <summary>
     /// Executes one cold exact-Type inspection under caller-supplied
@@ -30,86 +40,345 @@ public static class ExactTypeInspectionOperation
     public static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
         ExecuteAsync(
             ExactTypeInspectionRequest request,
-            WorkspaceContextLoadOptions capabilities,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation,
             ApiSurfaceProjectionLimits projectionLimits,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(projectionLimits);
-        return await ExecuteAsyncCore(
-            request,
-            capabilities,
-            projectionLimits,
-            cancellationToken).ConfigureAwait(false);
+        return await ExecuteWithLiveTargetAsyncCore(
+                request,
+                house,
+                sourceOperation,
+                projectionLimits,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                static (inspection, _, _) =>
+                    ValueTask.FromResult(inspection),
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
-    static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
-        ExecuteAsyncCore(
+    /// <summary>
+    /// Executes one exact package Type inspection and lends its live defining
+    /// target to one asynchronous consumer while the admitted package scope is
+    /// still alive.
+    /// </summary>
+    public static Task<TResult> ExecuteWithLiveTargetAsync<TResult>(
+        ExactTypeInspectionRequest request,
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        Func<
+            InspectionEnvelope<ExactTypeInspectionResult>,
+            SelectedContextExactTypeLiveTarget?,
+            CancellationToken,
+            ValueTask<TResult>> use,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(use);
+        return ExecuteWithLiveTargetAsyncCore(
+            request,
+            house,
+            sourceOperation,
+            projectionLimits: null,
+            ApiSurfaceScope.PublicWithNonPublicTypes,
+            use,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes one exact package Type inspection under the requested API
+    /// surface scope and lends its live defining target to one asynchronous
+    /// consumer while the admitted package scope is still alive.
+    /// </summary>
+    public static Task<TResult> ExecuteWithLiveTargetAsync<TResult>(
+        ExactTypeInspectionRequest request,
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        ApiSurfaceScope scope,
+        Func<
+            InspectionEnvelope<ExactTypeInspectionResult>,
+            SelectedContextExactTypeLiveTarget?,
+            CancellationToken,
+            ValueTask<TResult>> use,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(use);
+        return ExecuteWithLiveTargetAsyncCore(
+            request,
+            house,
+            sourceOperation,
+            projectionLimits: null,
+            scope,
+            use,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes ordered exact package Type candidates under one admitted
+    /// package scope, stopping at the first outcome other than not found, and
+    /// lends any live defining target to one asynchronous consumer.
+    /// </summary>
+    public static Task<TResult> ExecuteFirstAvailableWithLiveTargetAsync<TResult>(
+        IReadOnlyList<ExactTypeInspectionRequest> requests,
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        ApiSurfaceScope scope,
+        Func<
+            InspectionEnvelope<ExactTypeInspectionResult>,
+            SelectedContextExactTypeLiveTarget?,
+            CancellationToken,
+            ValueTask<TResult>> use,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        ArgumentNullException.ThrowIfNull(use);
+        return ExecuteWithLiveTargetAsyncCore(
+            requests,
+            house,
+            sourceOperation,
+            projectionLimits: null,
+            scope,
+            use,
+            cancellationToken);
+    }
+
+    static async Task<TResult> ExecuteWithLiveTargetAsyncCore<TResult>(
             ExactTypeInspectionRequest request,
-            WorkspaceContextLoadOptions capabilities,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation,
             ApiSurfaceProjectionLimits? projectionLimits,
+            ApiSurfaceScope surfaceScope,
+            Func<
+                InspectionEnvelope<ExactTypeInspectionResult>,
+                SelectedContextExactTypeLiveTarget?,
+                CancellationToken,
+                ValueTask<TResult>> use,
+            CancellationToken cancellationToken)
+        => await ExecuteWithLiveTargetAsyncCore(
+                [request],
+                house,
+                sourceOperation,
+                projectionLimits,
+                surfaceScope,
+                use,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    static async Task<TResult> ExecuteWithLiveTargetAsyncCore<TResult>(
+            IReadOnlyList<ExactTypeInspectionRequest> requests,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation,
+            ApiSurfaceProjectionLimits? projectionLimits,
+            ApiSurfaceScope surfaceScope,
+            Func<
+                InspectionEnvelope<ExactTypeInspectionResult>,
+                SelectedContextExactTypeLiveTarget?,
+                CancellationToken,
+                ValueTask<TResult>> use,
             CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(capabilities);
+        ArgumentNullException.ThrowIfNull(requests);
+        ArgumentNullException.ThrowIfNull(house);
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        ArgumentNullException.ThrowIfNull(use);
 
-        WorkspaceContextInput input = new()
-        {
-            Framework = request.TargetFramework,
-            Members =
-            [
-                WorkspaceMemberCoordinate.Package(
-                    request.PackageId,
-                    request.Version,
-                    request.TargetFramework),
-            ],
-        };
-        var plan = new WorkspacePlan([], [input]);
-        var workspace = new InspectionWorkspace(plan);
-        InspectionEnvelope<ExactTypeInspectionResult> result;
+        ExactTypeInspectionRequest request;
+        PackageEndpointScopeRequest endpointRequest;
         try
         {
-            WorkspaceContextLoadOutcome load =
-                await WorkspaceContextLoader.LoadAsync(
-                    workspace,
-                    input,
-                    capabilities,
+            request = ValidateCandidateRequests(requests);
+            endpointRequest = PackageEndpointScopeRequest
+                .ForCompileLibraries(
+                PackageSourceCoordinate.Create(
+                    request.PackageId,
+                    request.Version),
+                request.TargetFramework,
+                PackageAssetDemand.Surface);
+        }
+        catch
+        {
+            sourceOperation.Dispose();
+            throw;
+        }
+        PackageEndpointScopeOutcome opened =
+            await PackageEndpointScope.OpenAsync(
+                    house,
+                    sourceOperation,
+                    endpointRequest,
                     cancellationToken)
                 .ConfigureAwait(false);
-            result = load switch
-            {
-                WorkspaceContextLoadOutcome.Failed failed =>
+        if (opened is PackageEndpointScopeOutcome.Failed failed)
+        {
+            return await use(
                     Envelope(
                         ExactTypeInspectionResult.ContextUnavailable(
                             request,
-                            failed.Failures),
+                            $"{failed.Kind}: {failed.Message}"),
                         request),
-                WorkspaceContextLoadOutcome.Loaded loaded =>
-                    ExecuteCore(
-                        workspace,
-                        loaded,
-                        request,
-                        projectionLimits),
-                _ => Envelope(
-                    ExactTypeInspectionResult.RuntimeUnavailable(
-                        request,
-                        "The exact Type Workspace load returned an unsupported result."),
-                    request),
-            };
-        }
-        catch (Exception failure)
-        {
-            await DirectWorkspaceOperationLifetime.CloseAfterFailureAsync(
-                    workspace,
-                    failure)
+                    null,
+                    cancellationToken)
                 .ConfigureAwait(false);
-            throw;
         }
 
-        await DirectWorkspaceOperationLifetime.CloseAsync(
+        await using PackageEndpointScope scope =
+            ((PackageEndpointScopeOutcome.Opened)opened).Scope;
+        ArtifactRootResult<TResult> execution =
+            await scope.UsePackageAssemblyRolesAsync(
+                    async (workspace, package, realization, token) =>
+                    {
+                        FirstAvailableExactTypeInspectionExecution retained =
+                            await ExecuteRetainedFirstAvailableExecutionCoreAsync(
+                                workspace,
+                                package,
+                                realization,
+                                requests,
+                                projectionLimits,
+                                surfaceScope,
+                                token)
+                            .ConfigureAwait(false);
+                        return await use(
+                                Envelope(
+                                    retained.Execution.Result,
+                                    retained.Request),
+                                LiveTarget(retained.Execution.Target),
+                                token)
+                            .ConfigureAwait(false);
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return execution switch
+        {
+            ArtifactRootResult<TResult>.Available available =>
+                available.Value,
+            ArtifactRootResult<TResult>.Rejected rejected =>
+                await use(
+                        Envelope(
+                            ExactTypeInspectionResult.ContextUnavailable(
+                                request,
+                                "The admitted package Root rejected exact Type "
+                                    + $"inspection: {rejected.Failure}"),
+                            request),
+                        null,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+            _ => throw new InvalidOperationException(
+                "Package endpoint execution returned an unknown result."),
+        };
+    }
+
+    static ExactTypeInspectionRequest ValidateCandidateRequests(
+        IReadOnlyList<ExactTypeInspectionRequest> requests)
+    {
+        if (requests.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one exact Type request is required.",
+                nameof(requests));
+        }
+
+        ExactTypeInspectionRequest first =
+            requests[0]
+            ?? throw new ArgumentException(
+                "Exact Type requests cannot contain null.",
+                nameof(requests));
+        foreach (ExactTypeInspectionRequest? candidate in requests)
+        {
+            if (candidate is null)
+            {
+                throw new ArgumentException(
+                    "Exact Type requests cannot contain null.",
+                    nameof(requests));
+            }
+            if (!candidate.PackageId.Equals(
+                    first.PackageId,
+                    StringComparison.OrdinalIgnoreCase)
+                || !candidate.Version.Equals(
+                    first.Version,
+                    StringComparison.OrdinalIgnoreCase)
+                || !candidate.TargetFramework.Equals(
+                    first.TargetFramework,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "Exact Type candidates must share one package coordinate "
+                        + "and target framework.",
+                    nameof(requests));
+            }
+        }
+
+        return first;
+    }
+
+    /// <summary>
+    /// Executes against one already admitted package Root and its matching
+    /// assembly-role realization.
+    /// </summary>
+    public static Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteAsync(
+        InspectionWorkspace workspace,
+        PackageRootBinding package,
+        PackageAssemblyContextRealization realization,
+        ExactTypeInspectionRequest request,
+        CancellationToken cancellationToken = default) =>
+        ExecuteRetainedCoreAsync(
+            workspace,
+            package,
+            realization,
+            request,
+            projectionLimits: null,
+            cancellationToken);
+
+    public static async Task<TResult> ExecuteWithLiveTargetAsync<TResult>(
+        InspectionWorkspace workspace,
+        PackageRootBinding package,
+        PackageAssemblyContextRealization realization,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits projectionLimits,
+        Func<
+            InspectionEnvelope<ExactTypeInspectionResult>,
+            SelectedContextExactTypeLiveTarget?,
+            CancellationToken,
+            ValueTask<TResult>> use,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(use);
+        ArgumentNullException.ThrowIfNull(projectionLimits);
+        ExactTypeInspectionExecution execution =
+            await ExecuteRetainedExecutionCoreAsync(
                 workspace,
-                "Exact Type inspection")
-            .ConfigureAwait(false);
-        return result;
+                package,
+                realization,
+                request,
+                projectionLimits,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                cancellationToken).ConfigureAwait(false);
+        return await use(
+            Envelope(execution.Result, request),
+            LiveTarget(execution.Target),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Executes against one already admitted package Root under caller-supplied
+    /// API-surface projection limits.
+    /// </summary>
+    public static Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteAsync(
+        InspectionWorkspace workspace,
+        PackageRootBinding package,
+        PackageAssemblyContextRealization realization,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits projectionLimits,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(projectionLimits);
+        return ExecuteRetainedCoreAsync(
+            workspace,
+            package,
+            realization,
+            request,
+            projectionLimits,
+            cancellationToken);
     }
 
     /// <summary>
@@ -166,6 +435,238 @@ public static class ExactTypeInspectionOperation
                 projectionLimits),
             request);
 
+    static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteRetainedCoreAsync(
+        InspectionWorkspace workspace,
+        PackageRootBinding package,
+        PackageAssemblyContextRealization realization,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits,
+        CancellationToken cancellationToken)
+    {
+        ExactTypeInspectionExecution execution =
+            await ExecuteRetainedExecutionCoreAsync(
+                    workspace,
+                    package,
+                    realization,
+                    request,
+                    projectionLimits,
+                    ApiSurfaceScope.PublicWithNonPublicTypes,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return Envelope(execution.Result, request);
+    }
+
+    static async Task<ExactTypeInspectionExecution>
+        ExecuteRetainedExecutionCoreAsync(
+        InspectionWorkspace workspace,
+        PackageRootBinding package,
+        PackageAssemblyContextRealization realization,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits,
+        ApiSurfaceScope scope,
+        CancellationToken cancellationToken)
+    {
+        FirstAvailableExactTypeInspectionExecution execution =
+            await ExecuteRetainedFirstAvailableExecutionCoreAsync(
+                    workspace,
+                    package,
+                    realization,
+                    [request],
+                    projectionLimits,
+                    scope,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return execution.Execution;
+    }
+
+    static async Task<FirstAvailableExactTypeInspectionExecution>
+        ExecuteRetainedFirstAvailableExecutionCoreAsync(
+        InspectionWorkspace workspace,
+        PackageRootBinding package,
+        PackageAssemblyContextRealization realization,
+        IReadOnlyList<ExactTypeInspectionRequest> requests,
+        ApiSurfaceProjectionLimits? projectionLimits,
+        ApiSurfaceScope scope,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(realization);
+        ArgumentNullException.ThrowIfNull(requests);
+        if (requests.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one exact Type request is required.",
+                nameof(requests));
+        }
+        ExactTypeInspectionRequest request = requests[0];
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ImmutableArray<PackageAssemblyRoleParticipant> participants =
+        [
+            .. realization.SurfaceParticipants.Where(participant =>
+                ReferenceEquals(
+                    participant.Package,
+                    package.Root.Identity)),
+        ];
+        if (participants.IsEmpty)
+        {
+            return new(
+                request,
+                new(
+                    ExactTypeInspectionResult.ContextUnavailable(
+                        request,
+                        "The admitted package Root has no surface participant."),
+                    [],
+                    Target: null));
+        }
+
+        var selected = new HashSet<AssemblyContextParticipant>(
+            participants.Select(static participant =>
+                participant.Participant),
+            ReferenceEqualityComparer.Instance);
+        if (realization.SurfaceGroup.Participants.Length == selected.Count
+            && realization.SurfaceGroup.Participants.All(selected.Contains))
+        {
+            return ExecuteFirstAvailableExecutionCore(
+                workspace,
+                Loaded(
+                    workspace.Identity,
+                    realization.SurfaceGroup,
+                    selected,
+                    package,
+                    request),
+                requests,
+                scope,
+                projectionLimits);
+        }
+
+        var retained =
+            ImmutableArray.CreateBuilder<AssemblyContextParticipant>(
+                participants.Length);
+        foreach (PackageAssemblyRoleParticipant participant
+            in participants)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AssemblyImageAccessResult<ResolvedAssemblyReference> access =
+                realization.SurfaceGroup.RetainAssemblyReference(
+                    participant.Participant.Assembly);
+            if (access
+                is AssemblyImageAccessResult<ResolvedAssemblyReference>
+                    .Rejected rejected)
+            {
+                return new(
+                    request,
+                    new(
+                        new ExactTypeInspectionResult(
+                            ExactTypeInspectionOutcome.Unavailable,
+                            request.Type,
+                            MatchedType: null,
+                            Type: null,
+                            RequestedAssembly: null,
+                            SupplierAssembly: null,
+                            ForwardingHops: [],
+                            Suggestions: [],
+                            InspectionFailures: [],
+                            Failures:
+                            [
+                                new ExactTypeInspectionFailure(
+                                    ExactTypeInspectionFailureKind
+                                        .ParticipantRejected,
+                                    rejected.Failure.Detail,
+                                    participant.Participant.Assembly.Identity),
+                            ]),
+                        [],
+                        Target: null));
+            }
+            retained.Add(
+                new AssemblyContextParticipant(
+                    ((AssemblyImageAccessResult<ResolvedAssemblyReference>
+                        .Available)access).Value,
+                    participant.Participant.BindingPolicy));
+        }
+
+        await using var selectedWorkspace = new InspectionWorkspace();
+        using AssemblyContextGroup selectedGroup =
+            selectedWorkspace.CreateAssemblyContextGroup(retained);
+        return ExecuteFirstAvailableExecutionCore(
+            selectedWorkspace,
+            Loaded(
+                selectedWorkspace.Identity,
+                selectedGroup,
+                retained,
+                package,
+                request),
+            requests,
+            scope,
+            projectionLimits);
+    }
+
+    static FirstAvailableExactTypeInspectionExecution
+        ExecuteFirstAvailableExecutionCore(
+            InspectionWorkspace workspace,
+            WorkspaceContextLoadOutcome.Loaded loaded,
+            IReadOnlyList<ExactTypeInspectionRequest> requests,
+            ApiSurfaceScope scope,
+            ApiSurfaceProjectionLimits? projectionLimits) =>
+        ExactTypeInspectionQuery.ExecuteFirstAvailablePackageContext(
+            workspace.Identity,
+            new ExactTypeInspectionContext(loaded),
+            requests,
+            scope,
+            projectionLimits);
+
+    static SelectedContextExactTypeLiveTarget? LiveTarget(
+        ExactTypeInspectionTarget? target,
+        ImmutableArray<byte>? implementationPortablePdb = null) =>
+        target is null
+            ? null
+            : new(
+                target.Surface.Surface,
+                target.Type,
+                target.Occurrence.Assembly,
+                target.Occurrence,
+                target.BindingPolicy,
+                target.AssemblyPath,
+                target.PackageAssetPath,
+                target.PackageExtractPath)
+            {
+                ImplementationPortablePdb =
+                    implementationPortablePdb,
+                OpenCompiledDocumentation =
+                    target.OpenCompiledDocumentation,
+            };
+
+    static WorkspaceContextLoadOutcome.Loaded Loaded(
+        InspectionWorkspaceIdentity workspace,
+        AssemblyContextGroup group,
+        IEnumerable<AssemblyContextParticipant> participants,
+        PackageRootBinding package,
+        ExactTypeInspectionRequest request)
+    {
+        WorkspaceMemberCoordinate declared =
+            WorkspaceMemberCoordinate.Package(
+                request.PackageId,
+                request.Version,
+                request.TargetFramework,
+                package.Coordinate.RuntimeIdentifier);
+        return new(
+            workspace,
+            group,
+            [
+                .. participants.Select(participant =>
+                    new WorkspaceContextMember(
+                        declared,
+                        package.Coordinate,
+                        participant)),
+            ],
+            [package],
+            [],
+            package.Coordinate.Framework,
+            package.Coordinate.RuntimeIdentifier);
+    }
+
     static InspectionEnvelope<ExactTypeInspectionResult> Envelope(
         ExactTypeInspectionResult result,
         ExactTypeInspectionRequest request) =>
@@ -174,7 +675,7 @@ public static class ExactTypeInspectionOperation
             ProjectShare(request, result),
             Diagnostics(result));
 
-    static InspectionShare ProjectShare(
+    internal static InspectionShare ProjectShare(
         ExactTypeInspectionRequest request,
         ExactTypeInspectionResult result)
     {

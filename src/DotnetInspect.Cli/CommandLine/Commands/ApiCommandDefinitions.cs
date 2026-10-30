@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Sections;
+using DotnetInspector.Presentation;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -17,6 +18,15 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class ApiCommandDefinitions
 {
+    private static string[] SplitOptionValues(string[]? values) =>
+    [
+        .. (values ?? []).SelectMany(value =>
+            value.Split(
+                ',',
+                StringSplitOptions.TrimEntries
+                    | StringSplitOptions.RemoveEmptyEntries)),
+    ];
+
     /// <summary>
     /// Creates the type command for fast type discovery (compact table, no docs by default).
     /// </summary>
@@ -24,17 +34,21 @@ public static class ApiCommandDefinitions
         SharedOptions opts,
         out TypeOptionsParser.TypeCommandArgs structuralArgs)
     {
-        var typeCommand = new Command(TypeCommand.Name, "Discover types in a package or library (compact table output)");
+        var typeCommand = new Command(TypeCommand.Name, "Inspect a type or explicit type pattern");
 
         var argsArg = new Argument<string[]>("args")
         {
-            Description = "Package and type pattern. When no --package/--library/--platform is given, first arg is the package.",
+            Description = "Required type name or pattern, optionally preceded by a package. Source options alone do not select a type.",
             Arity = ArgumentArity.ZeroOrMore
         };
 
         var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, name@version, or name@A..B)" };
         var atOption = new Option<string?>("--at") { Description = "Address in a package range: exact version, #N, first, or last" };
         var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
+        var namesakeLibraryOption = new Option<bool>("--namesake-library")
+        {
+            Description = "Source: select the package Library whose assembly name matches the package ID",
+        };
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
@@ -78,10 +92,31 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
+        var relationsOption = new Option<string[]>("--relations")
+        {
+            Description =
+                "Inspect Annotated Type Relations: all or canonical family ids",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var relationColorOption = new Option<string[]>("--relation-color")
+        {
+            Description =
+                "Include canonical Annotated Type Relations color id",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var requireRelationColorOption =
+            new Option<string[]>("--require-relation-color")
+            {
+                Description =
+                    "Require a selected relation color as a predicate",
+                AllowMultipleArgumentsPerToken = false,
+            };
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
         typeCommand.Options.Add(assemblyOption);
+        typeCommand.Options.Add(namesakeLibraryOption);
         typeCommand.Options.Add(platformOption);
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
@@ -100,6 +135,9 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(repoOption);
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
+        typeCommand.Options.Add(relationsOption);
+        typeCommand.Options.Add(relationColorOption);
+        typeCommand.Options.Add(requireRelationColorOption);
         opts.AddSectionOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Details);
         opts.AddCountOptionTo(typeCommand);
@@ -108,6 +146,7 @@ public static class ApiCommandDefinitions
         opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
+        typeCommand.Options.Add(opts.Mermaid);
         opts.AddEnvelopeOptionTo(
             typeCommand,
             opts.Discover,
@@ -116,8 +155,7 @@ public static class ApiCommandDefinitions
             opts.Limit,
             opts.Rows,
             opts.Head,
-            opts.Tail,
-            opts.Count);
+            opts.Tail);
         typeCommand.Options.Add(opts.Taste);
         typeCommand.Options.Add(opts.ReadableNames);
         opts.AddOutputOptionsTo(typeCommand);
@@ -128,8 +166,115 @@ public static class ApiCommandDefinitions
             allOption, typeFilterOption, compactOption,
             opts.NoHeaders, unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption,
-            suppressRuntimeTypeFallbackOption);
+            relationsOption, relationColorOption, requireRelationColorOption,
+            suppressRuntimeTypeFallbackOption, namesakeLibraryOption);
         structuralArgs = commandArgs;
+        typeCommand.Validators.Add(result =>
+        {
+            if (!result.GetValue(namesakeLibraryOption))
+                return;
+
+            string? package = result.GetValue(packageOption);
+            if (string.IsNullOrWhiteSpace(package))
+            {
+                result.AddError("--namesake-library requires --package.");
+            }
+            if (result.GetValue(assemblyOption) is not null
+                || result.GetValue(platformOption) is not null
+                || result.GetValue(projectOption) is not null
+                || result.GetValue(workspaceOption) is not null)
+            {
+                result.AddError(
+                    "--namesake-library cannot be combined with --library, "
+                        + "--platform, --project, or --workspace.");
+            }
+            if (string.Equals(
+                    result.GetValue(tfmOption),
+                    "all",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                result.AddError(
+                    "--namesake-library requires one target framework; "
+                        + "--tfm all is not supported.");
+            }
+            if (PackageReferenceAdmission.IsCandidate(package))
+            {
+                result.AddError(
+                    "--namesake-library is not supported with an exact "
+                        + "Package reference; use --library <dll>.");
+            }
+        });
+        typeCommand.Validators.Add(result =>
+        {
+            bool relationsRequested =
+                result.GetResult(relationsOption) is { Implicit: false };
+            bool colorsRequested =
+                result.GetResult(relationColorOption) is { Implicit: false };
+            bool requiredColorsRequested =
+                result.GetResult(requireRelationColorOption)
+                    is { Implicit: false };
+            if (!relationsRequested)
+            {
+                if (result.GetValue(opts.Envelope)
+                    && result.GetResult(opts.Count) is { Implicit: false })
+                {
+                    result.AddError(
+                        "--envelope cannot be combined with --count.");
+                }
+                if (colorsRequested)
+                {
+                    result.AddError(
+                        "--relation-color requires --relations.");
+                }
+                if (requiredColorsRequested)
+                {
+                    result.AddError(
+                        "--require-relation-color requires --relations.");
+                }
+                return;
+            }
+
+            string[] relationshipIds =
+                SplitOptionValues(result.GetValue(relationsOption));
+            bool selectsAll = relationshipIds.Any(
+                id => id.Equals("all", StringComparison.OrdinalIgnoreCase));
+            if (selectsAll && (relationshipIds.Length != 1
+                || !relationshipIds[0].Equals(
+                    "all",
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                result.AddError(
+                    "--relations all cannot be combined with family ids.");
+            }
+            if (!result.GetValue(opts.Json)
+                && !result.GetValue(opts.Envelope))
+            {
+                result.AddError(
+                    "--relations requires --json or --envelope.");
+            }
+            if (result.GetResult(opts.Limit) is { Implicit: false }
+                || result.GetResult(opts.Rows) is { Implicit: false }
+                || result.GetResult(opts.Head) is { Implicit: false }
+                || result.GetResult(opts.Tail) is { Implicit: false }
+                || result.GetResult(opts.Lines) is { Implicit: false }
+                || result.GetResult(opts.TailLines) is { Implicit: false })
+            {
+                result.AddError(
+                    "--relations cannot be combined with row or line "
+                        + "selection gestures.");
+            }
+            if (result.GetResult(opts.Select) is { Implicit: false }
+                || result.GetResult(opts.Discover) is { Implicit: false }
+                || result.GetResult(opts.QueryHelp) is { Implicit: false }
+                || result.GetValue(opts.Tree)
+                || result.GetValue(opts.Mermaid)
+                || result.GetResult(shareOption) is { Implicit: false })
+            {
+                result.AddError(
+                    "--relations cannot be combined with section, discovery, "
+                        + "tree, Mermaid, or Share gestures.");
+            }
+        });
 
         CliRowSelectionCommandRegistry.Register(
             typeCommand,
@@ -176,10 +321,45 @@ public static class ApiCommandDefinitions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
+        CliRowSelectionCommandRegistry.Register(
+            typeCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => BodyShapeRowSelectionAdoption.IsActive(
+                result,
+                opts,
+                tfmOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
-            if (parseResult.GetValue(opts.Envelope)
+            bool mermaidRequested =
+                parseResult.GetResult(opts.Mermaid)
+                    is { Implicit: false }
+                && parseResult.GetValue(opts.Mermaid);
+            if (mermaidRequested
+                && parseResult.GetValue(matchOption))
+            {
+                CommandError.Write(
+                    TypeCommandPlanner.StandaloneMermaidError);
+                return 1;
+            }
+
+            if (!mermaidRequested
+                && parseResult.GetValue(opts.Envelope)
                 && parseResult.GetResult(opts.Verbosity)
                     is { Implicit: false }
                 && opts.ParseVerbosity(parseResult)
@@ -199,7 +379,8 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
-            if (parseResult.GetValue(compactOption)
+            if (!mermaidRequested
+                && parseResult.GetValue(compactOption)
                 && opts.ResolveFormat(parseResult) != OutputFormat.Json
                 && !parseResult.GetValue(opts.Envelope))
             {
@@ -225,7 +406,8 @@ public static class ApiCommandDefinitions
                 };
             }
 
-            if (opts.ResolveFormat(parseResult) == OutputFormat.Json
+            if (!mermaidRequested
+                && opts.ResolveFormat(parseResult) == OutputFormat.Json
                 && parseResult.GetValue(opts.Tree)
                 && parseResult.GetValue(opts.Discover) is null)
             {
@@ -234,7 +416,8 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
-            if (TypeOptionsParser.TryCreateStructuralPlan(
+            if (!mermaidRequested
+                && TypeOptionsParser.TryCreateStructuralPlan(
                     parseResult,
                     opts,
                     commandArgs,
@@ -290,9 +473,7 @@ public static class ApiCommandDefinitions
                         sectionCategories: typePipeline.GetCategoryMap());
 
                 case TypeOptionsParser.ShowHelp:
-                    CommandError.Write("Type name, pattern, or source required.");
-                    CommandError.WriteLine("Run 'dotnet-inspect type --help' for usage.");
-                    return 1;
+                    return TypeCommand.WriteMissingTypeError();
 
                 case TypeOptionsParser.VersionError error:
                     CommandError.Write(error.Error);
@@ -306,6 +487,7 @@ public static class ApiCommandDefinitions
                     return await TypeCommand.ExecuteAsync(
                         success.Options,
                         success.Plan,
+                        success.CommandPlan,
                         ct);
 
                 default:
@@ -331,6 +513,10 @@ public static class ApiCommandDefinitions
             Arity = ArgumentArity.ZeroOrMore
         };
 
+        var workspaceOption = new Option<string?>("--workspace")
+        {
+            Description = "Source: canonical Base64URL Workspace packet string",
+        };
         var packageOption = new Option<string?>("--package") { Description = "Source: package (file, name, name@version, or name@A..B)" };
         var atOption = new Option<string?>("--at") { Description = "Address in a package range: exact version, #N, first, or last" };
         var assemblyOption = new Option<string?>("--library") { Description = "Source: library path (local file, or relative within package)" };
@@ -422,6 +608,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(sourcePartOption);
         memberCommand.Options.Add(explainOption);
         memberCommand.Options.Add(shareOption);
+        memberCommand.Options.Add(workspaceOption);
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
         memberCommand.Options.Add(callerPackageOption);
@@ -528,6 +715,28 @@ public static class ApiCommandDefinitions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
+        CliRowSelectionCommandRegistry.Register(
+            memberCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => BodyShapeRowSelectionAdoption.IsActive(
+                result,
+                opts,
+                tfmOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         var commandArgs = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
@@ -536,7 +745,7 @@ public static class ApiCommandDefinitions
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
             routerDeferredTargetOption, sourcePartsOption, sourcePartOption,
-            explainOption, companionOption);
+            explainOption, companionOption, workspaceOption);
         structuralArgs = commandArgs;
 
         memberCommand.SetAction(async (parseResult, ct) =>
@@ -625,6 +834,12 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
+            if (parseResult.GetValue(matchOption)
+                && parseResult.GetValue(workspaceOption) is not null)
+            {
+                CommandError.Write("--workspace cannot be combined with --match.");
+                return 1;
+            }
             if (parseResult.GetValue(matchOption))
             {
                 return ApiCoordinateMatchOptionsParser.ParseMember(

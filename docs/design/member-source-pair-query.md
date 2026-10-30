@@ -27,6 +27,10 @@ different exact anchors or leave one endpoint unrequested. Each requested
 endpoint resolves only its own anchor in its own retained image. A physical
 token from one image is never reused to resolve the other.
 
+Host-neutral callers may supply Metadata's detached `ProjectedMemberAnchor`.
+The query reconstructs the primitive exact anchor inside its owning boundary;
+browser hosts neither construct nor inspect `MetadataPrimitives.MemberAnchor`.
+
 An unrequested endpoint is retained as `Unrequested`; it is not
 query-established positive member absence. A requested missing or ambiguous
 MethodDef is `NotFound`, also not positive member absence. Unsupported
@@ -147,7 +151,8 @@ lifetime, and presentation. Authored settlement now uses SourceHouse under
 of the immediate adapter-first path: assembly adapter #7313, authored
 House #7368, companion handoff #7440, and this shared production cutover.
 Both hosts adopt in this delivery without another host-specific composition.
-The member-pair route no longer invokes `PdbSourceHouse.AcquireMemberAsync`.
+The member-pair route no longer invokes the former public PDB-source
+acquisition composition.
 Existing acquisition and local-byte helpers, ordinary type queries,
 decompiler fallback, and broader CLI enrichment remain; their migration and
 retirement stay under the twelve-step

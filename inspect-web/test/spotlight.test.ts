@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -6,7 +7,9 @@ import {
   distinctSpotlightResults,
   nextSpotlightScope,
   nextSpotlightSelection,
+  spotlightAllScopeLimit,
   spotlightCapabilityDraftValue,
+  spotlightCapabilityDestination,
   spotlightResultIdentity,
 } from "../src/spotlight.ts";
 import { visibleSpotlightPackageHits } from "../src/spotlight-package-search.ts";
@@ -21,6 +24,8 @@ import type { CommandContext } from "../src/command-bar.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { fakeDom } from "./fake-dom.ts";
 import type { TypeLens } from "../src/data.ts";
+
+const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
 function escapeHtml(value: unknown) {
   return String(value)
@@ -321,7 +326,7 @@ test("Add package is a named package-only picker without commands or removal", (
       ...packageRows,
       { kind: "command", action: "complete", command: "show", value: "show", hint: "Show", category: "choice" },
       { kind: "pkg-loaded", pkg, ranges: [] },
-      { kind: "package-query", prefix: "" },
+      { kind: "package-activity" },
       { kind: "framework-lib", assembly: "System.Runtime", pack: "netcore.app", publicTypes: 1, ranges: [] },
       { kind: "type", pkg, type, ranges: [] },
       { kind: "member", pkg, type, memberKey: "ToString", name: "ToString", ranges: [] },
@@ -360,7 +365,7 @@ test("exact package coordinates are presented as direct listed-or-unlisted opens
 
   assert.match(html, /data-sl-pkg-load="WrongTurn"/);
   assert.match(html, /data-sl-pkg-version="0\.1\.14"/);
-  assert.match(html, /0\.1\.14 · exact coordinate · listed or unlisted/);
+  assert.match(html, /title="exact coordinate · listed or unlisted">0\.1\.14<\/span>/);
 });
 
 test("Add package dispatches rendered loaded, NuGet and recent rows only to Add", () => {
@@ -609,7 +614,7 @@ test("ordinary open and reset clear the Add callback and restore Search scopes a
     assert.match(html, /aria-label="Go to anything"/);
     assert.match(html, /data-sl-scope="commands"/);
     assert.match(html, /data-sl-remove/);
-    assert.match(html, /1\.0\.0 · open/);
+    assert.match(html, /class="spotlight-item-ns">1\.0\.0<\/span>/);
     assert.doesNotMatch(html, /already in Workspace|spotlight-cancel/);
     withBoundSpotlight(harness, dom => {
       dom.clickRow(0);
@@ -637,7 +642,7 @@ test("ordinary command open ends Add package purpose", () => {
   });
   assert.equal(harness.state.spotlightScope, "commands");
   assert.match(harness.spotlight.modalHtml(), /aria-label="Run a command"/);
-  assert.ok(harness.spotlight.results().every(result => result.kind === "command"));
+  assert.ok(harness.spotlight.results().every(result => result.kind === "command" || result.kind === "package-activity"));
   harness.spotlight.close();
 });
 
@@ -723,6 +728,8 @@ test("Spotlight selection clamps without wrapping and scope cycling wraps", () =
   assert.equal(nextSpotlightSelection(2, 1, 4), 3);
   assert.equal(nextSpotlightSelection(3, 1, 4), 3);
   assert.equal(nextSpotlightSelection(0, 1, 0), null);
+  assert.equal(spotlightAllScopeLimit(6, 0), 6);
+  assert.equal(spotlightAllScopeLimit(6, 2), 18);
   assert.equal(nextSpotlightScope(4, 5, false), 0);
   assert.equal(nextSpotlightScope(0, 5, true), 4);
 });
@@ -753,33 +760,15 @@ test("NuGet hits are visible only for their resolved query and survive a query r
   assert.deepEqual(visibleSpotlightPackageHits(ready, "alpha"), hits);
 });
 
-test("Spotlight renders the package-query action with its seeded prefix identity", () => {
-  const { spotlight } = createHarness({
-    query: "Microsoft.Extensions.",
-    searchResults: () => [{
-      kind: "package-query",
-      prefix: "Microsoft.Extensions.",
-      ranges: [],
-    }],
-  });
-
-  const html = spotlight.modalHtml();
-
-  assert.match(html, /Package query/);
-  assert.match(html, /Microsoft\.Extensions\./);
-  assert.match(html, /data-sl-package-query="1"/);
-});
-
-test("Spotlight renders Package Activity as a routed package action", () => {
-  const { spotlight } = createHarness({
-    searchResults: () => [{ kind: "package-activity" }],
-  });
-
-  const html = spotlight.modalHtml();
-
-  assert.match(html, /Package Activity/);
-  assert.match(html, /Review product package changes over time/);
-  assert.match(html, /data-sl-package-activity="1"/);
+test("Activity is available only in Commands, including Home without a package", () => {
+  const home = createHarness({ scope: "commands", query: "activity" });
+  assert.deepEqual(home.spotlight.results(), [{ kind: "package-activity" }]);
+  assert.match(home.spotlight.modalHtml(), /data-sl-package-activity="1"/);
+  assert.match(home.spotlight.modalHtml(), /Review product package changes over time/);
+  const all = createHarness({ query: "activity" });
+  assert.doesNotMatch(all.spotlight.modalHtml(), /data-sl-package-query|data-sl-package-activity|class="spotlight-group">Query/);
+  home.state.spotlightQuery = "settings";
+  assert.deepEqual(home.spotlight.results(), []);
 });
 
 test("Spotlight renders installed resources in one Capabilities group", () => {
@@ -899,23 +888,37 @@ test("Spotlight keeps the selected result when async rows are inserted before it
     /id="spotlight-result-2" class="spotlight-item selected"[^>]*data-sl-type="Example\.Selected"/);
 });
 
-test("modal arrow navigation reuses rendered results", () => {
+test("modal arrow navigation reveals the next known All-scope result page at the boundary", () => {
   const pkg = { id: "Example.Package", version: "1.0.0" };
-  const rows: SpotlightResult[] = ["First", "Second", "Third"].map(name => ({
-    kind: "type",
-    pkg,
-    type: { id: `Example.${name}`, name, kind: "class" },
+  const expansionPackageRows: SpotlightResult[] = ["First", "Second", "Third"].map(name => ({
+    kind: "pkg-nuget",
+    hit: {
+      id: `Example.${name}`,
+      version: "1.0.0",
+      exact: false,
+    },
     ranges: [],
   }));
+  const finalType: SpotlightResult = {
+    kind: "type",
+    pkg,
+    type: { id: "Example.Final", name: "Final", kind: "class" },
+    ranges: [],
+  };
   let searchCount = 0;
-  const { keybindings, spotlight, state } = createHarness({
+  let spotlight: ReturnType<typeof createHarness>["spotlight"];
+  const harness = createHarness({
     query: "Example",
     searchResults: () => {
       searchCount++;
-      return rows;
+      return spotlight.allScopeResultPage() === 0
+        ? [expansionPackageRows[0]!, finalType]
+        : [...expansionPackageRows, finalType];
     },
   });
-  spotlight.modalHtml();
+  ({ spotlight } = harness);
+  const { keybindings, state } = harness;
+  assert.match(spotlight.modalHtml(), /↓ more at end/);
 
   const listeners = new Map<string, (event: MockKeyboardEvent) => void>();
   const input: MockInputElement = {
@@ -929,14 +932,24 @@ test("modal arrow navigation reuses rendered results", () => {
     setAttribute: () => {},
     setSelectionRange: () => {},
   };
-  const domRows: MockElement[] = rows.map(() => ({
+  let domRows: MockElement[] = Array.from({ length: 2 }, () => ({
     classList: { toggle: () => {} },
     scrollIntoView: () => {},
     setAttribute: () => {},
   }));
-  const container: MockParentNode = {
+  const container = {
+    get innerHTML() { return ""; },
+    set innerHTML(value: string) {
+      const count = value.match(/data-sl-index="/g)?.length ?? 0;
+      domRows = Array.from({ length: count }, () => ({
+        classList: { toggle: () => {} },
+        scrollIntoView: () => {},
+        setAttribute: () => {},
+      }));
+    },
     querySelector: () => null,
-    querySelectorAll: selector => selector === ".spotlight-item" ? domRows : [],
+    querySelectorAll: (selector: string) =>
+      selector === ".spotlight-item" ? domRows : [],
   };
   const root: MockParentNode = {
     querySelector: selector => selector === "#spotlight-input" ? input : null,
@@ -969,7 +982,7 @@ test("modal arrow navigation reuses rendered results", () => {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     spotlight.bind(root as unknown as ParentNode, "modal");
     const target = fakeDom.eventTarget(input);
-    for (let index = 0; index < 4; index++) {
+    for (let index = 0; index < 2; index++) {
       keybindings.dispatch(fakeDom.keyboardEvent({
         altKey: false,
         ctrlKey: false,
@@ -982,6 +995,25 @@ test("modal arrow navigation reuses rendered results", () => {
         preventDefault: () => {},
       }));
     }
+    assert.equal(searchCount, 2);
+    assert.equal(spotlight.allScopeResultPage(), 1);
+    assert.equal(domRows.length, 4);
+    assert.equal(state.spotlightIndex, 1);
+
+    input.value = "Other";
+    listeners.get("input")?.(fakeDom.keyboardEvent({
+      altKey: false,
+      ctrlKey: false,
+      defaultPrevented: false,
+      key: "",
+      metaKey: false,
+      shiftKey: false,
+      target: fakeDom.eventTarget(input),
+      composedPath: () => [fakeDom.eventTarget(input)],
+      preventDefault: () => {},
+    }));
+    assert.equal(spotlight.allScopeResultPage(), 0);
+    assert.equal(domRows.length, 2);
   } finally {
     if (previousDocument === undefined) delete globals.document;
     else globals.document = previousDocument;
@@ -991,9 +1023,6 @@ test("modal arrow navigation reuses rendered results", () => {
       globals.requestAnimationFrame = previousRequestAnimationFrame;
     }
   }
-
-  assert.equal(searchCount, 1);
-  assert.equal(state.spotlightIndex, 2);
 });
 
 test("closing Spotlight restores focus through the application boundary", () => {
@@ -1117,16 +1146,12 @@ test("workspace command lenses are resolved from the current package", () => {
   assert.match(harness.spotlight.modalHtml(), />show api</);
 });
 
-test("Spotlight rejects a scope the current context does not offer", () => {
+test("Home accepts Commands without a package context", () => {
   const { spotlight, state } = createHarness();
-
-  // "commands" is a well-typed SpotlightScope, but scopes() only offers it when a
-  // command context exists. Without one, open() must fall back rather than seat a
-  // scope whose results() branch can only ever return an empty list.
   withStubbedFocusTarget(() => spotlight.open("", "commands"));
-
-  assert.equal(state.spotlightScope, "all");
-  assert.doesNotMatch(spotlight.modalHtml(), /data-sl-scope="commands"/);
+  assert.equal(state.spotlightScope, "commands");
+  assert.match(spotlight.modalHtml(), /data-sl-scope="commands"/);
+  assert.deepEqual(spotlight.results(), [{ kind: "package-activity" }]);
 });
 
 test("Spotlight accepts a scope the current context does offer", () => {
@@ -1148,7 +1173,7 @@ test("home Spotlight keeps the shared typed UI without workspace commands", () =
   assert.match(pendingHtml, /package, type, member, or PackageId@Version…/);
   assert.doesNotMatch(pendingHtml, /or command/);
   assert.doesNotMatch(pendingHtml, /data-sl-scope="runtime"|>Platform</);
-  assert.doesNotMatch(pendingHtml, /data-sl-scope="commands"/);
+  assert.match(pendingHtml, /data-sl-scope="commands"/);
   assert.doesNotMatch(pendingHtml, /home-search-glint/);
 
   const readyHtml = spotlight.inlineHtml(false, true);
@@ -1172,9 +1197,9 @@ test("framework assemblies are Library results without a Platform destination", 
   });
 
   const html = spotlight.modalHtml();
-  assert.match(html, /class="spotlight-group">Libraries/);
+  assert.match(html, /class="spotlight-group">Ecosystem/);
   assert.match(html, /data-sl-framework-lib="System\.Text\.Json"/);
-  assert.match(html, /\.NET library · net11\.0 · 11\.0\.0 · 42 types/);
+  assert.match(html, /\.NET Runtime · net11\.0 · 11\.0\.0 · 42 types/);
   assert.doesNotMatch(html, /data-sl-scope="runtime"|>Platform</);
 });
 
@@ -1191,4 +1216,177 @@ test("command queries and command metadata are escaped in Spotlight markup", () 
   const html = spotlight.modalHtml();
   assert.doesNotMatch(html, /<script/);
   assert.match(html, /find &lt;script class=&quot;x&quot;&gt;/);
+});
+
+test("same-named Package and Library share one Ecosystem group with independent identities", () => {
+  const packageResult: SpotlightResult = {
+    kind: "pkg-nuget", hit: { id: "System.Linq", version: "4.3.0" }, ranges: [],
+    ecosystem: { id: "ecosystem.runtime", title: ".NET Runtime", isPruned: true, traversalTfm: "net10.0", platformVersion: "10.0.12" },
+  };
+  const libraryResult: SpotlightResult = {
+    kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1,
+    tfm: "net10.0", version: "10.0.12", ranges: [],
+  };
+  const external: SpotlightResult = { kind: "pkg-nuget", hit: { id: "Example.External", version: "1.0.0" }, ranges: [] };
+  const { spotlight } = createHarness({ searchResults: () => [external, packageResult, libraryResult] });
+  const html = spotlight.modalHtml();
+  assert.equal((html.match(/class="spotlight-group">Ecosystem/g) ?? []).length, 1);
+  assert.match(html, /aria-label="Package: \.NET Runtime; pruned for net10.0"/);
+  assert.match(html, /aria-label="Library: \.NET Runtime"/);
+  assert.equal((html.match(/class="spotlight-svg-icon spotlight-pruned"/g) ?? []).length, 1);
+  assert.match(html, /Supplied by net10.0 @ 10.0.12/);
+  assert.match(html, /class="spotlight-item-ns" title="nuget.org">4\.3\.0<\/span>/);
+  assert.match(html, /title="\.NET Runtime · net10\.0 · 10\.0\.12 · 1 type">10\.0\.12<\/span>/);
+  assert.notEqual(spotlightResultIdentity(packageResult), spotlightResultIdentity(libraryResult));
+  assert.deepEqual(spotlight.results(), [libraryResult, packageResult, external]);
+});
+
+test("false or unavailable pruning never renders a positive badge", () => {
+  for (const isPruned of [false, null]) {
+    const { spotlight } = createHarness({ searchResults: () => [{
+      kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "99.0.0" }, ranges: [],
+      ecosystem: { id: "ecosystem.runtime", title: ".NET Runtime", isPruned, traversalTfm: "net10.0", platformVersion: "10.0.12" },
+    }] });
+    assert.doesNotMatch(spotlight.modalHtml(), /spotlight-pruned|Pruned for/);
+  }
+});
+
+
+test("artifact rows use one leading pruning, ecosystem, or fallback glyph", () => {
+  const ecosystem = { id: "ecosystem.aspire", title: "Aspire", isPruned: null, traversalTfm: "net10.0", platformVersion: "10.0.12" };
+  const prunedEcosystem = { ...ecosystem, id: "ecosystem.runtime", title: ".NET Runtime", isPruned: true };
+  const cases: { result: SpotlightResult; icon: string; label: string }[] = [
+    { result: { kind: "pkg-nuget", hit: { id: "Aspire.Hosting", version: "9.0.0" }, ranges: [], ecosystem }, icon: "sl-ecosystem-aspire", label: "Package: Aspire" },
+    { result: { kind: "pkg-nuget", hit: { id: "Example.External", version: "1.0.0" }, ranges: [] }, icon: "sl-package-icon", label: "Package" },
+    { result: { kind: "pkg-nuget", hit: { id: "Microsoft.Extensions.AI", version: "9.0.0" }, ranges: [], ecosystem: { ...ecosystem, id: "ecosystem.ai", title: "AI" } }, icon: "sl-ecosystem-ai", label: "Package: AI" },
+    { result: { kind: "pkg-recent", entry: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package: .NET Runtime; pruned for net10.0" },
+    { result: { kind: "pkg-loaded", pkg: { id: "System.Linq", version: "4.3.0" }, ranges: [], ecosystem: prunedEcosystem }, icon: "spotlight-pruned", label: "Package: .NET Runtime; pruned for net10.0" },
+    { result: { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [] }, icon: "sl-ecosystem-runtime", label: "Library: .NET Runtime" },
+    { result: { kind: "framework-lib", assembly: "Example.Library", pack: "other", publicTypes: 1, ranges: [] }, icon: "sl-library-icon", label: "Library" },
+  ];
+  for (const { result, icon, label } of cases) {
+    const { spotlight } = createHarness({ searchResults: () => [result] });
+    const html = spotlight.modalHtml();
+    assert.equal((html.match(/role="img"/g) ?? []).length, 1);
+    assert.match(html, new RegExp(`class="[^"\n]*${icon}[^"\n]*" role="img" aria-label="${label.replaceAll(".", "\\.")}"`));
+    assert.doesNotMatch(html, /spotlight-result-icons/);
+    assert.equal(spotlightResultIdentity(spotlight.results()[0]!), spotlightResultIdentity(result));
+  }
+});
+
+
+test("same-named platform and Package pairs prefer platform for pruning, otherwise highest version", () => {
+  const library: SpotlightResult = { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, tfm: "net10.0", version: "10.0.12", ranges: [] };
+  for (const [isPruned, comparison, packageFirst] of [[true, 1, false], [true, -1, false], [false, 1, true], [false, -1, false], [false, 0, false], [null, 1, true]] as const) {
+    const pkg: SpotlightResult = { kind: "pkg-nuget", hit: { id: "system.text.json", version: "11.0.0" }, ranges: [], ecosystem: { id: "ecosystem.runtime", title: ".NET Runtime", isPruned, traversalTfm: "net10.0", platformVersion: "10.0.12", platformVersionComparison: comparison } };
+    for (const input of [[pkg, library], [library, pkg]]) {
+      const { spotlight } = createHarness({ searchResults: () => input });
+      assert.deepEqual(spotlight.results(), packageFirst ? [pkg, library] : [library, pkg]);
+    }
+  }
+});
+
+
+test("unavailable version comparison preserves pair order and unrelated hits stay in place", () => {
+  const library: SpotlightResult = { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, tfm: "net10.0", version: "10.0.12", ranges: [] };
+  const pkg: SpotlightResult = { kind: "pkg-nuget", hit: { id: "System.Text.Json" }, ranges: [], ecosystem: { id: "ecosystem.runtime", title: ".NET Runtime", isPruned: null, traversalTfm: "net10.0", platformVersion: "10.0.12", platformVersionComparison: null } };
+  const unrelated: SpotlightResult = { kind: "framework-lib", assembly: "System.Linq", pack: "netcore.app", publicTypes: 1, ranges: [] };
+  const { spotlight } = createHarness({ searchResults: () => [pkg, unrelated, library] });
+  assert.deepEqual(spotlight.results(), [pkg, unrelated, library]);
+  pkg.ecosystem!.isPruned = true;
+  assert.deepEqual(spotlight.results(), [library, unrelated, pkg]);
+});
+
+
+test("Spotlight artifact rows show versions and dates without a visible TFM", () => {
+  const results: SpotlightResult[] = [
+    { kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "9.0.0" }, ranges: [], publication: { status: "available", date: "2024-11-12" } },
+    { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [], version: "10.0.12", tfm: "net10.0", publication: { status: "available", date: "2026-09-08" } },
+  ];
+  results.push(
+    { kind: "pkg-loaded", pkg: { id: "Example.Loaded", version: "1.0.0", activeFramework: "net8.0" }, highestFramework: "net10.0", ranges: [] },
+    { kind: "pkg-recent", entry: { id: "Example.Recent", version: "2.0.0", framework: "net8.0", highestFramework: "net10.0" }, ranges: [] },
+    { kind: "pkg-recent", entry: { id: "Example.Legacy", version: "3.0.0", framework: "net8.0" }, ranges: [] },
+  );
+  const identities = results.map(spotlightResultIdentity);
+  const { spotlight } = createHarness({ searchResults: () => results });
+  const html = spotlight.inlineHtml(false);
+  assert.match(html, /<time datetime="2024-11-12" aria-label="Published 2024-11-12" title="Published 2024-11-12">2024-11-12<\/time>/);
+  assert.match(html, /<time datetime="2026-09-08" aria-label="Published 2026-09-08" title="Published 2026-09-08">2026-09-08<\/time>/);
+  assert.match(html, /class="spotlight-item-ns">1\.0\.0<\/span>/);
+  assert.match(html, /class="spotlight-item-ns">2\.0\.0<\/span>/);
+  assert.match(html, /class="spotlight-item-ns">3\.0\.0<\/span>/);
+  assert.match(html, /title="[^"\n]+">10\.0\.12<\/span>/);
+  assert.doesNotMatch(html, /class="spotlight-item-ns"[^>]*>[^<]*net(?:standard|coreapp|[0-9])/);
+  assert.deepEqual(spotlight.results().map(spotlightResultIdentity).sort((a, b) => a.localeCompare(b)), identities.sort((a, b) => a.localeCompare(b)));
+});
+
+test("Spotlight gives artifact names more horizontal room", () => {
+  const spotlightRule = styles.match(/\.spotlight \{([\s\S]*?)\n\}/)?.[1] ?? "";
+  assert.match(spotlightRule, /width: 820px;/);
+  assert.match(spotlightRule, /max-width: 94vw;/);
+  assert.match(
+    styles,
+    /\.spotlight-artifact \{ grid-template-columns: 20px minmax\(0, 1fr\) minmax\(120px, 180px\) 100px; \}/,
+  );
+});
+
+
+test("Libraries is beside Packages and admits only Library observations", () => {
+  const library: SpotlightResult = { kind: "framework-lib", assembly: "System.Text.Json", pack: "netcore.app", publicTypes: 1, ranges: [] };
+  const pkg: SpotlightResult = { kind: "pkg-nuget", hit: { id: "System.Text.Json", version: "9.0.0" }, ranges: [] };
+  const { spotlight } = createHarness({ scope: "libraries", searchResults: () => [pkg, library, { kind: "package-activity" }] });
+  assert.deepEqual(spotlight.results(), [library]);
+  const html = spotlight.modalHtml();
+  assert.match(html, /data-sl-scope="packages"[^>]*>Packages<\/button>\s*<button[^>]*data-sl-scope="libraries"/);
+  assert.doesNotMatch(html, /data-sl-pkg-load|data-sl-package-activity/);
+});
+
+test("platform suggestions dismiss by keyboard without activation and remain searchable", () => {
+  const row: SpotlightResult = { kind: "framework-lib", assembly: "System.Runtime", pack: "netcore.app", publicTypes: 1, ranges: [] };
+  let dismissed = false;
+  let activated = 0;
+  const harness = createHarness({
+    searchResults: () => !harness.state.spotlightQuery && dismissed ? [] : [row],
+    removeResult: () => { dismissed = true; return true; },
+    pickResult: () => { activated++; },
+  });
+  assert.match(harness.spotlight.inlineHtml(false), /aria-label="Dismiss System.Runtime from Spotlight suggestions"/);
+  withBoundSpotlight(harness, dom => {
+    assert.equal(dom.press("Delete", true), true);
+    assert.equal(activated, 0);
+    assert.doesNotMatch(harness.spotlight.inlineHtml(false), /data-sl-framework-lib/);
+  });
+  harness.state.spotlightQuery = "System.Runtime";
+  const search = harness.spotlight.inlineHtml(false);
+  assert.match(search, /data-sl-framework-lib/);
+  assert.doesNotMatch(search, /data-sl-remove=/);
+});
+
+
+test("Compare capability navigation follows the installed Browser binding", () => {
+  const capability = {
+    similarity: 1, matchedTerm: "api-attribute", matchSource: "CanonicalKey" as const,
+    isSegment: true,
+    resourceIdentity: { kind: "Analysis" as const, identity: "api-attribute", parentIdentity: null },
+    resourceKind: "Analysis" as const, resourceName: "API attributes",
+    canonicalKeys: ["api-attribute"], resourcePath: "analyses/api-attribute",
+    owningRoutes: [{ identity: "diff-analysis/route/compare", name: "Diff analysis",
+      resourcePath: "diff-analysis/routes/compare" }],
+    productionBindings: [{ identity: "dotnet-inspect.web/diff-compare", name: "Browser",
+      consumerKind: "Browser" as const, gesture: "Compare inspector",
+      resourcePath: "diff-analysis/bindings/browser" }],
+  };
+  assert.equal(spotlightCapabilityDestination(capability), "compare");
+  assert.equal(spotlightCapabilityDestination({ ...capability, productionBindings: [] }), null);
+  assert.equal(spotlightCapabilityDestination({ ...capability, productionBindings:
+    capability.productionBindings.map(binding => ({ ...binding, consumerKind: "Cli" as const })) }), null);
+  assert.equal(spotlightCapabilityDestination({ ...capability, productionBindings:
+    capability.productionBindings.map(binding => ({ ...binding,
+      identity: "dotnet-inspect.web/package-query" })) }), "package-query");
+  const { spotlight } = createHarness({ query: "api-attribute", searchResults: () => [{
+    kind: "capability", query: "api-attribute", capability, ranges: [],
+  }] });
+  assert.match(spotlight.inlineHtml(false), /Analysis/);
+  assert.match(spotlight.inlineHtml(false), /data-sl-capability="analyses\/api-attribute"/);
 });

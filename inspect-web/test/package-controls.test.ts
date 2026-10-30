@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindPackageSelections,
+  bindPackageVersionNavigation,
   createPackageControls,
   findOpenPackageForQuery,
   packageIdentityEquals,
@@ -13,7 +14,7 @@ import type {
 import { fakeDom } from "./fake-dom.ts";
 
 function packageIdentityKey(packageModel: PackageControlPackage) {
-  return `${packageModel.id}@${packageModel.version}::${packageModel.activeFramework}`;
+  return `${packageModel.id}@${packageModel.version}::${packageModel.activeFramework}::${packageModel.runtimeIdentifier ?? ""}`;
 }
 
 function pkg(
@@ -21,13 +22,19 @@ function pkg(
   version = "1.0.0",
   activeFramework = "net10.0",
   isRuntimePack = false,
+  runtimeIdentifier: string | null = null,
 ): PackageControlPackage {
-  return { id, version, activeFramework, isRuntimePack };
+  return { id, version, activeFramework, runtimeIdentifier, isRuntimePack };
 }
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   value = "";
+  checked = false;
+  hidden = false;
+  current = false;
+  focused = false;
+  getAttribute(name: string) { return name === "aria-current" && this.current ? "page" : null; }
   private readonly listeners = new Map<string, EventListener[]>();
 
   constructor(dataset: Record<string, string | undefined> = {}) {
@@ -44,6 +51,10 @@ class FakeElement {
     for (const listener of this.listeners.get(type) ?? []) {
       listener(fakeDom.event({ target: this, preventDefault() {} }));
     }
+  }
+
+  focus() {
+    this.focused = true;
   }
 }
 
@@ -74,6 +85,8 @@ test("package selection bindings map Package content controls without eager disp
   const root = new FakeRoot();
   const frameworkRow = new FakeElement({ packageFramework: "net9.0" });
   root.addAll("[data-package-framework]", frameworkRow);
+  const runtimeRow = new FakeElement({ packageRuntime: "linux-x64" });
+  root.addAll("[data-package-runtime]", runtimeRow);
   const framework = root.add("#framework", new FakeElement());
   framework.value = "net9.0";
   const version = root.add("#package-version", new FakeElement());
@@ -85,6 +98,7 @@ test("package selection bindings map Package content controls without eager disp
     {
       onFrameworkSelect: (value, source) =>
         calls.push(`framework:${value}:${source}`),
+      onRuntimeIdentifierSelect: value => calls.push(`runtime:${value}`),
       onVersionSelect: value => calls.push(`version:${value}`),
     });
 
@@ -92,17 +106,42 @@ test("package selection bindings map Package content controls without eager disp
   frameworkRow.dispatch("click");
   framework.value = "net10.0";
   framework.dispatch("change");
+  runtimeRow.dispatch("click");
   assert.deepEqual(calls, [
     "framework:net9.0:navigation",
     "framework:net10.0:legacy",
+    "runtime:linux-x64",
   ]);
   version.value = "10.0.1";
   version.dispatch("change");
   assert.deepEqual(calls, [
     "framework:net9.0:navigation",
     "framework:net10.0:legacy",
+    "runtime:linux-x64",
     "version:10.0.1",
   ]);
+});
+
+test("runtime identifier navigation focuses the active row", () => {
+  const root = new FakeRoot();
+  const first = new FakeElement({ packageRuntime: "linux-arm64" });
+  const active = new FakeElement({ packageRuntime: "linux-x64" });
+  active.current = true;
+  root.addAll("[data-package-runtime]", first, active);
+  const list = root.add(
+    '[data-nav-scope="runtime-identifiers"]',
+    new FakeElement());
+
+  bindPackageSelections(fakeDom.parentNode(root), {
+    onFrameworkSelect: () => {},
+    onRuntimeIdentifierSelect: () => {},
+    onVersionSelect: () => {},
+  });
+
+  list.dispatch("focus");
+
+  assert.equal(first.focused, false);
+  assert.equal(active.focused, true);
 });
 
 test("package selection binding tolerates an inactive surface with no controls", () => {
@@ -111,6 +150,7 @@ test("package selection binding tolerates an inactive surface with no controls",
     fakeDom.parentNode(new FakeRoot()),
     {
       onFrameworkSelect: value => calls.push(`framework:${value}`),
+      onRuntimeIdentifierSelect: value => calls.push(`runtime:${value}`),
       onVersionSelect: value => calls.push(`version:${value}`),
     });
 
@@ -129,6 +169,7 @@ test("package controls connect selection events to their typed options", () => {
   const packageControls = createPackageControls({
     selectFramework: (value, source) =>
       calls.push(`framework:${value}:${source}`),
+    selectRuntimeIdentifier: value => calls.push(`runtime:${value}`),
     selectVersion: value => calls.push(`version:${value}`),
   });
 
@@ -151,9 +192,11 @@ test("package identity equality compares the full coordinate", () => {
   const a = pkg("System.Text.Json");
   const b = pkg("System.Text.Json");
   const c = pkg("System.Text.Json", "2.0.0");
+  const d = pkg("System.Text.Json", "1.0.0", "net10.0", false, "linux-x64");
 
   assert.equal(packageIdentityEquals(a, b, packageIdentityKey), true);
   assert.equal(packageIdentityEquals(a, c, packageIdentityKey), false);
+  assert.equal(packageIdentityEquals(a, d, packageIdentityKey), false);
   assert.equal(packageIdentityEquals(null, b, packageIdentityKey), false);
 });
 
@@ -222,4 +265,30 @@ test("an explicit package version activates only a matching open coordinate", ()
     },
     parsePackageQuery("Microsoft.NETCore.App@10.0.0")!,
   ), null);
+});
+
+test("version inclusion controls independently admit prerelease and unlisted, preserving the active coordinate", () => {
+  const root = new FakeRoot();
+  const prerelease = root.add("#package-version-prerelease", new FakeElement());
+  const unlisted = root.add("#package-version-unlisted", new FakeElement());
+  const versions = [
+    new FakeElement({ packageVersion: "10.0.0" }),
+    new FakeElement({ packageVersion: "10.0.0-preview.1.25080.5" }),
+    new FakeElement({ packageVersion: "1.0.0", packageUnlisted: "true" }),
+    new FakeElement({ packageVersion: "1.1.0-preview.1", packageUnlisted: "true" }),
+    new FakeElement({ packageVersion: "2.0.0-preview.1", packageUnlisted: "true" }),
+  ];
+  const active = versions.at(-1);
+  assert.ok(active);
+  active.current = true;
+  root.addAll("[data-package-version]", ...versions);
+  bindPackageVersionNavigation(fakeDom.parentNode(root), { selectVersion() {} });
+  const visible = () => versions.map(row => !row.hidden);
+  assert.deepEqual(visible(), [true, false, false, false, true]);
+  prerelease.checked = true; prerelease.dispatch("change");
+  assert.deepEqual(visible(), [true, true, false, false, true]);
+  unlisted.checked = true; unlisted.dispatch("change");
+  assert.deepEqual(visible(), [true, true, true, true, true]);
+  prerelease.checked = false; prerelease.dispatch("change");
+  assert.deepEqual(visible(), [true, false, true, false, true]);
 });

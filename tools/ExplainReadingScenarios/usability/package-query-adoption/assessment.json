@@ -1,0 +1,45 @@
+{
+  "basis": "Manual fixed-criteria assessment of frozen answers and serialized read order; replay is not a domain answer scorer.",
+  "adoption": "Three of four request and receive the command-local HAL dataset. All four first read command help. None fetches root resources, links or contracts.",
+  "trials": {
+    "package-adoption-1": {
+      "domain": "Satisfied for a bounded direct declaration answer.",
+      "mechanism": "Help, command HAL, one exact direct query.",
+      "evidence": "Microsoft.Extensions.Http.Polly@10.0.12 directly declares Polly 7.2.4 in selected .NETStandard2.0 for net10.0; CandidateLimitReached qualifies coverage.",
+      "friction": "Broad facet summaries/links and guessed cli/options/syntax fields, then full selected facets and binding. HAL views total 15,384 B. No resource refetch.",
+      "stopping": "Stops after manifest/target evidence and coverage stderr. Retrospective describes additional package detail as repetitive."
+    },
+    "package-adoption-2": {
+      "domain": "Satisfied for a bounded direct declaration answer.",
+      "mechanism": "Help, command HAL, one exact direct query.",
+      "evidence": "Same package/version, direct declared range and compatible selected group, with candidate-limit uncertainty.",
+      "friction": "Local keys/inventory and complete binding before selecting three relevant facets. HAL views total 9,762 B. No resource refetch.",
+      "stopping": "Stops after ordinary query evidence; retrospective identifies manifest repetition as unnecessary."
+    },
+    "package-adoption-3": {
+      "domain": "Satisfied for the reported package's direct Polly declaration; search predicate is broader than exact Polly identity.",
+      "mechanism": "Help, command HAL, rejected -Q depends, -Q Packages, one starts-with query.",
+      "evidence": "Returned package independently contains an exact Polly declaration and Polly.Extensions.Http. Selected .NETStandard2.0 applies to net10.0; forty-candidate prefix search is not exhaustive.",
+      "friction": "Reads nearly the entire embedded dataset (18,045 B across HAL views), then seeks --where syntax. -Q expects a section rather than a facet. One recorded jq syntax error occurs while reading the ordinary result.",
+      "stopping": "No package-detail verification. Retrospective says -Q recovery was for precise syntax; the registered binding lacks the explicit starts-with lowering while -Q provides it. Follow-up #9962 records this scoped gap."
+    },
+    "package-adoption-4": {
+      "domain": "Satisfied for a bounded direct declaration answer after one rejected query.",
+      "mechanism": "Help, brief -Q, -Q Packages, invalid depth-four/forty-candidate request, corrected exact direct query.",
+      "evidence": "Same inspected package/version and direct declaration; selected group, candidate limit and indirect uncertainty are qualified.",
+      "friction": "Already viewed -Q Packages states the five-candidate nuspec-expensive cap before the depth-four request. This is failure to apply present guidance, not missing registration. Seed Microsoft.Extensions* differs from the other participants' Microsoft.Extensions.*; candidate populations are not asserted equal.",
+      "stopping": "Uses returned manifest evidence, no resource navigation or package-detail verification."
+    }
+  },
+  "limits": [
+    "Four fresh, nonrandomized participants with one accurate guide; adoption and cost are observations, not causal/population conclusions.",
+    "Previous study used an 1845 B Member-only guide and different source; this guide is 2153 B and teaches landed Package Query admission. Historical costs are descriptive.",
+    "Three HAL readers retrieve 21,913 to 24,922 guidance bytes versus 6,272 B for the -Q reader; local HAL reading remains broad. Neither establishes format superiority or measured latency.",
+    "All participants answer one bounded direct match. No actual indirect traversal, restore graph, exhaustive survey or at-most-three completeness claim is established.",
+    "Live NuGet search is not snapshotted; identical observed result/version does not establish identical candidate sets or cache fairness.",
+    "No schema/link reads occurred; this sample does not exercise a necessary-navigation boundary or prove future agents will always stop.",
+    "Retrospectives are collected only after all original outputs are frozen. Self-reports explain stated intent but do not prove necessity or causality.",
+    "Raw CLI retrieval, local rendering and guide bytes are distinct; none is a token/context, NuGet download, latency or production transfer measurement.",
+    "Author worked jq selection is produced after trials from a retained response. It is an optimization illustration, not participant evidence or a measured guide intervention."
+  ]
+}

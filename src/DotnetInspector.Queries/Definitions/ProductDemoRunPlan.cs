@@ -60,6 +60,59 @@ public sealed record ProductDemoMemberSelection(
     string? Anchor,
     string? Signature)
 {
+    /// <summary>
+    /// Resolves the owner-issued selector over one caller-shaped candidate set.
+    /// </summary>
+    public T Resolve<T>(
+        IEnumerable<T> candidates,
+        Func<T, ProductDemoMemberCandidate> describe)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        ArgumentNullException.ThrowIfNull(describe);
+        if (Anchor is not { Length: > 0 } anchor)
+        {
+            throw new InspectionDefinitionException(
+                "Product demo member selection requires an anchor.");
+        }
+
+        T[] matches =
+        [
+            .. candidates.Where(candidate =>
+            {
+                ProductDemoMemberCandidate description = describe(candidate);
+                return MatchesName(description.Name, Name)
+                    && (Kind is null
+                        || string.Equals(
+                            description.Kind,
+                            Kind,
+                            StringComparison.OrdinalIgnoreCase))
+                    && description.Anchor.StartsWith(
+                        anchor,
+                        StringComparison.OrdinalIgnoreCase);
+            }),
+        ];
+        return matches.Length switch
+        {
+            1 => matches[0],
+            0 => throw new InspectionDefinitionException(
+                $"Product demo member '{Name}' has no candidate matching "
+                    + $"anchor prefix '{anchor}'."),
+            _ => throw new InspectionDefinitionException(
+                $"Product demo member '{Name}' has {matches.Length} candidates "
+                    + $"matching anchor prefix '{anchor}'."),
+        };
+
+        static bool MatchesName(string candidate, string requested) =>
+            requested.Equals("this[]", StringComparison.OrdinalIgnoreCase)
+                ? candidate.Equals("Item", StringComparison.OrdinalIgnoreCase)
+                    || candidate.Equals(
+                        "Chars",
+                        StringComparison.OrdinalIgnoreCase)
+                : candidate.Equals(
+                    requested,
+                    StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static ProductDemoMemberSelection? Create(
         string scenarioId,
         string? memberKey,
@@ -104,3 +157,9 @@ public sealed record ProductDemoMemberSelection(
             memberSignature);
     }
 }
+
+/// <summary>Host-neutral member fields required by product demo selection.</summary>
+public readonly record struct ProductDemoMemberCandidate(
+    string Name,
+    string Kind,
+    string Anchor);

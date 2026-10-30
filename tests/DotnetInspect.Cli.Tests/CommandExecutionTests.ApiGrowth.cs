@@ -226,7 +226,7 @@ public partial class CommandExecutionTests
         string section)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type",
+            "type", "-t", "*",
             "--platform",
             "System.Private.CoreLib",
             "-S",
@@ -245,19 +245,19 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformDefinitionInventoryUsesPrimaryAndDetailedViews()
     {
         var (minimalExit, minimal, minimalError) = await RunAppAsync(
-            "type",
+            "type", "-t", "*",
             "--platform",
             "System.Private.CoreLib",
             "-v:m",
             "--markdown");
         var (normalExit, normal, normalError) = await RunAppAsync(
-            "type",
+            "type", "-t", "*",
             "--platform",
             "System.Private.CoreLib",
             "-v:n",
             "--markdown");
         var (detailedExit, detailed, detailedError) = await RunAppAsync(
-            "type",
+            "type", "-t", "*",
             "--platform",
             "System.Private.CoreLib",
             "-v:d",

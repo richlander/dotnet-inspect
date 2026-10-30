@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -10,6 +11,63 @@ namespace ILInspector.Metadata.Tests;
 
 public sealed class MetadataRelationInspectionTests
 {
+    [Fact]
+    public void HierarchyTargetAssemblyQualifiesLocalTypeDefinitions()
+    {
+        const string AssemblyName = "Hierarchy.Identity.Selected";
+        byte[] image = BuildLocalHierarchyImage(AssemblyName);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+        MetadataHierarchyRelationIndex index =
+            Assert.IsType<MetadataHierarchyRelationIndexPreparation.Ready>(
+                session.PrepareHierarchyRelationIndex(
+                    MetadataOperationPolicy.Unbounded,
+                    TestContext.Current.CancellationToken)).Index;
+        var selectedAssembly = new AssemblyReferenceIdentity(
+            AssemblyName,
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var otherAssembly = selectedAssembly with
+        {
+            Name = "Hierarchy.Identity.Other",
+        };
+
+        Assert.Equal(1, CandidateCount(session, selectedAssembly));
+        Assert.Equal(0, CandidateCount(session, otherAssembly));
+        Assert.Equal(1, IndexedCandidateCount(index, selectedAssembly));
+        Assert.Equal(0, IndexedCandidateCount(index, otherAssembly));
+
+        int CandidateCount(
+            AssemblyInspectionSession source,
+            AssemblyReferenceIdentity assembly) =>
+            Assert.IsType<MetadataHierarchyRelationAnalysisOutcome.Available>(
+                source.AnalyzeHierarchyRelations(
+                    Request(assembly),
+                    TestContext.Current.CancellationToken))
+                .Result.CandidateCount;
+
+        int IndexedCandidateCount(
+            MetadataHierarchyRelationIndex source,
+            AssemblyReferenceIdentity assembly) =>
+            Assert.IsType<MetadataHierarchyRelationAnalysisOutcome.Available>(
+                source.Analyze(
+                    Request(assembly),
+                    TestContext.Current.CancellationToken))
+                .Result.CandidateCount;
+
+        static MetadataHierarchyRelationAnalysisRequest Request(
+            AssemblyReferenceIdentity assembly) =>
+            new(
+                new(
+                    TypeName("Hierarchy.Identity", "IContract"),
+                    MetadataHierarchyRelationKind.Interface,
+                    assembly),
+                MetadataOperationPolicy.Unbounded,
+                materializeRows: false);
+    }
+
     [Fact]
     public void HierarchyAnalysisRejectsNativeImageBeforeProducerExecution()
     {
@@ -34,6 +92,35 @@ public sealed class MetadataRelationInspectionTests
         Assert.IsType<MetadataImageFormatResult.NoMetadata>(
             rejected.Format);
         Assert.False(session.HasMetadata);
+    }
+
+    static byte[] BuildLocalHierarchyImage(string assemblyName)
+    {
+        var name = new AssemblyName(assemblyName)
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        var assembly = new PersistedAssemblyBuilder(
+            name,
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder contract = module.DefineType(
+            "Hierarchy.Identity.IContract",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface);
+        Type contractType = contract.CreateType();
+        TypeBuilder implementation = module.DefineType(
+            "Hierarchy.Identity.Implementation",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        implementation.AddInterfaceImplementation(contractType);
+        implementation.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
     }
 
     [Fact]

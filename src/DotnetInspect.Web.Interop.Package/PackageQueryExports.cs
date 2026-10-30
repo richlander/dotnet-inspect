@@ -18,112 +18,14 @@ namespace DotnetInspect.Web.Interop.Package
     [SupportedOSPlatform("browser")]
     internal static partial class BrowserPackageQueryOperations
     {
-        private static readonly PackageQueryRegisteredTerm[] ExposedTerms =
-        [
-            .. PackageQuery.RegisteredTerms.Where(term =>
-                PackageQueryCapabilityBinding.Binding.ExposedQueryTerms
-                    .Contains(
-                        PackageQuery.TermBindingIdentity(
-                            term.Descriptor.Key),
-                        StringComparer.Ordinal)),
-        ];
+        private static readonly Lazy<JsonElement> QueryFacetData =
+            new(CreateQueryFacetData);
 
-        internal static BrowserPackageQueryCatalog Catalog() =>
-            new(
-                [
-                    .. ExposedTerms
-                        .SelectMany(term =>
-                            term.Descriptor.Options.Select(option =>
-                        new BrowserPackageQueryPresetDescriptor(
-                            term.Descriptor.Key,
-                            PortableQueryModel.TextOf(
-                                SingleControlOperator(term)),
-                            option.Value,
-                            option.Label,
-                            option.Summary,
-                            term.Descriptor.Weight,
-                            term.Descriptor.Tier switch
-                            {
-                                PackageQueryAcquisitionTier.Nuspec =>
-                                    BrowserPackageQueryAcquisitionTier.Nuspec,
-                                PackageQueryAcquisitionTier.PackageContent =>
-                                    BrowserPackageQueryAcquisitionTier.PackageContent,
-                                PackageQueryAcquisitionTier.SearchMetadata =>
-                                    BrowserPackageQueryAcquisitionTier.SearchMetadata,
-                                _ => throw new InvalidOperationException(
-                                    "Unknown package-query term tier."),
-                            },
-                            BrowserExecutionClass(
-                                term.Descriptor.ExecutionClass),
-                            term.Descriptor.SelectionGroupId,
-                            term.Descriptor.CombinesWithinSelectionGroup,
-                            term.Descriptor.ReplacementGroupId,
-                            term.Descriptor.DisplayGroupId,
-                            term.Descriptor.DisplayGroupLabel))),
-                ],
-                [
-                    .. ExposedTerms
-                        .Where(term =>
-                            term.Descriptor.ControlKind
-                                is PackageQueryTermControlKind.Input
-                                    or PackageQueryTermControlKind.MultilineInput)
-                        .Select(term =>
-                        new BrowserPackageQueryTermDescriptor(
-                            term.Descriptor.Key,
-                            term.Descriptor.Label,
-                            term.Descriptor.Summary,
-                            term.Descriptor.Weight,
-                            term.Descriptor.Tier switch
-                            {
-                                PackageQueryAcquisitionTier.Nuspec =>
-                                    BrowserPackageQueryAcquisitionTier.Nuspec,
-                                PackageQueryAcquisitionTier.PackageContent =>
-                                    BrowserPackageQueryAcquisitionTier.PackageContent,
-                                PackageQueryAcquisitionTier.SearchMetadata =>
-                                    BrowserPackageQueryAcquisitionTier.SearchMetadata,
-                                _ => throw new InvalidOperationException(
-                                    "Unknown package-query term tier."),
-                            },
-                            BrowserExecutionClass(
-                                term.Descriptor.ExecutionClass),
-                            [
-                                .. term.Operators.Select(
-                                    PortableQueryModel.TextOf),
-                            ],
-                            term.Descriptor.ValueKind,
-                            term.Descriptor.ExampleValue,
-                            term.Descriptor.ControlKind
-                                == PackageQueryTermControlKind.MultilineInput)),
-                ]);
+        internal static JsonElement InspectQueryFacets() =>
+            QueryFacetData.Value;
 
-        private static PortableQueryOperator SingleControlOperator(
-            PackageQueryRegisteredTerm term) =>
-            term.Operators.Length == 1
-                ? term.Operators[0]
-                : throw new InvalidOperationException(
-                    $"Package Query control '{term.Descriptor.Key}' requires "
-                    + "exactly one registered operator.");
-
-        private static BrowserPackageQueryExecutionClass
-            BrowserExecutionClass(
-                PackageQueryExecutionClass executionClass) =>
-            executionClass switch
-            {
-                PackageQueryExecutionClass.SearchMetadata =>
-                    BrowserPackageQueryExecutionClass.SearchMetadata,
-                PackageQueryExecutionClass.Nuspec =>
-                    BrowserPackageQueryExecutionClass.Nuspec,
-                PackageQueryExecutionClass.NuspecExpensive =>
-                    BrowserPackageQueryExecutionClass.NuspecExpensive,
-                PackageQueryExecutionClass.PackageContent =>
-                    BrowserPackageQueryExecutionClass.PackageContent,
-                PackageQueryExecutionClass.Metadata =>
-                    BrowserPackageQueryExecutionClass.Metadata,
-                PackageQueryExecutionClass.MetadataExpensive =>
-                    BrowserPackageQueryExecutionClass.MetadataExpensive,
-                _ => throw new InvalidOperationException(
-                    "Unknown package-query execution class."),
-            };
+        private static JsonElement CreateQueryFacetData() =>
+            PackageExports.InspectPackageQueryPresentation();
 
         internal static PackageQueryPlanResult Plan(
             string text,
@@ -275,15 +177,24 @@ namespace DotnetInspect.Web.Interop.Package
             PackageQueryDependencyTraversalServices? traversalServices = null;
             if (sourceLease is not null)
             {
-                var candidateSource =
-                    new AuthorizedPackageDependencyCandidateSource(
-                        BrowserPackageWorkspace.PackageSourceAuthorization,
-                        sourceLease);
                 traversalServices = new(
                     new PackageDependencyTraversalCandidateAdapter(
-                        candidateSource),
-                    new AuthorizedPackageDependencyManifestSource(
-                        candidateSource));
+                        BrowserPackageWorkspace.PackageSourceAuthorization),
+                    new AuthorizedPackageDependencyManifestSource(),
+                    token =>
+                    {
+                        TimeSpan operationTimeout =
+                            deadline is null
+                                ? BrowserPackageWorkspace
+                                    .GalleryOperationTimeout
+                                : BrowserPackageWorkspace
+                                    .SourceSettlementOperationTimeout(
+                                        deadline.Remaining);
+                        return sourceLease.IssueOperationLease(
+                            token,
+                            operationTimeout,
+                            operationTimeout);
+                    });
             }
             await using PackageSourceSettlementLease? semanticSettlement =
                 plan.RequiresLibraryLiteralEvaluation
@@ -305,15 +216,22 @@ namespace DotnetInspect.Web.Interop.Package
                     ? null
                     : new(
                         BrowserPackageWorkspace.PackageSourceAuthorization,
-                        token => semanticSettlement.IssueOperationLease(
-                            token,
-                            BrowserPackageWorkspace.GalleryOperationTimeout,
-                            semanticBudget!.MaximumDuration),
-                        new PackagePayloadAcquisitionPlan(
-                            static (_, _) =>
-                                BrowserPackageWorkspace.SessionPackageStore,
-                            transferPolicy:
-                                BrowserPackageWorkspace.PackageTransferPolicy),
+                        new PackageAssemblySemanticFindExecution(
+                            BrowserPackageWorkspace
+                                .PackageSourceAuthorization,
+                            new PackagePayloadAcquisitionPlan(
+                                static (_, _) =>
+                                    BrowserPackageWorkspace
+                                        .SessionPackageStore,
+                                semanticBudget!.Payload,
+                                transferPolicy:
+                                    BrowserPackageWorkspace
+                                        .PackageTransferPolicy),
+                            token => semanticSettlement.IssueOperationLease(
+                                token,
+                                BrowserPackageWorkspace
+                                    .GalleryOperationTimeout,
+                                semanticBudget.MaximumDuration)),
                         semanticBudget!,
                         new LibraryLiteralAssessmentSink(emit));
             var envelope =
@@ -1232,11 +1150,10 @@ namespace DotnetInspect.Web.Interop.Package
 public static partial class PackageExports
 {
     [JSExport]
-    public static string ListPackageQueryCatalog()
+    public static string InspectPackageQueryFacets()
     {
-        string result = JsonSerializer.Serialize(
-            BrowserPackageQueryOperations.Catalog(),
-            BrowserPackageJsonContext.Default.BrowserPackageQueryCatalog);
+        string result =
+            BrowserPackageQueryOperations.InspectQueryFacets().GetRawText();
         BrowserPackageQueryOperations.StartSerializationPreparation();
         return result;
     }
@@ -1415,13 +1332,29 @@ namespace DotnetInspect.Web.Interop.Package
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
         : IPackageQueryContentProvider
     {
-        public ValueTask<PackageQueryContentResult> GetContentAsync(
+        public ValueTask<PackageQueryContentResult> GetInventoryAsync(
             PackageQueryPackage package,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+            return BrowserPackageWorkspace
+                .AcquirePackageQueryInventoryAsync(
                 package,
+                BrowserPackageWorkspace.Gallery,
+                deadline);
+        }
+
+        public ValueTask<PackageQueryContentResult> GetFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return BrowserPackageWorkspace.AcquirePackageQueryFilesAsync(
+                package,
+                inventory,
+                entries,
                 BrowserPackageWorkspace.Gallery,
                 deadline);
         }

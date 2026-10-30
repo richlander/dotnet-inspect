@@ -77,21 +77,85 @@ the same Member Find operation.
 `MemberSearchService`:
 
 1. builds the same authorized source request as Type Find;
-2. executes `AssemblyContextMemberMatchesQuery` for every admitted assembly;
-3. applies an optional declaring-Type filter before the trusted result limit;
-4. attaches source provenance to Metadata-issued member facts; and
-5. returns flat `MemberFindResult` rows plus visible failure state.
+2. normalizes one host-neutral `MemberFindQuestion`;
+3. evaluates configured-package and Platform workspace populations through
+   `MemberFindSourceEvaluator`, applying the structured declaring-Type filter
+   before the trusted result limit;
+4. projects the resulting `MemberFindBlock` into the established CLI rows and
+   visible failure state; and
+5. evaluates explicit assembly-set Head, finite Window, and Count requests
+   through `AssemblyContextMemberAcceptedRowsQuery`, while complete explicit
+   requests retain `AssemblyContextMemberMatchesQuery`.
 
 The service does not parse exact-member selectors, choose one overload,
 reconstruct identity from signatures, or turn rejected metadata into an empty
 success.
 
-The Metadata result retains the input pattern, member name, declaring Type,
-kind, signature, return Type, digest, assembly, and whether the pattern was a
-glob. The CLI projection currently omits the match kind from rendered
-Markdown, table, TSV, JSONL, and projected JSON rows. Unprojected `--json`
-serializes `MemberFindResult` directly and therefore exposes the
-`MemberFindMatchKind` enum name.
+The Metadata result retains the input pattern and ordinal, member name,
+structured declaring `MetadataTypeDefinitionName`, producer-issued
+`MemberAnchor`, declaration and member order, display Type, kind, signature,
+return Type, digest, assembly, and whether the pattern was a glob. The
+host-neutral semantic result joins those facts to the exact source coordinate;
+its source identity separately retains owner-issued request and selection
+evidence that distinguishes requested target frameworks and runtime
+identifiers from selected package assets and Platform versions. It never
+reconstructs identity from display text. The CLI
+projection currently omits the match kind from rendered Markdown, table, TSV,
+JSONL, and projected JSON rows. Unprojected `--json` serializes
+`MemberFindResult` directly and therefore exposes the `MemberFindMatchKind`
+enum name.
+
+## Finite Window phases
+
+An explicit Member Find Head or finite Window is a source-native selective
+fold. Count uses the same acceptance fold without row realization. The phases
+are:
+
+1. **Prepare and admit one participant.** The assembly context opens one exact
+   participant session. Metadata prepares the lightweight local-extension
+   incidence needed to preserve receiver-contextual member order; it does not
+   construct an `ApiSurface` or result rows.
+2. **Scan acceptance evidence.** Metadata visits admitted Types and classified
+   C# members in the established producer order. Visibility,
+   hidden/compiler-generated suppression, accessor folding, direct/glob name
+   matching, and the optional structured declaring-Type predicate all run
+   before an accepted position is assigned.
+3. **Skip before Start.** Accepted positions before Window Start increment the
+   typed accepted count and pattern-match evidence, but do not decode the full
+   result projection or allocate a semantic or CLI row.
+4. **Realize Start through End.** Only retained positions decode their exact
+   signature, return Type, attached-extension identity, and `MemberAnchor`.
+   The scanner stops after accepting End.
+5. **Publish a receipt.** `MemberSearchWindowResult` reports retained rows,
+   accepted count, whether End was reached, inspection failures, and scan-work
+   evidence. `MemberFindBlock` and `FindAcceptedRowReceipt` carry the accepted
+   count through semantic and CLI boundaries.
+
+Count never realizes result rows. A sole Head or finite Window Count may stop
+at its finite End because the accepted count is sufficient to calculate the
+selected count. Tail, open-ended Window, and multi-stage Count exhaust
+acceptance evidence and let the CLI row-selection owner perform the final
+arithmetic.
+
+The fold preserves each existing result order. Configured-package and Platform
+populations retain the semantic order owned by
+[Find semantic evaluation](find-semantic-evaluation.md): pattern, source,
+declaration, then member. Explicit assembly sets retain their established
+source, Type, member, then pattern discovery order. The selective fold does not
+introduce sorting.
+
+Strict Window validation uses the accepted-count receipt, not retained-row
+length. If End is unavailable, the CLI reports the existing required-position
+diagnostic. A rejected, unavailable, or partially inspected source attempted
+before End keeps the answer incomplete even when a later source reaches End.
+Once End is reached, no later participant or source is acquired. Preparation
+work required to discover same-module attached extensions is disclosed
+separately from candidate discovery and row realization in performance
+evidence.
+
+Complete unbounded Member Find remains on the complete population path. This
+contract does not claim O(1) Count: filtered Count still scans every candidate
+needed to establish acceptance.
 
 ## Demo
 
@@ -138,24 +202,41 @@ state appear to have two meanings.
 
 The CLI and Metadata implementation adopt the contract together:
 
-- `MemberSearch` continues to issue the existing direct/glob grammar evidence;
-- `MemberSearchService` maps non-glob evidence to
-  `MemberFindMatchKind.Direct`; and
+- `MemberSearch` issues direct/glob grammar evidence plus structured
+  declaration and member identity, and its accepted-row fold realizes only
+  retained rows;
+- `MemberFindSourceEvaluator` owns classification, coverage, limits, pattern
+  settlement, and exact source association for configured-package and Platform
+  populations;
+- `AssemblyContextMemberAcceptedRowsQuery` carries the same Metadata fold into
+  explicit assembly-set scopes;
+- `MemberSearchService` projects non-glob evidence to
+  `MemberFindMatchKind.Direct` without re-running matching and validates typed
+  accepted-count receipts; and
 - source-generated JSON exposes the corrected enum value.
 
-No Browser/Wasm adoption is required: this change corrects an existing
-CLI-specific presentation contract and adds no host-neutral capability or
-execution path.
+The Metadata scanner and semantic evaluator are host-neutral and
+Browser/Wasm-compatible. This slice adopts them in the existing CLI Member
+Find host; Inspect Web has no Member Find command to migrate and gains no
+user-visible behavior in this change.
 
 ## Contract evidence
 
 The Release gates are:
 
 - `MemberSearchTests` for direct case-insensitive names, the `this[]` alias,
-  glob matching, visibility, multiplicity across declaring Types, limits, and
-  visible unreadable inputs;
+  glob matching, visibility, multiplicity across declaring Types, accepted
+  counts, zero-row Count, declaring-Type filtering, exact retained projection,
+  nullable/generic identity, and same-module attached-extension parity;
+- `MemberFindSemanticEvaluationTests` for retained semantic order,
+  pre-Start pattern settlement, accepted Count evidence, participant stopping,
+  and failure precedence;
 - `MemberSearchServiceTests` for source-backed `Direct` and `Glob`
-  classification, including the indexer alias; and
+  classification, explicit-source finite Windows, multi-pattern order,
+  zero-row Count, source stopping, and incomplete-source receipts;
+- `CommandExecutionTests` Member Window and Count cases for high-Start parity,
+  filtered positions, strict diagnostics, source incompleteness, projected
+  JSON, and exact Count; and
 - `FindCommandTests.MemberMatchVocabulary_UsesDirectInTypedJson` for the
   unprojected machine-schema value.
 
@@ -170,6 +251,8 @@ This design does not:
 - define exact-member selector resolution;
 - add signature, return-Type, relation, or body predicates;
 - add fuzzy or namespace-prefix member matching;
-- change source acquisition, ordering, limits, or row selection;
+- change source ordering or row-selection semantics;
+- make complete Member Find source-native;
+- make filtered Count constant-time;
 - add a Match column to rendered Member Find output; or
 - define Member discovery for a new host.

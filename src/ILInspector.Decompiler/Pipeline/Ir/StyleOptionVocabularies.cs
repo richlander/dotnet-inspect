@@ -1,3 +1,4 @@
+using QuerySpace.Explanation;
 using QuerySpace.Vocabulary;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -34,13 +35,13 @@ public static class StyleOptionVocabularies
             "order",
             "Order",
             "Product-owned presentation order.",
-            VocabularyScalarKind.Integer);
+            ExplanationScalarKind.Integer);
         VocabularyMapDefinition byteDivergent = VocabularyMapDefinition.Scalar(
             identity,
             "byte_divergent",
             "Byte Divergent",
             "Whether every choice in the tier may change emitted IL bytes.",
-            VocabularyScalarKind.Boolean);
+            ExplanationScalarKind.Boolean);
 
         return new(
             identity,
@@ -52,8 +53,8 @@ public static class StyleOptionVocabularies
                 tier.Title,
                 tier.Summary,
                 [
-                    new(order, VocabularyMapValue.Integer(tier.Order)),
-                    new(byteDivergent, VocabularyMapValue.Boolean(tier.ByteDivergent)),
+                    new(order, ExplanationValue.Integer(tier.Order)),
+                    new(byteDivergent, ExplanationValue.Boolean(tier.ByteDivergent)),
                 ])));
     }
 
@@ -72,13 +73,13 @@ public static class StyleOptionVocabularies
             "option",
             "Option",
             "Owning style option identity.",
-            VocabularyScalarKind.Text);
+            ExplanationScalarKind.Text);
         VocabularyMapDefinition value = VocabularyMapDefinition.Scalar(
             identity,
             "value",
             "Value",
             "Selected value token on the owning option axis.",
-            VocabularyScalarKind.Text);
+            ExplanationScalarKind.Text);
         var tier = new VocabularyMapDefinition(
             new(identity, "tier"),
             "Tier",
@@ -92,25 +93,25 @@ public static class StyleOptionVocabularies
             "byte_divergent",
             "Byte Divergent",
             "Whether this choice may change emitted IL bytes.",
-            VocabularyScalarKind.Boolean);
+            ExplanationScalarKind.Boolean);
         VocabularyMapDefinition oracleEndorsed = VocabularyMapDefinition.Scalar(
             identity,
             "oracle_endorsed",
             "Oracle Endorsed",
             "Whether the declared runtime style oracle endorses this choice.",
-            VocabularyScalarKind.Boolean);
+            ExplanationScalarKind.Boolean);
         VocabularyMapDefinition corpusEndorsed = VocabularyMapDefinition.Scalar(
             identity,
             "corpus_endorsed",
             "Corpus Endorsed",
             "Whether the runtime source corpus endorses this choice.",
-            VocabularyScalarKind.Boolean);
+            ExplanationScalarKind.Boolean);
         VocabularyMapDefinition conflictGroup = VocabularyMapDefinition.Scalar(
             identity,
             "conflict_group",
             "Conflict Group",
             "Product-owned mutually-exclusive selection group.",
-            VocabularyScalarKind.Text,
+            ExplanationScalarKind.Text,
             VocabularyMapCardinality.OptionalOne);
 
         return new(
@@ -131,18 +132,18 @@ public static class StyleOptionVocabularies
                 choice.Title,
                 choice.Summary,
                 [
-                    new(option, VocabularyMapValue.Text(choice.OptionId)),
-                    new(value, VocabularyMapValue.Text(choice.ValueToken)),
+                    new(option, ExplanationValue.Text(choice.OptionId)),
+                    new(value, ExplanationValue.Text(choice.ValueToken)),
                     new(
                         tier,
-                        new VocabularyMapValue.Term(
+                        new ExplanationValue.VocabularyTerm(
                             new(styleTiers, choice.Tier.ToString()))),
-                    new(byteDivergent, VocabularyMapValue.Boolean(choice.ByteDivergent)),
-                    new(oracleEndorsed, VocabularyMapValue.Boolean(choice.OracleEndorsed)),
-                    new(corpusEndorsed, VocabularyMapValue.Boolean(choice.CorpusEndorsed)),
+                    new(byteDivergent, ExplanationValue.Boolean(choice.ByteDivergent)),
+                    new(oracleEndorsed, ExplanationValue.Boolean(choice.OracleEndorsed)),
+                    new(corpusEndorsed, ExplanationValue.Boolean(choice.CorpusEndorsed)),
                     choice.ConflictGroup is null
                         ? new(conflictGroup)
-                        : new(conflictGroup, VocabularyMapValue.Text(choice.ConflictGroup)),
+                        : new(conflictGroup, ExplanationValue.Text(choice.ConflictGroup)),
                 ])));
     }
 }

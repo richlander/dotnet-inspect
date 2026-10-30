@@ -80,3 +80,16 @@ public static class NamedReferenceSlotMaterializationSamples
         return value;
     }
 }
+
+sealed class VolatileReference
+{
+    public string Name { get; } = "";
+}
+
+sealed class VolatileReferenceHolder
+{
+    volatile VolatileReference _value = new();
+
+    public string? Read()
+        => _value?.Name;
+}

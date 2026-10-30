@@ -15,7 +15,23 @@ namespace DotnetInspect.Web;
 
 internal sealed record BrowserPlatformForwarderRowInfo(
     string Action,
-    LibraryTypeShape Declaration);
+    LibraryTypeShape Declaration)
+{
+    internal string EscapedDefinitionId => Declaration.Identity.ToEscapedFullName();
+
+    internal string Name => Declaration.DisplayName.ToString();
+
+    internal string Namespace => Declaration.Namespace.ToString();
+
+    internal string TargetAssembly =>
+        Declaration.Forwarding?.TargetAssembly.Name.ToString()
+        ?? throw new InvalidOperationException("A Browser forwarder row must retain forwarding evidence.");
+}
+
+internal readonly record struct BrowserPlatformForwarderResolutionProjection<THop>(
+    THop[] Hops,
+    string? Kind,
+    string? TerminalAssembly);
 
 internal sealed record BrowserPlatformForwarderViewInfo(
     string Id,
@@ -50,6 +66,34 @@ internal sealed class BrowserPlatformForwarderNavigation : IDisposable
     readonly BrowserPlatformForwarderSource _source;
     readonly TimeSpan _timeout;
     Publication? _current;
+
+    internal static BrowserPlatformForwarderResolutionProjection<THop> ProjectResolution<THop>(
+        BrowserPlatformForwarderNavigationResult result,
+        Func<string, string, THop> projectHop)
+    {
+        ArgumentNullException.ThrowIfNull(projectHop);
+        PlatformTypeDefinitionResolutionResult? resolution = result switch
+        {
+            BrowserPlatformForwarderNavigationResult.Opened opened => opened.Resolution,
+            BrowserPlatformForwarderNavigationResult.Blocked blocked => blocked.Resolution,
+            _ => throw new InvalidOperationException("Unknown forwarding navigation result."),
+        };
+        THop[] hops = resolution is null ? [] : new THop[resolution.Hops.Length];
+        if (resolution is not null)
+        {
+            for (int i = 0; i < resolution.Hops.Length; i++)
+            {
+                var hop = resolution.Hops[i];
+                hops[i] = projectHop(
+                    hop.SourceAssembly.Assembly.Identity.Name,
+                    hop.TargetReference.Name);
+            }
+        }
+        return new(
+            hops,
+            resolution?.GetType().Name,
+            resolution?.TerminalAssemblyIdentity?.Name);
+    }
     long _generation;
     bool _disposed;
 

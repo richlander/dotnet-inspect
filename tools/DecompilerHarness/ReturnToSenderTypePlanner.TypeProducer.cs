@@ -92,7 +92,7 @@ public static partial class CompileBackSourceComposer
             return null;
         }
 
-        static CompileBackMemberRequirement? FieldRequirement(
+        internal static CompileBackMemberRequirement? FieldRequirement(
             MetadataReader reader,
             TypeDefinition typeDef,
             CompileBackTypeIdentity typeIdentity,
@@ -100,9 +100,11 @@ public static partial class CompileBackSourceComposer
         {
             var field = reader.GetFieldDefinition(fieldHandle);
             string fieldType;
+            IReadOnlyList<ApiTypeReferenceIdentity> fieldTypeReferences;
             try
             {
                 fieldType = GuardedSignatureText.FieldText(reader, field, GenericContext.ForType(reader, typeDef));
+                fieldTypeReferences = ApiSurfaceExtractor.FieldTypeReferences(reader, typeDef, field);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
@@ -124,7 +126,7 @@ public static partial class CompileBackSourceComposer
                 CompileBackMemberKind.Field,
                 field.Attributes.HasFlag(FieldAttributes.Static),
                 [],
-                CompileBackTypeSignature.Display(fieldType),
+                CompileBackTypeSignature.Display(fieldType, fieldTypeReferences),
                 [],
                 TryFormatConstantField(reader, field, out var constant)
                     ? CompileBackStubBodyKind.TargetBody
@@ -763,20 +765,28 @@ public static partial class CompileBackSourceComposer
                 if (reader.GetString(method.Name) != "Invoke")
                     continue;
 
+                // The shell takes the product's declaration spelling, including parameter
+                // modifiers, params, and defaults, which the bare signature drops. RTS does
+                // not correct that spelling: a product misspelling (such as [In] ref rendered
+                // as in, #3537) surfaces as a verdict difference.
                 var signature = GuardedSignatureText.MethodText(reader, method, GenericContext.ForMethod(reader, typeDef, method));
+                var declaration = MetadataDeclarationQuery.GetMethod(reader, typeDef, method, signature);
+                string factId = IsGeneratedDynamicDelegate(reader, typeDef)
+                    ? "generated-dynamic-delegate-invoke"
+                    : "delegate-invoke";
                 return new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(typeIdentity.FullName, "Invoke", 0, MethodSignatureText("Invoke", signature)),
                     CompileBackMemberKind.Method,
                     IsStatic: false,
-                    Parameters: Parameters(reader, method, signature),
-                    ReturnType: CompileBackTypeSignature.Display(signature.ReturnType),
+                    Parameters: ToCompileBackParameters(declaration.Signature.Parameters),
+                    ReturnType: CompileBackTypeSignature.Display(declaration.Signature.ReturnType ?? signature.ReturnType),
                     TypeParameters: [],
                     StubBody: CompileBackStubBodyKind.None,
                     TargetBody: null,
-                    [new CompileBackFact("metadata", "generated-dynamic-delegate-invoke", reader.GetString(typeDef.Name))]);
+                    [new CompileBackFact("metadata", factId, reader.GetString(typeDef.Name))]);
             }
 
-            throw new InvalidOperationException($"Generated dynamic delegate '{typeIdentity.MetadataFullName}' has no Invoke method.");
+            throw new InvalidOperationException($"Delegate '{typeIdentity.MetadataFullName}' has no Invoke method.");
         }
 
         static List<CompileBackMemberRequirement> RequiredMemberRequirements(CompileBackTypeRequirement requirement)
@@ -798,11 +808,6 @@ public static partial class CompileBackSourceComposer
             {
                 var nestedDef = reader.GetTypeDefinition(nestedHandle);
                 string name = reader.GetString(nestedDef.Name);
-                if (IsDelegate(reader, nestedDef) && !IsGeneratedDynamicDelegate(reader, nestedDef))
-                {
-                    continue;
-                }
-
                 var identity = CompileBackTypeIdentity.FromDefinition(reader, nestedDef);
                 requirementsByMetadataName.TryGetValue(identity.MetadataFullName, out var requirement);
                 var kind = requirement?.RequiredKind ?? ShellKind(reader, nestedDef);
@@ -1052,9 +1057,11 @@ public static partial class CompileBackSourceComposer
                     continue;
 
                 string fieldType;
+                IReadOnlyList<ApiTypeReferenceIdentity> fieldTypeReferences;
                 try
                 {
                     fieldType = GuardedSignatureText.FieldText(reader, field, typeContext);
+                    fieldTypeReferences = ApiSurfaceExtractor.FieldTypeReferences(reader, typeDef, field);
                 }
                 catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
                 {
@@ -1071,7 +1078,7 @@ public static partial class CompileBackSourceComposer
                     CompileBackMemberKind.Field,
                     IsStatic: field.Attributes.HasFlag(FieldAttributes.Static),
                     Parameters: [],
-                    ReturnType: CompileBackTypeSignature.Display(fieldType),
+                    ReturnType: CompileBackTypeSignature.Display(fieldType, fieldTypeReferences),
                     TypeParameters: [],
                     StubBody: TryFormatConstantField(reader, field, out var constant)
                         ? CompileBackStubBodyKind.TargetBody

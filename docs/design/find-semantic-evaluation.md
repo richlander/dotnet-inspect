@@ -32,6 +32,14 @@ It does not authorize or acquire sources, define Ecosystem membership, schedule
 several populations, select final presentation rows, render output, or activate
 a selected declaration.
 
+The same owner also defines the ordered result session used when several
+producers contribute to one Find execution. A `FindSemanticResultSession`
+accepts typed Type or Member matches, suppresses only repeated exact structured
+finding identity, publishes each admitted finding immediately to an optional
+synchronous sink, and retains the identical sequence for its terminal result.
+The session knows nothing about indexes, Workspace residency, package prefixes,
+or host presentation.
+
 ## Demo
 
 The first CLI Type scenario is:
@@ -187,7 +195,8 @@ FindSourceEvaluation
 Every variant retains:
 
 - the exact normalized question value and pattern ordinals;
-- the source owner's exact source coordinate and source order;
+- the source owner's exact source coordinate, detached request and selection
+  evidence, and source order;
 - selected Library and assembly identity when the source owner established
   them; and
 - participant realization and evaluation coverage.
@@ -199,7 +208,10 @@ The source owner supplies identity and coverage. The evaluator never derives a
 package, platform family, Library, assembly, or acquisition origin from display
 text. Two source requests that differ in authority, selected version, target
 framework, runtime identifier, platform generation, or selected asset remain
-different sources even when their labels match.
+different sources even when their exact Library coordinate and labels match.
+The source identity therefore retains owner-issued request evidence separately
+from selected-asset evidence, and retains both beside, but separately from, its
+exact Library coordinate.
 
 A Type source evaluation retains:
 
@@ -332,6 +344,43 @@ Rows order by:
 
 Match classification is row evidence, not a sort key. Arrival time, task
 completion, display label, and Ecosystem name are never ranking inputs.
+
+## Ordered result session
+
+One `FindSemanticResultSession` spans every producer admitted to one Find
+execution. The phase owner may invoke an index-backed producer first and later
+invoke bounded, resident, or live producers, but each publishes into the same
+session. A consumer receives semantic findings only; producer kind and index
+use are not part of the sink contract.
+
+The optional sink receives each admitted finding synchronously before the
+producer continues. This lets a CLI write and flush one TSV or JSONL row, and
+lets a Browser bridge emit one durable item event, without waiting for later
+sources. Sink failure propagates to the producer before the finding is retained;
+it is not converted into successful terminal content.
+
+The session retains the same admitted finding objects in publication order.
+Completion returns that sequence together with an explicit exhausted,
+row-limited, candidate-limited, partial, failed, or canceled outcome, plus
+attributed failures and named unsearched sources. Omitting the sink changes
+neither producer execution nor terminal content.
+
+Exact first-wins duplicate identity includes:
+
+- for Type findings, exact Library source coordinate,
+  `MetadataTypeDefinitionName`, module MVID, and pattern ordinal; and
+- for Member findings, exact Library source coordinate, `MemberAnchor`, and
+  pattern ordinal.
+
+Pattern ordinal remains part of identity because repeated or overlapping
+patterns are independently truthful associations. Equal rendered names from
+different exact sources remain distinct. A finite finding capacity stops later
+publication without erasing findings already admitted.
+
+The session is single-producer and not thread-safe. A scheduler may perform
+source work concurrently, but it must settle publication into its owned order
+before calling the session. The result session is not another scheduler,
+continuation, cache, or host operation authority.
 
 ## Completion and failure
 

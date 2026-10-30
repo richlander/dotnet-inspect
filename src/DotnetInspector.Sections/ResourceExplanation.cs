@@ -168,6 +168,7 @@ public enum InspectionCapabilityResourceKind
     Route,
     QuerySpace,
     QueryFacet,
+    RelatedOperation,
     ConsumerBinding,
     Analysis,
     AnalysisCollection,
@@ -225,7 +226,7 @@ public sealed record InspectionCapabilityResourcePathRegistration
 public sealed record ResourceExplanationResource
 {
     public ResourceExplanationResource(
-        ResourcePath path,
+        ResourcePath? path,
         ExplanationResourceKey key,
         ExplanationSchemaVersion schemaVersion,
         ExplanationSnapshotScope scope,
@@ -249,14 +250,14 @@ public sealed record ResourceExplanationResource
 
     [JsonConstructor]
     public ResourceExplanationResource(
-        ResourcePath path,
+        ResourcePath? path,
         ExplanationResourceKey key,
         ExplanationSchemaVersion schemaVersion,
         ExplanationSnapshotScope scope,
         ImmutableArray<ExplanationPublicAddress> addresses,
         ImmutableArray<ExplanationFactObservation> facts)
     {
-        Path = path ?? throw new ArgumentNullException(nameof(path));
+        Path = path;
         Key = key ?? throw new ArgumentNullException(nameof(key));
         SchemaVersion = schemaVersion;
         Scope = scope;
@@ -264,7 +265,7 @@ public sealed record ResourceExplanationResource
         Facts = facts.IsDefault ? [] : facts;
     }
 
-    public ResourcePath Path { get; }
+    public ResourcePath? Path { get; }
 
     public ExplanationResourceKey Key { get; }
 
@@ -283,7 +284,7 @@ public sealed record ResourceExplanationResource
     public ExplanationOwnerIdentity Owner => Key.Owner;
 
     internal static ResourceExplanationResource FromSnapshot(
-        ResourcePath path,
+        ResourcePath? path,
         ExplanationResourceSnapshot snapshot) =>
         new(
             path,
@@ -425,6 +426,19 @@ public sealed record ResourceExplanationRelationship
 
 public sealed record ResourceExplanationRequest
 {
+    /// <summary>The resource limit every product host applies.</summary>
+    public const int HostResourceLimit = 256;
+
+    /// <summary>The relationship limit every product host applies.</summary>
+    public const int HostRelationshipLimit = 2048;
+
+    /// <summary>
+    /// The request every product host issues for <paramref name="depth"/>,
+    /// so equal catalogs explain to equal Content in each host.
+    /// </summary>
+    public static ResourceExplanationRequest ForHost(int depth) =>
+        new(depth, HostResourceLimit, HostRelationshipLimit);
+
     public ResourceExplanationRequest(
         int depth,
         int resourceLimit,
@@ -597,7 +611,7 @@ public sealed record ResourceExplanationDocument
     public const int CurrentSchemaVersion = 2;
 
     public ResourceExplanationDocument(
-        ResourcePath requestedPath,
+        ResourcePath? requestedPath,
         ExplanationResourceKey root,
         IEnumerable<ExplanationSchema> schemas,
         IEnumerable<ResourceExplanationResource> resources,
@@ -624,7 +638,7 @@ public sealed record ResourceExplanationDocument
     [JsonConstructor]
     public ResourceExplanationDocument(
         int schemaVersion,
-        ResourcePath requestedPath,
+        ResourcePath? requestedPath,
         ExplanationResourceKey root,
         ImmutableArray<ExplanationSchema> schemas,
         ImmutableArray<ResourceExplanationResource> resources,
@@ -639,9 +653,7 @@ public sealed record ResourceExplanationDocument
         }
 
         SchemaVersion = schemaVersion;
-        RequestedPath =
-            requestedPath
-            ?? throw new ArgumentNullException(nameof(requestedPath));
+        RequestedPath = requestedPath;
         Root = root ?? throw new ArgumentNullException(nameof(root));
         Schemas = schemas.IsDefault ? [] : schemas;
         Resources = resources.IsDefault ? [] : resources;
@@ -660,17 +672,20 @@ public sealed record ResourceExplanationDocument
         if (Resources[0].Path != RequestedPath)
         {
             throw new ArgumentException(
-                "The requested path must identify the first resource.",
+                "The requested path and first resource path must agree.",
                 nameof(requestedPath));
         }
         if (Resources.Select(static resource => resource.Key)
                 .Distinct()
                 .Count()
             != Resources.Length
-            || Resources.Select(static resource => resource.Path.Value)
+            || Resources
+                .Where(static resource => resource.Path is not null)
+                .Select(static resource => resource.Path!.Value)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Count()
-            != Resources.Length)
+            != Resources.Count(static resource =>
+                resource.Path is not null))
         {
             throw new ArgumentException(
                 "Explanation resources must have unique keys and paths.",
@@ -710,7 +725,7 @@ public sealed record ResourceExplanationDocument
 
     public int SchemaVersion { get; }
 
-    public ResourcePath RequestedPath { get; }
+    public ResourcePath? RequestedPath { get; }
 
     public ExplanationResourceKey Root { get; }
 
@@ -755,6 +770,7 @@ public abstract record ResourcePathResolution
     UseStringEnumConverter = true,
     Converters = new[] { typeof(ExplanationBigIntegerJsonConverter) })]
 [JsonSerializable(typeof(ResourceExplanationDocument))]
+[JsonSerializable(typeof(ResourceExplanationTraversalReceipt))]
 [JsonSerializable(
     typeof(ExplanationValue.Scalar),
     TypeInfoPropertyName = "ExplanationValueScalar")]

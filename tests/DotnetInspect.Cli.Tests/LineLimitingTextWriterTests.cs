@@ -29,6 +29,19 @@ public class LineLimitingTextWriterTests
     }
 
     [Fact]
+    public void WriteLine_UsesLfRatherThanTheDestinationNewline()
+    {
+        var output = new StringWriter { NewLine = "\r\n" };
+        var writer = new LineLimitingTextWriter(output, maxLines: 2);
+
+        writer.WriteLine("first");
+        writer.WriteLine();
+        writer.WriteLine("discarded");
+
+        Assert.Equal("first\n\n", output.ToString());
+    }
+
+    [Fact]
     public void TailFlush_UsesLfRatherThanTheDestinationNewline()
     {
         var output = new StringWriter { NewLine = "\r\n" };

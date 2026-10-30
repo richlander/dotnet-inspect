@@ -111,6 +111,9 @@ internal sealed class ClassicInverseRewriter
                 when ClassicInverseNodeFacts.IsMachineField(read.Field, _shell.Machine):
                 return MachineStorage(read.Field);
 
+            case LoadLocal receiver when _shell.ReceiverAliases.TryField(receiver, out FieldRef field):
+                return MachineStorage(field);
+
             case LoadLocal local
                 when _candidate.LocalRemap.TryGetValue(local.Index, out int mapped):
                 return new LoadLocal(mapped, local.Type);

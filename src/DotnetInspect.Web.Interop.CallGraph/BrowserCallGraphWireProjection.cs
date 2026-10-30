@@ -21,6 +21,7 @@ internal static class BrowserCallGraphWireProjection
             Project(graph.Callees),
             Project(graph.Scope),
             [.. graph.Targets.Select(Project)],
+            [.. graph.Boundaries.Select(Project)],
             Project(graph.Diagnostics, inspectionDiagnostics),
             graph.NoBody);
     }
@@ -83,5 +84,24 @@ internal static class BrowserCallGraphWireProjection
             target.SurfaceAssemblyId,
             target.PackageId,
             target.PackageVersion,
-            target.PackageFramework);
+            target.PackageFramework)
+        {
+            OwnerKind = target.OwnerKind,
+            PlatformFamily = target.PlatformFamily,
+            PlatformFramework = target.PlatformFramework,
+            PlatformVersion = target.PlatformVersion,
+        };
+
+    static BrowserCallGraphBoundary Project(
+        BrowserCallGraphBoundaryInfo boundary) =>
+        new(
+            boundary.Id,
+            boundary.SourcePackageId,
+            boundary.SourcePackageVersion,
+            boundary.SourcePackageFramework,
+            boundary.SourceAssembly,
+            boundary.TargetPackageId,
+            boundary.TargetPackageVersion,
+            boundary.TargetPackageFramework,
+            boundary.TargetAssembly);
 }

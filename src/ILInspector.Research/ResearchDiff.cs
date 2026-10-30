@@ -23,6 +23,13 @@ public sealed record ResearchDiffOptions(
 {
     public ImmutableHashSet<string> RetainedComparisonDescriptorIds { get; init; } =
         ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The normalization the IL body comparison and its Finding census run
+    /// under; a consumer's named policy, such as Finding Diff Any's Body policy, or
+    /// none.
+    /// </summary>
+    public IlBodyDiffNormalization IlNormalization { get; init; } = IlBodyDiffNormalization.None;
 }
 
 public sealed record ResearchDiffInput(
@@ -778,7 +785,8 @@ public static partial class ResearchDiff
                 oldInput,
                 newInput,
                 options.TypeFilters,
-                options.RetainedComparisonDescriptorIds);
+                options.RetainedComparisonDescriptorIds,
+                options.IlNormalization);
         }
 
         if (options.Mechanisms.HasFlag(ResearchChangeMechanism.CSharp))
@@ -926,7 +934,8 @@ public static partial class ResearchDiff
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput,
         IReadOnlySet<string>? typeFilters,
-        IReadOnlySet<string> retainedComparisonDescriptorIds)
+        IReadOnlySet<string> retainedComparisonDescriptorIds,
+        IlBodyDiffNormalization normalization)
     {
         bool retainOperations = retainedComparisonDescriptorIds.Contains(
             IlFindings.OperationDescriptor.Id);
@@ -935,7 +944,8 @@ public static partial class ResearchDiff
                 builder,
                 oldInput,
                 newInput,
-                typeFilters)
+                typeFilters,
+                normalization)
             : new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
                 StringComparer.Ordinal);
 
@@ -949,6 +959,9 @@ public static partial class ResearchDiff
             var keys = oldMethods.Keys.Intersect(newMethods.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             using var oldBodies = new MethodBodyLookup(pair.Old);
             using var newBodies = new MethodBodyLookup(pair.New);
+            // One side per image of the pair: the operands every compared body
+            // names are spelled once, not once per method.
+            var (oldSide, newSide) = IlCensusSide.CreatePair(oldBodies.MetadataReader, newBodies.MetadataReader, normalization);
 
             foreach (var key in keys)
             {
@@ -982,11 +995,7 @@ public static partial class ResearchDiff
                     continue;
                 }
 
-                var diff = IlBodyDiff.Compare(
-                    oldBodies.MetadataReader,
-                    oldBody!,
-                    newBodies.MetadataReader,
-                    newBody!);
+                var diff = IlBodyDiff.Compare(oldSide, oldBody!, newSide, newBody!);
                 if (findingComparison is FindingComparison<CanonicalIlOperation>.Complete complete
                     && ImplementationDiff.FindingDivergenceChange(
                         subject,
@@ -1056,7 +1065,8 @@ public static partial class ResearchDiff
             ResultBuilder builder,
             ResearchDiffInput oldInput,
             ResearchDiffInput newInput,
-            IReadOnlySet<string>? typeFilters)
+            IReadOnlySet<string>? typeFilters,
+            IlBodyDiffNormalization normalization)
     {
         var retained = new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
             StringComparer.Ordinal);
@@ -1084,6 +1094,16 @@ public static partial class ResearchDiff
             using var newBodies = pair.New is null
                 ? null
                 : new MethodBodyLookup(pair.New);
+            // One side per present image; a pair of sides shares the policy's
+            // generated-ordinal correspondence when both are present.
+            IlCensusSide? oldSide = null;
+            IlCensusSide? newSide = null;
+            if (oldBodies is not null && newBodies is not null)
+                (oldSide, newSide) = IlCensusSide.CreatePair(oldBodies.MetadataReader, newBodies.MetadataReader, normalization);
+            else if (oldBodies is not null)
+                oldSide = IlCensusSide.Create(oldBodies.MetadataReader, normalization);
+            else if (newBodies is not null)
+                newSide = IlCensusSide.Create(newBodies.MetadataReader, normalization);
 
             foreach (string key in oldMethods.Keys
                 .Union(newMethods.Keys, StringComparer.Ordinal)
@@ -1103,11 +1123,11 @@ public static partial class ResearchDiff
                 if (oldMethod is not null && newMethod is not null)
                 {
                     comparison = IlFindings.Compare(
+                        oldSide!,
                         oldBodies!.PeReader,
-                        oldBodies.MetadataReader,
                         MethodHandle(oldMethod.MetadataToken),
+                        newSide!,
                         newBodies!.PeReader,
-                        newBodies.MetadataReader,
                         MethodHandle(newMethod.MetadataToken),
                         findingSubject);
                 }
@@ -1120,8 +1140,8 @@ public static partial class ResearchDiff
                             findingSubject,
                             "old")
                         : IlFindings.Inspect(
+                            oldSide!,
                             oldBodies!.PeReader,
-                            oldBodies.MetadataReader,
                             MethodHandle(oldMethod.MetadataToken),
                             findingSubject);
                     var newInspection = newMethod is null
@@ -1131,8 +1151,8 @@ public static partial class ResearchDiff
                             findingSubject,
                             "new")
                         : IlFindings.Inspect(
+                            newSide!,
                             newBodies!.PeReader,
-                            newBodies.MetadataReader,
                             MethodHandle(newMethod.MetadataToken),
                             findingSubject);
                     comparison = IlFindings.Compare(oldInspection, newInspection);
@@ -1489,7 +1509,12 @@ public static partial class ResearchDiff
             return null;
 
         var assemblies = new List<ResolvedAssemblyReference>();
-        var merged = new ApiSurface();
+        var merged = new ApiSurface
+        {
+            ExtractionScope = includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+        };
         foreach (string path in input.AssemblyPaths)
         {
             try
@@ -1586,6 +1611,7 @@ public static partial class ResearchDiff
         ApiSurface destination,
         ApiSurface source)
     {
+        destination.MergeExtractionScope(source.ExtractionScope);
         destination.Types.AddRange(source.Types);
         destination.MergeInspectionFailuresFrom(source);
     }
@@ -1757,7 +1783,9 @@ public static partial class ResearchDiff
     static bool IsMemberChange(ChangeKind kind)
         => kind is ChangeKind.MemberAdded or ChangeKind.MemberRemoved or ChangeKind.MemberSignatureChanged
             or ChangeKind.VirtualRemoved or ChangeKind.AbstractMemberAdded or ChangeKind.EnumValueChanged
-            or ChangeKind.MemberAttributeAdded or ChangeKind.MemberAttributeRemoved;
+            or ChangeKind.MemberAttributeAdded or ChangeKind.MemberAttributeRemoved
+            or ChangeKind.MemberAccessibilityChanged
+            or ChangeKind.MemberHiddenChanged or ChangeKind.MemberObsoleteChanged;
 
     static ResearchChangeKind Direction(ChangeKind kind)
         => kind switch
@@ -1813,6 +1841,7 @@ public static partial class ResearchDiff
         => category switch
         {
             ApiChangeCategory.Attribute => ResearchChangeCategory.Attribute,
+            ApiChangeCategory.Status => ResearchChangeCategory.Status,
             _ => ResearchChangeCategory.Signature,
         };
 

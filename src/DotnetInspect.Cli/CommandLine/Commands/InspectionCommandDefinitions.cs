@@ -2,6 +2,8 @@ using System.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Planning;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -117,13 +119,18 @@ public static class InspectionCommandDefinitions
             [.. DiffAnalysisCommandCapability.Identities]);
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Diff JSON (use with unprojected --json or --envelope)" };
+        var annotatedSourceIlOption = new Option<bool>("--il")
+        {
+            Description =
+                "Annotated Source Diff only: include IL beside the default C# comparison",
+        };
 
 #if DEBUG
         var evidenceEnvelopeOption =
             new Option<string?>("--evidence-envelope")
             {
                 Description =
-                    "Write the complete enriched Diff History envelope to a JSON sidecar",
+                    "Write the complete enriched Diff History, Library API Diff, or analysis-set envelope with its package acquisitions to a JSON sidecar",
                 Arity = ArgumentArity.ExactlyOne,
             };
 #endif
@@ -161,6 +168,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(opts.RowWhere);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+        diffCommand.Options.Add(annotatedSourceIlOption);
 #if DEBUG
         diffCommand.Options.Add(evidenceEnvelopeOption);
         diffCommand.Validators.Add(result =>
@@ -170,16 +178,17 @@ public static class InspectionCommandDefinitions
             {
                 return;
             }
-            if (!result.GetValue(historyOption))
+            if (!result.GetValue(historyOption)
+                && result.GetResult(packageOption) is not { Implicit: false })
             {
                 result.AddError(
-                    "--evidence-envelope is supported only by diff --history.");
+                    "--evidence-envelope is supported only by diff --history and pairwise diff --package.");
             }
             if (result.GetResult(opts.Discover) is { Implicit: false }
                 || result.GetValue(opts.Schema))
             {
                 result.AddError(
-                    "--evidence-envelope requires a Diff History inspection, not discovery or schema output.");
+                    "--evidence-envelope requires an inspection, not discovery or schema output.");
             }
         });
 #endif
@@ -297,7 +306,7 @@ public static class InspectionCommandDefinitions
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
             implementationOption,
             historyOption, atOption, maxProbesOption, samplePercentOption, majorVersionsOption, prereleaseOption, opts.Count,
-            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, analysisOption, legendOption, repoOption, compactOption);
+            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, analysisOption, legendOption, repoOption, compactOption, annotatedSourceIlOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
@@ -443,11 +452,16 @@ public static class InspectionCommandDefinitions
             Description =
                 "Narrow package inspection to its uniquely named Library",
         };
+        var firstLibraryOption = new Option<bool>("--first-library")
+        {
+            Description =
+                "Narrow package inspection to the first namesake in Library order, otherwise the first Library",
+        };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
         asmPrereleaseOption.Aliases.Add("--prerelease");
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
         var asmVersionOption = new Option<string?>("--version") { Description = "Platform runtime version (searches framework families in priority order)" };
-        var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0; 'all' supports Markdown, JSON, and aggregate --count)" };
+        var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var namespaceOption = new Option<string?>("--namespace")
@@ -468,8 +482,8 @@ public static class InspectionCommandDefinitions
             new Option<string?>("--name-family-population")
             {
                 Description =
-                    "With exact -S \"Name Families\", \"Name Family "
-                        + "Roles\", or \"Name Family Role Types\": all, "
+                    "With exact -S \"Name Families\", \"Architectural "
+                        + "Families\", or \"Architectural Family Types\": all, "
                         + "ordinary, generated, mixed, or unknown",
             };
         nameFamilyPopulationOption.CompletionSources.Add(
@@ -497,6 +511,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(workspaceOption);
         assemblyCommand.Options.Add(namesakeLibraryOption);
+        assemblyCommand.Options.Add(firstLibraryOption);
         assemblyCommand.Options.Add(asmPrereleaseOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmVersionOption);
@@ -572,14 +587,14 @@ public static class InspectionCommandDefinitions
                     exactSelector,
                     SectionNames.NameFamilies,
                     StringComparison.OrdinalIgnoreCase);
-            bool exactNameFamilyRoles =
+            bool exactArchitecturalFamilies =
                 string.Equals(
                     exactSelector,
-                    SectionNames.NameFamilyRoles,
+                    SectionNames.ArchitecturalFamilies,
                     StringComparison.OrdinalIgnoreCase)
                 || string.Equals(
                     exactSelector,
-                    SectionNames.NameFamilyRoleTypes,
+                    SectionNames.ArchitecturalFamilyTypes,
                     StringComparison.OrdinalIgnoreCase);
             bool exactDependencyStructure =
                 string.Equals(
@@ -590,19 +605,19 @@ public static class InspectionCommandDefinitions
                     is { Implicit: false }
                 && !exactLibraryMetrics
                 && !exactNameFamilies
-                && !exactNameFamilyRoles
+                && !exactArchitecturalFamilies
                 && !exactDependencyStructure)
             {
                 result.AddError(
                     "library --envelope accepts only the exact "
                         + "\"Library Metrics\", \"Name Families\", "
-                        + "\"Name Family Roles\", \"Name Family Role "
+                        + "\"Architectural Families\", \"Architectural Family "
                         + "Types\", or \"Dependency Structure\" "
                         + "section selection.");
             }
             if (exactLibraryMetrics
                 || exactNameFamilies
-                || exactNameFamilyRoles
+                || exactArchitecturalFamilies
                 || exactDependencyStructure)
                 return;
 
@@ -614,6 +629,7 @@ public static class InspectionCommandDefinitions
                 asmPlatformOption,
                 asmPackageOption,
                 namesakeLibraryOption,
+                firstLibraryOption,
                 asmPrereleaseOption,
                 asmFrameworkOption,
                 asmVersionOption,
@@ -635,11 +651,6 @@ public static class InspectionCommandDefinitions
                 assemblyCommand,
                 assemblyPathArg,
                 metadataRootOption));
-        assemblyCommand.Subcommands.Add(
-            LibraryQueryCommandDefinitions.Create(
-                opts,
-                assemblyCommand,
-                assemblyPathArg));
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
@@ -693,6 +704,8 @@ public static class InspectionCommandDefinitions
                 parseResult.GetValue(workspaceOption);
             bool namesakeLibrary =
                 parseResult.GetValue(namesakeLibraryOption);
+            bool firstLibrary =
+                parseResult.GetValue(firstLibraryOption);
 
             // Disambiguate positional arg: local file vs package name
             string? assemblyPath = null;
@@ -706,13 +719,21 @@ public static class InspectionCommandDefinitions
                 && (opts.ParseSchema(parseResult)
                     || discoverDetails);
 
-            if (namesakeLibrary
+            if ((namesakeLibrary || firstLibrary)
                 && (string.IsNullOrWhiteSpace(explicitPackage)
                     || !string.IsNullOrWhiteSpace(source)))
             {
                 CommandError.Write(
-                    "--namesake-library requires --package and cannot be "
-                        + "combined with an exact Library source.");
+                    $"{(namesakeLibrary ? "--namesake-library" : "--first-library")} "
+                        + "requires --package and cannot be combined with an "
+                        + "exact Library source.");
+                return 1;
+            }
+            if (namesakeLibrary && firstLibrary)
+            {
+                CommandError.Write(
+                    "--namesake-library cannot be combined with "
+                        + "--first-library.");
                 return 1;
             }
             bool completeLibraryEnvelope =
@@ -723,7 +744,7 @@ public static class InspectionCommandDefinitions
                     || HasExactNameFamiliesSelector(
                         parseResult,
                         opts)
-                    || HasExactNameFamilyRolesSelector(
+                    || HasExactArchitecturalFamiliesSelector(
                         parseResult,
                         opts)
                     || HasExactDependencyStructureSelector(
@@ -776,9 +797,10 @@ public static class InspectionCommandDefinitions
                     // than misclassified as a NuGet package. See #1690.
                     assemblyPath = source;
                 }
-                else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
+                else if (!source.Contains('@')
+                    && EcosystemPackCatalog.ShouldSearchPlatform(source))
                 {
-                    // Platform-preferred routing for System.*/Microsoft.* bare names
+                    // Platform-preferred routing for selected Ecosystem associations.
                     bool verbose = parseResult.GetValue(opts.Verbose);
                     Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
                     var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
@@ -839,7 +861,7 @@ public static class InspectionCommandDefinitions
             {
                 CommandError.Write(
                     "Body Shapes composition accepts Performance Triage filters, "
-                    + "but not --top or --order-by. Use --rows to limit rendered matches.");
+                    + "but not --top or --order-by. Use -n or --rows to limit matches.");
                 return 1;
             }
             if ((cloneCandidateQuery.HasPredicates
@@ -896,13 +918,41 @@ public static class InspectionCommandDefinitions
                 if (performanceTriage.Shapes is { Length: > 0 })
                 {
                     var kinds = performanceTriage.Shapes
-                        .Select(PerformanceKinds.SectionForShape)
+                        .Select(
+                            PerformanceKinds.SectionForRequestedShape)
                         .Distinct(StringComparer.Ordinal)
                         .ToArray();
                     if (kinds.Length == 1)
                         targets = kinds;
+                    else if (kinds.Contains(
+                        SectionNames.PerformanceSyncCallsInAsync,
+                        StringComparer.Ordinal))
+                    {
+                        targets =
+                        [
+                            .. PerformanceKinds.TabularSections,
+                        ];
+                    }
                 }
                 select = [.. select ?? [], .. targets];
+            }
+            RowSelectionIntent<string>? bodyShapeRowSelection = null;
+            if (BodyShapeRowSelectionAdoption.IsActiveForLibrary(
+                    parseResult,
+                    opts,
+                    referencesOption,
+                    asmTfmOption,
+                    typeFilterOption,
+                    select ?? [])
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Body Shapes",
+                        out bodyShapeRowSelection,
+                        out string? bodyShapeRowSelectionError))
+            {
+                CommandError.Write(bodyShapeRowSelectionError!);
+                return 1;
             }
             RowSelectionIntent<string>? referenceRowSelection = null;
             if (LibraryReferenceRowSelectionAdoption.IsActive(
@@ -945,10 +995,10 @@ public static class InspectionCommandDefinitions
                 && !CliRowSelectionCommandRegistry
                     .TryGetPreparedSemanticIntent(
                         parseResult,
-                        HasExactNameFamilyRolesSelector(
+                        HasExactArchitecturalFamiliesSelector(
                             select,
                             selectDefault)
-                            ? "Name Family Roles"
+                            ? "Architectural Families"
                             : SectionNames.NameFamilies,
                         out nameFamilyRowSelection,
                         out string? nameFamilyRowSelectionError))
@@ -975,15 +1025,15 @@ public static class InspectionCommandDefinitions
                 && !HasExactNameFamiliesSelector(
                     select,
                     selectDefault)
-                && !HasExactNameFamilyRolesSelector(
+                && !HasExactArchitecturalFamiliesSelector(
                     select,
                     selectDefault))
             {
                 CommandError.Write(
                     "--name-family-population requires exact "
                         + $"-S \"{SectionNames.NameFamilies}\", "
-                        + $"\"{SectionNames.NameFamilyRoles}\", or "
-                        + $"\"{SectionNames.NameFamilyRoleTypes}\".");
+                        + $"\"{SectionNames.ArchitecturalFamilies}\", or "
+                        + $"\"{SectionNames.ArchitecturalFamilyTypes}\".");
                 return 1;
             }
             LibraryNameFamilyPopulationKind nameFamilyPopulation =
@@ -1037,9 +1087,12 @@ public static class InspectionCommandDefinitions
             var options = new LibraryOptions
             {
                 SourceIntent = sourceIntent,
+                PackagePath = PackageReferenceAdmission.IsCandidate(packagePath) ? packagePath : null,
+                PlatformAssembly = PackageReferenceAdmission.IsCandidate(packagePath) ? platformAssembly : null,
                 AssemblyName = assemblyPath,
                 WorkspacePacket = workspacePacket,
                 NamesakeLibrary = namesakeLibrary,
+                FirstLibrary = firstLibrary,
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
@@ -1094,6 +1147,7 @@ public static class InspectionCommandDefinitions
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = cloneCandidateRowSelection is null
+                    && bodyShapeRowSelection is null
                     && referenceRowSelection is null
                     && ecosystemDependencyRowSelection is null
                     && nameFamilyRowSelection is null
@@ -1102,14 +1156,15 @@ public static class InspectionCommandDefinitions
                     : null,
                 CloneCandidateRowSelection =
                     cloneCandidateRowSelection,
+                BodyShapeRowSelection = bodyShapeRowSelection,
                 ReferenceRowSelection =
                     referenceRowSelection,
                 EcosystemDependencyRowSelection =
                     ecosystemDependencyRowSelection,
                 NameFamilyPopulation = nameFamilyPopulation,
                 NameFamilyRowSelection = nameFamilyRowSelection,
-                NameFamilyRoleTypeRows =
-                    HasExactNameFamilyRoleTypesSelector(
+                ArchitecturalFamilyTypeRows =
+                    HasExactArchitecturalFamilyTypesSelector(
                         select,
                         selectDefault),
                 DependencyStructureRowSelection =
@@ -1124,6 +1179,45 @@ public static class InspectionCommandDefinitions
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };
+
+            Option[] typeHierarchyAdmittedOptions =
+            [
+                asmPlatformOption,
+                asmPackageOption,
+                namesakeLibraryOption,
+                firstLibraryOption,
+                asmPrereleaseOption,
+                asmFrameworkOption,
+                asmVersionOption,
+                asmTfmOption,
+                opts.Source,
+                opts.AddSource,
+                opts.NuGetConfig,
+                opts.Tree,
+                opts.Mermaid,
+                opts.Verbosity,
+                opts.Verbose,
+            ];
+            bool onlyTypeHierarchyOptions =
+                assemblyCommand.Options.All(option =>
+                    typeHierarchyAdmittedOptions.Contains(option)
+                    || parseResult.GetResult(option)
+                        is not { Implicit: false });
+            switch (LibraryCommandPlanner.Plan(
+                        options,
+                        onlyTypeHierarchyOptions,
+                        mermaidExplicitlySet:
+                            parseResult.GetResult(opts.Mermaid)
+                                is { Implicit: false }
+                            && parseResult.GetValue(opts.Mermaid)))
+            {
+                case LibraryCommandPlanningResult.Rejected rejected:
+                    CommandError.Write(rejected.Error);
+                    return 1;
+                case LibraryCommandPlanningResult.Planned planned:
+                    options = options with { CommandPlan = planned.Plan };
+                    break;
+            }
 
             return await LibraryCommand.ExecuteAsync(options, ct);
         });
@@ -1145,6 +1239,30 @@ public static class InspectionCommandDefinitions
             result => CloneCandidateRowSelectionAdoption.IsActive(
                 result,
                 opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => BodyShapeRowSelectionAdoption.IsActiveForLibrary(
+                result,
+                opts,
+                referencesOption,
+                asmTfmOption,
+                typeFilterOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -1303,16 +1421,16 @@ public static class InspectionCommandDefinitions
         string[]? select,
         bool selectDefault) =>
         HasExactNameFamiliesSelector(select, selectDefault)
-        || HasExactNameFamilyRolesSelector(select, selectDefault);
+        || HasExactArchitecturalFamiliesSelector(select, selectDefault);
 
-    private static bool HasExactNameFamilyRolesSelector(
+    private static bool HasExactArchitecturalFamiliesSelector(
         ParseResult parseResult,
         SharedOptions opts) =>
-        HasExactNameFamilyRolesSelector(
+        HasExactArchitecturalFamiliesSelector(
             opts.ParseSelect(parseResult),
             opts.ParseSelectDefault(parseResult));
 
-    private static bool HasExactNameFamilyRolesSelector(
+    private static bool HasExactArchitecturalFamiliesSelector(
         string[]? select,
         bool selectDefault)
     {
@@ -1326,14 +1444,14 @@ public static class InspectionCommandDefinitions
         ];
         return selectors is [var selector]
             && (selector.Equals(
-                    SectionNames.NameFamilyRoles,
+                    SectionNames.ArchitecturalFamilies,
                     StringComparison.OrdinalIgnoreCase)
                 || selector.Equals(
-                    SectionNames.NameFamilyRoleTypes,
+                    SectionNames.ArchitecturalFamilyTypes,
                     StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool HasExactNameFamilyRoleTypesSelector(
+    private static bool HasExactArchitecturalFamilyTypesSelector(
         string[]? select,
         bool selectDefault)
     {
@@ -1347,7 +1465,7 @@ public static class InspectionCommandDefinitions
         ];
         return selectors is [var selector]
             && selector.Equals(
-                SectionNames.NameFamilyRoleTypes,
+                SectionNames.ArchitecturalFamilyTypes,
                 StringComparison.OrdinalIgnoreCase);
     }
 

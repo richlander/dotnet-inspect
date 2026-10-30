@@ -91,36 +91,11 @@ public sealed class MethodInstructions
     public static MethodInstructions Decode(MethodBodyData body)
     {
         ArgumentNullException.ThrowIfNull(body);
-        byte[] il = body.IL.ToArray();
         try
         {
             ImmutableArray<DecodedInstruction> instructions =
-                InstructionDecoder.Decode(il);
-            ExceptionFlowTopology topology =
-                ExceptionFlowTopology.Create(il.Length, instructions, body);
-            BlockGraph blocks = BlockGraph.Build(
-                il.Length,
-                instructions,
-                topology);
-            InstructionExceptionFlowResult<InstructionExceptionFlowFacts> flow =
-                topology.IsComplete && blocks.IsComplete
-                    ? new InstructionExceptionFlowResult<
-                        InstructionExceptionFlowFacts>.Available(
-                            new InstructionExceptionFlowFacts(
-                                body.EvidenceId,
-                                topology.IssuedClauses,
-                                topology.IssuedRegions,
-                                instructions,
-                                blocks,
-                                topology))
-                    : new InstructionExceptionFlowResult<
-                        InstructionExceptionFlowFacts>.Unavailable(
-                            topology.UnavailableReason
-                                ?? InstructionExceptionFlowUnavailableReason.DecodeFailure,
-                            topology.IncompleteReason
-                                ?? blocks.IncompleteReason
-                                ?? "Exception-flow construction was incomplete.");
-            return new MethodInstructions(instructions, blocks, flow);
+                InstructionDecoder.Decode(body.IL.AsSpan());
+            return Create(body, instructions);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidProgramException)
         {
@@ -132,6 +107,40 @@ public sealed class MethodInstructions
                         InstructionExceptionFlowUnavailableReason.DecodeFailure,
                         ex.Message));
         }
+    }
+
+    internal static MethodInstructions Create(
+        MethodBodyData body,
+        ImmutableArray<DecodedInstruction> instructions)
+    {
+        ExceptionFlowTopology topology =
+            ExceptionFlowTopology.Create(
+                body.IL.Length,
+                instructions,
+                body);
+        BlockGraph blocks = BlockGraph.Build(
+            body.IL.Length,
+            instructions,
+            topology);
+        InstructionExceptionFlowResult<InstructionExceptionFlowFacts> flow =
+            topology.IsComplete && blocks.IsComplete
+                ? new InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Available(
+                        new InstructionExceptionFlowFacts(
+                            body.EvidenceId,
+                            topology.IssuedClauses,
+                            topology.IssuedRegions,
+                            instructions,
+                            blocks,
+                            topology))
+                : new InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Unavailable(
+                        topology.UnavailableReason
+                            ?? InstructionExceptionFlowUnavailableReason.DecodeFailure,
+                        topology.IncompleteReason
+                            ?? blocks.IncompleteReason
+                            ?? "Exception-flow construction was incomplete.");
+        return new MethodInstructions(instructions, blocks, flow);
     }
 
     /// <summary>

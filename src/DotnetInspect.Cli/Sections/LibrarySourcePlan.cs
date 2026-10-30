@@ -3,15 +3,6 @@ using DotnetInspect.Cli.Options;
 
 namespace DotnetInspect.Cli.Sections;
 
-[Flags]
-internal enum LibrarySourcePlanModes
-{
-    None = 0,
-    Detailed = 1 << 0,
-    Explicit = 1 << 1,
-    All = Detailed | Explicit,
-}
-
 internal readonly record struct LibrarySourcePlan(
     bool AllowPdbDownload,
     bool CollectSourceFiles,
@@ -19,7 +10,6 @@ internal readonly record struct LibrarySourcePlan(
 
 internal readonly record struct LibrarySourceSectionPlan(
     string Name,
-    LibrarySourcePlanModes Modes,
     bool DownloadPdb,
     bool CollectSourceFiles,
     bool ReadCachedPdb);
@@ -48,28 +38,19 @@ internal static class LibrarySourcePlans
         bool downloadPdb = false;
         bool collectSourceFiles = false;
         bool hasExplicitSelection = include is { Count: > 0 };
-        var mode = hasExplicitSelection
-            ? LibrarySourcePlanModes.Explicit
-            : userVerbosity >= Verbosity.Detailed
-                ? LibrarySourcePlanModes.Detailed
-                : LibrarySourcePlanModes.None;
-
-        // Cache-only PDB reads are network-free, so they are authorized one tier before downloads:
+        // Preserve automatic local PDB reads independently of acquisition requests:
         // the auto-rendered symbol-dependent sections (Symbols, Signals) appear from Normal up, so
-        // a Normal / bare-`S` render may consult an embedded, adjacent, or already-cached PDB
+        // a Normal render may consult an embedded, adjacent, or already-cached PDB
         // without touching the network. Explicit selection already authorizes a cache-first
         // download, so it needs no separate cache-only read.
         bool readCachedPdb = !hasExplicitSelection && userVerbosity >= Verbosity.Normal;
 
-        if (mode == LibrarySourcePlanModes.None)
+        if (!hasExplicitSelection)
             return new LibrarySourcePlan(false, false, readCachedPdb);
 
         foreach (var section in s_sections)
         {
-            bool selected = hasExplicitSelection
-                ? include!.Contains(section.Name)
-                : (section.Modes & LibrarySourcePlanModes.Detailed) != 0;
-            if (!selected || (section.Modes & mode) == 0)
+            if (!include!.Contains(section.Name))
                 continue;
 
             downloadPdb |= section.DownloadPdb;
@@ -90,9 +71,6 @@ internal static class LibrarySourcePlans
         where TDescriptor : ISectionDescriptor<LibraryInspection>
         => new(
             TDescriptor.Name,
-            TDescriptor.ExplicitOnly
-                ? LibrarySourcePlanModes.Explicit
-                : LibrarySourcePlanModes.All,
             downloadPdb,
             collectSourceFiles,
             readCachedPdb);

@@ -270,6 +270,11 @@ owner-certified relationship. That relationship binds:
 - the completion evidence that admits the projection; and
 - cardinality preservation when Count is derived.
 
+A covering path keeps a structural property such as exact cardinality only
+when its provision and every edge on the path establish it. An edge's property
+states what its projection preserves, so it cannot create a property its
+source lacks.
+
 Coverage is a directed relation, not a numeric level. A producer may declare
 `Signature -> Name` for one Type and `complete Names -> Count` for one
 population without claiming that Signature rows always establish population
@@ -326,7 +331,9 @@ The reusable substrate validates structure rather than producer semantics:
 - resource and scope identities agree along the path;
 - the path's completion requirement is at least the requirement's accepted
   completion;
-- provision dependencies are present and acyclic; and
+- every selected provision belongs to the requirement set's resource;
+- provision dependencies are selected and precede their dependents, which
+  also excludes cycles; and
 - the detached result shape can route one typed outcome to every association.
 
 The producer remains responsible for the truth of its capability and coverage
@@ -396,10 +403,28 @@ Each result association records:
 - shared work identity when applicable.
 
 Shared work is recorded once. Per-requirement settlement remains visible. A
-producer failure affects every unsettled requirement whose chosen path depends
-on that provision. Independent settled requirements retain their results under
-the request-set rules. Failure never becomes zero, empty Rows, false, omitted
-association, or an unplanned fallback.
+provision failure affects every requirement whose chosen path depends on that
+provision, including one that settled before the failure, and that
+requirement reports a failure of a provision on its path. When several
+provisions fail, a requirement that depends on more than one may name any of
+them. A producer that must preserve an early-settled result through a later
+failure gives that requirement its own provision. Requirements that do not
+depend on a failed provision retain their results under the request-set rules.
+Failure never becomes zero, empty Rows, false, omitted association, or an
+unplanned fallback.
+
+The
+[producer-capability demand Lean model](models/producer-capability-demand/ProducerCapabilityDemand/FailureRouting.lean)
+proves this rule sound and complete for result validation. `any_sound` shows
+a dependent of any reported failure never reports success. `any_complete`
+shows that any result set in which each dependent names a failure on its path
+is accepted; such a report always exists, so an execution that fails several
+provisions is representable. The previous exact-match rule rejected every
+outcome when two failures shared a dependent
+([#9484](https://github.com/richlander/dotnet-inspect/issues/9484)). This
+provision-level rule does not change the settled-request rules in
+[Open and closed queries](open-and-closed-queries.md), which concern failures
+inside one execution's shared work, not a provision reported as failed.
 
 ## Type example
 
@@ -435,7 +460,8 @@ The Method owner defines two independent instruction-demand facets:
 | Detail | `OpcodeAndExtent < SelectiveOperands` | Whether analyzers need shallow instruction identity only, or may resolve selected operands and branch targets. |
 
 Each analyzer requirement retains its own output capability and carries its
-minimum Access and Detail. The owner-defined join is the pointwise maximum:
+minimum Access and Detail. Within one physical instruction-source cost class,
+the owner-defined join is the pointwise maximum:
 
 | Analyzer requirement | Access | Detail |
 | --- | --- | --- |
@@ -443,9 +469,11 @@ minimum Access and Detail. The owner-defined join is the pointwise maximum:
 | Stable getter | `ForwardOnly` | `SelectiveOperands` |
 | Bounded allocation flow | `RetainedPrefix` | `SelectiveOperands` |
 
-A shallow forward-only set selects one no-retention stream. Adding stable
-getter or bounded flow selects one lazy shallow retained sequence, and the
-forward analyzers share its advancing frontier. The plan never exposes
+A shallow forward-only set selects one no-retention stream. Selective-detail
+or retained-prefix requirements select one lazy shallow retained sequence.
+Requirements that select different physical source kinds remain in separate
+QuerySpace execution groups, so a retained consumer cannot promote a
+forward-only analyzer into the retained cost class. The plan never exposes
 `InstructionDecoder` or `InstructionSequence`; those are Method-owned physical
 choices.
 
@@ -461,14 +489,22 @@ The Release gates
 `MethodBodyAnalyzerPlanner_SelectsSourceFromCombinedDemand`,
 `MethodBodyAnalyzerPlanner_JoinIsOrderIndependent`, and
 `MethodBodyAnalyzerPlanner_PreservesRealClassifierResults` verify this
-reference shape. Carrying the same requirements through production QuerySpace
-and Method Query Source remains **unverified** until the focused adoption lands.
+shape. Production `MethodBodyAnalyzerPlan` now validates those owner-issued
+requirements through the generic capability planner. Method Query Source keeps
+each lane's minimum demand, partitions incompatible physical source kinds,
+then joins each physical group independently. Forward-only consumers
+contribute typed callbacks to one shared stream; retained consumers use
+independent cursors over one shared sequence. The exact-member call-count
+producer is the first real operation on that path.
+CLI and Browser/Wasm profile adoption and legacy-path retirement remain outside
+this planning slice.
 
 ## Failure and lifetime
 
-Planning failures are typed and occur before producer work. They include an
-unknown capability, incompatible scope, unsatisfied completion requirement,
-invalid covering path, dependency cycle, or no admitted strategy.
+Planning failures are typed and occur before producer work. They include a
+capability no selected path produces, incompatible scope, unsatisfied
+completion requirement, invalid covering path, missing or out-of-order
+dependency, or no admitted strategy.
 
 Execution uses the producer's existing typed outcomes. A selected provision
 that becomes unavailable or incomplete does not trigger an undeclared fallback.
@@ -488,6 +524,26 @@ Requirement normalization, provision selection, coverage validation, and
 result association are deterministic construction over immutable data. They
 introduce no concurrent or long-lived state machine, so ordinary Release gates
 are the appropriate design evidence.
+
+The
+[producer-capability demand Lean pilot](models/producer-capability-demand/)
+adds prototype proof evidence for every requirement set: demand-join laws,
+Method-body source selection, and shared-traversal result and charge
+preservation. Covering-path validation conjoins the provision's and every
+edge's properties, which the model proves sound whether an edge's
+`ExactCardinality` certifies its target outright or preserves its source's
+cardinality. The previous rule took properties from the last edge alone and
+was unsound under the documented "preserves" reading
+([#9483](https://github.com/richlander/dotnet-inspect/issues/9483)). Its
+[validator check classification](models/producer-capability-demand/README.md#validator-check-classification)
+proves that `MissingDependency` and `DependencyOrder` exclude every dependency
+cycle, and that the satisfaction checks imply known capabilities and the
+requirement identity domains. The validator relies on those proofs instead of
+running a separate cycle search, unknown-capability pass, or requirement
+identity domain check. The classification also proves that an "at least"
+completion check, combined with the conjunctive exactness rule, is sound under
+an owner-certified monotone completion order. It does not replace the Release
+gates in [Required evidence](#required-evidence).
 
 Execution settlement, early stopping, and shared failure routing remain owned
 by [Open and closed queries](open-and-closed-queries.md) and its existing TLA+
@@ -525,7 +581,10 @@ Method Query Source stack:
 1. **Production planning.** Move the reference declarations into host-neutral
    production capabilities, let the request-set planner pass the complete
    analyzer requirement set to the Method producer, and expose one real
-   body-analysis operation through one shared host-neutral API.
+   body-analysis operation through one shared host-neutral API. The production
+   planner, Method-source cost-class partitioning and group joins, fused
+   no-retention callbacks, shared retained sequence, exact instruction-work
+   receipt, and call-count adopter implement this slice.
 2. **Host adoption and retirement.** Consume that API from CLI and
    Browser/Wasm, publish exact NativeAOT before/after evidence, and retire the
    superseded eager or repeated decode path.
@@ -539,7 +598,7 @@ capability substrate.
 | --- | --- |
 | `ProducerCapabilityPlanPreservesEveryRequirement` | Whole-set planning returns one direct or covering satisfaction path for every association, in request order, with no missing or duplicate result. |
 | `ProducerCapabilityCoverageRequiresOwnerProof` | Equal display text, result shape, or object identity cannot authorize coverage; resource, scope, capability, projection, and completion must use the producer's declared relationship. |
-| `ProducerCapabilityPlanRejectsInvalidStructureBeforeWork` | Unknown capabilities, incompatible scopes, dependency cycles, insufficient completion, and unsatisfied requirements reject before subject access. |
+| `ProducerCapabilityPlanRejectsInvalidStructureBeforeWork` | Unproduced capabilities, incompatible scopes, dependency cycles, insufficient completion, and unsatisfied requirements reject before subject access. |
 | `ProducerCapabilityPlanPreservesSingletonSpecialization` | Count-only, Exists-only, Rows-only, or another singleton requirement retains its owner-issued direct strategy unless that producer explicitly selects a cheaper covering strategy. |
 | `ProducerCapabilityPlanSelectsBeforeEnrichment` | The Package adopter proves a returned-row capability executes only for rows admitted by earlier selection unless the selection itself requires that capability. |
 | `ProducerCapabilityResultsPreserveTypedFailure` | A failed or incomplete provision remains visible for every dependent requirement and never becomes an empty or zero result; independent settled requirements remain intact. |

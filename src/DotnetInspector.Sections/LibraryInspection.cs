@@ -11,6 +11,7 @@ namespace DotnetInspector.Sections;
 public enum LibraryTypeAccessibility
 {
     Public,
+    All,
 }
 
 public enum LibraryTypeDeclarationSelection
@@ -257,13 +258,50 @@ public sealed record LibraryTypePopulationRequest
 }
 
 /// <summary>
+/// Portable aggregate work bounds for one Library inspection.
+/// </summary>
+public sealed record LibraryInspectionBounds
+{
+    [JsonConstructor]
+    public LibraryInspectionBounds(
+        int maxTypes,
+        int maxMembers,
+        int maxInspectionFailures,
+        int maxTypeForwarders,
+        int maxMetadataRows,
+        int maxRetainedTextCharacters)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxTypes);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMembers);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxInspectionFailures);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxTypeForwarders);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMetadataRows);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            maxRetainedTextCharacters);
+        MaxTypes = maxTypes;
+        MaxMembers = maxMembers;
+        MaxInspectionFailures = maxInspectionFailures;
+        MaxTypeForwarders = maxTypeForwarders;
+        MaxMetadataRows = maxMetadataRows;
+        MaxRetainedTextCharacters = maxRetainedTextCharacters;
+    }
+
+    public int MaxTypes { get; }
+    public int MaxMembers { get; }
+    public int MaxInspectionFailures { get; }
+    public int MaxTypeForwarders { get; }
+    public int MaxMetadataRows { get; }
+    public int MaxRetainedTextCharacters { get; }
+}
+
+/// <summary>
 /// Portable execution plan for one Library inspection.
 /// </summary>
 public sealed record LibraryInspectionPlan
 {
     public LibraryInspectionPlan(
         LibraryTypePopulationRequest? types,
-        ApiSurfaceExtractionBounds bounds,
+        LibraryInspectionBounds bounds,
         LibraryEnablementsRequest? enablements = null,
         LibraryImageFactsRequest? image = null,
         LibraryDescriptionFactsRequest? description = null)
@@ -281,7 +319,7 @@ public sealed record LibraryInspectionPlan
     /// executes no population work.
     /// </summary>
     public LibraryTypePopulationRequest? Types { get; }
-    public ApiSurfaceExtractionBounds Bounds { get; }
+    public LibraryInspectionBounds Bounds { get; }
 
     /// <summary>Requests the Enablements fact group.</summary>
     public LibraryEnablementsRequest? Enablements { get; }
@@ -832,7 +870,7 @@ public sealed record LibraryDocument(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     LibraryTypePopulationResult? Types,
     LibraryInspectionWork Work,
-    ApiSurfaceExtractionBounds Bounds)
+    LibraryInspectionBounds Bounds)
 {
     /// <summary>The requested Image fact group, or null when not requested.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

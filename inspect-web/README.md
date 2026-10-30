@@ -1,6 +1,6 @@
 # Inspect Web
 
-Inspect Web is the Library-first, keyboard-driven browser experience for
+Inspect Web is the keyboard-driven browser experience for
 `dotnet-inspect`. Its organising rule is:
 
 > **Every interaction that inspects an assembly runs inside a workspace, through
@@ -9,19 +9,82 @@ Inspect Web is the Library-first, keyboard-driven browser experience for
 > never answered by opening a session, a metadata source, an analysis index,
 > or a retained image descriptor.
 
-Opening a package without an explicit destination starts at Library Overview
-using the product-selected default Library. Package remains available one level
-up with its complete Library inventory. Explicit links and restored workspace
-history keep their selected subjects and inspectors; packages with no compile
-Libraries remain at Package with the reason visible.
+Opening a package without an explicit destination starts at Package Overview
+with its complete Library inventory. Library navigation is explicit and uses
+the product-selected First Library when no exact Library is specified.
+`All libraries` is an explicit opt-in. The initial package Summary reads
+directory inventory, and an exact Library Overview requests only that Library,
+so ranged acquisition need not fetch sibling Library bodies. A later
+`All libraries` or Package-wide Type gesture may explicitly request the broad
+surface.
 
-**Open Library** and page-level file drop accept one managed `.dll` or `.exe`
+Explicit links and restored workspace history keep their selected subjects and
+inspectors. A failed selected Library remains selected with its failure visible
+rather than silently selecting a sibling. Packages with no admitted Libraries
+remain at Package with the reason visible.
+Selecting an explicitly empty compile framework opens Package Overview and
+limits the inspector choices to Overview, including when replacing a Library
+selection. Frameworks remain selectable. The motivating asset is
+`System.Memory@4.5.4`: `lib/netcoreapp2.1/_._` and `ref/netcoreapp2.1/_._`
+explicitly declare an empty compile group. Reproduce by opening that version
+and selecting `netcoreapp2.1`. Frontend tests gate inspector availability;
+the empty-compile browser case gates Package Overview and refresh behavior.
+
+**Open file** and page-level file drop accept one managed `.dll` or `.exe`
 up to 32 MiB and open it directly as a transient Library subject. Picker, drop,
 and focused clipboard-file paste use the same admission path. The Browser
 passes immutable bytes to the host-neutral embedded-Library operation; it does
 not synthesize a local path or package coordinate. Uploaded Libraries expose
 Library Overview and API navigation through Type and Member, while package-
 dependent inspectors, persistence, restoration, and sharing remain unavailable.
+
+## Local Project input
+
+The Browser host owns admission and presentation of local `*.csproj` and
+`project.assets.json` files alongside managed Libraries through the existing
+Open picker, page drop, and focused clipboard-file paste. One non-empty file
+uses the existing 32 MiB browser preflight; shared inspection remains the
+authoritative format and resource-limit gate.
+
+Project opening consumes
+`ProjectInputInspection`'s completed `InspectionEnvelope<ProjectInputDocument>`
+and the
+[retained activation owner's local Project profile](../docs/design/inspect-web-retained-workspace-realization.md#local-project-input).
+The module-local wire preserves input kind, contained declared name,
+declarations and their limitations, exact restored coordinates and selected
+target, completion/failure evidence, nonprojectable Share, and diagnostics.
+Versionless or unresolved declarations remain visible; authored constraints
+are not resolved Package versions.
+The Browser renders the typed projection as HTML to bind explicit Package
+gestures; it does not parse rendered CLI or Markout text.
+
+The Project subject consumes product-issued Navigation and Overview and
+Dependencies inspectors. Package inspection is an explicit user action;
+opening a Project does not acquire Packages, evaluate or restore MSBuild, read
+neighboring files, or use uploaded paths or feeds as acquisition authority.
+Inactive Project selection constructs fresh Workspace and Project identities
+through the existing activation transaction. Local input remains tab-local
+and is not placed in a URL or Share packet; refresh cannot restore its bytes.
+Existing Library opening retains its transient behavior.
+
+The motivating authored asset is
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at
+`c24c00af4af604b803125ecc12b77358c882017f`, whose central-version declarations
+exercise the need to preserve versionless evidence. Managed restored controls
+use `Newtonsoft.Json@13.0.3`; the real Firefox/Wasm scenario uses the existing
+`InspectWeb.Adoption.Healthy@1.0.0` Gallery fixture for deterministic explicit
+acquisition. `BrowserRetainedWorkspaceActivationTests` gates shared/wire
+outcomes and actual facade activation and inspector selection.
+`test/project-input.test.ts` gates versionless and unavailable-graph
+presentation. The `local Project uploads` case in
+`browser/package-adoption.spec.ts`, run by
+`eng/test-inspect-web-package-adoption-gate.sh`, gates production file
+admission, Project navigation, zero dependency transfers before explicit
+Package inspection, Back to Project, malformed-input preservation, and
+subsequent Library opening. This is #10517, slice 5 of 6 in #10478; the
+independent CLI document slice remains #10515.
+
+## Catalogs and Browser architecture
 
 Demos has its own `/demos` page, linked from Home and the shared data bar.
 Workspace lists the active inspection's coordinates and saved workspaces,
@@ -33,10 +96,14 @@ and Package view survive refresh just as Library and Workspace views do.
 Ecosystems has its own `/ecosystems` page in product navigation and the shared
 data bar. The page projects the product-ordered `EcosystemPackCatalog` as inert
 descriptor metadata: identity, title, summary, and bounded capability
-counts/flags. Visiting the catalog preserves the active Workspace and does not
-activate an Ecosystem subject, acquire packages, or run package-prefix
-discovery. Those interactions remain future slices. No dedicated absence gate
-covers that boundary; by operator choice it is unverified beyond design review.
+counts/flags. Cards reuse the same local ecosystem glyph vocabulary as
+Spotlight and give identity, summary, capabilities, and the available Workspace
+action a consistent responsive hierarchy; an unknown future identity receives
+a deterministic title monogram rather than a network-loaded image. Visiting
+the catalog preserves the active Workspace and does not activate an Ecosystem
+subject, acquire packages, or run package-prefix discovery. Those interactions
+remain future slices. No dedicated absence gate covers that boundary; by
+operator choice it is unverified beyond design review.
 
 The previous browser host was a single 4,103-line `Program.cs` that re-derived
 package acquisition, target-framework ranking, symbol acquisition, and member
@@ -53,6 +120,19 @@ maps those results to its wire DTOs; Core contains no `[JSExport]` method or
 generated serializer context. `EngineCoreProject_HasOneWayOwnerReference`,
 `EngineCoreAssembly_OwnsSharedWorkspaceState`, and
 `EngineCoreAssembly_HasNoFacadeContracts` gate that boundary.
+
+Web Core also owns the Browser's capability composition. Host configuration
+selects lazy contribution providers from the facades; Compare registration
+stays with Metadata and its existing dependencies. Package Query and Compare
+provide bindings to shared registered resources; Spotlight search
+reads their combined graph and follows the binding to the existing inspector.
+Compare exposes API, API-attribute, and string-literal analyses; its existing
+body-based unavailability remains visible. Package Query preparation and
+Compare execution retain separate bounded catalogs, so ordinary requests do
+not initialize the other capability family. Browser installs no structural
+view bindings yet, so structural sections and categories remain excluded.
+See [Browser binding admission](../docs/design/inspection-capability-composition.md#browser-binding-admission)
+and [#10786](https://github.com/richlander/dotnet-inspect/issues/10786).
 
 This boundary is enforced by the compiler, not by a convention.
 The `inspect-web-executable-stays-at-host-boundary` dependency-policy rule
@@ -71,19 +151,44 @@ Queries, and Sections in both graphs. Its project references declare that same
 set rather than relying on transitive access or retaining unused low-level
 projects, and it shares the narrow platform-hazard analyzer input.
 
+The separate `inspect-web-package-facade-*-dependencies-stay-within-capability-ratchet`
+rules preserve the Package facade's evaluated-project and compiled-assembly
+ceilings. Direct assembly-reference evidence now arrives as detached
+Queries-owned rows, so the facade does not project Metadata identities for that
+result, exact-Library identity arrives as a detached Queries-owned value, and
+the unused `DotnetInspector.Networking` and exact-Library
+`ILInspector.Metadata` project edges are retired. Web Core now projects
+Platform-forwarder row and route strings for the wire adapter, retiring the
+facade's final compiled `ILInspector.Metadata` edge. The separate graph rules
+prevent all three retired edges from returning.
+
 The separate `inspect-web-library-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Library facade's smaller evaluated-project boundary and its
-larger compiled-assembly boundary. The facade currently adapts the shared
-Library document and embedded-Library inspection while directly projecting
-Metadata-owned identity and API-surface values. It therefore keeps the broad
-semantic analyzer input until focused #8779 successors retire those low-level
-edges; the positive rules prevent either graph from expanding meanwhile.
+larger compiled-assembly boundary. Uploaded-Library provenance, assembly
+identity, accessibility, and inspection failures now arrive as detached
+Sections-owned values; Web Core alone reads and lowers the execution's raw API
+surface. The independent exact-Library document path now consumes
+Sections-owned bounds and detached LibraryMetadata enablement values while
+preserving the established wire contract. Its `ILInspector.Metadata` project
+edge and both compiled Metadata edges are retired; the positive rules prevent
+them from returning.
 
 The separate `inspect-web-catalog-facade-*-dependencies-stay-within-capability-ratchet`
 rules preserve the Catalog facade's evaluated-project and compiled-assembly
 boundaries. Home-demo call graphs use Web Core's shared lowering of the
 host-neutral call-graph projection, so neither graph admits
-`ILInspector.Analysis`.
+`ILInspector.Analysis`. Queries-owned demo selection now resolves the
+owner-issued member anchor over the already projected browser surface, and
+Queries-owned portable identities detach retained and Platform Library
+identity fields. The Catalog facade therefore has no project or compiled
+reference to `ILInspector.Metadata`.
+
+The separate `inspect-web-source-facade-*-dependencies-stay-within-capability-ratchet`
+rules establish the Source facade's evaluated-project and compiled-assembly
+ceilings. Services projects resolved and attributable browse URLs from typed
+PDB source inspections, so the facade preserves its existing source and
+comparison wire fields without interpreting SourceLink documents. Neither
+Source dependency graph admits `ILInspector.SourceLink`.
 
 Web Core and the capability facades other than CallGraph still use the broader
 `src/DotnetInspect.Web/BannedSymbols.txt` while their positive component
@@ -124,12 +229,16 @@ allow-list entry when the host does not consume them.
    rejected-operation contract. Settlement evidence is not stored on a
    reusable exact workspace.
 2. **Select and realize typed roles.** The ordinary package-open path requests
-   one PackageHouse compile realization. Its payload acquisition downloads and
-   admits the package from the Gallery package CDN through the shared typed
-   source, transport, archive, and Browser reservation policy. The Gallery
-   payload carries its advertised length into that policy before body
-   materialization. `PackageInfoMeasurementInspection` projects the retained
-   archive and selected slice from that realization, while
+   one PackageHouse compile realization. Acquisition applies the shared
+   1,000,000-byte size cut: small archives are acquired complete; larger
+   archives use Range reads for the selected surface and implementation
+   folders and package evidence. Sparse entries are charged before
+   materialization, including entry-cache hits, and retained under the same
+   bounded Browser cache. Matching realizations reuse their content generation;
+   complete-acquisition callers never receive sparse archives. The handoff is
+   owned by [Package payload capacity](../docs/design/package-payload-capacity.md).
+   `PackageInfoMeasurementInspection` projects the validated archive length and
+   selected slice from that realization, while
    `PackageHouseRootContributionAdapter` creates the exact package Root used by
    the Browser workspace without another acquisition or selection.
    `PackageAssemblyContextSelection` applies
@@ -318,9 +427,26 @@ holds. Shared links carry the canonical `:Platform` group version and selected l
 identity. An exact version bypasses discovery, keys retained Platform state
 separately from floating acquisition, and follows every later assembly and
 query operation; a different resident patch cannot satisfy it. A missing pin or
-the Browser `latest` sentinel remains floating and uses version discovery.
+the Browser `latest` sentinel remains floating and uses prerelease-inclusive
+version discovery, so a framework line can resolve before its stable platform
+pack is published.
 `PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` and
-`PlatformWorkspace_LatestSentinelUsesVersionDiscovery` gate those behaviors.
+`PlatformWorkspace_LatestSentinelUsesVersionDiscovery`, and
+`PlatformWorkspace_VersionlessDiscoveryAdmitsPrereleasePlatformLine` gate those
+behaviors.
+
+Ordinary package-backed Platform Library opens, including name-only shared
+workspace restoration, use PlatformHouse selected-Library realization and the
+shared directory-first complete/Range size policy. The runtime manifest
+selects the image and its metadata supplies the complete identity; subsequent
+selections retain that identity and the pinned version/producer. Restoring a
+selected Library does not launch whole-platform warmup or version discovery.
+Explicit Platform catalog warmup and population-dependent forwarding work
+remain separate, broader operations.
+`PlatformWorkspace_ExactAssemblyFollowsSizePolicyAndReusesCache` and
+`PlatformWorkspace_NamedLibrariesAccumulateWithoutCompleteAcquisition` gate
+the size policy, cache reuse, and cumulative selected-Library path.
+
 Initial member graphs use the same escaped definition identity as subsequent
 graph descent. Platform graph loads and descents also carry the target's
 complete assembly identity and reject an acquired root that is not
@@ -708,10 +834,12 @@ Release to `artifacts/inspect-web-publish`.
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryMethodBodyComparisonTargets` | one already-retained package or platform implementation assembly | bounded API surface and `AssemblyContextMethodAddressQuery.ExecuteParticipant(...)` |
 | `QueryMethodBodyComparison` | two selected methods in that implementation assembly | `DirectMemberComparisonQuery.Execute(...)` |
-| `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
+| `InspectPackageDependencies` | one package/version/framework/runtime | `PackageDependencyInspectionOperation` plus Browser-owned platform-reference presentation |
 | `QueryPackageIntegrations` | one exact library in a package/version/framework | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
 | `QueryPackageOpportunities` | one exact library in a package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
 | `QueryPackagePerformance` | one exact library in a package/version/framework | `AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)` |
+| `QueryPackageResourceTriage` | one selected package Library plus admitted runtime context | `AssemblyResourceTriageInspection.ExecuteWithRuntimeAsync(...)` |
+| `QueryPlatformResourceTriage` | one selected platform participant | `AssemblyResourceTriageInspection.Execute(...)` |
 | `QueryPackageMetadata` | one exact library in a package/version/framework | root-aware `AssemblyContextMetadataImageQuery.ExecuteParticipant(...)` plus `AssemblyContextReadyToRunImageQuery.ExecuteParticipant(...)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
 | `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
@@ -721,11 +849,64 @@ Release to `artifacts/inspect-web-publish`.
 
 <!-- markdownlint-enable MD013 -->
 
-`QueryPackage` is the site's default path. It runs against the product-selected
-compile assets, so `ref/` assemblies remain authoritative when the package ships
-them. It asks the API-surface query for the composed scope — the default consumer
-surface plus non-public types — so a public type keeps its public member list
-while non-public types remain reachable through the accessibility filter. Public
+The initial package open calls `QueryPackageSummary`, which carries the
+complete bounded Library inventory and the product-selected default asset ID.
+The application selects that Library from the inventory even before a broad
+surface is loaded. Library Overview asks `QueryLibraryApi` for that exact
+Library's bounded public API summary and `InspectLibrary` for its Enablements;
+both reuse the admitted PackageHouse realization. It does not automatically
+request the package-wide Type surface. All Libraries Overview, explicit Type
+navigation, and API browsing retain that broad request. Explicit links and
+restored subjects keep their requested selection.
+
+`System.Text.Json@10.0.12` targeting `net8.0` exposed a first-load presentation
+gap: its exact Library appears in the Summary inventory before the broad
+surface has produced assembly counts. Those counts are pending, not
+unavailable, and may stay pending for the whole session because Library
+Overview never requests the broad surface. The Libraries list therefore shows
+no count detail for a pending Library rather than claiming its surface or its
+counts are unavailable. A missing Library or a null count after a requested
+broad projection remains an unavailable result. The first-load
+browser regression uses the existing `System.Text.Json@10.0.0` fixture through
+the ordinary package-opening path; the package-model test covers the distinct
+summary and truncated-broad states.
+
+The initial package overview does not prefetch the package icon. The subject
+header displays its default icon immediately; after the initial render has had
+an opportunity to paint, the UI independently requests the embedded icon through
+`QueryPackageIcon`. Repeated renders share that request. A late result cannot
+update a different package's header; unavailable or failed icon requests retain
+the default. Complete archives below the shared size threshold can already
+contain the icon, but icon acquisition never gates the initial page.
+
+Package Metadata overview, table windows, and heap listings also reuse the
+admitted realization. They retain their exact Library selection and existing
+metadata bounds; visiting Metadata does not require another complete archive.
+A standalone exact Metadata request uses the existing exact-Library realization
+with one named implementation demand, no PDB companions, no framework-reference
+evidence, and no icon prefetch. Reference-only Libraries retain the surface
+fallback. Surface folders and aligned implementation chunks keep their existing
+expansion rules, so a chunk can include neighboring files. The complete logical
+Library inventory and product selection remain authoritative.
+
+The narrowed realization has a selection-specific cache and scope demand; it
+cannot satisfy a later broad Package/API request. If Summary already admitted
+a full realization, Metadata reuses it instead. Table windows and heap listings
+remain lazy, bounded requests over that retained scope. Legacy assembly-name
+selectors and unavailable targets preserve their existing resolution outcomes.
+`Avalonia` 12.1.2 targeting net10.0 motivates this demand: Metadata for the exact
+`Avalonia.Base.dll` should not eagerly acquire every other implementation or its
+package icon. `MetadataScope_NamesOneImplementationAndDoesNotReplaceTheFullScope`
+gates implementation narrowing, warm reuse, a neighboring Library, later broad
+acquisition, and Summary-first reuse; `MetadataScope_ReferenceOnlyLibraryRetainsItsSurfaceFallback`
+gates the reference-only boundary.
+
+`QueryPackage` is the broad Type-navigation path. It runs against the
+product-selected compile assets, so `ref/` assemblies remain authoritative
+when the package ships them. It asks the API-surface query for the composed
+scope — the default consumer surface plus non-public types — so a public type
+keeps its public member list while non-public types remain reachable through
+the accessibility filter. Public
 types hidden by the extractor stay hidden rather than re-entering the default
 bucket with private members. That scope is one extraction inside
 `ApiSurfaceExtractor`, not two composed in the query layer, so a package load
@@ -766,12 +947,15 @@ derived-type edges. The exact selected participant remains the dependency root
 even when another package defines the same full type name; if that participant
 does not contribute the exact normalized dependency-scanner root, the query
 reports the type as uncertified rather than borrowing another definition or a
-fuzzy same-participant match. For example, a non-public type remains available
-in the type-shape projection, but the public dependency scanner cannot certify
-its root: base and interface graph edges are absent and the incompleteness
-notice remains visible. The Type Relationships graph therefore retains
-participant-local derived types while expanding base-class and interface chains
-through other loaded package participants. The managed operation constructs
+fuzzy same-participant match. The exact selected root is admitted regardless
+of accessibility, so internal types can report their base and interface edges.
+The existing dependency convention omits `System.Object`, `System.ValueType`,
+and `System.Enum`; `System.Text.ValueStringBuilder` therefore has a certified
+empty dependency graph. Ordinary dependency scans and ancestor
+expansion still use the public-type population. The Type Relationships graph
+therefore retains participant-local derived types while expanding base-class
+and interface chains through other loaded package participants. The managed
+operation constructs
 the same L2 type-dependency plan as the CLI. The current browser gesture
 supplies no traversal-depth bound and an empty relationship-row intent, while
 the managed boundary retains typed Head, Tail, and Window capability for
@@ -784,7 +968,7 @@ that type identity; ambiguous and external nodes remain static. Platform-only
 type projection keeps its existing isolated runtime-pack scope.
 
 `QueryMemberAnnotatedSource` runs over one group participant. The Research query
-owns the `MetadataSource` and the whole-assembly `LibraryBodyIndex`, takes no
+owns the `MetadataSource` and focused whole-assembly Analysis results, takes no
 filesystem path, and resolves references through the participant's own binding
 policy rather than by matching simple names. Annotated source moves to its
 matching implementation participant and asks `CallGraphMemberResolver` to
@@ -793,8 +977,8 @@ selector when `ref/` and `lib/` row numbers differ. It then returns the
 product's portable `AnnotatedSourceDocument` serialized by its owning
 `AnnotatedSourceDocumentJsonContext` — the same artifact the CLI writes and
 the [#3964] viewer validates — inside an envelope carrying provenance and, when
-whole-assembly fact context could not be built, a visible `contextLimitation` so
-a short fact list is never read as an honest absence of facts. Printer options
+whole-assembly fact context could not be built, a visible `contextLimitation`
+so a short fact list is never read as an honest absence of facts. Printer options
 are resolved from `StyleOptionCatalog`; an id the catalog does not know is a
 visible failure, not a silently ignored selection.
 
@@ -902,7 +1086,8 @@ against that manifest) and `QueryMemberDocumentation` (the XML file shipped
 beside a product-selected compile asset).
 
 Three exports touch **no artifact at all** and say so in place: `SearchTypes`
-(ranking names the client already holds, through `TypeMatcher`),
+(adapting names the client already holds through Queries-owned
+`LoadedTypeSearchRanking`),
 `PackageCacheStats`, and `ListVocabulary` (the shared product-owned vocabulary
 catalog).
 
@@ -984,22 +1169,46 @@ Analysis-only `QueryMemberFacts` payload remains separate. Browser selection
 and stale-result behavior follow under #5517 rather than entering this
 transport operation.
 
-`QueryPackageDependencies` asks the package-content query for every dependency
-group in manifest order and its compatible target-framework selection, then
-passes that exact owner-issued result through
-`PackageDependencyEvidenceQuery`. The Browser projects its groups and source
-spellings from the normalized evidence rather than parsing the nuspec or
-creating another dependency model. A missing matching group remains visible
-while the UI permits inspecting the groups that were actually declared.
-Typed normalization failures also cross the boundary, so conflicting or
-invalid declarations remain visible instead of becoming successful empty
-groups. The
-dependency list and graph both follow that explicit UI selection for the active
-package; other open packages use their product-selected groups. The selected
-compile participant's direct references come from the assembly-context query;
-the browser does not open another assembly session. Package Dependencies shows
-only NuGet dependency groups; Library References shows only the selected
-Library's assembly references.
+`InspectPackageDependencies` issues one shared
+`InspectionEnvelope<PackageDependencyInspectionOutcome>` for the exact Package
+coordinate. The Browser projects the owner-issued manifest groups and logical
+selection without parsing the nuspec, normalizing declarations again, or
+creating a second dependency model. Declaration order, duplicate rows, and
+case-distinct identifiers remain visible. A missing matching group remains
+visible while the UI permits inspecting the groups that were actually
+declared. The dependency list and graph both follow that explicit UI selection
+for the active package; other open packages use their product-selected groups.
+Package Dependency Inspection does not select a Library, open an assembly
+session, or carry direct assembly references.
+
+Package References combines the selected NuGet dependency group with platform
+references projected from the same exact PackageHouse realization.
+`Microsoft.NETCore.App` is shown as `.NET Runtime`, and
+`Microsoft.AspNetCore.App` is shown as `ASP.NET Core`. When NuGet selection
+successfully reports no dependency groups or an empty selected group,
+successful framework-reference evidence contains no explicit references, and
+the active target is a supported `net` or `netcoreapp` target, the Browser adds
+`.NET Runtime` as the target's default platform reference.
+It does not add that default to a non-empty NuGet group or turn unavailable or
+invalid framework-reference evidence into a successful fallback. The NuGet
+and platform rows remain separate lists and typed graph nodes. The managed
+boundary carries explicit references separately from eligible default-runtime
+evidence. Explicit platform references remain visible across dependency-group
+selection; the default appears only for a successfully normalized empty
+selected group, consistently in the list, status, and graph. Library References
+continues to show only the selected Library's assembly references.
+The internal dependency request identity is the Package ID, version, active
+framework, and runtime identifier; selected Library identity is not part of
+that request.
+
+Each NuGet dependency row displays the package's embedded icon when its exact
+version resolves and the icon passes the existing package-icon bounds.
+`QueryPackageIcon` reads only the archive directory, root nuspec, and declared
+icon entry through byte ranges; it never acquires the complete nupkg as a
+fallback and never follows deprecated nuspec icon URLs. Rows use the NuGet
+default icon immediately and retain it when version resolution, range access,
+or icon admission is unavailable. Navigation matching completes before icon
+requests begin.
 
 `QueryPackageVulnerabilities` is a separate operation used by the Package
 Vulnerabilities lens for exact nuget.org package coordinates. It delegates
@@ -1193,6 +1402,104 @@ selection protection, detail, and focus-target identities; and
 focus restoration, and layered Escape. A payload the portable model rejects
 remains a visible failure rather than rendering success-shaped empty output.
 
+## Continuous resource explanation
+
+The Workspace page offers explicit catalog exploration and declaration
+explanation. These gestures use the Catalog facade and shared Resource
+Explanation operation; they do not activate a Workspace, settle versions or
+acquire Package content. The Browser publishes a root over the vocabulary and
+component-contract resources its Catalog facade admits. The existing shared
+reachability gate withholds that root if any admitted resource is unreachable.
+Coverage describes this host's registrations rather than implying complete
+explanation of every Browser inspector.
+
+Catalog links identify resources independently of representation.
+`catalog.explainResources(path, projection)` accepts a plain installed path or
+`inspect-resource:/` address and an explicit `hal`, `data` or `contract`
+reading. Root/component-contract readings consume the shared completed Document;
+vocabulary roots use their shared closed reading profile and other vocabulary
+resources use the shared Document projection.
+The Browser does not construct a second description model. The Workspace view
+renders locally available data and offers links for explicit selection rather
+than fetching linked resources for verification. Its interactive HTML renderer
+consumes the shared JSON reading directly: Browser buttons and local async
+state belong to the host, while Markout remains the CLI presentation path.
+
+For Workspace declarations, the UI captures a canonical packet through the
+existing complete-share capture path, without changing saved definitions or
+the URL. `catalog.describeWorkspaceComponents(packet)` decodes that immutable
+packet and projects Workspace-owned Package descriptors. The UI retains each
+owner-produced declaration intact and passes it to
+`catalog.explainWorkspaceComponent(json, parentPacket, projection)`.
+The validating owner supplies the exact typed input to the existing shared
+detached operation. A standalone request leaves parent facts unavailable;
+supplying the actual packet qualifies correspondence, context and focus.
+Packet-local paths do not become installed resource identity.
+
+Unknown kinds/versions, malformed declarations/packets and unsupported readings
+remain typed visible refusals without search or activation fallback.
+Successful explanation preserves shared Content, Share and diagnostics through
+the existing Catalog envelope projection. UI transport failures and diagnostics
+remain visible. An async result for an older Workspace/navigation cannot
+replace the current reading. Browser transport owns neither packet grammar,
+component validity, resource identity nor realization authority.
+
+The real witness is System.Text.Json 10.0.0/net10.0: its
+[extracted declaration](../docs/examples/workspace-package-component.json) and
+[saved Package packet](../docs/examples/workspace-package-replay.json) motivate
+the same standalone and parent-qualified questions as CLI `explain`.
+Managed facade tests compare the existing direct/HAL captures and gate owner
+failures, root reachability, envelope preservation and zero Package requests.
+Frontend tests exercise explicit reading/navigation, stale-result suppression,
+diagnostic rendering and escaped data. Generated-facade and published Wasm
+gates exercise the actual C#/TypeScript boundary.
+
+This is step 21 of the 23-step continuous-discovery plan in #10132, after CLI
+component admission #10140 / PR #10604. Scoped relations (#10142) and agent
+trials (#10143) remain separate. No previous Browser component/root description
+path exists to retire. Vocabulary native-value selection retains its current
+specialized entrance below; this adoption does not change its contract.
+
+## Browser vocabulary explanation admission
+
+`catalog.explainVocabularies(path, depth, valueIds)` reads installed vocabulary
+knowledge without acquiring an artifact. An explicit array of native value IDs
+narrows a vocabulary-root `inspect-resource:/` address with `projection=data` or
+`projection=hal`, at depth zero. Null reads the full population. Empty arrays,
+unknown IDs, wrong case, patterns and combined list strings fail with typed
+`InvalidSelection`, a diagnostic and no explanation. Array entries are native
+identities, not display labels or lower-case resource path segments.
+
+The facade delegates deduplication, owner order, exact term closure, sparse
+memberships, completeness and bounds to
+[Resource Explanation's shared selection](../docs/design/resource-explanation.md#vocabulary-reading-selection).
+Value selection is rejected for ordinary compact output, contracts, collections,
+value-resource roots and nonzero depth. Existing path/depth rejection outcomes
+remain for requests without value selection. An emitted HAL address is passed
+unchanged; selecting values does not override its projection. A narrowed HAL
+response has one full-vocabulary `collection` link. Follow it only when new task
+knowledge is needed, optionally with another selection.
+
+This is the fourth vocabulary slice under
+[#10016](https://github.com/richlander/dotnet-inspect/issues/10016) and overall
+[#9762](https://github.com/richlander/dotnet-inspect/issues/9762), after the proposal,
+shared implementation and CLI admission. Both production hosts consume the same
+profile; no second Browser vocabulary serializer remains to retire. This replaces
+full-only Browser admission. The Settings descriptor snapshot remains its own
+consumer. Structured shared datasets own direct/HAL lowering; the facade retains
+its existing explanation, Share and diagnostics envelope.
+
+Real witnesses are the composed API accessibility, C# body-kind and C# style
+declarations at base `ae8abb390b3dcd8cba666800eee8bc0454695eeb`.
+`BrowserVocabularyCompositionTests` gates shared selected knowledge, native
+identity/order, referenced context, defaults, typed rejection, export round trips
+and collection navigation. The generated-facade and published Wasm smoke gates
+exercise array transport and both full/selected representations. Exact NativeAOT
+facade measurements record payloads, retained jq answers and median/tail timings;
+they are native-host evidence, not Wasm timing claims. The
+[worked reading demo](../tools/ExplainReadingScenarios/vocabulary-reading/README.md#browser-value-reading)
+shows the production entrance.
+
 ## Run
 
 The frontend requires Node.js 24 or later; `npm ci` enforces that requirement.
@@ -1251,11 +1558,10 @@ modules after derivation; deleting a stale ignored module therefore cannot
 leave a dangling static-web-asset item. The SDK declaration is copied only
 into a temporary compiler workspace and is never published.
 
-The package facade's assembly-reference result adopts a native C# union through
-this generated handoff. The Library References view consumes an available list
-or failure message rather than parallel list/error fields, while its request
-lifecycle stays separate. The focused contract and outcome gates live in
-[Package reference result](../docs/design/inspect-web-package-reference-result.md).
+The package facade's Library Reference Inspection result crosses this generated
+handoff as one shared envelope, while its request lifecycle stays separate.
+The focused contract and outcome gates live in
+[Library Reference Inspection](../docs/design/library-reference-inspection.md).
 
 PR CI uses `--fast-check` for ordinary browser changes. It regenerates the
 canonical sources from current C#, keeps the complete transient artifact
@@ -2008,6 +2314,21 @@ compilation until its behavior is explicit.
 
 ## Test
 
+Browser facade fixtures must satisfy the same startup payload decoders as the
+production facades. The fixture at commit
+`94b098614dfdc6afe24e9a6d7cb0463f7f342d13` in
+`browser/library-hierarchy.support.ts` returned an obsolete Package Query facet
+`selection` object; the current contract requires a `scope` with profile
+`query-preparation/v1`. That mismatch closed the Worker epoch before Package
+navigation. The existing `implicit EmptyCompileGroup package entry retains the
+Package subject` Firefox case exercises successful startup before navigation;
+production payload validation remains the gate for malformed responses.
+Extracted composition-root harnesses bind the real helpers and state consumed
+by their selected functions. Bundler probes use canonical temporary paths so
+Vite and the expected source inventory refer to the same files on macOS.
+Package References tabs use the shared keybinding registry at element priority;
+higher-priority modal handlers retain ownership of navigation keys.
+
 ```bash
 cd inspect-web
 npm ci
@@ -2465,6 +2786,20 @@ navigation state transitions, and supplies them through typed callbacks; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 `typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
 `relatedTypeChip`) stay in `dotnet-inspect.ts` and are injected the same way.
+Normal Type-member first paint requests the compact, owner-issued
+`TypeOverviewDocument` for package, platform, and uploaded Libraries. It
+delivers exact group identities, counts, receiver forms, and selector counts
+without repeating the rich assembly-surface and exact-declaration work used to
+establish the resident package, platform, or uploaded-Library inventory.
+Opening a supported method group requests final exact-or-overview Member
+resolution with the selected accessibility intent. The managed facade projects
+that final `MemberDocument` or `MemberOverviewDocument` into the stable Browser
+transport. Interactions that still need the legacy rich Type-member population
+(including Metadata spelling, non-public declarations without resident rows,
+and other resident-row gaps) request it only after opening a group. This slice
+does not replace the rich resident surface used to enter Type navigation.
+Hierarchy, graphs, source, metrics, documentation, and analysis remain
+independent requests.
 `test/type-panel.test.ts` gates every rendered control binding, type-filter
 keyboard behavior, namespace grouping and selection in the type list,
 active-group and overload selection in the member list, the type heading's
@@ -2624,7 +2959,9 @@ text escaping.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a Spotlight result, `Tab` cycles scopes, and `Enter`
-  completes or runs a command.
+  completes or runs a command. At the final All-scope result, Down Arrow
+  reveals the next already-known result batch without fetching more remote
+  matches.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
 - `share` copies the package, version, framework, library, type, and lens
@@ -2634,6 +2971,361 @@ text escaping.
   restate their taxonomy.
 
 ## Deploy
+
+### Website archive-acquisition audit
+
+At the local `web-range-metadata` slice, the website flows below use these
+package acquisition paths. A selected Library in the UI does not by itself
+make a legacy request Range-capable.
+
+<!-- markdownlint-disable MD013 -->
+
+| Flow | Package acquisition | Remaining work |
+| --- | --- | --- |
+| Initial package Summary and broad Type surface | House realization, shared complete/Range size policy | Broad extraction is still expensive when explicitly requested. |
+| Exact Library Overview API and Enablements | Reuses ranged realization | Existing Roslyn API retained-text truncation remains visible. |
+| Metadata overview, table windows, heap listings | Reuses ranged realization | This local slice; ordinary platform Metadata remains separate. |
+| Exact Type member population, Member and Member-group documents | Unbound `OpenScopeAsync`, complete archive | Adopt exact requests without changing selection/documentation contracts. |
+| Package Library query/provider and dependency views | Unbound `OpenScopeAsync`, complete archive | Preserve provider demand and explicit dependency framework semantics. |
+| Package Analysis, integrations, opportunities and call graphs | Unbound single-package scopes, complete archives | Participant-scoped queries still need ranged acquisition adoption. |
+| Package source/decompilation and pairwise API/body/source comparisons | Unbound endpoint scopes, complete archives | Adopt each endpoint while preserving source, body and correspondence demand. |
+| Multi-package Gallery queries and clone candidates | Public `ResolveAsync` uses House realization; single-request `ResolveAndOpenScopeAsync` uses complete acquisition | Preserve composed binding semantics when adopting the remaining single-request and configured-source paths. |
+| Workspace occurrence activation | Bound coordinate scope | Reuses its retained generation. |
+| Platform selected Library and Library workspace restoration | PlatformHouse selected-Library realization, shared complete/Range size policy | Explicit catalog warmup and population-dependent forwarding remain broader operations. |
+| Platform population and dependency composition | Platform workspace and package adapters | Separate from selected-Library acquisition. |
+
+<!-- markdownlint-enable MD013 -->
+
+The transport distinction is the argument to `OpenScopeAsync`: an admitted
+realization or bound coordinate can reuse its retained generation; the overload
+accepting package ID/version/framework calls `OpenUnboundScopeAsync`, which
+uses complete `AcquireAsync`. Therefore an occurrence of the method name alone
+is insufficient evidence of a whole download. Uploads have no remote archive
+acquisition. Package vulnerability service requests are also outside archive
+Range policy. Remaining adoption is tracked in #9678; the CLI audit follows
+the website work.
+
+### Measure package Library opening
+
+The earlier `measure-inspect-web-package-open.cs` probe measured the broad
+`QueryPackage` export, not the website's initial summary-to-Library sequence.
+Reduced transfer alone did not remove broad metadata extraction. This follow-up
+measures entering Library Overview after summary acquisition:
+`QueryPackageSummary`, exact
+`QueryLibraryApi`, and `InspectLibrary` with Enablements. The legacy sequence
+also launches `QueryPackage`; single-Library Overview omits that request.
+
+Measurements on 2026-10-07 compare base `46fb3137a7752d9553ec32d2920a5b9dc82398a2`
+with candidate `d85a41e4f` (production changes in `d98171a75`). Both use the same
+corrected harness in
+[`eng/measure-inspect-web-library-open.cs`](../eng/measure-inspect-web-library-open.cs).
+They are Linux x64 NativeAOT Release publications with SDK
+`11.0.100-rc.1.26425.128`, on an AMD Ryzen 9 9900X, Linux `7.0.0-38-generic`.
+Builds and test runs had finished before measurement. CDN state is uncontrolled;
+"cold" means a fresh process and empty Browser cache, not a cold CDN.
+
+Publish the harness separately from each worktree:
+
+```bash
+dotnet publish eng/measure-inspect-web-library-open.cs -c Release \
+  -p:IsPublishable=true -o /tmp/library-open-before
+# In the candidate worktree, use -o /tmp/library-open-after.
+/tmp/library-open-before/DotnetInspect.Web.Tests \
+  Avalonia 12.1.2 net10.0 legacy compile:ref/net10.0/Avalonia.Base.dll
+/tmp/library-open-after/DotnetInspect.Web.Tests \
+  Avalonia 12.1.2 net10.0 overview compile:ref/net10.0/Avalonia.Base.dll
+```
+
+For a native comparison of the website's entry-store acquisition branch, publish
+with `-p:DefineConstants=WEB_PACKAGE_ENTRY_CACHE`. The probe apphost uses the test
+assembly identity to access that internal seam. Its bounded memory adapter
+models entry availability, not JavaScript, Cache Storage I/O, or Wasm execution.
+For a candidate with joint Overview demand, add
+`WEB_LIBRARY_SHARED_DEMAND` to those constants. The baseline retains the
+four-argument API export; the candidate declares the accompanying Enablements.
+
+`browser/benchmark-library-overview.ts` measures the page-owned production
+Worker, real Cache Storage, and complete Summary/API/Enablements output through
+the opt-in runtime benchmark bridge. Run it against separately published
+baseline and candidate sites with:
+
+```bash
+node browser/benchmark-library-overview.ts \
+  http://127.0.0.1:4193/index.html http://127.0.0.1:4194/index.html \
+  /tmp/library-overview-browser-results 7
+```
+
+Both sites need the same benchmark bridge exposure. The harness alternates
+fresh browser contexts, discards one warm-up pair per asset, records startup
+separately, and verifies complete result hashes for cold and warm requests.
+Roslyn must retain its explicit projection-limit outcome; other APIs must be
+available and complete. The corpus includes both Avalonia's default facade and
+its substantive `Avalonia.Base` Library.
+
+The baseline summary-only default did not activate Library navigation because
+its assembly surface was empty. These pairs compare entering Library Overview
+from that summary with the new Library-first opening. They do not claim that
+the previous automatic Package landing made these extra requests. The baseline
+summary-only cold medians were 381.6 ms for the Avalonia.Base control,
+398.8 ms for Roslyn, and 116.3 ms for Dapper; the new default adds actual Library
+inspection and presents a different landing view.
+
+Run seven fresh-process pairs, alternating before/after ordering each pair.
+Each process performs one cold and one warm open, without an excluded warmup.
+Pinned fixtures are Avalonia 12.1.2/net10.0 (explicit Base and default selection),
+Microsoft.CodeAnalysis.CSharp 4.11.0/net8.0, Dapper 2.1.66/net8.0, and
+Microsoft.NETCore.Platforms 7.0.0/net8.0 (zero Libraries).
+The native executable SHA-256 identities are:
+
+```text
+before: 7550ce41d61d2c5c51df96b2c6b302d48c752b5061d4e7891f49de334430b564
+after:  5ffaed9ff39da4b573d643f641e2a1285ad9c37e56a76665c36e7ac8987a6a25
+```
+
+Export-sequence milliseconds, median / empirical p95 (maximum with seven
+samples), including acquisition, inspection, JSON serialization and summary
+consumption, but excluding process startup and browser rendering:
+
+<!-- markdownlint-disable MD013 -->
+
+| Fixture | Before cold | After cold | Before warm | After warm |
+| --- | ---: | ---: | ---: | ---: |
+| avalonia-base | 1288.6 / 8439.6 | 617.7 / 1745.9 | 767.1 / 778.8 | 157.6 / 162.7 |
+| avalonia-default | 1358.0 / 3019.5 | 431.3 / 527.1 | 767.8 / 773.0 | 0.4 / 0.4 |
+| roslyn | 1445.6 / 3119.0 | 468.3 / 1012.7 | 863.2 / 884.8 | 48.6 / 49.7 |
+| dapper | 144.7 / 175.1 | 119.1 / 149.0 | 21.3 / 23.2 | 8.7 / 9.5 |
+| zero | 76.0 / 219.5 | 75.1 / 96.1 | 0.2 / 0.5 | 0.2 / 0.2 |
+
+The full native process includes startup, both opens, output consumption and
+shutdown. Wall-clock milliseconds, median / empirical p95:
+
+| Fixture | Before process | After process |
+| --- | ---: | ---: |
+| avalonia-base | 2086.4 / 9224.8 | 791.4 / 1916.1 |
+| avalonia-default | 2158.1 / 3795.6 | 442.6 / 538.9 |
+| roslyn | 2325.4 / 3995.9 | 529.6 / 1074.8 |
+| dapper | 176.5 / 205.5 | 137.0 / 166.2 |
+| zero | 84.4 / 228.0 | 83.2 / 105.0 |
+
+<!-- markdownlint-enable MD013 -->
+
+Avalonia.Base returns the same available API result in every paired sample:
+962 public Types, 6,741 public Members and an identical SHA-256. Dapper likewise
+returns the same available result: 22 Types and 270 Members. The zero-Library
+fixture launches no Library or broad request. Avalonia's default changes from
+the first inventory entry, Avalonia.Base.dll, to the product-selected
+Avalonia.dll facade, which has zero public Types and Members; its default-row
+gain includes changed work and must not substitute for the Base control.
+Roslyn returns the same unavailable, truncated result in every run: the exact
+API hits the existing 32,000,000 RetainedTextCharacters limit. Its timing is
+for that bounded failure, not successful full API rendering. This slice does
+not resolve that pre-existing projection limit.
+
+One separate strace run per side measured successful TCP read bytes, including
+TLS and HTTP overhead, across both opens. Count IPv4 and IPv6 reads and resumed
+syscalls; exclude MSG_PEEK. Do not use traced timings. Avalonia.Base falls from
+14,985,970 to 4,823,861 bytes; Roslyn from 21,086,632 to 4,136,928; Dapper stays
+446,592. Browser-retained bytes fall from 26,618,595 to 16,475,372 for Avalonia,
+and 29,512,357 to 12,593,086 for Roslyn. Dapper stays 437,579. These are cache
+charges, not total process memory.
+
+The research-only `web-range-stage-profile` branch at `d3cbe40a8` instruments
+the native operations; its stderr instrumentation and analyzer suppressions
+must not ship. A single diagnostic Overview run measured Avalonia's central
+directory at 56.2 ms, entry batches at 199.2 ms wall time, and entry expansion
+and checks at 59.9 ms summed work; Library scope and inspection took 157.7 ms,
+and API serialization 0.3 ms. Roslyn measured 55.3 ms, 243.7 ms, 39.4 ms,
+51.9 ms, and 0.2 ms respectively. Expansion is included in batch wall time;
+parallel spans and entry work must not be summed into end-to-end latency.
+A legacy-demand run on that research candidate measured broad requests at
+about 600 ms warm for Avalonia and 780 ms for Roslyn. Avalonia's broad JSON
+serialization alone took 36.4 ms warm; Roslyn's 0.04 ms reflects its bounded
+result. Broad extraction remains the main avoided CPU work.
+
+Raw evidence:
+[`opens`](../eng/inspect-web-library-open-evidence.tsv),
+[`traffic`](../eng/inspect-web-library-open-traffic.tsv), and
+[`diagnostic stages`](../eng/inspect-web-library-open-stages.tsv).
+This is native-host evidence for the same website exports, not a Browser/Wasm
+render-time comparison. Local validation: Release engine build with zero
+warnings/errors, 345 Browser boundary tests passing, frontend typecheck
+passing, and 2,406 of 2,411 frontend tests passing with the same five inherited
+failures tracked in #9659 and #9663. CI and independent review remain pending
+while GitHub operations are paused.
+
+### Measure package Metadata requests
+
+The local `web-range-metadata` successor adopts three exports:
+`QueryPackageMetadata`, `QueryPackageMetadataTable`, and
+`QueryPackageHeapEntries`. It calls the existing admitted-realization helper
+instead of unbound complete acquisition, preserving their query and wire
+contracts. The owner is this README's Browser opening and retention contract;
+shared PackageHouse selection, Range expansion, and size policy are consumed
+unchanged.
+
+On 2026-10-07, exact NativeAOT base `21956c2a8` was compared with candidate
+`b0d44988a720981d9e60b7dd4f4a9f4da95d9feb`. Later commits add only audit and
+evidence. The same harness,
+[`measure-inspect-web-metadata.cs`](../eng/measure-inspect-web-metadata.cs),
+is published separately from each worktree. SDK
+`11.0.100-rc.1.26425.128`, Linux x64 Release NativeAOT, AMD Ryzen 9 9900X,
+Linux `7.0.0-38-generic`. All builds and tests for this slice finished before
+measurement. This is a shared development machine, not an exclusive benchmark
+host; at measurement start load averages were 14.94/11.66/8.04 with two runnable
+threads after compilation. Other contributor activity and CDN state were not
+controlled. These local paired measurements do not establish Browser/Wasm
+render latency or production tail guarantees.
+
+Publish and invoke from each worktree:
+
+```bash
+dotnet publish eng/measure-inspect-web-metadata.cs -c Release \
+  -p:IsPublishable=true -o /tmp/web-range-metadata-before
+# Candidate uses -o /tmp/web-range-metadata-after.
+/tmp/web-range-metadata-before/measure-inspect-web-metadata \
+  Avalonia 12.1.2 net10.0 compile:ref/net10.0/Avalonia.Base.dll overview
+# Replace overview with table or heap to measure each terminal.
+# Append summary to include QueryPackageSummary before each Metadata request.
+```
+
+Seven fresh-process pairs alternate before/after order. Each process performs
+one cold and one warm request; no warmup is excluded. Cold means an empty
+Browser cache, not a cold CDN. Fixtures and selected assets are:
+
+- Avalonia 12.1.2/net10.0, `compile:ref/net10.0/Avalonia.Base.dll`;
+- Microsoft.CodeAnalysis.CSharp 4.11.0/net8.0,
+  `compile:lib/net8.0/Microsoft.CodeAnalysis.CSharp.dll`;
+- Dapper 2.1.66/net8.0, `compile:lib/net8.0/Dapper.dll`; and
+- Microsoft.NETCore.Platforms 7.0.0/net8.0, overview with selector `None`,
+  the zero-Library case. Table and heap requests require a Library.
+
+The table request is CLI metadata TypeDef (index 2), start row 1, maximum 10
+rows; heap requests are the CLI String heap with existing Browser bounds.
+The binary SHA-256 identities are:
+
+```text
+before: 43fd5a798d6684e5ec0174b6cf4e1d55764912e2bfe472ce301a34573477f61a
+after:  367ed1ba06ef3d2598bdddb8eb589e13d74984acdcbf13ca4639a690019f8467
+```
+
+Milliseconds below are median / empirical p95, the maximum of seven samples.
+Request timing includes acquisition, inspection, serialization and JSON
+consumption. `summary` flow also includes acquiring and serializing the
+initial package summary. Hashing, printing and process startup are outside
+request timing and included in the full-process comparison below.
+
+Direct Metadata requests:
+
+<!-- markdownlint-disable MD013 -->
+
+| Fixture / export | Before cold | After cold | Before warm | After warm |
+| --- | ---: | ---: | ---: | ---: |
+| avalonia-base / overview | 316.8 / 500.6 | 404.2 / 566.1 | 0.4 / 0.5 | 0.3 / 0.4 |
+| avalonia-base / table | 306.6 / 395.8 | 423.9 / 431.3 | 0.2 / 0.4 | 0.2 / 0.3 |
+| avalonia-base / heap | 383.8 / 452.7 | 505.7 / 770.0 | 83.2 / 90.4 | 80.4 / 85.8 |
+| roslyn / overview | 366.0 / 457.3 | 384.3 / 412.7 | 0.7 / 0.9 | 0.7 / 1.0 |
+| roslyn / table | 414.0 / 467.6 | 378.9 / 488.7 | 0.2 / 0.3 | 0.2 / 0.4 |
+| roslyn / heap | 505.2 / 525.9 | 500.3 / 708.8 | 102.2 / 166.5 | 101.4 / 269.3 |
+| dapper / overview | 112.3 / 147.9 | 116.1 / 141.3 | 0.1 / 0.3 | 0.3 / 1.0 |
+| dapper / table | 120.1 / 213.5 | 122.4 / 151.7 | 0.2 / 0.3 | 0.3 / 0.5 |
+| dapper / heap | 141.2 / 146.6 | 136.8 / 166.6 | 11.7 / 14.5 | 11.0 / 12.5 |
+| zero / overview | 80.8 / 258.4 | 71.8 / 86.5 | 0.1 / 0.1 | 0.1 / 0.2 |
+
+Metadata after summary acquisition:
+
+| Fixture / export | Before cold | After cold | Before warm | After warm |
+| --- | ---: | ---: | ---: | ---: |
+| avalonia-base / overview | 580.0 / 1812.9 | 415.7 / 553.7 | 0.5 / 0.6 | 0.5 / 0.6 |
+| avalonia-base / table | 611.8 / 674.7 | 428.7 / 642.1 | 0.4 / 0.4 | 0.3 / 0.6 |
+| avalonia-base / heap | 646.9 / 827.3 | 501.7 / 532.5 | 83.3 / 92.8 | 81.8 / 96.5 |
+| roslyn / overview | 593.7 / 707.6 | 403.6 / 416.3 | 0.5 / 0.9 | 0.9 / 0.9 |
+| roslyn / table | 601.4 / 686.8 | 403.0 / 444.9 | 0.4 / 0.6 | 0.3 / 0.6 |
+| roslyn / heap | 774.5 / 969.3 | 489.5 / 956.1 | 105.6 / 264.8 | 101.6 / 193.3 |
+| dapper / overview | 117.3 / 282.8 | 117.4 / 152.7 | 0.4 / 0.6 | 0.4 / 0.7 |
+| dapper / table | 126.4 / 170.7 | 117.1 / 189.7 | 0.4 / 0.5 | 0.4 / 0.5 |
+| dapper / heap | 148.3 / 156.4 | 139.9 / 150.9 | 11.2 / 12.6 | 11.5 / 13.7 |
+| zero / overview | 74.0 / 83.7 | 77.8 / 121.9 | 0.2 / 0.3 | 0.2 / 0.3 |
+
+Full-process wall clock includes startup, both requests, result hashing,
+stdout consumption and shutdown:
+
+| Flow / fixture / export | Before process | After process |
+| --- | ---: | ---: |
+| direct / avalonia-base / overview | 328.6 / 510.8 | 416.0 / 578.8 |
+| direct / avalonia-base / table | 316.9 / 405.7 | 435.6 / 442.7 |
+| direct / avalonia-base / heap | 479.2 / 537.2 | 603.4 / 861.1 |
+| direct / roslyn / overview | 378.7 / 470.1 | 397.1 / 426.3 |
+| direct / roslyn / table | 424.6 / 481.5 | 390.8 / 510.9 |
+| direct / roslyn / heap | 619.3 / 751.2 | 617.9 / 1047.7 |
+| direct / dapper / overview | 121.2 / 168.3 | 126.1 / 164.9 |
+| direct / dapper / table | 129.3 / 233.0 | 131.3 / 163.6 |
+| direct / dapper / heap | 167.5 / 171.4 | 159.0 / 190.0 |
+| direct / zero / overview | 90.7 / 267.1 | 80.2 / 95.5 |
+| summary / avalonia-base / overview | 592.6 / 1826.2 | 426.9 / 565.9 |
+| summary / avalonia-base / table | 624.6 / 686.1 | 441.1 / 653.0 |
+| summary / avalonia-base / heap | 743.2 / 924.1 | 604.3 / 631.0 |
+| summary / roslyn / overview | 607.2 / 719.2 | 416.1 / 429.1 |
+| summary / roslyn / table | 623.6 / 702.4 | 414.5 / 458.4 |
+| summary / roslyn / heap | 903.6 / 1270.7 | 607.6 / 1179.9 |
+| summary / dapper / overview | 126.7 / 300.8 | 127.1 / 172.9 |
+| summary / dapper / table | 136.4 / 199.8 | 126.4 / 203.2 |
+| summary / dapper / heap | 172.0 / 179.9 | 161.7 / 175.5 |
+| summary / zero / overview | 84.0 / 93.2 | 86.8 / 130.7 |
+
+<!-- markdownlint-enable MD013 -->
+
+Every fixture/export/flow has identical before/after JSON hashes across all
+cold and warm samples. The three Library fixtures return available metadata:
+overview has one assembly; TypeDef windows contain ten rows with total table
+row counts 2,126 for Avalonia.Base, 2,656 for Roslyn and 135 for Dapper.
+Heap listings contain 4,096 entries for Avalonia and Roslyn, preserving their
+existing rows/entries-truncated flags, and 1,669 entries for Dapper without
+truncation. The zero-Library overview returns zero assemblies and
+`NoCompileAssets` on both sides. Unlike exact API Overview, Roslyn's Metadata
+requests succeed; its separate API retained-text limit is unchanged.
+
+One separate strace run per side/flow measures successful IPv4 and IPv6 TCP
+reads, including resumed syscalls and excluding MSG_PEEK. Traced timings are
+not used. Overview transfer bytes:
+
+<!-- markdownlint-disable MD013 -->
+
+| Fixture | Direct before → after | Summary before → after |
+| --- | ---: | ---: |
+| Avalonia.Base | 10,167,904 → 4,822,309 | 14,973,667 → 4,811,482 |
+| Roslyn | 16,955,677 → 4,132,616 | 21,082,624 → 4,133,347 |
+| Dapper | 446,592 → 446,592 | 446,591 → 446,592 |
+
+<!-- markdownlint-enable MD013 -->
+
+With a prior summary, retained cache charges fall from 26,618,595 to
+16,475,372 bytes for Avalonia, and 29,512,357 to 12,593,086 for Roslyn.
+Dapper stays 437,579 and Platforms stays 48,954. A standalone request instead
+replaces the compressed complete archive with the selected expanded content;
+these charges are not total process memory.
+
+Interpretation: reuse after a summary eliminates the second whole download
+and improves large-package cold navigation. Standalone cold Avalonia is
+slower, particularly table and heap requests, because Range adds directory
+and entry round trips. Warm requests preserve essentially the same work;
+heap inspection remains the main warm cost. This slice improves transfer and
+shared policy adoption; it is not a universal latency win. The shared
+1,000,000-byte size cut is unchanged. The direct-request regression is retained
+for review rather than hidden by the summary-flow results.
+
+Validation: Release test graph build has zero warnings/errors; the Browser
+boundary suite passes 344/345. The sole authored-documentation failure
+reproduces on the unchanged parent rebuilt at `21956c2a8`: its PDB SourceLink
+points at that unpublished local commit, so the expected authored source is
+unavailable. An older parent build referencing published `46fb3137a` passes
+the same test. No test or source-publication fallback was changed. Markdown
+lint and diff checks pass. Frontend code and wire types are unchanged in this
+slice. The failed gate, CI, independent review and publication remain pending;
+this local branch is not declared merge-ready.
+
+Raw [`request evidence`](../eng/inspect-web-metadata-evidence.tsv) and
+[`transfer evidence`](../eng/inspect-web-metadata-traffic.tsv) retain the
+per-export samples, hashes, cardinalities, availability and cache charges.
 
 ### Compare deployed runtime performance
 
@@ -2825,3 +3517,19 @@ domains are public infrastructure and are not confidentiality boundaries.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.
+
+## Resource Triage
+
+Library → Analysis → Resource Triage exposes the existing shared ArrayPool
+exception-cleanup candidates. Selecting the tab requests whole-library analysis;
+package analysis also requests runtime context acquisition to resolve the
+shipped resource model. Acquisition and producer failures remain visible.
+
+Each candidate retains its identity, resource, method token, acquisition and
+boundary IL offsets, actionability, and confidence. Public members have API
+navigation; candidates without a navigable public member retain their evidence.
+Partial findings appear beside their limitations, and an incomplete empty
+census never claims absence. This tab does not expose the other generic
+lifecycle outcomes. See the
+[owning contract](../docs/design/resource-lifecycle-analysis.md#browser-resource-triage-adoption)
+and [tracking issue #9607](https://github.com/richlander/dotnet-inspect/issues/9607).

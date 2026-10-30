@@ -56,6 +56,25 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             canonicalizeParticipantSelections: true);
 
     /// <summary>
+    /// Routes through participant contexts while restricting every selection
+    /// to the supplied canonical participant descriptors.
+    /// </summary>
+    /// <remarks>
+    /// Participant policies remain the selection owners and may perform
+    /// acquisition. This factory does not issue the acquisition-free policy
+    /// capability.
+    /// </remarks>
+    public static IAssemblyBindingPolicy CreateParticipantBoundSelections(
+        IEnumerable<(
+            ResolvedAssemblyReference Assembly,
+            IAssemblyBindingPolicy Policy)> participants) =>
+        new SourceRelativeAssemblyGroupBindingPolicy(
+            participants,
+            composeParticipantSelections: false,
+            canonicalizeParticipantSelections: true,
+            restrictToParticipants: true);
+
+    /// <summary>
     /// Composes acquisition-free participant policies over an exact retained
     /// assembly group, preserving source-relative selection and lineage.
     /// </summary>
@@ -517,6 +536,27 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         AssemblyBindingOrigin origin,
         AssemblyResolutionScope scope)
     {
+        var intrinsicRequest = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            origin,
+            scope);
+        if (route.Delegate.Policy
+                is IExplicitIntrinsicCoreLibraryBindingPolicy)
+        {
+            AssemblyBindingSelection designated =
+                SelectDelegate(state, route, intrinsicRequest);
+            if (designated
+                is AssemblyBindingSelection.Selected
+                    or AssemblyBindingSelection.Ambiguous
+                    or AssemblyBindingSelection.CompositionRequired)
+            {
+                return IssueSelection(
+                    state,
+                    route,
+                    designated);
+            }
+        }
+
         AssemblyBindingSelection selection =
             IntrinsicCoreLibraryBinding.Select(
                 _restrictToParticipants
@@ -529,10 +569,7 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         origin,
                         scope)));
         selection = AssemblyBindingSelection.ValidateForRequest(
-            new AssemblyBindingRequest(
-                AssemblyBindingTarget.CoreLibrary(),
-                origin,
-                scope),
+            intrinsicRequest,
             selection);
         if (selection
                 is AssemblyBindingSelection.Selected selected

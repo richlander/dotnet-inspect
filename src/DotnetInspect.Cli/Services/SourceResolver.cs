@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspector.Ecosystems;
 using ILInspector.Metadata;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -23,7 +24,10 @@ public static class SourceResolver
         string? FrameworkOverride,
         string? TypeName,
         bool VersionError = false,
-        string? VersionErrorMessage = null);
+        string? VersionErrorMessage = null)
+    {
+        internal bool UsedPlatformPrefixFallback { get; init; }
+    }
 
     /// <summary>
     /// Kind of local source found by peel-and-probe.
@@ -33,7 +37,11 @@ public static class SourceResolver
     /// <summary>
     /// Result of a local peel-and-probe: the resolved source name, the remaining suffix, and what kind of source matched.
     /// </summary>
-    internal record LocalProbeResult(string SourceName, string Remainder, LocalSourceKind Kind);
+    internal record LocalProbeResult(
+        string SourceName,
+        string Remainder,
+        LocalSourceKind Kind,
+        bool IsPlatformPrefixFallback = false);
 
     /// <summary>
     /// Determines if a library option is a selector (bare .dll name) vs a full path.
@@ -275,7 +283,7 @@ public static class SourceResolver
             if (!candidate.Contains('.'))
                 continue;
 
-            if (!PlatformResolver.IsPlatformCandidate(candidate))
+            if (!EcosystemPackCatalog.ShouldSearchPlatform(candidate))
                 continue;
 
             var (path, _, _, _) = PlatformResolver.ResolveAssembly(candidate);
@@ -287,7 +295,11 @@ public static class SourceResolver
         }
 
         return bestDot > 0
-            ? new LocalProbeResult(name[..bestDot], name[(bestDot + 1)..], LocalSourceKind.Platform)
+            ? new LocalProbeResult(
+                name[..bestDot],
+                name[(bestDot + 1)..],
+                LocalSourceKind.Platform,
+                IsPlatformPrefixFallback: true)
             : null;
     }
 
@@ -422,6 +434,7 @@ public static class SourceResolver
         string? platformAssembly = explicitPlatform;
         string? typeName = null;
         string? frameworkOverride = null;
+        bool usedPlatformPrefixFallback = false;
 
         if (hasExplicitSource)
         {
@@ -574,7 +587,7 @@ public static class SourceResolver
                 var (bareName, explicitVersion) = PackageExtractor.ParsePackageReference(packagePath);
 
                 // Try platform resolution for whole name (can go remote for platform candidates)
-                if (PlatformResolver.IsPlatformCandidate(bareName))
+                if (EcosystemPackCatalog.ShouldSearchPlatform(bareName))
                 {
                     var client = HttpClientFactory.Shared;
                     Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
@@ -628,6 +641,8 @@ public static class SourceResolver
                     }
                     if (probe != null)
                     {
+                        usedPlatformPrefixFallback =
+                            probe.IsPlatformPrefixFallback;
                         typeName = probe.Remainder;
                         if (probe.Kind == LocalSourceKind.Platform)
                         {
@@ -643,6 +658,15 @@ public static class SourceResolver
             }
         }
 
-        return new ResolvedSource(packagePath, assemblyPath, platformAssembly, frameworkOverride, typeName);
+        return new ResolvedSource(
+            packagePath,
+            assemblyPath,
+            platformAssembly,
+            frameworkOverride,
+            typeName)
+        {
+            UsedPlatformPrefixFallback =
+                usedPlatformPrefixFallback,
+        };
     }
 }

@@ -71,18 +71,22 @@ offsets exist), so requesting `--fields Alloc` annotates only the allocating nod
 
 ### Performance opportunities
 
-`Async` / `AsyncAlternatives` is an opt-in node cue for the number of
-`sync-call-in-async` opportunities attributed to a method. Unlike the objective
-body signals above, this is a Performance Triage judgment. The graph therefore
-shows only `async alternatives N`; `Performance Triage` remains the canonical
-surface for the candidate, exact Finding provenance, physical evidence
-MethodDef/IL coordinate, and proposed replacement.
+`Async` / `AsyncAlternatives` is an opt-in node cue for the number of dedicated
+Sync Calls in Async rows attributed to a method. Unlike the objective body
+signals above, this is a Performance judgment. The graph therefore shows only
+`async alternatives N`; the dedicated Sync Calls in Async analysis remains the
+canonical surface for the caller, physical synchronous call, and callable
+alternative.
 
-The cue joins the opportunity's source `MethodIdentity` through
+The cue joins each producer row's source `MethodIdentity` through
 `CallGraphProjection.FindNode`, which prefers retained definition evidence and
 then uses the typed structural identity of an evidence-free projection. The
-candidate set includes every indexed assembly participating in a cross-assembly
-graph and applies the same generated-code suppression as Performance Triage.
+row set includes every indexed assembly participating in a cross-assembly
+graph and applies the producer's generated-code suppression.
+Each participating session narrows direct producer breadth to the method
+definitions retained as graph nodes, then expands their authenticated generated
+execution bodies. The cue therefore retains every opportunity attributed to a
+projected method without rescanning unrelated methods in the assembly.
 This matters for classic async methods: their physical evidence can live in
 generated `MoveNext`. The source node receives the cue without inventing a
 logical edge that is absent from the source method's IL.

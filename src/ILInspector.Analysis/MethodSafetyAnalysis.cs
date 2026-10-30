@@ -102,13 +102,31 @@ internal static class MethodSafetyAnalysis
         return new MethodLocalSafety(found);
     }
 
+    /// <summary>
+    /// Whether a body can have an unsafety occurrence: occurrences arise only
+    /// at calli, localloc, and indirect loads and stores.
+    /// </summary>
+    internal static bool MayHaveOccurrences(MethodInstructions instructions) =>
+        instructions.Instructions.Any(static instruction =>
+            IsOccurrenceOpcode(instruction.OpCode));
+
+    /// <summary>Whether an opcode can be an unsafety occurrence.</summary>
+    internal static bool IsOccurrenceOpcode(ILOpCode opcode) =>
+        opcode is ILOpCode.Calli or ILOpCode.Localloc
+        || IndirectTypeDetail(opcode) is not null;
+
     internal static ImmutableArray<UnsafetyOccurrence> CollectOccurrences(
         MethodBodyAnalysisContext context,
-        Func<int, string?> calliReturnDetail)
+        Func<int, string?> calliReturnDetail,
+        Func<int, MemberRef>? resolveMember = null)
     {
+        // A body without an occurrence opcode needs no stack model or member
+        // resolution.
+        if (!MayHaveOccurrences(context.Instructions))
+            return [];
         var occurrences = ImmutableArray.CreateBuilder<UnsafetyOccurrence>();
-        var localValues = new Dictionary<int, StackValueKind>();
-        var stack = new List<StackValueKind>();
+        var localValues = new Dictionary<int, StackValue>();
+        var stack = new List<StackValue>();
         foreach (var instruction in context.Instructions.Instructions)
         {
             int offset = instruction.Offset;
@@ -124,17 +142,24 @@ internal static class MethodSafetyAnalysis
                             context.Method,
                             offset,
                             UnsafetyKind.CallIndirect,
-                            calliReturnDetail(token)));
+                            calliReturnDetail(token))
+                        {
+                            InLoop = context.IsInLoopRegion(offset),
+                        });
                         stack.Clear();
                         break;
                     }
                     case ILOpCode.Localloc:
-                        stack.Add(StackValueKind.Pointer);
+                        Pop(stack, out _);
+                        stack.Add(new(StackValueKind.Pointer));
                         occurrences.Add(new UnsafetyOccurrence(
                             context.Method,
                             offset,
                             UnsafetyKind.StackAlloc,
-                            "byte*"));
+                            "byte*")
+                        {
+                            InLoop = context.IsInLoopRegion(offset),
+                        });
                         break;
                     case ILOpCode.Ldind_i1:
                     case ILOpCode.Ldind_u1:
@@ -148,15 +173,19 @@ internal static class MethodSafetyAnalysis
                     case ILOpCode.Ldind_r8:
                     case ILOpCode.Ldind_ref:
                         if (Pop(stack, out var address)
-                            && address == StackValueKind.Pointer)
+                            && address.Kind
+                                == StackValueKind.Pointer)
                         {
                             occurrences.Add(new UnsafetyOccurrence(
                                 context.Method,
                                 offset,
                                 UnsafetyKind.Deref,
-                                IndirectTypeDetail(operation)));
+                                IndirectTypeDetail(operation))
+                        {
+                            InLoop = context.IsInLoopRegion(offset),
+                        });
                         }
-                        stack.Add(StackValueKind.Other);
+                        stack.Add(new(StackValueKind.Other));
                         break;
                     case ILOpCode.Stind_i1:
                     case ILOpCode.Stind_i2:
@@ -168,24 +197,78 @@ internal static class MethodSafetyAnalysis
                     case ILOpCode.Stind_ref:
                         if (Pop(stack, out _)
                             && Pop(stack, out address)
-                            && address == StackValueKind.Pointer)
+                            && address.Kind
+                                == StackValueKind.Pointer)
                         {
                             occurrences.Add(new UnsafetyOccurrence(
                                 context.Method,
                                 offset,
                                 UnsafetyKind.Deref,
-                                IndirectTypeDetail(operation)));
+                                IndirectTypeDetail(operation))
+                        {
+                            InLoop = context.IsInLoopRegion(offset),
+                        });
                         }
                         break;
                     case ILOpCode.Dup:
                         stack.Add(
                             stack.Count == 0
-                                ? StackValueKind.Unknown
+                                ? new(StackValueKind.Unknown)
                                 : stack[^1]);
                         break;
                     case ILOpCode.Conv_u:
                     case ILOpCode.Conv_i:
                     case ILOpCode.Nop:
+                    case ILOpCode.Unaligned:
+                    case ILOpCode.Volatile:
+                        break;
+                    case ILOpCode.Cpblk:
+                    case ILOpCode.Initblk:
+                        PopArguments(stack, 3);
+                        break;
+                    case ILOpCode.Ldtoken:
+                    case ILOpCode.Sizeof:
+                        stack.Add(new(StackValueKind.Other));
+                        break;
+                    case ILOpCode.Ldsflda:
+                        stack.Add(new(StackValueKind.ManagedRef));
+                        break;
+                    case ILOpCode.Add:
+                    case ILOpCode.Add_ovf_un:
+                    case ILOpCode.Sub:
+                    case ILOpCode.Sub_ovf_un:
+                    {
+                        Pop(stack, out var right);
+                        Pop(stack, out var left);
+                        stack.Add(
+                            left.Kind == StackValueKind.Pointer
+                                ? left
+                                : right.Kind == StackValueKind.Pointer
+                                    && operation is ILOpCode.Add
+                                        or ILOpCode.Add_ovf_un
+                                    ? right
+                                    : new(StackValueKind.Other));
+                        break;
+                    }
+                    case ILOpCode.Mul:
+                    case ILOpCode.Mul_ovf:
+                    case ILOpCode.Mul_ovf_un:
+                        PopArguments(stack, 2);
+                        stack.Add(new(StackValueKind.Other));
+                        break;
+                    case ILOpCode.Conv_i1:
+                    case ILOpCode.Conv_i2:
+                    case ILOpCode.Conv_i4:
+                    case ILOpCode.Conv_i8:
+                    case ILOpCode.Conv_u1:
+                    case ILOpCode.Conv_u2:
+                    case ILOpCode.Conv_u4:
+                    case ILOpCode.Conv_u8:
+                    case ILOpCode.Conv_r4:
+                    case ILOpCode.Conv_r8:
+                    case ILOpCode.Conv_r_un:
+                        Pop(stack, out _);
+                        stack.Add(new(StackValueKind.Other));
                         break;
                     default:
                         if (TryReadAddressLoad(
@@ -218,8 +301,52 @@ internal static class MethodSafetyAnalysis
                         }
                         if (PushConstant(instruction))
                         {
-                            stack.Add(StackValueKind.Other);
+                            stack.Add(new(StackValueKind.Other));
                             break;
+                        }
+                        if (operation == ILOpCode.Newobj
+                            && resolveMember is not null)
+                        {
+                            MemberRef constructor =
+                                resolveMember(
+                                    checked((int)
+                                        instruction
+                                            .OperandValue));
+                            PopArguments(
+                                stack,
+                                constructor
+                                    .ParameterTypes
+                                    .Length);
+                            stack.Add(new(
+                                StackValueKind.Other));
+                            break;
+                        }
+                        if (operation == ILOpCode.Call
+                            && resolveMember is not null)
+                        {
+                            MemberRef callee =
+                                resolveMember(
+                                    checked((int)
+                                        instruction
+                                            .OperandValue));
+                            if (callee.Kind != MemberKind.Unsupported
+                                && (callee.SignatureHeader & 0x0F)
+                                    != 0x05)
+                            {
+                                PopArguments(
+                                    stack,
+                                    callee.ParameterTypes.Length
+                                        + (callee.HasThis ? 1 : 0));
+                                if (!FrameworkIdentity.IsCoreLibraryType(
+                                        callee.ReturnType,
+                                        "System",
+                                        "Void"))
+                                {
+                                    stack.Add(new(TypeStackKind(
+                                        callee.ReturnType)));
+                                }
+                                break;
+                            }
                         }
                         stack.Clear();
                         break;
@@ -236,6 +363,41 @@ internal static class MethodSafetyAnalysis
                 break;
             }
         }
+
+        SpanStackAllocations spans =
+            resolveMember is null
+            || !occurrences.Any(occurrence =>
+                occurrence.Kind == UnsafetyKind.StackAlloc)
+                ? SpanStackAllocations.None
+                : SpanStackAllocations.Recognize(
+                    context,
+                    resolveMember);
+        for (int index = occurrences.Count - 1;
+            index >= 0;
+            index--)
+        {
+            UnsafetyOccurrence occurrence = occurrences[index];
+            if (occurrence.Kind == UnsafetyKind.Deref
+                && spans.InitializerStores.Contains(
+                    occurrence.ILOffset))
+            {
+                occurrences.RemoveAt(index);
+            }
+            else if (occurrence.Kind == UnsafetyKind.StackAlloc
+                && spans.WrappingConstructors.TryGetValue(
+                    occurrence.ILOffset,
+                    out int constructorOffset))
+            {
+                occurrences[index] = occurrence with
+                {
+                    RequiresUnsafeContext =
+                        occurrence.RequiresUnsafeContext
+                        && !context.LocalVariablesInitialized,
+                    SpanConstructorOffset = constructorOffset,
+                };
+            }
+        }
+
         return occurrences.ToImmutable();
     }
 
@@ -292,13 +454,15 @@ internal static class MethodSafetyAnalysis
         ManagedRef,
     }
 
+    readonly record struct StackValue(StackValueKind Kind);
+
     static bool Pop(
-        List<StackValueKind> stack,
-        out StackValueKind value)
+        List<StackValue> stack,
+        out StackValue value)
     {
         if (stack.Count == 0)
         {
-            value = StackValueKind.Unknown;
+            value = new(StackValueKind.Unknown);
             return false;
         }
         value = stack[^1];
@@ -306,33 +470,34 @@ internal static class MethodSafetyAnalysis
         return true;
     }
 
-    static StackValueKind SlotKind(
+    static StackValue SlotKind(
         bool isArgument,
         int slot,
         MethodIdentity caller,
         ImmutableArray<TypeRef> locals,
-        IReadOnlyDictionary<int, StackValueKind> localValues)
+        IReadOnlyDictionary<int, StackValue> localValues)
     {
         if (isArgument)
         {
             if (!caller.IsStatic)
             {
                 if (slot == 0)
-                    return StackValueKind.Other;
+                    return new(StackValueKind.Other);
                 slot--;
             }
             return slot >= 0 && slot < caller.ParameterTypes.Length
-                ? TypeStackKind(caller.ParameterTypes[slot])
-                : StackValueKind.Unknown;
+                ? new(TypeStackKind(
+                    caller.ParameterTypes[slot]))
+                : new(StackValueKind.Unknown);
         }
         if (localValues.TryGetValue(slot, out var value)
-            && value == StackValueKind.Pointer)
+            && value.Kind == StackValueKind.Pointer)
         {
             return value;
         }
         return slot >= 0 && slot < locals.Length
-            ? TypeStackKind(locals[slot])
-            : StackValueKind.Unknown;
+            ? new(TypeStackKind(locals[slot]))
+            : new(StackValueKind.Unknown);
     }
 
     static StackValueKind TypeStackKind(TypeRef type)
@@ -348,9 +513,9 @@ internal static class MethodSafetyAnalysis
 
     static bool TryReadAddressLoad(
         DecodedInstruction instruction,
-        out StackValueKind kind)
+        out StackValue value)
     {
-        kind = StackValueKind.ManagedRef;
+        value = new(StackValueKind.ManagedRef);
         switch (instruction.OpCode)
         {
             case ILOpCode.Ldloca_s:
@@ -359,9 +524,19 @@ internal static class MethodSafetyAnalysis
             case ILOpCode.Ldarga:
                 return true;
             default:
-                kind = StackValueKind.Unknown;
+                value = new(StackValueKind.Unknown);
                 return false;
         }
+    }
+
+    static StackValue[] PopArguments(
+        List<StackValue> stack,
+        int count)
+    {
+        var arguments = new StackValue[count];
+        for (int index = count - 1; index >= 0; index--)
+            Pop(stack, out arguments[index]);
+        return arguments;
     }
 
     static bool PushConstant(DecodedInstruction instruction)

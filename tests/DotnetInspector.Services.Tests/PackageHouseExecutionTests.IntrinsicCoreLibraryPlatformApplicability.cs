@@ -243,7 +243,7 @@ public sealed partial class PackageHouseExecutionTests
 
     [Fact]
     public async Task
-        IntrinsicCoreLibraryPlatformApplicability_OutsideScopePerformsNoPlatformWork()
+        IntrinsicCoreLibraryPlatformApplicability_EverythingCanInitiatePlatformPopulation()
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
@@ -255,26 +255,41 @@ public sealed partial class PackageHouseExecutionTests
             occurrence =
                 graph.IntrinsicCoreLibraryContextNonParticipation[0];
         var invocations = 0;
+        PlatformPopulationArtifactMaterializationOutcome.Completed?
+            completedPopulation = null;
 
-        IntrinsicCoreLibraryRouteDecision decision =
-            await IntrinsicCoreLibraryPlatformApplicabilityQuery.ExecuteAsync(
-                occurrence,
-                graph.FocalScope,
-                PlatformFamily.DotNetRuntime,
-                _ =>
-                {
-                    invocations++;
-                    throw new InvalidOperationException(
-                        "Platform work must not run outside the focal scope.");
-                },
-                CatalogBounds(),
-                cancellationToken);
+        try
+        {
+            IntrinsicCoreLibraryRouteDecision decision =
+                await IntrinsicCoreLibraryPlatformApplicabilityQuery
+                    .ExecuteAsync(
+                        occurrence,
+                        graph.FocalScope,
+                        PlatformFamily.DotNetRuntime,
+                        async _ =>
+                        {
+                            invocations++;
+                            completedPopulation =
+                                await CreateCoreLibraryPlatformPopulationAsync(
+                                    cancellationToken);
+                            return completedPopulation;
+                        },
+                        CatalogBounds(),
+                        cancellationToken);
 
-        Assert.IsType<
-            IntrinsicCoreLibraryRouteDecision.OutsideOperationScope>(
-                decision);
-        Assert.Equal(0, invocations);
-        Assert.Empty(graph.FocalScope.PlatformPopulations);
+            Assert.IsType<
+                IntrinsicCoreLibraryRouteDecision.Applicable>(decision);
+            Assert.Equal(1, invocations);
+            Assert.Equal(
+                MemberCallGraphFocalLength.Everything,
+                graph.FocalScope.FocalLength);
+            Assert.Empty(graph.FocalScope.PlatformPopulations);
+        }
+        finally
+        {
+            if (completedPopulation is not null)
+                await RetireAsync(completedPopulation);
+        }
     }
 
     [Fact]

@@ -36,7 +36,7 @@ internal static partial class WorkflowContract
         RequireScalarSha256(
             aggregateEnvironment,
             "RESULT_FILTER",
-            "D074F21341F3416A1D7FE48A0374CB69C59F52313ADF61FF732E930CFF0AEF29",
+            "477F0F6C96C2B881588ABC644F8EFBD7682C5BD234C5AE6C780842A61C7044F1",
             "jobs.ci-required.env");
         YamlSequenceNode needs = GetRequiredSequence(
             aggregate,
@@ -168,7 +168,7 @@ internal static partial class WorkflowContract
         RequireScalarSha256(
             filterSelfTest,
             "run",
-            "7BE0D6B90EB8A915BB17ED8BC6B6DA3371197D69E5F98262D854330985E7E5BD",
+            "4EE0FA3E1083AFC9DF5C06F66915179E692FB6E5B2F8343116808D9537E7AB91",
             "ci-required result-filter self-test");
 
         YamlMappingNode resultCheck =

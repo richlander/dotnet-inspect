@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import {
   subjectTab,
@@ -19,6 +20,7 @@ import {
   type BrowserPackageSurface,
   type BrowserTypeSurface,
   type BrowserCallGraph,
+  type BrowserHomeDemoResolved,
   type BrowserHomeDemoRunResult,
 } from "./library-hierarchy.support.ts";
 
@@ -121,6 +123,7 @@ function demoCallGraph(
       calleeScope: "Workspace",
     },
     targets: [],
+    boundaries: [],
     diagnostics: {
       incompleteNodes: 0,
       incompleteEdges: 0,
@@ -148,8 +151,16 @@ function homeDemoResult(
   return {
     found: true,
     packages: platform
-      ? [platformPeerSurface, platformFocusSurface]
-      : [peerSurface, surface],
+      ? [platformPeerSurface, platformFocusSurface].map(packageSurface => ({
+        surface: packageSurface,
+        runtimeIdentifier: null,
+        implementationComparisonRuntimeIdentifier: null,
+      }))
+      : [peerSurface, surface].map(packageSurface => ({
+        surface: packageSurface,
+        runtimeIdentifier: "linux-x64",
+        implementationComparisonRuntimeIdentifier: "linux-x64",
+      })),
     activation: {
       focusKind,
       focusId: platform ? "runtime" : surface.package,
@@ -172,14 +183,217 @@ function homeDemoResult(
   };
 }
 
+function memberCoordinate(
+  member: BrowserHomeDemoResolved["workspaceMembers"][number],
+): Record<string, unknown> {
+  return member.kind === "platform"
+    ? {
+      kind: "platform",
+      family: member.id,
+      assembly: member.assembly,
+      version: member.version,
+      framework: member.framework,
+    }
+    : {
+      kind: "package",
+      id: member.id,
+      version: member.version,
+      framework: member.framework,
+    };
+}
+
+function committedRestorationDefinitions(
+  id: string,
+  title: string,
+  members: BrowserHomeDemoResolved["workspaceMembers"],
+  tabs: BrowserHomeDemoResolved["tabs"],
+): string[] {
+  const workspaceId = `${id}-workspace`;
+  const viewId = `${id}-view`;
+  const navigationId = `${id}-navigation`;
+  const coordinates = members.map(memberCoordinate);
+  return [
+    JSON.stringify({
+      schemaVersion: 4,
+      kind: "workspace",
+      id: workspaceId,
+      title,
+      description: "Typed product demo",
+      contexts: [{
+        name: "demo",
+        framework: tabs.at(-1)!.member.framework,
+        members: coordinates,
+      }],
+      registrations: [],
+    }),
+    JSON.stringify({
+      schemaVersion: 4,
+      kind: "navigation",
+      id: navigationId,
+      tabs: tabs.map((tab, index) => ({
+        id: tab.id,
+        coordinate: coordinates[index],
+      })),
+      focus: null,
+    }),
+    JSON.stringify({
+      schemaVersion: 4,
+      kind: "view",
+      id: viewId,
+      states: [
+        {
+          navigation: null,
+          subject: { kind: "workspace" },
+        },
+        ...tabs.map(tab => ({ navigation: tab.id })),
+      ],
+    }),
+    JSON.stringify({
+      schemaVersion: 4,
+      kind: "scenario",
+      id,
+      title,
+      description: "Typed product demo",
+      workspace: workspaceId,
+      context: "demo",
+      view: viewId,
+      navigation: navigationId,
+    }),
+  ];
+}
+
+function methodsRestorationDefinitions(
+  id: string,
+  focusKind: "package" | "platform",
+): string[] {
+  const name = focusKind === "package"
+    ? "package-methods-restoration-records.json"
+    : "platform-methods-restoration-records.json";
+  const parsed = JSON.parse(readFileSync(
+    new URL(`../../fixtures/inspect-web/${name}`, import.meta.url),
+    "utf8",
+  )) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Methods restoration fixture '${name}' is not an array.`);
+  }
+  const records = parsed as readonly unknown[];
+  const scenario = records.find(isScenarioDefinitionRecord);
+  if (scenario?.id !== id) {
+    throw new Error(
+      `Methods restoration fixture '${name}' does not select '${id}'.`);
+  }
+  return records.map(record => JSON.stringify(record));
+}
+
+function isScenarioDefinitionRecord(
+  value: unknown,
+): value is { readonly kind: "scenario"; readonly id: string } {
+  if (typeof value !== "object" || value === null) return false;
+  return "kind" in value
+    && value.kind === "scenario"
+    && "id" in value
+    && typeof value.id === "string";
+}
+
+function homeDemoResolution(
+  id: string,
+  section: "Methods" | "Call Graph",
+  focusKind: "package" | "platform",
+): BrowserHomeDemoResolved {
+  const callGraph = section === "Call Graph";
+  const members = focusKind === "platform"
+    ? [{
+      kind: "platform",
+      id: "runtime",
+      version: platformVersion,
+      framework: "net11.0",
+      assembly: platformFocusAssembly.name,
+    }]
+    : [peerSurface, surface].map(model => ({
+      kind: "package",
+      id: model.package,
+      version: model.version,
+      framework: model.activeFramework,
+      assembly: null,
+    }));
+  const tabs = members.map((member, index) => ({
+    id: focusKind === "platform" ? "stj" : `t${index}`,
+    member,
+  }));
+  const focus = tabs.at(-1)!;
+  const view = {
+    library: focusKind === "platform" ? platformFocusAssembly.name : core.name,
+    type: focusKind === "platform"
+      ? platformFocusType.id
+      : surface.types[0]!.id,
+    memberAnchor: callGraph ? run.anchorDigest : null,
+    memberKey: callGraph ? run.stableSelector : null,
+    section,
+  };
+  const workspaceTabs = focusKind === "platform"
+    ? [{
+      id: focus.id,
+      kind: "group",
+      source: ":Platform",
+      version: focus.member.version,
+      framework: focus.member.framework,
+      runtimeIdentifier: null,
+    }]
+    : tabs.map(tab => ({
+      id: tab.id,
+      kind: "package",
+      source: tab.member.id,
+      version: tab.member.version,
+      framework: tab.member.framework,
+      runtimeIdentifier: null,
+    }));
+  const title = `${focusKind} ${section}`;
+  return {
+    id,
+    title,
+    summary: "Typed product demo",
+    workspaceMembers: members,
+    tabs,
+    focusTabIndex: members.length - 1,
+    view,
+    workspace: {
+      tabs: workspaceTabs,
+      contexts: [{
+        id: "demo",
+        tabIds: workspaceTabs.map(tab => tab.id),
+      }],
+      activeTabId: focus.id,
+      selectedContextId: "demo",
+      view: {
+        lens: "api",
+        type: view.type,
+        memberAnchor: view.memberAnchor,
+        memberSignature: null,
+        section: callGraph ? "call-graph" : null,
+        libraries: [view.library],
+        sourceView: null,
+        comparison: null,
+      },
+      traversalTargetFramework: null,
+      hierarchyWorkspacePacket: null,
+    },
+    restorationDefinitions: section === "Methods"
+      ? methodsRestorationDefinitions(id, focusKind)
+      : committedRestorationDefinitions(id, title, members, tabs),
+  };
+}
+
 async function installHomeDemo(
   page: Page,
   section: "Methods" | "Call Graph",
   focusKind: "package" | "platform",
-  ecosystemAdmission?: {
+  options?: {
     holdAdmission?: boolean;
     holdPostingRecord?: boolean;
     holdAcknowledgement?: boolean;
+    holdResolutionAt?: number;
+    failResolutionAt?: number;
+    holdSurfaceAdmissionAt?: number;
   },
 ): Promise<string> {
   const id = `${focusKind}-${section === "Methods" ? "methods" : "graph"}`;
@@ -198,14 +412,86 @@ async function installHomeDemo(
         title: `${focusKind} ${section}`,
         summary: "Typed product demo",
       }],
+      resolutions: {
+        [id]: homeDemoResolution(id, section, focusKind),
+      },
       results: { [id]: homeDemoResult(section, focusKind) },
+      ...(options?.holdResolutionAt === undefined
+        ? {}
+        : { resolutionPendingOrdinal: options.holdResolutionAt }),
+      ...(options?.failResolutionAt === undefined
+        ? {}
+        : { resolutionFailureOrdinal: options.failResolutionAt }),
+      ...(options?.holdSurfaceAdmissionAt === undefined
+        ? {}
+        : {
+          surfaceAdmissionPendingOrdinal:
+            options.holdSurfaceAdmissionAt,
+        }),
     },
     undefined,
     undefined,
     undefined,
     undefined,
-    ecosystemAdmission);
+    options);
   return id;
+}
+
+async function installMethodsHomeDemos(
+  page: Page,
+  options: {
+    resolutionPendingOrdinal?: number;
+    resolutionFailureOrdinal?: number;
+    preparationPendingOrdinal?: number;
+    preparationFailureOrdinal?: number;
+  },
+): Promise<{ packageId: string; platformId: string }> {
+  const packageId = "package-methods";
+  const platformId = "platform-methods";
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    {},
+    "ready",
+    "ready",
+    {
+      catalog: [
+        {
+          id: packageId,
+          title: "package Methods",
+          summary: "Typed product demo",
+        },
+        {
+          id: platformId,
+          title: "platform Methods",
+          summary: "Typed product demo",
+        },
+      ],
+      resolutions: {
+        [packageId]: homeDemoResolution(packageId, "Methods", "package"),
+        [platformId]: homeDemoResolution(platformId, "Methods", "platform"),
+      },
+      results: {
+        [packageId]: homeDemoResult("Methods", "package"),
+        [platformId]: homeDemoResult("Methods", "platform"),
+      },
+      ...(options.resolutionPendingOrdinal === undefined
+        ? {}
+        : { resolutionPendingOrdinal: options.resolutionPendingOrdinal }),
+      ...(options.resolutionFailureOrdinal === undefined
+        ? {}
+        : { resolutionFailureOrdinal: options.resolutionFailureOrdinal }),
+      ...(options.preparationPendingOrdinal === undefined
+        ? {}
+        : { preparationPendingOrdinal: options.preparationPendingOrdinal }),
+      ...(options.preparationFailureOrdinal === undefined
+        ? {}
+        : { preparationFailureOrdinal: options.preparationFailureOrdinal }),
+    });
+  return { packageId, platformId };
 }
 
 async function openHomeDemo(
@@ -216,6 +502,14 @@ async function openHomeDemo(
   const id = await installHomeDemo(page, section, focusKind);
   await page.goto("/demos");
   await page.locator(`[data-workspace-demo="${id}"]`).click();
+  if (section === "Methods") {
+    await expect(page).toHaveURL(/\/\?w=.+#workspace$/);
+    await expect(page.locator("html"))
+      .toHaveAttribute("data-home-demo-prepare", id);
+    await expect(page.locator("html"))
+      .not.toHaveAttribute("data-home-demo-run");
+    return null;
+  }
   await expect(page.locator("html")).toHaveAttribute("data-home-demo-run", id);
   await page.waitForFunction(() =>
     new URL(location.href).searchParams.has("w"));
@@ -428,11 +722,11 @@ test("Ecosystems is a first-class product catalog destination", async ({
     .toContainText("3 core packages");
   await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
     .toContainText("Integration scanner");
-  const workspaceReadyRows = page.locator(
-    ".ecosystem-catalog-row",
-  ).filter({ hasText: "Workspace-ready" });
   const openActions = page.locator("[data-ecosystem-open]");
-  expect(await openActions.count()).toBe(await workspaceReadyRows.count());
+  const actionableCards = page.locator(
+    ".ecosystem-catalog-row",
+  ).filter({ has: page.locator("[data-ecosystem-open]") });
+  expect(await openActions.count()).toBe(await actionableCards.count());
   expect(await openActions.count()).toBeGreaterThan(0);
   await page.locator("[data-product-navigation-button]").click();
   await expect(page.locator(
@@ -441,13 +735,15 @@ test("Ecosystems is a first-class product catalog destination", async ({
   await page.keyboard.press("Escape");
   await page.screenshot({ path: testInfo.outputPath("ecosystems-wide.png") });
 
-  const firstReady = workspaceReadyRows.first();
-  const ecosystemId = await firstReady.getAttribute("data-ecosystem");
+  const firstActionable = actionableCards.first();
+  const ecosystemId = await firstActionable.getAttribute("data-ecosystem");
   if (ecosystemId === null) {
-    throw new Error("The Workspace-ready Ecosystem omitted its catalog ID.");
+    throw new Error("The actionable Ecosystem omitted its catalog ID.");
   }
-  const ecosystemTitle = await firstReady.locator("strong").innerText();
-  await firstReady.locator("[data-ecosystem-open]").click();
+  const ecosystemTitle = await firstActionable.getByRole("heading", {
+    level: 2,
+  }).innerText();
+  await firstActionable.locator("[data-ecosystem-open]").click();
   await expect(page).toHaveURL(`/ecosystems/${ecosystemId}`);
   await expect(page.locator(
     '[data-navigation-group="subject"][data-navigation-current="true"]'
@@ -544,6 +840,13 @@ test("Ecosystems is a first-class product catalog destination", async ({
   await page.getByRole("link", { name: "Ecosystems", exact: true }).click();
   await expect(page).toHaveURL("/ecosystems");
   await page.reload();
+  const ecosystemCards = page.locator(".ecosystem-catalog-row");
+  await expect(ecosystemCards).toHaveCount(2);
+  await expect(ecosystemCards.locator(".ecosystem-catalog-icon")).toHaveCount(2);
+  await expect(ecosystemCards.locator("h2")).toHaveText([
+    "Platform fixture",
+    "Package fixture",
+  ]);
   await expect(page.locator(
     "[data-ecosystem='ecosystem.fixture-platform']")).toBeVisible();
   await page.getByRole("link", { name: "Home", exact: true }).click();
@@ -629,9 +932,9 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   };
   await installFacades(page, jsonSurface);
   await page.goto(`/?package=System.Text.Json&version=${platformVersion}&framework=netstandard2.0`);
-  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
-  await chooseSubject(page, "library", "Library");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-overview-surface h1"))
+    .toHaveText(assembly.name);
   await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
   const sharedLibraryUrl = page.url();
   await page.reload();
@@ -652,7 +955,7 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-package-framework="netstandard2.0"]'))
     .toHaveAttribute("aria-current", "page");
-  await openProductDestination(page, "workspace");
+  await openProductDestination(page, "workspace", { waitForCommit: true });
   await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
     .toBeVisible();
   await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");
@@ -666,6 +969,14 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   await expect(page.getByRole("heading", { name: "Demos", exact: true }))
     .toBeVisible();
   await expect(page.locator("[data-workspace-activate]")).toHaveCount(0);
+  await openProductDestination(page, "workspace");
+  await expect(page).toHaveURL(workspaceUrl);
+  await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
+    .toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL("/demos");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL(workspaceUrl);
   await expect(page.locator("[data-workspace-activate]")).toContainText("System.Text.Json");
@@ -673,32 +984,362 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   await expect(page.locator("[data-workspace-demo]")).toHaveCount(0);
 });
 
-test("package Methods demo retains all returned coordinates and publishes its exact type", async ({
+test("package Methods demo retains all resolved coordinates and restores its exact type", async ({
   page,
 }) => {
-  const share = await openHomeDemo(page, "Methods", "package");
+  await openHomeDemo(page, "Methods", "package");
+  const workspaceUrl = page.url();
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target"))
     .toContainText("Example.Widget");
-  expect(share).toMatchObject({
-    tabs: [
-      { id: "t0", source: "Peer.Package" },
-      { id: "t1", source: "Example.Package" },
-    ],
-    contexts: expect.arrayContaining([{
-      id: "g2",
-      tabIds: ["t0", "t1"],
-    }]),
-    activeTabId: "t1",
-    selectedContextId: "g2",
-    view: {
-      type: surface.types[0]!.id,
-      memberAnchor: null,
-      section: null,
-      libraries: [core.id],
-    },
+  await page.goBack();
+  await expect(page).toHaveURL("/demos");
+  await page.goForward();
+  await expect(page).toHaveURL(workspaceUrl);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await expect(page.locator("html"))
+    .not.toHaveAttribute("data-home-demo-run");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-definition-record-count", "4");
+  await expect(page.locator("html"))
+    .toHaveAttribute(
+      "data-home-demo-prepared-subjects",
+      /\["t0","t1"\]/,
+    );
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("package Methods");
+  await expect(page.getByRole("button", { name: /Inspect Peer\.Package/ }))
+    .toBeVisible();
+  await expect(page.getByRole("button", { name: /Inspect Example\.Package/ }))
+    .toBeVisible();
+});
+
+test("Methods demo Forward reactivates an inactive retained definition", async ({
+  page,
+}) => {
+  const id = await installHomeDemo(page, "Methods", "package");
+  const demo = page.locator(`[data-workspace-demo="${id}"]`);
+  await page.goto("/demos");
+  await demo.click();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  const firstWorkspaceUrl = page.url();
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await demo.click();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await releaseFacade(page, "remove-home-demo-catalog");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-catalog-removed", "true");
+
+  await page.goBack();
+  await expect(page).toHaveURL(firstWorkspaceUrl);
+  await expect(page.locator(".loading-screen")).toHaveCount(0);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-resolve-count", "2");
+});
+
+test("Methods demo Workspace Forward restores its active retained destination", async ({
+  page,
+}) => {
+  await openHomeDemo(page, "Methods", "package");
+  const workspaceUrl = page.url();
+  await expect(page).toHaveURL(
+    /\/\?w=.+#workspace$/,
+  );
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-resolve-count", "1");
+
+  await page.goBack();
+  await expect(page).toHaveURL("/demos");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await page.goForward();
+
+  await expect(page).toHaveURL(workspaceUrl);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-resolve-count", "1");
+});
+
+test("superseded Methods demo resolution cannot replace Back navigation", async ({
+  page,
+}) => {
+  const id = await installHomeDemo(page, "Methods", "package", {
+    holdResolutionAt: 1,
   });
+  await page.goto("/");
+  await openProductDestination(page, "demos");
+  await expect(page).toHaveURL("/demos");
+  await page.locator(`[data-workspace-demo="${id}"]`).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-resolution-pending",
+    "true",
+  );
+
+  await page.goBack();
+  await expect(page).toHaveURL("/");
+  await releaseFacade(page, "finish-home-demo-resolution");
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-resolution-pending",
+    "false",
+  );
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("html"))
+    .not.toHaveAttribute("data-home-demo-prepare");
+  await expect(page.locator("#home-demos")).toBeVisible();
+});
+
+test("accepted Methods completion cannot replace Back navigation", async ({
+  page,
+}) => {
+  const id = await installHomeDemo(page, "Methods", "package", {
+    holdSurfaceAdmissionAt: 1,
+  });
+  await page.goto("/");
+  await openProductDestination(page, "demos");
+  await page.locator(`[data-workspace-demo="${id}"]`).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-surface-admission-pending",
+    "true",
+  );
+
+  await page.goBack();
+  await expect(page).toHaveURL("/");
+  await releaseFacade(page, "finish-home-demo-surface-admission");
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-surface-admission-pending",
+    "false",
+  );
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("#home-demos")).toBeVisible();
+
+  await openProductDestination(page, "workspace");
+  const activeWorkspace = page.locator(".workspace-card.active");
+  await expect(activeWorkspace).toContainText("package Methods");
+  await activeWorkspace.click();
+  await expect(page).toHaveURL(/\/\?w=.+#workspace$/);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+});
+
+test("superseded retained Methods selection cannot replace Back navigation", async ({
+  page,
+}) => {
+  const { packageId, platformId } =
+    await installMethodsHomeDemos(page, { preparationPendingOrdinal: 3 });
+  await page.goto("/demos");
+  await page.locator(`[data-workspace-demo="${packageId}"]`).click();
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await page.locator(`[data-workspace-demo="${platformId}"]`).click();
+  await expect(page).toHaveURL(
+    /\/\?w=.+#workspace$/,
+  );
+  const platformUrl = page.url();
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("platform Methods");
+
+  await page.locator("[data-workspace-switch]").click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "true",
+  );
+  await page.goBack();
+  await expect(page).toHaveURL(platformUrl);
+  await releaseFacade(page, "finish-home-demo-preparation");
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "false",
+  );
+  await expect(page).toHaveURL(platformUrl);
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-resolve-count", "2");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("platform Methods");
+});
+
+test("superseded retained Methods deletion cannot activate its successor", async ({
+  page,
+}) => {
+  const { packageId, platformId } =
+    await installMethodsHomeDemos(page, { preparationPendingOrdinal: 3 });
+  await page.goto("/demos");
+  await page.locator(`[data-workspace-demo="${packageId}"]`).click();
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await page.locator(`[data-workspace-demo="${platformId}"]`).click();
+  await expect(page).toHaveURL(
+    /\/\?w=.+#workspace$/,
+  );
+  const platformUrl = page.url();
+  await openProductDestination(page, "workspace");
+  const activeRow = page.locator(".workspace-row").filter({
+    has: page.locator(".workspace-card.active"),
+  });
+  await activeRow.locator("[data-workspace-delete]").click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "true",
+  );
+
+  await page.goBack();
+  await expect(page).toHaveURL(platformUrl);
+  await releaseFacade(page, "finish-home-demo-preparation");
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "false",
+  );
+  await expect(page).toHaveURL(platformUrl);
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-resolve-count", "2");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator("[data-workspace-delete]")).toHaveCount(2);
+  const preservedWorkspace = page.locator(".workspace-card.active");
+  await expect(preservedWorkspace)
+    .toContainText("platform Methods");
+});
+
+for (const staleOperation of ["selection", "deletion"] as const) {
+  test(`superseded retained Methods ${staleOperation} suppresses preparation failure`, async ({
+    page,
+  }) => {
+    const { packageId, platformId } =
+      await installMethodsHomeDemos(page, {
+        preparationPendingOrdinal: 3,
+        preparationFailureOrdinal: 3,
+      });
+    await page.goto("/demos");
+    await page.locator(`[data-workspace-demo="${packageId}"]`).click();
+    await page.getByRole("link", { name: "Demos", exact: true }).click();
+    await page.locator(`[data-workspace-demo="${platformId}"]`).click();
+    await expect(page).toHaveURL(
+      /\/\?w=.+#workspace$/,
+    );
+    const platformUrl = page.url();
+    await openProductDestination(page, "workspace");
+
+    if (staleOperation === "selection") {
+      await page.locator("[data-workspace-switch]").click();
+    } else {
+      const activeRow = page.locator(".workspace-row").filter({
+        has: page.locator(".workspace-card.active"),
+      });
+      await activeRow.locator("[data-workspace-delete]").click();
+    }
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-home-demo-preparation-pending",
+      "true",
+    );
+
+    await page.goBack();
+    await expect(page).toHaveURL(platformUrl);
+    await releaseFacade(page, "finish-home-demo-preparation");
+
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-home-demo-preparation-pending",
+      "false",
+    );
+    await expect(page).toHaveURL(platformUrl);
+    await expect(page.getByText("Fixture product demo preparation failed."))
+      .toHaveCount(0);
+    await expect(page.locator("html"))
+      .toHaveAttribute("data-home-demo-resolve-count", "2");
+    await openProductDestination(page, "workspace");
+    await expect(page.locator("[data-workspace-delete]")).toHaveCount(2);
+    await expect(page.locator(".workspace-card.active"))
+      .toContainText("platform Methods");
+  });
+}
+
+test("retained Methods deletion failure remains visible after reactivation", async ({
+  page,
+}) => {
+  const { packageId, platformId } =
+    await installMethodsHomeDemos(page, {
+      preparationPendingOrdinal: 3,
+      preparationFailureOrdinal: 3,
+    });
+  await page.goto("/demos");
+  await page.locator(`[data-workspace-demo="${packageId}"]`).click();
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await page.locator(`[data-workspace-demo="${platformId}"]`).click();
+  await openProductDestination(page, "workspace");
+
+  const packageRow = page.locator(".workspace-row").filter({
+    hasText: "package Methods",
+  });
+  const platformRow = page.locator(".workspace-row").filter({
+    hasText: "platform Methods",
+  });
+  await platformRow.locator("[data-workspace-delete]").click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "true",
+  );
+
+  await packageRow.locator("[data-workspace-switch]").click();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await openProductDestination(page, "workspace");
+  await platformRow.locator("[data-workspace-switch]").click();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("System.Text.Json");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-preparation-count", "5");
+
+  await releaseFacade(page, "finish-home-demo-preparation");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "false",
+  );
+  await expect(page.locator(".inspected-target"))
+    .toContainText("System.Text.Json");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".query-notice-text")).toContainText(
+    "Deleting retained Workspace failed: Fixture product demo preparation failed.",
+  );
+});
+
+test("Methods demo definition capacity failure restores the catalog", async ({
+  page,
+}) => {
+  const id = await installHomeDemo(page, "Methods", "package");
+  const demo = page.locator(`[data-workspace-demo="${id}"]`);
+  await page.goto("/demos");
+  for (let index = 0; index < 4; index++) {
+    await demo.click();
+    await expect(page).toHaveURL(/\/\?w=.+#workspace$/);
+    await page.getByRole("link", { name: "Demos", exact: true }).click();
+    await expect(page).toHaveURL("/demos");
+  }
+
+  await demo.click();
+
+  await expect(page).toHaveURL("/demos");
+  await expect(page.locator(".loading-screen")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await expect(page.locator(".query-notice-text"))
+    .toContainText("retains at most 4 Workspace definitions");
 });
 
 test("package Call Graph demo applies the returned member and graph", async ({
@@ -723,7 +1364,7 @@ test("package Call Graph demo applies the returned member and graph", async ({
 test("Platform Methods demo retains its non-first engine surface while loading forwarders", async ({
   page,
 }) => {
-  const share = await openHomeDemo(page, "Methods", "platform");
+  await openHomeDemo(page, "Methods", "platform");
   const publishedUrl = page.url();
   await expect(page.locator("html"))
     .toHaveAttribute("data-forwarder-view", /.+/);
@@ -737,21 +1378,17 @@ test("Platform Methods demo retains its non-first engine surface while loading f
   await expect(page.locator(
     `[data-type="${platformFocusType.id}"]`,
   )).toBeVisible();
-  expect(share).toMatchObject({
-    tabs: [{
-      kind: "group",
-      source: ":Platform",
-      version: platformVersion,
-      framework: "net11.0",
-    }],
-    view: {
-      type: platformFocusType.id,
-      memberAnchor: null,
-      section: null,
-      libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
-    },
-  });
-
+  expect(new URL(publishedUrl).searchParams.has("w")).toBe(true);
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-definition-record-count", "4");
+  await expect(page.locator("html"))
+    .toHaveAttribute(
+      "data-home-demo-prepared-subjects",
+      /\["stj"\]/,
+    );
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("platform Methods");
 });
 
 test("Platform Call Graph demo publishes the exact Library and member", async ({
@@ -839,6 +1476,18 @@ test("home demo history failure restores the catalog without publication", async
   await expect(page.locator(`[data-workspace-demo="${id}"]`)).toBeFocused();
   await expect(page.locator("[data-workspace-switch]"))
     .toHaveCount(retainedBefore);
+  await page.evaluate(() => {
+    Reflect.deleteProperty(history, "pushState");
+  });
+  await openProductDestination(page, "workspace");
+  await expect(page).toHaveURL(/\/\?w=.+#workspace$/);
+  const activeWorkspace = page.locator(".workspace-card.active");
+  await expect(activeWorkspace).toContainText("package Methods");
+  await activeWorkspace.click();
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
 });
 
 test("Activity Back restores focus on the Demos route", async ({ page }) => {
@@ -848,6 +1497,7 @@ test("Activity Back restores focus on the Demos route", async ({ page }) => {
     .toBeVisible();
   await page.keyboard.press("Control+k");
   await page.locator("#spotlight-input").fill("activity");
+  await page.locator('[data-sl-scope="commands"]').click();
   await page.locator('[data-sl-package-activity="1"]').click();
   await expect(page).toHaveURL(/\/activity$/);
 
