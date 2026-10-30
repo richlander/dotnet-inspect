@@ -100,6 +100,14 @@ public partial class PackageCommand
                 sourceQueryPlan);
             if (result == null)
                 return 1;
+            if (RequestsSelectedDiscoveredOrAutomaticSection(
+                    producerOptions,
+                    PackageSections.Dependencies,
+                    pipeline)
+                && WritePackageDependencyInspectionFailure(result))
+            {
+                return 1;
+            }
             results.Add(result);
         }
 
@@ -129,6 +137,37 @@ public partial class PackageCommand
             CommandError.Write(ex.Message);
             return 1;
         }
+    }
+
+    private static bool WritePackageDependencyInspectionFailure(
+        InspectionResult result)
+    {
+        InspectionEnvelope<PackageDependencyInspectionOutcome>? inspection =
+            result.PackageDependencyInspection;
+        if (inspection is null
+            || inspection.Content is PackageDependencyInspectionOutcome.Available)
+        {
+            return false;
+        }
+
+        if (inspection.Content is PackageDependencyInspectionOutcome.NoManifest)
+        {
+            CommandError.Write(
+                "The package manifest is unavailable; dependencies were not projected.");
+            return true;
+        }
+
+        if (!inspection.Diagnostics.IsEmpty)
+        {
+            foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+                CommandError.Write(diagnostic.Summary.ToString());
+        }
+        else
+        {
+            CommandError.Write(
+                "The package manifest could not be inspected; dependencies were not projected.");
+        }
+        return true;
     }
 
     internal static int PackageIntegrityExitCode(params InspectionResult[] results)

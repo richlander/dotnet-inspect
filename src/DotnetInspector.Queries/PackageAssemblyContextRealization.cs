@@ -69,7 +69,8 @@ public sealed class PackageRootBinding
         string? compileTargetFramework,
         string? implementationSelectionTargetFramework,
         bool usesCompatibleImplementationSelection,
-        bool allowsCompatibleTargetSelection)
+        bool allowsCompatibleTargetSelection,
+        string? runtimePopulationTargetFramework)
     {
         Root = root;
         Coordinate = coordinate;
@@ -90,6 +91,8 @@ public sealed class PackageRootBinding
             usesCompatibleImplementationSelection;
         AllowsCompatibleTargetSelection =
             allowsCompatibleTargetSelection;
+        RuntimePopulationTargetFramework =
+            runtimePopulationTargetFramework;
     }
 
     public PackageRootRealization Root { get; }
@@ -113,15 +116,46 @@ public sealed class PackageRootBinding
     internal bool AllowsCompatibleTargetSelection { get; }
 
     /// <summary>
+    /// The target-framework input used to enumerate runtime populations.
+    /// A null value retains an unbounded runtime-only inventory.
+    /// </summary>
+    internal string? RuntimePopulationTargetFramework { get; }
+
+    internal PackageRootBinding WithRuntimePopulationTargetFramework(
+        string? targetFramework)
+    {
+        if (string.Equals(
+                RuntimePopulationTargetFramework,
+                targetFramework,
+                StringComparison.Ordinal))
+        {
+            return this;
+        }
+
+        return new PackageRootBinding(
+            Root,
+            Coordinate,
+            SourceProducer,
+            ContentGenerationIdentity,
+            SelectionIdentity,
+            CompileTargetFramework,
+            ImplementationSelectionTargetFramework,
+            UsesCompatibleImplementationSelection,
+            AllowsCompatibleTargetSelection,
+            targetFramework);
+    }
+
+    /// <summary>
     /// Issues the exact, resource-free request that repeats this logical Root
     /// under another host's acquisition capabilities.
     /// </summary>
     /// <remarks>
     /// The issued value preserves the realized producer-pinned coordinate and
-    /// the normalized compile and implementation selection targets, whether
-    /// one implementation universe was selected, compatible target-selection
-    /// authorization, and observed compatible implementation outcome
-    /// separately. It carries no content, generation identity,
+    /// the normalized compile, implementation-selection, and runtime-population
+    /// target-framework inputs, whether one implementation universe was
+    /// selected, compatible target-selection authorization, and observed
+    /// compatible implementation outcome separately. It carries no content,
+    /// generation identity,
     /// selection identity, workspace identity, lease, opener, or path
     /// authority. Gated by
     /// <c>SparsePackageAssemblyProjectionTests.ReacquisitionRequest_IsExactResourceFreeAndSeparatesTargets</c>.
@@ -145,18 +179,14 @@ public sealed class PackageRootBinding
         if (Root.ContentOnly)
             return this;
 
-        var root = new PackageRootRealization(
-            Root.Content, Root.PackageId, Root.PackageVersion,
-            Root.RequestedTargetFramework, Root.RequestedRuntimeIdentifier,
-            Root.AssetSelection, Root.AssetDemand, Root.ImplementationNames,
-            Root.LibrarySelector, contentOnly: true,
-            hasUnselectedTargetFrameworkAssemblyCandidates:
-                Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+        PackageRootRealization root = Root.ForContentInspection();
         return new PackageRootBinding(
             root, Coordinate, SourceProducer, ContentGenerationIdentity,
             SelectionIdentity, CompileTargetFramework,
             ImplementationSelectionTargetFramework,
-            UsesCompatibleImplementationSelection, AllowsCompatibleTargetSelection);
+            UsesCompatibleImplementationSelection,
+            AllowsCompatibleTargetSelection,
+            RuntimePopulationTargetFramework);
     }
 
     /// <summary>
@@ -286,7 +316,9 @@ public sealed class PackageRootBinding
         string? acquisitionFramework,
         string? requestedTargetFramework,
         string? coordinateProducer = null,
-        string? displayPackageId = null)
+        string? displayPackageId = null,
+        PackageRootReacquisitionRequest?
+            retainedRuntimePopulationRequest = null)
     {
         ValidateSourceSelectionReceipt(payload, receipt);
         if (receipt.RequestedRuntimeIdentifier is not null
@@ -318,7 +350,12 @@ public sealed class PackageRootBinding
                 ReceiptUsesCompatibleImplementationSelection(receipt),
             allowsCompatibleTargetSelection:
                 receipt.Policy
-                    == PackageCompileAssetSelectionPolicy.ExplicitTarget);
+                    == PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            runtimePopulationTargetFramework:
+                retainedRuntimePopulationRequest?
+                    .RuntimePopulationTargetFramework,
+            retainsRuntimePopulationTargetFramework:
+                retainedRuntimePopulationRequest is not null);
     }
 
     /// <summary>
@@ -330,7 +367,9 @@ public sealed class PackageRootBinding
         PackageCompileAssetSelectionReceipt receipt,
         string? requestedTargetFramework,
         [NotNullWhen(true)] out PackageRootBinding? binding,
-        string? displayPackageId = null)
+        string? displayPackageId = null,
+        string? runtimePopulationTargetFramework = null,
+        bool retainsRuntimePopulationTargetFramework = false)
     {
         if (!TryValidateSourceSelection(
                 payload,
@@ -374,7 +413,11 @@ public sealed class PackageRootBinding
                 receipt.Policy
                     == PackageCompileAssetSelectionPolicy.ExplicitTarget,
             out binding,
-            out _);
+            out _,
+            runtimePopulationTargetFramework:
+                runtimePopulationTargetFramework,
+            retainsRuntimePopulationTargetFramework:
+                retainsRuntimePopulationTargetFramework);
     }
 
     internal static bool ReceiptUsesCompatibleImplementationSelection(
@@ -548,7 +591,10 @@ public sealed class PackageRootBinding
             usesCompatibleImplementationSelection:
                 selection.UsesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection:
-                request.AllowsCompatibleTargetSelection);
+                request.AllowsCompatibleTargetSelection,
+            runtimePopulationTargetFramework:
+                request.RuntimePopulationTargetFramework,
+            retainsRuntimePopulationTargetFramework: true);
     }
 
     internal static PackageRootBinding CreateFromReacquiredResolved(
@@ -578,7 +624,10 @@ public sealed class PackageRootBinding
             usesCompatibleImplementationSelection:
                 selection.UsesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection:
-                request.AllowsCompatibleTargetSelection);
+                request.AllowsCompatibleTargetSelection,
+            runtimePopulationTargetFramework:
+                request.RuntimePopulationTargetFramework,
+            retainsRuntimePopulationTargetFramework: true);
     }
 
     /// <summary>
@@ -936,7 +985,9 @@ public sealed class PackageRootBinding
         string? implementationSelectionTargetFramework = null,
         bool usesCompatibleImplementationSelection = false,
         bool allowsCompatibleTargetSelection = false,
-        bool contentOnly = false)
+        bool contentOnly = false,
+        string? runtimePopulationTargetFramework = null,
+        bool retainsRuntimePopulationTargetFramework = false)
     {
         if (!TryCreate(
                 acquiredPayload,
@@ -958,7 +1009,9 @@ public sealed class PackageRootBinding
                 allowsCompatibleTargetSelection,
                 out PackageRootBinding? binding,
                 out string? problem,
-                contentOnly))
+                contentOnly,
+                runtimePopulationTargetFramework,
+                retainsRuntimePopulationTargetFramework))
         {
             throw new ArgumentException(
                 $"The acquired package payload cannot form a realized coordinate: {problem}.",
@@ -988,7 +1041,9 @@ public sealed class PackageRootBinding
         bool allowsCompatibleTargetSelection,
         [NotNullWhen(true)] out PackageRootBinding? binding,
         [NotNullWhen(false)] out string? problem,
-        bool contentOnly = false)
+        bool contentOnly = false,
+        string? runtimePopulationTargetFramework = null,
+        bool retainsRuntimePopulationTargetFramework = false)
     {
         binding = null;
         if (!displayPackageId.Equals(
@@ -1061,7 +1116,12 @@ public sealed class PackageRootBinding
             implementationSelectionTargetFramework,
             usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection
-                || usesCompatibleImplementationSelection);
+                || usesCompatibleImplementationSelection,
+            retainsRuntimePopulationTargetFramework
+                ? runtimePopulationTargetFramework
+                : effectiveTargetFramework
+                    ?? compileTargetFramework
+                    ?? root.AssetSelection?.TargetFramework);
         return true;
     }
 
@@ -1105,7 +1165,9 @@ public sealed class PackageRootBinding
             binding.CompileTargetFramework,
             selectionTargetFramework,
             usesCompatibleImplementationSelection,
-            allowsCompatibleTargetSelection: true);
+            allowsCompatibleTargetSelection: true,
+            runtimePopulationTargetFramework:
+                binding.RuntimePopulationTargetFramework);
     }
 
     /// <summary>
@@ -1178,7 +1240,8 @@ public sealed class PackageRootBinding
             CompileTargetFramework,
             ImplementationSelectionTargetFramework,
             UsesCompatibleImplementationSelection,
-            AllowsCompatibleTargetSelection);
+            AllowsCompatibleTargetSelection,
+            RuntimePopulationTargetFramework);
     }
 
     /// <summary>
@@ -1194,7 +1257,9 @@ public sealed class PackageRootBinding
         return new PackageRootBinding(root, Coordinate, SourceProducer, ContentGenerationIdentity,
             new PackageRootSelectionIdentity(), CompileTargetFramework,
             ImplementationSelectionTargetFramework,
-            UsesCompatibleImplementationSelection, AllowsCompatibleTargetSelection);
+            UsesCompatibleImplementationSelection,
+            AllowsCompatibleTargetSelection,
+            RuntimePopulationTargetFramework);
     }
 
     static bool SameNames(
@@ -1269,6 +1334,7 @@ public sealed class PackageRootBinding
 public sealed class PackageRootRealization
 {
     readonly IPackageContent _content;
+    readonly Lazy<bool> _unselectedTargetFrameworkAssemblyCandidates;
 
     public PackageRootRealization(
         IPackageContent content,
@@ -1298,7 +1364,7 @@ public sealed class PackageRootRealization
         PackageImplementationNames? implementationNames = null,
         PackageLibrarySelector? librarySelector = null,
         bool contentOnly = false,
-        bool? hasUnselectedTargetFrameworkAssemblyCandidates = null)
+        Lazy<bool>? unselectedTargetFrameworkAssemblyCandidates = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -1334,9 +1400,9 @@ public sealed class PackageRootRealization
                     packageId,
                     targetFramework,
                     runtimeIdentifier));
-        HasUnselectedTargetFrameworkAssemblyCandidates =
-            hasUnselectedTargetFrameworkAssemblyCandidates
-            ?? (AssetSelection is not null
+        _unselectedTargetFrameworkAssemblyCandidates =
+            unselectedTargetFrameworkAssemblyCandidates
+            ?? new(() => AssetSelection is not null
                 && HasUnselectedTargetFrameworkAssemblyCandidatesCore(
                     content,
                     AssetSelection));
@@ -1345,7 +1411,7 @@ public sealed class PackageRootRealization
             // A name that selects no implementation asset is a visible
             // realization failure, never an empty implementation role.
             IReadOnlyList<string> unmatched = implementationNames.Unmatched(
-                AssetSelection is { IsSelected: true }
+                AssetSelection is not null
                     ? AssetSelection.ImplementationAssets.Select(
                         static asset => asset.Path)
                     : []);
@@ -1404,7 +1470,6 @@ public sealed class PackageRootRealization
 
     public IReadOnlyList<PackageCompileAsset> RealizedImplementationAssets =>
         ContentOnly
-        || !AssetSelection.IsSelected
         || AssetDemand == PackageAssetDemand.Surface
             ? []
             : LibrarySelector is not null
@@ -1418,11 +1483,21 @@ public sealed class PackageRootRealization
 
     /// <summary>
     /// Whether the package contains a DLL candidate for the selected target
-    /// framework outside the implementation universe.
+    /// framework outside the implementation universe, evaluated when requested.
     /// </summary>
-    public bool HasUnselectedTargetFrameworkAssemblyCandidates { get; }
+    public bool HasUnselectedTargetFrameworkAssemblyCandidates =>
+        _unselectedTargetFrameworkAssemblyCandidates.Value;
 
     internal IPackageContent Content => _content;
+
+    internal PackageRootRealization ForContentInspection() =>
+        new(
+            _content, PackageId, PackageVersion,
+            RequestedTargetFramework, RequestedRuntimeIdentifier,
+            AssetSelection, AssetDemand, ImplementationNames,
+            LibrarySelector, contentOnly: true,
+            unselectedTargetFrameworkAssemblyCandidates:
+                _unselectedTargetFrameworkAssemblyCandidates);
 
     /// <summary>
     /// Uses the already-admitted package content without transferring its

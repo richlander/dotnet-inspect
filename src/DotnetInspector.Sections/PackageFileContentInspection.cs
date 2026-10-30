@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using InertText;
 using NuGetFetch;
 
@@ -100,11 +101,24 @@ public sealed record PackageFileContentDocument
 public sealed record PackageFileContentInspectionRequest
 {
     public PackageFileContentInspectionRequest(
+        InspectionWorkspace workspace,
+        WorkspacePackageOccurrenceDescriptor occurrence,
         PackageFileAcquisitionResult.Acquired file,
         long maxBytes)
     {
+        Workspace = workspace
+            ?? throw new ArgumentNullException(nameof(workspace));
+        Occurrence = occurrence
+            ?? throw new ArgumentNullException(nameof(occurrence));
         File = file
             ?? throw new ArgumentNullException(nameof(file));
+        if (!occurrence.Occurrence.Package.HasContentGeneration(
+                file.Settlement.Payload.Content.GenerationIdentity))
+        {
+            throw new ArgumentException(
+                "The package file must belong to the admitted Root's content generation.",
+                nameof(file));
+        }
         ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(
             maxBytes,
@@ -112,10 +126,38 @@ public sealed record PackageFileContentInspectionRequest
         MaxBytes = maxBytes;
     }
 
+    public InspectionWorkspace Workspace { get; }
+
+    public WorkspacePackageOccurrenceDescriptor Occurrence { get; }
+
     public PackageFileAcquisitionResult.Acquired File { get; }
 
     public long MaxBytes { get; }
 }
+
+public enum PackageFileContentQueryAdmission
+{
+    NotReady,
+    Admitted,
+    Rejected,
+}
+
+public sealed record PackageFileContentEvidence(
+    PackageAcquisitionEvidenceEntry Acquisition,
+    PackageFileContentQueryAdmission QueryAdmission,
+    ArtifactRootFailure? QueryFailure,
+    PackageCompileAssetSelectionStatus? LibrarySelection,
+    int? SurfaceLibraryCount,
+    int? ImplementationLibraryCount);
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(PackageFileContentDocument))]
+[JsonSerializable(typeof(PackageFileContentEvidence))]
+public partial class PackageFileContentInspectionJsonContext
+    : JsonSerializerContext;
 
 public static class PackageFileContentInspection
 {
@@ -127,9 +169,117 @@ public static class PackageFileContentInspection
             PackageFileContentInspectionRequest request,
             CancellationToken cancellationToken = default)
     {
+        var result = await ExecuteCoreAsync(
+                request,
+                captureEvidence: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return result.Inspection;
+    }
+
+    public static async ValueTask<
+        EvidenceInspectionEnvelope<
+            PackageFileContentDocument,
+            PackageFileContentEvidence>>
+        ExecuteWithEvidenceAsync(
+            PackageFileContentInspectionRequest request,
+            CancellationToken cancellationToken = default)
+    {
+        var result = await ExecuteCoreAsync(
+                request,
+                captureEvidence: true,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return new(result.Inspection, result.Evidence!);
+    }
+
+    private static async ValueTask<(
+        InspectionEnvelope<PackageFileContentDocument> Inspection,
+        PackageFileContentEvidence? Evidence)>
+        ExecuteCoreAsync(
+            PackageFileContentInspectionRequest request,
+            bool captureEvidence,
+            CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
+        PackageFileContentEvidence? evidence = null;
+        if (request.Occurrence.Occurrence.Correspondence
+                is not PackageArtifactRootCorrespondence correspondence
+            || request.Occurrence.Realization.Status
+                is not ArtifactRootRealizationStatus.Ready ready)
+        {
+            return (
+                Failed(
+                    PackageFileContentStatus.Unavailable,
+                    "package-file-content.root-unavailable",
+                    "The package Root is not ready for content inspection."),
+                captureEvidence
+                    ? Evidence(
+                        PackageFileContentQueryAdmission.NotReady)
+                    : null);
+        }
+
+        ArtifactRootResult<InspectionEnvelope<PackageFileContentDocument>>
+            query = await request.Workspace.ExecutePackageRootQueryAsync(
+                correspondence,
+                ready.Generation,
+                (realization, token) =>
+                {
+                    if (captureEvidence)
+                    {
+                        evidence = Evidence(
+                            PackageFileContentQueryAdmission.Admitted,
+                            surfaceLibraries:
+                                realization.SurfaceParticipants.Length,
+                            implementationLibraries:
+                                realization.ImplementationParticipants.Length);
+                    }
+                    return ReadAsync(request, token);
+                },
+                cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        if (query is ArtifactRootResult<
+                InspectionEnvelope<PackageFileContentDocument>>
+                    .Available available)
+        {
+            return (available.Value, evidence);
+        }
+
+        var rejected = (ArtifactRootResult<
+            InspectionEnvelope<PackageFileContentDocument>>.Rejected)query;
+        return (
+            Failed(
+                PackageFileContentStatus.Unavailable,
+                "package-file-content.query-rejected",
+                $"The package Root query was rejected: {rejected.Failure}."),
+            captureEvidence
+                ? Evidence(
+                    PackageFileContentQueryAdmission.Rejected,
+                    rejected.Failure)
+                : null);
+
+        PackageFileContentEvidence Evidence(
+            PackageFileContentQueryAdmission admission,
+            ArtifactRootFailure? failure = null,
+            int? surfaceLibraries = null,
+            int? implementationLibraries = null) =>
+            new(
+                PackageAcquisitionEvidenceEntry.From(
+                    request.File.FileList.Narrowing.Acquisition),
+                admission,
+                failure,
+                request.Occurrence.Occurrence.Package.SelectionStatus,
+                surfaceLibraries,
+                implementationLibraries);
+    }
+
+    private static async ValueTask<
+        InspectionEnvelope<PackageFileContentDocument>> ReadAsync(
+            PackageFileContentInspectionRequest request,
+            CancellationToken cancellationToken)
+    {
         PackageContentEntry entry = request.File.Entry;
         if (entry.Length < 0
             || entry.Length > request.MaxBytes)

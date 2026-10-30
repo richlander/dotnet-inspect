@@ -748,8 +748,16 @@ Current transitional surfaces are:
   `CatalogExports.ListTypeViewFacets`. The exact Library References, Metadata,
   and Compare descriptor identities and labels are projected through
   `CatalogExports.ListLibraryViewFacets`, while Browser Overview and Analysis
-  remain local composites with Browser-owned order. Package and Member still
-  own parallel Browser arrays;
+  remain local composites with Browser-owned order. Exact Member Overview,
+  Call graph, Facts, Source, and Compare descriptor identities and labels are
+  projected through `CatalogExports.ListMemberViewFacets`, while Resource
+  Triage remains Browser-owned and Annotated Source remains a transient
+  viewer. Exact Package Overview, Dependencies, and Dependency Hierarchy
+  descriptor identities are projected through
+  `CatalogExports.ListPackageViewFacets`; Overview and Dependency Hierarchy
+  also consume Registry titles. The Browser-owned `References` label for
+  `package.dependencies`, Compare and Vulnerabilities entries, route order,
+  and applicability remain local;
 - `ProductDemoSections`, which admits product demo section display names; and
 - CLI section descriptor names and `SelectResolver` aliases, which remain
   command presentation rather than registry identity.

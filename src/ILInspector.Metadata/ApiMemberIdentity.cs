@@ -862,8 +862,51 @@ public static class ApiMemberIdentity
             _ => metadataMethodName,
         };
 
+    /// <summary>
+    /// A handle whose <see cref="ApiMemberHandle.Anchor"/> equals
+    /// <see cref="GetMemberAnchor"/>. The canonical signature and type anchor name are
+    /// computed now, in the order the eager anchor computed them, so a malformed name fails
+    /// here as it did; the fingerprint and stable selector, which cannot fail, are derived
+    /// on first read.
+    /// </summary>
     public static ApiMemberHandle CreateHandle(ApiType type, ApiMember member)
-        => new(type, member, GetMemberAnchor(type, member));
+        => CreateHandle(type, member, new TypeAnchorNames());
+
+    internal static ApiMemberHandle CreateHandle(
+        ApiType type,
+        ApiMember member,
+        TypeAnchorNames typeAnchorNames)
+    {
+        string canonicalSignature =
+            GetCanonicalSignature(type, member, typeAnchorNames);
+        return new ApiMemberHandle(
+            type,
+            member,
+            canonicalSignature,
+            typeAnchorNames.Get(type));
+    }
+
+    /// <summary>
+    /// The anchor name of the most recently named <see cref="ApiType"/>, which a member
+    /// census reuses across that type's members. The name is a pure function of the
+    /// detached type model, so the reused name equals a fresh one; a type whose name fails
+    /// is not remembered and fails again on its next read.
+    /// </summary>
+    internal sealed class TypeAnchorNames
+    {
+        ApiType? _type;
+        string? _name;
+
+        public string Get(ApiType type)
+        {
+            if (!ReferenceEquals(type, _type))
+            {
+                _name = FormatApiTypeAnchorName(type);
+                _type = type;
+            }
+            return _name!;
+        }
+    }
 
     /// <summary>
     /// Persists <see cref="ApiMember.CanonicalSignature"/> when exact member
@@ -1633,15 +1676,41 @@ public static class ApiMemberIdentity
 
     public static MemberAnchor CreateAnchor(ApiType type, ApiMember member, string canonicalSignature)
     {
-        var fingerprint = MemberAnchor.ComputeFingerprint(
+        var fingerprint = ComputeMemberFingerprint(member, canonicalSignature);
+        return CreateAnchor(
+            FormatApiTypeAnchorName(type),
+            member,
+            canonicalSignature,
+            fingerprint);
+    }
+
+    internal static MemberAnchor CreateAnchor(
+        string typeAnchorName,
+        ApiMember member,
+        string canonicalSignature)
+        => CreateAnchor(
+            typeAnchorName,
+            member,
+            canonicalSignature,
+            ComputeMemberFingerprint(member, canonicalSignature));
+
+    static string ComputeMemberFingerprint(ApiMember member, string canonicalSignature)
+        => MemberAnchor.ComputeFingerprint(
             canonicalSignature,
             member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded);
+
+    static MemberAnchor CreateAnchor(
+        string typeAnchorName,
+        ApiMember member,
+        string canonicalSignature,
+        string fingerprint)
+    {
         var stableSelector = $"{GetMemberSelectorName(member)}~{fingerprint}";
         return new MemberAnchor(
             stableSelector,
             canonicalSignature,
             fingerprint,
-            FormatApiTypeAnchorName(type),
+            typeAnchorName,
             member.Name);
     }
 
@@ -2050,6 +2119,12 @@ public static class ApiMemberIdentity
     }
 
     public static string GetCanonicalSignature(ApiType type, ApiMember member)
+        => GetCanonicalSignature(type, member, typeAnchorNames: null);
+
+    static string GetCanonicalSignature(
+        ApiType type,
+        ApiMember member,
+        TypeAnchorNames? typeAnchorNames)
     {
         // A persisted canonical identity (present for tuple-bearing members whose display
         // signature cannot be re-canonicalized from text after a JSON round-trip) is
@@ -2058,10 +2133,15 @@ public static class ApiMemberIdentity
         if (!string.IsNullOrEmpty(member.CanonicalSignature))
             return member.CanonicalSignature!;
 
-        if (TryGetCanonicalSignature(type, member, out var canonicalSignature))
+        if (TryGetCanonicalSignature(
+                DeclaringTypeAnchorName(type, member, typeAnchorNames),
+                member,
+                out var canonicalSignature))
+        {
             return canonicalSignature;
+        }
 
-        var declaringType = DeclaringTypeAnchorName(type, member);
+        var declaringType = DeclaringTypeAnchorName(type, member, typeAnchorNames);
 
         var kindCode = member.Kind switch
         {
@@ -2184,18 +2264,24 @@ public static class ApiMemberIdentity
     }
 
     static string DeclaringTypeAnchorName(ApiType type, ApiMember member)
+        => DeclaringTypeAnchorName(type, member, typeAnchorNames: null);
+
+    static string DeclaringTypeAnchorName(
+        ApiType type,
+        ApiMember member,
+        TypeAnchorNames? typeAnchorNames)
     {
         if (!string.IsNullOrWhiteSpace(member.DeclaringTypeCanonicalName))
             return member.DeclaringTypeCanonicalName;
         if (string.IsNullOrWhiteSpace(member.DeclaringType))
-            return FormatApiTypeAnchorName(type);
+            return typeAnchorNames?.Get(type) ?? FormatApiTypeAnchorName(type);
         if (type.DefinitionName is not null
             && string.Equals(
                 member.DeclaringType,
                 MetadataTypeNameFormatter.FormatFullName(type),
                 StringComparison.Ordinal))
         {
-            return FormatApiTypeAnchorName(type);
+            return typeAnchorNames?.Get(type) ?? FormatApiTypeAnchorName(type);
         }
         return member.DeclaringType;
     }

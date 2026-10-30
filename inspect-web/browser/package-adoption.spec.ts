@@ -10,10 +10,8 @@ import {
   type Worker,
 } from "@playwright/test";
 import type {
-  BrowserAssemblyReferenceList as AssemblyReferenceList,
-  BrowserAssemblyReferenceResult as AssemblyReferenceResult,
   BrowserPackageCacheStats as CacheStats,
-  BrowserPackageDependencies as PackageDependencies,
+  BrowserPackageDependencyInspection as PackageDependencies,
   BrowserPackageLoadResult as PackageLoadResult,
   BrowserPackageSurface as PackageSurface,
   BrowserPackageVersions as PackageVersions,
@@ -23,6 +21,8 @@ import type {
   BrowserWorkspacePackageOccurrenceActivation as OccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView as OccurrenceView,
   CompiledDocumentationOutcome,
+  InspectionEnvelope,
+  LibraryReferenceInspectionOutcome,
 } from "../src/facades/inspect-web-package.js";
 import type {
   BrowserLibraryStructuralSalience as LibraryStructuralSalience,
@@ -606,8 +606,14 @@ declare global {
         packageId: string,
         version: string,
         framework: string,
-        assemblyId: string,
+        runtimeIdentifier?: string | null,
       ): Promise<PackageDependencies>;
+      queryLibraryReferences(
+        packageId: string,
+        version: string,
+        framework: string,
+        assemblyId: string,
+      ): Promise<InspectionEnvelope<LibraryReferenceInspectionOutcome | null>>;
       queryIntegrations(
         packageId: string,
         version: string,
@@ -725,8 +731,11 @@ async function boot(page: Page): Promise<void> {
         client.package.activateWorkspacePackageOccurrence(action),
       clearOccurrences: () =>
         client.package.clearWorkspacePackageOccurrences(),
-      queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
-        client.package.queryPackageDependencies(
+      queryDependencies: (packageId, pkgVersion, framework, runtimeIdentifier = null) =>
+        client.package.inspectPackageDependencies(
+          packageId, pkgVersion, framework, runtimeIdentifier),
+      queryLibraryReferences: (packageId, pkgVersion, framework, assemblyId) =>
+        client.package.queryLibraryReferences(
           packageId, pkgVersion, framework, assemblyId, null),
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         client.analysis.queryPackageIntegrations(
@@ -815,7 +824,18 @@ function driver(page: Page): {
   }[]): Promise<OccurrenceView>;
   activate(action: string): Promise<OccurrenceActivation>;
   clearOccurrences(): Promise<void>;
-  queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
+  queryDependencies(
+    packageId: string,
+    version: string,
+    framework: string,
+    runtimeIdentifier?: string | null,
+  ): Promise<PackageDependencies>;
+  queryLibraryReferences(
+    packageId: string,
+    version: string,
+    framework: string,
+    assemblyId: string,
+  ): Promise<InspectionEnvelope<LibraryReferenceInspectionOutcome | null>>;
   queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
   queryLibraryStructuralSalience(packageId: string, version: string, framework: string, libraryId: string): Promise<LibraryStructuralSalience>;
   queryPlatformLibraryStructuralSalience(framework: string, version: string, assembly: string, pack: string): Promise<LibraryStructuralSalience>;
@@ -888,6 +908,12 @@ function driver(page: Page): {
       page.evaluate(
         ({ packageId: id, version: ver, framework: tfm, assemblyId: selected }) =>
           window.__adoption!.queryDependencies(id, ver, tfm, selected),
+        { packageId, version: pkgVersion, framework, assemblyId },
+      ),
+    queryLibraryReferences: (packageId, pkgVersion, framework, assemblyId) =>
+      page.evaluate(
+        ({ packageId: id, version: ver, framework: tfm, assemblyId: selected }) =>
+          window.__adoption!.queryLibraryReferences(id, ver, tfm, selected),
         { packageId, version: pkgVersion, framework, assemblyId },
       ),
     queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
@@ -990,31 +1016,6 @@ function firstOccurrence(view: OccurrenceView): OccurrenceRow {
     throw new Error("Expected at least one workspace package occurrence.");
   }
   return row;
-}
-
-// The published facade hands back one completed assembly-reference outcome: an
-// available list (the object case), a failure message (the string case), or the
-// generated union's default null. These narrow that result at the consumer,
-// exactly as the production renderer must, so a test that expects one case can
-// never silently read the other.
-function availableReferences(
-  result: AssemblyReferenceResult,
-): AssemblyReferenceList {
-  if (result === null || typeof result === "string") {
-    throw new Error(
-      "Expected an available assembly-reference list; the facade returned "
-        + `${JSON.stringify(result)}.`);
-  }
-  return result;
-}
-
-function referenceFailure(result: AssemblyReferenceResult): string {
-  if (typeof result !== "string") {
-    throw new Error(
-      "Expected an assembly-reference failure message; the facade returned "
-        + `${JSON.stringify(result)}.`);
-  }
-  return result;
 }
 
 test("Library API Diff preserves distinct carriage-return and newline Type identities", async ({
@@ -1180,6 +1181,88 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve: complete };
 }
 
+test("local Project uploads use real Wasm, preserve declarations, and return from explicit Package inspection", async ({
+  page, context,
+}) => {
+  const registry = new GalleryFixtureRegistry([healthy]);
+  let dependencyTransfers = 0;
+  await installGalleryRoutes(context, registry, async () => {
+    dependencyTransfers++;
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.locator(".home-search")).not.toHaveClass(/engine-pending/, {
+    timeout: 120_000,
+  });
+  const openFile = async (name: string, buffer: Buffer) => {
+    await page.locator("[data-product-navigation-button]").click();
+    await page.locator('[data-product-action="open-library"]').click();
+    await page.locator("#library-open-input").setInputFiles({
+      name, mimeType: "application/octet-stream", buffer,
+    });
+  };
+  const chooseProjectDependencies = async () => {
+    const tab = page.locator("[data-inspector-tab]").filter({ hasText: "Dependencies" });
+    if (await tab.isVisible()) {
+      await tab.click();
+      return;
+    }
+    const trigger = page.locator("[data-navigation-trigger='inspector']");
+    await trigger.click();
+    await page.locator("#inspector-navigation-menu")
+      .getByRole("menuitemradio", { name: /^Dependencies:/ }).click({ timeout: 10_000 });
+  };
+  await openFile("DotnetInspect.Cli.csproj",
+    readFileSync(resolve("../src/DotnetInspect.Cli/DotnetInspect.Cli.csproj")));
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("DotnetInspect.Cli.csproj", { timeout: 30_000 });
+  await chooseProjectDependencies();
+  await expect(page.locator("#inspector-panel")).toContainText("Unresolved declaration");
+  await expect(page.locator("[data-inspector-tab]:visible").filter({ hasText: "Dependencies" })
+    .or(page.locator("[data-navigation-trigger='inspector']:visible"))).toBeFocused();
+  await expect(page.locator("#inspector-panel")).toContainText("MSBuild was not evaluated");
+  const authoredIdentity = await currentHistoryWorkspaceId(page);
+  expect(authoredIdentity).not.toBeNull();
+
+  await openFile("project.assets.json", Buffer.from(JSON.stringify({
+    version: 3,
+    targets: { "net11.0": {
+      [`${healthy.packageId}/${healthy.version}`]: { type: "package" },
+    } },
+    projectFileDependencyGroups: { "net11.0": [`${healthy.packageId} >= ${healthy.version}`] },
+    project: { frameworks: { "net11.0": { dependencies: {
+      [healthy.packageId]: { target: "Package", version: `[${healthy.version}, )` },
+    } } } },
+  })));
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("project.assets.json", { timeout: 30_000 });
+  const restoredIdentity = await currentHistoryWorkspaceId(page);
+  expect(restoredIdentity).not.toBe(authoredIdentity);
+  expect(new URL(page.url()).search).toBe("");
+  expect(new URL(page.url()).hash).toBe("");
+  await chooseProjectDependencies();
+  await expect(page.locator("#inspector-panel")).toContainText(healthy.packageId.toLowerCase());
+  expect(dependencyTransfers).toBe(0);
+  await page.getByRole("button", { name: "Inspect Package", exact: true }).click();
+  await expect(page.locator("#inspector-panel h1"))
+    .toHaveText(new RegExp(`^${healthy.packageId.replaceAll(".", "\\.")}$`, "i"),
+      { timeout: 60_000 });
+  expect(dependencyTransfers).toBeGreaterThan(0);
+  await page.goBack();
+  await expect(page.locator("#inspector-panel h1"))
+    .toContainText("project.assets.json", { timeout: 30_000 });
+  expect(await currentHistoryWorkspaceId(page)).toBe(restoredIdentity);
+  await expect(page.locator("#inspector-panel")).toContainText("No restore or dependency acquisition");
+  await openFile("broken.csproj", Buffer.from("<Project>"));
+  await expect(page.locator("#library-open-error")).toContainText("well-formed XML");
+  await page.locator("#library-open-close").click();
+  await expect(page.locator("#inspector-panel h1")).toContainText("project.assets.json");
+  await openFile("DiffAsmLibA.dll", healthyAssembly);
+  await expect(page.locator("#inspector-panel h1")).toContainText("DiffAsmLibA", { timeout: 30_000 });
+  expect(new URL(page.url()).search).toBe("");
+  expect(new URL(page.url()).hash).toBe("");
+});
+
 test("product navigation discloses startup-dependent destinations", async ({
   context,
   page,
@@ -1208,6 +1291,118 @@ test("product navigation discloses startup-dependent destinations", async ({
 
 test.describe("Capability Spotlight search over real Wasm", () => {
   test.describe.configure({ timeout: 180_000 });
+
+  test("discovers bound Compare analyses without acquiring a package", async ({ page }) => {
+    let archives = 0;
+    page.on("request", request => {
+      if (request.url().includes(".nupkg")) archives++;
+    });
+    await page.goto("/");
+    const search = page.locator("#spotlight-input");
+    await expect(search).toBeEditable({ timeout: 120_000 });
+    await search.fill("string-literals");
+    await expect(page.locator('[data-sl-capability="analyses/string-literals"]'))
+      .toContainText("Analysis");
+    await search.fill("api-attribute");
+    const result = page.locator('[data-sl-capability="analyses/api-attribute"]');
+    await expect(result).toContainText("Analysis");
+    await result.click();
+    await expect(page.getByText(
+      "Select an exact package Library, Type, or Member to open Compare.", { exact: true }))
+      .toBeVisible();
+    expect(archives).toBe(0);
+  });
+
+  test("opens the existing Type Compare inspector through an analysis binding", async ({ page, context }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await page.goto(
+      `/index.html?package=${libraryDiffV2.packageId}&version=${libraryDiffV2.version}`
+        + `&framework=${fixtureFramework}#pkg`);
+    await expect(page.locator('[data-subject-tab][data-scope="library"]'))
+      .toBeVisible({ timeout: 180_000 });
+    await selectFirstExactLibrary(page);
+    await chooseInspector(page, "data-library-lens", "compare");
+    const panel = page.locator("#inspector-panel");
+    await panel.locator('[data-compare-type-id="LibraryApiDiffFixture.AddedType"]')
+      .click({ timeout: 60_000 });
+    await expect(panel.locator(".compare-surface"))
+      .toHaveClass(/compare-surface-type/);
+    await expect(panel.locator(".library-api-diff-member"))
+      .toHaveCount(3, { timeout: 60_000 });
+    await page.getByRole("button", {
+      name: "Search types, members, packages", exact: true,
+    }).click();
+    await expect(page.locator("#spotlight-input")).toBeVisible({ timeout: 10_000 });
+    await page.locator("#spotlight-input").fill("api-attribute");
+    await page.locator('[data-sl-capability="analyses/api-attribute"]').click();
+    await expect(panel.locator(".compare-surface"))
+      .toHaveClass(/compare-surface-type/);
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType");
+    await expect(panel.locator(".compare-target-value"))
+      .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
+  });
+
+  test("opens Type Compare from All libraries through an analysis binding", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry(allFixtures));
+    await page.goto(
+      `/index.html?package=${libraryDiffV2.packageId}&version=${libraryDiffV2.version}`
+        + `&framework=${fixtureFramework}#pkg`);
+    await expect(page.locator('[data-subject-tab][data-scope="library"]'))
+      .toBeVisible({ timeout: 180_000 });
+    await chooseSubject(page, "library");
+    await expect(page.locator('[data-library-subject="all"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await chooseSubject(page, "type");
+    await page.locator('[data-type="LibraryApiDiffFixture.AddedType"]')
+      .click({ timeout: 60_000 });
+    await chooseInspector(page, "data-lens", "compare");
+    const panel = page.locator("#inspector-panel");
+    await expect(panel.locator(".library-api-diff-member"))
+      .toHaveCount(3, { timeout: 60_000 });
+    await page.getByRole("button", {
+      name: "Search types, members, packages", exact: true,
+    }).click();
+    await page.locator("#spotlight-input").fill("api-attribute");
+    await page.locator('[data-sl-capability="analyses/api-attribute"]').click();
+    await expect(page.locator("#spotlight-input")).not.toBeVisible();
+    await expect(panel.locator(".compare-surface")).toHaveClass(/compare-surface-type/);
+    await expect(panel.locator("#compare-title"))
+      .toHaveText("LibraryApiDiffFixture.AddedType");
+    await expect(panel.locator(".compare-target-value"))
+      .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
+  });
+
+  test("opens string literal Compare with a valid retained predicate", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry(allFixtures));
+    await page.goto(
+      `/index.html?package=${libraryDiffV2.packageId}&version=${libraryDiffV2.version}`
+        + `&framework=${fixtureFramework}#pkg`);
+    await expect(page.locator('[data-subject-tab][data-scope="library"]'))
+      .toBeVisible({ timeout: 180_000 });
+    await selectFirstExactLibrary(page);
+    const panel = page.locator("#inspector-panel");
+    const activate = async () => {
+      await page.getByRole("button", {
+        name: "Search types, members, packages", exact: true,
+      }).click();
+      await page.locator("#spotlight-input").fill("string-literals");
+      await page.locator('[data-sl-capability="analyses/string-literals"]').click();
+    };
+    await activate();
+    await expect(page.locator("#spotlight-input")).not.toBeVisible();
+    await expect(page.locator("#compare-diff-content")).toHaveValue("string-literals");
+    await expect(page.locator("#compare-string-literal-value")).toHaveValue("https://");
+    await expect(panel.locator(".compare-target-value"))
+      .toContainText(`${libraryDiffV1.version} → ${libraryDiffV2.version}`);
+    await page.locator("#compare-string-literal-operator").selectOption("starts-with");
+    await page.locator("#compare-string-literal-value").fill("http://");
+    await page.locator("#compare-string-literal-value").press("Tab");
+    await activate();
+    await expect(page.locator("#compare-string-literal-operator")).toHaveValue("starts-with");
+    await expect(page.locator("#compare-string-literal-value")).toHaveValue("http://");
+  });
 
   test("discovers library literal and opens its Package Query facet", async ({
     page,
@@ -3150,11 +3345,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(observed[observed.length - 1]).toBe(maxOpenScopes);
   });
 
-  // Issue #6191: BrowserPackageDependencies.AssemblyReferences is a native C#
-  // union of a reference list and a failure message. These drive the published
-  // production Wasm and the public generated queryPackageDependencies facade so
-  // both cases are real engine answers, not hand-written JSON.
-  test("answers the assembly-reference union's available case with real rows", async ({
+  test("answers shared Package Dependency Inspection with real manifest rows", async ({
     page,
     context,
   }) => {
@@ -3163,8 +3354,53 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await boot(page);
     const engine = driver(page);
 
-    // The selected compile library comes from the package's own surface, so the
-    // reference query runs against the identity the production consumer uses.
+    const dependencies = await engine.queryDependencies(
+      references.packageId,
+      version,
+      fixtureFramework,
+    );
+    expect(dependencies.inspection.content?.kind).toBe("available");
+    if (dependencies.inspection.content?.kind !== "available") {
+      throw new Error("Expected available Package Dependency Inspection.");
+    }
+    const content = dependencies.inspection.content;
+    expect(content.manifest.coordinate).toEqual({
+      packageId: references.packageId.toLowerCase(),
+      version,
+    });
+    expect(content.dependencies.requestedTargetFramework)
+      .toBe(fixtureFramework);
+    expect(content.dependencies.selectedTargetFramework)
+      .toBe(fixtureFramework);
+    const [group] = content.dependencies.groups;
+    if (group === undefined) {
+      throw new Error("Expected the declared manifest dependency group.");
+    }
+    expect(group.dependencies.map(dependency => dependency.id))
+      .toEqual([declaredDependency.id]);
+    expect(content.dependencies.selectedGroup).toEqual(group);
+    expect(dependencies.inspection.share.kind).toBe("nonProjectable");
+    expect(dependencies.inspection.diagnostics).toEqual([]);
+
+    for (const retiredField of [
+      "package",
+      "assembly",
+      "compileLibrary",
+      "assemblyReferences",
+      "declarationFailures",
+    ]) {
+      expect(Object.hasOwn(dependencies, retiredField)).toBe(false);
+    }
+  });
+
+  test("answers shared Library Reference Inspection with real rows", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry(allFixtures);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+    const engine = driver(page);
     const surface = await engine.queryPackage(references);
     const library = surface.assemblies.find(
       candidate => candidate.name === healthyAssemblyName,
@@ -3172,45 +3408,25 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     if (library === undefined) {
       throw new Error(`Expected the ${healthyAssemblyName} Library descriptor.`);
     }
-    expect(String(surface.compileLibrary.status)).toBe("Selected");
 
-    const dependencies = await engine.queryDependencies(
+    const envelope = await engine.queryLibraryReferences(
       references.packageId,
       version,
       fixtureFramework,
       library.id,
     );
-    expect(dependencies.package).toBe(references.packageId);
-    expect(dependencies.version).toBe(version);
-    expect(dependencies.activeFramework).toBe(fixtureFramework);
-    expect(dependencies.assembly).toBe(healthyAssemblyFileName);
 
-    // The available case is an object carrying the existing reference rows.
-    const list = availableReferences(dependencies.assemblyReferences);
-    const rows = list.references;
-    expect(rows.map(row => row.name)).toEqual([expectedReferenceName]);
-    const [row] = rows;
-    if (row === undefined) throw new Error("Expected one AssemblyRef row.");
-    expect(row.version).toBe("11.0.0.0");
-    expect(row.culture).toBe("neutral");
-    expect(row.publicKeyToken).toBeTruthy();
-
-    // The retired parallel field is gone from the wire result, and the outer
-    // manifest, framework, and compile-library facts stay independent of it.
-    expect(Object.hasOwn(dependencies, "assemblyReferenceError")).toBe(false);
-    expect(Object.keys(list)).toEqual(["references"]);
-    expect(dependencies.dependencyGroupError).toBeNull();
-    expect(String(dependencies.compileLibrary.status)).toBe("Selected");
-    const [group] = dependencies.dependencyGroups;
-    if (group === undefined) {
-      throw new Error("Expected the declared manifest dependency group.");
+    expect(envelope.content?.outcome).toBe("available");
+    if (envelope.content?.outcome !== "available") {
+      throw new Error("Expected an available Library Reference Inspection.");
     }
-    expect(group.isActive).toBe(true);
-    expect(group.dependencies.map(dependency => dependency.id))
-      .toEqual([declaredDependency.id]);
+    expect(envelope.content.references.map(reference => reference.name))
+      .toEqual([expectedReferenceName]);
+    expect(envelope.share.kind).toBe("nonProjectable");
+    expect(envelope.diagnostics).toEqual([]);
   });
 
-  test("answers a manifest-only package with a reference failure beside healthy dependency groups", async ({
+  test("answers a manifest-only package without requiring a compile Library", async ({
     page,
     context,
   }) => {
@@ -3219,39 +3435,27 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await boot(page);
     const engine = driver(page);
 
-    // A manifest-only package declares real dependencies and ships no compile
-    // assets, so no assembly-reference list can exist. The assembly id is
-    // unused on this path: the engine reports compile-library unavailability
-    // rather than attempting a reference query.
     const dependencies = await engine.queryDependencies(
       manifestOnly.packageId,
       version,
       fixtureFramework,
-      "",
     );
-    expect(dependencies.package).toBe(manifestOnly.packageId);
-    expect(dependencies.assembly).toBeNull();
-    expect(String(dependencies.compileLibrary.status)).toBe("NoCompileAssets");
-
-    // The failure case is a string carrying the compile-library message, not an
-    // empty successful list and not the union's default null.
-    const failure = referenceFailure(dependencies.assemblyReferences);
-    expect(failure.length).toBeGreaterThan(0);
-    if (dependencies.compileLibrary.message !== null) {
-      expect(failure).toBe(dependencies.compileLibrary.message);
+    expect(dependencies.inspection.content?.kind).toBe("available");
+    if (dependencies.inspection.content?.kind !== "available") {
+      throw new Error("Expected available Package Dependency Inspection.");
     }
-    expect(Object.hasOwn(dependencies, "assemblyReferenceError")).toBe(false);
-
-    // The manifest evidence stays healthy beside that failure.
-    expect(dependencies.dependencyGroupError).toBeNull();
-    const [group] = dependencies.dependencyGroups;
+    const content = dependencies.inspection.content;
+    const [group] = content.dependencies.groups;
     if (group === undefined) {
       throw new Error("Expected the declared manifest dependency group.");
     }
-    expect(group.isActive).toBe(true);
     expect(group.dependencies).toEqual([
       { id: declaredDependency.id, versionRange: declaredDependency.versionRange },
     ]);
+    expect(content.dependencies.selectedGroup).toEqual(group);
+    expect(Object.hasOwn(dependencies, "assembly")).toBe(false);
+    expect(Object.hasOwn(dependencies, "compileLibrary")).toBe(false);
+    expect(Object.hasOwn(dependencies, "assemblyReferences")).toBe(false);
   });
 
   test("projects runtime defaults and explicit ASP.NET Core platform references", async ({
@@ -3267,7 +3471,6 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       runtimeReference.packageId,
       version,
       fixtureFramework,
-      healthyAssemblyFileName,
     );
     expect(runtime.platformReferences).toEqual([]);
     expect(runtime.defaultPlatformReference).toEqual(
@@ -3279,7 +3482,6 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
       aspNetCoreReference.packageId,
       version,
       fixtureFramework,
-      healthyAssemblyFileName,
     );
     expect(aspNetCore.platformReferences).toEqual([
       { family: "aspnetcore", label: "ASP.NET Core" },
@@ -3332,9 +3534,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     const registry = new GalleryFixtureRegistry(allFixtures);
     await installGalleryRoutes(context, registry);
 
-    // The production site served by this gate, opened on the same fixture
-    // coordinate: the page consumes the generated union through its own
-    // queryPackageDependencies call and renders the available case.
+    // The production site served by this gate consumes the shared Library
+    // Reference Inspection envelope and renders its available outcome.
     await page.goto(
       `/index.html?package=${references.packageId}&version=${version}`
         + `&framework=${fixtureFramework}#pkg`);
@@ -4294,6 +4495,44 @@ test.describe("bounded network-backed Worker smoke", () => {
     await expect(page.getByTitle("net11.0", { exact: true })).toBeVisible();
   });
 
+  test("shows real external Package icons in Library References", async ({
+    page,
+  }) => {
+    const query = new URLSearchParams({
+      package: "Microsoft.Azure.SignalR",
+      w: Buffer.from(JSON.stringify({
+        f: 1,
+        t: [["Microsoft.Azure.SignalR", "1.33.1", "net8.0", null]],
+        g: [[0]],
+        a: 0,
+        x: 0,
+        v: "library:references",
+        l: ["compile:lib/net8.0/Microsoft.Azure.SignalR.dll"],
+      })).toString("base64url"),
+    });
+    await page.goto(`/?${query}`, { waitUntil: "domcontentloaded" });
+    const referenceSurface = page.locator(".library-references-surface");
+    const rows = referenceSurface.locator(".dep-list > li");
+    await expect(rows).toHaveCount(40, { timeout: 120_000 });
+    await expect(referenceSurface.locator(".graph-viewport")).toBeVisible();
+
+    for (const name of ["Azure.Core", "Microsoft.Azure.SignalR.Protocols"]) {
+      const row = rows.filter({
+        has: page.locator(".dep-name", { hasText: new RegExp(`^${name.replaceAll(".", "\\.")}$`) }),
+      });
+      await expect(row.locator("img.dep-icon"))
+        .toHaveAttribute("src", /^data:image\//, { timeout: 120_000 });
+      await expect(referenceSurface.locator(".reference-graph-section g.node")
+        .filter({ hasText: name }).locator("image[data-reference-package-icon]"))
+        .toHaveAttribute("href", /^data:image\//);
+    }
+
+    await expect(rows.filter({
+      has: page.getByText("System.Runtime", { exact: true }),
+    }).locator("img")).toHaveCount(0);
+    await expect(rows).toHaveCount(40);
+  });
+
   test("opens ordinary and pathological packages over the real Gallery CDN", async ({
     page,
   }) => {
@@ -4388,6 +4627,72 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(flattened).toContain("AddHttpClient");
   });
 
+  test("renders the Type Overview grammar over real Wasm", async ({
+    page,
+  }, testInfo) => {
+    await page.goto(
+      "/?package=System.Text.Json&version=10.0.13&framework=net10.0",
+      { waitUntil: "domcontentloaded" },
+    );
+    await page.locator(".workbench").waitFor({ timeout: 180_000 });
+    await page.locator("[data-package-child-library]").filter({
+      hasText: "System.Text.Json",
+    }).click();
+    await page.getByRole("tab", { name: "Type", exact: true }).click();
+    await page.locator("[data-type]").filter({
+      hasText: "JsonDocument",
+    }).first().click();
+
+    const overview = page.locator(".type-overview-surface");
+    await expect(overview).toBeVisible({ timeout: 180_000 });
+    await expect(overview.getByRole("heading", { name: "Type shape" }))
+      .toBeVisible({ timeout: 180_000 });
+    await expect(overview.locator(".fact-rows"))
+      .toContainText("System.Object");
+    await expect(overview.getByRole("heading", { name: "Implements" }))
+      .toBeVisible();
+    await expect(overview.locator(".type-chip-list"))
+      .toContainText("IDisposable");
+    await expect(overview.locator('[data-overview-badge="class"]'))
+      .toHaveText("class");
+    await expect(overview.locator('[data-overview-badge="sealed"]'))
+      .toHaveText("sealed");
+    await expect(overview.locator('[data-overview-badge="public"]'))
+      .toHaveText("public");
+    await expect(overview.getByText("Type rollup", { exact: true }))
+      .toHaveCount(0);
+    await expect(overview.locator("[data-type-members]"))
+      .toContainText("members");
+
+    const shapeIndex = await overview.getByRole("heading", {
+      name: "Type shape",
+    }).evaluate(element => Array.from(
+      element.closest(".metadata-surface-scroll")?.children ?? [],
+    ).indexOf(element.closest("section")!));
+    const implementsIndex = await overview.getByRole("heading", {
+      name: "Implements",
+    }).evaluate(element => Array.from(
+      element.closest(".metadata-surface-scroll")?.children ?? [],
+    ).indexOf(element.closest("section")!));
+    expect(shapeIndex).toBeLessThan(implementsIndex);
+
+    const explore = page.locator("#type-graph-explore");
+    await expect(explore).toBeEnabled();
+    await explore.click();
+    const graphExplorer =
+      page.getByRole("dialog", { name: "Type relationships" });
+    await expect(graphExplorer).toBeVisible();
+    await graphExplorer.getByRole("button", { name: "Close" }).click();
+    await expect(graphExplorer).toBeHidden();
+    await expect(explore).toBeFocused();
+
+    await page.locator("#subject-panel").screenshot({
+      path: testInfo.outputPath("type-overview-json-document.png"),
+    });
+    await overview.locator("[data-type-members]").click();
+    await expect(page.locator(".api-row[data-member]")).not.toHaveCount(0);
+  });
+
   test("projects exact all-access Type method leverage into the UI", async ({
     page,
   }, testInfo) => {
@@ -4405,6 +4710,7 @@ test.describe("bounded network-backed Worker smoke", () => {
     await page.locator("[data-type]").filter({
       hasText: "JsonSerializerOptions",
     }).first().click();
+    await chooseInspector(page, "data-lens", "api");
     await expect(page.getByRole("button", {
       name: "Show Top Leverage",
       exact: true,

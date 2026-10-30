@@ -8,8 +8,8 @@ namespace ILInspector.Metadata.Tests;
 /// <summary>
 /// The declaration cursor's gates (<c>docs/design/finding-census.md#gates</c>,
 /// adoption step 3): per Type over the Finding Diff Any fixture pair and a
-/// real image against itself, Exists over two declaration cursors agrees with
-/// the walk's verdicts, the identity-set comparison of the drained censuses
+/// real image against itself, Exists over two declaration cursors supplies
+/// the walk's raw evidence (uncertain API differences settle at Type scope), the identity-set comparison of the drained censuses
 /// has a non-Present pair exactly when Exists is Changed, every fact kind
 /// the fixtures declare appears in a drained census, and the identity images
 /// read through the cursor are Indeterminate where the walk is (fault order;
@@ -19,7 +19,7 @@ namespace ILInspector.Metadata.Tests;
 public sealed class DeclarationCensusAgreementTests
 {
     [Fact]
-    public void FixturePair_ApiExistsPerTypeEqualsTheWalksApiState()
+    public void FixturePair_ApiCensusSupportsTheSettledApiState()
     {
         FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
@@ -316,19 +316,23 @@ public sealed class DeclarationCensusAgreementTests
                 FindingExistsResult api = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, FindingDiffAnyAxis.Api);
                 FindingExistsResult body = DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, FindingDiffAnyAxis.Body);
                 Assert.True(
-                    Decision(state.Api) == api.Decision,
+                    (api.Decision == FindingExistsDecision.Changed || Decision(state.Api) == api.Decision)
+                        && (state.Api != FindingDiffAnyState.Changed || api.Decision == FindingExistsDecision.Changed),
                     $"{state.FullName} API: walk {state.Api}, lockstep {api.Decision} after {api.OldAtoms}/{api.NewAtoms} facts");
-                // The walk's Body axis is the declaration facts and the IL: a
-                // Body Unchanged has equal declaration facts, and a Body Changed
-                // has unequal declaration facts exactly when the walk's first
-                // Body difference is a declaration fact rather than a method's IL.
+                // The walk's Body axis is the declaration facts, the presence of
+                // bodies, and the IL: a Body Unchanged has equal declaration
+                // facts, and a Body Changed has unequal declaration facts exactly
+                // when the walk's first Body difference is a declaration fact
+                // rather than a body present on one side only or a method's IL.
                 if (state.Body == FindingDiffAnyState.Unchanged)
                     Assert.Equal(FindingExistsDecision.Unchanged, body.Decision);
                 if (state.Body == FindingDiffAnyState.Changed && uniqueNames.Contains(state.FullName))
                 {
                     (_, string? explained) = FindingDiffAny.Explain(before, after, state.FullName);
                     Assert.NotNull(explained);
-                    bool declarationsDiffer = !explained.StartsWith("IL ", StringComparison.Ordinal);
+                    bool declarationsDiffer = !explained.StartsWith("IL ", StringComparison.Ordinal)
+                        && !explained.StartsWith("- body ", StringComparison.Ordinal)
+                        && !explained.StartsWith("+ body ", StringComparison.Ordinal);
                     Assert.True(
                         declarationsDiffer == (body.Decision == FindingExistsDecision.Changed),
                         $"{state.FullName} Body: walk's first difference {explained.ReplaceLineEndings(" ")}, lockstep {body.Decision}");

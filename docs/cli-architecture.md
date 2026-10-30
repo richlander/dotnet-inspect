@@ -48,6 +48,25 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Type target admission
+
+Ordinary `type` inspection requires a Type name or pattern, supplied
+positionally or through `-t`/`--type`. A source alone does not select a Type:
+the command fails non-zero on stderr with usage and Library-inventory guidance,
+without emitting inspection content. Help, section discovery, and query
+discovery remain available without a Type. Explicit Type selection and implicit
+router behavior retain their existing contracts.
+
+The motivating real asset is nuget.org `Microsoft.Azure.SignalR` 1.33.1.
+`type --package Microsoft.Azure.SignalR@1.33.1` incorrectly returned a
+Library-wide Classes/Interfaces document, while `type
+Microsoft.Azure.SignalR.ServiceRouteBuilder --package
+Microsoft.Azure.SignalR@1.33.1` correctly returned that Type's Members.
+Durable CLI tests cover missing selectors across source forms and output modes,
+with exact-Type, explicit-pattern, and discovery controls. The pinned package
+commands provide the real-asset smoke check; missing-input tests do not acquire
+packages because rejection must not depend on package availability.
+
 ### Online Package inspection admission
 
 Ordinary online single-Package inspection acquires through PackageHouse and
@@ -77,6 +96,105 @@ Microsoft.NETCore.App.Ref@10.0.0 --tfm net9.0 -S "Package Info" --json`.
 Deterministic configured-source tests gate admitted inspection with unusable
 DLLs, unmatched frameworks, and selected versions; existing source, wrapper,
 offline, and Library tests remain neighboring controls.
+
+#### Declared Package result evidence
+
+The CLI declares known result requirements before acquisition or expensive
+preparation. Files Count and selected entry rows use the existing File List
+demand and their own QuerySpace terminal. Package children use
+compile-inventory evidence, not Library content. Children retain the
+committed content-only Root and its owner-issued
+selection, including empty and incompatible-target outcomes. Rendering format
+alone does not determine evidence strength.
+Children obtain declared identity and tool classification through the shared
+manifest-facts query without requesting dependency-group selection or Library
+inspection. A rejected or unreadable manifest is a visible failure.
+Undeclared packages with tool-directory content and no known `lib/` directory
+retain legacy classification, including unavailable children when tool settings
+are missing. Directory evidence is sufficient to choose that fallback.
+
+Rich inspection still requires its promised fields, including full JSON's
+existing facts and House measurements. Package Info retains selected Library
+content because its ecosystem recognition requires Metadata, not just
+directory measurements. Requests for body-backed facts, tool
+metadata, wrappers, and other unadopted shapes retain their complete-content
+route; a narrow inventory must not masquerade as their complete result.
+Local/offline, exact-reference, Workspace, and Library routes are unchanged.
+PackageHouse alone chooses physical transfer and fallback.
+
+The motivating pinned assets are `Newtonsoft.Json@13.0.4` and
+`Microsoft.NETCore.App.Ref@10.0.0`: ordinary children select one and 167
+compile Libraries respectively, but their identities and counts do not
+require opening those DLLs. Files lengths likewise come from admitted
+directory evidence. Durable
+configured-feed controls use unreadable DLLs and a large unrelated entry to
+distinguish directory answers from body acquisition; exact NativeAOT evidence
+compares the two real packages with equivalent outputs. This is CLI adoption
+under #10594, slice 4/5 of #10593 and overall tracker #6638, not resolution of held #10427 or
+Browser adoption #10598.
+
+Direct Package inspection in Debug still requires `--workspace` for
+`--evidence-envelope`. For #10594 the operator approved exact NativeAOT
+timing/output comparisons and existing deterministic work controls rather
+than a separate direct-Package diagnostics prerequisite. No production-network
+request or byte attribution is claimed from those timings.
+
+`PackageChildren_RangedRead_DoesNotAcquireLibraryBodies`,
+`PackageChildren_RangedRead_PreservesUnavailableAndEmptySelection`, and
+`PackageFiles_RangedRead_RequestsDirectoryOnly` gate the adopted work boundary.
+Existing typed-JSON, selected-source, tool, and file-window controls preserve
+the neighboring result contracts.
+
+### Literal Package file content admission
+
+One pinned online Package with a safe, extension-bearing literal `--path` and
+full `--content` acquires its exact file through PackageHouse and admits that
+same generation as a native content-only Workspace Root before reading it.
+The shared detached-content operation runs under the committed Root's query
+admission; exact file export retains its bounded streaming path under the same
+admission and lifetime. No Library selection is requested or invented.
+The detached request must name the same acquired content generation as its
+Workspace occurrence; reacquiring a coordinate does not reuse the old admission.
+Acquisition, admission, and read failures are terminal, not permission to retry
+through extraction.
+
+This is slice 2 of the three-slice content-adoption plan under
+[#6638](https://github.com/richlander/dotnet-inspect/issues/6638), following
+[#10607](https://github.com/richlander/dotnet-inspect/pull/10607).
+[Content-only package admission](design/artifact-acquisition-and-workspaces.md#content-only-package-admission)
+owns Root identity and lifetime; [exact file demand](design/package-read-demand.md#exact-file-demand)
+owns House entry selection and transfer policy. Browser adoption is a separate
+slice. Evidence is optional detached output, not a prerequisite for admission.
+
+Debug builds advertise `--evidence-envelope <file>` for detached literal-file
+content projections. The same invocation reports its House transfer receipt,
+Root query admission outcome, retained Library-selection status, and realized
+Library counts. Exact streaming file export does not currently expose this
+gesture; it refuses it before acquisition rather than detaching extra content
+or claiming an envelope it did not execute. Ordinary exports retain their
+bounded behavior. Release builds do not expose evidence capture.
+
+The motivating asset is nuget.org `System.Text.Json@10.0.0`: its 3,543-byte
+`System.Text.Json.nuspec` needs neither a Library nor its framework/generator
+assets. Reproduce with `package System.Text.Json@10.0.0 --path
+System.Text.Json.nuspec --content --raw`. Deterministic configured-source
+packages gate the production route; the published package supplies pinned
+real-asset evidence.
+`PackageCommand_LiteralNuspec_RealSystemTextJsonUsesExactContent` exercises the
+pinned real archive through separator, raw, JSONL, and exact file output.
+`PackageFileContentInspectionTests.RetiredRootCannotReadTheAcquiredFile`
+gates refusal after retirement;
+`ReacquiredFileRequiresItsOwnAdmittedGeneration` gates exact-generation
+correspondence; and
+`PackageCommand_LiteralFile_AcquisitionFailureDoesNotRetryExtractor` gates
+terminal acquisition failure.
+
+Local/offline, unpinned, TFM-filtered, scoped-content, row-selected,
+multi-Package, alias, glob, and directory requests retain their existing routes.
+Extensionless files also remain there because their Markdown role may require
+manifest interpretation. A tool wrapper retains its existing redirect route.
+Recognizing those distinct requests is not an extractor retry after an exact
+file operation fails.
 
 ### Exact Package reference admission
 
@@ -204,6 +322,31 @@ rebuilt from help text or from a curated list of command names.
   reachability invariant.
 
 Exact paths and search keep their existing neighbor tests.
+
+### Diff analysis input explanation
+
+The CLI's installed Diff analysis binding declares the inputs needed to execute
+its selected analysis, not only the `diff --analysis` gesture. For string-literal
+comparison this includes the mandatory predicate cardinality, admitted operators,
+operand bounds, and transport of the complete predicate as one shell argument.
+These are consumer-owned input rules under
+[Inspection Capability Composition](design/inspection-capability-composition.md#consumer-binding);
+[Resource Explanation](design/resource-explanation.md#product-role) projects them
+without package acquisition or inspection. The binding does not introduce a
+Query Space or change the analysis's predicate semantics.
+
+The motivating asset is Microsoft.Identity.Client **4.61.3 -> 4.92.0**, selecting
+`lib/netstandard2.0/Microsoft.Identity.Client.dll`. Its changed HTTPS-containing
+literal uses motivated the
+[matched supply-chain pilot](https://github.com/richlander/dotnet-inspect/issues/8151#issuecomment-6505279459):
+the installed binding exposed the analysis but no input rules, forcing the
+reader to obtain its required predicate from validation errors. The adjacent
+Serilog **4.3.0 -> 4.4.0** comparison supplies a completed no-change control.
+
+`DiffAnalysisBinding_ExplainsTheRequiredLiteralPredicateAndTransport` gates the
+actual installed explanation. Fresh matched readers over those pinned assets
+gate the agent handoff separately; explanation metadata tests alone do not
+establish that an unfamiliar agent will use it successfully.
 
 ### Vocabulary reading admission
 
@@ -364,16 +507,22 @@ reusable owners produce the facts.
 ### Planned Workspace packet activation
 
 Root activation admits Workspace inventory and query-free saved Package
-`package.libraries` and Type `type.api` views. These consume the exact
+`package.libraries`, Type `type.api`, and Member `member.overview` views. These
+consume the exact
 selected-subject handoff implemented under
 [#10408](https://github.com/richlander/dotnet-inspect/issues/10408) and invoke
 the ordinary inspection over the admitted Root and Navigation registration.
 Type projection uses its structured definition identity within that exact
 Library; it does not search declaration contexts again. Both raw and `-w`
-entrances preserve ordinary output formats, row controls and Count.
-Other saved facets and attached queries are refused before acquisition.
+entrances preserve ordinary output formats, row controls and admitted Count
+semantics.
+Member projection additionally supplies the saved owner-issued digest selector
+to ordinary Member inspection. A saved Member overview has no Count terminal:
+ordinary Member Count requires section selection, so activation retains that
+diagnostic before restoration. Other saved facets and attached queries are
+refused before acquisition.
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647) continues with
-Member and saved-query bindings. The full target contract follows.
+other saved-facet and query bindings. The full target contract follows.
 
 This is the target CLI contract for [#4647](https://github.com/richlander/dotnet-inspect/issues/4647),
 partially implemented as described above. The CLI owns command admission,
@@ -382,6 +531,14 @@ the one-shot landing choice, terminal output, and exit behavior. It consumes
 complete-restoration contracts; inspection operations retain their existing
 selection, query, execution and result contracts. Browser activation remains
 an existing consumer of those shared owners.
+
+Member replay uses `System.Text.Json@10.0.0/net10.0` as its real input:
+`JsonSerializer.Serialize` has multiple overloads, while
+`IsReflectionEnabledByDefault` supplies a property control. The binding must
+retain the saved Member anchor within the exact Navigation Library and
+structured declaring Type, including when the source query changes the input
+packet's focused tab. Save/replay format, Count and Browser activation gates
+use the pinned archive and actual emitted packet.
 
 The user-requested entrances are:
 
@@ -547,7 +704,11 @@ its exact JsonSerializer subject and `type.api` facet through Browser
 activation. CLI Type cases compare ordinary rendering and Count across
 formats, two contexts and small Type populations. Plain text includes a
 per-invocation temporary assembly path, normalized only in parity assertions.
-Member and attached-query execution remain staged.
+The recorded [Member replay packet](examples/workspace-member-replay.json)
+likewise reopens through production Browser activation. Member CLI gates compare
+ordinary overload/property output across formats, preserve the exact anchor and
+reject unsupported Count before acquisition. Other facets and attached-query
+execution remain staged.
 
 [#10132](https://github.com/richlander/dotnet-inspect/issues/10132) tracks the
 production path: this focused CLI contract, owner-issued packet recognition,
@@ -557,10 +718,119 @@ gates; this work does not redesign its UI. Runtime adoption must publish exact
 NativeAOT base/head evidence for every affected terminal and identify every
 unsupported saved binding before claiming #4647 complete.
 
+### Bare-target domain selection
+
+**Status: operator-approved design pivot, 2026-10-29; not yet implemented.**
+This section owns ordinary bare-target Router domain selection. The examples
+below specify the target contract, not syntax already available in every
+current command. Existing implementation and tests still contain cross-domain
+fallback and API discovery before domain selection; those are not compatibility
+requirements for this pivot.
+
+> Select one domain from explicit intent or Ecosystem configuration before
+> acquisition, then resolve only within that domain. Performance and
+> determinism take precedence over helpful inference.
+
+#### Classification before resolution
+
+Explicit commands and source intent take precedence over defaults. At the bare
+Router entrance, standalone `--platform` and `--package` disambiguate the
+positional target's domain. A `package` command or explicit package coordinate
+also selects Package. Existing valued source selectors retain their contracts:
+`type JsonSerializer --package System.Text.Json` still inspects a Type, not a
+Package. Conflicting explicit intent must fail
+before acquisition; option-value ownership must not depend on lookup results.
+Exact files, Package references and Workspace packets retain their separate
+admission paths.
+
+Without explicit intent, consume the resource-free
+[Ecosystem assembly-name claim](design/ecosystem-dependency-recognition.md#direct-assembly-name-claims)
+and its Platform-search eligibility. An eligible claim selects Platform;
+otherwise the default is Package. Ecosystems own claim precedence and
+associations. Router must not duplicate that policy with its own `System.*` or
+`Microsoft.*` rules.
+
+A claim is a routing default, not proof that the selected source supplies the
+subject. Runtime may claim `System.*` even when a particular name is available
+only as a NuGet package. No exact Platform-supply catalogue, assembly scan,
+Workspace realization, package search, or absence proof is required to choose
+the domain.
+
+| Target-contract input | Selected domain | Reason |
+| --- | --- | --- |
+| `System.Text.Json` | Platform | Runtime's configured claim |
+| `System.Text.Json.JsonSerializer` | Platform | The same default, followed by Platform subject resolution |
+| `System.String.ctor` | Platform | The same default, followed by Platform member resolution |
+| `newtonsoft.Json` | Package | No Platform-eligible claim |
+| `System.CommandLine` | Platform | Runtime's default applies even though a NuGet package exists |
+| `package System.CommandLine` | Package | Explicit subject command |
+| `System.CommandLine --package` | Package | Explicit domain override |
+| `System.Text.Json@10.0.0` | Package | Explicit package coordinate |
+| `List<T> --platform` | Platform | Explicit domain override |
+| `string.ctor --platform` | Platform | Explicit domain override |
+
+Unqualified API shorthand does not authorize implicit Platform discovery.
+Callers must select Platform when the Ecosystem default does not. Invalid
+Package syntax is not evidence that a token should be retried as a Type.
+
+#### One selected domain
+
+The selected domain's existing owners resolve the Library, Type, Member, or
+Package subject. A Platform miss, ambiguity, unavailable source, incomplete
+result, failure, or cancellation must not start a Package lookup. The reverse
+is equally prohibited. Do not silently add another Platform family, widen a
+Workspace, or use prefix/fuzzy discovery to find an alternative subject.
+The [Platform route adapter](design/cli-platform-type-routing.md) is a consumer
+of this decision, not a prerequisite for making it.
+
+For the same normalized input, explicit intent and Ecosystem configuration,
+cache contents, installed inventory, network availability and provider timing
+must not change the selected domain. This does not freeze package versions or
+guarantee that a selected subject exists: version and target resolution remain
+with their owners. A Package-backed Platform source remains Platform
+realization, not a fallback to inspecting a Package subject.
+
+Router opens an exact subject or reports a bounded non-success. Workspace
+symbol discovery belongs to [Find](design/find-workspace-scope.md); discovery
+across domains and selection among typed candidates belong to Spotlight.
+Router does not federate their searches or select whichever provider responds
+first. A hint may suggest an explicit override or a discovery command, but
+must not acquire additional sources or run that discovery to prepare the hint.
+
+#### Adoption and required evidence
+
+The motivating published assets are `System.Text.Json@10.0.0`,
+`Newtonsoft.Json@13.0.4` and `System.CommandLine@2.0.3`. Their overlapping
+Platform and Package spellings motivate an explicit policy rather than
+existence-sensitive routing. This documentation change approves no runtime
+implementation, performance result, or test-baseline update.
+
+Implementation must gate classification separately from subject resolution:
+
+- Prove that default and override classification perform no source discovery,
+  acquisition, metadata scan or Workspace realization.
+- Cover the table above, conflicting overrides, valued source-option binding,
+  explicit commands and the existing file/reference/packet entrances.
+- Vary cache state, source availability and response ordering without changing
+  the selected domain. On a selected-domain miss or failure, require zero
+  calls to the other domain and no scope expansion.
+- Measure cold and warm end-to-end resolution separately from classification;
+  an exact locator answer does not prove that realizing its population is
+  cheap. Do not claim a performance improvement from terminal correctness.
+
+Removing outcome-driven fallback and API discovery before domain selection is
+intentionally breaking under
+[CLI change classification](design/cli-change-classification.md).
+The implementation must update affected current guidance and disclose the
+replacement gestures. Migrate old shorthand/fallback tests to the selected
+domain contract; do not restore exploratory searches merely to turn them
+green. Find and Spotlight behavior is not redesigned by this pivot.
+
 ### Bare-target ecosystem explanation
 
-Ordinary commandless routing retains its existing noninteractive defaults.
-After the authoritative child parse succeeds, the CLI may add a short routing
+This implemented annotation consumes the selected route; it does not own
+domain selection. After the authoritative child parse succeeds, the CLI may
+add a short routing
 note to stderr for a whole-name platform Library selected by the Router or
 an ecosystem-owned Package target. It never asks the user to choose, changes
 the rewritten command, or mixes this prose into stdout or an output file.
@@ -681,6 +951,20 @@ The descriptor carries the resolved source's package/version/TFM, platform
 framework/version, project context, explicit file designation, or local provenance. Deferred type/member
 routing uses the same selection path and passes the loaded surface to `type`
 unchanged, rather than selecting or extracting it again.
+
+Package Type/Member acquisition preserves an explicit `--tfm` even when the
+positional Type/member boundary remains unresolved. Failure to find the whole
+dotted target as a Type does not authorize selection from another framework.
+An unavailable requested framework fails visibly instead of reverting to the
+package's highest framework. Existing Library selection remains authoritative.
+
+The motivating asset is nuget.org `System.Text.Json` 10.0.0: `member
+System.Text.Json.JsonSerializer.DeserializeAsync --package
+System.Text.Json@10.0.0 --tfm net9.0 --tree` must inspect net9.0, just like
+separate Type and Member arguments. Offline cache-seeded
+`Member_PackageTargetFrameworkSurvivesDeferredBoundary` cases use different
+framework Library populations to gate the actual selection and the unavailable
+framework failure without requiring a network acquisition in ordinary tests.
 
 `TypeApiSelection_RejectsUnusableAssemblyIdentity`,
 `TypeApiSelection_RejectsUnusablePackageAssembly`,

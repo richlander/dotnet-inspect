@@ -413,13 +413,19 @@ An operation request carries an ordered, duplicate-free, non-empty analysis set
 or omits it. Omission selects the operation's own default set. The default set
 is operation-owned curation, not an analysis declaration.
 
+The operation also declares the [question mode](#question-mode) its requests
+ask, in its `AnalysisOperationDefinition`. Every analysis operation requests
+Targeted today; another mode enters with the first operation that asks it,
+because set validation counts Targeted privileged anchors.
+
 Validation is complete and precedes producer execution. The set is rejected as
 a whole with one typed reason per offending entry when an entry:
 
 - names no configured descriptor;
 - names a descriptor with no participation for the requesting operation kind;
-- names a descriptor whose participation does not support the request's
-  report-surface kind, using the existing unsupported-surface rejection; or
+- names a descriptor whose participation or report-surface support does not
+  admit the request's report-surface kind at the operation's question mode,
+  using the existing unsupported-surface rejection; or
 - repeats an earlier entry.
 
 Validation does not drop an entry, substitute a similar ID, reorder the set, or

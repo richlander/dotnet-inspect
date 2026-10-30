@@ -16,9 +16,11 @@ The Type-side producers now have role-specific names:
 optional Member-group population used by compact projections and direct
 discovery. Remaining transitional Member content shapes and host-local
 composition must not be presented as the target contract.
-The complete Type Signature required by exact `Type Info` is specified below.
-Its source-native producer and host adoption remain pending under
-[#10169](https://github.com/richlander/dotnet-inspect/issues/10169).
+The complete Type Signature required by exact `Type Info` is implemented by
+[#10820](https://github.com/richlander/dotnet-inspect/pull/10820).
+CLI fixed-field projections and Browser Type metadata consume the same
+`TypeSignatureInspectionOperation` result. The Browser retains that envelope
+beside its additional relationship and declaration content.
 The transitional exact-Member producer remains C#-spelling-only and rejects
 Metadata spelling until a later producer slice can emit true Metadata
 declarations.
@@ -139,6 +141,7 @@ smallest complete fact set for the established fixed `Type Info` record:
 | Base | The complete source Type shape and presentation evidence for the Base row when the established projection includes one. |
 | Type parameters | Every parameter needed to spell the selected root-to-leaf Type, in defining-segment and metadata order, with its exact name, variance, ordered keyword constraints, and ordered Type constraints. |
 | Interfaces | The direct implemented-interface Count. |
+| Nested Types | The Count of TypeDefs whose direct declaring Type is the selected TypeDef. |
 
 Complete is relative to that fixed scalar question. Type Signature does not
 include implemented-interface identities, attributes that do not affect these
@@ -146,6 +149,14 @@ facts, Member declarations or Counts, derived Types, documentation, source,
 metrics, Analysis, or another attachment. Library, Package, Version, TFM, and
 Source are acquisition context composed beside the Signature; they are not
 Type declaration facts.
+
+Nested Types counts every immediate NestedClass child, regardless of
+accessibility, hidden or compiler-generated classification, or host admission
+options such as `--all`. It does not recurse: a deeper descendant contributes
+to its immediate declaring Type's Count, not every ancestor's Count. The
+Signature carries zero explicitly; fixed-field presentation may omit that row
+as it does for zero Interfaces. The scalar does not add nested-Type Rows or
+classify nested Types as MemberGroups.
 
 The Base fact is absent only when the Type has no base or the established
 projection omits its runtime-category base. It preserves every base spelling
@@ -200,14 +211,19 @@ The completed operation crosses the host-neutral boundary as one
 CLI and Browser/Wasm consumers preserve that Content, Share outcome, and
 diagnostics while independently choosing gestures and presentation.
 
-The current direct CLI path is transitional. It receives category, modifier,
-interface Count, parameter names and flags, parameter annotations, constraint
-row Counts, and a base classification. It admits the source-native TSV writer
-only after content-based admission inspects those facts; constraint Types,
-parameters introduced by declaring generic Types, and nontrivial bases rerun
-the established rich path. Complete Type Signature replaces that admission
-rule and the discard-and-rerun fallback. It does not add a second Type
-formatter or a new Browser gesture.
+The direct CLI TSV path writes the completed Signature without a UTF-16
+document. Other fixed-field projections and Browser Type metadata use the
+same Signature spelling projection, including base and generic-constraint
+evidence. Transport contains byte-originated names only at the JSON sink and
+preserves the detached structural Type shapes, subject, Share, and diagnostics.
+Transported presentation names do not confer Metadata authority.
+
+`System.Text.Json@10.0.0` and the pinned CoreLib below motivate host parity:
+normal/detailed CLI `Type Info` and the existing Browser Type overview must
+not obtain different generic, Base, or nested-Type facts merely because one
+host also requests Member or relationship content. Focused shared and host
+tests compare the completed Signature and its projection without adding a
+Browser gesture.
 
 The pinned .NET 11 RC1 CoreLib below is the production witness. Its generic
 Type census contains zero-constraint and constraint-Type declarations;
@@ -522,6 +538,35 @@ equivalent multi-row documentation-table gesture; its existing exact-Member
 documentation surface is unchanged. A future host gesture may consume the same
 host-neutral composition without changing this contract.
 
+### Complete Type Member rows
+
+`TypeDocumentAttachmentCompositionOperation` composes the ordinary
+`TypeDocumentInspectionPlan` with an explicit documentation request. It retains
+that inspection outcome, Share, and diagnostics unchanged. Only an available
+Type document supplies subjects to the existing Member attachment operation;
+rejected, incomplete, or failed inspections perform no documentation work.
+Available attachments correspond to all declarations in their existing order.
+An attachment failure does not replace the completed declaration document.
+Empty declaration populations require no documentation provider call.
+
+`System.Text.Json@10.0.0`, `System.Text.Json.JsonSerializer`, motivates this
+composition: its complete declaration list includes multiple overload families,
+including fifteen `Serialize` declarations. Durable tests use the existing
+pinned package acquisition helper, compare documented and plain subjects, and
+exercise missing documentation and mismatched provider results. Documentation
+outcome settlement remains owned by DocumentationHouse. Plain declaration and
+Count operations retain their existing paths and do not acquire documentation;
+this operation adds only explicitly requested attachments to completed rows.
+CLI Type adoption (#10804) and Browser adoption (#10808) consume this shared
+composition in subsequent slices of #10802.
+
+`TypeDocumentInspectionOperationTests` gates declaration/attachment order,
+absence, typed association failures, and skipped work for empty, rejected, and
+incomplete populations. The existing
+`RealSerialize_CountAndBoundedRowsShareOneExactPopulation` and
+`CountAndRowsPlanning_ResolvesAcquisitionOnce` gates retain the independent
+Count/Rows path; that request has no documentation demand or provider.
+
 ## Platform and safety boundary
 
 Requests, documents, population receipts, and explanation handoffs are
@@ -545,22 +590,22 @@ production adoption as focused slices:
    Explanation. Complete.
 5. Implement compact `TypeOverviewDocument`. Complete.
 6. Implement complete `TypeDocument` Member population. Complete; the Type
-   Signature strengthening follows under #10169.
+   Signature strengthening is supplied by #10820.
 7. Adopt the documents independently in CLI and Browser/Wasm.
 8. Retire transitional document names and superseded host-local composition.
 
-The complete Type Signature adoption tracked by #10169 has four focused steps:
+Complete Type Signature adoption has four focused steps:
 
 1. Lock the fixed Signature contract in this owner. This document completes
    that design step.
 2. Land the independently owned
    [Metadata declaration-evidence](metadata-type-declaration-evidence.md) slice
-   that supplies every required base and constraint Type shape without
-   widening Name requests.
+   that supplies every required base and constraint Type shape and immediate
+   nested-Type Count without widening Name requests. Complete.
 3. Adopt that result in exact CLI `Type Info`, preserve every established
-   projection, and retire the post-inspection admission and rich rerun.
+   projection, and retire the post-inspection admission and rich rerun. Complete.
 4. Use the same host-neutral result for Browser/Wasm Type subject facts when
-   that host requests Signature, without adding a new UI gesture.
+   that host requests Signature, without adding a new UI gesture. Complete.
 
 The Type-side naming collision in step 8 is retired:
 `TypeSubjectInspectionOperation` names the reusable subject/population
@@ -593,16 +638,18 @@ projections retain their independently admitted routes.
 As a performance prerequisite for later slice 7 adoption, exact direct-Library
 effective discovery in the CLI uses
 `TypeSubjectInspectionOperation` without claiming adoption of the four public
-document declarations. Exact `Type Info` requests only the detached Type
-subject. Bare discovery adds declared Member-group selector Counts and a
-separately typed same-image contextual-extension Exists request. Both share one
-opened assembly image; neither constructs Member-group Rows or the rich API
-surface. Direct bare discovery admits only minimal, non-tree output, which
-lists categories without their members, so it does not run the opt-in unsafe
-applicability probe; exact `Unsafe Members` discovery still runs it on demand.
-Unsupported declaration shapes, non-exact or non-round-tripping names, and
-requests that list category members retain the established route and its
-probe.
+document declarations. Direct-Library TSV `Type Info` now selects complete
+Signature before inspection and streams that host-neutral result without
+constructing the rich API surface. Bare discovery retains declaration demand,
+then adds declared Member-group selector Counts and a separately typed
+same-image contextual-extension Exists request. Both routes share one opened
+assembly image; neither constructs Member-group Rows. Direct bare discovery
+admits only minimal, non-tree output, which lists categories without their
+members, so it does not run the opt-in unsafe applicability probe; exact
+`Unsafe Members` discovery still runs it on demand. Non-TSV output,
+non-direct acquisition, unsupported declaration shapes, non-exact or
+non-round-tripping names, and requests that list category members retain the
+established route and its probe.
 
 The motivating production case is .NET 11 RC1 CoreLib
 `System.Text.StringBuilder`, whose previous exact direct-Library effective
@@ -633,6 +680,10 @@ Implementation slices must add Release gates proving:
 - Type parameters are assigned once to their introducing segment, pseudo
   constraints are not duplicated, and constraint ordering matches the
   established projection;
+- Nested Types counts every immediate NestedClass child exactly once,
+  independent of accessibility, hidden or compiler-generated classification,
+  `--all`, and deeper descendants; malformed relationship evidence remains
+  visible non-success;
 - Package, Library, and Type Name requests do not acquire referenced Signature
   Types merely because Signature can answer the selected scalar subject;
 - exact-base/head NativeAOT evidence covers a zero-constraint Type and a Type

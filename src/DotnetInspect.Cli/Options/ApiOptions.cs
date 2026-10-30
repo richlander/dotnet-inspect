@@ -397,6 +397,7 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    public bool NamesakeLibrary { get; init; }
     internal bool MermaidExplicitlySet { get; init; }
     internal bool NonHierarchyFormatExplicitlySet { get; init; }
     internal bool LineWindowExplicitlySet { get; init; }
@@ -440,6 +441,8 @@ public record TypeOptions : ApiOptions
         get;
         init;
     }
+    internal InspectionEnvelope<TypeSignatureInspectionOutcome>?
+        TypeSignatureInspection { get; init; }
     internal TypeHierarchyRelationsInspection?
         TypeHierarchyRelations
     {
@@ -508,6 +511,10 @@ internal sealed record TypeHierarchyRelationCandidate(
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    internal MemberDocumentResolutionOutcome? OverloadSectionResolution { get; init; }
+    internal MemberDocumentationAttachmentOutcome? OverloadSectionDocumentation { get; init; }
+    internal int? OverloadSectionCount { get; init; }
+
     public string? WorkspacePacket { get; init; }
     public ExplanationProjection? Explanation { get; init; }
     public bool EnvelopeOutput { get; init; }

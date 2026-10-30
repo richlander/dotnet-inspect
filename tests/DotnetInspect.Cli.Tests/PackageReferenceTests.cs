@@ -58,7 +58,7 @@ public sealed class PackageReferenceTests
     [InlineData("member")]
     public async Task MalformedCurrentReferenceCannotFallBackToNameDiscovery(string entrance)
     {
-        const string invalid = "pkgroot6.not-a-token";
+        const string invalid = "pkgroot7.not-a-token";
         string[] argv = entrance switch
         {
             "router" => [invalid],
@@ -120,7 +120,7 @@ public sealed class PackageReferenceTests
         await using var executor = Executor(store, load, [Source]);
         var options = new TypeOptions
         {
-            PackagePath = "pkgroot6.not-a-token",
+            PackagePath = "pkgroot7.not-a-token",
             TypeName = conflict == "wildcard" ? "Sample.*" : "Sample.Type",
             Tfm = conflict == "tfm" ? "net11.0" : null,
             WorkspacePacket = conflict == "workspace" ? "packet" : null,
@@ -196,16 +196,16 @@ public sealed class PackageReferenceTests
     [InlineData("--share", "packet")]
     public async Task CompetingSourceIsRejectedBeforeAcquisition(params string[] conflict)
     {
-        var result = await ExecuteAsync(new InMemoryPackageStore(), "pkgroot6.not-a-token", conflict);
+        var result = await ExecuteAsync(new InMemoryPackageStore(), "pkgroot7.not-a-token", conflict);
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("Package reference cannot be combined", result.Error, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("pkgroot6.")]
-    [InlineData("pkgroot6.not-a-token")]
-    [InlineData("pkgroot6.a.b.c")]
+    [InlineData("pkgroot7.")]
+    [InlineData("pkgroot7.not-a-token")]
+    [InlineData("pkgroot7.a.b.c")]
     public async Task InvalidTokenIsVisibleAndDoesNotAcquire(string token)
     {
         var result = await ExecuteAsync(new InMemoryPackageStore(), token, ["--files"]);

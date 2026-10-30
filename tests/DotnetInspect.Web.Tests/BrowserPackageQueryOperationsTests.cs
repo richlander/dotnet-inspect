@@ -20,6 +20,9 @@ public sealed class PackageQueryOperationCollection;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserPackageQueryOperationsTests
 {
+    public BrowserPackageQueryOperationsTests() =>
+        InspectionEngine.InitializeCapabilityComposition();
+
     [Fact]
     public void ProductionBindingUsesTheRegisteredPackageQueryRoute()
     {
@@ -2090,6 +2093,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 selectionRuntimeIdentifier: null,
                 hasSelectedImplementationUniverse: true,
                 usesCompatibleImplementationSelection: false,
-                allowsCompatibleTargetSelection: false));
+                allowsCompatibleTargetSelection: false,
+                runtimePopulationTargetFramework: "net10.0"));
     }
 }

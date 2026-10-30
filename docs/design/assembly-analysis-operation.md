@@ -125,10 +125,11 @@ The stack answers each question in stages, and each stage has one owner:
 For example, "Does type `T` have unsafe members?" runs as follows:
 
 1. The type Unsafe Members check
-   (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the
-   unsafe-evidence producer, closed with `Exists`, over `T`'s TypeDef.
+   (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the unsafe
+   member presence producer, closed with `Exists`, over `T`'s TypeDef.
 2. Producer Planning closes that producer's description: it reads
-   declarations, and a body and module lookup only on demand.
+   declarations, semantic identity, and memory-safety contracts, and a body
+   and its calls only on demand.
 3. Query Space resolves the `Exists` request into the work the closed
    description carries. The request is direct, so it enters no request set
    and needs no grouping.
@@ -139,8 +140,10 @@ For example, "Does type `T` have unsafe members?" runs as follows:
    local functions
    ([Declared expansion](method-query-source.md#declared-expansion)), under
    finite bounds. It then visits that population in metadata order. Each visit
-   reads a body only when the declaration does not settle the answer, and
-   visits stop at the first evidence.
+   applies the
+   [unsafe member census rule](unsafe-member-findings.md#role-scan), which
+   materializes a body only when its role scan cannot decide it, and visits
+   stop at the first method with a census role.
 6. The execution publishes the answer with source and producer receipts that
    show the work stayed within `T` and its generated bodies, with the
    expansion work receipted separately.
@@ -524,8 +527,46 @@ exception classification, declared-owner mappings, and diagnostics.
 `AssemblyAnalysisOperation` and consumes only the focused result. Its
 `LibraryCallGraphAnalysisResult` compatibility receipt remains transitional;
 the exact Method-source receipt and Producer Planning work receipt are the
-authoritative execution evidence. Type Method Leverage and other consumers of
-the legacy whole-library Call Graph remain separate drain slices.
+authoritative execution evidence. [#10779](https://github.com/richlander/dotnet-inspect/issues/10779)
+moves Type Method Leverage to `LibraryMethodLeverageProducer`, an
+all-definition Rows producer that retains semantic identities, complete
+resolved call operands, loop classification, and generated-owner attribution.
+Its declared-method map resolves current-module targets for ranking, so the
+producer does not duplicate same-module call-target construction or acquire
+the general Call Graph producer's safety, body-signal, exception, and
+allocation-adjacent work. `AssemblyContextCallGraphAnalysis` binds its focused
+result while preserving complete-source and diagnostic failure semantics
+without opening `LibraryBodyAnalysisService`. Other consumers of the legacy
+whole-library Call Graph remain separate drain slices.
+
+The host-neutral Type Method Leverage operation remains serial by default.
+Local desktop hosts may supply `MethodDefinitionParallelExecution` through
+`DotnetInspector.Sections.Local`. Only an exhaustive, unbounded
+all-MethodDef `Rows` request can adopt that capability. The producer divides
+the metadata-ordered method sequence into a bounded number of contiguous exact
+MethodDef partitions, gives each partition independent execution state, and
+folds the detached body evidence in partition and metadata order. The
+partitions share one immutable memory-safety metadata projection but retain
+independent query-work receipts, so projection construction is charged once
+without merging concurrent counters. The local adapter starts its bounded
+workers immediately rather than relying on pool growth for the few coarse
+partitions. During the ordered fold, complete resolved call evidence is also
+shared with the declared-source relation; incomplete or malformed evidence
+retains the relation's body-scan fallback. The
+all-definition generated-body relation still records the bodies acquired by
+the producer and settles once after the ordered fold. Row-limited and exact
+breadths retain interpreted serial execution. The Browser/Wasm operation uses
+the default overload; its project closure does not reference
+`DotnetInspector.Sections.Local` or the local worker adapter.
+
+[#10854](https://github.com/richlander/dotnet-inspect/issues/10854) adopts the
+same focused producer for CLI Library Top Leverage. Its host-neutral operation
+borrows the command's already-open prefetched image, preserves the typed query
+result and focused Analysis receipts, and remains serial by default. The local
+CLI adapter supplies the existing bounded desktop realization. Selecting Top
+Leverage alone no longer requests Method Evidence from
+`LibraryBodyAnalysisService`; another selected legacy consumer retains only
+its own required donor features.
 
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
 exact method-analysis producer for safety-only IL-coordinate preparation.
@@ -534,10 +575,15 @@ prefetched image and issue one exact MethodDef request for the deduplicated
 coordinate methods. Allocation-only coordinate preparation independently
 plans `ExactMethodAllocationProducer` over that same bounded population.
 Cost-only preparation plans `FocusedMethodCallProducer` and retains only the
-direct-call rows needed by coordinate projection. The three focused inputs
-retain exact source and work receipts; none opens
-`LibraryBodyAnalysisService`. Combined semantic coordinate requests remain on
-the service until their complete result ownership moves.
+direct-call rows needed by coordinate projection. QuerySpace selects any
+requested combination of allocation, safety, and cost associations over one
+deduplicated exact MethodDef population. Each focused input retains its own
+exact source and work receipt, while the request set records the shared
+physical group. Analysis-owned `ExactMethodSemanticAnalysis` constructs and
+executes that request set; Research-owned `ILOffsetSemanticAnalysis` maps its
+detached results into coordinate projection inputs without acquiring a
+QuerySpace dependency. No semantic coordinate request opens
+`LibraryBodyAnalysisService`.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first

@@ -288,7 +288,7 @@ Library has no `https://` occurrence, while
 through both CLI and Browser:
 
 ```console
-dotnet-inspect package query Microsoft.Azure.SignalR \
+dotnet-inspect find --packages Microsoft.Azure.SignalR \
   --where "library-literal=https://" --tfm net8.0
 ```
 

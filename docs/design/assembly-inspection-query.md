@@ -1236,14 +1236,210 @@ The broader retained Browser realization lifecycle, type listing, source/PDB,
 Analysis, body, decompiler, standalone `member`, and package/platform/project/
 direct-library routes are not changed by this operation.
 
+##### Shared Type lookup
+
+**Status:** specification locked in
+[#10702](https://github.com/richlander/dotnet-inspect/pull/10702), with adoption
+tracked by [#10694](https://github.com/richlander/dotnet-inspect/issues/10694).
+Slice 2 supplies `MetadataTypeLookup` and uses it in the existing exact-Type
+operation. CLI Package/Workspace selection and Browser exact activation share
+this primitive through that operation. Admission retains the existing
+caller-selected scopes while #10693 consolidates its own policy. Other routes
+retain their current selection until their adoption lands.
+This subsection extends the exact single-Type operation's selection
+contract to every consumer that resolves a user-written Type query. Assembly
+Inspection owns that shared operation; Metadata owns the name-selection
+primitive it composes. Hosts and presentation consume the selected identity
+and outcome rather than selecting the subject again.
+
+**Claim:** for the same authorized declaration context, subject-admission
+selection, lookup mode, and inspection bounds, a Type query has the same
+terminal definition or the same non-success outcome, regardless of command,
+section, or host. One
+Metadata name-selection primitive and one shared exact-Type operation implement
+this claim. Physical acquisition, bounded declaration scans, and rich
+projection may differ with demand; they do not introduce another selection
+rule or require a complete `ApiSurface` to answer a narrow lookup.
+
+The motivating published assets are
+`Microsoft.NETCore.App.Runtime.osx-arm64` **11.0.0-rc.1.26425.128** and
+**10.0.12**, specifically `runtimes/osx-arm64/lib/net11.0/System.Private.CoreLib.dll`
+and `runtimes/osx-arm64/lib/net10.0/System.Private.CoreLib.dll`.
+At `799074073`, the former's public
+`System.Runtime.InteropServices.CurrencyWrapper` resolves through the default
+`type --library` Tree but not with `-S Constructors`. The latter's public
+`System.MulticastDelegate.GetObjectData` is reported as non-public because it
+is hidden. These are admission and diagnostic disagreements before matching:
+both Tree and the CLI `ApiSurface` helper already call `TypeMatcher.Lookup`.
+Pinned package acquisition and the cross-entry-point gates below preserve
+these witnesses; synthetic collision fixtures supply boundary coverage.
+
+Population policy is consumed from
+[API population scope](api-population-scope.md#accessibility-within-api-visibility-scope),
+including its rule that a named subject resolves against the default united
+with the requested selection. Lookup does not read attributes, classify
+effective accessibility, or define a second default. The staged adoption on
+[#10693](https://github.com/richlander/dotnet-inspect/issues/10693)
+owns those facts, the one admission, and the default change. A lookup adoption
+that precedes that change consumes the current admission policy and records
+that transitional policy in its evidence. Each caller passes its admission
+scope explicitly: compact Tree/Mermaid retains Public without `--all` and
+IncludeAll with it; Browser definition-identity selection retains its explicit
+non-public scope. No consumer inherits the exact-Type operation's
+`PublicWithNonPublicTypes` default merely by adopting the operation. Within
+equivalent scopes, lookup consumes the same owner-issued hidden-status
+admission; a compact Public query therefore excludes hidden public Types until
+the #10693 default change admits them into that population. Consumers needing
+the new shared admission depend on #10693's admission-consolidation step,
+independently of its
+later default flip. The open question about an internal
+subject with `--only private` stays with that owner; lookup adds no exception.
+
+Lookup has two modes. A **query** uses Metadata's existing normalization and
+generic-name grammar. It prefers a full-name match, then an arity-preserving
+short-name or namespace-suffix match, then the existing generic-name fallback.
+Explicit generic notation never broadens to another arity. Every declaration
+in the winning tier survives to terminal resolution; metadata order does not
+settle competing declarations. A **definition identity** uses ordinal equality
+of the structured definition name and never enters query matching. Neither
+mode collapses distinct exact identities because their display spellings
+coincide. Forwarding roots collapse only under the existing terminal-resolution
+rule above, with every matching root resolved to the same terminal definition.
+
+An exact-Type query does not accept a glob or select a similar name. Suggestions
+are diagnostic only. The existing bounded `Type.Member` boundary search may
+submit successive Type prefixes to the same lookup operation and return the
+complete Member remainder. It does not pick a competing Type, and it does not
+interpret an absent or ambiguous Type as a successful Member selection.
+Listings and discovery retain their separately owned pattern behavior.
+
+The shared outcome preserves the selected structured identity, source
+association, and evidence needed to distinguish conclusive absence,
+accessibility exclusion, an explicitly requested attribute exclusion,
+ambiguity, and unavailable inspection. A public declaration excluded by a
+status filter is never described as non-public. Identifying an exclusion
+requires owner-issued evidence for a declaration that matches the query;
+omission from a filtered population alone does not prove its reason.
+Incomplete scans, rejected candidates, unresolved forwarders, and exhausted
+bounds retain the existing unavailability rules above. A host renders this
+outcome and its diagnostics without probing another population to guess why
+selection failed. The completed operation retains the existing detached
+`InspectionEnvelope` boundary; no new acquisition or reader lifetime is added.
+
+[Find](find-search-service.md#classification-and-order) remains coordinate
+discovery: it may return multiple direct matches, then broader tiers under its
+own contract. It consumes the same population admission and Metadata matching
+grammar. Selecting a Find row enters definition-identity lookup with that row's
+owner-issued source association. It does not rerun the row's display name as
+a query or reinterpret Find's ranking as exact selection. Similarly, a body,
+heat, or leverage consumer that already has an issued definition identity uses
+definition-identity lookup; it does not reopen fuzzy query selection.
+
+**Adoption and retirement.** #10694 is the end-to-end tracker. The current plan
+has five independently reviewable slices, counting this specification:
+
+1. Lock this shared selection contract and the presentation ownership handoff.
+2. Add the Metadata primitive and adopt it in the existing exact-Type
+   operation. Its current CLI Package/Workspace routes and Browser Type
+   activation consume the same completed operation, including Find-row
+   activation. Retire `ExactTypeInspectionQuery`'s private name-tier selection.
+3. Adopt the operation in the CLI `ApiSurface` Type and Member routes,
+   including Match and external-call-graph root selection. Retire semantic
+   selection and implied-Member boundary search from `ApiTypeLookupService`;
+   command formatting remains a host adapter. Existing source authorization
+   and section demand remain inputs to the shared operation.
+4. Adopt it in compact Type overview composition for the CLI Tree/Mermaid and
+   the Browser's equivalent Type entry. Retire
+   `TypeOverviewHierarchyInspection`'s independent candidate selection while
+   retaining its bounded Library materialization and document projection.
+5. Align `MethodBodySource`'s selected-Type and overload fast paths with the
+   issued Type selection and the same admission. Remove lookup-local policy
+   from the four sites classified on #10693, audit remaining user-query
+   entry points, and close the cross-entry-point evidence.
+
+Both production hosts receive shared exact-Type selection at slice 2; the CLI
+compatibility and compact routes finish at slices 3 and 4, and selected-body
+paths finish at slice 5. Each adopting slice owns its consumer-specific
+changes and evidence. The plan does not end at the reusable primitive or
+leave a second selector as a permanent compatibility provision. Find ranking,
+source acquisition, member identity and overload ordering, comparers, and
+rendering contracts retain their existing owners.
+
+**Required evidence.** Every implementation slice measures its affected
+production operation with exact base/head NativeAOT binaries. Report median
+and tail latency, allocations where measured, cardinality and selected identity
+for a hit, miss, and competing-name case. Compare Type-not-found and
+Member-not-found populations over pinned shared-framework inputs, classifying
+changes separately from #10693's deliberate admission changes. A primitive
+benchmark does not replace the production `type` and `member` measurements.
+
+The cross-entry-point gate submits the pinned witnesses and public, nested
+public, protected, non-public, hidden, and obsolete controls to `type`,
+`type -S Constructors`, `member`, and Browser exact-Type activation with the
+same context, admission, and mode. It compares selected identity or typed
+non-success, not rendered text. Query cases cover full-name precedence,
+short/suffix collisions, case variants, generic arities, and nested names;
+definition-identity cases preserve literal delimiters and ordinal equality.
+Forwarders to one supplier, competing suppliers, rejected participants, and
+bounded truncation retain the existing exact-Type gates. Find's discovery
+cardinality is tested under its own contract, with exact row activation checked
+against the selected definition. A layering gate prevents adopted hosts and
+presentation paths from restoring local semantic selection or admission.
+`MetadataTypeLookupTests` gates name precedence, retained associations,
+collisions, generic and nested arities, literal delimiters, ordinal definition
+selection, glob refusal, and the absence of fuzzy success. Its slow pinned
+CoreLib control uses the already retained
+`Microsoft.NETCore.App.Runtime.linux-x64` 11.0.0-rc.1.26425.128 counterpart of
+the motivating asset: `CurrencyWrapper` is selected from IncludeAll and absent
+from Public, while the `Action` family preserves exact arity. Daily Deep
+Inspect's Metadata suite owns that slow control. The exact-Type operation
+tests additionally exercise case variants through bounded and unbounded
+execution; `ExactTypeWorkspaceRouteTests` and Browser's `QueryTypeProjection_*`
+cases exercise the existing production consumers. CLI `LayeringTests` prevents
+the adopted exact-Type query from restoring its local arity-preserving tier
+predicate. The wider cross-entry-point gates above remain required and
+unverified until the remaining slices land; this adoption does not claim to
+fix the compact Tree or legacy Member admission discrepancies.
+
+`eng/measure-type-lookup.cs` runs exact base/head NativeAOT CLI apphosts against
+an explicit JSON array of named argument lists. It rotates execution order,
+checks output, diagnostics, and exit-code equality on every invocation, and
+reports median/p95, fingerprints, selected Type and Member cardinality where
+the complete JSON result supplies them. Both warmup and measurement include
+process startup, acquisition, selection, execution, and output consumption.
+
+#### Resolved-source exact Type operation
+
+Exact CLI Type inspection over an already resolved managed Library uses the
+same `ExactTypeInspectionOperation` and detached result as retained Browser
+inspection. The source adapter supplies its resolved descriptor and authorized
+binding policy. The richer request uses Metadata's shared `MetadataTypeLookup`
+selector over a source-authorized API catalog, including forwarded Types.
+Pattern presentation and typo suggestions retain the shared `TypeMatcher`;
+neither replaces exact Metadata selection.
+The operation settles the selected forwarding route through Metadata and
+projects the settled definition through the ordinary exact-Type core. Host syntax, source
+authorization, acquisition context, and rendering remain with their owners.
+An unavailable managed Type does not retry host-local acquisition or extraction.
+A catalog execution companion preserves the CLI's existing prefix-browse and
+multiple-match presentation without repeating exact selection. The
+descriptorless module compatibility path is unchanged. Existing cheap exact
+routes remain ahead of this richer source-authorized demand.
+
+`System.Text.Json@10.0.0` at normal/detailed verbosity and the pinned CoreLib
+generic Types are the production witnesses. Focused gates cover exact result
+agreement, forwarding, ambiguity, retained binding policy, and CLI projections.
+
 #### Exact Library API operation
 
 The exact-Library API operation answers one question: for one acquisition-bound
 package Root and one selected compile asset in its surface-role realization,
 what bounded public API is available? This is the single host-neutral semantic
-path for the existing CLI `type --package ... --library ...` listing and Inspect
-Web Library Overview. It does not add API ownership or output to the `library`
-command.
+path for the retained internal CLI Library-listing adapter and Inspect Web
+Library Overview. The former public `type --package ... --library ...`
+entrance without a Type selector is rejected under
+[Type target admission](../cli-architecture.md#type-target-admission).
+It does not add API ownership or output to the `library` command.
 
 An `ExactLibraryApiInspectionRequest` identifies an exact package id and
 version, one requested TFM other than `all`, and a Library selection. CLI

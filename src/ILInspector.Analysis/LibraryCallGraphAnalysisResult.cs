@@ -6,7 +6,7 @@ namespace ILInspector.Analysis;
 
 /// <summary>
 /// Detached single-module call evidence and lazy local call-graph derivations
-/// produced by one library-body Analysis execution.
+/// produced by one Analysis execution.
 /// </summary>
 public sealed class LibraryCallGraphAnalysisResult
 {
@@ -134,6 +134,66 @@ public sealed class LibraryCallGraphAnalysisResult
     }
 
     /// <summary>
+    /// Publishes the complete local-call evidence required by bounded
+    /// root-path search with its exact Method source and producer receipts.
+    /// </summary>
+    public static LibraryCallGraphAnalysisResult FromRootPathProducer(
+        string sourceName,
+        LibraryRootPathCallGraphProducerResult analysis,
+        MethodDefinitionSourceReceipt sourceReceipt,
+        WorkReceipt producerReceipt)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        return FromProducer(
+            sourceName,
+            new(
+                analysis.DeclaredMethods,
+                analysis.Methods,
+                analysis.DirectCalls,
+                [],
+                new Dictionary<int, BodySignals>(),
+                new Dictionary<
+                    (string Namespace, string Name),
+                    bool>(),
+                new HashSet<int>(),
+                analysis.DeclaredSources,
+                analysis.DeclaredSourceSuppressedMethodTokens,
+                analysis.Diagnostics),
+            sourceReceipt,
+            producerReceipt);
+    }
+
+    /// <summary>
+    /// Publishes complete call evidence for whole-library method-leverage
+    /// ranking with its exact Method source and producer receipts.
+    /// </summary>
+    public static LibraryCallGraphAnalysisResult FromLeverageProducer(
+        string sourceName,
+        LibraryMethodLeverageProducerResult analysis,
+        MethodDefinitionSourceReceipt sourceReceipt,
+        WorkReceipt producerReceipt)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        return FromProducer(
+            sourceName,
+            new(
+                analysis.DeclaredMethods,
+                analysis.Methods,
+                analysis.DirectCalls,
+                [],
+                new Dictionary<int, BodySignals>(),
+                new Dictionary<
+                    (string Namespace, string Name),
+                    bool>(),
+                new HashSet<int>(),
+                analysis.DeclaredSources,
+                analysis.DeclaredSourceSuppressedMethodTokens,
+                analysis.Diagnostics),
+            sourceReceipt,
+            producerReceipt);
+    }
+
+    /// <summary>
     /// Common identity, coverage, and diagnostics for the producing execution.
     /// </summary>
     public LibraryBodyAnalysisReceipt Receipt { get; }
@@ -172,6 +232,29 @@ public sealed class LibraryCallGraphAnalysisResult
     public ImmutableArray<MethodIdentity> Methods { get; }
 
     public ImmutableArray<DirectCall> DirectCalls { get; }
+
+    /// <summary>
+    /// Ranks methods by distinct direct callers and supporting graph signals.
+    /// </summary>
+    public ImmutableArray<MethodLeverage> TopLeverage(
+        int count = 25,
+        Func<MethodIdentity, bool>? scope = null)
+    {
+        if (!WasRequested)
+        {
+            throw new InvalidOperationException(
+                "Leverage analysis was not requested for this Analysis "
+                + "execution.");
+        }
+
+        return MethodLeverageRanking.Top(
+            DirectCalls,
+            Methods,
+            count,
+            scope,
+            maxDepth: 64,
+            DeclaredMethodMap);
+    }
 
     public ImmutableArray<ResourceOwnershipMethodSummary>
         ResourceOwnershipSummaries { get; }

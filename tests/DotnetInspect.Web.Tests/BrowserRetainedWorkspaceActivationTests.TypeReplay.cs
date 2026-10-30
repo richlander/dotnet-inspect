@@ -8,11 +8,14 @@ namespace DotnetInspect.Web.Tests;
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
     // PR-fast: actual format-5 CLI packet, pinned archive and production activation owner.
-    [Fact]
-    public async Task TypeReplay_ReopensRecordedCliPacketWithExactSubject()
+    [Theory]
+    [InlineData("workspace-type-replay.json", StructuralSubjectKind.Type, "type.api")]
+    [InlineData("workspace-member-replay.json", StructuralSubjectKind.Member, "member.overview")]
+    public async Task SubjectReplay_ReopensRecordedCliPacketWithExactSubject(
+        string exampleFile, StructuralSubjectKind kind, string facet)
     {
         string json = await File.ReadAllTextAsync(Path.Combine(
-            FindRepositoryRoot(), "docs", "examples", "workspace-type-replay.json"),
+            FindRepositoryRoot(), "docs", "examples", exampleFile),
             TestContext.Current.CancellationToken);
         string packet = WorkspaceSharePacketCodec.Encode(WorkspaceSharePacketCodec.ParseJson(
             json, TestContext.Current.CancellationToken));
@@ -28,9 +31,10 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         BrowserRetainedWorkspacePosting posting = await ActivateAsync(owner, "saved-type", packet);
         using WorkspaceRealizationOperationLease operation = await EnterAsync(owner, "saved-type");
         Assert.Equal(packet, posting.CanonicalPacket);
-        Assert.Equal("type.api", posting.Navigation.Snapshot.LensOutcome.EffectiveLens?.Facet);
-        Assert.Equal(StructuralSubjectKind.Type, posting.Navigation.Snapshot.ActiveSubject.Kind);
-        Assert.Equal("System.Text.Json.JsonSerializer", posting.Navigation.Snapshot.ActiveSubject.Label);
+        Assert.Equal(facet, posting.Navigation.Snapshot.LensOutcome.EffectiveLens?.Facet);
+        Assert.Equal(kind, posting.Navigation.Snapshot.ActiveSubject.Kind);
+        Assert.Contains(kind == StructuralSubjectKind.Type ? "JsonSerializer" : "Serialize",
+            posting.Navigation.Snapshot.ActiveSubject.Label, StringComparison.Ordinal);
         Assert.Equal("10.0.0", Assert.Single(operation.Scope.Packages)
             .Occurrence.Package.Coordinate.Version);
         Assert.Equal("net10.0", Assert.Single(operation.Scope.Packages)

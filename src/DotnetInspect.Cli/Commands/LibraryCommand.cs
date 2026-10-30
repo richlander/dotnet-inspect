@@ -1334,6 +1334,7 @@ public partial class LibraryCommand
                     return await LibraryTypeHierarchyCommand.ExecuteAsync(
                         resolvedPath!,
                         platformHierarchy,
+                        [new("source", SourceKind.Platform)],
                         cancellationToken);
                 }
 
@@ -1615,6 +1616,12 @@ public partial class LibraryCommand
                         return await LibraryTypeHierarchyCommand.ExecuteAsync(
                             assemblyPaths[0],
                             packageHierarchy,
+                            LibraryTypeHierarchyCommand.PackageProperties(
+                                assemblyPaths[0],
+                                extractPath,
+                                packageName,
+                                packageVersion,
+                                source.PackageTarget!.IsLocalFile),
                             cancellationToken);
                     }
                     if (packageHierarchy.Explicit)
@@ -2029,6 +2036,7 @@ public partial class LibraryCommand
                     return await LibraryTypeHierarchyCommand.ExecuteAsync(
                         assemblyPath,
                         fileHierarchy,
+                        [new("source", SourceKind.File)],
                         cancellationToken);
                 }
 
@@ -2408,6 +2416,15 @@ public partial class LibraryCommand
             && inspections.Any(inspection =>
                 BodyShapeCompleteness.IsIncomplete(
                     inspection.EffectiveBodyShapeSearchResult)))
+        {
+            return 1;
+        }
+
+        if (options.ExactIncludeSections?.Contains(
+                SectionNames.UnsafeMembers) == true
+            && inspections.Any(inspection =>
+                UnsafeMemberProjection.IsIncomplete(
+                    inspection.UnsafeMemberInspection)))
         {
             return 1;
         }
@@ -3077,23 +3094,15 @@ public partial class LibraryCommand
         RowSelectionIntent<string>? intent)
     {
         if (intent is null
-            || inspection.AssemblyReferenceInspection?.Value
-                is not FindingInspection<AssemblyReference>.Complete complete)
+            || inspection.LibraryReferenceInspectionEnvelope?.Content
+                is not LibraryReferenceInspectionOutcome.Available available)
         {
             return true;
         }
 
-        AssemblyReference[] references =
-        [
-            .. complete.Findings
-                .Select(static finding => finding.Payload)
-                .OrderBy(
-                    static reference => reference.Name,
-                    StringComparer.Ordinal),
-        ];
         if (!CliSemanticRowSelection.TrySelect(
                 intent,
-                references,
+                available.References,
                 "Library references",
                 failure =>
                     $"Library reference row selection stage "
@@ -3101,14 +3110,29 @@ public partial class LibraryCommand
                     + $"{failure.Failure.RequiredPosition}, but only "
                     + $"{failure.Failure.AvailableCount} direct reference "
                     + $"{(failure.Failure.AvailableCount == 1 ? "row is" : "rows are")} available.",
-                out IReadOnlyList<AssemblyReference> selected))
+                out IReadOnlyList<AssemblyReferenceRow> selected))
         {
             return false;
         }
 
         inspection.AssemblyReferenceDisplayOrder = selected;
         if (inspection.AssemblyInfo is not null)
-            inspection.AssemblyInfo.References = [.. selected];
+        {
+            inspection.AssemblyInfo.References =
+            [
+                .. selected.Select(
+                    static reference => new AssemblyReference(
+                        reference.Name,
+                        reference.Version,
+                        string.Equals(
+                            reference.Culture,
+                            "neutral",
+                            StringComparison.Ordinal)
+                                ? null
+                                : reference.Culture,
+                        reference.PublicKeyToken)),
+            ];
+        }
         return true;
     }
 

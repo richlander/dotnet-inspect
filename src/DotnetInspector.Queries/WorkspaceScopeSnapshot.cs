@@ -50,6 +50,12 @@ public sealed class WorkspacePackageDescriptor
     internal PackageContentGenerationIdentity ContentGeneration { get; }
     internal PackageRootSelectionIdentity Selection { get; }
 
+    public bool HasContentGeneration(PackageContentGenerationIdentity generation)
+    {
+        ArgumentNullException.ThrowIfNull(generation);
+        return ReferenceEquals(ContentGeneration, generation);
+    }
+
     internal bool Matches(PackageRootBinding binding) =>
         ReferenceEquals(ContentGeneration, binding.ContentGenerationIdentity)
         && ReferenceEquals(Selection, binding.SelectionIdentity);

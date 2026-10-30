@@ -108,8 +108,9 @@ public partial class ApiCommand
         return 1;
     }
 
-    /// <param name="bodyShapeCompletion">
-    /// Receives whether a selected Body Shapes search was incomplete. The
+    /// <param name="inspectionCompletion">
+    /// Receives whether a selected Body Shapes search or unsafe member census
+    /// was incomplete, or the census failed. The
     /// caller publishes the rendered output first and then exits nonzero, so
     /// incompleteness never withholds observed rows.
     /// </param>
@@ -125,7 +126,7 @@ public partial class ApiCommand
         ResolvedAssemblyReference? sourceAssembly = null,
         ResolvedAssemblyReference? memberCodeSourceAssembly = null,
         HttpClient? sourceClient = null,
-        BodyShapeCompletion? bodyShapeCompletion = null)
+        TypeInspectionCompletion? inspectionCompletion = null)
     {
         var sink = output ?? Console.Out;
 
@@ -369,7 +370,8 @@ public partial class ApiCommand
             && !sourceJson
             && !sourceDocumentJson && !findingCensusJson && !factsJson
             && !projectedFactsJson && !callsJson && !callersJson
-            && !callGraphTransport)
+            && !callGraphTransport
+            && !MemberGroupDocumentOutput.RequestsOverloadSections(options))
         {
             if (SectionNames.IncludesBodyMetrics(
                     GetRequestedMemberSections(type, options)))
@@ -433,8 +435,8 @@ public partial class ApiCommand
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
-        if (bodyShapeCompletion is not null)
-            bodyShapeCompletion.View = view;
+        if (inspectionCompletion is not null)
+            inspectionCompletion.View = view;
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;
@@ -570,7 +572,9 @@ public partial class ApiCommand
                 ApiOutputFormatter.PopulateUnsafeMembers(
                     view,
                     type,
-                    TypeAnalysis().Safety);
+                    options.DllPath,
+                    sourceAssembly,
+                    options.Verbose);
             }
 
             if (options is TypeOptions
@@ -1137,6 +1141,18 @@ public partial class ApiCommand
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer),
                 writerOptions);
+            if (options is MemberOptions { OverloadSectionCount: { } overloadCount })
+            {
+                var (start, end) = options.Rows?.Resolve(overloadCount)
+                    ?? (0, overloadCount);
+                foreach (string section in options.IncludeSections!.Where(
+                    static section => section is SectionNames.Overloads
+                        or SectionNames.DocumentedOverloads))
+                {
+                    if (ProjectionIncludesSection(schema, section, options))
+                        projection.RecordRows(section, end - start);
+                }
+            }
             // A call graph declares directed edges as its row unit. The count formatter observes
             // the graph as content but deliberately does not infer rows from a rendered lowering,
             // so add the product-owned, already-windowed edge cardinality to the same projection
@@ -1215,6 +1231,35 @@ public partial class ApiCommand
             CountOutput.Write(
                 projection, ordered, options.Format, options.NoHeader);
             ApiOutputFormatter.WriteCallGraphWarning(view);
+            return 0;
+        }
+
+        if (options.JsonOutput
+            && MemberGroupDocumentOutput.RequestsOverloadSections(options))
+        {
+            var selectedWriterOptions =
+                ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            OutputFormatter.WriteProjectedJson(
+                sink,
+                options.Columns,
+                options.Fields,
+                (output, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections =
+                        selectedWriterOptions.IncludeSections;
+                    writerOptions.SectionOrder =
+                        selectedWriterOptions.SectionOrder;
+                    var writer = new MarkoutWriter(
+                        output, formatter, writerOptions);
+                    ApiOutputFormatter.SerializeTypeDocument(
+                        view, eventsView, methodGroupsView, methodsView,
+                        memberIndexView, operatorsView,
+                        explicitInterfaceImplementationsView,
+                        extensionMethodsView, view.MemberCode, writer);
+                    writer.Flush();
+                },
+                indented: !options.CompactJson,
+                maxRows: options.Rows);
             return 0;
         }
 

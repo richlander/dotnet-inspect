@@ -742,6 +742,12 @@ public enum ApiMethodSemanticsKind
     EventOther = 1 << 6,
 }
 
+/// <summary>
+/// One declaration's <c>[Obsolete]</c>: its message and its error flag
+/// (docs/design/api-status-analysis.md#status-facts).
+/// </summary>
+public sealed record ApiObsoleteStatus(string? Message, bool IsError);
+
 public class ApiAccessor
 {
     /// <summary>
@@ -1128,6 +1134,8 @@ public class ApiType
     public ApiTypeReferenceIdentity? BaseTypeReference { get; set; }
     public List<string> Interfaces { get; set; } = [];
     [JsonIgnore]
+    public int NestedTypeCount { get; set; }
+    [JsonIgnore]
     public List<ApiTypeReferenceIdentity> InterfaceReferences
         { get; set; } = [];
 
@@ -1386,6 +1394,26 @@ public class ApiMember
 
     [JsonIgnore]
     public bool RemoverIsHidden { get; set; }
+
+    /// <summary>
+    /// Each property or event accessor's own <c>[Obsolete]</c>, null when the accessor is
+    /// absent or not obsolete (docs/design/api-status-analysis.md#status-facts). Not
+    /// serialized, so existing Member JSON is unchanged.
+    /// </summary>
+    [JsonIgnore]
+    public ApiObsoleteStatus? GetterObsolete { get; set; }
+
+    /// <inheritdoc cref="GetterObsolete"/>
+    [JsonIgnore]
+    public ApiObsoleteStatus? SetterObsolete { get; set; }
+
+    /// <inheritdoc cref="GetterObsolete"/>
+    [JsonIgnore]
+    public ApiObsoleteStatus? AdderObsolete { get; set; }
+
+    /// <inheritdoc cref="GetterObsolete"/>
+    [JsonIgnore]
+    public ApiObsoleteStatus? RemoverObsolete { get; set; }
 
     /// <summary>
     /// Whether each event accessor MethodDef has a managed body RVA.

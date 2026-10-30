@@ -89,6 +89,9 @@ dependency direction and the assembly owner.
   bounded early-exit consumers; a complete visit enforces the same opcode,
   operand, switch-table, and dangling-prefix structure, while a stopped visit
   deliberately leaves the unseen suffix unvalidated.
+  The retained-IL visit also takes a struct `IInstructionVisitor`, which a hot
+  caller uses to avoid a delegate call per instruction, with the same
+  validation as the delegate overload.
   `InstructionSequence` is the demand-driven retained-prefix primitive.
   Independent cursors advance with `MoveNext`, and indexed access extends the
   same shared scan frontier only through the requested instruction. The
@@ -375,6 +378,8 @@ the bugs it fixes. Two gate kinds instead:
   `Visit_rejects_malformed_or_dangling_input`, and
   `Visit_can_stop_before_a_malformed_suffix` enforce the complete-visit and
   early-stop contracts without requiring an instruction array.
+  `Visit_struct_visitor_streams_and_rejects_retained_il` holds the struct
+  overload to the same stream and the same malformed-input rejection.
 - **Directional differential** vs each replaced decoder over the corpus: classify
   every diff as improvement / neutral / regression; the gate is **zero
   regressions** (not zero diffs), with improvements characterized by an absolute

@@ -8,32 +8,39 @@ import {
   type WorkspaceLibraryReferenceCandidate,
 } from "../src/library-references.ts";
 import type {
-  BrowserAssemblyReferenceList,
-  BrowserPackageDependencies,
+  AssemblyReferenceRow,
 } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  LibraryReferenceInspectionEnvelope,
+} from "../src/package-inspection.ts";
+import { packageInertStringFixture } from "./inert-string-fixture.ts";
 
-const referenceList: BrowserAssemblyReferenceList = {
-  references: [
-    { name: "System.Runtime", version: "10.0.0.0", culture: null, publicKeyToken: "b03f5f7f11d50a3a" },
-    { name: "Example.Other", version: "1.2.3.4", culture: "fr", publicKeyToken: null },
-  ],
-};
+const references: readonly AssemblyReferenceRow[] = [
+  { name: "System.Runtime", version: "10.0.0.0", culture: null, publicKeyToken: "b03f5f7f11d50a3a" },
+  { name: "Example.Other", version: "1.2.3.4", culture: "fr", publicKeyToken: null },
+];
 
-const data: BrowserPackageDependencies = {
-  package: "Example.Package", version: "1.0.0", activeFramework: "net10.0",
-  assembly: "Example.Core",
-  dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
-  platformReferences: [], defaultPlatformReference: null,
-  platformReferenceError: null,
-  assemblyReferences: referenceList,
-  compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
-};
+function availableEnvelope(
+  rows: readonly AssemblyReferenceRow[] = references,
+): LibraryReferenceInspectionEnvelope {
+  return {
+    content: { outcome: "available", references: rows },
+    share: {
+      kind: "nonProjectable",
+      fullUrl: null,
+      packet: null,
+      path: "",
+      reason: packageInertStringFixture(
+        "Library reference inspection is not projectable."),
+    },
+    diagnostics: [],
+  };
+}
+
+const data = availableEnvelope();
 
 function render(overrides: Partial<LibraryReferencesOptions> = {}) {
   return renderLibraryReferencesSurface({
-    assemblyIdentity: "Example.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
-    assetPath: "lib/net10.0/Example.Core.dll",
-    coordinate: "net10.0 / Example.Package@1.0.0",
     loading: false,
     error: "",
     data,
@@ -67,7 +74,7 @@ const candidates: readonly WorkspaceLibraryReferenceCandidate[] = [
 
 test("exact normalized identities resolve to their admitted Workspace Library", () => {
   assert.deepEqual(
-    resolveLibraryReferenceDestinations(referenceList.references, candidates),
+    resolveLibraryReferenceDestinations(references, candidates),
     [
       {
         packageKey: "example.package|1.0.0|net10.0",
@@ -82,7 +89,7 @@ test("exact normalized identities resolve to their admitted Workspace Library", 
 
 test("absent and ambiguous identities remain inert", () => {
   assert.deepEqual(
-    resolveLibraryReferenceDestinations(referenceList.references, [
+    resolveLibraryReferenceDestinations(references, [
       candidates[0]!,
       {
         ...candidates[0]!,
@@ -178,14 +185,12 @@ test("only a uniquely attributed reference displays its package icon", () => {
 });
 
 test("a single direct reference uses a singular count", () => {
-  assert.match(render({ data: { ...data, assemblyReferences: {
-    references: referenceList.references.slice(0, 1),
-  } } }),
+  assert.match(render({ data: availableEnvelope(references.slice(0, 1)) }),
     /1 direct reference<\/p>/);
 });
 
 test("successful zero references retain the frame and explicit empty result", () => {
-  const html = render({ data: { ...data, assemblyReferences: { references: [] } } });
+  const html = render({ data: availableEnvelope([]) });
   assert.match(html, /0 direct references/);
   assert.match(html, /No direct references/);
   assert.match(html, /This assembly declares no direct AssemblyRef rows/);
@@ -216,19 +221,37 @@ test("query failure remains visible instead of exposing retained rows", () => {
 });
 
 test("inspection failure is not a zero-reference result", () => {
-  const html = render({ data: { ...data, assemblyReferences: "Cannot decode AssemblyRef." } });
+  const html = render({
+    data: {
+      ...data,
+      content: {
+        outcome: "rejected",
+        reason: {
+          kind: "InvalidImage",
+          detail: packageInertStringFixture("Cannot decode AssemblyRef."),
+        },
+      },
+    },
+  });
   assert.match(html, /Inspection failed/);
+  assert.match(html, /InvalidImage/);
   assert.match(html, /Cannot decode AssemblyRef/);
   assert.doesNotMatch(html, /<footer/);
   assert.doesNotMatch(html, /<ul|0 direct references|2 direct references/);
 });
 
-for (const [result, message] of [
-  ["", "No failure details were provided."],
+for (const [content, message] of [
+  [{
+    outcome: "failed" as const,
+    reason: {
+      kind: "Unexpected" as const,
+      detail: packageInertStringFixture(""),
+    },
+  }, "No failure details were provided."],
   [null, "The engine returned no assembly-reference result."],
 ] as const) {
-  test(`reference result ${JSON.stringify(result)} is a settled failure, not initial loading`, () => {
-    const html = render({ data: { ...data, assemblyReferences: result } });
+  test(`reference result ${JSON.stringify(content)} is a settled failure, not initial loading`, () => {
+    const html = render({ data: { ...data, content } });
 
     assert.match(html, /Inspection failed/);
     assert.ok(html.includes(message));
@@ -237,14 +260,11 @@ for (const [result, message] of [
   });
 }
 
-test("identity, reference fields, and diagnostics use the existing escape boundary", () => {
+test("reference fields and diagnostics use the existing escape boundary", () => {
   const html = render({
-    assemblyIdentity: 'Example."Core"',
-    assetPath: "lib/Example&Core.dll",
-    coordinate: "net10.0 / Example<Package>@1",
-    data: { ...data, assemblyReferences: { references: [
+    data: availableEnvelope([
       { name: "Example<Other>", version: "1&2", culture: "a&b", publicKeyToken: "c&d" },
-    ] } },
+    ]),
   });
   assert.match(html, /Example&lt;Other&gt;/);
   assert.match(html, /1&amp;2.*a&amp;b.*c&amp;d/);

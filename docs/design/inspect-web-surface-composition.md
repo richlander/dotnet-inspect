@@ -16,7 +16,8 @@ This owner defines:
 
 - Home's page-level hierarchy, wide and narrow composition, and relationship to
   the data bar;
-- which working surfaces exist (Type API, Member API, Type Metadata, Compare,
+- which working surfaces exist (Type Overview, Type Members, Member API,
+  Type Metadata, Compare,
   Source, Member Diff, Package query, Package activity, Diagnostics) and their
   page-level placement relative to Type/Member
   navigation;
@@ -332,12 +333,12 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
-Library Metadata, Compare, Source, Member Diff, and Diagnostics are working
-surfaces rather than documents inset inside a general page. Annotated Source is
-a transient full-bleed viewer reached from Source or exact Finding actions, not
-a persistent Member inspector. The Metadata Explorer retains its separately
-owned full-bleed composition.
+Type Overview, Type Members, Member API, Type Metadata, Package Overview,
+Package Dependencies, Library Metadata, Compare, Source, Member Diff, and
+Diagnostics are working surfaces rather than documents inset inside a general
+page. Annotated Source is a transient full-bleed viewer reached from Source or
+exact Finding actions, not a persistent Member inspector. The Metadata
+Explorer retains its separately owned full-bleed composition.
 
 When present, the top content row has the shared 40-pixel heading height on
 both sides of the master-detail divide. It contains one line: long text elides
@@ -356,14 +357,20 @@ The package-query surface's internal query behavior remains owned by
 failures, and completion remain owned by `package-query-cli.md`. Its former
 package-tab placement stays superseded.
 
-### Type and Member API
+### Type Overview, Type Members, and Member API
 
-Type API and Member API use the full area to the right of Type or Member
-navigation. They do not retain a centered document column, a large subject
-hero, or repeated package, library, namespace, and target-framework context.
-The persistent subject path remains the owner of that hierarchy.
+Type Overview uses the full area to the right of Type navigation. Its internal
+vertical grammar, fact grouping, structural rows, and failure presentation are
+owned by
+[Inspect Web Subject Overview](inspect-web-subject-overview.md#owner-and-claim).
+The subject path remains the owner of the enclosing package, library, and Type
+hierarchy.
 
-The Type API surface contains:
+Type Members and Member API use the full area to the right of Type or Member
+navigation. They do not retain a centered document column or large subject
+hero.
+
+The Type Members surface contains:
 
 ```text
 Members                                  visible / total members
@@ -1154,6 +1161,18 @@ dependencies, while the shared References URL admits only the root package.
 The browser renderer gate uses a deterministic package-backed fixture to check
 that an external supplier icon arrives after the direct rows and diagram.
 
+`Microsoft.Azure.SignalR@1.33.1/net8.0` is the real acquisition regression
+witness. Its `Microsoft.Azure.SignalR.dll` declares 40 direct references,
+including external `Azure.Core` and `Microsoft.Azure.SignalR.Protocols`, while
+`Microsoft.Azure.SignalR.Common` is already in the root package. A compatibility
+payload plan caused the semantic supplier query to fail, leaving only the
+same-package icon. The published-Wasm `package-adoption.spec.ts` scenario
+`shows real external Package icons in Library References` opens that exact
+Library through the production page and checks external icons in both rows and
+graph nodes, with Platform references left plain. It uses normal Gallery
+acquisition rather than a stubbed supplier response; the existing fixture gate
+continues to cover deferred presentation separately.
+
 For a uniquely matched Workspace Library, References may show the owning
 ordinary package's icon beside the AssemblyRef row. It uses the admitted
 Library-to-package provenance established by that exact identity match, then
@@ -1186,10 +1205,10 @@ The browser-only presentation scope was explicitly approved for
 [the one-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6165).
 Its one production consumer is Library References; adoption retires only that
 consumer's generic hero and inset reference section. Browser HTML lowering
-continues over the existing typed `BrowserPackageDependencies` reference result.
-This remains a browser-only projection over the existing query rather than a
-new query or rendering architecture. Metadata and Package Dependencies are the
-local composition precedents.
+continues over the shared Library Reference Inspection envelope. This remains
+a browser-only projection over the existing operation rather than a new query
+or rendering architecture. Metadata and Package Dependencies are the local
+composition precedents.
 
 Focused renderer and production-composition browser gates cover wide/narrow
 geometry, long names and identities, many/zero rows, pending and failed results,

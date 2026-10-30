@@ -19,6 +19,17 @@ internal static class ApiViewText
         value is null ? null : Field(value);
 }
 
+public record OverloadRow(
+    string Select,
+    string Anchor,
+    string Signature);
+
+public record DocumentedOverloadRow(
+    string Select,
+    string Anchor,
+    string Signature,
+    string? Description);
+
 /// <summary>
 /// View model for single-type rendering. Pre-computes all display values from ApiType + options.
 /// </summary>
@@ -27,6 +38,14 @@ public class TypeView
 {
     [MarkoutIgnore] public string Title { get; set; } = "";
     [MarkoutIgnore] public string? Description { get; set; }
+
+    [MarkoutSection(Name = SectionNames.Overloads)]
+    [JsonIgnore]
+    public List<OverloadRow>? OverloadRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.DocumentedOverloads)]
+    [JsonIgnore]
+    public List<DocumentedOverloadRow>? DocumentedOverloadRows { get; set; }
 
     [MarkoutSection(Name = "Summary", Headless = true)]
     [JsonIgnore]
@@ -257,9 +276,34 @@ public class TypeView
     [JsonIgnore]
     public List<MethodAttributeRow>? MethodAttributeRows { get; set; }
 
-    [MarkoutSection(Name = "Unsafe Members")]
+    [MarkoutSection(
+        Name = "Unsafe Members",
+        EmptyText = "No unsafe members under the updated memory-safety rules.",
+        ShowWhenProperty = nameof(ShowUnsafeMembers))]
     [JsonIgnore]
     public List<UnsafeMemberRow>? UnsafeMemberRows { get; set; }
+
+    /// <summary>
+    /// Whether the unsafe member census was incomplete, so its rows and
+    /// Count are what was observed rather than a complete result.
+    /// </summary>
+    [JsonIgnore]
+    [MarkoutIgnore]
+    public bool UnsafeMembersIncomplete { get; set; }
+
+    /// <summary>Whether the unsafe member census failed and rendered no rows.</summary>
+    [JsonIgnore]
+    [MarkoutIgnore]
+    public bool UnsafeMembersFailed { get; set; }
+
+    /// <summary>
+    /// An incomplete census with no observed rows is not the explicit empty
+    /// state; the incompleteness is disclosed on stderr instead.
+    /// </summary>
+    [JsonIgnore]
+    [MarkoutIgnore]
+    public bool ShowUnsafeMembers =>
+        !UnsafeMembersIncomplete || UnsafeMemberRows is { Count: > 0 };
 
     [MarkoutSection(Name = SectionNames.ExceptionRegions, EmptyText = "No exception regions found on this type.")]
     [MarkoutIgnoreColumnWhen(nameof(TypeExceptionRegionFilterRangeIsEmpty), nameof(TypeExceptionRegionRow.FilterRange))]
@@ -657,6 +701,9 @@ public class TypeInfoSection
     public string? TypeParameters { get; init; }
 
     public int? Interfaces { get; init; }
+
+    [MarkoutPropertyName("Nested Types")]
+    public int? NestedTypes { get; init; }
 
     [MarkoutPropertyName("Library")]
     public string? Assembly { get; init; }
@@ -1778,11 +1825,10 @@ public record FactRow(
 [MarkoutSerializable]
 public record UnsafeMemberRow(
     string Member,
-    string Reason,
-    string Detail,
-    string Kind,
-    string? IL,
-    string? Token)
+    string Exposure,
+    string? Contract,
+    string Evidence,
+    string? Partial)
 {
     // Every positional property is redeclared, in constructor order, because
     // PositionalRecordPropertyOrderTests requires all or none: a partial
@@ -1791,18 +1837,17 @@ public record UnsafeMemberRow(
     public string Member { get; init; } = Member;
 
     /// <inheritdoc cref="LibraryViewText"/>
-    public string Reason { get; init; } = LibraryViewText.Contain(Reason);
-
-    public string Detail { get; init; } = Detail;
+    public string Exposure { get; init; } = LibraryViewText.Contain(Exposure);
 
     /// <inheritdoc cref="LibraryViewText"/>
-    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
-
     [MarkoutSkipNull]
-    public string? IL { get; init; } = IL;
+    public string? Contract { get; init; } = Contract is null ? null : LibraryViewText.Contain(Contract);
 
+    public string Evidence { get; init; } = Evidence;
+
+    /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
-    public string? Token { get; init; } = Token;
+    public string? Partial { get; init; } = Partial is null ? null : LibraryViewText.Contain(Partial);
 }
 
 [MarkoutSerializable]

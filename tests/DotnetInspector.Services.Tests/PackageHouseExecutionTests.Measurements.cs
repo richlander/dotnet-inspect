@@ -707,7 +707,7 @@ public sealed partial class PackageHouseExecutionTests
             ["build", "contentFiles", "custom", "lib", "ref", "runtimes"],
             measurements.SelectedTargetFrameworkFolders);
         Assert.Equal(
-            realImplementation.LongLength + 11,
+            realImplementation.LongLength + 5,
             measurements.SelectedLibraryPayloadBytes);
         PackageHouseCompileLibraryMeasurement primary =
             Assert.Single(
@@ -725,8 +725,8 @@ public sealed partial class PackageHouseExecutionTests
                 library => library.CompileAsset.AssemblyName.Equals(
                     "Companion.dll",
                     StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("lib/net10.0/Companion.dll", companion.PayloadAsset.Path);
-        Assert.Equal(11, companion.UncompressedBytes);
+        Assert.Equal("ref/net10.0/Companion.dll", companion.PayloadAsset.Path);
+        Assert.Equal(5, companion.UncompressedBytes);
         PackageHouseRealizationReceipt.Compile realization =
             Assert.IsType<PackageHouseRealizationReceipt.Compile>(
                 settlement.Result.Evidence.Realization);

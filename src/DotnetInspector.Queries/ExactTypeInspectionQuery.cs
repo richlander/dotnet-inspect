@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
@@ -224,6 +225,9 @@ public sealed record ExactTypeApi(
     string? EnumUnderlyingType,
     bool IsForwarded)
 {
+    [JsonIgnore]
+    public int NestedTypeCount { get; init; }
+
     internal static ExactTypeApi From(ApiType type) =>
         new(
             type.FullName,
@@ -262,7 +266,10 @@ public sealed record ExactTypeApi(
                         member.Signature)),
             ],
             type.EnumUnderlyingType,
-            type.IsForwarded);
+            type.IsForwarded)
+        {
+            NestedTypeCount = type.NestedTypeCount,
+        };
 }
 
 /// <summary>
@@ -400,7 +407,7 @@ internal sealed record FirstAvailableExactTypeInspectionExecution(
 /// Resolves and projects one exact Type through an admitted Workspace
 /// realization operation.
 /// </summary>
-internal static class ExactTypeInspectionQuery
+internal static partial class ExactTypeInspectionQuery
 {
     sealed record Candidate(
         int Order,
@@ -816,22 +823,38 @@ internal static class ExactTypeInspectionQuery
         InspectionWorkspace workspace,
         CompleteRestorationSelectedSubject.Type selected,
         PackageAssemblyContextRealization roles)
+        => ExecuteSelectedSubject(workspace, selected.Root, selected.DefiningLibrary,
+            selected.Subject.Identity.Type, roles);
+
+    internal static ExactTypeInspectionExecution ExecuteSelectedSubject(
+        InspectionWorkspace workspace,
+        CompleteRestorationSelectedSubject.Member selected,
+        PackageAssemblyContextRealization roles)
+        => ExecuteSelectedSubject(workspace, selected.Root, selected.DefiningLibrary,
+            selected.Subject.Identity.DeclaringType, roles);
+
+    static ExactTypeInspectionExecution ExecuteSelectedSubject(
+        InspectionWorkspace workspace,
+        PackageRootBinding root,
+        NavigationLibraryEvaluation library,
+        MetadataTypeDefinitionName definition,
+        PackageAssemblyContextRealization roles)
     {
-        WorkspaceContextMember member = selected.DefiningLibrary.Library;
+        WorkspaceContextMember member = library.Library;
         if (!roles.SurfaceGroup.Participants.Contains(member.Participant))
             throw new ArgumentException("The saved Type does not belong to the borrowed Root roles.",
-                nameof(selected));
+                nameof(library));
         var loaded = new WorkspaceContextLoadOutcome.Loaded(
-            workspace.Identity, roles.SurfaceGroup, [member], [selected.Root], [],
-            selected.Root.Coordinate.Framework, selected.Root.Coordinate.RuntimeIdentifier);
+            workspace.Identity, roles.SurfaceGroup, [member], [root], [],
+            root.Coordinate.Framework, root.Coordinate.RuntimeIdentifier);
         ExactTypeInspectionTarget? target = null;
         ExactTypeInspectionResult result = ExecuteCore(
             workspace.Identity, new ExactTypeInspectionContext(loaded),
-            selected.Subject.Identity.Type.ToEscapedFullName(),
+            definition.ToEscapedFullName(),
             ExactTypeSelectionKind.DefinitionIdentity, [member.Participant],
             definingSource: null, definingSources: null, value => target = value,
             ApiSurfaceScope.PublicWithNonPublicTypes, projectionLimits: null,
-            selected.Subject.Identity.Type);
+            definition);
         return new(result, [], target);
     }
 
@@ -947,7 +970,7 @@ internal static class ExactTypeInspectionQuery
         (ImmutableArray<Candidate> matching, string? matchedType) =
             MatchDeclarations(
                 declarations,
-                declarationNames,
+                declarationScan?.Declarations ?? declarations,
                 requestedType,
                 selectionKind,
                 selectedDefinition);
@@ -1562,7 +1585,7 @@ internal static class ExactTypeInspectionQuery
         (ImmutableArray<Candidate> matching, _) =
             MatchDeclarations(
                 scan.Declarations,
-                [.. scan.Names],
+                scan.Declarations,
                 requestedType,
                 selectionKind,
                 selectedDefinition: null);
@@ -1605,72 +1628,42 @@ internal static class ExactTypeInspectionQuery
         string? MatchedType)
         MatchDeclarations(
             ImmutableArray<Candidate> declarations,
-            IReadOnlyList<string> declarationNames,
+            ImmutableArray<Candidate> selectionPopulation,
             string requestedType,
             ExactTypeSelectionKind selectionKind,
             MetadataTypeDefinitionName? selectedDefinition)
     {
-        if (selectedDefinition is not null)
+        MetadataTypeLookupResult<Candidate> lookup =
+            selectedDefinition is not null
+                ? MetadataTypeLookup.Definition(
+                    selectionPopulation,
+                    static candidate => candidate.Definition,
+                    selectedDefinition)
+                : selectionKind == ExactTypeSelectionKind.DefinitionIdentity
+                    ? MetadataTypeLookup.Definition(
+                        selectionPopulation,
+                        static candidate => candidate.Definition,
+                        requestedType)
+                    : MetadataTypeLookup.Query(
+                        selectionPopulation,
+                        static candidate => candidate.Definition,
+                        requestedType);
+        ImmutableArray<Candidate> matching = lookup.Matches;
+        if (selectionPopulation != declarations)
         {
-            ImmutableArray<Candidate> selected =
+            HashSet<MetadataTypeDefinitionName> selectedNames =
+                [.. lookup.Matches.Select(static candidate => candidate.Definition)];
+            matching =
             [
                 .. declarations.Where(candidate =>
-                    candidate.Definition.Equals(
-                        selectedDefinition)),
+                    selectedNames.Contains(candidate.Definition)),
             ];
-            return (
-                selected,
-                selected.IsEmpty ? null : requestedType);
         }
-        if (selectionKind
-            == ExactTypeSelectionKind.DefinitionIdentity)
-        {
-            ImmutableArray<Candidate> selected =
-            [
-                .. declarations.Where(candidate =>
-                    candidate.Definition.ToEscapedFullName().Equals(
-                        requestedType,
-                        StringComparison.Ordinal)),
-            ];
-            return (
-                selected,
-                selected.IsEmpty ? null : requestedType);
-        }
-
-        string? exactName = declarationNames.FirstOrDefault(name =>
-            name.Equals(
-                requestedType,
-                StringComparison.OrdinalIgnoreCase));
-        string[] exactShortNames = exactName is null
-            ? [
-                .. declarationNames.Where(name =>
-                    TypeMatcher.MatchesExactTypeName(
-                        name,
-                        requestedType)),
-            ]
-            : [];
-        string[] matchingNames =
-            exactName is not null
-                ? [exactName]
-                : exactShortNames.Length > 0
-                    ? exactShortNames
-                    :
-            [
-                .. declarationNames.Where(name =>
-                    TypeMatcher.MatchesTypeFilter(
-                        name,
-                        requestedType)),
-            ];
         return (
-            [
-                .. declarations.Where(candidate =>
-                    matchingNames.Contains(
-                        candidate.Definition.ToEscapedFullName(),
-                        StringComparer.OrdinalIgnoreCase)),
-            ],
-            matchingNames.Length == 1
-                ? matchingNames[0]
-                : null);
+            matching,
+            selectedDefinition is not null && !lookup.Matches.IsEmpty
+                ? requestedType
+                : lookup.MatchedName);
     }
 
     static ImmutableArray<Candidate> Declarations(

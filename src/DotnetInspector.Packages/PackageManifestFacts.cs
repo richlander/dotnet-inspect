@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using InertText;
 using NuGetFetch;
 
@@ -35,6 +36,46 @@ public sealed record DeclaredPackageDependencyGroup(
     string TargetFramework,
     ImmutableArray<DeclaredPackageDependency> Dependencies,
     bool IsImplicitManifestGroup = false);
+
+/// <summary>
+/// One bounded dependency identifier occurrence retained independently from
+/// semantic dependency projection.
+/// </summary>
+public sealed record PackageManifestDependencyIdentifierObservation(
+    string Id,
+    int GroupIndex,
+    int DependencyIndex);
+
+/// <summary>
+/// Complete ordered dependency groups from one package manifest.
+/// </summary>
+public sealed record PackageManifestDependencyFacts(
+    ImmutableArray<DeclaredPackageDependencyGroup> Groups);
+
+/// <summary>
+/// The typed outcome of projecting one manifest's dependency section.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(
+    typeof(PackageManifestDependencyFactsResult.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(PackageManifestDependencyFactsResult.Failed),
+    "failed")]
+public abstract record PackageManifestDependencyFactsResult
+{
+    private PackageManifestDependencyFactsResult()
+    {
+    }
+
+    public sealed record Available(
+        PackageManifestDependencyFacts Value) :
+        PackageManifestDependencyFactsResult;
+
+    public sealed record Failed(
+        PackageManifestFailure Failure) :
+        PackageManifestDependencyFactsResult;
+}
 
 /// <summary>
 /// One framework-reference identity using NuGet's ordinal-ignore-case
@@ -83,6 +124,13 @@ public sealed record PackageManifestFrameworkReferenceFacts(
     ImmutableArray<PackageManifestFrameworkReferenceGroup> Groups);
 
 /// <summary>
+/// The JSON representation of one validated manifest source coordinate.
+/// </summary>
+public sealed record PackageManifestCoordinate(
+    string PackageId,
+    string Version);
+
+/// <summary>
 /// Why a manifest's framework-reference section could not be projected.
 /// </summary>
 public enum PackageManifestFrameworkReferenceFailureReason
@@ -115,6 +163,13 @@ public sealed record PackageManifestFrameworkReferenceFailure(
 /// <summary>
 /// The typed outcome of projecting one manifest's framework-reference section.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(PackageManifestFrameworkReferenceFactsResult.Failed),
+    "failed")]
 public abstract record PackageManifestFrameworkReferenceFactsResult
 {
     private PackageManifestFrameworkReferenceFactsResult()
@@ -134,6 +189,7 @@ public abstract record PackageManifestFrameworkReferenceFactsResult
 /// Immutable facts declared by one validated package manifest.
 /// </summary>
 public sealed record PackageManifestFacts(
+    [property: JsonIgnore]
     PackageSourceCoordinate Coordinate,
     string ManifestVersion,
     InertString? Description,
@@ -148,6 +204,63 @@ public sealed record PackageManifestFacts(
     string? ReadmeFile,
     ImmutableArray<DeclaredPackageDependencyGroup> DependencyGroups)
 {
+    [JsonConstructor]
+    public PackageManifestFacts(
+        PackageManifestCoordinate jsonCoordinate,
+        string manifestVersion,
+        InertString? description,
+        string? authors,
+        string? repository,
+        string? repositoryType,
+        string? repositoryCommit,
+        string? license,
+        string? licenseUrl,
+        ImmutableArray<string> packageTypes,
+        bool isToolPackage,
+        string? readmeFile,
+        ImmutableArray<DeclaredPackageDependencyGroup> dependencyGroups)
+        : this(
+            PackageSourceCoordinate.Create(
+                jsonCoordinate.PackageId,
+                jsonCoordinate.Version),
+            manifestVersion,
+            description,
+            authors,
+            repository,
+            repositoryType,
+            repositoryCommit,
+            license,
+            licenseUrl,
+            packageTypes,
+            isToolPackage,
+            readmeFile,
+            dependencyGroups)
+    {
+    }
+
+    [JsonPropertyName("coordinate")]
+    [JsonPropertyOrder(-100)]
+    public PackageManifestCoordinate JsonCoordinate =>
+        new(Coordinate.PackageId, Coordinate.Version);
+
+    public string DeclaredPackageId { get; init; } = Coordinate.PackageId;
+
+    public string DeclaredPackageVersion { get; init; } = Coordinate.Version;
+
+    public PackageManifestDependencyFactsResult DependencyDeclarations
+    {
+        get;
+        init;
+    } = new PackageManifestDependencyFactsResult.Available(
+        new PackageManifestDependencyFacts(DependencyGroups));
+
+    /// <summary>
+    /// Bounded source identifier occurrences retained for identity-oriented
+    /// consumers when semantic dependency projection is rejected.
+    /// </summary>
+    public ImmutableArray<PackageManifestDependencyIdentifierObservation>
+        DependencyIdentifierObservations { get; init; } = [];
+
     public PackageLicenseDeclaration? LicenseDeclaration { get; init; }
 
     public string? IconFile { get; init; }

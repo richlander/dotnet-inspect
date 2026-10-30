@@ -29,6 +29,10 @@ public static class DiffAnalysisCatalog
     public static AnalysisDeclarationId StringLiteralRoute { get; } =
         new("producer.diff.string-literal-comparison");
 
+    /// <summary>The unsafe member census comparison (<c>UnsafeMemberComparisonQuery</c>).</summary>
+    public static AnalysisDeclarationId UnsafeMemberRoute { get; } =
+        new("producer.diff.unsafe-member-comparison");
+
     /// <summary>The typed body-signal comparison (<c>BodySignalComparisonQuery</c>).</summary>
     public static AnalysisDeclarationId BodySignalRoute { get; } =
         new("producer.diff.body-signal-comparison");
@@ -111,6 +115,23 @@ public static class DiffAnalysisCatalog
                 StringLiteralRoute,
                 ProduceStringLiterals),
             Register(
+                "unsafe-member",
+                InspectionCost.Moderated,
+                [
+                    (
+                        AnalysisReportSurfaceKind.Library,
+                        LibraryAnchor,
+                        new[] { AnalysisFindings.UnsafeMemberDescriptor },
+                        true),
+                    (
+                        AnalysisReportSurfaceKind.Type,
+                        TypeAnchors,
+                        new[] { AnalysisFindings.UnsafeMemberDescriptor },
+                        true),
+                ],
+                UnsafeMemberRoute,
+                ProduceUnsafeMembers),
+            Register(
                 "csharp",
                 InspectionCost.Moderated,
                 [
@@ -134,6 +155,7 @@ public static class DiffAnalysisCatalog
 
         Operation = new AnalysisOperationDefinition(
             AnalysisOperationKind.Compare,
+            AnalysisQuestionMode.Targeted,
             ["api"]);
         Document = new(
             new(
@@ -155,12 +177,14 @@ public static class DiffAnalysisCatalog
                 cancellationToken.ThrowIfCancellationRequested();
                 return ValueTask.FromResult(
                     DiffAnalysisInspection.Execute(request));
-            });
+            },
+            Operation);
         ProductModule = new InspectionCapabilityModule(
             "diff.analyses",
             documents: [Document],
             routes: [Route],
-            analyses: Registrations);
+            analyses: Registrations,
+            routingDeclarations: static () => DiffAnalysisRoutingDeclarations.Declarations);
     }
 
     public const string DocumentIdentity = "diff-analysis/document/v1";
@@ -227,6 +251,33 @@ public static class DiffAnalysisCatalog
             analysis.ParticipationFor(selection.Operation)
                 ?.For(selection.Surface)
                 ?.ProducerRoute == StringLiteralRoute);
+    }
+
+    /// <summary>
+    /// The identities of the analyses that declare the Transitions view at a
+    /// report surface, in product order.
+    /// </summary>
+    public static ImmutableArray<string> TransitionAnalysesAt(
+        AnalysisReportSurfaceKind surface) =>
+        [
+            .. Registrations
+                .Where(registration => registration.Analysis
+                    .ParticipationFor(AnalysisOperationKind.Compare)
+                    ?.For(surface)
+                    ?.Projections.Any(projection =>
+                        projection.Id == TransitionsProjection.Id)
+                    == true)
+                .Select(static registration => registration.Analysis.Id.Value),
+        ];
+
+    public static bool RequiresUnsafeMemberComparison(
+        AnalysisSetValidationResult.Accepted selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return selection.Analyses.Any(analysis =>
+            analysis.ParticipationFor(selection.Operation)
+                ?.For(selection.Surface)
+                ?.ProducerRoute == UnsafeMemberRoute);
     }
 
     static InspectionAnalysisRegistration RegisterBody(
@@ -327,6 +378,14 @@ public static class DiffAnalysisCatalog
                 (context.Input.PrepareStringLiterals
                     ?? throw new InvalidOperationException(
                         "The string-literal comparison was not prepared."))()));
+
+    static DiffAnalysisProduction ProduceUnsafeMembers(
+        DiffAnalysisProducerContext context)
+        => DiffAnalysisProduction.Compared(
+            KeyedFindingComparison.Of(
+                (context.Input.PrepareUnsafeMembers
+                    ?? throw new InvalidOperationException(
+                        "The unsafe member comparison was not prepared."))()));
 
     static DiffAnalysisProduction ProduceBody<T>(
         DiffAnalysisProducerContext context,

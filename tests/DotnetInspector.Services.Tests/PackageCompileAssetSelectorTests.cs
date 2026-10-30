@@ -274,7 +274,8 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
-    public void RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback()
+    public void
+        RidSpecificImplementation_ReplacesWholeNeutralImplementationGroup()
     {
         IPackageContent content = InMemory(
             "lib/net8.0/Example.dll",
@@ -301,22 +302,18 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(3, slice.CandidateAssets.Count);
         Assert.Equal(
             [
-                "lib/net8.0/Example.Companion.dll",
-                "lib/net8.0/shadow/Example.dll",
                 "runtimes/linux-x64/lib/net8.0/Example.dll",
             ],
             selection.ImplementationAssets.Select(asset => asset.Path));
         Assert.Equal(
             "linux-x64",
-            selection.ImplementationAssets[2].RuntimeIdentifier);
+            Assert.Single(selection.ImplementationAssets).RuntimeIdentifier);
         Assert.Equal("lib/net8.0/Example.dll", selection.DefaultAsset!.Path);
         Assert.Equal(
             "runtimes/linux-x64/lib/net8.0/Example.dll",
             selection.FindImplementationAsset(selection.DefaultAsset)!.Path);
         PackageCompileAsset companion = selection.Assets[0];
-        Assert.Same(
-            companion,
-            selection.FindImplementationAsset(companion));
+        Assert.Null(selection.FindImplementationAsset(companion));
     }
 
     [Fact]
@@ -771,6 +768,33 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(
             ["lib/net8.0/Example.dll"],
             selection.Assets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void CompatibleImplementation_PreservesNestedCompileAssets()
+    {
+        IPackageContent content = InMemory(
+            "ref/net10.0/Example.dll",
+            "ref/net10.0/shadow/Companion.dll",
+            "runtimes/linux-x64/lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.SelectForCompatibleImplementation(
+                content,
+                "Example",
+                "net10.0",
+                "net8.0",
+                "linux-x64");
+
+        Assert.Equal(
+            [
+                "ref/net10.0/Example.dll",
+                "ref/net10.0/shadow/Companion.dll",
+            ],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net8.0/Example.dll",
+            Assert.Single(selection.ImplementationAssets).Path);
     }
 
     [Fact]

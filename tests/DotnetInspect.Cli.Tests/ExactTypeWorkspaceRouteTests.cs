@@ -895,7 +895,7 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
-    public void RicherViewsRemainOnCompatibilityPath()
+    public void ExactTypeRouteAdmitsOnlyLockedDemandShapes()
     {
         var options = new TypeOptions
         {
@@ -1006,6 +1006,70 @@ public sealed class ExactTypeWorkspaceRouteTests
                 options with
                 {
                     IncludeSections = ["Summary"],
+                },
+                out _));
+        TypeOptions exceptionRegions = options with
+        {
+            IncludeSections = [SectionNames.ExceptionRegions],
+        };
+        Assert.True(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                exceptionRegions,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(exceptionRegions),
+                out _,
+                out TypeCommand.SharedExactTypePackageDemand demand));
+        Assert.Equal(
+            TypeCommand.SharedExactTypePackageDemand
+                .DefiningImplementation,
+            demand);
+        TypeOptions calledTypes = options with
+        {
+            IncludeSections = [SectionNames.CalledTypes],
+        };
+        Assert.True(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                calledTypes,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(calledTypes),
+                out _,
+                out demand));
+        Assert.Equal(
+            TypeCommand.SharedExactTypePackageDemand
+                .DefiningImplementation,
+            demand);
+        TypeOptions allocationFacts = options with
+        {
+            IncludeSections = [SectionNames.AllocationFacts],
+        };
+        Assert.True(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                allocationFacts,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(allocationFacts),
+                out _,
+                out demand));
+        Assert.Equal(
+            TypeCommand.SharedExactTypePackageDemand
+                .DefiningImplementation,
+            demand);
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                exceptionRegions with
+                {
+                    IncludeSections =
+                    [
+                        SectionNames.AllocationFacts,
+                        SectionNames.ExceptionRegions,
+                        SectionNames.CalledTypes,
+                    ],
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                exceptionRegions with
+                {
+                    FormatExplicitlySet = true,
                 },
                 out _));
         Assert.True(
@@ -1856,6 +1920,125 @@ public sealed class ExactTypeWorkspaceRouteTests
 
     [Fact]
     public async Task
+        DefiningImplementationTypeRouteRendersAllocationFactsFromNonNamesakeLibrary()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(SemanticFactsFixture).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(SemanticFactsFixture).FullName,
+            Select = [SectionNames.AllocationFacts],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "member\til_offset\tallocation_kind\tallocated_type",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(SemanticFactsFixture.AllSignals),
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains("array", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationTypeRouteRendersCalledTypesFromNonNamesakeLibrary()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(CalledTypesFixture).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(CalledTypesFixture).FullName,
+            Select = [SectionNames.CalledTypes],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.StartsWith(
+            "type\tassembly\tcalls\tmembers\tcall_kinds",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"{typeof(CalledTypesDependency).FullName}"
+                + "\tDotnetInspect.Cli.Tests\t3\t2\tdirect",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationTypeRouteRendersExceptionRegionsFromNonNamesakeLibrary()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(MemberExceptionRegionsFixture).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(MemberExceptionRegionsFixture).FullName,
+            Select = [SectionNames.ExceptionRegions],
+            CompanionOutput = CompanionOutput.None,
+            Verbosity = Verbosity.Minimal,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.Contains("\tcatch\t", output, StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(DivideByZeroException),
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
         DefiningImplementationMemberRouteRendersIlFromNonNamesakeLibrary()
     {
         byte[] assembly = await File.ReadAllBytesAsync(
@@ -1892,9 +2075,7 @@ public sealed class ExactTypeWorkspaceRouteTests
     public async Task
         DefiningImplementationMemberRouteRendersExceptionRegions()
     {
-        byte[] assembly = await File.ReadAllBytesAsync(
-            typeof(SingleTypeSurfaceFixture).Assembly.Location,
-            TestContext.Current.CancellationToken);
+        byte[] assembly = await ReadTestAssemblyAsync();
         var store = await CachedStoreAsync(
             ($"ref/{Framework}/{PackageId}.dll",
                 BuildLiteralDelimiterTypeAssembly()),
@@ -1924,6 +2105,235 @@ public sealed class ExactTypeWorkspaceRouteTests
             nameof(OverflowException),
             output,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationMemberRouteRendersCustomAttributes()
+    {
+        byte[] assembly = await ReadTestAssemblyAsync();
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(SingleTypeSurfaceFixture).FullName,
+            MemberFilter = [nameof(SingleTypeSurfaceFixture.Overloaded)],
+            OverloadIndex = 1,
+            Select = [SectionNames.CustomAttributes],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Obsolete\tfirst",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationMemberRouteRendersDecompiledSource()
+    {
+        byte[] assembly = await ReadTestAssemblyAsync();
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/DotnetInspect.Cli.Tests.dll", assembly),
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(SingleTypeSurfaceFixture).FullName,
+            MemberFilter = [nameof(SingleTypeSurfaceFixture.Overloaded)],
+            OverloadIndex = 1,
+            Select = [SectionNames.DecompiledSource],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Empty(error);
+        Assert.Contains(
+            "public static int Overloaded(int value)",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "catch (OverflowException)",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        PackageLibraryNamespaceRouteUsesOneSelectedSurfaceLibrary()
+    {
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        var options = new LibraryOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            AssemblyName = "ILInspector.Metadata.dll",
+            TypeNamespace = typeof(ApiType).Namespace,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleLibraryNamespaceRouteAsync(
+                    options,
+                    store));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            typeof(ApiType).FullName!,
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Outer.Inner",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "## Library Info",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        PackageLibraryNamespaceRouteDefersRuntimeOnlyPopulation()
+    {
+        var store = await CachedStoreAsync(
+            ($"runtimes/win-x64/lib/{Framework}/RuntimeOnly.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        var options = new LibraryOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            AssemblyName = "RuntimeOnly.dll",
+            TypeNamespace = typeof(ApiType).Namespace,
+        };
+
+        int? result =
+            await TryExecuteEligibleLibraryNamespaceRouteAsync(
+                options,
+                store);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task
+        PackageLibraryNamespaceRouteDefersImplementationAssetPath()
+    {
+        const string Library = "Selected.dll";
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{Library}",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{Library}",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        var options = new LibraryOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            AssemblyName = $"lib/{Framework}/{Library}",
+            TypeNamespace = typeof(ApiType).Namespace,
+        };
+
+        int? result =
+            await TryExecuteEligibleLibraryNamespaceRouteAsync(
+                options,
+                store);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void PackageLibraryNamespaceRouteAdmitsOnlyExactPinnedRequests()
+    {
+        var options = new LibraryOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            AssemblyName = "ILInspector.Metadata.dll",
+            TypeNamespace = typeof(ApiType).Namespace,
+        };
+
+        Assert.True(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options,
+                out PackageEndpointScopeRequest? request));
+        Assert.Equal(PackageAssetDemand.Surface, request.AssetDemand);
+        Assert.Equal(
+            "ILInspector.Metadata.dll",
+            request.LibrarySelector!.Value);
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { PackagePath = PackageId },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with
+                {
+                    PackagePath = Path.Combine(
+                        Path.GetTempPath(),
+                        "Example.1.0.0.nupkg"),
+                },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { Tfm = null },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { AssemblyName = null },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { TypeNamespace = null },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with
+                {
+                    AssemblyName = "ILInspector.*",
+                },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { NamesakeLibrary = true },
+                out _));
+        Assert.False(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options with { FirstLibrary = true },
+                out _));
     }
 
     [Fact]
@@ -1965,6 +2375,8 @@ public sealed class ExactTypeWorkspaceRouteTests
         foreach (string section in (string[])
             [
                 SectionNames.IL,
+                SectionNames.CustomAttributes,
+                SectionNames.DecompiledSource,
                 SectionNames.ExceptionRegions,
             ])
         {
@@ -1993,15 +2405,15 @@ public sealed class ExactTypeWorkspaceRouteTests
                 plan,
                 out _,
                 out _));
-        MemberOptions decompiled = exact with
+        MemberOptions annotated = exact with
         {
-            Select = [SectionNames.DecompiledSource],
+            Select = [SectionNames.AnnotatedSource],
         };
         Assert.False(
             MemberCommand.TryCreateSharedMemberRequest(
-                decompiled,
+                annotated,
                 ResolvedMemberInspectionPlan
-                    .FromCompatibilityOptions(decompiled),
+                    .FromCompatibilityOptions(annotated),
                 out _,
                 out _));
         Assert.False(
@@ -2059,6 +2471,24 @@ public sealed class ExactTypeWorkspaceRouteTests
                 TestContext.Current.CancellationToken);
         }
         return store;
+    }
+
+    static Task<byte[]> ReadTestAssemblyAsync()
+    {
+        string assemblyPath =
+            typeof(SingleTypeSurfaceFixture).Assembly.Location;
+        if (!File.Exists(assemblyPath))
+        {
+            assemblyPath = Path.GetFullPath(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "..",
+                    "..",
+                    Path.GetFileName(assemblyPath)));
+        }
+        return File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
     }
 
     static string[] FixtureProducerKeys()
@@ -2127,6 +2557,51 @@ public sealed class ExactTypeWorkspaceRouteTests
             house,
             cancellationToken =>
                 root.IssueOperationLease(cancellationToken));
+    }
+
+    static async Task<int> ExecuteEligibleLibraryNamespaceRouteAsync(
+        LibraryOptions options,
+        IPackageStore store)
+    {
+        int? result =
+            await TryExecuteEligibleLibraryNamespaceRouteAsync(
+                options,
+                store);
+        return Assert.IsType<int>(result);
+    }
+
+    static async Task<int?> TryExecuteEligibleLibraryNamespaceRouteAsync(
+        LibraryOptions options,
+        IPackageStore store)
+    {
+        Assert.True(
+            LibraryCommand.TryCreatePackageNamespaceRequest(
+                options,
+                out PackageEndpointScopeRequest? request));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        int? result =
+            await LibraryCommand.TryExecutePackageNamespaceAsync(
+                options,
+                request,
+                house,
+                cancellationToken =>
+                    root.IssueOperationLease(cancellationToken),
+                TestContext.Current.CancellationToken);
+        return result;
     }
 
     static TypeOptions WithPresentation(

@@ -12,6 +12,7 @@ using DotnetInspector.Networking;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
+using ILInspector.Analysis;
 using QuerySpace;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
@@ -766,8 +767,8 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     public async Task PackageQueryFacetPath_CanBePassedUnchangedToExplain()
     {
         var discovery = await RunAsync(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             "--json");
@@ -1113,6 +1114,110 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task DiffAnalysisBinding_ExplainsTheRequiredLiteralPredicateAndTransport()
+    {
+        var result = await RunAsync(
+            "explain",
+            "diff-analysis/bindings/cli",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        string[] rules = document.RootElement
+            .GetProperty("facts")
+            .GetProperty("input-rules")
+            .EnumerateArray()
+            .Select(rule => rule.GetString()!)
+            .ToArray();
+        Assert.Contains(rules, rule =>
+            rule.Contains("--analysis string-literals", StringComparison.Ordinal)
+            && rule.Contains("exactly one --where", StringComparison.Ordinal));
+        Assert.Contains(rules, rule =>
+            rule.Contains("Literal contains value", StringComparison.Ordinal)
+            && rule.Contains("Literal starts-with value", StringComparison.Ordinal));
+        Assert.Contains(rules, rule =>
+            rule.Contains("non-empty", StringComparison.Ordinal)
+            && rule.Contains(
+                $"at most {StringLiteralUsePredicate.MaximumLength} UTF-16",
+                StringComparison.Ordinal));
+        Assert.Contains(rules, rule =>
+            rule.Contains("one shell argument", StringComparison.Ordinal)
+            && rule.Contains("--where \"Literal contains https://\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Search_AdmitsEveryAnalysisDiffBinds()
+    {
+        var search = await RunAsync(
+            "explain",
+            "diff analyses",
+            "-n",
+            "100",
+            "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement[] analyses =
+        [
+            .. document.RootElement
+                .GetProperty("results")
+                .EnumerateArray()
+                .Where(static result =>
+                    result.GetProperty("resource_kind").GetString()
+                        == "Analysis"),
+        ];
+        Assert.Equal(
+            DiffAnalysisCommandCapability.Identities
+                .Select(static identity => "analyses/" + identity)
+                .Order(StringComparer.Ordinal),
+            analyses
+                .Select(static result =>
+                    result.GetProperty("resource_path").GetString()!)
+                .Order(StringComparer.Ordinal));
+        foreach (JsonElement analysis in analyses)
+        {
+            Assert.Equal(
+                "diff --analysis",
+                Assert.Single(
+                        analysis.GetProperty("production_bindings")
+                            .EnumerateArray())
+                    .GetProperty("gesture")
+                    .GetString());
+            Assert.Equal(
+                "diff-analysis/routes/compare",
+                Assert.Single(
+                        analysis.GetProperty("owning_routes")
+                            .EnumerateArray())
+                    .GetProperty("resource_path")
+                    .GetString());
+            var exact = await RunAsync(
+                "explain",
+                analysis.GetProperty("resource_path").GetString()!,
+                "--json");
+            Assert.Equal(0, exact.ExitCode);
+        }
+    }
+
+    [Theory]
+    [InlineData("string literal diff", "analyses/string-literals")]
+    [InlineData("allocation changes", "analyses/allocation")]
+    public async Task Phrase_RanksTheAnalysisFirst(string text, string path)
+    {
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        Assert.Equal(
+            path,
+            document.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("resource_path")
+                .GetString());
+    }
+
+    [Fact]
     public async Task BareExplain_DefaultsToTheRoutingTableAsTsv()
     {
         // Explain is primarily for agents, so its starting point is the
@@ -1407,12 +1512,12 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         ResourceExplanationCatalog complete =
             ResourceExplanationCommand.CreateCompleteCatalog()!;
         var admitted = new HashSet<string>(StringComparer.Ordinal);
-        foreach (CapabilityCatalogSearchStructuralCatalog catalog
-                 in ResourceExplanationCommand
-                     .CreateStructuralSearchCatalogs()!.Value)
+        foreach (InspectionStructuralCatalogRegistration catalog
+                 in InspectionCapabilityCatalog.Create(ResourceExplanationCommand
+                     .CreateStructuralCapabilityModules()).StructuralCatalogs)
         {
             foreach (StructuralResourcePathRegistration registration
-                     in catalog.Paths.Where(static path =>
+                     in catalog.Projection.ResourcePaths.Where(static path =>
                          path.Identity.Kind
                              is DiscoveryResourceKind.Section
                              or DiscoveryResourceKind.Category))
@@ -1467,7 +1572,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             "package-query/query/facets/library-literal",
             first.GetProperty("resource_path").GetString());
         Assert.Equal(
-            "package query",
+            "find --packages",
             first.GetProperty("production_bindings")[0]
                 .GetProperty("gesture")
                 .GetString());

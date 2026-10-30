@@ -607,6 +607,14 @@ public static class ApiOutputFormatter
             new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
 
         var modifiers = projection.Identity.Modifiers;
+        TypeSignaturePresentation? signature =
+            options is TypeOptions
+            {
+                TypeSignatureInspection.Content:
+                    TypeSignatureInspectionOutcome.Available available,
+            }
+                ? ExactTypeInfoTsvPresentation.Project(available.Signature)
+                : null;
         string? baseType = projection.BaseType is { } rawBaseType
             ? CSharpIdentifier.ContainRenderedText(rawBaseType)
             : null;
@@ -674,6 +682,14 @@ public static class ApiOutputFormatter
         {
             Title = title,
             Description = description,
+            OverloadRows = options is MemberOptions overloadOptions
+                && options.IncludeSections?.Contains(SectionNames.Overloads) == true
+                    ? MemberGroupDocumentOutput.Rows(type, overloadOptions)
+                    : null,
+            DocumentedOverloadRows = options is MemberOptions documentedOptions
+                && options.IncludeSections?.Contains(SectionNames.DocumentedOverloads) == true
+                    ? MemberGroupDocumentOutput.DocumentedRows(type, documentedOptions)
+                    : null,
             Summary = memberDetail
                 ? BuildMemberDetailSummary(type, foundIn, packageName, packageVersion, apiSource, selectedTfm)
                 : null,
@@ -725,12 +741,20 @@ public static class ApiOutputFormatter
                     .ToList(),
             TypeInfo = memberDetail ? null : new TypeInfoSection
             {
-                Type = FormatGenericFullName(type),
-                Kind = type.Kind,
-                Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
-                BaseType = baseType,
-                TypeParameters = typeParamsSummary,
-                Interfaces = NullIfZero(type.Interfaces.Count),
+                Type = signature?.Type ?? FormatGenericFullName(type),
+                Kind = signature?.Kind ?? type.Kind,
+                Modifiers = signature is not null
+                    ? signature.Modifiers.Length > 0
+                        ? string.Join(", ", signature.Modifiers)
+                        : null
+                    : modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
+                BaseType = signature is not null ? signature.BaseType : baseType,
+                TypeParameters = signature is not null
+                    ? signature.TypeParameters
+                    : typeParamsSummary,
+                Interfaces = NullIfZero(signature?.InterfaceCount ?? type.Interfaces.Count),
+                NestedTypes = NullIfZero(
+                    signature?.NestedTypeCount ?? type.NestedTypeCount),
                 Assembly = foundIn,
                 Package = packageName,
                 Version = packageVersion,
@@ -2370,31 +2394,79 @@ public static class ApiOutputFormatter
                 pair.Value.Count));
     }
 
+    /// <summary>
+    /// Populates Type-scope Unsafe Members from the unsafe member census over
+    /// the selected type, as docs/design/unsafe-members-section.md defines.
+    /// An incomplete census keeps its observed rows and is disclosed on
+    /// stderr; a failed census is reported and renders no rows.
+    /// </summary>
     internal static void PopulateUnsafeMembers(
         TypeView view,
         ApiType type,
-        Analysis.LibrarySafetyAnalysisResult safety)
+        string assemblyPath,
+        ResolvedAssemblyReference? sourceAssembly,
+        bool verbose)
     {
-        var rows = safety
-            .Evidence
-            .Where(evidence => ApiAnalysisInspection.SameType(evidence.Member.DeclaringType, type))
-            .GroupBy(evidence => evidence.Member.MetadataToken)
-            .SelectMany(group =>
+        UnsafeMemberCensusQueryResult result;
+        try
+        {
+            if (type.MetadataToken is not { } token
+                || System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(token)
+                    is not { Kind: System.Reflection.Metadata.HandleKind.TypeDefinition } entity)
             {
-                var method = group.First().Member;
-                return Analysis.AnalysisFindings.InspectUnsafeEvidence(
-                    group,
-                    FindingSubject(method));
-            })
-            .Select(static finding => finding.Payload)
-            .OrderBy(evidence => evidence.Member.Name, StringComparer.Ordinal)
-            .ThenBy(evidence => evidence.ILOffset ?? -1)
-            .ThenBy(evidence => evidence.Reason, StringComparer.Ordinal)
-            .ThenBy(evidence => evidence.Detail, StringComparer.Ordinal)
-            .Select(evidence => ToUnsafeMemberRow(evidence, includeDeclaringType: false))
-            .ToList();
-        if (rows.Count > 0)
-            view.UnsafeMemberRows = rows;
+                throw new InvalidOperationException(
+                    $"{type.FullName} has no type definition token.");
+            }
+
+            using PdbContext context = sourceAssembly is not null
+                ? PdbContext.OpenMetadataOnly(sourceAssembly)
+                : PdbContext.OpenMetadataOnly(assemblyPath);
+            result = UnsafeMemberCensusQuery.ExecuteExactTypes(
+                sourceAssembly?.Path ?? assemblyPath,
+                context,
+                (System.Reflection.Metadata.TypeDefinitionHandle)entity);
+        }
+        catch (Exception ex)
+        {
+            result = new UnsafeMemberCensusQueryResult.Failed(ex);
+        }
+
+        string? failure = null;
+        Analysis.UnsafeMemberFindingInspection? inspection = null;
+        switch (result)
+        {
+            case UnsafeMemberCensusQueryResult.Inspected inspected:
+                inspection = Analysis.AnalysisFindings.InspectUnsafeMembers(
+                    inspected.Census,
+                    new FindingSubject(
+                        Path.GetFullPath(assemblyPath),
+                        $"{Path.GetFileName(assemblyPath)}: {type.FullName}"));
+                if (inspection is Analysis.UnsafeMemberFindingInspection.Failed census)
+                    failure = census.Error.Reason;
+                break;
+            case UnsafeMemberCensusQueryResult.NoMetadata:
+                return;
+            case UnsafeMemberCensusQueryResult.Failed failed:
+                failure = failed.Error.Message;
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown unsafe member census result '{result.GetType().Name}'.");
+        }
+
+        if (failure is not null)
+        {
+            view.UnsafeMembersFailed = true;
+            CommandError.Write(
+                $"Could not read {SectionNames.UnsafeMembers} for {type.FullName}: {failure}");
+            return;
+        }
+
+        view.UnsafeMemberRows = UnsafeMemberProjection.Rows(
+            inspection,
+            includeDeclaringType: false);
+        view.UnsafeMembersIncomplete = UnsafeMemberProjection.IsIncomplete(inspection);
+        UnsafeMemberProjection.Disclose(inspection, verbose);
     }
 
     internal static void PopulateTypeExceptionRegions(
@@ -3115,20 +3187,6 @@ public static class ApiOutputFormatter
                 : null);
     }
 
-    internal static UnsafeMemberRow ToUnsafeMemberRow(Analysis.UnsafeEvidence evidence, bool includeDeclaringType)
-    {
-        string member = includeDeclaringType
-            ? FormatMethod(evidence.Member)
-            : FormatMember(null, evidence.Member.Name, evidence.Member.ParameterTypes, []);
-        return new UnsafeMemberRow(
-            MarkoutInline.Code(member),
-            evidence.Reason,
-            MarkoutInline.Code(evidence.Detail),
-            evidence.Kind,
-            evidence.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
-            evidence.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null);
-    }
-
     static AllocationFactRow ToAllocationFactRow(Analysis.AllocationFact fact, bool includeMember)
         => new(
             includeMember ? MarkoutInline.Code(FormatMethod(fact.Method)) : null,
@@ -3218,7 +3276,7 @@ public static class ApiOutputFormatter
                 ? MarkoutInline.Code($"IL_{returnAddress:X4}")
                 : null);
 
-    static string FormatMember(Analysis.TypeRef? declaringType, string name, IEnumerable<Analysis.TypeRef> parameterTypes, IEnumerable<Analysis.TypeRef> typeArguments)
+    internal static string FormatMember(Analysis.TypeRef? declaringType, string name, IEnumerable<Analysis.TypeRef> parameterTypes, IEnumerable<Analysis.TypeRef> typeArguments)
     {
         var typeArgs = typeArguments.ToList();
         if (typeArgs.Count > 0)

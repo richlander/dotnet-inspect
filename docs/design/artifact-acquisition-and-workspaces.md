@@ -2302,6 +2302,9 @@ universe adds another field and therefore uses the `pkgroot5` prefix.
 Preserving the Root's original requested target separately from frozen compile
 and implementation-selection targets adds another field and therefore uses the
 `pkgroot6` prefix.
+Preserving the runtime-population target-framework input independently from the
+selected RID population adds another field and therefore uses the `pkgroot7`
+prefix.
 
 A destination coordinate grants no source authority. Reacquisition first
 intersects the requested producer with currently authorized sources by asking
@@ -2392,7 +2395,7 @@ folders, and resolved framework/RID correspondence are gated by
 and `PackageRootBinding_SourceRuntimeRequiresFramework`.
 Neutral-library compile fallback and RID-specific implementation
 correspondence are gated by
-`RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` and
+`RidSpecificImplementation_ReplacesWholeNeutralImplementationGroup` and
 `RidSpecificImplementation_UsesSeparateNeutralCompileRole`; Browser adoption
 is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
@@ -2424,15 +2427,32 @@ protocol applies; no new scheduling transition is introduced. Content-only
 Roots prepare no assembly images and expose no Library role groups. Ordinary
 admission still validates and prepares its selected Libraries.
 
-Changing only the admission purpose preserves the Root's already-computed
-unselected target-framework assembly-candidate fact without enumerating the
-same content again. This reuse applies to the unchanged content generation and
-selection; ordinary construction and changed selections still compute their
-own facts. The real `Newtonsoft.Json@13.0.4` and
-`Microsoft.NETCore.App.Ref@10.0.0` Package survey exposed this redundant walk.
-`ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence` gates its absence
-for both complete Library populations and packages containing reference plus
-implementation assemblies, preserving both false and true candidate facts.
+Root construction and content-only admission do not request the Library
+compatibility fact about unselected target-framework assembly candidates.
+That fact is evaluated only when a consumer requests it, against the Root's
+retained content and frozen selection. Unrequested evidence is not replaced
+with a successful false or empty fact. Changing only admission purpose shares
+the pending or computed fact for the unchanged content generation and
+selection; a separately selected Root resolves its own evidence.
+
+The real `Newtonsoft.Json@13.0.4` and
+`Microsoft.NETCore.App.Ref@10.0.0` Package survey exposed this redundant walk:
+content-only Package inspection inherited preparation used by the
+declaration-locator's Library compatibility decision. #10596 adopts the
+[House consumer-result requirement](package-house-semantic-content-demand.md#consumer-result-requirements)
+at this shared handoff, before CLI and Browser requirement lowering in #10594
+and #10598. Readable reference-plus-implementation and Library-only
+fixtures retain both possible compatibility outcomes without requiring
+network access or retained package binaries.
+`ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence` gates sharing
+before and after the fact is requested, preserving both false and true
+outcomes.
+`ContentOnlyPackageAdmission_FromSelectionDefersCompatibilityEnumeration`
+gates zero payload enumeration and DLL opens from retained-selection binding
+through content-only Workspace publication, followed by the unchanged
+compatibility result when requested. Existing Root publication, retirement,
+and Library-realization gates retain their authority; this does not change
+their protocols or introduce an in-place Library upgrade.
 
 The current durable Root token represents Library realization and does not
 encode this additional admission purpose. A content-only binding therefore
@@ -3499,12 +3519,16 @@ candidate disposed before the user acts on the result — the owner also issues 
 single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
-encoding are owner-owned, and only the owner's decode reads it. Current `pkgroot6` tokens carry the original Root-requested target separately
-from the frozen compile and implementation-selection targets, selected-
-implementation presence, compatible authorization, and observed implementation
-use. Previous `pkgroot5` tokens carry selected-implementation presence but not
-the original Root-requested target, so decoding uses their implementation-
-selection target as the legacy requested-target interpretation. `pkgroot4`
+encoding are owner-owned, and only the owner's decode reads it. Current
+`pkgroot7` tokens carry the runtime-population target-framework input separately
+from the original Root-requested target, frozen compile and
+implementation-selection targets, selected-implementation presence, compatible
+authorization, and observed implementation use. Previous `pkgroot6` tokens do
+not carry the runtime-population input, so decoding derives it from the original
+requested target when present and otherwise from the frozen compile target.
+`pkgroot5` tokens carry selected-implementation presence but not the original
+Root-requested target, so decoding uses their implementation-selection target
+as the legacy requested-target interpretation. `pkgroot4`
 tokens carry the two compatible facts but cannot represent an absent
 implementation universe
 independently, so decoding conservatively treats a present selection target as
@@ -3578,10 +3602,10 @@ only a nested compile asset.
 negative replacement outcome as typed `SelectionRequestNotReproduced` rather
 than a durable-request reconstruction exception.
 
-`Token_RoundTripsExactRequest` additionally gates independent `pkgroot6`
-Root-requested target, implementation-presence, compatible-selection
-authorization, and observed-use fields plus `pkgroot1` through `pkgroot5`
-migration.
+`Token_RoundTripsExactRequest` additionally gates independent `pkgroot7`
+runtime-population target, Root-requested target, implementation-presence,
+compatible-selection authorization, and observed-use fields plus `pkgroot1`
+through `pkgroot6` migration.
 `Token_RejectsMalformedOrNonCanonicalInput` rejects an observed compatible-use
 claim without its authorization, invalid implementation-presence values,
 selected implementation presence without a selection target, compatible

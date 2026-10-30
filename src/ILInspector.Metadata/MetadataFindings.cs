@@ -49,13 +49,14 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(surface);
         ArgumentNullException.ThrowIfNull(subject);
 
+        var typeAnchorNames = new ApiMemberIdentity.TypeAnchorNames();
         return new FindingInspection<ApiMemberHandle>.Complete(
         [
             .. EnumerateMembers(surface)
                 .Where(static item => IsDeclaredMember(item.Member))
                 .Select(item =>
             {
-                var handle = ApiMemberIdentity.CreateHandle(item.Type, item.Member);
+                var handle = ApiMemberIdentity.CreateHandle(item.Type, item.Member, typeAnchorNames);
                 return new Finding<ApiMemberHandle>(
                     subject,
                     MemberDescriptor,
@@ -119,6 +120,7 @@ public static partial class MetadataFindings
                 failure);
         }
 
+        var typeAnchorNames = new ApiMemberIdentity.TypeAnchorNames();
         return type is null
             ? new FindingInspection<ApiMemberHandle>.Absent(
                 FindingInspectionAbsenceKind.SubjectAbsent)
@@ -128,7 +130,7 @@ public static partial class MetadataFindings
                     .Where(static item => IsDeclaredMember(item.Member))
                     .Select(item =>
                 {
-                    var handle = ApiMemberIdentity.CreateHandle(item.Type, item.Member);
+                    var handle = ApiMemberIdentity.CreateHandle(item.Type, item.Member, typeAnchorNames);
                     return new Finding<ApiMemberHandle>(
                         subject,
                         MemberDescriptor,

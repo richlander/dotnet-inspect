@@ -121,10 +121,12 @@ public partial class PackageCommand
         }
 #if DEBUG
         if (options.WorkspacePacket is null
-            && options.EvidenceEnvelopePath is not null)
+            && options.EvidenceEnvelopePath is not null
+            && (!options.ShowContent || packageArgs.Length != 1))
         {
             CommandError.Write(
-                "--evidence-envelope on package requires --workspace.");
+                "--evidence-envelope on package requires --workspace "
+                + "or one pinned literal file with --content.");
             return 1;
         }
 #endif
@@ -599,7 +601,7 @@ public partial class PackageCommand
                     packageArgs[0],
                     explicitVersion);
             int? houseResult =
-                await TryWriteLiteralHouseDocumentContentAsync(
+                await TryWriteLiteralHouseFileContentAsync(
                         [houseTarget],
                         options,
                         context)
@@ -1342,15 +1344,19 @@ public partial class PackageCommand
                     producerOptions,
                     pipeline);
 
-            // Typed JSON needs full inspection; local packages and Markdown titles need nuspec identity.
-            NuspecData? nuspec = lightweightTargetFrameworks
-                && !target.IsLocalFile
-                && (options.Count || options.Format != OutputFormat.Markdown)
-                ? null
-                : FindPackageNuspecForInspection(
+            bool needsLegacyNuspec =
+                options.ShowContent
+                || options.AllLibraries
+                || lightweightTargetFrameworks
+                    && (target.IsLocalFile
+                        || !options.Count
+                            && options.Format == OutputFormat.Markdown);
+            NuspecData? nuspec = needsLegacyNuspec
+                ? FindPackageNuspecForInspection(
                     extractPath,
                     resolution,
-                    wantsEcosystemDependencies);
+                    wantsEcosystemDependencies)
+                : null;
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
@@ -1471,8 +1477,19 @@ public partial class PackageCommand
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 scanBinarySignals:
                     !IsPackageChildrenProjection(options),
-                sourceOptions: options.SourceOptions);
+                sourceOptions: options.SourceOptions,
+                requestedTargetFramework: options.Tfm);
             observedInspection = result;
+
+            if (!effectiveDiscovery
+                && RequestsSelectedDiscoveredOrAutomaticSection(
+                    producerOptions,
+                    PackageSections.Dependencies,
+                    pipeline)
+                && WritePackageDependencyInspectionFailure(result))
+            {
+                return 1;
+            }
 
             if (admittedPackageInfoMeasurements is not null
                 && RequestsPackageInfoMeasurements(

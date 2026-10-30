@@ -27,23 +27,27 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.PrivateMemberAdded", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.PrivateFieldAdded", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.PrivateCalleeChanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
-    [InlineData("FindingDiffAnyFixture.PublicMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
-    // The setter's MethodDef signature gains modreq(IsExternalInit), so the Body axis
-    // compares a changed method as well.
+    // A method with a body present on one side only is a Body difference,
+    // public or not, as well as an API fact when it is public.
+    [InlineData("FindingDiffAnyFixture.PublicMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    // A method added without a body is an API fact only.
+    [InlineData("FindingDiffAnyFixture.AbstractMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    // The setter gains modreq(IsExternalInit), leaving its body unpaired on
+    // each side; Body is Changed without comparing its IL.
     [InlineData("FindingDiffAnyFixture.SetterBecomesInit", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.MethodConstraint", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ConstraintType", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
-    [InlineData("FindingDiffAnyFixture.ConstantValue", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ConstantValue", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.DefaultParameter", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ParameterName", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.PublicAttribute", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
-    [InlineData("FindingDiffAnyFixture.InterfaceAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.InterfaceAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.BecomesPublic", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.Outer.Inner", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.NullableOuter", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.NullableOuter.Inner", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.Outer", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
-    [InlineData("FindingDiffAnyFixture.Generic`1", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.Generic`1", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.InternalBodyOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.Added", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.Removed", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
@@ -147,24 +151,11 @@ public sealed class FindingDiffAnyTests
                 $"{typeName} changes in the complete API comparison but Finding Diff Any reports {state?.Api}.");
         });
         Assert.All(
-            result.Types.Where(type => type.Api == FindingDiffAnyState.Changed
-                && !KnownApiOverReports.Contains((pairName, type.FullName))),
+            result.Types.Where(type => type.Api == FindingDiffAnyState.Changed),
             type => Assert.True(
                 changed.Contains(type.FullName),
                 $"Finding Diff Any reports {type.FullName} API Changed but the complete API comparison does not."));
     }
-
-    /// <summary>
-    /// Types Finding Diff Any reports API <c>Changed</c> that the complete API axis comparison
-    /// does not, each a known pre-existing divergence filed for follow-up rather than an
-    /// accepted difference.
-    /// </summary>
-    static readonly HashSet<(string Pair, string Type)> KnownApiOverReports =
-    [
-        // A non-enum constant's value: Finding Diff Any compares the Constant row, while the
-        // complete comparison does not compare ApiMember.ConstantValueLiteral.
-        ("finding-diff-any", "FindingDiffAnyFixture.ConstantValue"),
-    ];
 
     [Theory]
     [InlineData("finding-diff-any")]
@@ -254,7 +245,7 @@ public sealed class FindingDiffAnyTests
         return string.Join('.', segments[..declared]);
     }
 
-    static HashSet<string> ChangedTypes(ApiFindingComparison comparison)
+    internal static HashSet<string> ChangedTypes(ApiFindingComparison comparison)
     {
         var changed = new HashSet<string>(StringComparer.Ordinal);
         foreach (TypeDiff type in comparison.ApiDiff.TypeDiffs)
@@ -967,7 +958,52 @@ public sealed class FindingDiffAnyTests
         { "FindingDiffAnyFixture.TypeBecomesObsolete", ChangeKind.TypeObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]" },
         { "FindingDiffAnyFixture.ObsoleteMessageChanged", ChangeKind.MemberObsoleteChanged, ChangeClassification.NonBreaking, "[Obsolete(\"before\")]", "[Obsolete(\"after\")]" },
         { "FindingDiffAnyFixture.MemberBecomesObsoleteError", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\", true)]" },
+        { "FindingDiffAnyFixture.SetterBecomesObsolete", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"msg\")]" },
     };
+
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    public void AccessorObsoleteRow_NamesTheAccessorOnItsMember(ApiSurfaceExtractionScope scope)
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        TypeDiff type = Assert.Single(
+            MetadataFindings.CompareApi(
+                Surface(pair.OldAssemblyPath(), scope),
+                Surface(pair.NewAssemblyPath(), scope),
+                Subject,
+                ApiDiffOptions.Default).ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == "FindingDiffAnyFixture.SetterBecomesObsolete");
+        ApiChange change = Assert.Single(type.Changes);
+
+        Assert.Equal(
+            "Member 'Value' setter was made obsolete, from 'not obsolete' to '[Obsolete(\"msg\")]'",
+            change.Message);
+        Assert.Equal(ApiChangeSubjectKind.Member, change.Subject?.Kind);
+        Assert.Equal("Value", change.Subject?.MemberName);
+    }
+
+    [Fact]
+    public void AccessorObsolete_OutsideExternalReach_IsNotAnApiAxisChange()
+    {
+        // A private setter has no caller in another assembly: the API axis reports nothing,
+        // as Finding Diff Any's census does, and --all reports it NonBreaking.
+        const string typeName = "FindingDiffAnyFixture.PrivateSetterBecomesObsolete";
+        Assert.DoesNotContain(
+            typeName,
+            ChangedTypes(CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis)));
+
+        TypeDiff type = Assert.Single(
+            CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.IncludeAll).ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        ApiChange change = Assert.Single(
+            type.Changes,
+            change => change.Kind == ChangeKind.MemberObsoleteChanged);
+        Assert.Equal(ChangeClassification.NonBreaking, change.Classification);
+        Assert.Equal(
+            "Member 'Value' setter was made obsolete, from 'not obsolete' to '[Obsolete(\"msg\")]'",
+            change.Message);
+    }
 
     [Theory]
     [MemberData(nameof(StatusTransitions))]
@@ -1058,6 +1094,7 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.ObsoleteWarningToError")]
     [InlineData("FindingDiffAnyFixture.ObsoleteMessageChanged")]
     [InlineData("FindingDiffAnyFixture.MemberBecomesObsoleteError")]
+    [InlineData("FindingDiffAnyFixture.SetterBecomesObsolete")]
     public void OrdinaryPresentation_ComparesNoMemberObsoleteStatus(string typeName)
     {
         // The Public scope admits an obsolete Member and compares no status, as before.
@@ -1111,7 +1148,9 @@ public sealed class FindingDiffAnyTests
 
         Assert.True(steps > whole.Types.Length);
         Assert.Equal(whole.Types, comparison.Result!.Types);
-        Assert.Equal(whole.Receipt, comparison.Result.Receipt);
+        Assert.Equal(
+            (whole.Receipt.Types, whole.Receipt.BodiesCompared, whole.Receipt.IlBytesCompared, whole.Receipt.ApiSurfacesBuilt),
+            (comparison.Result.Receipt.Types, comparison.Result.Receipt.BodiesCompared, comparison.Result.Receipt.IlBytesCompared, comparison.Result.Receipt.ApiSurfacesBuilt));
     }
 
     [Fact]

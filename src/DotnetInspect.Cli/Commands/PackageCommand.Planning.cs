@@ -530,6 +530,21 @@ public partial class PackageCommand
             pipeline);
     }
 
+    internal static bool RequestsSelectedDiscoveredOrAutomaticSection(
+        InspectionOptions options,
+        string sectionName,
+        SectionPipeline<InspectionResult> pipeline)
+        => RequestsSelectedOrDiscoveredSection(
+                options,
+                sectionName,
+                pipeline)
+            || options.IncludeSections is null
+            && options.Discover is null
+            && pipeline.GetCandidateSections(
+                    options.Verbosity,
+                    fixedOverview: options.FixedOverview)
+                .Contains(sectionName);
+
     internal static InspectionOptions CreateProducerOptions(
         InspectionOptions options,
         Verbosity userVerbosity,

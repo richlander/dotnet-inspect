@@ -1282,6 +1282,18 @@ explicit Library gesture. First Library navigation may still begin at the
 namesake Library because it is a recommendation for browsing, not evidence
 that sibling Libraries are outside Package scope.
 
+The same package motivates explicit CLI Type narrowing:
+`Microsoft.Azure.SignalR.ServiceRouteBuilder` is defined in the namesake
+Library. `type Microsoft.Azure.SignalR.ServiceRouteBuilder --package
+Microsoft.Azure.SignalR@1.33.1 --namesake-library`
+must accept that existing Library gesture and restrict lookup to that one
+Library, without changing aggregate lookup when the option is absent.
+`TypeCommand_NamesakeLibrary_ResolvesSignalRType` retains the pinned real-asset
+witness; `TypeCommand_NamesakeLibrary_DoesNotSearchSiblingLibraries` checks
+that the Common Library's `AccessTokenAlgorithm` remains available to
+aggregate lookup but not namesake lookup. Existing managed-identity and
+non-unique-namesake command tests also exercise the Type entrance.
+
 Participant rejection, decode failure, or inspection failure remains attached
 to the selected Library or aggregate result. A failed chosen Library stays the
 chosen Library and exposes its non-success; Navigation never substitutes a

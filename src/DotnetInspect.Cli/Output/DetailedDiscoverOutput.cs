@@ -38,7 +38,7 @@ internal static class DetailedDiscoverOutput
     }
 
     public static int Write(
-        DiscoveryDocumentFactory.Projection projection,
+        StructuralDiscoveryProjection projection,
         DiscoveryOutputRequest request)
     {
         List<DetailedDiscoveryRow> rows = ResolveRows(projection);
@@ -106,7 +106,7 @@ internal static class DetailedDiscoverOutput
     }
 
     private static List<DetailedDiscoveryRow> ResolveRows(
-        DiscoveryDocumentFactory.Projection projection)
+        StructuralDiscoveryProjection projection)
     {
         DiscoveryDocument document = projection.Document;
         IReadOnlyDictionary<DiscoveryResourceIdentity, ResourcePath> paths =
@@ -153,7 +153,7 @@ internal static class DetailedDiscoverOutput
             path.Value,
             [
                 .. resource.OutputModes.Select(
-                    OutputCapabilityCatalog.CliOption),
+                    OutputModeOptions.CliOption),
             ],
             resource.Shape?.ToString().ToLowerInvariant(),
             resource.Cardinality?.Kind.ToString().ToLowerInvariant(),

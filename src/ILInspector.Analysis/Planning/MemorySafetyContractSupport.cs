@@ -46,6 +46,9 @@ internal sealed class MemorySafetyContractLookup
         _index = MemorySafetyMetadataIndex.CreateReceipted(reader);
     }
 
+    MemorySafetyContractLookup(MemorySafetyMetadataIndex index) =>
+        _index = index;
+
     public MemorySafetyRulesResult Rules => _index.Rules;
 
     public MemorySafetyMetadataWork ConstructionWork =>
@@ -64,15 +67,38 @@ internal sealed class MemorySafetyContractLookup
         new(
             _index.GetMemberContract(method),
             _index.GetAccessorAssociation(method));
+
+    internal MemorySafetyContractLookup CreateReceiptedQueryView() =>
+        new(_index.CreateReceiptedQueryView());
 }
 
 /// <summary>
 /// Declared execution-scoped support that constructs its lookup at the first
 /// query, so a declaring execution that never queries builds nothing.
 /// </summary>
-internal sealed class MemorySafetyContractSupport(MetadataReader reader)
+internal sealed class MemorySafetyContractSupport
 {
+    readonly MetadataReader _reader;
     MemorySafetyContractLookup? _lookup;
+    UnsafeMemberRoleScanFacts? _roleScan;
+
+    internal MemorySafetyContractSupport(MetadataReader reader) =>
+        _reader = reader;
+
+    MemorySafetyContractSupport(
+        MetadataReader reader,
+        MemorySafetyContractLookup lookup)
+    {
+        _reader = reader;
+        _lookup = lookup;
+    }
+
+    /// <summary>
+    /// The unsafe member role scan's call-operand facts for this execution,
+    /// constructed at first use.
+    /// </summary>
+    public UnsafeMemberRoleScanFacts RoleScanFacts =>
+        _roleScan ??= new UnsafeMemberRoleScanFacts(_reader);
 
     /// <summary>
     /// The lookup, constructed by this call when <paramref name="constructed"/>
@@ -81,6 +107,14 @@ internal sealed class MemorySafetyContractSupport(MetadataReader reader)
     public MemorySafetyContractLookup Acquire(out bool constructed)
     {
         constructed = _lookup is null;
-        return _lookup ??= new MemorySafetyContractLookup(reader);
+        return _lookup ??= new MemorySafetyContractLookup(_reader);
+    }
+
+    internal MemorySafetyContractSupport CreateReceiptedQueryView()
+    {
+        MemorySafetyContractLookup lookup = Acquire(out _);
+        return new(
+            _reader,
+            lookup.CreateReceiptedQueryView());
     }
 }

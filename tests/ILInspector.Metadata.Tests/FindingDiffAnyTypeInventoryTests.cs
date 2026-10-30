@@ -45,7 +45,8 @@ public sealed class FindingDiffAnyTypeInventoryTests
             Assert.Equal((w.Api, w.Body), (l.Api, l.Body));
             Assert.Equal(w.Facts, l.Facts);
             Assert.Equal(w.Bodies, l.Bodies);
-            Assert.Equal(w.Api == FindingDiffAnyState.Changed, w.Facts.Any(fact => fact.Axis == FindingDiffAnyAxis.Api));
+            if (w.Api == FindingDiffAnyState.Changed)
+                Assert.Contains(w.Facts, fact => fact.Axis == FindingDiffAnyAxis.Api);
             if (w.Body == FindingDiffAnyState.Changed)
                 changedTypes++;
             bodyRows += w.Bodies.Length;
@@ -81,13 +82,15 @@ public sealed class FindingDiffAnyTypeInventoryTests
     }
 
     [Fact]
-    public void AddedPublicMethod_IsAnApiFactOnTheAfterSide()
+    public void AddedPublicMethod_IsAnApiFactOnTheAfterSideAndABodyDifference()
     {
         FindingDiffAnyTypeInventory inventory = Inventory(
             [new("N", "C", null, ReturnOne)],
             [new("N", "C", null, ReturnOne, Methods: ["M", "Added"])]);
         Assert.Equal(FindingDiffAnyState.Changed, inventory.Api);
-        Assert.Equal(FindingDiffAnyState.Unchanged, inventory.Body);
+        // A method with a body present on one side only is a Body difference,
+        // public or not, without a Body fact or a body read.
+        Assert.Equal(FindingDiffAnyState.Changed, inventory.Body);
         Assert.NotEmpty(inventory.Facts);
         Assert.All(inventory.Facts, fact =>
         {
@@ -98,6 +101,23 @@ public sealed class FindingDiffAnyTypeInventoryTests
         Assert.Equal(FindingDiffAnyState.Unchanged, Assert.Single(inventory.Bodies).Body);
         Assert.True(inventory.ApiFactsAfter > inventory.ApiFactsBefore);
         Assert.Equal(inventory.BodyFactsBefore, inventory.BodyFactsAfter);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OneSidedBody_IsDecidedBeforeAnUndecodableBody(bool removed)
+    {
+        // M's body is an undefined opcode, which leaves a paired body
+        // Indeterminate; a method with a body on one side only is decided
+        // without reading IL, so the Library level and the inventory both
+        // read Changed rather than stopping at M.
+        byte[] undefined = [0x24, 0x2A];
+        TypeSpec two = new("N", "C", null, undefined, Methods: ["M", removed ? "Removed" : "Added"]);
+        TypeSpec one = new("N", "C", null, undefined);
+        FindingDiffAnyTypeInventory inventory = removed ? Inventory([two], [one]) : Inventory([one], [two]);
+        Assert.Equal(FindingDiffAnyState.Changed, inventory.Body);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Assert.Single(inventory.Bodies).Body);
     }
 
     [Fact]

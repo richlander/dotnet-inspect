@@ -131,6 +131,48 @@ public sealed class ExactMethodAnalysisProducer :
             method,
             facts,
             out receiverSources);
+
+    internal static ImmutableArray<DirectCall> CollectDirectCalls(
+        MethodBodyAnalysisContext context,
+        MethodCallSites callSites) =>
+        PhysicalMethodAnalysisProducer.CollectDirectCalls(
+            context,
+            callSites);
+
+    internal static ImmutableArray<DirectCall> CollectDirectCalls(
+        MethodBodyAnalysisContext context,
+        MethodCallOperandSites callSites)
+    {
+        var calls =
+            ImmutableArray.CreateBuilder<DirectCall>(
+                callSites.Sites.Length);
+        foreach (MethodCallOperandSite site in callSites.Sites)
+        {
+            calls.Add(
+                new(
+                    context.Method,
+                    site.Callee,
+                    site.ILOffset,
+                    site.OperandToken,
+                    site.DefinitionToken,
+                    site.Kind,
+                    context.IsInLoopRegion(site.ILOffset))
+                {
+                    Opcode = site.Kind switch
+                    {
+                        CallKind.CallVirtual => "callvirt",
+                        CallKind.NewObject => "newobj",
+                        CallKind.LoadFunction => "ldftn",
+                        CallKind.LoadVirtualFunction =>
+                            "ldvirtftn",
+                        CallKind.CallIndirect => "calli",
+                        _ => "call",
+                    },
+                    ReturnAddress = site.ReturnAddress,
+                });
+        }
+        return calls.MoveToImmutable();
+    }
 }
 
 /// <summary>
@@ -162,6 +204,10 @@ internal sealed class PhysicalMethodAnalysisProducer :
         [
             MethodBodyAnalyzerDeclarations.ResolvedCalls,
         ];
+
+    // Every body's direct calls stay in the result, so one identity per
+    // callee replaces a MemberRef graph per call site.
+    internal override bool SharesCalleeIdentities => true;
 
     internal override ExactMethodAnalysisBody Visit(
         scoped MethodDefinitionView view)
@@ -501,6 +547,29 @@ internal sealed class PhysicalMethodAnalysisProducer :
 
     internal static string MethodLabel(MethodIdentity method) =>
         $"{method.DeclaringType}.{method.Name}";
+
+    internal static ImmutableArray<DirectCall>
+        CollectDirectCalls(
+            MethodBodyAnalysisContext context,
+            MethodCallSites callSites)
+    {
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        try
+        {
+            MethodCallAnalysis.CollectCompleteDirectCalls(
+                context,
+                new OwnerIssuedCallResolver(
+                    callSites,
+                    failOnUnknown: true),
+                calls);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+        }
+        return calls.ToImmutable();
+    }
 
     internal static ImmutableArray<DirectCall>
         CollectDirectCalls(

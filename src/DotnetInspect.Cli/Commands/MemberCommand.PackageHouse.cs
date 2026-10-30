@@ -26,6 +26,8 @@ public static partial class MemberCommand
         new(StringComparer.OrdinalIgnoreCase)
         {
             SectionNames.IL,
+            SectionNames.CustomAttributes,
+            SectionNames.DecompiledSource,
             SectionNames.ExceptionRegions,
         };
 

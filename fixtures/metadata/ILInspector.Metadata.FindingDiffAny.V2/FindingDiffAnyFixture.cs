@@ -89,6 +89,11 @@ public class PublicMemberAdded
     public int Added() => 0;
 }
 
+public abstract class AbstractMemberAdded
+{
+    public abstract int Added();
+}
+
 public class MethodConstraint
 {
     public void Value<T>() where T : struct { }
@@ -398,6 +403,20 @@ public class MemberBecomesObsoleteError
     public int Value() => 1;
 }
 
+// An accessor's own status: the setter alone gains [Obsolete], as
+// AsnEncodedData.RawData's does from .NET 10 to 11 (#10775).
+public class SetterBecomesObsolete
+{
+    public int Value { get; [Obsolete("msg", DiagnosticId = "X0001")] set; }
+}
+
+// A setter no other assembly can reach gains [Obsolete]: outside the API axis
+// (docs/design/api-status-analysis.md), so no row there and NonBreaking under --all.
+public class PrivateSetterBecomesObsolete
+{
+    public int Value { get; [Obsolete("msg")] private set; }
+}
+
 // A body present on one side only: an abstract method made virtual.
 public abstract class AbstractToVirtual
 {
@@ -427,4 +446,60 @@ public class ObsoleteMemberChanged
 {
     [Obsolete("m")]
     public int Value(int after) => after;
+}
+
+public class MemberFoldAddedProperty
+{
+    public int Added { get; private set; }
+}
+
+public enum MemberFoldEnum : long { One = 1 }
+
+public class MemberFoldEvent
+{
+    [field: Description("storage")]
+    public event Action? Changed;
+    public void Raise() => Changed?.Invoke();
+}
+
+internal class MemberFoldHidden
+{
+    public int Value() => 1;
+}
+
+internal class MemberFoldBase : SystemException
+{
+}
+
+public class MemberFoldMarker
+{
+    public void Dispose() { }
+}
+
+public interface IMemberFoldMarker { }
+
+public class MemberFoldStatic
+{
+    static int _value = 2;
+    public static int Value => _value;
+}
+
+public class MemberFoldInternalAttribute
+{
+    [Description("implementation")]
+    internal int Value() => 1;
+}
+
+public interface IMemberFoldA { void M(); }
+public interface IMemberFoldB { void M(); }
+
+public class MemberFoldMethodImpl : IMemberFoldA, IMemberFoldB
+{
+    public void M() { }
+    void IMemberFoldB.M() { }
+}
+
+public class MemberFoldUncertainGetterStatus
+{
+    public int Value { [EditorBrowsable(EditorBrowsableState.Never)] get => 1; }
 }

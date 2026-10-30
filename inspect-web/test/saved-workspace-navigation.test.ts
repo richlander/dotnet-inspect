@@ -23,7 +23,7 @@ import type {
   BrowserWorkspaceShareState,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserPackageDependencies,
+  BrowserPackageDependencyInspection,
   BrowserPackageLoadResult,
   BrowserPackageSurface,
   BrowserPackageVersionSettlementInspection,
@@ -46,7 +46,9 @@ import {
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
 import {
   normalizePackageInspectionRequestSnapshot,
+  projectPackageDependencyInspection,
   workspaceDependencyKey,
+  type PackageDependencyGroupProjection,
   type PackageDependenciesState,
   type PackageIntegrationsState,
   type PackageMetadataState,
@@ -95,6 +97,7 @@ import {
   normalizeSourceResultSnapshot,
   type SourceResultState,
 } from "../src/source-inspection.ts";
+import { packageInertStringFixture } from "./inert-string-fixture.ts";
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
@@ -242,25 +245,78 @@ const sourcePackage: Package = {
 };
 
 function packageDependenciesResult(
-  dependencyGroups: BrowserPackageDependencies["dependencyGroups"],
-): BrowserPackageDependencies {
+  dependencyGroups: readonly PackageDependencyGroupProjection[],
+): BrowserPackageDependencyInspection {
+  const groups = dependencyGroups.map(group => ({
+    targetFramework: group.framework === "any" ? "" : group.framework,
+    isImplicitManifestGroup: false,
+    dependencies: group.dependencies.map(dependency => ({
+      id: dependency.id,
+      versionRange: dependency.versionRange,
+    })),
+  }));
+  const selectedGroupIndex = dependencyGroups.findIndex(group => group.isActive);
+  const selectedGroup = selectedGroupIndex >= 0
+    ? groups[selectedGroupIndex] ?? null
+    : null;
   return {
-    package: "Source",
-    version: "1.2.3",
-    activeFramework: "net10.0",
-    assembly: "Source.dll",
-    dependencyGroups,
+    inspection: {
+      content: {
+        kind: "available",
+        manifest: {
+          coordinate: { packageId: "Source", version: "1.2.3" },
+          manifestVersion: "1.0",
+          description: null,
+          authors: null,
+          repository: null,
+          repositoryType: null,
+          repositoryCommit: null,
+          license: null,
+          licenseUrl: null,
+          packageTypes: [],
+          isToolPackage: false,
+          readmeFile: null,
+          dependencyGroups: groups,
+          declaredPackageId: "Source",
+          declaredPackageVersion: "1.2.3",
+          dependencyDeclarations: {
+            outcome: "available",
+            value: { groups },
+          },
+          dependencyIdentifierObservations: [],
+          licenseDeclaration: null,
+          iconFile: null,
+          iconUrl: null,
+          identityProvenance: 0,
+          frameworkReferences: {
+            outcome: "available",
+            value: { groups: [] },
+          },
+        },
+        dependencies: {
+          groups,
+          requestedTargetFramework: "net10.0",
+          selectedTargetFramework: selectedGroup?.targetFramework ?? null,
+          selectedGroupIndex: selectedGroupIndex >= 0
+            ? selectedGroupIndex
+            : null,
+          selectionStatus: selectedGroup === null ? 2 : 0,
+          selectedGroup,
+        },
+      },
+      share: {
+        kind: "nonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-dependencies/share",
+        reason: packageInertStringFixture(
+          "Package dependency inspection is not projectable."),
+      },
+      diagnostics: [],
+    },
     platformReferences: [],
     defaultPlatformReference: null,
-    declarationFailures: [],
-    assemblyReferences: { references: [] },
-    dependencyGroupError: null,
     platformReferenceError: null,
-    compileLibrary: {
-      status: "Selected",
-      targetFramework: "net10.0",
-      message: null,
-    },
   };
 }
 
@@ -643,6 +699,8 @@ function harness() {
   };
   const context = {
     state,
+    packageDependencyProjections: new WeakMap(),
+    projectPackageDependencyInspection,
     location,
     history,
     document,
@@ -998,10 +1056,11 @@ function harness() {
 }
 
 setTypeViewFacetCatalog([
-  { id: "type.api", kind: "Type", title: "API", order: 100 },
-  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
-  { id: "type.source", kind: "Type", title: "Source", order: 300 },
-  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+  { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
+  { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
+  { id: "type.source", kind: "Type", title: "Source", order: 400 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
 ]);
 
 test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {

@@ -81,6 +81,10 @@ public class PublicMemberAdded
     public int Value(int x) => x + 1;
 }
 
+public abstract class AbstractMemberAdded
+{
+}
+
 public class MethodConstraint
 {
     public void Value<T>() where T : class { }
@@ -387,6 +391,18 @@ public class MemberBecomesObsoleteError
     public int Value() => 1;
 }
 
+public class SetterBecomesObsolete
+{
+    public int Value { get; set; }
+}
+
+// A setter no other assembly can reach gains [Obsolete]: outside the API axis
+// (docs/design/api-status-analysis.md), so no row there and NonBreaking under --all.
+public class PrivateSetterBecomesObsolete
+{
+    public int Value { get; private set; }
+}
+
 // A body present on one side only: an abstract method made virtual.
 public abstract class AbstractToVirtual
 {
@@ -416,4 +432,59 @@ public class ObsoleteMemberChanged
 {
     [Obsolete("m")]
     public int Value(int before) => before;
+}
+
+// Type-level ownership seams: the Member fold must retain census axes while
+// raising the physical rows that the C# Member population folds.
+public class MemberFoldAddedProperty
+{
+}
+
+public enum MemberFoldEnum : int { One = 1 }
+
+public class MemberFoldEvent
+{
+    public event Action? Changed;
+    public void Raise() => Changed?.Invoke();
+}
+
+public class MemberFoldHidden
+{
+    public int Value() => 1;
+}
+
+internal class MemberFoldBase : Exception
+{
+}
+
+public class MemberFoldMarker : IMemberFoldMarker
+{
+    public void Dispose() { }
+}
+
+public interface IMemberFoldMarker { }
+
+public class MemberFoldStatic
+{
+    static int _value = 1;
+    public static int Value => _value;
+}
+
+public class MemberFoldInternalAttribute
+{
+    internal int Value() => 1;
+}
+
+public interface IMemberFoldA { void M(); }
+public interface IMemberFoldB { void M(); }
+
+public class MemberFoldMethodImpl : IMemberFoldA, IMemberFoldB
+{
+    public void M() { }
+    void IMemberFoldA.M() { }
+}
+
+public class MemberFoldUncertainGetterStatus
+{
+    public int Value { get => 1; }
 }

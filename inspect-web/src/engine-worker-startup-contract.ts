@@ -514,6 +514,14 @@ export const engineStartupOperations = {
     kind: "catalog-list-library-view-facets",
     value: json<BrowserViewFacetCatalog>(viewFacetCatalog),
   },
+  listMemberViewFacets: {
+    kind: "catalog-list-member-view-facets",
+    value: json<BrowserViewFacetCatalog>(viewFacetCatalog),
+  },
+  listPackageViewFacets: {
+    kind: "catalog-list-package-view-facets",
+    value: json<BrowserViewFacetCatalog>(viewFacetCatalog),
+  },
   listTypeViewFacets: {
     kind: "catalog-list-type-view-facets",
     value: json<BrowserViewFacetCatalog>(viewFacetCatalog),

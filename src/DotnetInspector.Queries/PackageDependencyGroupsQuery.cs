@@ -62,6 +62,30 @@ public static class PackageDependencyGroupsQuery
     public static InspectionQuery<PackageDependencyGroupsResult> Definition { get; } =
         new("Package dependency groups", InspectionCost.NetworkFree);
 
+    public static Task<PackageDependencyGroupsResult> ExecuteAsync(
+        PackageInspectionInput input,
+        string? requestedTargetFramework = null,
+        CancellationToken cancellationToken = default,
+        bool allowCompatibleFallbackForRequestedTfm = false)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (input.PackageId is null || input.PackageVersion is null)
+        {
+            return Task.FromResult<PackageDependencyGroupsResult>(
+                new PackageDependencyGroupsResult.Failed(
+                    new InvalidOperationException(
+                        "Package dependency inspection requires an exact package identity.")));
+        }
+
+        return ExecuteAsync(
+            input.Content,
+            input.PackageId,
+            input.PackageVersion,
+            requestedTargetFramework,
+            cancellationToken,
+            allowCompatibleFallbackForRequestedTfm);
+    }
+
     public static async Task<PackageDependencyGroupsResult> ExecuteAsync(
         IPackageContent content,
         string packageId,
@@ -146,11 +170,31 @@ public static class PackageDependencyGroupsQuery
                 failed.Failure);
         }
 
+        PackageManifestFacts manifest =
+            ((PackageManifestFactsResult.Available)facts).Value;
+        return Execute(
+            manifest,
+            requestedTargetFramework,
+            allowCompatibleFallbackForRequestedTfm);
+    }
+
+    public static PackageDependencyGroupsResult Execute(
+        PackageManifestFacts manifest,
+        string? requestedTargetFramework = null,
+        bool allowCompatibleFallbackForRequestedTfm = false)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (manifest.DependencyDeclarations is
+            PackageManifestDependencyFactsResult.Failed failed)
+        {
+            return new PackageDependencyGroupsResult.Failed(
+                new InvalidDataException(failed.Failure.Message),
+                failed.Failure);
+        }
+
         string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
             ? null
             : requestedTargetFramework;
-        PackageManifestFacts manifest =
-            ((PackageManifestFactsResult.Available)facts).Value;
         return new PackageDependencyGroupsResult.Available(
             manifest,
             ProjectDependencyGroups(
@@ -164,43 +208,18 @@ public static class PackageDependencyGroupsQuery
         string? requestedTargetFramework,
         bool allowCompatibleFallbackForRequestedTfm = false)
     {
-        List<DependencyGroup> mutableGroups =
-        [
-            .. facts.DependencyGroups.Select(group =>
-                new DependencyGroup
-                {
-                    TargetFramework = group.TargetFramework,
-                    IsImplicitManifestGroup =
-                        group.IsImplicitManifestGroup,
-                    Dependencies =
-                    [
-                        .. group.Dependencies.Select(dependency =>
-                            new PackageDependency
-                            {
-                                Id = dependency.Id,
-                                Version = dependency.VersionRange,
-                            }),
-                    ],
-                }),
-        ];
-        DependencyResolutionService.DependencyGroupSelection selection =
+        DependencyResolutionService.DeclaredDependencyGroupSelection
+            selection =
             DependencyResolutionService.SelectDependencyGroup(
-                mutableGroups,
+                facts.DependencyGroups,
                 requestedTargetFramework,
                 allowCompatibleFallbackForRequestedTfm);
-        int? selectedGroupIndex =
-            FindSelectedGroupIndex(mutableGroups, selection.Group);
-        if (selection.Group is not null && selectedGroupIndex is not >= 0)
-        {
-            throw new InvalidOperationException(
-                "The selected dependency group does not belong to the manifest.");
-        }
 
         return new PackageDependencyGroups(
             facts.DependencyGroups,
             requestedTargetFramework,
             selection.Group?.TargetFramework,
-            selectedGroupIndex,
+            selection.GroupIndex,
             selection.Status switch
             {
                 DependencyResolutionService.DependencyGroupSelectionStatus.Selected =>
@@ -215,36 +234,7 @@ public static class PackageDependencyGroupsQuery
                     "Unknown dependency-group selection status."),
             })
         {
-            SelectedGroup = ProjectSelectedGroup(selection.Group),
+            SelectedGroup = selection.Group,
         };
-    }
-
-    private static DeclaredPackageDependencyGroup? ProjectSelectedGroup(
-        DependencyGroup? group) =>
-        group is null
-            ? null
-            : new DeclaredPackageDependencyGroup(
-                group.TargetFramework,
-                [
-                    .. group.Dependencies.Select(dependency =>
-                        new DeclaredPackageDependency(
-                            dependency.Id,
-                            dependency.Version)),
-                ],
-                group.IsImplicitManifestGroup);
-
-    private static int? FindSelectedGroupIndex(
-        List<DependencyGroup> declaredGroups,
-        DependencyGroup? selectedGroup)
-    {
-        if (selectedGroup is null)
-            return null;
-
-        int index = declaredGroups.IndexOf(selectedGroup);
-        if (index >= 0 || !selectedGroup.IsImplicitManifestGroup)
-            return index;
-
-        return declaredGroups.FindIndex(group =>
-            group.IsImplicitManifestGroup);
     }
 }
