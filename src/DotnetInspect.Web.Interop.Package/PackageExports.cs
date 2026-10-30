@@ -768,19 +768,16 @@ public static partial class PackageExports
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [coordinate],
                 CancellationToken.None);
-        // Rejection-carrier descriptors have no decoded AssemblyDef version.
         return
         [
-            .. scopeLease.Scope.SurfaceParticipants
-                .Where(participant =>
-                    participant.Assembly.Identity.Version is not null)
-                .Select(participant =>
+            .. scopeLease.Scope.ProjectSurfaceLibraryIdentities()
+                .Select(identity =>
                     new BrowserPackageLibraryIdentity(
-                        participant.Asset.Id,
-                        participant.Assembly.Identity.Name,
-                        participant.Assembly.Identity.Version?.ToString() ?? "",
-                        participant.Assembly.Identity.Culture,
-                        participant.Assembly.Identity.PublicKeyToken)),
+                        identity.Id,
+                        identity.Name,
+                        identity.Version,
+                        identity.Culture,
+                        identity.PublicKeyToken)),
         ];
     }
 
