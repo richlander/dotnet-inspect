@@ -720,12 +720,9 @@ unsupported saved binding before claiming #4647 complete.
 
 ### Bare-target domain selection
 
-**Status: operator-approved design pivot, 2026-10-29; not yet implemented.**
-This section owns ordinary bare-target Router domain selection. The examples
-below specify the target contract, not syntax already available in every
-current command. Existing implementation and tests still contain cross-domain
-fallback and API discovery before domain selection; those are not compatibility
-requirements for this pivot.
+This section owns ordinary bare-target Router domain selection. Existing
+cross-domain fallback and API discovery before selection are not compatibility
+requirements.
 
 > Select one domain from explicit intent or Ecosystem configuration before
 > acquisition, then resolve only within that domain. Performance and
@@ -797,13 +794,30 @@ Router does not federate their searches or select whichever provider responds
 first. A hint may suggest an explicit override or a discovery command, but
 must not acquire additional sources or run that discovery to prepare the hint.
 
+The Router carries its completed analysis into the Type or Member execution
+entrance. Both paths use shared bounded FQN decomposition and selector grammar;
+known subject or source intent does not require another global catalog lookup.
+Once a selected-domain resolution has established a Type/member boundary,
+structured Type, member selector (including arity, overload, and digest),
+source, or exact identity, the immutable typed result crosses into the
+downstream command. The command may perform the remaining subject inspection
+and option validation, but must not re-infer completed facts from the original
+display spelling or probe another source. CLI option parsing remains the
+authority for option values and errors. A detached Platform locator result
+never carries a live Workspace authority into command execution.
+
 #### Adoption and required evidence
 
 The motivating published assets are `System.Text.Json@10.0.0`,
 `Newtonsoft.Json@13.0.4` and `System.CommandLine@2.0.3`. Their overlapping
 Platform and Package spellings motivate an explicit policy rather than
-existence-sensitive routing. This documentation change approves no runtime
-implementation, performance result, or test-baseline update.
+existence-sensitive routing. `System.Text.Json.JsonSerializer.DeserializeAsync`
+also exercises the completed Type/member handoff: a selected Platform Type
+prefix must not be rescanned by Member. Durable CLI integration tests use
+the selected installed Platform references and these pinned Package identities;
+focused syntactic controls cover generic, nested, and special selectors. An
+absent local asset may be obtained through the normal product acquisition path,
+not substituted with a synthetic claim about published overlap.
 
 Implementation must gate classification separately from subject resolution:
 

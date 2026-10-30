@@ -85,18 +85,23 @@ public sealed class SourceScopedRoutingTests : IDisposable
             sourceArgs = ["--source", ExcludedSource];
         }
 
-        var observations = await RunAppAsync([packageName, .. sourceArgs]);
+        using var decisions = RouterDecisionLog.Begin();
+        var (exit, output, error) = await RunCommandAsync(
+            [packageName, "--package", .. sourceArgs]);
 
         var rewrite = Assert.Single(
-            observations,
+            decisions.Decisions,
             observation => observation.Stage == "router-rewrite");
         string rewritten = rewrite.Detail[(rewrite.Detail.IndexOf(" -> ", StringComparison.Ordinal) + 4)..];
-        Assert.StartsWith($"type {packageName}", rewritten);
+        Assert.StartsWith($"package {packageName}", rewritten);
         Assert.Contains(string.Join(' ', sourceArgs), rewrite.Detail);
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.NotEmpty(error);
     }
 
     [Fact]
-    public async Task Router_QueriesCallerSourceForPackageExistence()
+    public async Task Router_PlatformClaimDoesNotQueryCallerSourceForPackageExistence()
     {
         string packageName = $"System.QueryScope{Guid.NewGuid():N}";
         var requests = new ConcurrentQueue<string>();
@@ -107,26 +112,16 @@ public sealed class SourceScopedRoutingTests : IDisposable
         DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         try
         {
-            var observations = await RunAppAsync(
+            using var decisions = RouterDecisionLog.Begin();
+            var (exit, output, error) = await RunCommandAsync(
                 [packageName, "--source", ExcludedSource]);
-
-            var rewrite = Assert.Single(
-                observations,
-                observation => observation.Stage == "router-rewrite");
-            string rewritten = rewrite.Detail[
-                (rewrite.Detail.IndexOf(" -> ", StringComparison.Ordinal) + 4)..];
-            Assert.StartsWith($"package {packageName}", rewritten);
-            Assert.Contains(
-                requests,
-                url => url.Equals(
-                    $"{RouterFeedHandler.FlatContainer}{packageName.ToLowerInvariant()}/index.json",
-                    StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("selected Platform domain", error);
+            Assert.Empty(requests);
             Assert.DoesNotContain(
-                requests,
-                url => url.Contains(packageName, StringComparison.OrdinalIgnoreCase)
-                    && !url.StartsWith(
-                        RouterFeedHandler.FlatContainer,
-                        StringComparison.OrdinalIgnoreCase));
+                decisions.Decisions,
+                observation => observation.Stage == "router-rewrite");
         }
         finally
         {
@@ -2881,7 +2876,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task Router_PlatformPrefixProbeUsesSourceScopedCandidateMetadataOffline()
+    public async Task Router_PlatformClaimIgnoresSourceScopedPackageCandidateOffline()
     {
         const string PackageName = "System.Text";
         SeedLatestCandidate(
@@ -2889,16 +2884,16 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ExcludedSource,
             "4.5.6");
 
-        var observations = await RunAppAsync(
+        using var decisions = RouterDecisionLog.Begin();
+        var (exit, output, error) = await RunCommandAsync(
             [PackageName, "--source", ExcludedSource]);
 
-        var rewrite = Assert.Single(
-            observations,
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected Platform domain", error);
+        Assert.DoesNotContain(
+            decisions.Decisions,
             observation => observation.Stage == "router-rewrite");
-        Assert.Contains(
-            $" -> package {PackageName}",
-            rewrite.Detail,
-            StringComparison.Ordinal);
     }
 
     [Fact]

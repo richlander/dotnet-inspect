@@ -1,5 +1,6 @@
 using System.Text;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.CommandLine;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Inspectors;
@@ -80,6 +81,24 @@ internal readonly record struct ImpliedMemberTypeCandidate(
 internal static class ApiTypeLookupService
 {
     private const int MaxTypeMemberBoundaryProbes = 64;
+
+    internal static ApiTypeLookupResult LookupResolvedType(
+        ApiSurface api, RouterResolvedTarget target)
+    {
+        MetadataTypeLookupResult<ApiType> lookup = MetadataTypeLookup.Definition(
+            api.Types.Where(candidate => candidate.DefinitionName is not null),
+            static candidate => candidate.DefinitionName!,
+            target.Type);
+        ApiType? type = lookup.Matches.Length == 1 ? lookup.Matches[0] : null;
+        return new ApiTypeLookupResult(
+            target.TypeName,
+            new LookupResult(
+                type?.FullName,
+                lookup.Matches.Length > 1
+                    ? [.. lookup.Matches.Select(candidate => candidate.FullName)]
+                    : []),
+            type);
+    }
 
     public static ApiTypeLookupResult LookupType(ApiSurface api, string typeName)
     {

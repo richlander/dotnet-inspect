@@ -118,6 +118,8 @@ public static partial class MemberCommand
         }
 
         bool mayResolveImpliedMember =
+            options.ResolvedRouterTarget is null
+            &&
             options.MemberFilter.Count == 0
             && options.TypeName is { } unresolvedTarget
             && HasPotentialImpliedMember(unresolvedTarget);
@@ -178,6 +180,8 @@ public static partial class MemberCommand
         var unresolvedOptions = options;
         bool memberGestureChanged = false;
         bool catalogNeedsTargetResolution =
+            options.ResolvedRouterTarget is null
+            &&
             !options.RouterDeferredTypeOrMember
             && options.IncludeSections is null
             && options.MemberFilter.Count == 0
@@ -293,7 +297,10 @@ public static partial class MemberCommand
             var apiDllPath = loaded.ApiDllPath;
             var pdbLookupPath = loaded.PdbLookupPath;
             var lookupResult = preselectedType is null
-                ? ApiTypeLookupService.LookupType(api, typeName!)
+                ? options.ResolvedRouterTarget is { } resolvedTarget
+                    ? ApiTypeLookupService.LookupResolvedType(
+                        api, resolvedTarget)
+                    : ApiTypeLookupService.LookupType(api, typeName!)
                 : new ApiTypeLookupResult(typeName!, new LookupResult(preselectedType.FullName, []),
                     preselectedType);
             if (!lookupResult.Found)
@@ -2418,6 +2425,7 @@ public static partial class MemberCommand
         SectionNames.ExceptionRegions,
         SectionNames.SourceLocations,
         SectionNames.FidelityCauses,
+        SectionNames.Overloads,
     ];
 
     // Returns a selector that limits API extraction to the requested Type, or
@@ -2435,8 +2443,10 @@ public static partial class MemberCommand
             || options.EffectiveDiscovery
             || options.HasCallerScope
             || options.MemberFilter.Count != 1
-            || options.IncludeSections is not { Count: > 0 } sections
-            || !sections.All(SingleTypeSurfaceSections.Contains))
+            || !(options.IncludeSections is { Count: > 0 } sections
+                ? sections.All(SingleTypeSurfaceSections.Contains)
+                : options.JsonOutput && !options.Count
+                    && options.IncludeSections is null))
         {
             return null;
         }
@@ -2453,7 +2463,15 @@ public static partial class MemberCommand
             {
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Open(assemblyPath);
-                if (session.MethodBodies.FindUniqueLookupTypeToken(typeName) is not { } token
+                int? selectedToken =
+                    options.ResolvedRouterTarget is { } resolved
+                        ? session.ProbeDeclaration(resolved.Type)
+                            is TypeDeclarationResult.Defined definition
+                                ? definition.Definition.Value
+                                : null
+                        : session.MethodBodies.FindUniqueLookupTypeToken(
+                            typeName);
+                if (selectedToken is not { } token
                     || session.MethodBodies.DeclaresExtensionMethod(memberName))
                 {
                     return null;

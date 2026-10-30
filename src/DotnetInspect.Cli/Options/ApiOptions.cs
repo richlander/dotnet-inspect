@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
@@ -18,6 +19,7 @@ namespace DotnetInspect.Cli.Options;
 /// </summary>
 public partial record ApiOptions : IProjectionOptions
 {
+    internal RouterResolvedTarget? ResolvedRouterTarget { get; init; }
     /// <summary>
     /// Type name to inspect (positional argument). Null for full API listing.
     /// </summary>

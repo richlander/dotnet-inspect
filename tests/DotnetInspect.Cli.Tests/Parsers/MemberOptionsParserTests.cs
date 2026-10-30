@@ -4,6 +4,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -18,6 +19,37 @@ public class MemberOptionsParserTests
 {
     public MemberOptionsParserTests()
         => NuGetCache.Initialize("dotnet-inspect");
+
+    [Fact]
+    public async Task CompletedPlatformAnalysisIsConsumedWithoutReinferringFqn()
+    {
+        var (locator, route) =
+            await RouterTargetAnalysis.ResolvePlatformAsync(
+                "System.Text.Json.JsonSerializer.DeserializeAsync:1",
+                new NuGetSourceOptions(),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<CliPlatformTypeLocatorOutcome.Completed>(locator);
+        var resolved =
+            Assert.IsType<PlatformTypeCatalogRouteOutcome.Resolved>(
+                route!.Content);
+        RouterResolvedTarget analysis = RouterResolvedTarget.From(resolved);
+        var (root, opts, args) = CreateTestCommand();
+        var parsed = root.Parse([
+            "member", "This.Is.Not.The.Analyzed.Type",
+            "--platform", "System.Text.Json",
+        ]);
+        RouterTargetAnalysis.Bind(parsed, analysis);
+
+        var success = Assert.IsType<MemberOptionsParser.Success>(
+            await MemberOptionsParser.ParseWithCancellationAsync(
+                parsed, opts, args,
+                TestContext.Current.CancellationToken));
+        Assert.Same(analysis, success.Options.ResolvedRouterTarget);
+        Assert.Equal(analysis.TypeName, success.Options.TypeName);
+        Assert.Equal("System.Text.Json", success.Options.PlatformAssembly);
+        Assert.Contains("DeserializeAsync", success.Options.MemberFilter);
+        Assert.Equal(1, success.Options.OverloadIndex);
+    }
 
     /// <summary>
     /// Creates the member command with shared options and args for testing.

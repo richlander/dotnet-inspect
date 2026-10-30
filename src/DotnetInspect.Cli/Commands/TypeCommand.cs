@@ -348,6 +348,7 @@ public static partial class TypeCommand
             {
                 if (exactTypeOverview?.Format
                         is not TypeOverviewHierarchyPresentationFormat.Mermaid
+                    && options.ResolvedRouterTarget is null
                     && await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
                     return prefixBrowseExitCode;
                 if (exactTypeOverview?.Format
@@ -754,39 +755,45 @@ public static partial class TypeCommand
                         usePackageSourcePolicy: source.PackageExtractPath is not null);
                     IAssemblyBindingPolicy policy = resolution.BindingContext(
                         AssemblyBindingOccurrence.Seed(assembly)).Policy;
-                    return await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
-                        assembly,
-                        policy,
-                        source.TypeName!,
-                        options.IncludeAll
-                            ? ApiSurfaceScope.IncludeAll
-                            : ApiSurfaceScope.Public,
-                        async (envelope, target, catalog, _) =>
+                    async ValueTask<int> Render(
+                        InspectionEnvelope<ExactTypeInspectionResult> envelope,
+                        SelectedContextExactTypeLiveTarget? target,
+                        ApiSurface? catalog,
+                        CancellationToken _)
+                    {
+                        if (catalog is not null)
                         {
-                            if (catalog is not null)
-                            {
-                                var loaded = new ApiServices.LoadedApiSurface(
-                                    catalog, path, path,
-                                    new Dictionary<ApiType, ResolvedAssemblyReference>());
-                                return await ExecuteCoreAsync(
-                                    options, plan, source, loaded,
-                                    resolvedLookup: new(
-                                        source.TypeName!,
-                                        new(null, envelope.Content.Suggestions),
-                                        null),
-                                    cancellationToken: cancellationToken).ConfigureAwait(false);
-                            }
-                            if (!envelope.Content.IsAvailable || target is null)
-                            {
-                                WriteExactTypeNonSuccess(envelope);
-                                return 1;
-                            }
-                            return await ExecuteWorkspaceExactTypeResultAsync(
-                                options, plan, envelope.Content, envelope.Diagnostics,
-                                ExactTypeRenderSource.From(source), target,
-                                source.PackageExtractPath).ConfigureAwait(false);
-                        },
-                        cancellationToken).ConfigureAwait(false);
+                            var loaded = new ApiServices.LoadedApiSurface(
+                                catalog, path, path,
+                                new Dictionary<ApiType, ResolvedAssemblyReference>());
+                            return await ExecuteCoreAsync(
+                                options, plan, source, loaded,
+                                resolvedLookup: new(
+                                    source.TypeName!,
+                                    new(null, envelope.Content.Suggestions),
+                                    null),
+                                cancellationToken: cancellationToken).ConfigureAwait(false);
+                        }
+                        if (!envelope.Content.IsAvailable || target is null)
+                        {
+                            WriteExactTypeNonSuccess(envelope);
+                            return 1;
+                        }
+                        return await ExecuteWorkspaceExactTypeResultAsync(
+                            options, plan, envelope.Content, envelope.Diagnostics,
+                            ExactTypeRenderSource.From(source), target,
+                            source.PackageExtractPath).ConfigureAwait(false);
+                    }
+                    ApiSurfaceScope scope = options.IncludeAll
+                        ? ApiSurfaceScope.IncludeAll
+                        : ApiSurfaceScope.Public;
+                    return options.ResolvedRouterTarget is { } analyzed
+                        ? await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                            assembly, policy, analyzed.Type, scope, Render,
+                            cancellationToken).ConfigureAwait(false)
+                        : await ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
+                            assembly, policy, source.TypeName!, scope, Render,
+                            cancellationToken).ConfigureAwait(false);
                 }
 
                 var api = loaded.Api;
@@ -794,7 +801,10 @@ public static partial class TypeCommand
 
                 ApiTypeLookupResult lookupResult =
                     resolvedLookup ?? (preselectedType is null
-                        ? ApiTypeLookupService.LookupType(api, typeName)
+                        ? options.ResolvedRouterTarget is { } resolvedTarget
+                            ? ApiTypeLookupService.LookupResolvedType(
+                                api, resolvedTarget)
+                            : ApiTypeLookupService.LookupType(api, typeName)
                         : new(
                             typeName,
                             new LookupResult(
